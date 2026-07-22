@@ -15,6 +15,13 @@ in vec2 vUV;
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
 
+// Alpha below which a fragment is thrown away. Set PER BATCH, because it must
+// be zero for any texture that has no alpha channel: a BLP without alpha can
+// decode with every alpha byte at zero, and a fixed cut then discards a wall
+// that loaded perfectly well. Railings and window tracery still need a real
+// cut, so this cannot simply be removed.
+uniform float uAlphaCutoff;
+
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;   // points TOWARD the sun, normalised
 uniform float uFogStart;
@@ -32,7 +39,7 @@ void main()
     // Cut fully transparent texels rather than blending them. Vanilla WMO
     // materials lean on alpha for railings, lattices and window frames, and
     // discarding avoids needing a sorted transparent pass to look right.
-    if (albedo.a < 0.35) discard;
+    if (uAlphaCutoff > 0.0 && albedo.a < uAlphaCutoff) discard;
 
     vec3 normal = normalize(vNormal);
 

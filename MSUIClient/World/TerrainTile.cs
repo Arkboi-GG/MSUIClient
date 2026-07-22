@@ -83,11 +83,13 @@ public sealed class TerrainTile : IDisposable
     /// Read an ADT out of the MPQs and upload it. Returns null when the tile
     /// doesn't exist (ocean, off-continent) or carries no height data.
     /// </summary>
-    public static unsafe TerrainTile? Load(GL gl, string clientDataPath, string mapName, int col, int row)
+    public static unsafe TerrainTile? Load(
+        GL gl, AdtTerrainReader.AdtResult? adt, string clientDataPath, int col, int row)
     {
-        // ReadFromMpq takes (gridX = row, gridY = col) — inverted from the
-        // filename order. Verified: Northshire is [col 32, row 48].
-        var adt = AdtTerrainReader.ReadFromMpq(clientDataPath, mapName, row, col);
+        // The ADT arrives already parsed. It used to be read here, and again by
+        // the height grid, and again by the building and doodad loaders — four
+        // parses of one file per tile. AdtCache does it once now; the tile
+        // index inversion (ReadFromMpq takes row, col) lives there too.
         if (adt?.Chunks == null || adt.Chunks.Length == 0) return null;
 
         var textures = TerrainTextures.Build(gl, adt, clientDataPath, col, row);

@@ -95,6 +95,28 @@ public sealed class ClientConfig
         public float FarPlane { get; set; } = 2000f;
 
         /// <summary>
+        /// Draw M2 doodads - trees, rocks, fences, props. Around 785 placements
+        /// per tile, so this is the single biggest change to how the world
+        /// looks, and the single biggest cost at load.
+        /// </summary>
+        public bool Doodads { get; set; } = true;
+
+        /// <summary>
+        /// Doodads further than this from the camera are skipped. Vanilla's own
+        /// small-object draw distance is in this range; raising it costs draw
+        /// calls fast, because there are thousands of them.
+        /// </summary>
+        public float DoodadDistance { get; set; } = 300f;
+
+        /// <summary>
+        /// Axis basis for M2 COLLISION hulls. An M2 stores render vertices
+        /// Y-up and collision vertices Z-up, so the hull needs a conversion the
+        /// render mesh does not. 2 = (x,y,z) -> (x,z,-y), measured against the
+        /// render bounds of 127 models. 1 is the same axes flipped end for end.
+        /// </summary>
+        public int DoodadCollisionBasis { get; set; } = 2;
+
+        /// <summary>
         /// Painterly render mode. The reason this project is native: owning the
         /// renderer makes this a shader variant plus an alternate texture set,
         /// rather than a fight with the platform.
@@ -144,8 +166,29 @@ public sealed class ClientConfig
     /// </summary>
     public sealed class MovementConfig
     {
-        /// <summary>Use vmap collision when VmapPath is available.</summary>
+        /// <summary>Use collision at all.</summary>
         public bool Collision { get; set; } = true;
+
+        /// <summary>
+        /// Where solid geometry comes from.
+        ///
+        ///   "client"  the WMO triangles the renderer already loaded, filtered
+        ///             by their MOPY flags. This is what the real 1.12 client
+        ///             does — it has no vmaps and never needed them, because
+        ///             the geometry it draws is the geometry it collides with.
+        ///             One chain, so the wall you see and the wall you hit
+        ///             cannot disagree. Needs no GameDatamaps at all.
+        ///
+        ///   "vmaps"   the server's extracted .vmo meshes. A second copy of the
+        ///             same buildings through a second transform. Useful as a
+        ///             cross-check against what the server believes, and the
+        ///             only source of tree and fence collision until M2 doodads
+        ///             are loaded.
+        ///
+        /// CAVEAT while doodads are unimplemented: "client" gives buildings only.
+        /// Trees, fences and rocks are M2 doodads and are not solid yet.
+        /// </summary>
+        public string CollisionSource { get; set; } = "client";
 
         /// <summary>
         /// Include MOD_M2 spawns — trees, fences, small props. On means you

@@ -2,6 +2,7 @@ using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.World.Collision;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -66,6 +67,13 @@ public sealed class WmoRenderer : IDisposable
         public uint IndexCount;
         public Texture? Texture;
         public bool TwoSided;
+
+        /// <summary>
+        /// Whether this batch's texture actually carries alpha. The cutoff
+        /// itself is applied at DRAW time, not baked here — baking it made the
+        /// HUD slider inert, which cost a debugging round trip.
+        /// </summary>
+        public bool TextureHasAlpha;
     }
 
     private sealed class GroupMesh : IDisposable
@@ -92,6 +100,28 @@ public sealed class WmoRenderer : IDisposable
         public List<GroupMesh> Groups = [];
         public int TriangleCount;
 
+        /// <summary>
+        /// The building's embedded doodads — its furniture. Beds, kitchen
+        /// fittings, tables, barrels: none of these are ADT placements, they
+        /// belong to the WMO itself via MODS/MODN/MODD and are placed in WMO
+        /// LOCAL space, so they ride the building's own transform.
+        /// </summary>
+        public List<WmoDoodadSet> DoodadSets = [];
+        public List<WmoDoodadDef> Doodads = [];
+
+        /// <summary>
+        /// Collidable triangles in WMO local space, three vertices each.
+        ///
+        /// This is the whole point of collecting collision here rather than
+        /// from vmaps: it is the SAME vertex array the renderer uploads, so the
+        /// wall you see and the wall you hit cannot be in different places. The
+        /// vmap path loads a second copy of the same building through a second
+        /// transform chain, and any disagreement between the two is a bug that
+        /// simply cannot exist if there is only one chain.
+        /// </summary>
+        public Vector3[] CollisionTriangles = [];
+        public int CollisionSkipped;
+
         public void Dispose()
         {
             foreach (var g in Groups) g.Dispose();
@@ -105,6 +135,9 @@ public sealed class WmoRenderer : IDisposable
         public Vector3 WorldMin, WorldMax;
         public Vector3 Origin;
         public string Path = "";
+
+        /// <summary>Which MODS doodad set this placement asked for.</summary>
+        public int DoodadSet;
     }
 
     private readonly GL _gl;
@@ -114,6 +147,18 @@ public sealed class WmoRenderer : IDisposable
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
     private readonly HashSet<string> _placed = [];
+
+    /// <summary>Textures whose decoded alpha channel is entirely zero.</summary>
+    private readonly HashSet<string> _opaqueTextures = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Textures whose 1-bit alpha came back as 0/1 and was rescaled to 0/255.</summary>
+    private readonly HashSet<string> _rescaledAlpha = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>BLPs that were named by a material but could not be decoded.</summary>
+    private readonly HashSet<string> _failedTextures = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Batches that ended up with no texture at all, from any slot.</summary>
+    private int _texturelessBatches;
 
     private Shader _shader = null!;
 
@@ -130,6 +175,25 @@ public sealed class WmoRenderer : IDisposable
     public int TotalTriangles { get; private set; }
     public int DrawnLastFrame { get; private set; }
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Draw every batch two-sided, ignoring each material's IsNoCull flag.
+    ///
+    /// WMO winding is not consistent — that is why the collision raycast is
+    /// two-sided as well. A group wound inward whose material does not set
+    /// IsNoCull renders as nothing at all from outside, which reads as a
+    /// building with missing walls rather than as a culling problem. Toggling
+    /// this tells the two apart in one click: if the missing pieces reappear,
+    /// it is winding, not lost geometry.
+    /// </summary>
+    public bool ForceTwoSided { get; set; } = true;
+
+    /// <summary>
+    /// Alpha below which a fragment is discarded, for textures that actually
+    /// have an alpha channel. Railings and window tracery need it; a wall panel
+    /// whose texture has no alpha must never be subject to it.
+    /// </summary>
+    public float AlphaCutoff { get; set; } = 0.35f;
 
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
@@ -157,14 +221,14 @@ public sealed class WmoRenderer : IDisposable
     /// buildings independent of terrain, and collapsing all the reads into one
     /// is a single obvious change once the shape settles.
     /// </summary>
-    public void LoadForTiles(IEnumerable<(int col, int row)> tiles)
+    public void LoadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
     {
         var started = DateTime.UtcNow;
         var pending = new List<(Model Model, AdtTerrainReader.WmoInstance Placement)>();
 
         foreach (var (col, row) in tiles)
         {
-            var adt = AdtTerrainReader.ReadFromMpq(_config.ClientDataPath, _config.Start.MapName, row, col);
+            var adt = adts.Get(col, row);
             if (adt?.Wmos is null) continue;
 
             foreach (var w in adt.Wmos)
@@ -184,12 +248,9 @@ public sealed class WmoRenderer : IDisposable
             }
         }
 
-        var convention = Calibrate(pending);
-        ConventionName = convention.Name;
-
         foreach (var (model, w) in pending)
         {
-            var transform = BuildPlacement(w, convention);
+            var transform = BuildPlacement(w);
             var (min, max) = TransformedBounds(model, transform);
 
             _instances.Add(new Instance
@@ -200,6 +261,7 @@ public sealed class WmoRenderer : IDisposable
                 WorldMax = max,
                 Origin = Vector3.Transform(new Vector3(w.PosX, w.PosY, w.PosZ), PlacementToWorld),
                 Path = w.ModelPath,
+                DoodadSet = w.DoodadSet,
             });
 
             VerifyPlacement(w, min, max);
@@ -211,44 +273,28 @@ public sealed class WmoRenderer : IDisposable
         Console.WriteLine(
             $"[wmo] {_instances.Count} placement(s), {ModelCount} model(s), {TextureCount} texture(s), " +
             $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
-    }
 
-    /// <summary>
-    /// Try every candidate reading of the placement data against MODF's own
-    /// bounding boxes and keep the best.
-    ///
-    /// This is not elegant, and it is not meant to stay forever — once the
-    /// winner is known and stable it can be hardcoded and the table deleted.
-    /// But the alternative is guessing a convention, rebuilding, looking at a
-    /// tilted building, and guessing again. The data already contains the
-    /// answer; this just reads it.
-    ///
-    /// The printed table matters as much as the result: a clear winner means
-    /// the convention is settled, while a near-tie means the score is not
-    /// discriminating and the buildings still need eyes on them.
-    /// </summary>
-    private Convention Calibrate(List<(Model Model, AdtTerrainReader.WmoInstance Placement)> pending)
-    {
-        if (pending.Count == 0) return Candidates[0];
+        if (_texturelessBatches > 0)
+            Console.WriteLine(
+                $"[wmo] {_texturelessBatches} batch(es) have no texture in ANY material slot " +
+                "- these draw as flat grey");
 
-        var ranked = Candidates
-            .Select(c => (Convention: c, Score: ScoreConvention(c, pending)))
-            .OrderBy(r => r.Score)
-            .ToList();
+        if (_rescaledAlpha.Count > 0)
+            Console.WriteLine(
+                $"[wmo] {_rescaledAlpha.Count} texture(s) had 1-bit alpha decoded as 0/1 and were " +
+                "rescaled to 0/255 — BlpDecoder should be doing this");
 
-        Console.WriteLine($"[wmo] calibrating {Candidates.Length} conventions against {pending.Count} placement(s):");
-        foreach (var (candidate, score) in ranked.Take(5))
-            Console.WriteLine($"[wmo]   {candidate.Name,-24} mean error {score / pending.Count,8:F1} yd");
+        if (_opaqueTextures.Count > 0)
+            Console.WriteLine(
+                $"[wmo] {_opaqueTextures.Count} texture(s) decoded with an all-zero alpha channel " +
+                "- these are opaque and are now exempt from the alpha cut");
 
-        var best = ranked[0];
-        double runnerUp = ranked.Count > 1 ? ranked[1].Score : double.MaxValue;
-
-        Console.WriteLine(
-            $"[wmo] using {best.Convention.Name} " +
-            $"(mean {best.Score / pending.Count:F1} yd, next best {runnerUp / pending.Count:F1} yd) " +
-            $"+ {HeadingCorrectionDegrees:F0} deg heading correction");
-
-        return best.Convention;
+        if (_failedTextures.Count > 0)
+        {
+            Console.WriteLine($"[wmo] {_failedTextures.Count} named texture(s) failed to decode:");
+            foreach (var name in _failedTextures.Take(10))
+                Console.WriteLine($"[wmo]   {name}");
+        }
     }
 
     // ── placement ────────────────────────────────────────────────────────────
@@ -267,76 +313,20 @@ public sealed class WmoRenderer : IDisposable
         CoordShift, CoordShift, 0f, 1f);
 
     /// <summary>
-    /// One candidate reading of the placement data.
+    /// Model vertex basis to placement basis: (x, y, z) -> (x, z, -y).
     ///
-    /// Two things are genuinely ambiguous and the documentation disagrees with
-    /// itself: which stored vertex axis is UP, and how MODF's Euler triple
-    /// composes. Guessing costs a build cycle each time, so instead every
-    /// plausible combination is scored against MODF's own bounding boxes and
-    /// the winner is used. The boxes describe the placed model, so the right
-    /// convention is the one whose geometry lands inside them.
+    /// Settled by calibration and then confirmed in game, so the 64-candidate
+    /// search that found it is gone. Note that M2 does NOT use this — a doodad's
+    /// render mesh is already Y-up and needs identity — while an M2's COLLISION
+    /// hull does. Three arrays, two conventions; do not assume they agree.
     /// </summary>
-    private sealed class Convention
-    {
-        public string Name = "";
+    private static readonly Matrix4x4 Basis = new(
+        1, 0, 0, 0,
+        0, 0, -1, 0,
+        0, 1, 0, 0,
+        0, 0, 0, 1);
 
-        /// <summary>Model vertex basis -> placement basis. A pure axis permutation.</summary>
-        public Matrix4x4 Basis = Matrix4x4.Identity;
-
-        /// <summary>Heading offset applied to RotY, in degrees.</summary>
-        public float HeadingOffset;
-
-        /// <summary>Negate RotY before applying the offset.</summary>
-        public bool FlipHeading;
-
-        /// <summary>Apply the RotX / RotZ terms as well as the heading.</summary>
-        public bool UseTilt;
-    }
-
-    // Axis permutations, row-vector. Each is a proper rotation (det +1), so
-    // none of them mirrors the geometry.
-    private static readonly (string Name, Matrix4x4 M)[] Bases =
-    [
-        // (x, y, z) unchanged - up is the stored Y.
-        ("xyz", Matrix4x4.Identity),
-
-        // (x, y, z) -> (x, -z, y). This is the reading implied by "MOVT is
-        // stored X, Z, -Y": up is the negated stored Z.
-        ("x-zy", new Matrix4x4(1, 0, 0, 0,  0, 0, 1, 0,  0, -1, 0, 0,  0, 0, 0, 1)),
-
-        // (x, y, z) -> (x, z, -y). The same idea with the opposite sign.
-        ("xz-y", new Matrix4x4(1, 0, 0, 0,  0, 0, -1, 0,  0, 1, 0, 0,  0, 0, 0, 1)),
-
-        // (x, y, z) -> (-z, y, x). Up stays Y but the horizontals swap.
-        ("-zyx", new Matrix4x4(0, 0, 1, 0,  0, 1, 0, 0,  -1, 0, 0, 0,  0, 0, 0, 1)),
-    ];
-
-    private static readonly Convention[] Candidates = BuildCandidates();
-
-    private static Convention[] BuildCandidates()
-    {
-        var list = new List<Convention>();
-
-        foreach (var (basisName, basis) in Bases)
-        foreach (float offset in new[] { -270f, 0f, 90f, 180f })
-        foreach (bool flip in new[] { false, true })
-        foreach (bool tilt in new[] { true, false })
-        {
-            list.Add(new Convention
-            {
-                Name = $"{basisName}/{(flip ? "-" : "+")}rotY{offset:+0;-0;+0}{(tilt ? "/tilt" : "")}",
-                Basis = basis,
-                HeadingOffset = offset,
-                FlipHeading = flip,
-                UseTilt = tilt,
-            });
-        }
-
-        return [.. list];
-    }
-
-    /// <summary>The convention in force. Set by calibration at load.</summary>
-    public string ConventionName { get; private set; } = "(uncalibrated)";
+    public string ConventionName => "xz-y, heading rotY-90";
 
     /// <summary>
     /// Extra heading applied to every WMO, on top of whatever calibration picks.
@@ -358,68 +348,32 @@ public sealed class WmoRenderer : IDisposable
     /// </summary>
     private const float HeadingCorrectionDegrees = 180f;
 
-    private static Matrix4x4 BuildPlacement(AdtTerrainReader.WmoInstance w, Convention c)
+    private static Matrix4x4 BuildPlacement(AdtTerrainReader.WmoInstance w)
     {
         const float deg = MathF.PI / 180f;
 
-        float heading =
-            ((c.FlipHeading ? -w.RotY : w.RotY) + c.HeadingOffset + HeadingCorrectionDegrees) * deg;
+        // rotY - 270 from calibration, plus the 180 that only eyes could find,
+        // is rotY - 90. The bounding-box score could settle which axis is up
+        // and never which way a building faces, because an AABB is invariant
+        // under a half turn about the vertical.
+        float heading = (w.RotY - 90f) * deg;
 
-        var rotation = Matrix4x4.CreateRotationY(heading);
-
-        if (c.UseTilt)
-        {
-            // Column-vector intent: RotY(heading) * RotZ(-rotX) * RotX(rotZ).
-            // System.Numerics is row-vector, so the order reverses.
-            rotation = Matrix4x4.CreateRotationX(w.RotZ * deg)
+        // Column-vector intent: RotY(heading) * RotZ(-rotX) * RotX(rotZ).
+        // System.Numerics is row-vector, so the order reverses.
+        var rotation = Matrix4x4.CreateRotationX(w.RotZ * deg)
                      * Matrix4x4.CreateRotationZ(-w.RotX * deg)
-                     * rotation;
-        }
+                     * Matrix4x4.CreateRotationY(heading);
 
-        return c.Basis
+        return Basis
              * rotation
              * Matrix4x4.CreateTranslation(w.PosX, w.PosY, w.PosZ)
              * PlacementToWorld;
     }
 
     /// <summary>
-    /// MODF's own bounding box for the placed model, in world space. This is
-    /// the target every candidate is scored against.
+    /// World bounds of a placed model, from the eight corners of each group's
+    /// local box. Used for frustum culling and for the placement check.
     /// </summary>
-    private static (Vector3 min, Vector3 max) ModfBoxInWorld(AdtTerrainReader.WmoInstance w)
-    {
-        var a = Vector3.Transform(new Vector3(w.BbMinX, w.BbMinY, w.BbMinZ), PlacementToWorld);
-        var b = Vector3.Transform(new Vector3(w.BbMaxX, w.BbMaxY, w.BbMaxZ), PlacementToWorld);
-        return (Vector3.Min(a, b), Vector3.Max(a, b));
-    }
-
-    /// <summary>
-    /// Score one candidate across every placement. Lower is better.
-    ///
-    /// Centre distance plus size difference, rather than corner distance:
-    /// Blizzard's bounding boxes are padded, sometimes generously, so corners
-    /// disagree even when a placement is perfect. A box that is in the right
-    /// place and the right shape is the signal; exact extents are not.
-    /// </summary>
-    private static double ScoreConvention(
-        Convention c, List<(Model Model, AdtTerrainReader.WmoInstance Placement)> pending)
-    {
-        double total = 0;
-
-        foreach (var (model, w) in pending)
-        {
-            var (gMin, gMax) = TransformedBounds(model, BuildPlacement(w, c));
-            var (mMin, mMax) = ModfBoxInWorld(w);
-
-            var centreError = ((gMin + gMax) * 0.5f) - ((mMin + mMax) * 0.5f);
-            var sizeError = (gMax - gMin) - (mMax - mMin);
-
-            total += centreError.Length() + sizeError.Length();
-        }
-
-        return total;
-    }
-
     private static (Vector3 min, Vector3 max) TransformedBounds(Model model, Matrix4x4 m)
     {
         var min = new Vector3(float.MaxValue);
@@ -427,7 +381,6 @@ public sealed class WmoRenderer : IDisposable
 
         foreach (var g in model.Groups)
         {
-            // Eight corners of the group's local box, transformed.
             for (int c = 0; c < 8; c++)
             {
                 var corner = new Vector3(
@@ -445,7 +398,18 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
-    /// Per-placement sanity check after calibration. Compares centre and size
+    /// MODF's own bounding box for the placed model, in world space. This is
+    /// the target every candidate is scored against.
+    /// </summary>
+    private static (Vector3 min, Vector3 max) ModfBoxInWorld(AdtTerrainReader.WmoInstance w)
+    {
+        var a = Vector3.Transform(new Vector3(w.BbMinX, w.BbMinY, w.BbMinZ), PlacementToWorld);
+        var b = Vector3.Transform(new Vector3(w.BbMaxX, w.BbMaxY, w.BbMaxZ), PlacementToWorld);
+        return (Vector3.Min(a, b), Vector3.Max(a, b));
+    }
+
+    /// <summary>
+    /// Per-placement sanity check. Compares centre and size
     /// against MODF's box for the placed model.
     ///
     /// Bounding boxes are padded, so a few yards of size disagreement is normal
@@ -492,22 +456,66 @@ public sealed class WmoRenderer : IDisposable
         }
 
         var model = new Model();
+        var collision = new List<Vector3>();
+        int skipped = 0;
+
+        // Every way a group can vanish, counted. These were three silent
+        // `continue`s, which is exactly how a building loses half its walls
+        // without anything appearing in the log.
+        int missingFiles = 0, unparsed = 0, empty = 0, unbuilt = 0, batchesDropped = 0;
+        int indicesCovered = 0, indicesTotal = 0;
+
         string stem = rootPath[..^4];       // strip ".wmo"
 
         for (int g = 0; g < root.NGroups; g++)
         {
             string groupPath = $"{stem}_{g:D3}.wmo";
             var groupBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, groupPath);
-            if (groupBytes is null) continue;
+            if (groupBytes is null) { missingFiles++; continue; }
 
             var group = WmoReader.ParseGroup(groupBytes);
-            if (group is null || group.Vertices.Count == 0 || group.Indices.Count < 3) continue;
+            if (group is null) { unparsed++; continue; }
+            if (group.Vertices.Count == 0 || group.Indices.Count < 3) { empty++; continue; }
 
             var mesh = BuildGroupMesh(group, root);
-            if (mesh is null) continue;
+            if (mesh is null) { unbuilt++; continue; }
+
+            batchesDropped += _lastBatchesDropped;
+            indicesCovered += _lastIndicesCovered;
+            indicesTotal += _lastIndicesTotal;
 
             model.Groups.Add(mesh);
             model.TriangleCount += group.Indices.Count / 3;
+
+            CollectCollision(group, collision, ref skipped);
+        }
+
+        model.CollisionTriangles = [.. collision];
+        model.CollisionSkipped = skipped;
+
+        if (indicesTotal > 0 && indicesCovered < indicesTotal)
+        {
+            // Under 100% is EXPECTED, not a fault: MOPY marks collision-only
+            // triangles (materialId 0xFF) that are solid and never drawn, and
+            // they are not in any MOBA batch. Every model measured sits around
+            // 90%, which is the invisible-wall geometry. Only a sharp outlier
+            // would mean anything.
+            double covered = 100.0 * indicesCovered / indicesTotal;
+            if (covered < 70.0)
+                Console.WriteLine(
+                    $"[wmo] {Path.GetFileName(rootPath)}: MOBA batches draw only {covered:F1}% of " +
+                    $"indices — unusually low, most models sit near 90%");
+        }
+
+        if (missingFiles + unparsed + empty + unbuilt + batchesDropped > 0)
+        {
+            Console.WriteLine(
+                $"[wmo] {Path.GetFileName(rootPath)}: {model.Groups.Count}/{root.NGroups} group(s) drawn" +
+                (missingFiles > 0 ? $", {missingFiles} file(s) not in MPQ" : "") +
+                (unparsed > 0 ? $", {unparsed} failed to parse" : "") +
+                (empty > 0 ? $", {empty} empty" : "") +
+                (unbuilt > 0 ? $", {unbuilt} mesh build failed" : "") +
+                (batchesDropped > 0 ? $", {batchesDropped} batch(es) dropped" : ""));
         }
 
         if (model.Groups.Count == 0)
@@ -518,9 +526,108 @@ public sealed class WmoRenderer : IDisposable
             return null;
         }
 
+        model.DoodadSets = root.DoodadSets;
+        model.Doodads = root.Doodads;
+
         _models[rootPath] = model;
         return model;
     }
+
+    /// <summary>
+    /// Pull the collidable triangles out of a group.
+    ///
+    /// MOPY carries one (flags, materialId) pair per triangle. The pieces that
+    /// matter here:
+    ///
+    ///   flags &amp; 0x04  F_DETAIL - decorative geometry the real client does not
+    ///                  collide against. Excluding it is what stops you bumping
+    ///                  into mouldings and window tracery.
+    ///   materialId 0xFF - a collision-only triangle: solid but never drawn.
+    ///                  These are how invisible walls and door blockers exist.
+    ///
+    /// So MOBA batches decide what gets DRAWN and MOPY decides what is SOLID,
+    /// out of one vertex array. That is exactly how the 1.12 client does it,
+    /// and why it never needed a separate collision file.
+    /// </summary>
+    private static void CollectCollision(WmoGroupData group, List<Vector3> into, ref int skipped)
+    {
+        int triangles = group.Indices.Count / 3;
+
+        for (int t = 0; t < triangles; t++)
+        {
+            // A group without MOPY is treated as fully solid rather than
+            // silently non-collidable: walking through a building is a much
+            // worse failure than colliding with a moulding.
+            if (t < group.TriMaterials.Count)
+            {
+                var (flags, _) = group.TriMaterials[t];
+                if ((flags & 0x04) != 0) { skipped++; continue; }
+            }
+
+            int i0 = group.Indices[t * 3];
+            int i1 = group.Indices[t * 3 + 1];
+            int i2 = group.Indices[t * 3 + 2];
+
+            if (i0 >= group.Vertices.Count || i1 >= group.Vertices.Count || i2 >= group.Vertices.Count)
+                continue;
+
+            var a = group.Vertices[i0];
+            var b = group.Vertices[i1];
+            var c = group.Vertices[i2];
+
+            into.Add(new Vector3(a.x, a.y, a.z));
+            into.Add(new Vector3(b.x, b.y, b.z));
+            into.Add(new Vector3(c.x, c.y, c.z));
+        }
+    }
+
+    /// <summary>
+    /// Feed every placed building's collidable triangles into a collision
+    /// world, using the SAME transform the renderer draws with.
+    /// </summary>
+    public void AppendCollision(CollisionWorld world)
+    {
+        int placed = 0, triangles = 0, skipped = 0;
+
+        foreach (var instance in _instances)
+        {
+            var tris = instance.Model.CollisionTriangles;
+            if (tris.Length < 3) continue;
+
+            int source = world.RegisterSource(Path.GetFileName(instance.Path));
+            var m = instance.Transform;
+
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+            {
+                world.AddTriangle(
+                    Vector3.Transform(tris[i], m),
+                    Vector3.Transform(tris[i + 1], m),
+                    Vector3.Transform(tris[i + 2], m),
+                    source);
+                triangles++;
+            }
+
+            skipped += instance.Model.CollisionSkipped;
+            placed++;
+        }
+
+        Console.WriteLine(
+            $"[collision] from client geometry: {placed} building(s), " +
+            $"{triangles:N0} solid triangles, {skipped:N0} detail triangles excluded");
+    }
+
+    /// <summary>Batches discarded by the most recent BuildGroupMesh call.</summary>
+    private int _lastBatchesDropped;
+
+    /// <summary>
+    /// Indices the last group's batches actually draw, against how many it has.
+    ///
+    /// If MOBA does not cover the whole index buffer then some triangles are
+    /// never submitted at all — which looks exactly like missing walls, loads
+    /// without a single warning, and is invisible to any texture or culling
+    /// theory. Worth measuring before guessing again.
+    /// </summary>
+    private int _lastIndicesCovered, _lastIndicesTotal;
 
     private unsafe GroupMesh? BuildGroupMesh(WmoGroupData group, WmoRootData root)
     {
@@ -598,19 +705,29 @@ public sealed class WmoRenderer : IDisposable
         mesh.Attach(_gl);
 
         // MOBA batches: each is a run of indices sharing one material.
+        _lastBatchesDropped = 0;
+        _lastIndicesCovered = 0;
+        _lastIndicesTotal = indices.Length;
+
         foreach (var b in group.Batches)
         {
-            if (b.IndexCount == 0) continue;
-            if (b.IndexStart + b.IndexCount > (uint)indices.Length) continue;
+            if (b.IndexCount == 0) { _lastBatchesDropped++; continue; }
+            if (b.IndexStart + b.IndexCount > (uint)indices.Length) { _lastBatchesDropped++; continue; }
 
             var material = b.MaterialId < root.Materials.Count ? root.Materials[b.MaterialId] : null;
+            var texture = material is null ? null : ResolveMaterialTexture(material);
+
+            if (texture is null) _texturelessBatches++;
+
+            _lastIndicesCovered += (int)b.IndexCount;
 
             mesh.Batches.Add(new Batch
             {
                 IndexStart = b.IndexStart,
                 IndexCount = b.IndexCount,
-                Texture = material is null ? null : ResolveTexture(material.Texture0Name),
+                Texture = texture,
                 TwoSided = material?.IsNoCull ?? false,
+                TextureHasAlpha = MaterialHasAlpha(material),
             });
         }
 
@@ -630,6 +747,20 @@ public sealed class WmoRenderer : IDisposable
         return mesh;
     }
 
+    /// <summary>
+    /// A material's diffuse texture, trying every slot it has.
+    ///
+    /// MOMT carries three texture offsets. Slot 0 is the diffuse on most
+    /// materials, but not all — and reading only slot 0 meant any material that
+    /// leaves it empty rendered with the shader's untextured fallback colour.
+    /// That is what the pale patches all over the Goldshire inn were: not
+    /// missing geometry, not missing files, just a texture nobody asked for.
+    /// </summary>
+    private Texture? ResolveMaterialTexture(WmoMaterial material)
+        => ResolveTexture(material.Texture0Name)
+        ?? ResolveTexture(material.Texture1Name)
+        ?? ResolveTexture(material.Texture2Name);
+
     private Texture? ResolveTexture(string blpPath)
     {
         if (string.IsNullOrWhiteSpace(blpPath)) return null;
@@ -638,15 +769,135 @@ public sealed class WmoRenderer : IDisposable
         var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, blpPath);
         if (decoded is null)
         {
-            Console.WriteLine($"[wmo] missing texture: {blpPath}");
+            // Collected rather than printed: one line per failure buries the
+            // pattern, and the pattern is the useful part.
+            _failedTextures.Add(blpPath);
             _textures[blpPath] = null;
             return null;
         }
 
         var (bgra, w, h) = decoded.Value;
+
+        // ALPHA SANITY, and the reason the buildings were full of holes.
+        //
+        // The shader discards fragments below a cutoff, which is how railings
+        // and window tracery work. But some BLPs come back from the decoder
+        // with an alpha channel that is not on a 0..255 scale: a 1-bit alpha
+        // texture decoded as 0 or 1 gives 0.004 in the shader, which fails a
+        // 0.35 cut on EVERY texel. The wall loads, textures correctly, and
+        // renders as nothing at all.
+        //
+        // So look at what actually came back:
+        //   max == 0        no alpha channel — mark opaque, never cut it
+        //   max == 1        1-bit alpha decoded to 0/1 — rescale to 0/255 so
+        //                   the cutout works as intended instead of erasing
+        //                   the surface
+        //   otherwise       a real 8-bit alpha channel, use it as is
+        //
+        // The proper fix belongs in BlpDecoder, which should be emitting 0/255
+        // for 1-bit alpha in the first place. This is a guard at the point of
+        // use, not a substitute for that.
+        byte maxAlpha = 0;
+        for (int i = 3; i < bgra.Length; i += 4)
+        {
+            if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
+            if (maxAlpha > 1) break;
+        }
+
+        if (maxAlpha == 0)
+        {
+            _opaqueTextures.Add(blpPath);
+        }
+        else if (maxAlpha == 1)
+        {
+            for (int i = 3; i < bgra.Length; i += 4)
+                if (bgra[i] != 0) bgra[i] = 255;
+
+            _rescaledAlpha.Add(blpPath);
+        }
+
         var texture = Texture.From2D(_gl, bgra, w, h);
         _textures[blpPath] = texture;
         return texture;
+    }
+
+    /// <summary>Does the material's resolved texture carry a real alpha channel?</summary>
+    private bool MaterialHasAlpha(WmoMaterial? material)
+    {
+        if (material is null) return false;
+
+        foreach (var name in new[] { material.Texture0Name, material.Texture1Name, material.Texture2Name })
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (!_textures.TryGetValue(name, out var t) || t is null) continue;
+            return !_opaqueTextures.Contains(name);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Inverse of <see cref="Basis"/>: placement space back into WMO local space.
+    ///
+    /// An embedded doodad is an M2, and M2 render vertices are Y-up while WMO
+    /// vertices are Z-up. MODD positions live in WMO space, so the M2 has to be
+    /// rotated INTO that space before the MODD transform, and the building's
+    /// own Basis then carries the whole assembly back out. Basis composed with
+    /// this is the identity, which is the check that it is the right matrix.
+    /// </summary>
+    private static readonly Matrix4x4 M2ToWmo = new(
+        1, 0, 0, 0,
+        0, 0, 1, 0,
+        0, -1, 0, 0,
+        0, 0, 0, 1);
+
+    /// <summary>
+    /// Every embedded doodad of every placed building, as a model path and a
+    /// world transform, ready to hand to the doodad renderer.
+    ///
+    /// Set 0 is "$DefaultGlobal" and is always present; a placement may name a
+    /// second set on top of it, which is how one tavern model furnishes
+    /// differently in different towns.
+    /// </summary>
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform)> EnumerateDoodads()
+    {
+        foreach (var instance in _instances)
+        {
+            var model = instance.Model;
+            if (model.Doodads.Count == 0) continue;
+
+            foreach (int setIndex in DoodadSetsFor(model, instance.DoodadSet))
+            {
+                var set = model.DoodadSets[setIndex];
+
+                for (uint i = 0; i < set.DoodadCount; i++)
+                {
+                    uint index = set.FirstInstanceIndex + i;
+                    if (index >= model.Doodads.Count) break;
+
+                    var d = model.Doodads[(int)index];
+                    if (string.IsNullOrWhiteSpace(d.ModelPath)) continue;
+
+                    var local =
+                        M2ToWmo
+                        * Matrix4x4.CreateScale(d.Scale > 0.0001f ? d.Scale : 1f)
+                        * Matrix4x4.CreateFromQuaternion(new Quaternion(d.QuatX, d.QuatY, d.QuatZ, d.QuatW))
+                        * Matrix4x4.CreateTranslation(d.PosX, d.PosY, d.PosZ);
+
+                    yield return (d.ModelPath, local * instance.Transform);
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<int> DoodadSetsFor(Model model, int requested)
+    {
+        if (model.DoodadSets.Count == 0) yield break;
+
+        yield return 0;
+
+        if (requested > 0 && requested < model.DoodadSets.Count)
+            yield return requested;
     }
 
     // ── drawing ──────────────────────────────────────────────────────────────
@@ -680,12 +931,14 @@ public sealed class WmoRenderer : IDisposable
 
                 foreach (var batch in group.Batches)
                 {
-                    if (batch.TwoSided && cullingOn)
+                    bool twoSided = batch.TwoSided || ForceTwoSided;
+
+                    if (twoSided && cullingOn)
                     {
                         _gl.Disable(EnableCap.CullFace);
                         cullingOn = false;
                     }
-                    else if (!batch.TwoSided && !cullingOn)
+                    else if (!twoSided && !cullingOn)
                     {
                         _gl.Enable(EnableCap.CullFace);
                         cullingOn = true;
@@ -695,10 +948,12 @@ public sealed class WmoRenderer : IDisposable
                     {
                         batch.Texture.Bind(0);
                         _shader.Set("uHasTexture", 1);
+                        _shader.Set("uAlphaCutoff", batch.TextureHasAlpha ? AlphaCutoff : 0f);
                     }
                     else
                     {
                         _shader.Set("uHasTexture", 0);
+                        _shader.Set("uAlphaCutoff", 0f);
                     }
 
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,

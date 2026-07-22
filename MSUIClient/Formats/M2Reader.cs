@@ -44,6 +44,24 @@ public class M2Model
     // happens up front via TryFindSequenceIndexByAnimationId.
     public List<M2Sequence> Sequences { get; set; } = new();
 
+    /// <summary>
+    /// The model's OWN collision mesh, separate from the render mesh.
+    ///
+    /// This is how the real client makes trees and props solid, and why it has
+    /// never needed a vmap file: an M2 ships the geometry it is drawn from AND
+    /// the simplified geometry it is collided against, in the same file. The
+    /// collision hull is typically a few dozen triangles around the trunk while
+    /// the render mesh is thousands including every leaf.
+    ///
+    /// Plenty of doodads have none at all — a torch or a floor rug is meant to
+    /// be walked through. Empty here is normal, not a parse failure, and is
+    /// exactly why the vmap extractor never wrote a .vmo for those models.
+    /// </summary>
+    public List<ushort> CollisionIndices { get; set; } = new();
+    public List<Vector3> CollisionVertices { get; set; } = new();
+
+    public bool HasCollision => CollisionVertices.Count > 0 && CollisionIndices.Count >= 3;
+
     public bool IsValid => Vertices.Count > 0 && Indices.Count >= 3;
     public bool HasSkeleton => Bones.Count > 0;
 
@@ -387,6 +405,42 @@ public class M2Reader
     private const int ANIM_BLOCK_STRIDE_VANILLA = 28;
     private const int RANGE_STRIDE = 8;     // 2 × uint32
 
+    /// <summary>
+    /// Read the collision arrays at 0x0EC / 0x0F4.
+    ///
+    ///   0x0EC  count + offset, collision triangle indices (uint16)
+    ///   0x0F4  count + offset, collision vertices (3 floats)
+    ///   0x0FC  count + offset, collision normals - not needed; the collision
+    ///          world derives face normals itself and does not trust winding
+    ///
+    /// Everything here is optional. A model with no collision hull returns with
+    /// empty lists and that is a normal, common outcome.
+    /// </summary>
+    private static void ParseCollision(byte[] data, M2Model model)
+    {
+        uint nIndices = ReadUInt32(data, 0x0EC);
+        uint ofsIndices = ReadUInt32(data, 0x0F0);
+        uint nVertices = ReadUInt32(data, 0x0F4);
+        uint ofsVertices = ReadUInt32(data, 0x0F8);
+
+        if (nVertices == 0 || nIndices < 3) return;
+        if (ofsVertices == 0 || ofsIndices == 0) return;
+        if (ofsVertices + nVertices * 12 > data.Length) return;
+        if (ofsIndices + nIndices * 2 > data.Length) return;
+
+        for (int i = 0; i < nVertices; i++)
+        {
+            int o = (int)ofsVertices + i * 12;
+            model.CollisionVertices.Add(new Vector3(
+                BitConverter.ToSingle(data, o),
+                BitConverter.ToSingle(data, o + 4),
+                BitConverter.ToSingle(data, o + 8)));
+        }
+
+        for (int i = 0; i < nIndices; i++)
+            model.CollisionIndices.Add(BitConverter.ToUInt16(data, (int)ofsIndices + i * 2));
+    }
+
     public static M2Model? Parse(byte[] data)
     {
         if (data == null || data.Length < 0x110) return null;
@@ -426,6 +480,9 @@ public class M2Reader
             uint nKeyBoneLookup = ReadUInt32(data, 0x03C);
             uint ofsKeyBoneLookup = ReadUInt32(data, 0x040);
             ParseKeyBoneLookup(data, nKeyBoneLookup, ofsKeyBoneLookup, model);
+
+            // ── Collision mesh (the model's own, not the render geometry) ───
+            ParseCollision(data, model);
 
             // ── Vertices ────────────────────────────────────────────────────
             uint nVertices = ReadUInt32(data, 0x044);

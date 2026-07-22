@@ -1,0 +1,499 @@
+using System.Numerics;
+using Silk.NET.OpenGL;
+using MSUIClient.Engine;
+using MSUIClient.Formats;
+using Shader = MSUIClient.Engine.Shader;
+using Texture = MSUIClient.Engine.Texture;
+
+namespace MSUIClient.World.Units;
+
+/// <summary>
+/// Draws the equipment that has geometry of its own - helms, shoulders,
+/// weapons, shields, capes.
+///
+/// WHY THESE ARE NOT LIKE THE REST OF THE GEAR
+///   A breastplate is paint on the character's own skin. A helm is a SEPARATE
+///   M2 FILE that gets parented to a bone. Nothing about the body atlas or the
+///   geoset rules touches these, which is why a fully-working Tier set can
+///   still be missing its pauldrons.
+///
+/// HOW A MODEL FINDS ITS PLACE
+///   Every M2 carries an Attachments array: a semantic id, a bone index and a
+///   position in model space. M2Reader already parses it. The skinning matrix
+///   the animator computes for that bone is exactly the transform a rigid point
+///   attached to it needs, so the whole placement is:
+///
+///       item vertex -> T(attachment.Position) -> Skin[attachment.BoneIndex]
+///                   -> the character's own instance matrix
+///
+///   which means an attached model follows the animation for free. No separate
+///   bone chain, no second skinning path. The item M2s themselves are drawn
+///   unskinned - a sword does not bend.
+///
+/// ATTACHMENT IDS come from SuperUI's equip.js, where they were established by
+/// eye rather than from a table:
+///     0  LeftWrist   - shields mount HERE, not on the palm
+///     1  HandRight
+///     2  HandLeft
+///     5  ShoulderRight  (ModelName2, the R file)
+///     6  ShoulderLeft   (ModelName1, the L file)
+///    11  Helm
+/// </summary>
+public sealed class AttachedItemRenderer : IDisposable
+{
+    public const int AttachLeftWrist = 0;
+    public const int AttachHandRight = 1;
+    public const int AttachHandLeft = 2;
+    public const int AttachShoulderRight = 5;
+    public const int AttachShoulderLeft = 6;
+    public const int AttachHelm = 11;
+
+    /// <summary>Position(3) Normal(3) UV(2) - the doodad layout, since nothing here is skinned.</summary>
+    private const int FloatsPerVertex = 8;
+
+    private sealed class Batch
+    {
+        public uint IndexStart;
+        public uint IndexCount;
+        public Texture? Texture;
+        public bool TwoSided;
+    }
+
+    private sealed class ItemModel : IDisposable
+    {
+        public uint Vao, Vbo, Ebo;
+        public List<Batch> Batches = [];
+        public string Path = "";
+
+        private GL? _gl;
+        public void Attach(GL gl) => _gl = gl;
+
+        public void Dispose()
+        {
+            if (_gl is null) return;
+            if (Vao != 0) _gl.DeleteVertexArray(Vao);
+            if (Vbo != 0) _gl.DeleteBuffer(Vbo);
+            if (Ebo != 0) _gl.DeleteBuffer(Ebo);
+        }
+    }
+
+    /// <summary>One mounted piece: a model, where it hangs, and what it is called.</summary>
+    private sealed class Mount
+    {
+        public ItemModel Model = null!;
+        public int AttachmentId;
+        public string Label = "";
+        public bool Visible = true;
+    }
+
+    private readonly GL _gl;
+    private readonly ClientConfig _config;
+
+    private Shader _shader = null!;
+    private readonly Dictionary<string, ItemModel?> _models = [];
+    private readonly Dictionary<string, Texture?> _textures = [];
+    private readonly List<Mount> _mounts = [];
+
+    public bool Enabled { get; set; } = true;
+    public int MountCount => _mounts.Count;
+
+    /// <summary>
+    /// Label and visibility of each mounted piece, so the HUD can switch them
+    /// off one at a time.
+    ///
+    /// The geoset checkboxes cannot do this: an attached item is a separate M2,
+    /// not a geoset, so hiding every geoset category leaves the helm and the
+    /// sword exactly where they were. Two different mechanisms need two
+    /// different switches.
+    /// </summary>
+    public IEnumerable<(string Label, bool Visible)> Mounts
+        => _mounts.Select(m => (m.Label, m.Visible));
+
+    public void SetMountVisible(string label, bool visible)
+    {
+        foreach (var mount in _mounts)
+            if (mount.Label == label) mount.Visible = visible;
+    }
+    public int DrawnLastFrame { get; private set; }
+
+    /// <summary>Matched to the character so a pauldron lights like the shoulder under it.</summary>
+    public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
+    public float FogStart { get; set; } = 350f;
+    public float FogEnd { get; set; } = 900f;
+    public float AlphaCutoff { get; set; } = 0.35f;
+
+    /// <summary>
+    /// Two-letter race code plus M or F, e.g. HuM.
+    ///
+    /// HELMS ARE PER RACE AND GENDER and nothing else is. A helm has to fit the
+    /// head it sits on, so vanilla ships one file per head shape and the name
+    /// carries this suffix - Helm_Plate_A_01_HuM. Shoulders and weapons have a
+    /// single file each. Missing this is the most likely reason a helm resolves
+    /// to nothing while the pauldrons mount fine.
+    /// </summary>
+    public string RaceGenderCode { get; set; } = "HuM";
+
+    public AttachedItemRenderer(GL gl, ClientConfig config)
+    {
+        _gl = gl;
+        _config = config;
+    }
+
+    /// <summary>Unskinned, so the plain WMO pair - the same one doodads use.</summary>
+    public void LoadShaders(string shaderDir)
+    {
+        _shader = Shader.FromFiles(_gl,
+            Path.Combine(shaderDir, "wmo.vert"),
+            Path.Combine(shaderDir, "wmo.frag"));
+    }
+
+    // ── building the mount list ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Which folder under Item\ObjectComponents holds a slot's models. Vanilla
+    /// splits them by body part rather than by item type.
+    /// </summary>
+    private static string FolderFor(int inventoryType) => inventoryType switch
+    {
+        CharacterEquipment.Slot.Head => "Head",
+        CharacterEquipment.Slot.Shoulders => "Shoulder",
+        CharacterEquipment.Slot.Cloak => "Cape",
+        CharacterEquipment.Slot.Shield => "Shield",
+        _ => "Weapon",
+    };
+
+    /// <summary>
+    /// Where a slot's model hangs. A shield goes on the LEFT WRIST and not the
+    /// palm, which is the sort of thing that looks like a transform bug when it
+    /// is really a table lookup.
+    /// </summary>
+    private static int AttachmentFor(int inventoryType) => inventoryType switch
+    {
+        CharacterEquipment.Slot.Head => AttachHelm,
+        CharacterEquipment.Slot.Shield => AttachLeftWrist,
+        CharacterEquipment.Slot.OffHand => AttachHandLeft,
+        _ => AttachHandRight,
+    };
+
+    public void Rebuild(CharacterEquipment equipment)
+    {
+        _mounts.Clear();
+        if (_shader is null) return;
+
+        foreach (var piece in equipment.Pieces)
+        {
+            if (piece.Row is null || !piece.Row.HasModel) continue;
+
+            string folder = FolderFor(piece.InventoryType);
+
+            if (piece.InventoryType == CharacterEquipment.Slot.Shoulders)
+            {
+                // Shoulders are two files: ModelName1 is the left, ModelName2
+                // the right, and both are needed.
+                AddMount(piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
+                         AttachShoulderLeft, piece.Name + " (L)");
+                AddMount(piece.Row.ModelName2, piece.Row.ModelTexture2, folder,
+                         AttachShoulderRight, piece.Name + " (R)");
+                continue;
+            }
+
+            AddMount(piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
+                     AttachmentFor(piece.InventoryType), piece.Name);
+        }
+
+        Console.WriteLine($"[attach] {_mounts.Count} model(s) mounted");
+    }
+
+    private void AddMount(string modelName, string textureName, string folder, int attachmentId, string label)
+    {
+        if (string.IsNullOrWhiteSpace(modelName)) return;
+
+        var model = ResolveModel(modelName, textureName, folder);
+        if (model is null)
+        {
+            Console.WriteLine($"[attach] {label}: model '{modelName}' not found under {folder}");
+            return;
+        }
+
+        _mounts.Add(new Mount { Model = model, AttachmentId = attachmentId, Label = label });
+        Console.WriteLine($"[attach] {label}: {model.Path} on attachment {attachmentId}");
+    }
+
+    // ── loading ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ItemDisplayInfo stores bare names like "Helm_Plate_A_01". The real file
+    /// lives under Item\ObjectComponents\&lt;Folder&gt;\ and vanilla records the
+    /// .mdx extension while the MPQ holds .m2 - the same swap MDDF needs. The
+    /// candidates cover both, and the first hit is logged so the convention is
+    /// learned rather than assumed.
+    /// </summary>
+    private ItemModel? ResolveModel(string modelName, string textureName, string folder)
+    {
+        string key = $"{folder}|{modelName}";
+        if (_models.TryGetValue(key, out var cached)) return cached;
+
+        string stem = modelName.Replace('/', '\\').TrimStart('\\');
+        int dot = stem.LastIndexOf('.');
+        if (dot > 0) stem = stem[..dot];
+
+        var candidates = new List<string>();
+
+        // Helms first try the race/gender file, because for the Head folder
+        // that IS the file and the bare name will simply not exist.
+        if (folder == "Head")
+        {
+            candidates.Add($@"Item\ObjectComponents\{folder}\{stem}_{RaceGenderCode}.m2");
+            candidates.Add($@"Item\ObjectComponents\{folder}\{stem}_{RaceGenderCode}.M2");
+            candidates.Add($@"Item\ObjectComponents\{folder}\{stem}_{RaceGenderCode}.mdx");
+            candidates.Add($@"Item\ObjectComponents\{folder}\{stem}{RaceGenderCode}.m2");
+        }
+
+        candidates.Add($@"Item\ObjectComponents\{folder}\{stem}.m2");
+        candidates.Add($@"Item\ObjectComponents\{folder}\{stem}.M2");
+        candidates.Add($@"Item\ObjectComponents\{folder}\{stem}.mdx");
+        candidates.Add($"{stem}.m2");
+
+        byte[]? bytes = null;
+        string found = "";
+        foreach (string candidate in candidates)
+        {
+            bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, candidate);
+            if (bytes is not null) { found = candidate; break; }
+        }
+
+        if (bytes is null)
+        {
+            Console.WriteLine($"[attach] not found, tried: {string.Join("  ", candidates)}");
+            _models[key] = null;
+            return null;
+        }
+
+        var m2 = M2Reader.Parse(bytes);
+        if (m2 is null || !m2.IsValid)
+        {
+            _models[key] = null;
+            return null;
+        }
+
+        var model = BuildModel(m2, textureName, folder);
+        if (model is not null) model.Path = found;
+        _models[key] = model;
+        return model;
+    }
+
+    private unsafe ItemModel? BuildModel(M2Model m2, string textureName, string folder)
+    {
+        int vertexCount = m2.Vertices.Count;
+        var vertices = new float[vertexCount * FloatsPerVertex];
+
+        for (int i = 0; i < vertexCount; i++)
+        {
+            var v = m2.Vertices[i];
+            int o = i * FloatsPerVertex;
+            vertices[o + 0] = v.PosX; vertices[o + 1] = v.PosY; vertices[o + 2] = v.PosZ;
+            vertices[o + 3] = v.NormX; vertices[o + 4] = v.NormY; vertices[o + 5] = v.NormZ;
+            vertices[o + 6] = v.TexU; vertices[o + 7] = v.TexV;
+        }
+
+        var indices = m2.Indices.ToArray();
+        if (indices.Length < 3) return null;
+
+        uint vao = _gl.GenVertexArray();
+        _gl.BindVertexArray(vao);
+
+        uint vbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
+        fixed (float* p = vertices)
+            _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+        uint ebo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
+        fixed (ushort* p = indices)
+            _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+
+        const uint stride = FloatsPerVertex * sizeof(float);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
+        _gl.EnableVertexAttribArray(1);
+        _gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
+        _gl.EnableVertexAttribArray(2);
+        _gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
+
+        _gl.BindVertexArray(0);
+
+        var model = new ItemModel { Vao = vao, Vbo = vbo, Ebo = ebo };
+        model.Attach(_gl);
+
+        // An item M2's own texture table is usually a single type-2 slot with
+        // no filename - the name comes from ItemDisplayInfo instead.
+        var texture = ResolveTexture(textureName, folder);
+
+        foreach (var batch in m2.Batches)
+        {
+            if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
+            var submesh = m2.Submeshes[batch.SubmeshIndex];
+            if (submesh.IndexCount == 0) continue;
+            if (submesh.IndexStart + submesh.IndexCount > indices.Length) continue;
+
+            Texture? slot = texture;
+            if (slot is null && batch.TextureIndex < m2.TextureLookup.Count)
+            {
+                int texIdx = m2.TextureLookup[batch.TextureIndex];
+                if (texIdx >= 0 && texIdx < m2.Textures.Count && m2.Textures[texIdx].Filename.Length > 0)
+                    slot = ResolveTexturePath(m2.Textures[texIdx].Filename);
+            }
+
+            model.Batches.Add(new Batch
+            {
+                IndexStart = submesh.IndexStart,
+                IndexCount = submesh.IndexCount,
+                Texture = slot,
+                TwoSided = batch.MaterialIndex < m2.RenderFlags.Count
+                           && m2.RenderFlags[batch.MaterialIndex].TwoSided,
+            });
+        }
+
+        if (model.Batches.Count == 0)
+            model.Batches.Add(new Batch { IndexStart = 0, IndexCount = (uint)indices.Length, Texture = texture, TwoSided = true });
+
+        return model;
+    }
+
+    private Texture? ResolveTexture(string textureName, string folder)
+    {
+        if (string.IsNullOrWhiteSpace(textureName)) return null;
+
+        string stem = textureName.Replace('/', '\\').TrimStart('\\');
+        if (stem.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+
+        string[] candidates =
+        [
+            $@"Item\ObjectComponents\{folder}\{stem}.blp",
+            $"{stem}.blp",
+        ];
+
+        foreach (string candidate in candidates)
+        {
+            var made = ResolveTexturePath(candidate);
+            if (made is not null) return made;
+        }
+
+        Console.WriteLine($"[attach] texture '{textureName}' not found, tried: {string.Join("  ", candidates)}");
+        return null;
+    }
+
+    private Texture? ResolveTexturePath(string blpPath)
+    {
+        if (_textures.TryGetValue(blpPath, out var cached)) return cached;
+
+        var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, blpPath);
+        if (decoded is null) { _textures[blpPath] = null; return null; }
+
+        var (bgra, w, h) = decoded.Value;
+
+        // Same 1-bit alpha guard as everywhere else. See CharacterRenderer.
+        byte maxAlpha = 0;
+        for (int i = 3; i < bgra.Length; i += 4) if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
+        if (maxAlpha == 1)
+            for (int i = 3; i < bgra.Length; i += 4) if (bgra[i] != 0) bgra[i] = 255;
+
+        var texture = Texture.From2D(_gl, bgra, w, h);
+        _textures[blpPath] = texture;
+        return texture;
+    }
+
+    // ── drawing ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Draw every mounted item. <paramref name="skin"/> is the animator's
+    /// per-bone skinning matrices, which is what makes a sword swing with the
+    /// hand instead of hovering where the hand started.
+    /// </summary>
+    public unsafe void Render(Camera camera, Matrix4x4 instance,
+                              M2Model? character, Matrix4x4[] skin)
+    {
+        DrawnLastFrame = 0;
+        if (!Enabled || _shader is null || _mounts.Count == 0 || character is null) return;
+
+        _shader.Use();
+        _shader.Set("uViewProjection", camera.ViewProjection);
+        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uFogStart", FogStart);
+        _shader.Set("uFogEnd", FogEnd);
+        _shader.Set("uFogColor", FogColor);
+        _shader.Set("uTexture", 0);
+
+        bool cullingOn = true;
+
+        foreach (var mount in _mounts)
+        {
+            if (!mount.Visible) continue;
+
+            var attachment = FindAttachment(character, mount.AttachmentId);
+            if (attachment is null) continue;
+
+            int bone = (int)attachment.BoneIndex;
+            var boneMatrix = bone >= 0 && bone < skin.Length ? skin[bone] : Matrix4x4.Identity;
+
+            var model = Matrix4x4.CreateTranslation(attachment.Position) * boneMatrix * instance;
+            _shader.Set("uModel", model);
+
+            _gl.BindVertexArray(mount.Model.Vao);
+
+            foreach (var batch in mount.Model.Batches)
+            {
+                if (batch.TwoSided && cullingOn) { _gl.Disable(EnableCap.CullFace); cullingOn = false; }
+                else if (!batch.TwoSided && !cullingOn) { _gl.Enable(EnableCap.CullFace); cullingOn = true; }
+
+                if (batch.Texture is not null)
+                {
+                    batch.Texture.Bind(0);
+                    _shader.Set("uHasTexture", 1);
+                    _shader.Set("uAlphaCutoff", AlphaCutoff);
+                }
+                else
+                {
+                    _shader.Set("uHasTexture", 0);
+                    _shader.Set("uAlphaCutoff", 0f);
+                }
+
+                _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
+                    DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+            }
+
+            DrawnLastFrame++;
+        }
+
+        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
+        _gl.BindVertexArray(0);
+    }
+
+    private static M2Attachment? FindAttachment(M2Model model, int id)
+    {
+        foreach (var attachment in model.Attachments)
+            if (attachment.Id == (uint)id) return attachment;
+        return null;
+    }
+
+    /// <summary>Print what the character model actually offers, so a missing mount is readable.</summary>
+    public static void ReportAttachments(M2Model model)
+    {
+        var ids = model.Attachments.Select(a => $"{a.Id}(bone {a.BoneIndex})");
+        Console.WriteLine($"[attach] character offers {model.Attachments.Count} point(s): {string.Join(" ", ids)}");
+    }
+
+    public void Dispose()
+    {
+        foreach (var model in _models.Values) model?.Dispose();
+        foreach (var texture in _textures.Values) texture?.Dispose();
+        _models.Clear();
+        _textures.Clear();
+        _mounts.Clear();
+        _shader?.Dispose();
+    }
+}

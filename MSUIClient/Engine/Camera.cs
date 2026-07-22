@@ -28,8 +28,39 @@ public sealed class Camera
     /// <summary>Point the camera orbits, in WoW space.</summary>
     public Vector3 Target;
 
-    /// <summary>Radians CCW about +Z from +X. Matches WoW orientation exactly.</summary>
+    /// <summary>
+    /// Radians CCW about +Z from +X. Matches WoW orientation exactly.
+    ///
+    /// This is the CHARACTER'S FACING, not the camera's. The controller reads it
+    /// straight through as the character's orientation, and it is the value a
+    /// movement packet wants in Phase 2. Where the camera actually sits is
+    /// <see cref="ViewYaw"/>.
+    /// </summary>
     public float Yaw;
+
+    /// <summary>
+    /// Camera-only yaw OFFSET from <see cref="Yaw"/>, in radians, kept in
+    /// (-pi, pi].
+    ///
+    /// This is the whole left-button-versus-right-button distinction. Holding
+    /// the LEFT button swings the camera around the character without turning
+    /// him, so you can walk north and look at your own face - that motion goes
+    /// here. Holding the RIGHT button turns the character, so that motion goes
+    /// into <see cref="Yaw"/> instead.
+    ///
+    /// Keeping them separate is what makes both possible from one heading.
+    /// Folding the offset back in (see <see cref="FoldOrbitIntoFacing"/>) turns
+    /// the character to wherever you had swung the camera, without the camera
+    /// moving a pixel - which is exactly what the real client does the instant
+    /// you press the right button.
+    ///
+    /// Signed and wrapped rather than 0..2pi so easing it back to zero always
+    /// takes the short way round.
+    /// </summary>
+    public float OrbitYaw;
+
+    /// <summary>Where the camera actually sits and looks. Facing plus the orbit offset.</summary>
+    public float ViewYaw => Yaw + OrbitYaw;
 
     /// <summary>
     /// Radians of camera ELEVATION ABOVE the target. Positive puts the camera
@@ -84,10 +115,11 @@ public sealed class Camera
         get
         {
             float cp = MathF.Cos(Pitch);
+            float yaw = ViewYaw;
             // Behind the target: negate the facing direction.
             return new Vector3(
-                -MathF.Cos(Yaw) * cp,
-                -MathF.Sin(Yaw) * cp,
+                -MathF.Cos(yaw) * cp,
+                -MathF.Sin(yaw) * cp,
                 MathF.Sin(Pitch));
         }
     }
@@ -101,19 +133,25 @@ public sealed class Camera
         get
         {
             float cp = MathF.Cos(Pitch);
+            float yaw = ViewYaw;
             return Vector3.Normalize(new Vector3(
-                MathF.Cos(Yaw) * cp,
-                MathF.Sin(Yaw) * cp,
+                MathF.Cos(yaw) * cp,
+                MathF.Sin(yaw) * cp,
                 -MathF.Sin(Pitch)));
         }
     }
 
-    /// <summary>Horizontal facing, ignoring pitch — what movement input follows.</summary>
+    /// <summary>
+    /// Horizontal facing, ignoring pitch — what movement input follows.
+    /// Deliberately on <see cref="Yaw"/> and NOT ViewYaw: pressing W walks the
+    /// character forward, not toward wherever the camera has been swung.
+    /// </summary>
     public Vector3 FlatForward => new(MathF.Cos(Yaw), MathF.Sin(Yaw), 0);
 
     /// <summary>Right of <see cref="FlatForward"/>. In a Z-up left-of-west world this is (sin, -cos, 0).</summary>
     public Vector3 FlatRight => new(MathF.Sin(Yaw), -MathF.Cos(Yaw), 0);
 
+    /// <summary>Turn the character, and with him the camera. Right-drag and the arrow keys.</summary>
     public void Rotate(float yawDelta, float pitchDelta)
     {
         Yaw += yawDelta;
@@ -121,6 +159,53 @@ public sealed class Camera
 
         const float tau = MathF.PI * 2f;
         Yaw = ((Yaw % tau) + tau) % tau;
+    }
+
+    /// <summary>Swing the camera around the character without turning him. Left-drag.</summary>
+    public void RotateView(float yawDelta)
+    {
+        if (yawDelta == 0f) return;
+        OrbitYaw = Wrap(OrbitYaw + yawDelta);
+    }
+
+    /// <summary>
+    /// Turn the character to wherever the camera has been swung, and drop the
+    /// offset. The camera does not move: ViewYaw is unchanged because the same
+    /// angle simply moved from one term to the other.
+    ///
+    /// This is what the real client does the moment you press the right button
+    /// after looking at your own face - the character spins to put his back to
+    /// you, from your point of view instantly and without the view shifting.
+    /// </summary>
+    public void FoldOrbitIntoFacing()
+    {
+        if (OrbitYaw == 0f) return;
+
+        const float tau = MathF.PI * 2f;
+        Yaw = (((Yaw + OrbitYaw) % tau) + tau) % tau;
+        OrbitYaw = 0f;
+    }
+
+    /// <summary>
+    /// Ease the camera back behind the character. Called while moving, because
+    /// that is when the real client re-centres.
+    /// </summary>
+    public void EaseOrbitBehind(float dt, float seconds = 0.15f)
+    {
+        if (OrbitYaw == 0f) return;
+
+        float blend = seconds <= 0f ? 1f : 1f - MathF.Exp(-dt / seconds);
+        OrbitYaw -= OrbitYaw * blend;
+
+        if (MathF.Abs(OrbitYaw) < 0.002f) OrbitYaw = 0f;
+    }
+
+    /// <summary>Wrap to (-pi, pi], so easing toward zero always takes the short way.</summary>
+    private static float Wrap(float radians)
+    {
+        const float tau = MathF.PI * 2f;
+        radians = ((radians % tau) + tau) % tau;
+        return radians > MathF.PI ? radians - tau : radians;
     }
 
     public void Zoom(float delta)

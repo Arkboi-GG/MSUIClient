@@ -60,9 +60,6 @@ public sealed class VmapCollisionLoader
     /// </summary>
     private readonly HashSet<(uint Id, string Name)> _seen = [];
 
-    /// <summary>Source names in id order, handed to the CollisionWorld after loading.</summary>
-    private readonly List<string> _sourceNames = [];
-
     public int TilesLoaded { get; private set; }
     public int SpawnsSeen { get; private set; }
     public int SpawnsUsed { get; private set; }
@@ -134,8 +131,7 @@ public sealed class VmapCollisionLoader
 
             // One source id per spawn instance, so a hit names not just the
             // model but which placement of it.
-            int sourceId = _sourceNames.Count;
-            _sourceNames.Add($"{spawn.Name}#{spawn.Id}");
+            int sourceId = world.RegisterSource($"{spawn.Name}#{spawn.Id}");
 
             var rot = spawn.BuildRotation();
 
@@ -191,9 +187,6 @@ public sealed class VmapCollisionLoader
 
         return true;
     }
-
-    /// <summary>Hand the accumulated source names to the world. Call after all tiles.</summary>
-    public void PublishSourceNames(CollisionWorld world) => world.SetSourceNames(_sourceNames);
 
     /// <summary>
     /// Find and parse the .vmo for a spawn. Tries the documented convention

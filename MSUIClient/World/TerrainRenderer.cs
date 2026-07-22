@@ -73,7 +73,7 @@ public sealed class TerrainRenderer : IDisposable
             (int)MathF.Floor(32f - worldX / GridSize));
 
     /// <summary>Load a square block of tiles centred on a world position.</summary>
-    public void LoadAround(float worldX, float worldY, int radius)
+    public void LoadAround(float worldX, float worldY, int radius, AdtCache adts)
     {
         var (centreCol, centreRow) = TileAt(worldX, worldY);
         Console.WriteLine(
@@ -91,11 +91,14 @@ public sealed class TerrainRenderer : IDisposable
             if (col is < 0 or > 63 || row is < 0 or > 63) continue;
             if (_tiles.ContainsKey((col, row))) continue;
 
-            var tile = TerrainTile.Load(_gl, _config.ClientDataPath, _config.Start.MapName, col, row);
+            // One parse, two consumers: the GPU mesh and the CPU height grid.
+            var adt = adts.Get(col, row);
+
+            var tile = TerrainTile.Load(_gl, adt, _config.ClientDataPath, col, row);
             if (tile is null) { missing++; continue; }
 
             _tiles[(col, row)] = tile;
-            _heights[(col, row)] = BuildHeightGrid(_config.ClientDataPath, _config.Start.MapName, col, row);
+            _heights[(col, row)] = BuildHeightGrid(adt);
             loaded++;
         }
 
@@ -109,11 +112,10 @@ public sealed class TerrainRenderer : IDisposable
     /// CPU-side 129x129 grid of absolute heights for ground queries. Same
     /// mapping the mesh uses, so what you stand on matches what you see.
     /// </summary>
-    private static float[] BuildHeightGrid(string clientDataPath, string mapName, int col, int row)
+    private static float[] BuildHeightGrid(AdtTerrainReader.AdtResult? adt)
     {
         var grid = new float[HeightGridSide * HeightGridSide];
 
-        var adt = AdtTerrainReader.ReadFromMpq(clientDataPath, mapName, row, col);
         if (adt?.Chunks == null) return grid;
 
         foreach (var chunk in adt.Chunks)

@@ -75,7 +75,7 @@ public sealed class CollisionWorld
     /// afternoon of guessing which building's mesh is in the wrong place.
     /// </summary>
     private int[] _source = [];
-    private string[] _sourceNames = [];
+    private readonly List<string> _sourceNames = [];
 
     private Tri[] _tris = [];
     private int[] _index = [];
@@ -117,8 +117,16 @@ public sealed class CollisionWorld
         _pendingSource.Add(sourceId);
     }
 
-    /// <summary>Register the names triangles refer to by index.</summary>
-    public void SetSourceNames(IEnumerable<string> names) => _sourceNames = [.. names];
+    /// <summary>
+    /// Register a source and get its id. Self-registering so several producers
+    /// can feed one world — WMO geometry from the renderer, doodads later, and
+    /// the vmap loader when it is used as a cross-check.
+    /// </summary>
+    public int RegisterSource(string name)
+    {
+        _sourceNames.Add(name);
+        return _sourceNames.Count - 1;
+    }
 
     /// <summary>
     /// The three world-space corners of a triangle by index, Offset applied —
@@ -147,7 +155,7 @@ public sealed class CollisionWorld
     {
         if (triangle < 0 || triangle >= _source.Length) return "?";
         int id = _source[triangle];
-        return id >= 0 && id < _sourceNames.Length ? _sourceNames[id] : "?";
+        return id >= 0 && id < _sourceNames.Count ? _sourceNames[id] : "?";
     }
 
     /// <summary>

@@ -136,6 +136,35 @@ public sealed class Shader : IDisposable
     public void Set(string name, Vector3 v) => _gl.Uniform3(Location(name), v.X, v.Y, v.Z);
     public void Set(string name, Vector4 v) => _gl.Uniform4(Location(name), v.X, v.Y, v.Z, v.W);
 
+    /// <summary>
+    /// Upload a vec4 array uniform - the skinning path.
+    ///
+    /// Bone matrices go up as three vec4 per bone holding the ROWS of the
+    /// transform rather than as a mat4 or mat3x4 array. That is deliberate:
+    /// it sidesteps the column-order question entirely (the shader does three
+    /// dot products), it is a quarter smaller than mat4, and one flat float
+    /// array uploads in a single call with no per-element location lookups.
+    ///
+    /// <paramref name="count"/> is the number of vec4s to send, which is
+    /// normally boneCount * 3 and NOT the length of the buffer - the buffer is
+    /// sized for the shader's maximum and only partly filled.
+    /// </summary>
+    public unsafe void SetVec4Array(string name, float[] values, int count)
+    {
+        int loc = Location(name);
+        if (loc == -1 || count <= 0) return;
+
+        if (count * 4 > values.Length)
+            throw new ArgumentException(
+                $"{Name}: asked to upload {count} vec4 ({count * 4} floats) from a " +
+                $"{values.Length}-float buffer", nameof(count));
+
+        fixed (float* p = values)
+        {
+            _gl.Uniform4(loc, (uint)count, p);
+        }
+    }
+
     public unsafe void Set(string name, Matrix4x4 m)
     {
         int loc = Location(name);
