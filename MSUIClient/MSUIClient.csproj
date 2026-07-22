@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- ══════════════════════════════════════════════════════════════════════
+	     MSUI Client — native C# client for VMaNGOS 1.12.1 (client build 5875).
+
+	     Fully standalone: no reference to MangosSuperUI or anything else.
+	     The Blizzard format readers live in Formats/ as this project's own
+	     source. They were originally written for the SuperUI web app; copies
+	     here are independent and will drift. That is the deliberate trade for
+	     an independent project — these are 2006 file formats that do not change,
+	     so drift costs little, but a real bug fix does have to be applied twice.
+
+	     Reads the WoW MPQs directly off local disk. No asset server, no bake
+	     step, no HTTP. Works natively in WoW world space (X north, Y west,
+	     Z up) with no coordinate conversion anywhere.
+	     ══════════════════════════════════════════════════════════════════════ -->
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<AssemblyName>MSUIClient</AssemblyName>
+		<RootNamespace>MSUIClient</RootNamespace>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<InvariantGlobalization>true</InvariantGlobalization>
+
+		<!-- Console stays attached in Debug so parser output is visible; hidden
+		     in Release so the shipped client doesn't open a terminal beside it. -->
+		<OutputType Condition="'$(Configuration)' == 'Release'">WinExe</OutputType>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- Windowing + GL + input. Silk.NET is a binding layer, not an engine —
+		     we own the renderer, which is what the painterly render mode needs
+		     (full control of shaders and the post stack). -->
+		<PackageReference Include="Silk.NET.Windowing" Version="2.21.0" />
+		<PackageReference Include="Silk.NET.OpenGL" Version="2.21.0" />
+		<PackageReference Include="Silk.NET.Input" Version="2.21.0" />
+		<PackageReference Include="Silk.NET.Maths" Version="2.21.0" />
+		<PackageReference Include="Silk.NET.OpenGL.Extensions.ImGui" Version="2.21.0" />
+
+		<!-- Only AdtTerrainReader's PNG/splat-map helpers need Skia. The client
+		     itself calls ReadBlpPixels (raw BGRA) and never touches them, so if
+		     you strip those methods from your copy you can drop these two lines
+		     and the native dependency with them. -->
+		<PackageReference Include="SkiaSharp" Version="3.119.2" />
+		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="client-config.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+		<None Update="Shaders\**\*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
+</Project>

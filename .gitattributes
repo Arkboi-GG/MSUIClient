@@ -1,0 +1,15 @@
+* text=auto
+
+*.cs      text eol=crlf
+*.csproj  text eol=crlf
+*.sln     text eol=crlf
+*.json    text eol=crlf
+*.glsl    text eol=crlf
+*.vert    text eol=crlf
+*.frag    text eol=crlf
+
+*.md      text eol=lf
+
+*.png binary
+*.mpq binary
+*.blp binary

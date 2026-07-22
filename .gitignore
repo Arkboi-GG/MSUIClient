@@ -1,0 +1,70 @@
+# ══════════════════════════════════════════════════════════════════════
+# MSUI Client
+#
+# The first rule is the important one. GameData holds the WoW 1.12.1
+# client archives and a copy of the server's extracted vmaps: several
+# gigabytes of Blizzard's files that must never enter this history. Once
+# a large blob is committed it stays in the pack forever unless the
+# history is rewritten, and GitHub rejects any single file over 100 MB
+# on push - so the failure arrives late, after the commit, when it is
+# most annoying to undo.
+#
+# Verify before the first commit:
+#     git check-ignore -v GameData
+# It should print this file and the line number. Silence means it is NOT
+# ignored, and you should stop and fix that before staging anything.
+# ══════════════════════════════════════════════════════════════════════
+
+GameData/
+*.MPQ
+*.mpq
+*.vmo
+*.vmtile
+*.adt
+*.wdt
+*.dbc
+
+# Per-machine paths. client-config.json.example is committed instead, so
+# a fresh clone has a template without carrying anyone's local layout.
+client-config.json
+
+# Archives produced by setup-vmaps.ps1
+*.tar.gz
+vmaps.tar.gz
+
+# ── .NET build output ────────────────────────────────────────────────
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.dll
+*.exe
+*.pdb
+*.cache
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+# ── Visual Studio / Rider / VS Code ──────────────────────────────────
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# ── OS noise ─────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Scratch ──────────────────────────────────────────────────────────
+*.log
+*.tmp
+scratch/
