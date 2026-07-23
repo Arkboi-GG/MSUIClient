@@ -67,6 +67,15 @@ public sealed class AdtCache
     /// <summary>Drop one tile, for when streaming unloads it.</summary>
     public void Forget(int col, int row) => _cache.Remove((col, row));
 
+    /// <summary>Keep parsed data only for the currently resident ring.</summary>
+    public void Retain(IReadOnlySet<(int col, int row)> resident)
+    {
+        foreach (var key in _cache.Keys.Where(k => !resident.Contains(k)).ToArray())
+            _cache.Remove(key);
+    }
+
+    public int HeldTiles => _cache.Count;
+
     /// <summary>
     /// Drop everything. Call once a load pass is finished — the parsed data is
     /// large and nothing needs it again until tiles change.

@@ -60,6 +60,23 @@ public sealed class CharacterController
 {
     private static readonly Vector3 Down = -Vector3.UnitZ;
 
+    // A single ray is structurally unreliable on fence rails, stair lips and
+    // other supports narrower than the character. Probe the capsule footprint:
+    // centre first, then four cardinals and four diagonals. The directions are
+    // unit length so every outer sample stays inside the configured radius.
+    private static readonly Vector2[] SupportProbeDirections =
+    [
+        Vector2.Zero,
+        Vector2.UnitX,
+        -Vector2.UnitX,
+        Vector2.UnitY,
+        -Vector2.UnitY,
+        new(0.70710677f, 0.70710677f),
+        new(0.70710677f, -0.70710677f),
+        new(-0.70710677f, 0.70710677f),
+        new(-0.70710677f, -0.70710677f),
+    ];
+
     private readonly TerrainRenderer _terrain;
     private readonly ClientConfig.MovementConfig _opts;
 
@@ -80,6 +97,15 @@ public sealed class CharacterController
     public bool Grounded { get; private set; }
     public bool Flying { get; set; }
     public float FallTimeMs { get; private set; }
+
+    /// <summary>True when downward ground adhesion, rather than penetration, kept support this frame.</summary>
+    public bool GroundAdhesion { get; private set; }
+
+    /// <summary>Offset from the capsule centre of the collision probe that supplied support.</summary>
+    public Vector2 GroundProbeOffset { get; private set; }
+
+    /// <summary>Collision support rays used this frame: normally one, nine only near a lost edge.</summary>
+    public int GroundProbesLastFrame { get; private set; }
 
     /// <summary>Last resolved ground height, for the HUD. Null means nothing below.</summary>
     public float? GroundZ { get; private set; }
@@ -218,14 +244,22 @@ public sealed class CharacterController
             return;
         }
 
-        float speed = input.Walking ? _opts.WalkSpeed : _opts.RunSpeed;
+        // Vanilla has a distinct MOVE_RUN_BACK speed. The old controller used
+        // 7 yd/s in every direction, making backpedalling as fast as running
+        // forward even though the server and original client use 4.5 yd/s.
+        float speed = input.Walking
+            ? _opts.WalkSpeed
+            : input.Forward < -0.01f ? _opts.BackwardSpeed : _opts.RunSpeed;
 
         var wish = forward * input.Forward + right * input.Strafe;
         var move = Vector3.Zero;
         if (wish.LengthSquared() > 1e-6f)
             move = Vector3.Normalize(wish) * speed * dt;
 
-        if (input.Jump && Grounded)
+        bool wasGrounded = Grounded;
+        bool jumped = input.Jump && Grounded;
+
+        if (jumped)
         {
             Velocity.Z = _opts.JumpVelocity;
             Grounded = false;
@@ -239,7 +273,7 @@ public sealed class CharacterController
         if (Velocity.Z < -_opts.TerminalVelocity) Velocity.Z = -_opts.TerminalVelocity;
         Position.Z += Velocity.Z * dt;
 
-        ResolveGround();
+        ResolveGround(wasGrounded && !jumped);
 
         LastBlockAgeSeconds += dt;
 
@@ -367,34 +401,76 @@ public sealed class CharacterController
     /// was ported faithfully, which was the right default and the wrong outcome
     /// here.
     /// </summary>
-    private void ResolveGround()
+    private void ResolveGround(bool allowGroundAdhesion)
     {
         float? groundZ = _terrain.SampleHeight(Position.X, Position.Y);
 
         TerrainGroundZ = groundZ;
         CollisionGroundZ = null;
         GroundSource = groundZ is null ? "none" : "terrain";
+        GroundProbeOffset = Vector2.Zero;
+        GroundProbesLastFrame = 0;
+        GroundAdhesion = false;
 
         if (Collision is { IsEmpty: false })
         {
-            var origin = Position + new Vector3(0, 0, _opts.StepHeight);
-
-            // Reach well below the feet so a fast fall onto a bridge or a WMO
-            // floor is not missed between frames.
-            var hit = Collision.Raycast(origin, Down, _opts.StepHeight + 5f);
-
             GroundTriangle = -1;
 
-            if (hit is not null && hit.Value.Normal.Z > _minGroundZ)
-            {
-                float surfaceZ = origin.Z - hit.Value.Distance;
-                CollisionGroundZ = surfaceZ;
-                GroundTriangle = hit.Value.Triangle;
+            float bestSurfaceZ = float.NegativeInfinity;
+            int bestTriangle = -1;
+            Vector2 bestOffset = Vector2.Zero;
 
-                if (groundZ is null || surfaceZ > groundZ.Value)
+            // Stay slightly inside the capsule edge. Sampling exactly on the
+            // radius makes a touching wall eligible as floor due to float noise.
+            float probeRadius = MathF.Max(0f, _opts.Radius * 0.85f);
+
+            void ProbeCollision(Vector2 direction)
+            {
+                GroundProbesLastFrame++;
+                var offset = direction * probeRadius;
+                var origin = Position + new Vector3(offset.X, offset.Y, _opts.StepHeight);
+
+                // Reach well below the feet so a fast fall onto a bridge or a
+                // WMO floor is not missed between frames.
+                var hit = Collision.Raycast(origin, Down, _opts.StepHeight + 5f);
+                if (hit is null || hit.Value.Normal.Z <= _minGroundZ) return;
+
+                float surfaceZ = origin.Z - hit.Value.Distance;
+                if (surfaceZ <= bestSurfaceZ) return;
+
+                bestSurfaceZ = surfaceZ;
+                bestTriangle = hit.Value.Triangle;
+                bestOffset = offset;
+            }
+
+            // The centre answers almost every frame. Expand to the footprint
+            // only when neither terrain nor that centre ray is close enough to
+            // support the current feet; this keeps ordinary terrain walking at
+            // one BVH query while still rescuing fence and stair-edge misses.
+            ProbeCollision(SupportProbeDirections[0]);
+
+            float nearbyDistance = MathF.Max(0.05f, _opts.GroundSnapDistance);
+            bool terrainNearby = groundZ is float terrainZ &&
+                                 Position.Z - terrainZ <= nearbyDistance;
+            bool collisionNearby = bestTriangle >= 0 &&
+                                   Position.Z - bestSurfaceZ <= nearbyDistance;
+
+            if (!terrainNearby && !collisionNearby)
+            {
+                for (int i = 1; i < SupportProbeDirections.Length; i++)
+                    ProbeCollision(SupportProbeDirections[i]);
+            }
+
+            if (bestTriangle >= 0)
+            {
+                CollisionGroundZ = bestSurfaceZ;
+
+                if (groundZ is null || bestSurfaceZ > groundZ.Value)
                 {
-                    groundZ = surfaceZ;
+                    groundZ = bestSurfaceZ;
                     GroundSource = "collision";
+                    GroundTriangle = bestTriangle;
+                    GroundProbeOffset = bestOffset;
                 }
             }
         }
@@ -432,6 +508,18 @@ public sealed class CharacterController
             Position.Z = groundZ.Value;
             if (Velocity.Z < 0) Velocity.Z = 0;
             Grounded = true;
+        }
+        else if (allowGroundAdhesion && Velocity.Z <= 0f &&
+                 Position.Z - groundZ.Value <= MathF.Max(0f, _opts.GroundSnapDistance))
+        {
+            // Descending stairs and short gaps between narrow support triangles
+            // should read as continuous ground. Physics still leaves support
+            // immediately for a deliberate jump because allowGroundAdhesion is
+            // false on that frame.
+            Position.Z = groundZ.Value;
+            Velocity.Z = 0f;
+            Grounded = true;
+            GroundAdhesion = true;
         }
         else
         {

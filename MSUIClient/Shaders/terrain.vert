@@ -14,6 +14,7 @@ layout (location = 2) in vec2 aTileUV;    // 0..1 across the whole ADT tile
 layout (location = 3) in vec4 aLayers;    // tileset array indices, -1 = unused
 
 uniform mat4 uViewProjection;
+uniform vec3 uCameraOrigin;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -22,10 +23,12 @@ flat out vec4 vLayers;
 
 void main()
 {
-    vWorldPos = aPosition;
+    vec3 relativePosition = aPosition - uCameraOrigin;
+
+    vWorldPos = relativePosition;
     vNormal   = normalize(aNormal);
     vTileUV   = aTileUV;
     vLayers   = aLayers;
 
-    gl_Position = uViewProjection * vec4(aPosition, 1.0);
+    gl_Position = uViewProjection * vec4(relativePosition, 1.0);
 }

@@ -60,6 +60,9 @@ public sealed class CollisionDebugRenderer : IDisposable
 
     public int TriangleCount => _vertexCount / 3;
 
+    /// <summary>Discard an upload whose collision world is no longer resident.</summary>
+    public void Clear() => Release();
+
     public CollisionDebugRenderer(GL gl) => _gl = gl;
 
     public void LoadShaders(string shaderDir)

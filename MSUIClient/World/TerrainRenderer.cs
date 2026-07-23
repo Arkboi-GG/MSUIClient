@@ -17,7 +17,13 @@ public sealed class TerrainRenderer : IDisposable
 {
     private readonly GL _gl;
     private readonly ClientConfig _config;
+    private readonly GpuUploadWorker _uploads;
+    private readonly AssetWorkerPool _workers;
     private readonly Dictionary<(int col, int row), TerrainTile> _tiles = [];
+    private readonly Dictionary<(int col, int row), Task<TerrainTile.Uploaded?>> _preloads = [];
+    private readonly Dictionary<(int col, int row), float[]> _preloadHeights = [];
+    private readonly HashSet<(int col, int row)> _missingPreloads = [];
+    private HashSet<(int col, int row)> _desired = [];
 
     /// <summary>Height grids kept CPU-side for ground queries, keyed like the tiles.</summary>
     private readonly Dictionary<(int col, int row), float[]> _heights = [];
@@ -54,10 +60,13 @@ public sealed class TerrainRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
-    public TerrainRenderer(GL gl, ClientConfig config)
+    public TerrainRenderer(
+        GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
     {
         _gl = gl;
         _config = config;
+        _uploads = uploads;
+        _workers = workers;
     }
 
     public void LoadShaders(string shaderDir)
@@ -71,6 +80,25 @@ public sealed class TerrainRenderer : IDisposable
     public static (int col, int row) TileAt(float worldX, float worldY)
         => ((int)MathF.Floor(32f - worldY / GridSize),
             (int)MathF.Floor(32f - worldX / GridSize));
+
+    /// <summary>World-space centre of a tile.</summary>
+    public static Vector2 TileCenter(int col, int row)
+        => new((32f - row) * GridSize - GridSize * 0.5f,
+               (32f - col) * GridSize - GridSize * 0.5f);
+
+    public static HashSet<(int col, int row)> TileRing(int centreCol, int centreRow, int radius)
+    {
+        var result = new HashSet<(int col, int row)>();
+        for (int dc = -radius; dc <= radius; dc++)
+        for (int dr = -radius; dr <= radius; dr++)
+        {
+            int col = centreCol + dc;
+            int row = centreRow + dr;
+            if (col is >= 0 and <= 63 && row is >= 0 and <= 63)
+                result.Add((col, row));
+        }
+        return result;
+    }
 
     /// <summary>Load a square block of tiles centred on a world position.</summary>
     public void LoadAround(float worldX, float worldY, int radius, AdtCache adts)
@@ -106,6 +134,128 @@ public sealed class TerrainRenderer : IDisposable
         Console.WriteLine(
             $"[terrain] {loaded} tile(s) loaded, {missing} absent, " +
             $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
+    }
+
+    /// <summary>
+    /// Make the GPU/height residency exactly match a tile ring. Shared world
+    /// assets live in the other renderers; terrain tiles themselves are cheap
+    /// enough to dispose when they leave the ring.
+    /// </summary>
+    public bool SetResidency(int centreCol, int centreRow, int radius, AdtCache adts)
+    {
+        var desired = TileRing(centreCol, centreRow, radius);
+        _desired = desired;
+        bool changed = false;
+
+        foreach (var key in _tiles.Keys.Where(k => !desired.Contains(k)).ToArray())
+        {
+            _tiles[key].Dispose();
+            _tiles.Remove(key);
+            _heights.Remove(key);
+            changed = true;
+        }
+
+        foreach (var (col, row) in desired.OrderBy(k => Math.Abs(k.col - centreCol) + Math.Abs(k.row - centreRow)))
+        {
+            if (_tiles.ContainsKey((col, row))) continue;
+
+            if (_preloads.TryGetValue((col, row), out var preload))
+            {
+                if (!preload.IsCompleted) continue;
+                _preloads.Remove((col, row));
+                TerrainTile.Uploaded? uploaded;
+                try { uploaded = preload.GetAwaiter().GetResult(); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[terrain-preload] tile [{col},{row}] failed - {ex.Message}");
+                    continue;
+                }
+                if (uploaded is null) continue;
+                _tiles[(col, row)] = TerrainTile.Adopt(_gl, uploaded);
+                _heights[(col, row)] = _preloadHeights.GetValueOrDefault((col, row), []);
+                _preloadHeights.Remove((col, row));
+                changed = true;
+                continue;
+            }
+
+            var adt = adts.Get(col, row);
+            var tile = TerrainTile.Load(_gl, adt, _config.ClientDataPath, col, row);
+            if (tile is null) continue;
+
+            _tiles[(col, row)] = tile;
+            _heights[(col, row)] = BuildHeightGrid(adt);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Prepare the one-tile lead ring on CPU workers and upload it through the
+    /// shared GL context. These tiles remain unpublished until residency asks
+    /// for them; the render thread only creates their small VAO container.
+    /// </summary>
+    public void QueuePreload(
+        IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    {
+        foreach (var (col, row) in tiles)
+        {
+            var key = (col, row);
+            if (_tiles.ContainsKey(key) || _preloads.ContainsKey(key)) continue;
+
+            var adt = adts.Get(col, row);
+            if (adt is null)
+            {
+                _missingPreloads.Add(key);
+                continue;
+            }
+            _preloadHeights[key] = BuildHeightGrid(adt);
+
+            var preparation = _workers.Run(() => TerrainTile.Prepare(
+                adt, _config.ClientDataPath, col, row));
+            _preloads[key] = CompleteTerrainPreload(preparation, col, row);
+        }
+    }
+
+    public bool PreloadReady(IEnumerable<(int col, int row)> tiles)
+        => tiles.All(key =>
+            _tiles.ContainsKey(key) ||
+            _missingPreloads.Contains(key) ||
+            (_preloads.TryGetValue(key, out var task) && task.IsCompleted));
+
+    private async Task<TerrainTile.Uploaded?> CompleteTerrainPreload(
+        Task<TerrainTile.Prepared?> preparation, int col, int row)
+    {
+        var prepared = await preparation.ConfigureAwait(false);
+        if (prepared is null) return null;
+        return await _uploads.Enqueue(
+            $"terrain [{col},{row}]",
+            uploadGl => TerrainTile.Upload(uploadGl, _gl, prepared)).ConfigureAwait(false);
+    }
+
+    /// <summary>Adopt ready terrain belonging to the current desired ring.</summary>
+    public void PumpPreloads()
+    {
+        foreach (var key in _desired.ToArray())
+        {
+            if (_tiles.ContainsKey(key) ||
+                !_preloads.TryGetValue(key, out var task) ||
+                !task.IsCompleted) continue;
+
+            _preloads.Remove(key);
+            try
+            {
+                var uploaded = task.GetAwaiter().GetResult();
+                if (uploaded is null) continue;
+                _tiles[key] = TerrainTile.Adopt(_gl, uploaded);
+                _heights[key] = _preloadHeights.GetValueOrDefault(key, []);
+                _preloadHeights.Remove(key);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[terrain-preload] tile [{key.col},{key.row}] failed - {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -178,8 +328,9 @@ public sealed class TerrainRenderer : IDisposable
         if (_shader is null || _tiles.Count == 0) { DrawnLastFrame = 0; return; }
 
         _shader.Use();
-        _shader.Set("uViewProjection", camera.ViewProjection);
-        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uCameraOrigin", camera.Position);
+        _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
@@ -191,12 +342,15 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uTileset", 0);
         _shader.Set("uAlphaAtlas", 1);
 
-        var planes = camera.FrustumPlanes();
+        var viewProjection = camera.RelativeViewProjection;
+        var cameraPosition = camera.Position;
         int drawn = 0;
 
         foreach (var tile in _tiles.Values)
         {
-            if (!Camera.BoxInFrustum(planes, tile.BoundsMin, tile.BoundsMax)) continue;
+            if (!Camera.BoxInFrustum(viewProjection,
+                    tile.BoundsMin - cameraPosition,
+                    tile.BoundsMax - cameraPosition)) continue;
             tile.Draw();
             drawn++;
         }
@@ -231,9 +385,21 @@ public sealed class TerrainRenderer : IDisposable
 
     public void Dispose()
     {
+        try { Task.WhenAll(_preloads.Values).GetAwaiter().GetResult(); }
+        catch { /* Continue shutdown after a failed terrain package. */ }
         foreach (var tile in _tiles.Values) tile.Dispose();
+        foreach (var task in _preloads.Values)
+            if (task.Status == TaskStatus.RanToCompletion && task.Result is { } uploaded)
+            {
+                uploaded.Textures.Dispose();
+                _gl.DeleteBuffer(uploaded.Vbo);
+                _gl.DeleteBuffer(uploaded.Ebo);
+            }
         _tiles.Clear();
         _heights.Clear();
+        _preloads.Clear();
+        _preloadHeights.Clear();
+        _missingPreloads.Clear();
         _shader?.Dispose();
     }
 }

@@ -131,6 +131,7 @@ public sealed class M2Animator
         public int AnimationId;
         public string Name = "";
         public float DurationSeconds;
+        public float MoveSpeed;
         public bool Looping;
 
         /// <summary>Raw sequence flags, logged so we learn what they mean rather than assume.</summary>
@@ -489,6 +490,7 @@ public sealed class M2Animator
             AnimationId = animationId,
             Name = AnimationName(animationId),
             DurationSeconds = seq.DurationMs / 1000f,
+            MoveSpeed = seq.MoveSpeed,
             Looping = !OneShotAnimations.Contains(animationId),
             SourceFlags = seq.Flags,
             Bones = new BoneChannels[_boneCount],

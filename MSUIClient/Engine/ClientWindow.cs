@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
@@ -47,6 +48,10 @@ namespace MSUIClient.Engine;
 /// </summary>
 public sealed class ClientWindow : IDisposable
 {
+    private static readonly GraphicsAPI GraphicsApi = new(
+        ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.Default,
+        new APIVersion(3, 3));
+
     private readonly ClientConfig _config;
 
     private IWindow _window = null!;
@@ -57,6 +62,21 @@ public sealed class ClientWindow : IDisposable
 
     public GL Gl => _gl;
     public Camera Camera { get; } = new();
+
+    /// <summary>
+    /// The live swap-interval request. Setting this after the context exists is
+    /// important on drivers that ignore the value supplied during window creation.
+    /// </summary>
+    public bool VSync
+    {
+        get => _window is not null ? _window.VSync : _config.Window.VSync;
+        set
+        {
+            _config.Window.VSync = value;
+            if (_window is not null) _window.VSync = value;
+            Console.WriteLine($"[display] VSync {(value ? "on" : "off")}");
+        }
+    }
 
     /// <summary>Raised once after the GL context exists — build GPU resources here.</summary>
     public event Action<GL>? OnLoad;
@@ -135,17 +155,21 @@ public sealed class ClientWindow : IDisposable
 
     public ClientWindow(ClientConfig config) => _config = config;
 
+    public GpuUploadWorker CreateGpuUploadWorker()
+        => new(_window, GraphicsApi);
+
     public void Run()
     {
+        var startup = Stopwatch.StartNew();
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height),
             Title = _config.Window.Title,
             VSync = _config.Window.VSync,
+            Samples = Math.Clamp(_config.Render.MsaaSamples, 0, 16),
             // 3.3 core is the floor; anything modern exceeds it, and it keeps the
             // client runnable on older hardware and inside VMs.
-            API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.Default,
-                                  new APIVersion(3, 3)),
+            API = GraphicsApi,
         };
 
         _window = Window.Create(options);
@@ -156,14 +180,23 @@ public sealed class ClientWindow : IDisposable
         _window.FramebufferResize += HandleResize;
         _window.Closing += HandleClosing;
 
+        Console.WriteLine($"[startup] window created          {startup.Elapsed.TotalSeconds,6:F2}s");
         _window.Run();
     }
 
     private void HandleLoad()
     {
+        var startup = Stopwatch.StartNew();
         _gl = _window.CreateOpenGL();
         _input = _window.CreateInput();
         _imgui = new ImGuiController(_gl, _window, _input);
+
+        // Reapply after context creation. Some Windows/driver combinations do
+        // not honor the creation-time hint, which leaves automatic swaps free
+        // to tear even though window.vSync is true in the config.
+        _window.VSync = _config.Window.VSync;
+        Console.WriteLine($"[display] VSync requested {(_config.Window.VSync ? "on" : "off")}, " +
+                          $"window reports {(_window.VSync ? "on" : "off")}");
 
         // ImGui's default font is unreadably small on a high-DPI panel. Scale
         // the font and every widget metric together so the HUD stays legible.
@@ -248,17 +281,31 @@ public sealed class ClientWindow : IDisposable
 
         _gl.Enable(EnableCap.DepthTest);
         _gl.DepthFunc(DepthFunction.Lequal);
+        if (_config.Render.MsaaSamples > 1)
+            _gl.Enable(EnableCap.Multisample);
         _gl.Enable(EnableCap.CullFace);
         _gl.CullFace(TriangleFace.Back);
         // WoW is Z-up and its terrain winds counter-clockwise seen from above.
         _gl.FrontFace(FrontFaceDirection.Ccw);
+
+        unsafe
+        {
+            int actualSamples = 0;
+            _gl.GetInteger(GLEnum.Samples, &actualSamples);
+            float anisotropy = Texture.ConfigureAnisotropy(_gl, _config.Render.Anisotropy);
+            Console.WriteLine($"[display] MSAA requested {_config.Render.MsaaSamples}x, " +
+                              $"framebuffer reports {actualSamples}x; anisotropy {anisotropy:F0}x");
+        }
 
         Camera.FieldOfViewDegrees = _config.Render.FieldOfView;
         Camera.NearPlane = _config.Render.NearPlane;
         Camera.FarPlane = _config.Render.FarPlane;
         Camera.AspectRatio = (float)_config.Window.Width / _config.Window.Height;
 
+        Console.WriteLine($"[startup] GL + input + UI         {startup.Elapsed.TotalSeconds,6:F2}s");
+        startup.Restart();
         OnLoad?.Invoke(_gl);
+        Console.WriteLine($"[startup] game load callback     {startup.Elapsed.TotalSeconds,6:F2}s");
     }
 
     // ── mouse capture ────────────────────────────────────────────────────────

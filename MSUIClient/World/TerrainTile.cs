@@ -40,6 +40,22 @@ public sealed class TerrainTile : IDisposable
     /// <summary>Position(3) + Normal(3) + TileUV(2) + LayerIndices(4), interleaved.</summary>
     private const int FloatsPerVertex = 12;
 
+    public sealed class Prepared
+    {
+        public required float[] Vertices;
+        public required uint[] Indices;
+        public required TerrainTextures.Prepared Textures;
+        public int Col, Row, HoleCells;
+        public Vector3 BoundsMin, BoundsMax;
+    }
+
+    public sealed class Uploaded
+    {
+        public required Prepared Cpu;
+        public required TerrainTextures Textures;
+        public uint Vbo, Ebo;
+    }
+
     private readonly GL _gl;
     private readonly uint _vao;
     private readonly uint _vbo;
@@ -83,8 +99,16 @@ public sealed class TerrainTile : IDisposable
     /// Read an ADT out of the MPQs and upload it. Returns null when the tile
     /// doesn't exist (ocean, off-continent) or carries no height data.
     /// </summary>
-    public static unsafe TerrainTile? Load(
+    public static TerrainTile? Load(
         GL gl, AdtTerrainReader.AdtResult? adt, string clientDataPath, int col, int row)
+    {
+        var prepared = Prepare(adt, clientDataPath, col, row);
+        if (prepared is null) return null;
+        return Adopt(gl, Upload(gl, gl, prepared));
+    }
+
+    public static Prepared? Prepare(
+        AdtTerrainReader.AdtResult? adt, string clientDataPath, int col, int row)
     {
         // The ADT arrives already parsed. It used to be read here, and again by
         // the height grid, and again by the building and doodad loaders — four
@@ -92,7 +116,7 @@ public sealed class TerrainTile : IDisposable
         // index inversion (ReadFromMpq takes row, col) lives there too.
         if (adt?.Chunks == null || adt.Chunks.Length == 0) return null;
 
-        var textures = TerrainTextures.Build(gl, adt, clientDataPath, col, row);
+        var textures = TerrainTextures.Prepare(adt, clientDataPath, col, row);
 
         double originX = (32 - row) * 533.33333;
         double originY = (32 - col) * 533.33333;
@@ -167,24 +191,48 @@ public sealed class TerrainTile : IDisposable
         var vertexArray = vertices.ToArray();
         var indexArray = indices.ToArray();
 
+        return new Prepared
+        {
+            Vertices = vertexArray,
+            Indices = indexArray,
+            Textures = textures,
+            Col = col,
+            Row = row,
+            HoleCells = holeCells,
+            BoundsMin = min,
+            BoundsMax = max,
+        };
+    }
+
+    public static unsafe Uploaded Upload(GL gl, GL ownerGl, Prepared prepared)
+    {
+        var uploaded = new Uploaded
+        {
+            Cpu = prepared,
+            Textures = TerrainTextures.Upload(gl, prepared.Textures, ownerGl),
+            Vbo = gl.GenBuffer(),
+            Ebo = gl.GenBuffer(),
+        };
+
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, uploaded.Vbo);
+        fixed (float* p = prepared.Vertices)
+            gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(prepared.Vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, uploaded.Ebo);
+        fixed (uint* p = prepared.Indices)
+            gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(prepared.Indices.Length * sizeof(uint)), p, BufferUsageARB.StaticDraw);
+
+        return uploaded;
+    }
+
+    public static unsafe TerrainTile Adopt(GL gl, Uploaded uploaded)
+    {
         uint vao = gl.GenVertexArray();
         gl.BindVertexArray(vao);
-
-        uint vbo = gl.GenBuffer();
-        gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
-        fixed (float* p = vertexArray)
-        {
-            gl.BufferData(BufferTargetARB.ArrayBuffer,
-                (nuint)(vertexArray.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
-        }
-
-        uint ebo = gl.GenBuffer();
-        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
-        fixed (uint* p = indexArray)
-        {
-            gl.BufferData(BufferTargetARB.ElementArrayBuffer,
-                (nuint)(indexArray.Length * sizeof(uint)), p, BufferUsageARB.StaticDraw);
-        }
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, uploaded.Vbo);
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, uploaded.Ebo);
 
         const uint stride = FloatsPerVertex * sizeof(float);
         gl.EnableVertexAttribArray(0);
@@ -195,17 +243,18 @@ public sealed class TerrainTile : IDisposable
         gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
         gl.EnableVertexAttribArray(3);
         gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
-
         gl.BindVertexArray(0);
 
+        var p = uploaded.Cpu;
         Console.WriteLine(
-            $"[terrain] tile [{col},{row}]: {vertexArray.Length / FloatsPerVertex} verts, " +
-            $"{indexArray.Length / 3} tris, {holeCells} hole cells, " +
-            $"z {min.Z:F1}..{max.Z:F1}");
+            $"[terrain] tile [{p.Col},{p.Row}] adopted: {p.Vertices.Length / FloatsPerVertex} verts, " +
+            $"{p.Indices.Length / 3} tris, {p.HoleCells} hole cells, " +
+            $"z {p.BoundsMin.Z:F1}..{p.BoundsMax.Z:F1}");
 
-        var tile = new TerrainTile(gl, vao, vbo, ebo, col, row,
-            vertexArray.Length / FloatsPerVertex, indexArray.Length, holeCells, min, max);
-        tile.AttachTextures(textures);
+        var tile = new TerrainTile(gl, vao, uploaded.Vbo, uploaded.Ebo, p.Col, p.Row,
+            p.Vertices.Length / FloatsPerVertex, p.Indices.Length, p.HoleCells,
+            p.BoundsMin, p.BoundsMax);
+        tile.AttachTextures(uploaded.Textures);
         return tile;
     }
 

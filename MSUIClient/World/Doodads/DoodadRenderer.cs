@@ -128,6 +128,38 @@ public sealed class DoodadRenderer : IDisposable
         }
     }
 
+    private sealed class ModelPreloadJob
+    {
+        public required string Path;
+        public required string CacheKey;
+        public required Task<PreparedModel> Worker;
+        public PreparedModel? Ready;
+        public Task<UploadedModel>? Upload;
+        public System.Diagnostics.Stopwatch Timer = System.Diagnostics.Stopwatch.StartNew();
+    }
+
+    private sealed class UploadedModel
+    {
+        public uint Vbo;
+        public uint Ebo;
+        public Dictionary<string, Texture?> Textures = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private sealed class PreparedModel
+    {
+        public M2Model? Parsed;
+        public bool Missing;
+        public List<PreparedTexture> Textures = [];
+    }
+
+    private sealed class PreparedTexture
+    {
+        public required string Path;
+        public byte[]? Bgra;
+        public int Width;
+        public int Height;
+    }
+
     private sealed class Instance
     {
         public Matrix4x4 Transform;
@@ -136,6 +168,8 @@ public sealed class DoodadRenderer : IDisposable
     }
 
     private readonly GL _gl;
+    private readonly GpuUploadWorker _uploads;
+    private readonly AssetWorkerPool _workers;
     private readonly ClientConfig _config;
 
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
@@ -146,16 +180,21 @@ public sealed class DoodadRenderer : IDisposable
 
     private readonly HashSet<string> _placed = [];
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _preloadQueue = new();
+    private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
+    private ModelPreloadJob? _preloadJob;
 
     private Shader _shader = null!;
 
     public int InstanceCount { get; private set; }
     public int ModelCount => _models.Count(m => m.Value is not null);
     public int TextureCount => _textures.Count(t => t.Value is not null);
+    public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
     public int TotalTriangles { get; private set; }
     public int CollisionModels { get; private set; }
     public int DrawnLastFrame { get; private set; }
     public bool Enabled { get; set; } = true;
+    public bool FrustumCulling { get; set; } = true;
 
     public float DrawDistance { get; set; } = 300f;
 
@@ -176,10 +215,13 @@ public sealed class DoodadRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
-    public DoodadRenderer(GL gl, ClientConfig config)
+    public DoodadRenderer(
+        GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
     {
         _gl = gl;
         _config = config;
+        _uploads = uploads;
+        _workers = workers;
     }
 
     /// <summary>Doodads reuse the WMO shader — same lighting, same fog, same alpha cut.</summary>
@@ -190,9 +232,15 @@ public sealed class DoodadRenderer : IDisposable
             Path.Combine(shaderDir, "wmo.frag"));
     }
 
-    public void LoadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    public void LoadForTiles(
+        IEnumerable<(int col, int row)> tiles,
+        AdtCache adts,
+        Vector2? streamCentre = null,
+        float maxDistance = float.PositiveInfinity,
+        bool reportDiagnostics = true)
     {
         var started = DateTime.UtcNow;
+        float maxDistanceSq = maxDistance * maxDistance;
 
         foreach (var (col, row) in tiles)
         {
@@ -207,10 +255,16 @@ public sealed class DoodadRenderer : IDisposable
                 string key = $"{d.ModelPath}|{d.PosX:F2}|{d.PosY:F2}|{d.PosZ:F2}";
                 if (!_placed.Add(key)) continue;
 
+                var transform = BuildPlacement(d);
+                if (streamCentre is Vector2 centre && !float.IsPositiveInfinity(maxDistance))
+                {
+                    var delta = new Vector2(transform.M41, transform.M42) - centre;
+                    if (delta.LengthSquared() > maxDistanceSq) continue;
+                }
+
                 var model = ResolveModel(d.ModelPath);
                 if (model is null) continue;
 
-                var transform = BuildPlacement(d);
                 var (min, max) = TransformedBounds(model, transform);
 
                 if (!_byModel.TryGetValue(model, out var list))
@@ -238,10 +292,98 @@ public sealed class DoodadRenderer : IDisposable
             $"{TextureCount} texture(s), {CollisionModels} with collision, " +
             $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
 
-        if (_missing.Count > 0)
+        if (reportDiagnostics && _missing.Count > 0)
             Console.WriteLine($"[doodad] {_missing.Count} model(s) not found in the MPQs");
 
-        ReportHullAlignment();
+        if (reportDiagnostics) ReportHullAlignment();
+    }
+
+    /// <summary>
+    /// Drop outdoor and interior placements while retaining model/texture GPU
+    /// caches. Streaming rebuilds the small active placement set from ADTs.
+    /// </summary>
+    public void ResetPlacements()
+    {
+        _byModel.Clear();
+        _placed.Clear();
+        InstanceCount = 0;
+        TotalTriangles = 0;
+        DrawnLastFrame = 0;
+    }
+
+    /// <summary>Queue outdoor M2 assets referenced by an outer ADT ring.</summary>
+    public void QueuePreloadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    {
+        foreach (var (col, row) in tiles)
+        {
+            var adt = adts.Get(col, row);
+            if (adt?.Doodads is null) continue;
+            QueuePreloadModels(adt.Doodads.Select(d => d.ModelPath));
+        }
+    }
+
+    /// <summary>Queue M2 paths without creating visible placements.</summary>
+    public void QueuePreloadModels(IEnumerable<string> paths)
+    {
+        foreach (string path in paths)
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            string key = ModelCacheKey(path);
+            if (_models.ContainsKey(key) ||
+                _preloadJob?.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase) == true ||
+                !_preloadQueued.Add(key)) continue;
+            _preloadQueue.Enqueue(path);
+        }
+    }
+
+    /// <summary>
+    /// Start CPU preparation on a worker, then finalize at most one texture or
+    /// mesh on the render thread. MPQ extraction, M2 parsing and BLP decoding
+    /// never consume a movement frame; only OpenGL work remains here.
+    /// </summary>
+    public bool WarmNextPreload(bool waitForWorker = false)
+    {
+        while (_preloadJob is null && _preloadQueue.Count > 0)
+        {
+            string path = _preloadQueue.Dequeue();
+            string key = ModelCacheKey(path);
+            _preloadQueued.Remove(key);
+            if (_models.ContainsKey(key)) continue;
+            _preloadJob = new ModelPreloadJob
+            {
+                Path = path,
+                CacheKey = key,
+                Worker = _workers.Run(() => PrepareModel(path)),
+            };
+        }
+
+        if (_preloadJob is null) return false;
+        var job = _preloadJob;
+        if (waitForWorker && !job.Worker.IsCompleted)
+            try { job.Worker.GetAwaiter().GetResult(); } catch { }
+        if (!job.Worker.IsCompleted) return true;
+
+        var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+        if (FinalizePreload(job, waitForWorker))
+        {
+            _preloadJob = null;
+            if (job.Timer.Elapsed.TotalSeconds >= 0.05)
+                Console.WriteLine($"[doodad-preload] {Path.GetFileName(job.Path)} prepared in " +
+                                  $"{job.Timer.Elapsed.TotalSeconds:F2}s, {_preloadQueue.Count} queued");
+        }
+        if (stepTimer.Elapsed.TotalMilliseconds >= 8)
+            Console.WriteLine($"[stream-budget] doodad finalize {Path.GetFileName(job.Path)} " +
+                              $"took {stepTimer.Elapsed.TotalMilliseconds:F0}ms");
+        return true;
+    }
+
+    public void DrainPreloads()
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        int steps = 0;
+        while (WarmNextPreload(waitForWorker: true)) steps++;
+        Console.WriteLine($"[doodad-preload] initial ring completed in {steps} staged step(s), " +
+                          $"{timer.Elapsed.TotalSeconds:F1}s");
     }
 
     /// <summary>
@@ -355,10 +497,10 @@ public sealed class DoodadRenderer : IDisposable
     }
 
     /// <summary>Report after a batch of AddPlaced calls.</summary>
-    public void ReportInterior(int requested, int placed)
+    public void ReportInterior(int requested, int placed, double seconds)
         => Console.WriteLine(
             $"[doodad] building interiors: {placed}/{requested} placement(s) " +
-            $"({requested - placed} model(s) unavailable)");
+            $"({requested - placed} model(s) unavailable) in {seconds:F1}s");
 
     // ── placement ────────────────────────────────────────────────────────────
 
@@ -425,9 +567,37 @@ public sealed class DoodadRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// ADT MDDF records traditionally spell model files .mdx/.mdl while WMO
+    /// interiors normally spell the same MPQ asset .m2. Cache by the physical
+    /// M2 name so crossing from the outdoor pass to the interior pass cannot
+    /// parse, texture and upload one model twice.
+    /// </summary>
+    private static string ModelCacheKey(string modelPath)
+    {
+        string path = modelPath.Replace('/', '\\');
+        string extension = Path.GetExtension(path);
+        if (extension.Equals(".mdx", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".mdl", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".m2", StringComparison.OrdinalIgnoreCase))
+        {
+            path = path[..^extension.Length] + ".m2";
+        }
+
+        return path;
+    }
+
     private Model? ResolveModel(string modelPath)
     {
-        if (_models.TryGetValue(modelPath, out var cached)) return cached;
+        string cacheKey = ModelCacheKey(modelPath);
+        if (_models.TryGetValue(cacheKey, out var cached)) return cached;
+
+        if (_preloadJob?.CacheKey.Equals(cacheKey, StringComparison.OrdinalIgnoreCase) == true)
+        {
+            while (!FinalizePreloadBlocking(_preloadJob)) { }
+            _preloadJob = null;
+            return _models.GetValueOrDefault(cacheKey);
+        }
 
         byte[]? bytes = null;
         foreach (var candidate in PathCandidates(modelPath))
@@ -439,52 +609,161 @@ public sealed class DoodadRenderer : IDisposable
         if (bytes is null)
         {
             _missing.Add(modelPath);
-            _models[modelPath] = null;
+            _models[cacheKey] = null;
             return null;
         }
 
         var m2 = M2Reader.Parse(bytes);
         if (m2 is null || !m2.IsValid)
         {
-            _models[modelPath] = null;
+            _models[cacheKey] = null;
             return null;
         }
 
         var model = BuildModel(m2);
         if (model is not null) model.SourcePath = modelPath;
-        _models[modelPath] = model;
+        _models[cacheKey] = model;
 
         if (model is not null && model.CollisionTriangles.Length >= 3) CollisionModels++;
 
         return model;
     }
 
-    private unsafe Model? BuildModel(M2Model m2)
+    private PreparedModel PrepareModel(string path)
     {
-        int vertexCount = m2.Vertices.Count;
-        var vertices = new float[vertexCount * FloatsPerVertex];
-
-        var min = new Vector3(float.MaxValue);
-        var max = new Vector3(float.MinValue);
-
-        for (int i = 0; i < vertexCount; i++)
+        byte[]? bytes = null;
+        foreach (var candidate in PathCandidates(path))
         {
-            var v = m2.Vertices[i];
-            int o = i * FloatsPerVertex;
-
-            vertices[o + 0] = v.PosX;
-            vertices[o + 1] = v.PosY;
-            vertices[o + 2] = v.PosZ;
-            vertices[o + 3] = v.NormX;
-            vertices[o + 4] = v.NormY;
-            vertices[o + 5] = v.NormZ;
-            vertices[o + 6] = v.TexU;
-            vertices[o + 7] = v.TexV;
-
-            var p = new Vector3(v.PosX, v.PosY, v.PosZ);
-            min = Vector3.Min(min, p);
-            max = Vector3.Max(max, p);
+            bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, candidate);
+            if (bytes is not null) break;
         }
+
+        if (bytes is null) return new PreparedModel { Missing = true };
+
+        var parsed = M2Reader.Parse(bytes);
+        if (parsed is null || !parsed.IsValid) return new PreparedModel();
+
+        var prepared = new PreparedModel { Parsed = parsed };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in parsed.Textures)
+        {
+            string texturePath = source.Filename;
+            if (string.IsNullOrWhiteSpace(texturePath) || !seen.Add(texturePath)) continue;
+
+            var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, texturePath);
+            if (decoded is null)
+            {
+                prepared.Textures.Add(new PreparedTexture { Path = texturePath });
+                continue;
+            }
+
+            var (bgra, width, height) = decoded.Value;
+            prepared.Textures.Add(new PreparedTexture
+            {
+                Path = texturePath,
+                Bgra = bgra,
+                Width = width,
+                Height = height,
+            });
+        }
+
+        return prepared;
+    }
+
+    private bool FinalizePreloadBlocking(ModelPreloadJob job)
+    {
+        if (!job.Worker.IsCompleted)
+            try { job.Worker.GetAwaiter().GetResult(); } catch { }
+        return FinalizePreload(job, waitForUpload: true);
+    }
+
+    private bool FinalizePreload(ModelPreloadJob job, bool waitForUpload)
+    {
+        try { job.Ready ??= job.Worker.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[doodad-preload] {Path.GetFileName(job.Path)} failed - {ex.Message}");
+            _models[job.CacheKey] = null;
+            return true;
+        }
+        var ready = job.Ready;
+
+        if (ready.Missing)
+        {
+            _missing.Add(job.Path);
+            _models[job.CacheKey] = null;
+            return true;
+        }
+
+        if (ready.Parsed is null)
+        {
+            _models[job.CacheKey] = null;
+            return true;
+        }
+
+        if (job.Upload is null)
+        {
+            var pendingTextures = ready.Textures
+                .Where(t => !_textures.ContainsKey(t.Path))
+                .ToList();
+            job.Upload = _uploads.Enqueue(Path.GetFileName(job.Path), uploadGl =>
+                UploadPreparedModel(uploadGl, ready.Parsed, pendingTextures));
+        }
+        if (waitForUpload && !job.Upload.IsCompleted)
+            try { job.Upload.GetAwaiter().GetResult(); } catch { }
+        if (!job.Upload.IsCompleted) return false;
+
+        UploadedModel uploaded;
+        try { uploaded = job.Upload.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[doodad-upload] {Path.GetFileName(job.Path)} failed - {ex.Message}");
+            _models[job.CacheKey] = null;
+            return true;
+        }
+
+        foreach (var (path, texture) in uploaded.Textures)
+            if (!_textures.ContainsKey(path)) _textures[path] = texture;
+
+        var model = BuildModel(ready.Parsed, uploaded);
+        if (model is not null) model.SourcePath = job.Path;
+        _models[job.CacheKey] = model;
+        if (model is not null && model.CollisionTriangles.Length >= 3) CollisionModels++;
+        return true;
+    }
+
+    private unsafe UploadedModel UploadPreparedModel(
+        GL gl, M2Model m2, IReadOnlyList<PreparedTexture> textures)
+    {
+        var uploaded = new UploadedModel();
+        foreach (var texture in textures)
+        {
+            uploaded.Textures[texture.Path] = texture.Bgra is null
+                ? null
+                : Texture.From2D(gl, texture.Bgra, texture.Width, texture.Height, ownerGl: _gl);
+        }
+
+        var vertices = BuildVertexArray(m2, out _, out _);
+        var indices = m2.Indices.ToArray();
+
+        uploaded.Vbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, uploaded.Vbo);
+        fixed (float* p = vertices)
+            gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+        uploaded.Ebo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, uploaded.Ebo);
+        fixed (ushort* p = indices)
+            gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+
+        return uploaded;
+    }
+
+    private unsafe Model? BuildModel(M2Model m2, UploadedModel? uploaded = null)
+    {
+        var vertices = BuildVertexArray(m2, out var min, out var max);
 
         var indices = m2.Indices.ToArray();
         if (indices.Length < 3) return null;
@@ -492,20 +771,22 @@ public sealed class DoodadRenderer : IDisposable
         uint vao = _gl.GenVertexArray();
         _gl.BindVertexArray(vao);
 
-        uint vbo = _gl.GenBuffer();
+        uint vbo = uploaded?.Vbo ?? _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
-        fixed (float* p = vertices)
+        if (uploaded is null)
         {
-            _gl.BufferData(BufferTargetARB.ArrayBuffer,
-                (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+            fixed (float* p = vertices)
+                _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                    (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
         }
 
-        uint ebo = _gl.GenBuffer();
+        uint ebo = uploaded?.Ebo ?? _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
-        fixed (ushort* p = indices)
+        if (uploaded is null)
         {
-            _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
-                (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+            fixed (ushort* p = indices)
+                _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                    (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
         }
 
         const uint stride = FloatsPerVertex * sizeof(float);
@@ -546,6 +827,33 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         return model;
+    }
+
+    private static float[] BuildVertexArray(M2Model m2, out Vector3 min, out Vector3 max)
+    {
+        var vertices = new float[m2.Vertices.Count * FloatsPerVertex];
+        min = new Vector3(float.MaxValue);
+        max = new Vector3(float.MinValue);
+
+        for (int i = 0; i < m2.Vertices.Count; i++)
+        {
+            var v = m2.Vertices[i];
+            int o = i * FloatsPerVertex;
+            vertices[o + 0] = v.PosX;
+            vertices[o + 1] = v.PosY;
+            vertices[o + 2] = v.PosZ;
+            vertices[o + 3] = v.NormX;
+            vertices[o + 4] = v.NormY;
+            vertices[o + 5] = v.NormZ;
+            vertices[o + 6] = v.TexU;
+            vertices[o + 7] = v.TexV;
+
+            var p = new Vector3(v.PosX, v.PosY, v.PosZ);
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+
+        return vertices;
     }
 
     /// <summary>
@@ -694,15 +1002,15 @@ public sealed class DoodadRenderer : IDisposable
         if (!Enabled || _shader is null || _byModel.Count == 0) return;
 
         _shader.Use();
-        _shader.Set("uViewProjection", camera.ViewProjection);
-        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
 
-        var planes = camera.FrustumPlanes();
+        var viewProjection = camera.RelativeViewProjection;
         var eye = camera.Position;
         float maxDistanceSq = DrawDistance * DrawDistance;
         bool cullingOn = true;
@@ -717,7 +1025,10 @@ public sealed class DoodadRenderer : IDisposable
                 // dot products, and most doodads fail on distance.
                 var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
                 if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) continue;
-                if (!Camera.BoxInFrustum(planes, instance.WorldMin, instance.WorldMax)) continue;
+                if (FrustumCulling &&
+                    !Camera.BoxInFrustum(viewProjection,
+                        instance.WorldMin - eye,
+                        instance.WorldMax - eye)) continue;
 
                 if (!bound)
                 {
@@ -725,7 +1036,13 @@ public sealed class DoodadRenderer : IDisposable
                     bound = true;
                 }
 
-                _shader.Set("uModel", instance.Transform);
+                var modelTransform = instance.Transform;
+                modelTransform.M41 -= eye.X;
+                modelTransform.M42 -= eye.Y;
+                modelTransform.M43 -= eye.Z;
+
+                _shader.Set("uModel", modelTransform);
+                _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
 
                 foreach (var batch in model.Batches)
                 {
@@ -766,11 +1083,27 @@ public sealed class DoodadRenderer : IDisposable
 
     public void Dispose()
     {
+        try { _preloadJob?.Worker.GetAwaiter().GetResult(); }
+        catch { /* Shutdown must continue even if a background decode failed. */ }
+        try
+        {
+            if (_preloadJob?.Upload is { } upload)
+            {
+                var orphan = upload.GetAwaiter().GetResult();
+                foreach (var texture in orphan.Textures.Values) texture?.Dispose();
+                if (orphan.Vbo != 0) _gl.DeleteBuffer(orphan.Vbo);
+                if (orphan.Ebo != 0) _gl.DeleteBuffer(orphan.Ebo);
+            }
+        }
+        catch { /* The upload worker may already be unwinding. */ }
         foreach (var model in _models.Values) model?.Dispose();
         foreach (var texture in _textures.Values) texture?.Dispose();
         _models.Clear();
         _textures.Clear();
         _byModel.Clear();
+        _preloadQueue.Clear();
+        _preloadQueued.Clear();
+        _preloadJob = null;
         _shader?.Dispose();
     }
 }

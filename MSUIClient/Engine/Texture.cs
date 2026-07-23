@@ -13,6 +13,10 @@ namespace MSUIClient.Engine;
 /// </summary>
 public sealed class Texture : IDisposable
 {
+    private const int TextureMaxAnisotropyExt = 0x84FE;
+    private const int MaxTextureMaxAnisotropyExt = 0x84FF;
+    private static float _anisotropy = 1f;
+
     private readonly GL _gl;
     public uint Handle { get; }
     public int Width { get; }
@@ -30,9 +34,32 @@ public sealed class Texture : IDisposable
         Layers = layers;
     }
 
+    /// <summary>
+    /// Detect and select EXT_texture_filter_anisotropic without making it a
+    /// hard requirement. Unsupported GL implementations return InvalidEnum and
+    /// quietly stay at ordinary trilinear filtering.
+    /// </summary>
+    public static unsafe float ConfigureAnisotropy(GL gl, float requested)
+    {
+        while (gl.GetError() != GLEnum.NoError) { }
+
+        float hardwareMax = 1f;
+        gl.GetFloat((GLEnum)MaxTextureMaxAnisotropyExt, &hardwareMax);
+
+        if (gl.GetError() != GLEnum.NoError || !float.IsFinite(hardwareMax) || hardwareMax < 1f)
+        {
+            _anisotropy = 1f;
+            return _anisotropy;
+        }
+
+        _anisotropy = Math.Clamp(requested, 1f, hardwareMax);
+        return _anisotropy;
+    }
+
     /// <summary>Single 2D texture from raw BGRA bytes.</summary>
     public static unsafe Texture From2D(
-        GL gl, byte[] bgra, int width, int height, bool mipmaps = true, bool repeat = true)
+        GL gl, byte[] bgra, int width, int height, bool mipmaps = true, bool repeat = true,
+        GL? ownerGl = null)
     {
         uint handle = gl.GenTexture();
         gl.BindTexture(TextureTarget.Texture2D, handle);
@@ -47,7 +74,7 @@ public sealed class Texture : IDisposable
         if (mipmaps) gl.GenerateMipmap(TextureTarget.Texture2D);
 
         gl.BindTexture(TextureTarget.Texture2D, 0);
-        return new Texture(gl, handle, TextureTarget.Texture2D, width, height, 1);
+        return new Texture(ownerGl ?? gl, handle, TextureTarget.Texture2D, width, height, 1);
     }
 
     /// <summary>
@@ -59,7 +86,8 @@ public sealed class Texture : IDisposable
     /// and anything else is rejected by the caller rather than stretched.
     /// </summary>
     public static unsafe Texture Array2D(
-        GL gl, IReadOnlyList<byte[]> layersBgra, int width, int height, bool mipmaps = true)
+        GL gl, IReadOnlyList<byte[]> layersBgra, int width, int height, bool mipmaps = true,
+        GL? ownerGl = null)
     {
         uint handle = gl.GenTexture();
         gl.BindTexture(TextureTarget.Texture2DArray, handle);
@@ -82,7 +110,7 @@ public sealed class Texture : IDisposable
         if (mipmaps) gl.GenerateMipmap(TextureTarget.Texture2DArray);
 
         gl.BindTexture(TextureTarget.Texture2DArray, 0);
-        return new Texture(gl, handle, TextureTarget.Texture2DArray, width, height, layersBgra.Count);
+        return new Texture(ownerGl ?? gl, handle, TextureTarget.Texture2DArray, width, height, layersBgra.Count);
     }
 
     /// <summary>
@@ -90,7 +118,8 @@ public sealed class Texture : IDisposable
     /// Clamped and unmipmapped: mipmapping a splat mask bleeds neighbouring
     /// chunks into each other at distance, which shows up as seams.
     /// </summary>
-    public static unsafe Texture FromRgbaNoMips(GL gl, byte[] rgba, int width, int height)
+    public static unsafe Texture FromRgbaNoMips(
+        GL gl, byte[] rgba, int width, int height, GL? ownerGl = null)
     {
         uint handle = gl.GenTexture();
         gl.BindTexture(TextureTarget.Texture2D, handle);
@@ -107,7 +136,7 @@ public sealed class Texture : IDisposable
         gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
 
         gl.BindTexture(TextureTarget.Texture2D, 0);
-        return new Texture(gl, handle, TextureTarget.Texture2D, width, height, 1);
+        return new Texture(ownerGl ?? gl, handle, TextureTarget.Texture2D, width, height, 1);
     }
 
     private static void ApplyParameters(GL gl, TextureTarget target, bool mipmaps, bool repeat)
@@ -115,6 +144,9 @@ public sealed class Texture : IDisposable
         gl.TexParameter(target, TextureParameterName.TextureMinFilter,
             (int)(mipmaps ? GLEnum.LinearMipmapLinear : GLEnum.Linear));
         gl.TexParameter(target, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+
+        if (mipmaps && _anisotropy > 1f)
+            gl.TexParameter(target, (TextureParameterName)TextureMaxAnisotropyExt, _anisotropy);
 
         var wrap = repeat ? GLEnum.Repeat : GLEnum.ClampToEdge;
         gl.TexParameter(target, TextureParameterName.TextureWrapS, (int)wrap);

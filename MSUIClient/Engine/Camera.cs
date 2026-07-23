@@ -251,41 +251,41 @@ public sealed class Camera
 
     public Matrix4x4 RelativeViewProjection => RelativeView * Projection;
 
-    /// <summary>Six frustum planes in WoW space for tile culling. Normals point inward.</summary>
-    public Vector4[] FrustumPlanes()
+    /// <summary>
+    /// Conservative AABB test performed directly in homogeneous clip space.
+    ///
+    /// Plane extraction is compact, but it is also exceptionally easy to get
+    /// subtly wrong when a row-vector CPU matrix is uploaded as a column-vector
+    /// GLSL matrix. This takes the exact CPU-side transform corresponding to
+    /// the shader and rejects a box only when all eight corners lie outside the
+    /// same clip plane. A visible box may survive; it may never be culled.
+    /// </summary>
+    public static bool BoxInFrustum(Matrix4x4 viewProjection, Vector3 min, Vector3 max)
     {
-        var m = View * Projection;
-        var planes = new Vector4[6];
+        const int AllPlanes = 0b11_1111;
+        int outsideEveryCorner = AllPlanes;
 
-        planes[0] = new Vector4(m.M14 + m.M11, m.M24 + m.M21, m.M34 + m.M31, m.M44 + m.M41); // left
-        planes[1] = new Vector4(m.M14 - m.M11, m.M24 - m.M21, m.M34 - m.M31, m.M44 - m.M41); // right
-        planes[2] = new Vector4(m.M14 + m.M12, m.M24 + m.M22, m.M34 + m.M32, m.M44 + m.M42); // bottom
-        planes[3] = new Vector4(m.M14 - m.M12, m.M24 - m.M22, m.M34 - m.M32, m.M44 - m.M42); // top
-        planes[4] = new Vector4(m.M13, m.M23, m.M33, m.M43);                                  // near
-        planes[5] = new Vector4(m.M14 - m.M13, m.M24 - m.M23, m.M34 - m.M33, m.M44 - m.M43); // far
-
-        for (int i = 0; i < 6; i++)
+        for (int c = 0; c < 8; c++)
         {
-            var p = planes[i];
-            float len = MathF.Sqrt(p.X * p.X + p.Y * p.Y + p.Z * p.Z);
-            if (len > 0) planes[i] = p / len;
+            var corner = new Vector4(
+                (c & 1) == 0 ? min.X : max.X,
+                (c & 2) == 0 ? min.Y : max.Y,
+                (c & 4) == 0 ? min.Z : max.Z,
+                1f);
+
+            Vector4 clip = Vector4.Transform(corner, viewProjection);
+            int outside = 0;
+            if (clip.X < -clip.W) outside |= 1 << 0;
+            if (clip.X >  clip.W) outside |= 1 << 1;
+            if (clip.Y < -clip.W) outside |= 1 << 2;
+            if (clip.Y >  clip.W) outside |= 1 << 3;
+            if (clip.Z < -clip.W) outside |= 1 << 4;
+            if (clip.Z >  clip.W) outside |= 1 << 5;
+
+            outsideEveryCorner &= outside;
+            if (outsideEveryCorner == 0) return true;
         }
 
-        return planes;
-    }
-
-    public static bool BoxInFrustum(Vector4[] planes, Vector3 min, Vector3 max)
-    {
-        foreach (var p in planes)
-        {
-            // Positive vertex: the corner furthest along the plane normal.
-            var v = new Vector3(
-                p.X >= 0 ? max.X : min.X,
-                p.Y >= 0 ? max.Y : min.Y,
-                p.Z >= 0 ? max.Z : min.Z);
-
-            if (p.X * v.X + p.Y * v.Y + p.Z * v.Z + p.W < 0) return false;
-        }
-        return true;
+        return false;
     }
 }

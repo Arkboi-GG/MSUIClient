@@ -84,8 +84,16 @@ public sealed class ClientConfig
         public float Z { get; set; } = 83.5312f;
         public float Orientation { get; set; } = 0f;
 
-        /// <summary>Tiles to load around the start tile. 1 = a 3x3 block.</summary>
+        /// <summary>Resident terrain ring radius. 1 = a moving 3x3 block.</summary>
         public int TileRadius { get; set; } = 1;
+
+        /// <summary>
+        /// WMO asset preload ring. 2 = keep the visible 3x3 terrain block but
+        /// parse and upload buildings referenced by the surrounding 5x5 block.
+        /// The extra RAM buys roughly one full tile of warning before a WMO can
+        /// become resident.
+        /// </summary>
+        public int WmoPreloadRadius { get; set; } = 2;
     }
 
     public sealed class RenderConfig
@@ -93,6 +101,18 @@ public sealed class ClientConfig
         public float FieldOfView { get; set; } = 70f;
         public float NearPlane { get; set; } = 0.1f;
         public float FarPlane { get; set; } = 2000f;
+
+        /// <summary>
+        /// Multisample antialiasing for geometry silhouettes. Four samples is
+        /// the best default quality/cost point for this renderer.
+        /// </summary>
+        public int MsaaSamples { get; set; } = 4;
+
+        /// <summary>
+        /// Texture filtering for surfaces viewed at an angle. The driver clamps
+        /// this to the hardware limit; 8x removes most terrain/WMO shimmer.
+        /// </summary>
+        public float Anisotropy { get; set; } = 8f;
 
         /// <summary>
         /// Draw M2 doodads - trees, rocks, fences, props. Around 785 placements
@@ -107,6 +127,13 @@ public sealed class ClientConfig
         /// calls fast, because there are thousands of them.
         /// </summary>
         public float DoodadDistance { get; set; } = 300f;
+
+        /// <summary>
+        /// WMO group visibility distance. Vanilla 1.12's unpatched farclip
+        /// ceiling was 777 yards; assets remain preloaded beyond this boundary
+        /// but are fully fogged and omitted from draw submission.
+        /// </summary>
+        public float WmoDistance { get; set; } = 777f;
 
         /// <summary>
         /// Axis basis for M2 COLLISION hulls. An M2 stores render vertices
@@ -202,11 +229,29 @@ public sealed class ClientConfig
         public float RunSpeed { get; set; } = 7.0f;
         public float WalkSpeed { get; set; } = 2.5f;
 
+        /// <summary>Vanilla MOVE_RUN_BACK speed, yards/second.</summary>
+        public float BackwardSpeed { get; set; } = 4.5f;
+
         public float Radius { get; set; } = 0.4f;
         public float Height { get; set; } = 2.1f;
 
         /// <summary>Ledges up to this tall are stepped onto rather than blocking.</summary>
         public float StepHeight { get; set; } = 1.0f;
+
+        /// <summary>
+        /// When a previously grounded character moves onto a slightly lower
+        /// surface, keep its feet attached by this many yards instead of
+        /// producing a one-frame airborne state. This is ground adhesion, not
+        /// extra step-up height: it only acts downward and never during a jump.
+        /// </summary>
+        public float GroundSnapDistance { get; set; } = 0.5f;
+
+        /// <summary>
+        /// Delay the visual falling pose for an uncommanded loss of support.
+        /// Physics starts immediately; deliberate jumps still animate
+        /// immediately. This filters brief misses on stairs and narrow props.
+        /// </summary>
+        public float FallAnimationDelayMs { get; set; } = 180f;
 
         /// <summary>Slopes steeper than this cannot be stood on or climbed.</summary>
         public float MaxSlopeDegrees { get; set; } = 55f;

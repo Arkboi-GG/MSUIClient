@@ -247,6 +247,7 @@ public class M2Sequence
     public ushort VariationId { get; set; }
     public uint StartTimestamp { get; set; }
     public uint EndTimestamp { get; set; }
+    public float MoveSpeed { get; set; }
     public uint Flags { get; set; }
 
     public uint DurationMs => EndTimestamp > StartTimestamp
@@ -663,6 +664,7 @@ public class M2Reader
                 VariationId = ReadUInt16(data, off + 2),
                 StartTimestamp = ReadUInt32(data, off + 4),
                 EndTimestamp = ReadUInt32(data, off + 8),
+                MoveSpeed = ReadFloat(data, off + 12),
                 Flags = ReadUInt32(data, off + 16),
             });
         }

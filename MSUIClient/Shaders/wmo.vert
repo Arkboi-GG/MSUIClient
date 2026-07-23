@@ -20,6 +20,7 @@ layout (location = 2) in vec2 aUV;
 
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
+uniform mat4 uModelViewProjection;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -38,5 +39,5 @@ void main()
 
     vUV = aUV;
 
-    gl_Position = uViewProjection * world;
+    gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
 }

@@ -281,14 +281,17 @@ public class WmoReader
                 // MOGP header is 68 bytes
                 if (chunkData + 68 > data.Length) return null;
 
-                group.GroupFlags = BitConverter.ToUInt32(data, chunkData + 0);
-                // BB at +4 and +16 (two C3Vectors = 24 bytes)
-                group.BbMinX = BitConverter.ToSingle(data, chunkData + 4);
-                group.BbMinY = BitConverter.ToSingle(data, chunkData + 8);
-                group.BbMinZ = BitConverter.ToSingle(data, chunkData + 12);
-                group.BbMaxX = BitConverter.ToSingle(data, chunkData + 16);
-                group.BbMaxY = BitConverter.ToSingle(data, chunkData + 20);
-                group.BbMaxZ = BitConverter.ToSingle(data, chunkData + 24);
+                // MOGP begins with two MOTX-style name offsets. The flags and
+                // bounds follow them; reading from +0 made interior/exterior
+                // classification depend on a string offset, which is why
+                // distant Stormwind interior cells rendered outdoors.
+                group.GroupFlags = BitConverter.ToUInt32(data, chunkData + 0x08);
+                group.BbMinX = BitConverter.ToSingle(data, chunkData + 0x0C);
+                group.BbMinY = BitConverter.ToSingle(data, chunkData + 0x10);
+                group.BbMinZ = BitConverter.ToSingle(data, chunkData + 0x14);
+                group.BbMaxX = BitConverter.ToSingle(data, chunkData + 0x18);
+                group.BbMaxY = BitConverter.ToSingle(data, chunkData + 0x1C);
+                group.BbMaxZ = BitConverter.ToSingle(data, chunkData + 0x20);
                 // MOGP +0x34 = groupLiquid (uint32 — LiquidType DBC id, used by MLIQ).
                 // Some vanilla WMOs leave this 0 even when MLIQ is present; the actual
                 // per-tile liquid_type bits in SMOLTile take priority for rendering.

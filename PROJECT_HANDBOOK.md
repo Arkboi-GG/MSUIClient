@@ -2,7 +2,17 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 4 — 2026-07-22
+Version: Draft 14 — 2026-07-22
+Supersedes: Draft 13 (same day; superseded by the end-of-session runtime verdict and cold-start handoff)
+Supersedes: Draft 12 (same day; superseded by shared-context GPU uploads and asynchronous terrain residency)
+Supersedes: Draft 11 (same day; superseded by true worker preparation and asynchronous collision BVHs)
+Supersedes: Draft 10 (same day; superseded by draw/preload separation and staged M2 textures)
+Supersedes: Draft 9 (same day; superseded by outer-ring M2 and WMO-interior preloading)
+Supersedes: Draft 8 (same day; superseded by staged WMO groups and corrected MOGP visibility data)
+Supersedes: Draft 7 (same day; superseded by WMO preload residency and MOMT blend handling)
+Supersedes: Draft 6 (same day; superseded by moving world residency and locomotion-speed work)
+Supersedes: Draft 5 (same day; superseded by complete startup profiling and display pacing work)
+Supersedes: Draft 4 (same day; superseded by player-renderer v1 and grounded locomotion work)
 Supersedes: Draft 3 (same day; superseded by characters, animation, gear and the DBC layer)
 Supersedes: `MSUI_CLIENT_DESIGN.md` (browser-era architecture, abandoned — see §2)
 
@@ -34,9 +44,43 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
 - `ItemDisplayInfo.dbc` and `CharSections.dbc` are read straight out of the MPQs
 - Third-person camera with the vanilla left/right mouse split
 
-**Not started:** liquid rendering, tile streaming, networking, painterly pass.
+**Not started:** liquid rendering, networking, painterly pass.
 
-**Known open bug:** texture flicker on the character. See §9.
+**Tile streaming is implemented and partially runtime-validated:** a moving 3×3
+terrain ring follows the player; WMO/doodad placement lists and collision are
+rebuilt on tile transitions while parsed models, textures and GPU buffers stay
+cached. Doodad residency is distance-bounded so far-away furniture inside a
+large WMO no longer dominates Northshire startup. Runtime WMO/M2 reads, parses
+and BLP decodes now run on workers; collision BVHs are built off-thread and
+swapped in only when ready. Terrain, WMO and M2 GPU transfers now run through a
+dedicated shared OpenGL context rather than blocking the render context.
+Nico's first qualitative test after that refactor was **much better than the
+old synchronous path, but still not as smooth as the real 1.12 client**. No
+post-refactor timing log has yet been captured, so the remaining source of
+jitter is open and must be measured rather than guessed.
+
+**Player renderer v1 is complete:** the character, appearance, animation, gear,
+attachments and render-state handling all render correctly. The earlier texture
+flicker is resolved; §9 records the closed investigation.
+
+### Stop point — read this first in the next session
+
+- Last build: **success, 0 warnings, 0 errors**.
+- The application starts and renders with the dedicated shared OpenGL upload
+  context. This is runtime-proven, not merely compile-proven.
+- Streaming feels improved, but Nico's verdict is still **not real-client
+  smooth**. The next run needs the log set listed in §7.1 plus frame-time
+  measurements around each hitch.
+- **Stormwind Cathedral/church geometry is still visible above the Trade
+  District.** The 120-yard interior-group AABB rule may reduce it, but does not
+  solve it. The next visibility change is real MOPV/MOPT/MOPR portal traversal,
+  preferably following WoWee—not another distance constant.
+- All of today's renderer, movement, streaming and handbook work is in the
+  current working tree and is **not committed**. Preserve it. Do not reset,
+  checkout, clean, or replace broad files when starting cold.
+- Nico explicitly stopped coding for the night after this handbook update.
+  Begin the next session by reading this handbook and inspecting the existing
+  diff before changing code.
 
 ---
 
@@ -63,6 +107,8 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     ├── Engine/
     │   ├── ClientWindow.cs          window, GL, main loop, INPUT (see §3.13)
     │   ├── Camera.cs                orbit camera, Yaw vs OrbitYaw (see §3.12)
+    │   ├── AssetWorkerPool.cs       bounded 2–8 worker CPU preparation pool
+    │   ├── GpuUploadWorker.cs       hidden shared GL context + upload queue
     │   ├── Shader.cs                compile/link/uniform cache + SetVec4Array
     │   └── Texture.cs
     │
@@ -103,6 +149,8 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 |---|---|---|
 | `Program.cs` | Startup order, game loop, HUD, cross-system diagnostics | Rendering internals, parsing |
 | `ClientWindow.cs` | GL context, loop, raw input, mouse capture | What gets drawn |
+| `AssetWorkerPool.cs` | Bounded CPU concurrency and render-thread headroom | Asset parsing rules, GL |
+| `GpuUploadWorker.cs` | Dedicated shared GL context, ordered upload queue, completion barrier | Visibility, residency policy |
 | `Camera.cs` | View/projection, frustum, the Yaw/OrbitYaw split | Input handling, movement rules |
 | `CharacterController.cs` | Movement, gravity, ground resolution | What the world is made of |
 | `M2Animator.cs` | Clip baking, bone matrices, leg and torso yaw | GL, textures, which clip to play |
@@ -255,6 +303,29 @@ Deriving capture from MouseDown/MouseUp alone is unreliable three separate ways:
 
 The measured ground speed is smoothed on the way **up** and taken immediately on the way **down**. WoWee's `LocomotionFSM` holds a grace window past the last motion; it was copied here and Nico's verdict was that it feels awful. **Do not reintroduce it.** The strafe angle snaps home on stop for the same reason.
 
+Ground support uses a different kind of tolerance and must not be confused with
+movement-stop smoothing. `CharacterController.ResolveGround` samples collision
+at the centre, then expands to eight points at 85% of the capsule radius only
+when neither the centre nor terrain gives nearby support. Stair lips, fence
+rails and other narrow supports therefore do not depend on one ray, while
+ordinary terrain walking stays at one BVH query. A previously grounded
+character that did not jump may adhere downward by
+`movement.groundSnapDistance` (default 0.5 yd).
+
+Physics becomes airborne immediately when support really disappears. Only the
+**visual fall pose** is debounced: positive jump velocity selects JumpStart at
+once, while an uncommanded fall must remain airborne for
+`movement.fallAnimationDelayMs` (default 180 ms) before selecting Fall. This
+does not keep walk/run playing after movement stops.
+
+Movement speeds follow VMaNGOS's vanilla `baseMoveSpeed`: walk 2.5 yd/s, run
+7.0 yd/s and run-back 4.5 yd/s. Backpedalling must not reuse forward run speed.
+The M2 sequence header's float at `+12` is its authored `moveSpeed`; locomotion
+playback divides actual displacement speed by that value (times model scale),
+falling back to the controller constants only when the sequence value is absent
+or invalid. This ties foot cadence to the selected clip instead of assuming
+every Walk/Run/WalkBackwards animation was authored for the same nominal speed.
+
 ### 3.15 Gear is THREE mechanisms
 
 1. **Body atlas** — chest, legs, boots, gloves, bracers, belt, tabard have no geometry. They paint into the single 256×256 skin at fixed rectangles, eight texture slots per item.
@@ -348,9 +419,63 @@ Some BLPs decode 1-bit alpha as **0 or 1** rather than 0 or 255. In the shader t
 AdtTerrainReader.StormLibExtractor = _mpq.ReadFile;
 ```
 
-Terrain 4.7s → 0.4s, buildings 27.2s → 0.9s, doodads 26.9s → 13.1s. **Load order must stay** patches reverse-alphabetical, then `terrain.MPQ`, `model.MPQ`, then the rest. `MpqMount` is **not thread-safe**.
+Historical first-pass gains were terrain 4.7s → 0.4s, buildings 27.2s →
+0.9s, doodads 26.9s → 13.1s. **Load order must stay** patches
+reverse-alphabetical, then `terrain.MPQ`, `model.MPQ`, then the rest.
 
-### 3.21 Network protocol (Phase 2 — not started)
+`MpqArchive` instances themselves are not thread-safe. `MpqMount.ReadFile` is
+now safe to call from asset workers because it serializes archive extraction
+and counters behind `_readLock`; `Dispose` takes the same lock. The returned
+`byte[]` is independent, so parsing and BLP decoding proceed concurrently after
+the short extraction lane. Do not remove the lock or mistake serialized MPQ I/O
+for a failure to use multiple CPU cores.
+
+The doodad renderer's original timer covered ADT placements only. The WMO
+interior pass — 8,501 placements around Northshire in the measured run — came
+after it and was therefore invisible in the reported 11 seconds. Startup now
+prints a `[startup]` line for MPQ mount, render setup, terrain, buildings, all
+doodads, collision, controller/spawn, character/equipment, debug setup and
+alignment checks, plus the total. The interior doodad report has its own time.
+ADT `.mdx`/`.mdl` aliases and WMO-interior `.m2` names are canonicalized to one
+model-cache key, preventing the two passes from parsing and uploading the same
+physical asset twice.
+
+The collision diagnostic used to build and upload its complete debug mesh at
+every boot despite being off by default. Its shader is still prepared at boot,
+but the large CPU expansion and GPU upload now happen only the first time `C`
+or `Show collision` enables it.
+
+### 3.21 Display pacing and tearing
+
+`window.vSync` is passed during window creation and reapplied after the OpenGL
+context exists. The second assignment matters on Windows drivers that ignore a
+creation-time swap-interval hint. Startup prints both the requested and the
+window-reported state, and the HUD has a live `VSync (prevent tearing)` toggle.
+
+The first reported "tearing" screenshot was actually aliasing: stair-stepped
+geometry silhouettes plus noisy oblique textures. The window now requests 4x
+MSAA and enables multisampling; mipmapped textures use 8x anisotropic filtering
+when the driver supports it. Startup prints requested/actual sample counts and
+the selected anisotropy. `render.msaaSamples` requires a restart because it is
+a framebuffer creation setting; `render.anisotropy` is also applied at load.
+
+Frustum culling uses a direct homogeneous clip-space test of all eight AABB
+corners. It is deliberately conservative and rejects only when every corner is
+outside the same GPU clip plane. However, live testing with both WMO and doodad
+frustum culling disabled did not change the reported popping, so rejection was
+empirically ruled out as its cause. The HUD toggles remain as diagnostics.
+
+Terrain, WMOs and doodads render camera-relative, just like the character. At
+Northshire's roughly -9,000 world coordinates, multiplying absolute float
+positions by a view matrix with the opposite large translation loses precision
+through cancellation. Thin foliage cards and nearby architectural surfaces
+expose that as pieces changing depth or vanishing under tiny camera motion.
+World renderers now subtract `camera.Position` before the GPU transform, use
+`RelativeViewProjection`, and perform lighting/fog with the camera at zero.
+Retesting the same tree and wooden arch confirmed this fixed the reported
+world-geometry popping.
+
+### 3.22 Network protocol (Phase 2 — not started)
 
 Opcodes (1.12.1 build 5875): `SMSG_UPDATE_OBJECT=169`, `SMSG_COMPRESSED_UPDATE_OBJECT=502`, `CMSG_AUTH_SESSION=493`, `SMSG_AUTH_CHALLENGE=492`, `CMSG_PLAYER_LOGIN=61`, `SMSG_LOGIN_VERIFY_WORLD=566`, `MSG_MOVE_HEARTBEAT=238`, `CMSG_CHAR_ENUM=55`. 825 opcodes, `NUM_MSG_TYPES=828`.
 
@@ -360,11 +485,192 @@ Vanilla is **client-authoritative for movement**, which is why `CharacterControl
 
 **Appearance arrives as four bytes** on the character record: skin, face, hairStyle, hairColor — the exact CharSections lookup keys in §3.16.
 
-### 3.22 Server environment
+### 3.23 Server environment
 
 realmd `0.0.0.0:3724`, world `0.0.0.0:8085`, DataDir `/home/wowvmangos/vmangos/run/data`, client MPQs `/home/wowvmangos/wowclient/Data`. **`Anticheat.Enable=0` and `Warden.*Enabled=0` already.**
 
 Travel machine: project on Windows at `C:\Users\nico\source\repos\MSUIClient`, vmangos fork inside WSL on the same machine.
+
+### 3.24 Moving world residency
+
+`start.tileRadius` is the moving terrain residency radius; 1 means a 3×3 ring.
+`TerrainRenderer.SetResidency` disposes departed terrain GPU resources and loads
+new edge tiles. `start.wmoPreloadRadius` defaults to 2: WMO assets and parsed
+ADTs are retained for a 5×5 outer ring while only the inner 3×3 terrain ring is
+uploaded and placed. The larger RAM working set is deliberate.
+
+WMO and doodad renderers separate expensive shared assets from cheap placement
+state. `ResetPlacements` clears only active instances; model parses, textures,
+VAOs and buffers remain cached across crossings. Active placements are rebuilt
+from the resident ADTs, which also handles objects referenced by multiple tiles
+without retaining stale ownership.
+
+At startup, every unique WMO referenced by the outer ring is fully warmed while
+loading is expected. At runtime, MPQ reads, WMO root/group parsing and BLP
+decoding run in a worker task. The finished CPU package then goes to the
+dedicated shared-context GPU worker, which creates textures, mipmaps and buffer
+objects and completes them before publication. The render thread adopts a ready
+package and creates context-local VAOs only. A city root can contain hundreds
+of group files, so one whole model on the render thread is unbounded work and
+caused multi-second freezes. The newly active inner edge should already be a
+cache hit, and expensive buildings are normally prepared at least a full tile
+before they can be seen. Logs use `[wmo-preload]` and `[gpu-upload]`.
+
+The outer ring must preload **M2 assets too**, not only WMO geometry. A measured
+Stormwind transition took 6.11 seconds even though WMO placement was a 0.0-second
+cache hit: outdoor doodads took 0.8 seconds and 4,303 embedded WMO doodads took
+4.9 seconds as 30 new M2 models and 36 textures were first resolved. The doodad
+renderer now warms MDDF models from outer-ring ADTs plus every unique MODD model
+path announced by completed WMO roots. Startup drains the initial M2 queue;
+runtime prepares one M2 package at a time on a worker. Logs use
+`[doodad-preload]` and the HUD shows both pending queues.
+
+M2 parsing and every BLP decode are worker-only. Render-thread finalization is
+followed by one package upload on a dedicated hidden OpenGL context sharing
+objects with the render context. Textures, mipmap generation, vertex buffers and
+index buffers are completed there. The render thread publishes a completed
+package and creates only its VAO, because VAOs are context-local containers.
+Uploads over eight milliseconds use `[gpu-upload]`; that elapsed time is on the
+upload thread and should no longer be a frame hitch. A remaining
+`[stream-budget]` identifies render-context adoption rather than data transfer.
+
+CPU preparation is bounded to 2–8 workers (`logical processors - 2`, clamped),
+matching WoWee's worker-count shape while reserving headroom for rendering,
+input and the OS. MPQ extraction remains a serialized I/O lane; parsing, mesh
+generation and BLP decoding fan back out across the bounded workers afterward.
+
+`MpqMount` serializes archive extraction behind a private lock because archive
+instances share file handles and scratch state. Returned byte arrays are owned
+by the caller, so parsing and decoding proceed concurrently after extraction.
+Renderer disposal joins its preparation worker before the mount is closed.
+
+`GpuUploadWorker` currently uses `glFinish` **on the upload thread** as a
+conservative package-completion barrier before resolving its task. This keeps
+the render thread from explicitly waiting, but it can still create GPU/driver
+contention. It is intentionally the first correct shared-context version, not
+the final scheduler. The next refinement is `glFenceSync` + `glFlush`, polling
+without blocking, and batching several small resources behind one fence.
+
+Terrain uses the same prepare/upload/publish pipeline. A one-tile lead ring is
+decoded and meshed on CPU workers, then its tileset array, alpha atlas and mesh
+buffers are created on the upload context. Tiles remain unpublished and
+invisible until the moving 3×3 residency ring requests them. At adoption the
+render thread only wires the already-resident buffers into a VAO and installs
+the precomputed height grid. A tile transition is published atomically only
+after every non-missing terrain tile in its desired ring is ready; until then,
+the overlapping previous 3×3 ring remains active. This replaces the measured
+0.17-second boundary path that synchronously decoded and uploaded three terrain
+tiles without introducing partially populated WMO/doodad residency.
+
+Residency and visibility are separate. `render.wmoDistance` defaults to 777
+yards, the original unpatched 1.12 farclip ceiling. WMO models, textures and GPU
+buffers remain warm throughout the 5×5 preload ring, but each spatial group is
+distance-culled before draw submission and WMO fog reaches full opacity at the
+same boundary. The HUD “Building distance” slider adjusts both together, so
+raising preload memory never makes distant cities visible by itself.
+
+Outdoor and WMO-interior doodads are resolved only inside:
+
+```
+doodad draw distance + half a tile diagonal + 50 yd model margin
+```
+
+measured from the current tile centre. This guarantees that any doodad capable
+of entering draw range before the next tile transition is already resident,
+while excluding distant MODD furniture from huge WMOs such as Stormwind.
+
+After a residency change, collision triangles are snapshotted into a new world
+and its measured ~0.3-second BVH build runs on a worker. The controller keeps
+the previous overlapping 3×3 collision world until the replacement is complete,
+then swaps atomically; this prevents both a frame freeze and a temporary loss of
+ground/building collision. Completion uses `[collision-async]`. The collision
+debug upload is invalidated and rebuilt only after the new BVH is accepted.
+Runtime transition timing is printed as `[stream]` and shown in the HUD.
+
+### 3.25 WMO alpha follows MOMT blend mode
+
+A BLP containing alpha does **not** mean its WMO material is an alpha cutout.
+WoWee carries `MOMT.blendMode` into each draw batch: mode 0 is opaque, mode 1 is
+alpha-key, and modes 2+ are transparent. Applying the global alpha cutoff to
+every WMO texture with non-opaque pixels made ordinary walls and roofs look
+like torn sheets. The renderer now cuts mode 1 only and renders modes 2+ in a
+second blended pass with depth writes disabled.
+
+### 3.26 MOGP header offsets and interior visibility
+
+The vanilla MOGP group header begins with `groupName` at `+0x00` and
+`descriptiveGroupName` at `+0x04`. **Flags are at `+0x08`; bounds begin at
+`+0x0C`.** The first parser read flags from `+0x00` and bounds from `+0x04`, so
+interior/exterior classification was actually based on a string-table offset.
+Large city WMOs exposed this dramatically: distant Cathedral interior groups
+appeared above Stormwind's Trade District.
+
+Full WMO visibility is portal traversal through MOPV/MOPT/MOPR. Until those
+root chunks are parsed, the renderer uses per-group frustum culling and draws
+interior groups only within 120 yards of their transformed AABB. This is a
+conservative outdoor approximation: it retains nearby rooms visible through
+doors while rejecting unrelated city interior cells. Replace it with portal
+traversal rather than adding more Stormwind-specific rules.
+
+**Runtime verdict, end of 2026-07-22:** the Cathedral/church is still visible
+above the Trade District. It may be somewhat reduced, but the defect remains.
+Therefore the corrected MOGP offsets were necessary but not sufficient, and the
+120-yard AABB rule is officially a temporary heuristic—not a fix.
+
+The correct next implementation is:
+
+1. Parse root portal vertices (`MOPV`), portal descriptors (`MOPT`) and
+   portal-to-group relations (`MOPR`), preserving relation side/orientation.
+2. Determine the camera's current WMO group/cell when inside a WMO; when
+   outside, seed traversal from visible exterior groups.
+3. Traverse only portals facing/intersecting the camera view and clip the child
+   frustum through each portal polygon.
+4. Submit exterior groups normally and interior groups only when reached by
+   traversal. Keep per-group frustum and draw-distance tests as secondary
+   rejection, not as the visibility authority.
+5. Compare WoWee's WMO visibility path before inventing data layouts or portal
+   semantics. Do not add a Stormwind model-name exception or lower 120 yards
+   until the real traversal exists.
+
+### 3.27 Streaming performance — measured history and current unknown
+
+The optimization work progressed through three distinct states. Keep them
+separate when reading old logs:
+
+1. **Synchronous assets:** a Stormwind transition took 6.11 seconds, dominated
+   by first-time M2 and embedded-WMO doodad resolution.
+2. **Worker CPU preparation, render-thread GPU finalization:** the boundary
+   fell to 0.17 seconds and collision BVH construction moved off-thread, but
+   every texture/mesh finalization logged almost exactly 14–17 ms. That
+   refresh-interval signature identified the OpenGL context/driver as the
+   remaining repeated hitch. A representative collision build was 0.24 seconds
+   off-thread over 580,263 triangles.
+3. **Current code: bounded CPU pool + shared GL upload context + asynchronous
+   terrain:** Nico reports it is much better, but still not as smooth as the
+   real client. No timing log from this exact version has been captured yet.
+
+Do not use the earlier `[stream-budget]` spam to judge the current code. The
+next run must correlate visible hitches with:
+
+- frame time or a short rolling frame-time spike log;
+- `[gpu-upload]` (upload-thread time, not automatically a frame stall);
+- `[stream-budget]` (render-thread adoption, expected to be rare now);
+- `[stream]` (atomic residency publication);
+- `[collision-async]`;
+- WMO and doodad queue depth.
+
+Likely remaining causes, in evidence order rather than certainty:
+
+- `glFinish` on the shared context causing global driver/GPU contention;
+- too many small upload packages instead of a batched transfer/fence;
+- main-thread placement rebuilding and collision-triangle snapshotting at the
+  atomic residency change;
+- synchronous discovery/ADT-cache work when a new outer preload ring enters;
+- steady-state draw-call and per-instance/per-group culling cost rather than
+  loading at all.
+
+Instrument before changing architecture again. In particular, first determine
+whether a hitch coincides with an upload, a residency publication, or neither.
 
 ---
 
@@ -378,15 +684,24 @@ Travel machine: project on Windows at `C:\Users\nico\source\repos\MSUIClient`, v
 - Skinned character: placement, heading offset 90, 119-bone skeleton, clip playback
 - Gear: ItemDisplayInfo layout, atlas rectangles, item texture and model path conventions, attachment points
 - The Yaw/OrbitYaw camera split, and the A/D-turn Q/E-strafe binds
+- Dedicated shared OpenGL upload context initializes and the world renders with
+  resources it created; the bounded CPU pool and ready-package path run in game
 
 ### Not yet verified — expect bugs here
 
-- **Character texture flicker** — open. See §9.
+- **Ground support tuning** — the nine-probe footprint, 0.5 yd downward adhesion
+  and 180 ms fall-animation debounce are implemented but still need Nico's
+  backwards-stair and fence-rail validation.
 - **The face composite method.** WoWee stacks CharSections layers full-canvas; SuperUI paints them into face rectangles. Both cannot be right for the same file; the client tries size-appropriate handling and prints which happened.
 - **Geoset rules for chest, pants, tabard and shoulders** are pattern-matched, not verified.
 - **`TorsoFollow` 0.66** is Nico's read by eye, not their constant.
-- `BlpDecoder` alpha scaling (§3.19), MOPY F_DETAIL filter, WMO group culling
-- Liquid, tile streaming, networking: not written
+- `BlpDecoder` alpha scaling (§3.19) and MOPY F_DETAIL filter
+- **WMO portal visibility is missing.** The Cathedral-over-Trade-District defect
+  remains. The current 120-yard interior cull is known insufficient (§3.26).
+- **Streaming smoothness is only partially validated.** The shared-context build
+  is substantially better but remains visibly behind the real client. Capture
+  a post-refactor timing log before choosing the next optimization (§3.27).
+- Liquid and networking: not written
 
 ---
 
@@ -396,17 +711,37 @@ Travel machine: project on Windows at `C:\Users\nico\source\repos\MSUIClient`, v
 
 ```
 ClientConfig.Load
+ClientWindow main GL context
 MpqMount + StormLibExtractor hook    BEFORE anything reads a file
+GpuUploadWorker hidden shared context
+AssetWorkerPool                      2–8 bounded CPU workers
 TerrainRenderer.LoadShaders
 AdtCache
-TerrainRenderer.LoadAround / VerifyAgainst
+TerrainRenderer.LoadAround / VerifyAgainst      initial inner 3x3
+TerrainRenderer.QueuePreload                     one-tile lead, async
 WmoRenderer.LoadForTiles             buildings BEFORE collision
-DoodadRenderer.LoadForTiles + WMO interior doodads
-adts.Clear()
-LoadCollision()
+WmoRenderer preload outer 5x5 ring   CPU + shared-context GPU, drained at startup
+DoodadRenderer preload outer ring + announced MODD models, drained at startup
+DoodadRenderer.LoadForTiles + nearby WMO interior doodads
+adts.Retain(preload 5x5 ring)
+LoadCollision()                      synchronous once during startup
 CharacterController                  teleported to sampled ground
 CharacterRenderer.LoadShaders + Load + Equipment + ApplyEquipment
-CollisionDebugRenderer.Build
+CollisionDebugRenderer               GPU upload deferred until enabled
+```
+
+Runtime tile transition:
+
+```
+notice player entered adjacent tile
+queue/continue terrain lead preparation
+keep previous overlapping terrain + collision while desired terrain is pending
+when desired terrain is ready: adopt buffers/VAOs atomically
+rebuild cheap WMO/doodad placement state from resident ADTs
+queue newly entering outer-ring WMO/M2 packages
+snapshot collision triangles
+build collision BVH on worker
+atomically replace controller collision when BVH completes
 ```
 
 ### 5.2 Shaders
@@ -431,6 +766,25 @@ Bones upload as **three vec4 rows per bone**, so skinning is three dot products 
 | Mouse diagnostics | Buttons, capture, move events, applied events, last delta, cursor mode |
 | `C` / Show collision | Green standable, red wall, yellow the exact triangle underfoot |
 | Cyan capsule | Where the character actually is, at real radius and height |
+
+### 5.4 Thread and ownership rules
+
+| Lane | May do | Must not do |
+|---|---|---|
+| Render/main thread | Input, movement, placement publication, VAO creation, draw submission, renderer caches | MPQ decompression, BLP decode, large mesh generation, texture/buffer transfer |
+| `AssetWorkerPool` | M2/WMO/terrain parsing, BLP decode, CPU mesh preparation | GL calls, mutating renderer dictionaries |
+| `MpqMount` locked lane | Archive lookup/extraction into independent byte arrays | Parallel reads through one archive instance |
+| `GpuUploadWorker` | Shared-context texture creation, mipmaps, VBO/EBO creation and transfer | VAO creation, visibility decisions, drawing |
+| Collision task | `CollisionWorld.Build()` BVH construction on a private snapshot | Reading live renderer placement collections while they mutate |
+
+The handoff types encode the boundary: `Prepared*` objects are CPU-only;
+`Uploaded*` objects contain complete shared GL handles; the renderer publishes
+them only after upload completion. VAOs stay on the render context because they
+are context-local container state even when their buffers are shared.
+
+Shutdown order also matters: join renderer/terrain preparation, drain and stop
+the GPU uploader, dispose the bounded CPU pool, then detach and dispose
+`MpqMount`. Closing the archives while a worker is extracting is a race.
 
 ---
 
@@ -470,11 +824,27 @@ Written down because the same three moves have solved almost every hard bug in t
 
 ### 7.1 Immediate next steps
 
-1. **The texture flicker** (§9).
-2. **Tile streaming.** Fixed 3×3 block at boot, so the world ends at the edge. `AdtCache.Forget` exists; buildings and doodads need per-tile instance tracking. BVH rebuild is 0.3–0.4s against a tile crossing roughly every 75s, so synchronous is probably fine.
-3. **Liquid.** `MCLQ` and `MLIQ` are both parsed and drawn nowhere.
-4. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
-5. **P2 networking.**
+1. **Start safely.** Read the stop-point block in §0, inspect `git status` and
+   the existing diff, then build. Do not discard the uncommitted day of work.
+2. **Measure the current streaming build, not an older one.** Walk—not fly—over
+   at least two tile edges near large WMOs and mark the visible hitch moments.
+   Capture `[stream]`, `[wmo-preload]`, `[doodad-preload]`, `[gpu-upload]`,
+   `[stream-budget]`, `[collision-async]`, queue depths and frame-time spikes.
+   If the log cannot correlate a hitch, add phase timing before optimizing.
+3. **Implement real WMO portal visibility.** Use WoWee to establish
+   MOPV/MOPT/MOPR semantics and implement the traversal in §3.26. The persistent
+   Cathedral-over-Trade-District bug makes this a known rendering defect, not a
+   speculative enhancement.
+4. **If hitches coincide with uploads, replace `glFinish`.** Submit package
+   batches with `glFenceSync` + `glFlush`, poll completion without blocking, and
+   publish only signalled packages. Do not return texture or buffer uploads to
+   the render context.
+5. **If hitches do not coincide with uploads, profile the boundary main-thread
+   work:** placement rebuild, collision-triangle snapshot, ADT/preload discovery,
+   then steady-state draw submission/culling. Fix the measured phase only.
+6. **Liquid.** `MCLQ` and `MLIQ` are both parsed and drawn nowhere.
+7. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
+8. **P2 networking.**
 
 ### 7.2 Deliberately out of scope, permanently
 
@@ -523,11 +893,32 @@ One em-dash in a shader comment made Intel's GLSL compiler report "pre-mature EO
 
 `git check-ignore -v <path>` prints **nothing** for a file that is already **tracked**. Use `--no-index`. A first attempt committed 5.34 GiB before this was noticed.
 
+### 8.7 Streaming hitch triage
+
+- `[gpu-upload] X completed in 16ms off-thread` alone is not a failure. It says
+  how long the dedicated context took, not how long the render thread stopped.
+- `[stream-budget] ... 16ms` is render-thread adoption and is directly suspect.
+- `[stream] tile ... ready: 0.XXs` measures the atomic placement/residency
+  publication path, not the preceding background preparation wait.
+- `[collision-async] ... off-thread` should not stall movement; the old collision
+  remains attached until the new BVH is ready.
+- A hitch with none of those lines is probably steady-state rendering, driver
+  contention invisible to the current timers, or window/swap pacing. Add a
+  rolling frame-time spike record with phase timings.
+- If the application fails before `[stream] dedicated shared-context GPU
+  uploader ready`, inspect hidden-window/shared-context initialization first.
+  Do not disable the upload worker and silently return all uploads to the render
+  thread as a permanent fix.
+
 ---
 
-## 9. OPEN BUG — character texture flicker
+## 9. RESOLVED — character texture flicker
 
-Surfaces on the character flicker in and out, "as if things are competing with one another for visibility and position". Still present with all gear removed and every attached item hidden.
+The player renderer v1 pass resolved the character texture flicker. M2 render
+flags and blend modes are now carried into draw pieces, opaque/alpha-test draws
+run before transparent/additive draws, transparent draws keep depth testing but
+disable depth writes, and overlapping attached-item effect passes are
+suppressed. The overlap detector remains as a regression instrument.
 
 **Ruled out:**
 
@@ -540,17 +931,22 @@ Surfaces on the character flicker in and out, "as if things are competing with o
 - `Solo one geoset` — draws one at a time. A geoset that flickers *alone* is self-overlapping or fighting something outside the geoset list; if none flickers alone, the fight is between two of them
 - **Overlapping-draw detector** — at load, any two visible pieces whose index ranges intersect are printed. Two draws sharing triangles are the same surface submitted twice, which is z-fighting by construction. Silence means the geometry is disjoint and the cause is elsewhere
 
-**Not yet examined, in order of suspicion:**
-
-1. **M2 render flags are ignored.** `M2RenderFlag` carries `Unlit`, `TwoSided` and **`NoZWrite` (0x10)**, and `BlendingMode`. Everything is currently drawn opaque with an alpha discard and full depth writes. A geoset authored as a blended, non-depth-writing layer — hair, eye glow — will fight whatever is behind it when forced to write depth.
-2. **Batch draw order.** `M2Batch` carries `PriorityPlane` and `MaterialLayer`, both ignored.
-3. **Coplanar-but-distinct meshes** that vanilla resolves by draw order rather than by depth.
+Keep the old instruments. If flicker regresses, first inspect render flags,
+`PriorityPlane`, `MaterialLayer`, and whether a newly supported effect pass is
+coplanar with an opaque pass.
 
 ---
 
 ## 10. What to ask Nico for
 
-He has a large adjacent codebase (**MangosSuperUI**) and a cloned reference client (**WoWee**, `C:\Users\nico\Desktop\WoWee-master`). **Check both before writing anything from scratch** — that mistake has been made twice, once on WMO rendering and once on the DBC layer.
+He has a large adjacent codebase (**MangosSuperUI**) and a cloned reference client
+(**WoWee**). The long-lived clone has been
+`C:\Users\nico\Desktop\WoWee-master`; this session also cloned the then-current
+source read-only to
+`C:\Users\nico\AppData\Local\Temp\wowee-reference-20260722`. A temp clone may
+not survive cleanup, so locate the Desktop copy or fetch current source if it is
+gone. **Check both before writing anything from scratch**—that mistake has been
+made twice, once on WMO rendering and once on the DBC layer.
 
 ### Already brought over — do not ask again
 
@@ -560,14 +956,33 @@ He has a large adjacent codebase (**MangosSuperUI**) and a cloned reference clie
 
 | Work | Ask for | Why |
 |---|---|---|
+| WMO portal visibility | WoWee WMO renderer/visibility code using MOPV, MOPT and MOPR | Replace the failed 120-yard Cathedral heuristic with real cell traversal |
+| Streaming smoothness | A post-Draft-14 console log plus the exact moments Nico felt hitches | Separate upload contention, residency publication and steady-state rendering |
 | The flicker (§9) | WoWee `src/rendering/m2_renderer.cpp` render-state setup | Whether they honour NoZWrite, blend mode and priority plane |
 | Torso yaw constant | WoWee `src/rendering/character_renderer.cpp`, `setInstanceTorsoYaw` | The real fraction behind §3.10's 0.66 |
 | Cape rendering | SuperUI `equip.js` cape path, WoWee `appearance_composer.cpp` cloak slot | Type-2 OBJECT_SKIN handling |
 | Dungeons (P5) | SuperUI `WdtReader.cs` | Detects global-WMO instance maps; 13 dungeons with Map.dbc names |
 | Particles / spell visuals | SuperUI `M2EmitterParser.cs`, `M2ParticlePatcher.cs` | |
-| Anything protocol (P2) | The opcode and UpdateFields generators from the browser era | §3.21 has the values |
+| Anything protocol (P2) | The opcode and UpdateFields generators from the browser era | §3.22 has the values |
 
 ### Surveying WoWee
+
+The streaming reference already inspected on 2026-07-22 is
+`src/rendering/terrain_manager.cpp`. Its relevant structure:
+
+- 4–8 CPU worker threads;
+- nearest-first circular load queue;
+- worker-side ADT/M2/WMO parsing, mesh generation and BLP decode;
+- ready queue with memory/backpressure limits;
+- main-thread `processReadyTiles()` budget of 8 ms, 16 ms while taxiing;
+- asynchronous Vulkan upload batch without a render-thread fence wait;
+- incremental publication phases for terrain chunks, models, instances and WMO
+  doodads;
+- a larger unload radius than load radius.
+
+MSUI now mirrors the worker/ready/publication shape, but OpenGL's current
+`glFinish` upload barrier is more conservative than WoWee's Vulkan transfer
+path. Do not claim parity until Draft 14's remaining jitter is measured away.
 
 `index-cpp.ps1` on his Desktop builds a symbol index and assembles context packets:
 

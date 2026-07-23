@@ -96,6 +96,7 @@ public sealed class CharacterRenderer : IDisposable
         public float Yaw;
         public bool Grounded;
         public float VerticalVelocity;
+        public float FallTimeMs;
         public bool Walking;
         public bool Flying;
     }
@@ -198,6 +199,7 @@ public sealed class CharacterRenderer : IDisposable
     private Vector3 _lastPosition;
     private bool _hasLastPosition;
     private float _groundSpeed;
+    private float _instantGroundSpeed;
     private float _forwardness;
     private float _sideness;
     private float _moveYaw;
@@ -377,6 +379,7 @@ public sealed class CharacterRenderer : IDisposable
     public float ClipTime => _clipTime;
     public float ClipDuration => _clip?.DurationSeconds ?? 0f;
     public float ClipRate => _clipRate;
+    public float ClipMoveSpeed => _clip?.MoveSpeed ?? 0f;
     public float GroundSpeed => _groundSpeed;
     public string SkinTexturePath { get; private set; } = "";
 
@@ -467,7 +470,8 @@ public sealed class CharacterRenderer : IDisposable
 
             var baked = _animator.Clips.Values
                 .OrderBy(c => c.AnimationId)
-                .Select(c => $"{c.Name} {c.DurationSeconds:F2}s/{c.AnimatedBones}b");
+                .Select(c => $"{c.Name} {c.DurationSeconds:F2}s/{c.AnimatedBones}b " +
+                             $"move {c.MoveSpeed:F2}");
             Console.WriteLine($"[character] clips: {string.Join(", ", baked)}");
 
             foreach (int wanted in BakedAnimations)
@@ -1505,6 +1509,7 @@ public sealed class CharacterRenderer : IDisposable
 
         var flat = new Vector3(delta.X, delta.Y, 0f);
         float raw = flat.Length() / dt;
+        _instantGroundSpeed = raw;
 
         // ASYMMETRIC ON PURPOSE. Smoothing exists so a single frame against a
         // doorframe does not flick the clip, but it also means releasing W
@@ -1537,25 +1542,29 @@ public sealed class CharacterRenderer : IDisposable
         if (state.Flying)
             return _animator.FindFirst(40, 38, 0);
 
-        if (!state.Grounded)
+        if (!state.Grounded && state.VerticalVelocity > 0.5f)
         {
-            return state.VerticalVelocity > 0.5f
-                ? _animator.FindFirst(38, 37, 40, 0)
-                : _animator.FindFirst(40, 38, 0);
+            // A deliberate jump must react immediately. The controller's
+            // positive launch velocity distinguishes it from a transient loss
+            // of support while walking over stairs or a narrow prop.
+            return _animator.FindFirst(38, 37, 40, 0);
         }
 
-        // NO GRACE WINDOW. WoWee's FSM holds the moving state open past the
-        // last motion and I copied that; Nico's verdict was that it feels
-        // awful and the sharp stop is better. He is the one looking at it.
+        if (!state.Grounded &&
+            state.FallTimeMs >= MathF.Max(0f, _config.Movement.FallAnimationDelayMs))
+        {
+            // Physics has been airborne continuously for long enough that this
+            // is a real fall, not a one-frame floor-query miss. Only animation
+            // is delayed; gravity and collision have already been running.
+            return _animator.FindFirst(40, 38, 0);
+        }
+
+        // NO MOVEMENT-STOP GRACE WINDOW. WoWee's FSM holds the moving state
+        // open past the last motion and I copied that; Nico's verdict was that
+        // it feels awful and the sharp stop is better. The airborne debounce
+        // above is separate: it filters unstable support without extending
+        // locomotion after input and actual displacement stop.
         if (_groundSpeed < MoveThreshold) return _animator.FindFirst(0);
-
-        float nominal = state.Walking ? _config.Movement.WalkSpeed : _config.Movement.RunSpeed;
-        if (nominal < 0.5f) nominal = 5f;
-
-        // Play the cycle at the speed the character is actually travelling, so
-        // feet do not skate. Clamped because a wall slide can drop the measured
-        // speed near zero while the clip should still read as walking.
-        rate = Math.Clamp(_groundSpeed / nominal, 0.35f, 2.5f);
 
         // Angle between where the character is FACING and where he is actually
         // GOING. Zero is straight ahead, positive is toward his left.
@@ -1591,9 +1600,12 @@ public sealed class CharacterRenderer : IDisposable
                 ? Math.Clamp(angle, -maxTwist, maxTwist)
                 : angle;
 
-            if (MathF.Abs(phi) > backwards) return _animator.FindFirst(13, 4, 5, 0);
+            if (MathF.Abs(phi) > backwards)
+                return LocomotionClip(_animator.FindFirst(13, 4, 5, 0), state.Walking, out rate);
 
-            return state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0);
+            return LocomotionClip(
+                state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0),
+                state.Walking, out rate);
         }
 
         // Fallback: discrete sideways clips, no twist. Kept so the two can be
@@ -1602,16 +1614,42 @@ public sealed class CharacterRenderer : IDisposable
         if (MathF.Abs(_forwardness) >= MathF.Abs(_sideness) * 1.2f)
         {
             if (_forwardness >= 0f)
-                return state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0);
+                return LocomotionClip(
+                    state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0),
+                    state.Walking, out rate);
 
-            return _animator.FindFirst(13, 4, 5, 0);
+            return LocomotionClip(_animator.FindFirst(13, 4, 5, 0), state.Walking, out rate);
         }
 
-        return _sideness > 0f
+        var sideways = _sideness > 0f
             ? (state.Walking ? _animator.FindFirst(12, 92, 5, 4, 0)
                              : _animator.FindFirst(92, 12, 5, 4, 0))
             : (state.Walking ? _animator.FindFirst(11, 93, 5, 4, 0)
                              : _animator.FindFirst(93, 11, 5, 4, 0));
+        return LocomotionClip(sideways, state.Walking, out rate);
+    }
+
+    /// <summary>
+    /// Match foot-cycle playback to the speed authored into the selected M2
+    /// sequence. The old code divided by controller run/walk constants, which
+    /// only works if every clip's stride was authored for exactly those values.
+    /// ModelScale participates because scaling a model scales its stride.
+    /// </summary>
+    private M2Animator.Clip? LocomotionClip(
+        M2Animator.Clip? clip, bool walking, out float rate)
+    {
+        float fallback = walking ? _config.Movement.WalkSpeed : _config.Movement.RunSpeed;
+        if (clip?.AnimationId == 13 && !walking)
+            fallback = _config.Movement.BackwardSpeed;
+
+        float authored = (clip?.MoveSpeed ?? 0f) * ModelScale;
+        float strideSpeed = float.IsFinite(authored) && authored > 0.1f && authored < 100f
+            ? authored
+            : fallback;
+
+        if (strideSpeed < 0.1f) strideSpeed = 5f;
+        rate = Math.Clamp(_instantGroundSpeed / strideSpeed, 0.35f, 2.5f);
+        return clip;
     }
 
     // ── drawing ──────────────────────────────────────────────────────────────

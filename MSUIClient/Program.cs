@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
@@ -86,8 +87,11 @@ public sealed class GameLoop : IDisposable
     private CollisionWorld? _collision;
     private VmapCollisionLoader? _vmaps;
     private MpqMount? _mpq;
+    private GpuUploadWorker? _uploads;
+    private AssetWorkerPool? _assetWorkers;
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
+    private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
     private CharacterRenderer? _character;
 
@@ -115,6 +119,21 @@ public sealed class GameLoop : IDisposable
     private bool _walking;
 
     private double _collisionBuildSeconds;
+    private Task<(int Generation, CollisionWorld World, double Seconds)>? _collisionBuildTask;
+    private int _collisionGeneration;
+    private double _lastStreamSeconds;
+    private (int col, int row)? _residentCentre;
+    private bool _preloadWmoFirst;
+
+    // A player can stand half a tile diagonal from its centre. Keeping objects
+    // for that reach plus draw distance and a small large-model margin means a
+    // tile transition never reveals an object that was not resident already.
+    private float ObjectResidencyRadius
+        => (_doodads?.DrawDistance ?? _config.Render.DoodadDistance)
+         + TerrainRenderer.GridSize * 0.7071068f + 50f;
+
+    private int WmoPreloadRadius
+        => Math.Max(_config.Start.TileRadius + 1, _config.Start.WmoPreloadRadius);
 
     public GameLoop(ClientWindow window, ClientConfig config)
     {
@@ -124,6 +143,16 @@ public sealed class GameLoop : IDisposable
 
     public void Load(GL gl)
     {
+        var startup = Stopwatch.StartNew();
+        var phase = Stopwatch.StartNew();
+
+        void PhaseComplete(string name)
+        {
+            Console.WriteLine($"[startup] {name,-25} {phase.Elapsed.TotalSeconds,6:F2}s " +
+                              $"(total {startup.Elapsed.TotalSeconds,6:F2}s)");
+            phase.Restart();
+        }
+
         _window.Camera.Target = new Vector3(_config.Start.X, _config.Start.Y, _config.Start.Z);
         _window.Camera.Yaw = _config.Start.Orientation;
 
@@ -132,8 +161,13 @@ public sealed class GameLoop : IDisposable
         // which is where startup was going.
         _mpq = new MpqMount(_config.ClientDataPath);
         AdtTerrainReader.StormLibExtractor = _mpq.ReadFile;
+        PhaseComplete("MPQ mount");
 
-        _terrain = new TerrainRenderer(gl, _config);
+        _uploads = _window.CreateGpuUploadWorker();
+        _assetWorkers = new AssetWorkerPool();
+        Console.WriteLine("[stream] dedicated shared-context GPU uploader ready");
+
+        _terrain = new TerrainRenderer(gl, _config, _uploads, _assetWorkers);
 
         // Shaders are copied next to the exe by the csproj; fall back to the
         // source tree so editing a .frag and hitting F5 picks it up.
@@ -143,52 +177,63 @@ public sealed class GameLoop : IDisposable
         _terrain.LoadShaders(shaderDir);
 
         // One parse per tile, shared by terrain, buildings and doodads.
-        var adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
+        _adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
+        PhaseComplete("render setup");
 
-        _terrain.LoadAround(_config.Start.X, _config.Start.Y, _config.Start.TileRadius, adts);
+        _terrain.LoadAround(_config.Start.X, _config.Start.Y, _config.Start.TileRadius, _adts);
+        _residentCentre = TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
+        _terrain.QueuePreload(
+            TerrainRenderer.TileRing(
+                _residentCentre.Value.col, _residentCentre.Value.row,
+                _config.Start.TileRadius + 1),
+            _adts);
 
         // Self-check against the value the server independently agreed with.
         _terrain.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
+        PhaseComplete("terrain");
 
         // Buildings BEFORE collision now: when collision comes from client
         // geometry, the buildings are its source.
         try
         {
-            _wmo = new WmoRenderer(gl, _config);
+            _wmo = new WmoRenderer(gl, _config, _uploads, _assetWorkers);
             _wmo.LoadShaders(shaderDir);
-            _wmo.LoadForTiles(_terrain.LoadedTiles, adts);
+            _wmo.LoadForTiles(_terrain.LoadedTiles, _adts);
+
+            // Pay the first outer-ring cost behind startup, not while walking.
+            // Later rings are queued one model at a time while still at least
+            // one full tile beyond the resident terrain block.
+            var preloadRing = TerrainRenderer.TileRing(
+                _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
+            _wmo.QueuePreloadForTiles(preloadRing, _adts);
+            _wmo.DrainPreloads();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[wmo] FAILED - {ex.Message}");
             _wmo = null;
         }
+        PhaseComplete("buildings");
 
         if (_config.Render.Doodads)
         {
             try
             {
-                _doodads = new DoodadRenderer(gl, _config)
+                _doodads = new DoodadRenderer(gl, _config, _uploads, _assetWorkers)
                 {
                     DrawDistance = _config.Render.DoodadDistance,
                     CollisionBasisIndex = _config.Render.DoodadCollisionBasis,
                 };
                 _doodads.LoadShaders(shaderDir);
-                _doodads.LoadForTiles(_terrain.LoadedTiles, adts);
 
-                // Furniture. Beds, kitchens, tables and barrels belong to the
-                // WMO via MODS/MODN/MODD, not to the ADT, so they arrive with
-                // the buildings and are placed through them.
+                var preloadRing = TerrainRenderer.TileRing(
+                    _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
+                _doodads.QueuePreloadForTiles(preloadRing, _adts);
                 if (_wmo is not null)
-                {
-                    int requested = 0, placed = 0;
-                    foreach (var (path, transform) in _wmo.EnumerateDoodads())
-                    {
-                        requested++;
-                        if (_doodads.AddPlaced(path, transform)) placed++;
-                    }
-                    if (requested > 0) _doodads.ReportInterior(requested, placed);
-                }
+                    _doodads.QueuePreloadModels(_wmo.TakeNewDoodadModelPaths());
+                _doodads.DrainPreloads();
+
+                PopulateDoodads(_residentCentre.Value, reportDiagnostics: true);
             }
             catch (Exception ex)
             {
@@ -196,12 +241,19 @@ public sealed class GameLoop : IDisposable
                 _doodads = null;
             }
         }
+        PhaseComplete("doodads (all)");
 
-        // Parsed ADTs are large; nothing needs them again until tiles change.
-        adts.Clear();
+        // Keep the outer preload ADTs in RAM too. This is deliberate: the user
+        // prefers a larger working set over boundary stalls.
+        var initialRing = TerrainRenderer.TileRing(
+            _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
+        _adts.Retain(initialRing);
+        Console.WriteLine($"[adt] {_adts.Parses} parse(s), {_adts.Hits} reuse(s) - " +
+                          $"retaining {_adts.HeldTiles} resident tile(s)");
         _mpq?.Report();
 
         LoadCollision();
+        PhaseComplete("collision world");
 
         _controller = new CharacterController(_terrain, _config.Movement)
         {
@@ -215,6 +267,7 @@ public sealed class GameLoop : IDisposable
         _controller.Teleport(_config.Start.X, _config.Start.Y, ground ?? _config.Start.Z);
 
         _window.Camera.Target = _controller.Position;
+        PhaseComplete("controller + spawn");
 
         // The character model. After the controller, because it renders what
         // the controller decides; try/caught like the buildings, because a
@@ -243,6 +296,7 @@ public sealed class GameLoop : IDisposable
             Console.WriteLine($"[character] FAILED - {ex.Message}");
             _character = null;
         }
+        PhaseComplete("character + equipment");
 
         if (_collision is not null)
         {
@@ -250,7 +304,6 @@ public sealed class GameLoop : IDisposable
             {
                 _collisionDebug = new CollisionDebugRenderer(gl);
                 _collisionDebug.LoadShaders(shaderDir);
-                _collisionDebug.Build(_collision);
             }
             catch (Exception ex)
             {
@@ -258,10 +311,107 @@ public sealed class GameLoop : IDisposable
                 _collisionDebug = null;
             }
         }
+        PhaseComplete("debug setup (deferred)");
 
         CompareWmoToCollision();
+        PhaseComplete("alignment checks");
 
-        Console.WriteLine("[game] ready");
+        Console.WriteLine($"[game] ready in {startup.Elapsed.TotalSeconds:F2}s");
+    }
+
+    private void PopulateDoodads((int col, int row) centreTile, bool reportDiagnostics)
+    {
+        if (_doodads is null || _terrain is null || _adts is null) return;
+
+        Vector2 centre = TerrainRenderer.TileCenter(centreTile.col, centreTile.row);
+        float radius = ObjectResidencyRadius;
+
+        _doodads.LoadForTiles(
+            _terrain.LoadedTiles, _adts, centre, radius, reportDiagnostics);
+
+        // Furniture. A huge WMO can touch the terrain ring while most of its
+        // MODD placements are far outside doodad draw range. Resolve only the
+        // furniture that could become visible before the next tile crossing.
+        if (_wmo is null) return;
+
+        var interiors = Stopwatch.StartNew();
+        int requested = 0, placed = 0;
+        foreach (var (path, transform) in _wmo.EnumerateDoodads(centre, radius))
+        {
+            requested++;
+            if (_doodads.AddPlaced(path, transform)) placed++;
+        }
+
+        if (requested > 0)
+            _doodads.ReportInterior(requested, placed, interiors.Elapsed.TotalSeconds);
+
+        Console.WriteLine($"[stream] object residency [{centreTile.col},{centreTile.row}] " +
+                          $"radius {radius:F0} yd");
+    }
+
+    private void UpdateWorldResidency()
+    {
+        if (_controller is null || _terrain is null || _adts is null) return;
+
+        var next = TerrainRenderer.TileAt(_controller.Position.X, _controller.Position.Y);
+        if (_residentCentre == next) return;
+
+        var terrainLead = TerrainRenderer.TileRing(
+            next.col, next.row, _config.Start.TileRadius + 1);
+        _terrain.QueuePreload(terrainLead, _adts);
+        var desiredTerrain = TerrainRenderer.TileRing(
+            next.col, next.row, _config.Start.TileRadius);
+        if (!_terrain.PreloadReady(desiredTerrain)) return;
+
+        var timer = Stopwatch.StartNew();
+        Console.WriteLine($"[stream] crossing to tile [{next.col},{next.row}]");
+
+        try
+        {
+            _terrain.SetResidency(next.col, next.row, _config.Start.TileRadius, _adts);
+
+            _wmo?.ResetPlacements();
+            _wmo?.LoadForTiles(_terrain.LoadedTiles, _adts);
+
+            var preloadRing = TerrainRenderer.TileRing(next.col, next.row, WmoPreloadRadius);
+            _wmo?.QueuePreloadForTiles(preloadRing, _adts);
+            _doodads?.QueuePreloadForTiles(preloadRing, _adts);
+            if (_wmo is not null && _doodads is not null)
+                _doodads.QueuePreloadModels(_wmo.TakeNewDoodadModelPaths());
+
+            _doodads?.ResetPlacements();
+            PopulateDoodads(next, reportDiagnostics: false);
+
+            _adts.Retain(preloadRing);
+
+            _residentCentre = next;
+            BeginCollisionBuild();
+
+            _lastStreamSeconds = timer.Elapsed.TotalSeconds;
+            Console.WriteLine($"[stream] tile [{next.col},{next.row}] ready: " +
+                              $"{_terrain.TileCount} terrain, {_wmo?.InstanceCount ?? 0} WMO, " +
+                              $"{_doodads?.InstanceCount ?? 0} doodad placement(s), " +
+                              $"{_lastStreamSeconds:F2}s");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[stream] FAILED entering [{next.col},{next.row}]: {ex.Message}");
+        }
+    }
+
+    private void SetCollisionDebugEnabled(bool enabled)
+    {
+        if (_collisionDebug is null) return;
+
+        if (enabled && _collisionDebug.TriangleCount == 0 && _collision is not null)
+        {
+            var timer = Stopwatch.StartNew();
+            _collisionDebug.Build(_collision);
+            Console.WriteLine($"[collision] debug upload deferred from startup: " +
+                              $"{timer.Elapsed.TotalSeconds:F2}s");
+        }
+
+        _collisionDebug.Enabled = enabled;
     }
 
     /// <summary>
@@ -417,6 +567,11 @@ public sealed class GameLoop : IDisposable
     {
         if (_terrain is null) return;
 
+        _collision = null;
+        _vmaps = null;
+        if (_controller is not null) _controller.Collision = null;
+        _collisionDebug?.Clear();
+
         if (!_config.Movement.Collision)
         {
             Console.WriteLine("[collision] disabled in config (movement.collision = false)");
@@ -484,6 +639,10 @@ public sealed class GameLoop : IDisposable
                 Console.WriteLine("[collision] WARNING no geometry loaded — check the unresolved names above");
                 _collision = null;
             }
+
+            if (_controller is not null) _controller.Collision = _collision;
+            if (_collisionDebug is { Enabled: true } && _collision is not null)
+                _collisionDebug.Build(_collision);
         }
         catch (Exception ex)
         {
@@ -494,9 +653,75 @@ public sealed class GameLoop : IDisposable
         }
     }
 
+    /// <summary>
+    /// Rebuild client-geometry collision without stopping movement. Triangle
+    /// collection is a bounded snapshot on the render thread; the expensive
+    /// BVH partition/sort runs on a worker while the previous world remains
+    /// attached to the controller.
+    /// </summary>
+    private void BeginCollisionBuild()
+    {
+        bool useClient = !string.Equals(_config.Movement.CollisionSource, "vmaps",
+            StringComparison.OrdinalIgnoreCase);
+        if (!_config.Movement.Collision || !useClient || _wmo is null)
+        {
+            LoadCollision();
+            return;
+        }
+
+        var next = new CollisionWorld();
+        _wmo.AppendCollision(next);
+        _doodads?.AppendCollision(next);
+        _collisionDebug?.Clear();
+
+        int generation = ++_collisionGeneration;
+        _collisionBuildTask = Task.Run(() =>
+        {
+            var timer = Stopwatch.StartNew();
+            next.Build();
+            return (generation, next, timer.Elapsed.TotalSeconds);
+        });
+    }
+
+    private void AcceptReadyCollision()
+    {
+        if (_collisionBuildTask is not { IsCompleted: true } task) return;
+        _collisionBuildTask = null;
+
+        try
+        {
+            var ready = task.GetAwaiter().GetResult();
+            if (ready.Generation != _collisionGeneration) return;
+
+            _collision = ready.World.IsEmpty ? null : ready.World;
+            _collisionBuildSeconds = ready.Seconds;
+            if (_controller is not null) _controller.Collision = _collision;
+
+            Console.WriteLine(
+                $"[collision-async] BVH {ready.World.NodeCount:N0} nodes over " +
+                $"{ready.World.TriangleCount:N0} triangles, {ready.Seconds:F2}s off-thread");
+
+            if (_collision is not null)
+            {
+                var lo = _collision.BoundsMin;
+                var hi = _collision.BoundsMax;
+                Console.WriteLine(
+                    $"[collision-async] bounds X {lo.X:F0}..{hi.X:F0}  " +
+                    $"Y {lo.Y:F0}..{hi.Y:F0}  Z {lo.Z:F0}..{hi.Z:F0}");
+                if (_collisionDebug is { Enabled: true }) _collisionDebug.Build(_collision);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[collision-async] FAILED - {ex.Message}; keeping previous collision");
+        }
+    }
+
     public void Update(float dt)
     {
         if (_controller is null) return;
+        _terrain?.PumpPreloads();
+        AcceptReadyCollision();
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);
@@ -511,7 +736,7 @@ public sealed class GameLoop : IDisposable
         bool collisionKey = _window.IsDown(Key.C);
         if (collisionKey && !_collisionKeyDown && _collisionDebug is not null)
         {
-            _collisionDebug.Enabled = !_collisionDebug.Enabled;
+            SetCollisionDebugEnabled(!_collisionDebug.Enabled);
             Console.WriteLine($"[collision] wireframe {(_collisionDebug.Enabled ? "on" : "off")}");
         }
         _collisionKeyDown = collisionKey;
@@ -562,6 +787,22 @@ public sealed class GameLoop : IDisposable
         };
 
         _controller.Update(dt, input);
+        UpdateWorldResidency();
+
+        // WoWee gives ready assets a small main-thread integration budget.
+        // Alternate priority so neither queue starves, and never begin the
+        // second GL upload/build after the first has consumed this frame.
+        var preloadBudget = Stopwatch.StartNew();
+        if (_preloadWmoFirst) _wmo?.WarmNextPreload();
+        else _doodads?.WarmNextPreload();
+        if (_wmo is not null && _doodads is not null)
+            _doodads.QueuePreloadModels(_wmo.TakeNewDoodadModelPaths());
+        if (preloadBudget.Elapsed.TotalMilliseconds < 6)
+        {
+            if (_preloadWmoFirst) _doodads?.WarmNextPreload();
+            else _wmo?.WarmNextPreload();
+        }
+        _preloadWmoFirst = !_preloadWmoFirst;
 
         _walking = input.Walking;
         _character?.Update(dt, BuildUnitState());
@@ -596,6 +837,7 @@ public sealed class GameLoop : IDisposable
         Yaw = _controller?.Yaw ?? 0f,
         Grounded = _controller?.Grounded ?? true,
         VerticalVelocity = _controller?.Velocity.Z ?? 0f,
+        FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
     };
@@ -704,10 +946,23 @@ public sealed class GameLoop : IDisposable
         {
             ImGui.Text($"{_window.Fps:F0} fps   {_window.FrameMs:F2} ms");
 
+            bool vsync = _window.VSync;
+            if (ImGui.Checkbox("VSync (prevent tearing)", ref vsync))
+                _window.VSync = vsync;
+
             if (_terrain is not null)
             {
                 ImGui.Text($"tiles {_terrain.TileCount}   drawn {_terrain.DrawnLastFrame}");
                 ImGui.Text($"triangles {_terrain.TotalTriangles:N0}");
+                if (_residentCentre is { } resident)
+                    ImGui.Text($"resident [{resident.col},{resident.row}]  " +
+                               $"objects {ObjectResidencyRadius:F0} yd  " +
+                               $"last {_lastStreamSeconds:F2}s");
+                if (_wmo is not null)
+                    ImGui.Text($"WMO preload {WmoPreloadRadius * 2 + 1}x{WmoPreloadRadius * 2 + 1}  " +
+                               $"{_wmo.PendingPreloads} queued");
+                if (_doodads is not null)
+                    ImGui.Text($"M2 preload {_doodads.PendingPreloads} queued");
             }
 
             if (_controller is not null)
@@ -745,11 +1000,42 @@ public sealed class GameLoop : IDisposable
                     ImGui.Text($"    surface tri {_controller.GroundTriangle} " +
                                $"({_collision.SourceOf(_controller.GroundTriangle)})");
 
+                if (_controller.GroundProbeOffset.LengthSquared() > 1e-6f)
+                    ImGui.Text($"    support probe ({_controller.GroundProbeOffset.X,5:F2}," +
+                               $" {_controller.GroundProbeOffset.Y,5:F2})");
+
+                if (_controller.GroundProbesLastFrame > 1)
+                    ImGui.Text($"    support fan {_controller.GroundProbesLastFrame} probes");
+
+                if (_controller.GroundAdhesion)
+                    ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f),
+                        "    ground adhesion");
+
                 ImGui.Text($"  state  {(_controller.Flying ? "flying" : _controller.Grounded ? "grounded" : "airborne")}");
                 ImGui.Text($"  vz     {_controller.Velocity.Z,10:F2}");
 
                 if (_controller.FallTimeMs > 0)
                     ImGui.Text($"  fall   {_controller.FallTimeMs,10:F0} ms");
+
+                float groundSnap = _config.Movement.GroundSnapDistance;
+                if (ImGui.SliderFloat("Ground snap down", ref groundSnap, 0f, 1.5f, "%.2f yd"))
+                    _config.Movement.GroundSnapDistance = groundSnap;
+
+                float fallDelay = _config.Movement.FallAnimationDelayMs;
+                if (ImGui.SliderFloat("Fall animation delay", ref fallDelay, 0f, 500f, "%.0f ms"))
+                    _config.Movement.FallAnimationDelayMs = fallDelay;
+
+                float runSpeed = _config.Movement.RunSpeed;
+                if (ImGui.SliderFloat("Run speed", ref runSpeed, 1f, 12f, "%.2f yd/s"))
+                    _config.Movement.RunSpeed = runSpeed;
+
+                float walkSpeed = _config.Movement.WalkSpeed;
+                if (ImGui.SliderFloat("Walk speed", ref walkSpeed, 0.5f, 6f, "%.2f yd/s"))
+                    _config.Movement.WalkSpeed = walkSpeed;
+
+                float backwardSpeed = _config.Movement.BackwardSpeed;
+                if (ImGui.SliderFloat("Backward speed", ref backwardSpeed, 0.5f, 8f, "%.2f yd/s"))
+                    _config.Movement.BackwardSpeed = backwardSpeed;
 
                 // This one matters: it is the loud version of the failure that
                 // once looked like a physics bug for 23 seconds of falling.
@@ -769,6 +1055,10 @@ public sealed class GameLoop : IDisposable
                 bool showWmo = _wmo.Enabled;
                 if (ImGui.Checkbox("Draw buildings", ref showWmo)) _wmo.Enabled = showWmo;
 
+                bool wmoFrustum = _wmo.FrustumCulling;
+                if (ImGui.Checkbox("Frustum culling##wmo", ref wmoFrustum))
+                    _wmo.FrustumCulling = wmoFrustum;
+
                 // If missing walls reappear when this is on, the geometry was
                 // never lost - it was wound inward and culled.
                 bool twoSided = _wmo.ForceTwoSided;
@@ -778,6 +1068,14 @@ public sealed class GameLoop : IDisposable
                 float cutoff = _wmo.AlphaCutoff;
                 if (ImGui.SliderFloat("Alpha cutoff", ref cutoff, 0f, 1f))
                     _wmo.AlphaCutoff = cutoff;
+
+                float wmoDistance = _wmo.DrawDistance;
+                if (ImGui.SliderFloat("Building distance", ref wmoDistance, 300f, 1250f, "%.0f yd"))
+                {
+                    _wmo.DrawDistance = wmoDistance;
+                    _wmo.FogEnd = wmoDistance;
+                    _config.Render.WmoDistance = wmoDistance;
+                }
             }
             else
             {
@@ -795,13 +1093,21 @@ public sealed class GameLoop : IDisposable
                 bool showDoodads = _doodads.Enabled;
                 if (ImGui.Checkbox("Draw doodads", ref showDoodads)) _doodads.Enabled = showDoodads;
 
+                bool doodadFrustum = _doodads.FrustumCulling;
+                if (ImGui.Checkbox("Frustum culling##doodads", ref doodadFrustum))
+                    _doodads.FrustumCulling = doodadFrustum;
+
                 float doodadCut = _doodads.AlphaCutoff;
                 if (ImGui.SliderFloat("Doodad alpha cut", ref doodadCut, 0f, 1f))
                     _doodads.AlphaCutoff = doodadCut;
 
                 float dist = _doodads.DrawDistance;
                 if (ImGui.SliderFloat("Doodad distance", ref dist, 50f, 1200f))
+                {
                     _doodads.DrawDistance = dist;
+                    _config.Render.DoodadDistance = dist;
+                    _residentCentre = null; // refresh object residency next update
+                }
 
             }
 
@@ -826,7 +1132,8 @@ public sealed class GameLoop : IDisposable
                 // hold its last frame forever.
                 ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f),
                     $"  {_character.ClipName}  {_character.ClipTime:F2}/{_character.ClipDuration:F2}s " +
-                    $"x{_character.ClipRate:F2} {(_character.ClipLooping ? "loop" : "ONCE")}");
+                    $"x{_character.ClipRate:F2} move {_character.ClipMoveSpeed:F2} " +
+                    $"{(_character.ClipLooping ? "loop" : "ONCE")}");
                 ImGui.Text($"  ground speed {_character.GroundSpeed,5:F2} yd/s");
 
                 bool drawCharacter = _character.Enabled;
@@ -1047,7 +1354,8 @@ public sealed class GameLoop : IDisposable
                 if (_collisionDebug is not null)
                 {
                     bool show = _collisionDebug.Enabled;
-                    if (ImGui.Checkbox("Show collision (C)", ref show)) _collisionDebug.Enabled = show;
+                    if (ImGui.Checkbox("Show collision (C)", ref show))
+                        SetCollisionDebugEnabled(show);
 
                     bool solid = _collisionDebug.Solid;
                     if (ImGui.Checkbox("Solid", ref solid)) _collisionDebug.Solid = solid;
@@ -1207,14 +1515,19 @@ public sealed class GameLoop : IDisposable
 
     public void Dispose()
     {
-        // Detach before disposing, so nothing can read through a dead mount.
-        AdtTerrainReader.StormLibExtractor = null;
-        _mpq?.Dispose();
-
+        try { _collisionBuildTask?.GetAwaiter().GetResult(); }
+        catch { /* Shutdown must continue after a failed background build. */ }
         _character?.Dispose();
         _collisionDebug?.Dispose();
         _doodads?.Dispose();
         _wmo?.Dispose();
         _terrain?.Dispose();
+        _uploads?.Dispose();
+        _assetWorkers?.Dispose();
+
+        // Renderer disposal joins any asset-preparation workers before the
+        // extractor is detached and its shared archive handles are closed.
+        AdtTerrainReader.StormLibExtractor = null;
+        _mpq?.Dispose();
     }
 }

@@ -31,6 +31,16 @@ namespace MSUIClient.World;
 /// </summary>
 public sealed class TerrainTextures : IDisposable
 {
+    public sealed class Prepared
+    {
+        public List<byte[]> Pixels = [];
+        public List<string> Names = [];
+        public byte[] AlphaAtlas = [];
+        public int[][] ChunkLayers = [];
+        public int Width;
+        public int Height;
+    }
+
     public const int AlphaSize = 64;
     public const int ChunksPerSide = 16;
     public const int AtlasSize = ChunksPerSide * AlphaSize;   // 1024
@@ -53,9 +63,11 @@ public sealed class TerrainTextures : IDisposable
 
     public static TerrainTextures Build(
         GL gl, AdtTerrainReader.AdtResult adt, string clientDataPath, int col, int row)
-    {
-        var result = new TerrainTextures();
+        => Upload(gl, Prepare(adt, clientDataPath, col, row));
 
+    public static Prepared Prepare(
+        AdtTerrainReader.AdtResult adt, string clientDataPath, int col, int row)
+    {
         // ── tileset array ────────────────────────────────────────────────────
         var names = adt.Textures;
         var pixels = new List<byte[]>(names.Count);
@@ -89,12 +101,6 @@ public sealed class TerrainTextures : IDisposable
             remap[i] = pixels.Count;
             pixels.Add(bgra);
             kept.Add(names[i]);
-        }
-
-        if (pixels.Count > 0)
-        {
-            result._tileset = Texture.Array2D(gl, pixels, expectedW, expectedH);
-            result.TextureNames = kept;
         }
 
         // ── alpha atlas + per-chunk layer indices ────────────────────────────
@@ -143,13 +149,31 @@ public sealed class TerrainTextures : IDisposable
             }
         }
 
-        result._alphaAtlas = Texture.FromRgbaNoMips(gl, atlas, AtlasSize, AtlasSize);
-        result.ChunkLayers = layers;
+        return new Prepared
+        {
+            Pixels = pixels,
+            Names = kept,
+            AlphaAtlas = atlas,
+            ChunkLayers = layers,
+            Width = expectedW,
+            Height = expectedH,
+        };
+    }
 
-        Console.WriteLine(
-            $"[terrain] tile [{col},{row}] textures: {pixels.Count}/{names.Count} loaded " +
-            $"({expectedW}x{expectedH}), alpha atlas {AtlasSize}x{AtlasSize}");
+    public static TerrainTextures Upload(GL gl, Prepared prepared, GL? ownerGl = null)
+    {
+        var result = new TerrainTextures
+        {
+            TextureNames = prepared.Names,
+            ChunkLayers = prepared.ChunkLayers,
+        };
 
+        if (prepared.Pixels.Count > 0)
+            result._tileset = Texture.Array2D(
+                gl, prepared.Pixels, prepared.Width, prepared.Height, ownerGl: ownerGl);
+
+        result._alphaAtlas = Texture.FromRgbaNoMips(
+            gl, prepared.AlphaAtlas, AtlasSize, AtlasSize, ownerGl);
         return result;
     }
 

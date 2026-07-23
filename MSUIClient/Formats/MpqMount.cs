@@ -32,13 +32,14 @@ namespace MSUIClient.Formats;
 ///   terrain.MPQ and model.MPQ first. Getting that order wrong means reading
 ///   pre-patch versions of files, which would be a subtle and horrible bug.
 ///
-/// NOT THREAD SAFE. Archive reads share file handles and internal buffers, so
-/// keep loading on one thread. Parallel BLP decode is still available — decode
-/// is pure CPU work on bytes this has already returned.
+/// THREADING. Archive reads share file handles and internal buffers, so the
+/// extraction portion is serialized by a private lock. Returned byte arrays
+/// are independent; parsing and BLP decoding can run concurrently on workers.
 /// </summary>
 public sealed class MpqMount : IDisposable
 {
     private readonly List<(string Name, MpqArchive Archive)> _archives = [];
+    private readonly object _readLock = new();
 
     public int ArchiveCount => _archives.Count;
     public int Reads { get; private set; }
@@ -72,23 +73,30 @@ public sealed class MpqMount : IDisposable
     /// </summary>
     public byte[]? ReadFile(string internalPath)
     {
-        Reads++;
-
-        foreach (var (_, archive) in _archives)
+        // MpqArchive instances share file handles and scratch state. Worker
+        // preparation may call this concurrently with terrain finalization;
+        // serialize only archive extraction, then let parsing and BLP decoding
+        // proceed in parallel after the returned byte[] is detached.
+        lock (_readLock)
         {
-            try
-            {
-                var data = archive.ReadFile(internalPath);
-                if (data is not null) { Hits++; return data; }
-            }
-            catch
-            {
-                // Wrong archive, or a read this one cannot satisfy. Next.
-            }
-        }
+            Reads++;
 
-        Misses++;
-        return null;
+            foreach (var (_, archive) in _archives)
+            {
+                try
+                {
+                    var data = archive.ReadFile(internalPath);
+                    if (data is not null) { Hits++; return data; }
+                }
+                catch
+                {
+                    // Wrong archive, or a read this one cannot satisfy. Next.
+                }
+            }
+
+            Misses++;
+            return null;
+        }
     }
 
     /// <summary>
@@ -132,7 +140,10 @@ public sealed class MpqMount : IDisposable
 
     public void Dispose()
     {
-        foreach (var (_, archive) in _archives) archive.Dispose();
-        _archives.Clear();
+        lock (_readLock)
+        {
+            foreach (var (_, archive) in _archives) archive.Dispose();
+            _archives.Clear();
+        }
     }
 }

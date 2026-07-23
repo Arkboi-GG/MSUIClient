@@ -54,5 +54,7 @@ void main()
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
 
-    FragColor = vec4(mix(lit, uFogColor, fog), 1.0);
+    // Opaque and alpha-key batches draw with blending disabled, so retaining
+    // texture alpha is harmless there and required by MOMT blend modes 2+.
+    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a);
 }

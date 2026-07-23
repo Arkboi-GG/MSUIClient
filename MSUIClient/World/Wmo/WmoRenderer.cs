@@ -73,7 +73,8 @@ public sealed class WmoRenderer : IDisposable
         /// itself is applied at DRAW time, not baked here — baking it made the
         /// HUD slider inert, which cost a debugging round trip.
         /// </summary>
-        public bool TextureHasAlpha;
+        public bool AlphaTest;
+        public bool Transparent;
     }
 
     private sealed class GroupMesh : IDisposable
@@ -128,6 +129,57 @@ public sealed class WmoRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Incremental WMO build state. A city WMO can contain hundreds of group
+    /// files; treating the whole root as one frame-sized operation caused the
+    /// multi-second freezes seen while walking into Stormwind.
+    /// </summary>
+    private sealed class ModelLoadJob
+    {
+        public required string RootPath;
+        public required Task<PreparedWmo> Worker;
+        public PreparedWmo? Ready;
+        public Task<UploadedWmo>? Upload;
+        public bool UploadAccepted;
+        public Model Model = new();
+        public List<Vector3> Collision = [];
+        public int NextGroup;
+        public int Skipped;
+        public int MissingFiles, Unparsed, Empty, Unbuilt, BatchesDropped;
+        public int IndicesCovered, IndicesTotal;
+        public System.Diagnostics.Stopwatch Timer = System.Diagnostics.Stopwatch.StartNew();
+    }
+
+    private sealed class UploadedWmo
+    {
+        public Dictionary<string, Texture?> Textures = new(StringComparer.OrdinalIgnoreCase);
+        public List<UploadedGroup?> Groups = [];
+    }
+
+    private sealed class UploadedGroup
+    {
+        public uint Vbo;
+        public uint Ebo;
+    }
+
+    private sealed class PreparedWmo
+    {
+        public WmoRootData? Root;
+        public bool MissingRoot;
+        public List<WmoGroupData?> Groups = [];
+        public List<PreparedTexture> Textures = [];
+        public int MissingFiles, Unparsed, Empty;
+    }
+
+    private sealed class PreparedTexture
+    {
+        public required string Path;
+        public byte[]? Bgra;
+        public int Width;
+        public int Height;
+        public byte MaxAlpha;
+    }
+
     private sealed class Instance
     {
         public Model Model = null!;
@@ -141,12 +193,19 @@ public sealed class WmoRenderer : IDisposable
     }
 
     private readonly GL _gl;
+    private readonly GpuUploadWorker _uploads;
+    private readonly AssetWorkerPool _workers;
     private readonly ClientConfig _config;
 
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
     private readonly HashSet<string> _placed = [];
+    private readonly Queue<string> _preloadQueue = new();
+    private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
+    private ModelLoadJob? _preloadJob;
+    private readonly Queue<string> _newDoodadModels = new();
+    private readonly HashSet<string> _announcedDoodadModels = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Textures whose decoded alpha channel is entirely zero.</summary>
     private readonly HashSet<string> _opaqueTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -172,9 +231,12 @@ public sealed class WmoRenderer : IDisposable
         => _instances.Select(i => (i.Path, i.WorldMin, i.WorldMax, i.Origin));
     public int ModelCount => _models.Count(m => m.Value is not null);
     public int TextureCount => _textures.Count(t => t.Value is not null);
+    public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
     public int TotalTriangles { get; private set; }
     public int DrawnLastFrame { get; private set; }
     public bool Enabled { get; set; } = true;
+    public bool FrustumCulling { get; set; } = true;
+    public float DrawDistance { get; set; }
 
     /// <summary>
     /// Draw every batch two-sided, ignoring each material's IsNoCull flag.
@@ -200,10 +262,15 @@ public sealed class WmoRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
-    public WmoRenderer(GL gl, ClientConfig config)
+    public WmoRenderer(
+        GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
     {
         _gl = gl;
         _config = config;
+        _uploads = uploads;
+        _workers = workers;
+        DrawDistance = Math.Max(100f, config.Render.WmoDistance);
+        FogEnd = DrawDistance;
     }
 
     public void LoadShaders(string shaderDir)
@@ -295,6 +362,99 @@ public sealed class WmoRenderer : IDisposable
             foreach (var name in _failedTextures.Take(10))
                 Console.WriteLine($"[wmo]   {name}");
         }
+    }
+
+    /// <summary>
+    /// Drop placed instances while retaining parsed models, textures and GPU
+    /// buffers. A streaming ring change should rebuild cheap placement state,
+    /// never pay the model-loading cost again.
+    /// </summary>
+    public void ResetPlacements()
+    {
+        _instances.Clear();
+        _placed.Clear();
+        TotalTriangles = 0;
+    }
+
+    /// <summary>
+    /// Discover WMO assets in an outer tile ring without placing them. The
+    /// parsed models, decoded textures and GPU buffers stay in the normal
+    /// caches, so making the inner ring resident later is a cheap cache hit.
+    /// </summary>
+    public void QueuePreloadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    {
+        foreach (var (col, row) in tiles)
+        {
+            var adt = adts.Get(col, row);
+            if (adt?.Wmos is null) continue;
+
+            foreach (var w in adt.Wmos)
+            {
+                string path = w.ModelPath;
+                if (string.IsNullOrWhiteSpace(path) ||
+                    path.StartsWith("Unknown_", StringComparison.Ordinal) ||
+                    _models.ContainsKey(path) ||
+                    _preloadJob?.RootPath.Equals(path, StringComparison.OrdinalIgnoreCase) == true ||
+                    !_preloadQueued.Add(path)) continue;
+
+                _preloadQueue.Enqueue(path);
+            }
+        }
+    }
+
+    /// <summary>Warm one queued model. Runtime streaming calls this once per frame.</summary>
+    public bool WarmNextPreload(bool waitForWorker = false)
+    {
+        while (_preloadJob is null && _preloadQueue.Count > 0)
+        {
+            string path = _preloadQueue.Dequeue();
+            _preloadQueued.Remove(path);
+            if (_models.ContainsKey(path)) continue;
+            _preloadJob = StartModelLoad(path);
+        }
+
+        if (_preloadJob is null) return false;
+
+        var job = _preloadJob;
+        if (waitForWorker && !job.Worker.IsCompleted)
+            try { job.Worker.GetAwaiter().GetResult(); } catch { }
+        if (!job.Worker.IsCompleted) return true;
+
+        var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+        if (StepModelLoad(job, waitForWorker))
+        {
+            _preloadJob = null;
+            Console.WriteLine($"[wmo-preload] {Path.GetFileName(job.RootPath)} prepared over " +
+                              $"{job.Ready?.Root?.NGroups ?? 0} group(s), {job.Timer.Elapsed.TotalSeconds:F2}s, " +
+                              $"{_preloadQueue.Count} queued");
+        }
+        if (stepTimer.Elapsed.TotalMilliseconds >= 8)
+            Console.WriteLine($"[stream-budget] WMO finalize {Path.GetFileName(job.RootPath)} " +
+                              $"took {stepTimer.Elapsed.TotalMilliseconds:F0}ms");
+
+        return true;
+    }
+
+    /// <summary>Warm the initial preload ring while the loading screen is expected.</summary>
+    public void DrainPreloads()
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        int steps = 0;
+        while (WarmNextPreload(waitForWorker: true)) steps++;
+        Console.WriteLine($"[wmo-preload] initial ring completed in {steps} staged step(s), " +
+                          $"{timer.Elapsed.TotalSeconds:F1}s");
+    }
+
+    /// <summary>
+    /// Newly discovered embedded M2 assets from completed WMO roots. The
+    /// doodad renderer consumes these into its own outer-ring preload queue;
+    /// otherwise a city crossing first discovers thousands of furniture
+    /// placements and pays all their model/texture costs at the boundary.
+    /// </summary>
+    public IEnumerable<string> TakeNewDoodadModelPaths()
+    {
+        while (_newDoodadModels.Count > 0)
+            yield return _newDoodadModels.Dequeue();
     }
 
     // ── placement ────────────────────────────────────────────────────────────
@@ -397,6 +557,31 @@ public sealed class WmoRenderer : IDisposable
         return (min, max);
     }
 
+    private static (Vector3 min, Vector3 max) TransformedBounds(GroupMesh group, Matrix4x4 m)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        for (int c = 0; c < 8; c++)
+        {
+            var corner = new Vector3(
+                (c & 1) == 0 ? group.LocalMin.X : group.LocalMax.X,
+                (c & 2) == 0 ? group.LocalMin.Y : group.LocalMax.Y,
+                (c & 4) == 0 ? group.LocalMin.Z : group.LocalMax.Z);
+            var p = Vector3.Transform(corner, m);
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+        return (min, max);
+    }
+
+    private static float DistanceToBox(Vector3 p, Vector3 min, Vector3 max)
+    {
+        float dx = MathF.Max(MathF.Max(min.X - p.X, 0f), p.X - max.X);
+        float dy = MathF.Max(MathF.Max(min.Y - p.Y, 0f), p.Y - max.Y);
+        float dz = MathF.Max(MathF.Max(min.Z - p.Z, 0f), p.Z - max.Z);
+        return MathF.Sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
     /// <summary>
     /// MODF's own bounding box for the placed model, in world space. This is
     /// the target every candidate is scored against.
@@ -439,98 +624,293 @@ public sealed class WmoRenderer : IDisposable
     {
         if (_models.TryGetValue(rootPath, out var cached)) return cached;
 
+        // If the requested model is already being staged, finish that same job
+        // rather than starting a duplicate. With the outer-ring lead this path
+        // should be rare, but correctness wins if the player moves unusually
+        // quickly or teleports.
+        ModelLoadJob? job = _preloadJob?.RootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase) == true
+            ? _preloadJob
+            : StartModelLoad(rootPath);
+        if (job is null) return null;
+
+        if (!job.Worker.IsCompleted)
+            try { job.Worker.GetAwaiter().GetResult(); } catch { }
+        while (!StepModelLoad(job, waitForUpload: true)) { }
+        if (ReferenceEquals(job, _preloadJob)) _preloadJob = null;
+        return _models.GetValueOrDefault(rootPath);
+    }
+
+    private ModelLoadJob? StartModelLoad(string rootPath)
+    {
+        if (_models.ContainsKey(rootPath)) return null;
+        return new ModelLoadJob
+        {
+            RootPath = rootPath,
+            Worker = _workers.Run(() => PrepareWmo(rootPath)),
+        };
+    }
+
+    private PreparedWmo PrepareWmo(string rootPath)
+    {
+        var prepared = new PreparedWmo();
         var rootBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, rootPath);
         if (rootBytes is null)
         {
-            Console.WriteLine($"[wmo] not in MPQs: {rootPath}");
-            _models[rootPath] = null;
-            return null;
+            prepared.MissingRoot = true;
+            return prepared;
         }
 
         var root = WmoReader.ParseRoot(rootBytes);
-        if (root is null)
-        {
-            Console.WriteLine($"[wmo] failed to parse root: {rootPath}");
-            _models[rootPath] = null;
-            return null;
-        }
+        if (root is null) return prepared;
+        prepared.Root = root;
 
-        var model = new Model();
-        var collision = new List<Vector3>();
-        int skipped = 0;
-
-        // Every way a group can vanish, counted. These were three silent
-        // `continue`s, which is exactly how a building loses half its walls
-        // without anything appearing in the log.
-        int missingFiles = 0, unparsed = 0, empty = 0, unbuilt = 0, batchesDropped = 0;
-        int indicesCovered = 0, indicesTotal = 0;
-
-        string stem = rootPath[..^4];       // strip ".wmo"
-
-        for (int g = 0; g < root.NGroups; g++)
+        string stem = rootPath[..^4];
+        for (int g = 0; g < (int)root.NGroups; g++)
         {
             string groupPath = $"{stem}_{g:D3}.wmo";
             var groupBytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, groupPath);
-            if (groupBytes is null) { missingFiles++; continue; }
+            if (groupBytes is null)
+            {
+                prepared.MissingFiles++;
+                prepared.Groups.Add(null);
+                continue;
+            }
 
             var group = WmoReader.ParseGroup(groupBytes);
-            if (group is null) { unparsed++; continue; }
-            if (group.Vertices.Count == 0 || group.Indices.Count < 3) { empty++; continue; }
-
-            var mesh = BuildGroupMesh(group, root);
-            if (mesh is null) { unbuilt++; continue; }
-
-            batchesDropped += _lastBatchesDropped;
-            indicesCovered += _lastIndicesCovered;
-            indicesTotal += _lastIndicesTotal;
-
-            model.Groups.Add(mesh);
-            model.TriangleCount += group.Indices.Count / 3;
-
-            CollectCollision(group, collision, ref skipped);
+            if (group is null)
+            {
+                prepared.Unparsed++;
+                prepared.Groups.Add(null);
+                continue;
+            }
+            if (group.Vertices.Count == 0 || group.Indices.Count < 3)
+            {
+                prepared.Empty++;
+                prepared.Groups.Add(null);
+                continue;
+            }
+            prepared.Groups.Add(group);
         }
 
-        model.CollisionTriangles = [.. collision];
-        model.CollisionSkipped = skipped;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var material in root.Materials)
+        foreach (string texturePath in new[]
+                 { material.Texture0Name, material.Texture1Name, material.Texture2Name })
+        {
+            if (string.IsNullOrWhiteSpace(texturePath) || !seen.Add(texturePath)) continue;
+            var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, texturePath);
+            if (decoded is null)
+            {
+                prepared.Textures.Add(new PreparedTexture { Path = texturePath });
+                continue;
+            }
 
-        if (indicesTotal > 0 && indicesCovered < indicesTotal)
+            var (bgra, width, height) = decoded.Value;
+            byte maxAlpha = 0;
+            for (int i = 3; i < bgra.Length; i += 4)
+            {
+                if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
+                if (maxAlpha > 1) break;
+            }
+            if (maxAlpha == 1)
+                for (int i = 3; i < bgra.Length; i += 4)
+                    if (bgra[i] != 0) bgra[i] = 255;
+
+            prepared.Textures.Add(new PreparedTexture
+            {
+                Path = texturePath,
+                Bgra = bgra,
+                Width = width,
+                Height = height,
+                MaxAlpha = maxAlpha,
+            });
+        }
+
+        return prepared;
+    }
+
+    private unsafe UploadedWmo UploadPreparedWmo(
+        GL gl, PreparedWmo prepared, IReadOnlyList<PreparedTexture> textures)
+    {
+        var uploaded = new UploadedWmo();
+
+        foreach (var texture in textures)
+        {
+            uploaded.Textures[texture.Path] = texture.Bgra is null
+                ? null
+                : Texture.From2D(gl, texture.Bgra, texture.Width, texture.Height, ownerGl: _gl);
+        }
+
+        foreach (var group in prepared.Groups)
+        {
+            if (group is null)
+            {
+                uploaded.Groups.Add(null);
+                continue;
+            }
+
+            var vertices = BuildGroupVertexArray(group, out _, out _);
+            var indices = group.Indices.ToArray();
+            var gpu = new UploadedGroup
+            {
+                Vbo = gl.GenBuffer(),
+                Ebo = gl.GenBuffer(),
+            };
+
+            gl.BindBuffer(BufferTargetARB.ArrayBuffer, gpu.Vbo);
+            fixed (float* p = vertices)
+                gl.BufferData(BufferTargetARB.ArrayBuffer,
+                    (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+            gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, gpu.Ebo);
+            fixed (ushort* p = indices)
+                gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                    (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+
+            uploaded.Groups.Add(gpu);
+        }
+
+        return uploaded;
+    }
+
+    /// <summary>
+    /// Build at most one WMO group. Returns true once the model is finalized.
+    /// Group granularity keeps runtime preload work bounded while the asset is
+    /// still beyond the fog boundary.
+    /// </summary>
+    private bool StepModelLoad(ModelLoadJob job, bool waitForUpload = false)
+    {
+        try { job.Ready ??= job.Worker.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[wmo-preload] {Path.GetFileName(job.RootPath)} failed - {ex.Message}");
+            job.Model.Dispose();
+            _models[job.RootPath] = null;
+            return true;
+        }
+        var ready = job.Ready;
+        if (ready.MissingRoot)
+        {
+            Console.WriteLine($"[wmo] not in MPQs: {job.RootPath}");
+            _models[job.RootPath] = null;
+            return true;
+        }
+        if (ready.Root is null)
+        {
+            Console.WriteLine($"[wmo] failed to parse root: {job.RootPath}");
+            _models[job.RootPath] = null;
+            return true;
+        }
+
+        job.MissingFiles = ready.MissingFiles;
+        job.Unparsed = ready.Unparsed;
+        job.Empty = ready.Empty;
+
+        if (job.Upload is null)
+        {
+            var pendingTextures = ready.Textures
+                .Where(t => !_textures.ContainsKey(t.Path))
+                .ToList();
+            job.Upload = _uploads.Enqueue(Path.GetFileName(job.RootPath), uploadGl =>
+                UploadPreparedWmo(uploadGl, ready, pendingTextures));
+        }
+        if (waitForUpload && !job.Upload.IsCompleted)
+            try { job.Upload.GetAwaiter().GetResult(); } catch { }
+        if (!job.Upload.IsCompleted) return false;
+
+        UploadedWmo uploaded;
+        try { uploaded = job.Upload.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[wmo-upload] {Path.GetFileName(job.RootPath)} failed - {ex.Message}");
+            job.Model.Dispose();
+            _models[job.RootPath] = null;
+            return true;
+        }
+
+        if (!job.UploadAccepted)
+        {
+            foreach (var (path, texture) in uploaded.Textures)
+            {
+                if (!_textures.ContainsKey(path)) _textures[path] = texture;
+                var prepared = ready.Textures.First(t =>
+                    t.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
+                if (texture is null) _failedTextures.Add(path);
+                else if (prepared.MaxAlpha == 0) _opaqueTextures.Add(path);
+                else if (prepared.MaxAlpha == 1) _rescaledAlpha.Add(path);
+            }
+            job.UploadAccepted = true;
+        }
+
+        if (job.NextGroup < ready.Groups.Count)
+        {
+            int groupIndex = job.NextGroup++;
+            var group = ready.Groups[groupIndex];
+            if (group is null) return false;
+
+            var mesh = BuildGroupMesh(group, ready.Root, uploaded.Groups[groupIndex]);
+            if (mesh is null) { job.Unbuilt++; return false; }
+
+            job.BatchesDropped += _lastBatchesDropped;
+            job.IndicesCovered += _lastIndicesCovered;
+            job.IndicesTotal += _lastIndicesTotal;
+
+            job.Model.Groups.Add(mesh);
+            job.Model.TriangleCount += group.Indices.Count / 3;
+
+            CollectCollision(group, job.Collision, ref job.Skipped);
+            return false;
+        }
+
+        var model = job.Model;
+        model.CollisionTriangles = [.. job.Collision];
+        model.CollisionSkipped = job.Skipped;
+
+        if (job.IndicesTotal > 0 && job.IndicesCovered < job.IndicesTotal)
         {
             // Under 100% is EXPECTED, not a fault: MOPY marks collision-only
             // triangles (materialId 0xFF) that are solid and never drawn, and
             // they are not in any MOBA batch. Every model measured sits around
             // 90%, which is the invisible-wall geometry. Only a sharp outlier
             // would mean anything.
-            double covered = 100.0 * indicesCovered / indicesTotal;
+            double covered = 100.0 * job.IndicesCovered / job.IndicesTotal;
             if (covered < 70.0)
                 Console.WriteLine(
-                    $"[wmo] {Path.GetFileName(rootPath)}: MOBA batches draw only {covered:F1}% of " +
+                    $"[wmo] {Path.GetFileName(job.RootPath)}: MOBA batches draw only {covered:F1}% of " +
                     $"indices — unusually low, most models sit near 90%");
         }
 
-        if (missingFiles + unparsed + empty + unbuilt + batchesDropped > 0)
+        if (job.MissingFiles + job.Unparsed + job.Empty + job.Unbuilt + job.BatchesDropped > 0)
         {
             Console.WriteLine(
-                $"[wmo] {Path.GetFileName(rootPath)}: {model.Groups.Count}/{root.NGroups} group(s) drawn" +
-                (missingFiles > 0 ? $", {missingFiles} file(s) not in MPQ" : "") +
-                (unparsed > 0 ? $", {unparsed} failed to parse" : "") +
-                (empty > 0 ? $", {empty} empty" : "") +
-                (unbuilt > 0 ? $", {unbuilt} mesh build failed" : "") +
-                (batchesDropped > 0 ? $", {batchesDropped} batch(es) dropped" : ""));
+                $"[wmo] {Path.GetFileName(job.RootPath)}: {model.Groups.Count}/{ready.Root.NGroups} group(s) drawn" +
+                (job.MissingFiles > 0 ? $", {job.MissingFiles} file(s) not in MPQ" : "") +
+                (job.Unparsed > 0 ? $", {job.Unparsed} failed to parse" : "") +
+                (job.Empty > 0 ? $", {job.Empty} empty" : "") +
+                (job.Unbuilt > 0 ? $", {job.Unbuilt} mesh build failed" : "") +
+                (job.BatchesDropped > 0 ? $", {job.BatchesDropped} batch(es) dropped" : ""));
         }
 
         if (model.Groups.Count == 0)
         {
-            Console.WriteLine($"[wmo] no drawable groups: {rootPath}");
+            Console.WriteLine($"[wmo] no drawable groups: {job.RootPath}");
             model.Dispose();
-            _models[rootPath] = null;
-            return null;
+            _models[job.RootPath] = null;
+            return true;
         }
 
-        model.DoodadSets = root.DoodadSets;
-        model.Doodads = root.Doodads;
+        model.DoodadSets = ready.Root.DoodadSets;
+        model.Doodads = ready.Root.Doodads;
 
-        _models[rootPath] = model;
-        return model;
+        foreach (var doodad in model.Doodads)
+        {
+            if (!string.IsNullOrWhiteSpace(doodad.ModelPath) &&
+                _announcedDoodadModels.Add(doodad.ModelPath))
+                _newDoodadModels.Enqueue(doodad.ModelPath);
+        }
+
+        _models[job.RootPath] = model;
+        return true;
     }
 
     /// <summary>
@@ -629,58 +1009,32 @@ public sealed class WmoRenderer : IDisposable
     /// </summary>
     private int _lastIndicesCovered, _lastIndicesTotal;
 
-    private unsafe GroupMesh? BuildGroupMesh(WmoGroupData group, WmoRootData root)
+    private unsafe GroupMesh? BuildGroupMesh(
+        WmoGroupData group, WmoRootData root, UploadedGroup? uploaded = null)
     {
-        int vertexCount = group.Vertices.Count;
-        var vertices = new float[vertexCount * FloatsPerVertex];
-
-        var min = new Vector3(float.MaxValue);
-        var max = new Vector3(float.MinValue);
-
-        for (int i = 0; i < vertexCount; i++)
-        {
-            var v = group.Vertices[i];
-
-            // The fallback tuples must name their elements. Without the names,
-            // the ternary's common type is a plain (float, float, float) and
-            // .x / .y / .z stop resolving on the whole expression.
-            var n = i < group.Normals.Count ? group.Normals[i] : (x: 0f, y: 0f, z: 1f);
-            var uv = i < group.UVs.Count ? group.UVs[i] : (u: 0f, v: 0f);
-
-            int o = i * FloatsPerVertex;
-            vertices[o + 0] = v.x;
-            vertices[o + 1] = v.y;
-            vertices[o + 2] = v.z;
-            vertices[o + 3] = n.x;
-            vertices[o + 4] = n.y;
-            vertices[o + 5] = n.z;
-            vertices[o + 6] = uv.u;
-            vertices[o + 7] = uv.v;
-
-            var p = new Vector3(v.x, v.y, v.z);
-            min = Vector3.Min(min, p);
-            max = Vector3.Max(max, p);
-        }
+        var vertices = BuildGroupVertexArray(group, out var min, out var max);
 
         var indices = group.Indices.ToArray();
 
         uint vao = _gl.GenVertexArray();
         _gl.BindVertexArray(vao);
 
-        uint vbo = _gl.GenBuffer();
+        uint vbo = uploaded?.Vbo ?? _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
-        fixed (float* p = vertices)
+        if (uploaded is null)
         {
-            _gl.BufferData(BufferTargetARB.ArrayBuffer,
-                (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+            fixed (float* p = vertices)
+                _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                    (nuint)(vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
         }
 
-        uint ebo = _gl.GenBuffer();
+        uint ebo = uploaded?.Ebo ?? _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
-        fixed (ushort* p = indices)
+        if (uploaded is null)
         {
-            _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
-                (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+            fixed (ushort* p = indices)
+                _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                    (nuint)(indices.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
         }
 
         const uint stride = FloatsPerVertex * sizeof(float);
@@ -727,7 +1081,12 @@ public sealed class WmoRenderer : IDisposable
                 IndexCount = b.IndexCount,
                 Texture = texture,
                 TwoSided = material?.IsNoCull ?? false,
-                TextureHasAlpha = MaterialHasAlpha(material),
+                // WoWee follows MOMT, rather than guessing from BLP contents:
+                // mode 0 is opaque, mode 1 is alpha-key, modes 2+ blend.
+                // Cutting every texture that merely contains alpha is what
+                // turned ordinary walls and roofs into torn paper.
+                AlphaTest = material?.BlendMode == 1 && MaterialHasAlpha(material),
+                Transparent = material?.BlendMode >= 2,
             });
         }
 
@@ -745,6 +1104,37 @@ public sealed class WmoRenderer : IDisposable
         }
 
         return mesh;
+    }
+
+    private static float[] BuildGroupVertexArray(
+        WmoGroupData group, out Vector3 min, out Vector3 max)
+    {
+        var vertices = new float[group.Vertices.Count * FloatsPerVertex];
+        min = new Vector3(float.MaxValue);
+        max = new Vector3(float.MinValue);
+
+        for (int i = 0; i < group.Vertices.Count; i++)
+        {
+            var v = group.Vertices[i];
+            var n = i < group.Normals.Count ? group.Normals[i] : (x: 0f, y: 0f, z: 1f);
+            var uv = i < group.UVs.Count ? group.UVs[i] : (u: 0f, v: 0f);
+
+            int o = i * FloatsPerVertex;
+            vertices[o + 0] = v.x;
+            vertices[o + 1] = v.y;
+            vertices[o + 2] = v.z;
+            vertices[o + 3] = n.x;
+            vertices[o + 4] = n.y;
+            vertices[o + 5] = n.z;
+            vertices[o + 6] = uv.u;
+            vertices[o + 7] = uv.v;
+
+            var p = new Vector3(v.x, v.y, v.z);
+            min = Vector3.Min(min, p);
+            max = Vector3.Max(max, p);
+        }
+
+        return vertices;
     }
 
     /// <summary>
@@ -812,13 +1202,34 @@ public sealed class WmoRenderer : IDisposable
         {
             for (int i = 3; i < bgra.Length; i += 4)
                 if (bgra[i] != 0) bgra[i] = 255;
-
-            _rescaledAlpha.Add(blpPath);
         }
 
-        var texture = Texture.From2D(_gl, bgra, w, h);
-        _textures[blpPath] = texture;
-        return texture;
+        UploadPreparedTexture(new PreparedTexture
+        {
+            Path = blpPath,
+            Bgra = bgra,
+            Width = w,
+            Height = h,
+            MaxAlpha = maxAlpha,
+        });
+        return _textures.GetValueOrDefault(blpPath);
+    }
+
+    private void UploadPreparedTexture(PreparedTexture prepared)
+    {
+        if (_textures.ContainsKey(prepared.Path)) return;
+        if (prepared.Bgra is null)
+        {
+            _failedTextures.Add(prepared.Path);
+            _textures[prepared.Path] = null;
+            return;
+        }
+
+        if (prepared.MaxAlpha == 0) _opaqueTextures.Add(prepared.Path);
+        else if (prepared.MaxAlpha == 1) _rescaledAlpha.Add(prepared.Path);
+
+        _textures[prepared.Path] = Texture.From2D(
+            _gl, prepared.Bgra, prepared.Width, prepared.Height);
     }
 
     /// <summary>Does the material's resolved texture carry a real alpha channel?</summary>
@@ -860,7 +1271,19 @@ public sealed class WmoRenderer : IDisposable
     /// differently in different towns.
     /// </summary>
     public IEnumerable<(string ModelPath, Matrix4x4 Transform)> EnumerateDoodads()
+        => EnumerateDoodads(Vector2.Zero, float.PositiveInfinity);
+
+    /// <summary>
+    /// Embedded doodads near a streaming centre. A huge WMO may intersect the
+    /// resident ADT ring while most of its furniture is hundreds of yards away;
+    /// filtering individual MODD transforms prevents that furniture from
+    /// dominating startup.
+    /// </summary>
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform)> EnumerateDoodads(
+        Vector2 centre, float maxDistance)
     {
+        float maxDistanceSq = maxDistance * maxDistance;
+
         foreach (var instance in _instances)
         {
             var model = instance.Model;
@@ -884,7 +1307,14 @@ public sealed class WmoRenderer : IDisposable
                         * Matrix4x4.CreateFromQuaternion(new Quaternion(d.QuatX, d.QuatY, d.QuatZ, d.QuatW))
                         * Matrix4x4.CreateTranslation(d.PosX, d.PosY, d.PosZ);
 
-                    yield return (d.ModelPath, local * instance.Transform);
+                    var transform = local * instance.Transform;
+                    if (!float.IsPositiveInfinity(maxDistance))
+                    {
+                        var delta = new Vector2(transform.M41, transform.M42) - centre;
+                        if (delta.LengthSquared() > maxDistanceSq) continue;
+                    }
+
+                    yield return (d.ModelPath, transform);
                 }
             }
         }
@@ -908,56 +1338,106 @@ public sealed class WmoRenderer : IDisposable
         if (!Enabled || _shader is null || _instances.Count == 0) return;
 
         _shader.Use();
-        _shader.Set("uViewProjection", camera.ViewProjection);
-        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
 
-        var planes = camera.FrustumPlanes();
+        var viewProjection = camera.RelativeViewProjection;
+        var cameraPosition = camera.Position;
         bool cullingOn = true;
 
         foreach (var instance in _instances)
         {
-            if (!Camera.BoxInFrustum(planes, instance.WorldMin, instance.WorldMax)) continue;
+            if (FrustumCulling &&
+                !Camera.BoxInFrustum(viewProjection,
+                    instance.WorldMin - cameraPosition,
+                    instance.WorldMax - cameraPosition)) continue;
 
-            _shader.Set("uModel", instance.Transform);
+            var modelTransform = instance.Transform;
+            modelTransform.M41 -= cameraPosition.X;
+            modelTransform.M42 -= cameraPosition.Y;
+            modelTransform.M43 -= cameraPosition.Z;
 
+            _shader.Set("uModel", modelTransform);
+            _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
+
+            // A city is one WMO instance containing many spatial groups. Draw
+            // only groups whose own boxes are relevant. Interior groups are
+            // portal cells; until full MOPV/MOPR traversal is implemented,
+            // proximity is the conservative approximation that prevents the
+            // Cathedral interior from appearing over the Trade District while
+            // still allowing rooms to show through nearby doors and windows.
+            var visibleGroups = new List<GroupMesh>();
             foreach (var group in instance.Model.Groups)
             {
-                _gl.BindVertexArray(group.Vao);
+                var (groupMin, groupMax) = TransformedBounds(group, instance.Transform);
+                float groupDistance = DistanceToBox(cameraPosition, groupMin, groupMax);
+                if (groupDistance > DrawDistance)
+                    continue;
+                if (group.IsInterior && groupDistance > 120f)
+                    continue;
+                if (FrustumCulling &&
+                    !Camera.BoxInFrustum(viewProjection,
+                        groupMin - cameraPosition, groupMax - cameraPosition))
+                    continue;
+                visibleGroups.Add(group);
+            }
 
-                foreach (var batch in group.Batches)
+            for (int pass = 0; pass < 2; pass++)
+            {
+                bool transparentPass = pass == 1;
+                if (transparentPass)
                 {
-                    bool twoSided = batch.TwoSided || ForceTwoSided;
+                    _gl.DepthMask(false);
+                    _gl.Enable(EnableCap.Blend);
+                    _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                }
 
-                    if (twoSided && cullingOn)
-                    {
-                        _gl.Disable(EnableCap.CullFace);
-                        cullingOn = false;
-                    }
-                    else if (!twoSided && !cullingOn)
-                    {
-                        _gl.Enable(EnableCap.CullFace);
-                        cullingOn = true;
-                    }
+                foreach (var group in visibleGroups)
+                {
+                    _gl.BindVertexArray(group.Vao);
 
-                    if (batch.Texture is not null)
+                    foreach (var batch in group.Batches)
                     {
-                        batch.Texture.Bind(0);
-                        _shader.Set("uHasTexture", 1);
-                        _shader.Set("uAlphaCutoff", batch.TextureHasAlpha ? AlphaCutoff : 0f);
-                    }
-                    else
-                    {
-                        _shader.Set("uHasTexture", 0);
-                        _shader.Set("uAlphaCutoff", 0f);
-                    }
+                        if (batch.Transparent != transparentPass) continue;
+                        bool twoSided = batch.TwoSided || ForceTwoSided;
 
-                    _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
-                        DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                        if (twoSided && cullingOn)
+                        {
+                            _gl.Disable(EnableCap.CullFace);
+                            cullingOn = false;
+                        }
+                        else if (!twoSided && !cullingOn)
+                        {
+                            _gl.Enable(EnableCap.CullFace);
+                            cullingOn = true;
+                        }
+
+                        if (batch.Texture is not null)
+                        {
+                            batch.Texture.Bind(0);
+                            _shader.Set("uHasTexture", 1);
+                            _shader.Set("uAlphaCutoff", batch.AlphaTest ? AlphaCutoff : 0f);
+                        }
+                        else
+                        {
+                            _shader.Set("uHasTexture", 0);
+                            _shader.Set("uAlphaCutoff", 0f);
+                        }
+
+                        _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
+                            DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                    }
+                }
+
+                if (transparentPass)
+                {
+                    _gl.Disable(EnableCap.Blend);
+                    _gl.DepthMask(true);
                 }
             }
 
@@ -970,11 +1450,19 @@ public sealed class WmoRenderer : IDisposable
 
     public void Dispose()
     {
+        try { _preloadJob?.Worker.GetAwaiter().GetResult(); }
+        catch { /* Shutdown must continue even if a background decode failed. */ }
         foreach (var model in _models.Values) model?.Dispose();
         foreach (var texture in _textures.Values) texture?.Dispose();
         _models.Clear();
         _textures.Clear();
         _instances.Clear();
+        _preloadJob?.Model.Dispose();
+        _preloadJob = null;
+        _preloadQueue.Clear();
+        _preloadQueued.Clear();
+        _newDoodadModels.Clear();
+        _announcedDoodadModels.Clear();
         _shader?.Dispose();
     }
 }
