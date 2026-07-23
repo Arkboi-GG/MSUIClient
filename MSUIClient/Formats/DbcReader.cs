@@ -267,6 +267,49 @@ public sealed class CharSectionsTable
     };
 }
 
+/// <summary>
+/// CharHairGeosets.dbc maps a character-creation hairstyle number to the
+/// actual group-0 submesh in that race/gender M2. The hairstyle number is not
+/// itself a geoset number.
+///
+/// Vanilla columns:
+///   [0] ID, [1] RaceID, [2] SexID, [3] Variation, [4] GeosetID,
+///   [5] ShowsScalp (when present; use the default scalp geoset instead).
+/// </summary>
+public sealed class CharHairGeosetsTable
+{
+    private readonly Dictionary<(uint Race, uint Sex, uint Style), int> _geosets = [];
+
+    public const string MpqPath = @"DBFilesClient\CharHairGeosets.dbc";
+    public int Count => _geosets.Count;
+
+    public static CharHairGeosetsTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null || dbc.FieldCount < 5) return null;
+
+        var table = new CharHairGeosetsTable();
+        for (int row = 0; row < dbc.RecordCount; row++)
+        {
+            uint race = dbc.GetUInt(row, 1);
+            uint sex = dbc.GetUInt(row, 2);
+            uint style = dbc.GetUInt(row, 3);
+            uint geoset = dbc.GetUInt(row, 4);
+            bool showsScalp = dbc.FieldCount > 5 && dbc.GetUInt(row, 5) != 0;
+
+            table._geosets[(race, sex, style)] = showsScalp ? 1 : (int)geoset;
+        }
+
+        Console.WriteLine($"[dbc] CharHairGeosets: {table.Count} mapping(s)");
+        return table;
+    }
+
+    public int Find(uint race, uint sex, int style)
+        => style >= 0 && _geosets.TryGetValue((race, sex, (uint)style), out int geoset)
+            ? geoset
+            : -1;
+}
+
 /// <summary>ItemDisplayInfo.dbc, indexed by display ID.</summary>
 public sealed class ItemDisplayTable
 {

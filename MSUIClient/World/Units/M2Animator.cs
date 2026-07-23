@@ -52,13 +52,11 @@ namespace MSUIClient.World.Units;
 ///   it as a static mesh. So "the model is in the wrong place" and "the
 ///   animation is wrong" can never be the same bug.
 ///
-/// CLIP SELECTION USES TIMESTAMPS, NOT Ranges
-///   Vanilla character M2s frequently leave AnimationRange as (0, count-1) for
-///   every sequence, so slicing by Ranges[seqIdx] yields one 600-second clip
-///   containing every animation in the file. The sequence header's absolute
-///   Start/EndTimestamp window is the reliable discriminator. This cost a
-///   session in the SuperUI viewer; M2AnimTrack.EnumerateSequenceKeys already
-///   does it correctly and is what this uses.
+/// CLIP SELECTION ACCEPTS BOTH VANILLA ENCODINGS
+///   WoWee slices shared arrays through AnimationRange[sequenceIndex]. Some
+///   character M2s instead repeat a whole-track sentinel range and rely on the
+///   sequence header's absolute timestamps. M2AnimTrack validates the range
+///   against that header window and falls back when the range is uninformative.
 /// </summary>
 public sealed class M2Animator
 {
@@ -511,40 +509,34 @@ public sealed class M2Animator
 
             bool animated = false;
 
-            if (bone.Translation.UsesSequence(startMs, endMs))
+            var translationKeys = bone.Translation
+                .EnumerateSequenceKeys(seqIdx, startMs, endMs).ToList();
+            if (translationKeys.Count > 0)
             {
-                var keys = bone.Translation.EnumerateSequenceKeys(startMs, endMs).ToList();
-                if (keys.Count > 0)
-                {
-                    channels.TranslationTimes = keys.Select(k => k.timeMs / 1000f).ToArray();
-                    channels.TranslationKeys = keys.Select(k => k.value).ToArray();
-                    animated = true;
-                }
+                channels.TranslationTimes = translationKeys.Select(k => k.timeMs / 1000f).ToArray();
+                channels.TranslationKeys = translationKeys.Select(k => k.value).ToArray();
+                animated = true;
             }
 
-            if (bone.Rotation.UsesSequence(startMs, endMs))
+            var rotationKeys = bone.Rotation
+                .EnumerateSequenceKeys(seqIdx, startMs, endMs).ToList();
+            if (rotationKeys.Count > 0)
             {
-                var keys = bone.Rotation.EnumerateSequenceKeys(startMs, endMs).ToList();
-                if (keys.Count > 0)
-                {
-                    channels.RotationTimes = keys.Select(k => k.timeMs / 1000f).ToArray();
-                    channels.RotationKeys = keys
-                        .Select(k => NormalizeQuaternion(
-                            new Quaternion(k.value.X, k.value.Y, k.value.Z, k.value.W)))
-                        .ToArray();
-                    animated = true;
-                }
+                channels.RotationTimes = rotationKeys.Select(k => k.timeMs / 1000f).ToArray();
+                channels.RotationKeys = rotationKeys
+                    .Select(k => NormalizeQuaternion(
+                        new Quaternion(k.value.X, k.value.Y, k.value.Z, k.value.W)))
+                    .ToArray();
+                animated = true;
             }
 
-            if (bone.Scale.UsesSequence(startMs, endMs))
+            var scaleKeys = bone.Scale
+                .EnumerateSequenceKeys(seqIdx, startMs, endMs).ToList();
+            if (scaleKeys.Count > 0)
             {
-                var keys = bone.Scale.EnumerateSequenceKeys(startMs, endMs).ToList();
-                if (keys.Count > 0)
-                {
-                    channels.ScaleTimes = keys.Select(k => k.timeMs / 1000f).ToArray();
-                    channels.ScaleKeys = keys.Select(k => k.value).ToArray();
-                    animated = true;
-                }
+                channels.ScaleTimes = scaleKeys.Select(k => k.timeMs / 1000f).ToArray();
+                channels.ScaleKeys = scaleKeys.Select(k => k.value).ToArray();
+                animated = true;
             }
 
             clip.Bones[i] = channels;
@@ -581,7 +573,7 @@ public sealed class M2Animator
     /// cheapest possible way to separate a placement problem from an animation
     /// problem.
     /// </summary>
-    public void Evaluate(Clip? clip, float timeSeconds, Matrix4x4[] skin)
+    public void Evaluate(Clip? clip, float timeSeconds, float globalTimeSeconds, Matrix4x4[] skin)
     {
         if (skin.Length < _boneCount)
             throw new ArgumentException($"skin array holds {skin.Length}, need {_boneCount}", nameof(skin));
@@ -627,6 +619,18 @@ public sealed class M2Animator
 
                 if (c.ScaleTimes.Length > 0)
                     scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
+
+                // Global tracks do not belong to Stand, Walk, Run, or any
+                // other clip. They keep their own clock across clip changes.
+                // HumanMale bone 75 uses a global scale track to shrink the
+                // closed-eyelid polygons away for most of a 6.633-second loop.
+                var bone = _m2.Bones[i];
+                if (TrySampleGlobal(bone.Translation, globalTimeSeconds, out Vector3 globalTranslation))
+                    translation += globalTranslation;
+                if (TrySampleGlobal(bone.Rotation, globalTimeSeconds, out Quaternion globalRotation))
+                    rotation = globalRotation;
+                if (TrySampleGlobal(bone.Scale, globalTimeSeconds, out Vector3 globalScale))
+                    scale = globalScale;
             }
 
             var local = Matrix4x4.CreateScale(scale)
@@ -701,6 +705,104 @@ public sealed class M2Animator
         }
         return lo;
     }
+
+    private bool TryGetGlobalTime<T>(M2AnimTrack<T> track, float globalTimeSeconds,
+                                     out float timeMs, out int count) where T : struct
+    {
+        timeMs = 0f;
+        count = Math.Min(track.Timestamps.Count, track.Keys.Count);
+        int globalIndex = track.GlobalSequence;
+        if (globalIndex < 0 || globalIndex >= _m2.GlobalSequenceDurations.Count || count == 0)
+            return false;
+
+        uint durationMs = _m2.GlobalSequenceDurations[globalIndex];
+        if (durationMs == 0) return true;
+
+        timeMs = globalTimeSeconds * 1000f % durationMs;
+        if (timeMs < 0f) timeMs += durationMs;
+        return true;
+    }
+
+    private bool TrySampleGlobal(M2AnimTrack<Vector3> track, float globalTimeSeconds,
+                                 out Vector3 value)
+    {
+        value = default;
+        if (!TryGetGlobalTime(track, globalTimeSeconds, out float timeMs, out int count))
+            return false;
+
+        int hi = UpperGlobalSegment(track.Timestamps, count, timeMs);
+        if (hi == 0 || timeMs <= track.Timestamps[0])
+        {
+            value = track.Keys[0];
+            return true;
+        }
+        if (hi >= count)
+        {
+            value = track.Keys[count - 1];
+            return true;
+        }
+
+        int lo = hi - 1;
+        if (track.InterpolationType == 0 || track.Timestamps[hi] == track.Timestamps[lo])
+        {
+            value = timeMs == track.Timestamps[hi] ? track.Keys[hi] : track.Keys[lo];
+            return true;
+        }
+
+        float amount = (timeMs - track.Timestamps[lo]) /
+                       (track.Timestamps[hi] - track.Timestamps[lo]);
+        value = Vector3.Lerp(track.Keys[lo], track.Keys[hi], amount);
+        return true;
+    }
+
+    private bool TrySampleGlobal(M2AnimTrack<Vector4> track, float globalTimeSeconds,
+                                 out Quaternion value)
+    {
+        value = Quaternion.Identity;
+        if (!TryGetGlobalTime(track, globalTimeSeconds, out float timeMs, out int count))
+            return false;
+
+        int hi = UpperGlobalSegment(track.Timestamps, count, timeMs);
+        if (hi == 0 || timeMs <= track.Timestamps[0])
+        {
+            value = NormalizeQuaternion(ToQuaternion(track.Keys[0]));
+            return true;
+        }
+        if (hi >= count)
+        {
+            value = NormalizeQuaternion(ToQuaternion(track.Keys[count - 1]));
+            return true;
+        }
+
+        int lo = hi - 1;
+        var a = NormalizeQuaternion(ToQuaternion(track.Keys[lo]));
+        var b = NormalizeQuaternion(ToQuaternion(track.Keys[hi]));
+        if (track.InterpolationType == 0 || track.Timestamps[hi] == track.Timestamps[lo])
+        {
+            value = timeMs == track.Timestamps[hi] ? b : a;
+            return true;
+        }
+
+        float amount = (timeMs - track.Timestamps[lo]) /
+                       (track.Timestamps[hi] - track.Timestamps[lo]);
+        value = Quaternion.Slerp(a, b, amount);
+        return true;
+    }
+
+    private static int UpperGlobalSegment(IReadOnlyList<uint> times, int count, float timeMs)
+    {
+        int lo = 0, hi = count;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if (times[mid] < timeMs) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+    private static Quaternion ToQuaternion(Vector4 value) =>
+        new(value.X, value.Y, value.Z, value.W);
 
     private static Vector3 SampleVector3(float[] times, Vector3[] keys, float t)
     {

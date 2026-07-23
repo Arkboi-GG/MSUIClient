@@ -40,8 +40,8 @@ layout (location = 2) in vec2 aUV;
 layout (location = 3) in vec4 aBoneWeights;
 layout (location = 4) in vec4 aBoneIndices;
 
-uniform mat4 uViewProjection;
 uniform mat4 uModel;
+uniform mat4 uModelViewProjection;
 
 const int MAX_BONES = 160;
 uniform vec4 uBones[MAX_BONES * 3];
@@ -115,5 +115,10 @@ void main()
 
     vUV = aUV;
 
-    gl_Position = uViewProjection * world;
+    // Use the CPU-precombined matrix for clip position. If model and view are
+    // applied separately, the model step first adds the character's ~-8950
+    // world translation to tiny facial/clothing offsets. A float loses about
+    // a millimetre there before the view matrix can subtract the camera again,
+    // collapsing close layers onto one depth value as the camera moves.
+    gl_Position = uModelViewProjection * vec4(position, 1.0);
 }

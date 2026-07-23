@@ -75,20 +75,12 @@ public sealed class CharacterRenderer : IDisposable
         [2] = 1,    // face jaw
         [3] = 1,    // face mouth
         [4] = 1,    // bare hands
-        [5] = 1,    // bare feet
+        [5] = 1,    // bare shins / no boots
         [7] = 2,    // ears  (variant 2 is the normal ear, variant 1 is minimal)
-        [13] = 1,   // bare thighs, i.e. no robe
-        [15] = 1,   // shoulders only, i.e. no cape
-        [17] = 1,   // eye glow
+        [13] = 1,   // bare pants
+        [15] = 1,   // no cape
         [32] = 1,   // face geometry
     };
-
-    /// <summary>
-    /// Hairstyle variant tried first for category 0. Visually checked on
-    /// HumanMale in SuperUI. Races with fewer styles fall back to their highest
-    /// available variant, which is what stops Trolls rendering bald.
-    /// </summary>
-    private const int PreferredHairVariant = 10;
 
     /// <summary>ADT placement space to world, linear part only: (x,y,z) -> (-z,-x,y).</summary>
     private static readonly Matrix4x4 ModelToWorld = new(
@@ -129,6 +121,10 @@ public sealed class CharacterRenderer : IDisposable
         public int Category;
         public int Variant;
         public bool Visible;
+        public int SubmeshIndex;
+        public int BatchIndex;
+        public sbyte PriorityPlane;
+        public ushort MaterialLayer;
 
         /// <summary>
         /// M2 blend mode. 0 opaque, 1 alpha-key, 2 alpha, 3+ additive and the
@@ -162,9 +158,12 @@ public sealed class CharacterRenderer : IDisposable
     private int _skinWidth, _skinHeight;
     private float _skinCutoff = 0.35f;
     private int _bodySlotIndex = -1;
+    private Texture? _bareSkin;
+    private Texture? _dressedSkin;
 
     private ItemDisplayTable? _itemDisplay;
     private CharSectionsTable? _charSections;
+    private CharHairGeosetsTable? _charHairGeosets;
 
     /// <summary>
     /// Character-creation appearance choices. In a real login these arrive in
@@ -174,7 +173,10 @@ public sealed class CharacterRenderer : IDisposable
     /// </summary>
     public int SkinId { get; set; }
     public int FaceId { get; set; }
-    public int HairStyleId { get; set; }
+    // Until login supplies the real appearance byte, keep the Human male style
+    // used by the original test character. CharHairGeosets maps style 9 to
+    // geoset 10; style 0 is the valid but bald/default scalp.
+    public int HairStyleId { get; set; } = 9;
     public int HairColorId { get; set; }
     public int FacialHairId { get; set; }
     private AttachedItemRenderer? _attached;
@@ -190,6 +192,7 @@ public sealed class CharacterRenderer : IDisposable
 
     private M2Animator.Clip? _clip;
     private float _clipTime;
+    private float _globalTime;
     private float _clipRate = 1f;
 
     private Vector3 _lastPosition;
@@ -493,9 +496,18 @@ public sealed class CharacterRenderer : IDisposable
         if (_m2 is null) return;
 
         foreach (var texture in _slots.Select(x => x.Texture)
-                     .Where(t => t is not null && !ReferenceEquals(t, _dressedSkin))
+                     .Where(t => t is not null &&
+                                 !ReferenceEquals(t, _bareSkin) &&
+                                 !ReferenceEquals(t, _dressedSkin))
                      .Distinct())
             texture!.Dispose();
+
+        _bareSkin?.Dispose();
+        _bareSkin = null;
+        _dressedSkin?.Dispose();
+        _dressedSkin = null;
+        _magenta?.Dispose();
+        _magenta = null;
 
         _slots.Clear();
         _bodySlotIndex = -1;
@@ -531,20 +543,15 @@ public sealed class CharacterRenderer : IDisposable
     {
         Equipment.GenderSuffix = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? "F" : "M";
         Equipment.Resolve(_itemDisplay);
+        BindCapeTexture();
 
-        if (_baseSkin is not null && Equipment.Pieces.Count == 0 && _dressedSkin is not null)
+        if (_baseSkin is not null && Equipment.Pieces.Count == 0)
         {
-            // Taking everything off has to put the bare skin BACK. Skipping the
-            // composite when there is nothing to composite left every slot
-            // still pointing at the last set that was painted - which is why
-            // the tabard stayed on with the gear checkbox unticked.
-            var bare = Texture.From2D(_gl, _baseSkin, _skinWidth, _skinHeight);
-
             foreach (var slot in _slots)
-                if (slot.Fill == SlotFill.BodySkin) slot.Texture = bare;
+                if (slot.Fill == SlotFill.BodySkin) slot.Texture = _bareSkin;
 
-            _dressedSkin.Dispose();
-            _dressedSkin = bare;
+            _dressedSkin?.Dispose();
+            _dressedSkin = null;
         }
         else if (_baseSkin is not null && Equipment.Pieces.Count > 0)
         {
@@ -554,9 +561,9 @@ public sealed class CharacterRenderer : IDisposable
 
             var texture = Texture.From2D(_gl, composited, _skinWidth, _skinHeight);
 
-            // Every slot that was pointed at the bare skin follows the atlas -
-            // body, hair and facial hair all sample the same image until
-            // CharSections gives them their own.
+            // Type-1 slots follow the dressed atlas. Hair/scalp exceptions are
+            // selected per draw below, because category 0 contains both the
+            // actual body and hairstyle meshes that share this texture slot.
             foreach (var slot in _slots)
                 if (slot.Fill == SlotFill.BodySkin) slot.Texture = texture;
 
@@ -573,7 +580,93 @@ public sealed class CharacterRenderer : IDisposable
         }
     }
 
-    private Texture? _dressedSkin;
+    /// <summary>
+    /// Cloaks are not attached item models. The character M2 already contains
+    /// the cloth as geoset 1502; ItemDisplayInfo.ModelTexture supplies the BLP
+    /// for its replaceable type-2 (OBJECT_SKIN) texture slot.
+    /// </summary>
+    private void BindCapeTexture()
+    {
+        var capeSlots = _slots.Where(slot => slot.Type == 2).ToList();
+        if (capeSlots.Count == 0) return;
+
+        // ApplyEquipment may be called repeatedly from the equipment UI.
+        foreach (var texture in capeSlots
+                     .Where(slot => slot.Fill == SlotFill.Bound && slot.Texture is not null)
+                     .Select(slot => slot.Texture!)
+                     .Distinct())
+            texture.Dispose();
+
+        foreach (var slot in capeSlots)
+        {
+            slot.Texture = null;
+            slot.Fill = SlotFill.Unbound;
+            slot.Source = "";
+            slot.AlphaCutoff = 0.35f;
+        }
+
+        var cloak = Equipment.Pieces.LastOrDefault(piece =>
+            piece.InventoryType == CharacterEquipment.Slot.Cloak && piece.Row is not null);
+        if (cloak?.Row is null) return;
+
+        var names = new[] { cloak.Row.ModelTexture1, cloak.Row.ModelTexture2 }
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        Texture? capeTexture = null;
+        float capeCutoff = 0.35f;
+        string source = "";
+
+        foreach (string name in names)
+        {
+            foreach (string candidate in CapeTextureCandidates(name))
+            {
+                capeTexture = MakeTexture(candidate, out capeCutoff);
+                if (capeTexture is null) continue;
+                source = candidate;
+                break;
+            }
+            if (capeTexture is not null) break;
+        }
+
+        if (capeTexture is null)
+        {
+            Console.WriteLine($"[character] cloak '{cloak.Name}' has no resolvable cape texture " +
+                              $"('{cloak.Row.ModelTexture1}', '{cloak.Row.ModelTexture2}')");
+            return;
+        }
+
+        foreach (var slot in capeSlots)
+        {
+            slot.Texture = capeTexture;
+            slot.Fill = SlotFill.Bound;
+            slot.Source = source;
+            slot.AlphaCutoff = capeCutoff;
+        }
+
+        Console.WriteLine($"[character] cloak '{cloak.Name}' -> type-2 slot(s): {source}");
+    }
+
+    private IEnumerable<string> CapeTextureCandidates(string partial)
+    {
+        string stem = partial.Replace('/', '\\').TrimStart('\\');
+        bool hasDirectory = stem.Contains('\\');
+        if (stem.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+
+        if (hasDirectory)
+        {
+            yield return stem + ".blp";
+            yield break;
+        }
+
+        string suffix = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? "F" : "M";
+        yield return $@"Item\ObjectComponents\Cape\{stem}.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}.blp";
+        yield return $@"Item\ObjectComponents\Cape\{stem}_{suffix}.blp";
+        yield return $@"Item\ObjectComponents\Cape\{stem}_U.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}_{suffix}.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}_U.blp";
+    }
 
     /// <summary>
     /// Two-letter race code plus M or F. Helm models are per race and gender -
@@ -654,6 +747,7 @@ public sealed class CharacterRenderer : IDisposable
     private void BuildTextureSlots(M2Model m2)
     {
         LoadCharSections();
+        LoadCharHairGeosets();
 
         uint raceId = CharSectionsTable.RaceId(Race);
         uint sexId = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? 1u : 0u;
@@ -694,13 +788,6 @@ public sealed class CharacterRenderer : IDisposable
             var facialRow = _charSections.Find(raceId, sexId, CharSectionsTable.SectionFacialHair, FacialHairId, HairColorId);
             if (facialRow is not null) facialHairPath = facialRow.Texture1;
 
-            var underwearRow = _charSections.Find(raceId, sexId, CharSectionsTable.SectionUnderwear, -1, SkinId);
-            if (underwearRow is not null)
-            {
-                // Underwear paints the torso and leg regions, not the face.
-                if (underwearRow.Texture1.Length > 0) overlays.Add((underwearRow.Texture1, FaceRegion.Full));
-                if (underwearRow.Texture2.Length > 0) overlays.Add((underwearRow.Texture2, FaceRegion.Full));
-            }
         }
 
         // Fall back to the filename convention when the table is missing or the
@@ -745,6 +832,11 @@ public sealed class CharacterRenderer : IDisposable
             }
         }
 
+        // Keep the correctly composed bare atlas alive. Dressed body pieces
+        // use a second texture, while hairstyle scalp and ear geosets must keep
+        // sampling this one or armor regions bleed across the head.
+        _bareSkin = skin;
+
         UnboundSlots = 0;
 
         for (int i = 0; i < m2.Textures.Count; i++)
@@ -777,7 +869,7 @@ public sealed class CharacterRenderer : IDisposable
                     break;
                 }
             }
-            else if (reference.Type is 1 or 8 && skin is not null)
+            else if (reference.Type == 1 && skin is not null)
             {
                 if (reference.Type == 1 && _bodySlotIndex < 0) _bodySlotIndex = i;
                 slot.Texture = skin;
@@ -849,6 +941,11 @@ public sealed class CharacterRenderer : IDisposable
         {
             for (int b = a + 1; b < visible.Count; b++)
             {
+                // Several batches over one submesh are intentional material
+                // layers, not duplicate geosets. Their authored priority/layer
+                // order is exactly why the renderer preserves every batch.
+                if (visible[a].SubmeshIndex == visible[b].SubmeshIndex) continue;
+
                 uint aStart = visible[a].IndexStart, aEnd = aStart + visible[a].IndexCount;
                 uint bStart = visible[b].IndexStart, bEnd = bStart + visible[b].IndexCount;
 
@@ -867,7 +964,7 @@ public sealed class CharacterRenderer : IDisposable
         }
 
         if (reported == 0)
-            Console.WriteLine($"[character] {visible.Count} visible geoset(s), no overlapping index ranges");
+            Console.WriteLine($"[character] {visible.Count} visible batch(es), no unintended overlapping index ranges");
 
         var blended = visible.Where(p => p.Transparent).ToList();
         Console.WriteLine(
@@ -878,16 +975,11 @@ public sealed class CharacterRenderer : IDisposable
     }
 
     /// <summary>
-    /// Paint the face and underwear layers onto the base skin, in place.
-    ///
-    /// SIZE DECIDES THE METHOD, because the two working implementations of this
-    /// disagree. WoWee stacks the CharSections layers as full-canvas overlays;
-    /// SuperUI paints them into the atlas face rectangles. Both cannot be right
-    /// for the same file, so rather than pick: a layer the size of the atlas is
-    /// stacked, a smaller one is blitted into its region, and which happened is
-    /// printed. One run settles it.
+    /// Paint the two CharSections face layers into their canonical atlas
+    /// rectangles. Underwear is a separate 128x64 pelvis component and must
+    /// never be stretched across the complete body texture.
     /// </summary>
-    private enum FaceRegion { Full, Lower, Upper }
+    private enum FaceRegion { Lower, Upper }
 
     private int ApplyAppearanceOverlays(List<(string Path, FaceRegion Region)> paths)
     {
@@ -914,30 +1006,18 @@ public sealed class CharacterRenderer : IDisposable
 
             var (bgra, w, h) = decoded.Value;
 
-            // A layer the size of the atlas is already positioned - stack it
-            // whole. That is what WoWee does for every CharSections layer, and
-            // it is right whenever the source is atlas-sized.
-            if (region == FaceRegion.Full || (w == _skinWidth && h == _skinHeight))
-            {
-                CharacterEquipment.BlitOver(_baseSkin, _skinWidth, _skinHeight, bgra, w, h,
-                                            0, 0, _skinWidth, _skinHeight);
-                Console.WriteLine($"[character] overlay {used} stacked full-canvas ({w}x{h})");
-            }
-            else
-            {
-                // Smaller than the atlas, so it is a face strip - and CharSections
-                // already told us which one. Region comes from the DBC field it
-                // came out of, never from its dimensions.
-                var (x, y, rw, rh) = region == FaceRegion.Upper
-                    ? (0, 160, 128, 32)
-                    : (0, 192, 128, 64);
+            // CharSections tells us which face strip this is. Match the working
+            // SuperUI compositor and always paint into that canonical region;
+            // never infer a full-atlas replacement from image dimensions.
+            var (x, y, rw, rh) = region == FaceRegion.Upper
+                ? (0, 160, 128, 32)
+                : (0, 192, 128, 64);
 
-                float sx = _skinWidth / 256f, sy = _skinHeight / 256f;
+            float sx = _skinWidth / 256f, sy = _skinHeight / 256f;
 
-                CharacterEquipment.BlitOver(_baseSkin, _skinWidth, _skinHeight, bgra, w, h,
-                                            (int)(x * sx), (int)(y * sy), (int)(rw * sx), (int)(rh * sy));
-                Console.WriteLine($"[character] overlay {used} -> face {region} ({x},{y},{rw},{rh}) from {w}x{h}");
-            }
+            CharacterEquipment.BlitOver(_baseSkin, _skinWidth, _skinHeight, bgra, w, h,
+                                        (int)(x * sx), (int)(y * sy), (int)(rw * sx), (int)(rh * sy));
+            Console.WriteLine($"[character] overlay {used} -> face {region} ({x},{y},{rw},{rh}) from {w}x{h}");
 
             painted++;
         }
@@ -983,6 +1063,20 @@ public sealed class CharacterRenderer : IDisposable
         }
 
         _charSections = CharSectionsTable.Parse(bytes);
+    }
+
+    private void LoadCharHairGeosets()
+    {
+        if (_charHairGeosets is not null) return;
+
+        var bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, CharHairGeosetsTable.MpqPath);
+        if (bytes is null)
+        {
+            Console.WriteLine($"[dbc] {CharHairGeosetsTable.MpqPath} not found - hairstyle mesh will use a fallback");
+            return;
+        }
+
+        _charHairGeosets = CharHairGeosetsTable.Parse(bytes);
     }
 
     private static IEnumerable<string> SkinPathCandidates(string race, string gender)
@@ -1146,57 +1240,92 @@ public sealed class CharacterRenderer : IDisposable
     }
 
     /// <summary>
-    /// One drawable piece per submesh. The submesh-to-texture map comes from the
-    /// batches, first batch wins, exactly as SkinnedGlbWriter builds it.
+    /// One drawable piece per M2 batch. A submesh may have several authored
+    /// material passes; collapsing those to "first batch wins" loses textures,
+    /// transparency and the layer order used by faces, hair and effects.
     /// </summary>
     private void BuildPieces(M2Model m2)
     {
-        var slotOf = new Dictionary<int, int>();
-        var twoSidedOf = new Dictionary<int, bool>();
-        var blendOf = new Dictionary<int, int>();
-        var noZWriteOf = new Dictionary<int, bool>();
+        var representedSubmeshes = new HashSet<int>();
+        int fallbackPieces = 0;
 
-        foreach (var batch in m2.Batches)
+        foreach (var entry in m2.Batches
+                     .Select((batch, index) => (batch, index))
+                     .OrderBy(x => x.batch.PriorityPlane)
+                     .ThenBy(x => x.batch.MaterialLayer))
         {
+            var batch = entry.batch;
             int sub = batch.SubmeshIndex;
-            if (slotOf.ContainsKey(sub)) continue;
+            if (sub < 0 || sub >= m2.Submeshes.Count) continue;
 
-            int slot = 0;
+            var submesh = m2.Submeshes[sub];
+            if (submesh.IndexCount == 0) continue;
+            if (submesh.IndexStart + submesh.IndexCount > m2.Indices.Count) continue;
+
+            int slot = -1;
             if (batch.TextureIndex < m2.TextureLookup.Count)
                 slot = m2.TextureLookup[batch.TextureIndex];
 
-            slotOf[sub] = slot;
+            bool twoSided = false;
+            int blendMode = 0;
+            bool noZWrite = false;
 
             if (batch.MaterialIndex < m2.RenderFlags.Count)
             {
                 var flags = m2.RenderFlags[batch.MaterialIndex];
-                twoSidedOf[sub] = flags.TwoSided;
-                blendOf[sub] = flags.BlendingMode;
-                noZWriteOf[sub] = flags.NoZWrite;
+                twoSided = flags.TwoSided;
+                blendMode = flags.BlendingMode;
+                noZWrite = flags.NoZWrite;
             }
-        }
-
-        for (int i = 0; i < m2.Submeshes.Count; i++)
-        {
-            var submesh = m2.Submeshes[i];
-            if (submesh.IndexCount == 0) continue;
-            if (submesh.IndexStart + submesh.IndexCount > m2.Indices.Count) continue;
-
-            int slot = slotOf.TryGetValue(i, out int s) ? s : -1;
 
             _pieces.Add(new Piece
             {
                 IndexStart = submesh.IndexStart,
                 IndexCount = submesh.IndexCount,
                 SlotIndex = slot >= 0 && slot < _slots.Count ? slot : -1,
-                TwoSided = twoSidedOf.TryGetValue(i, out bool t) && t,
-                BlendMode = blendOf.TryGetValue(i, out int bm) ? bm : 0,
-                NoZWrite = noZWriteOf.TryGetValue(i, out bool nz) && nz,
+                TwoSided = twoSided,
+                BlendMode = blendMode,
+                NoZWrite = noZWrite,
                 GeosetId = submesh.Id,
                 Category = submesh.Id / 100,
                 Variant = submesh.Id % 100,
+                SubmeshIndex = sub,
+                BatchIndex = entry.index,
+                PriorityPlane = batch.PriorityPlane,
+                MaterialLayer = batch.MaterialLayer,
             });
+
+            representedSubmeshes.Add(sub);
         }
+
+        // Malformed/simple assets occasionally carry geometry without a batch.
+        // Keep that geometry visible with a conservative opaque fallback.
+        for (int sub = 0; sub < m2.Submeshes.Count; sub++)
+        {
+            if (representedSubmeshes.Contains(sub)) continue;
+            var submesh = m2.Submeshes[sub];
+            if (submesh.IndexCount == 0) continue;
+            if (submesh.IndexStart + submesh.IndexCount > m2.Indices.Count) continue;
+
+            _pieces.Add(new Piece
+            {
+                IndexStart = submesh.IndexStart,
+                IndexCount = submesh.IndexCount,
+                GeosetId = submesh.Id,
+                Category = submesh.Id / 100,
+                Variant = submesh.Id % 100,
+                SubmeshIndex = sub,
+                BatchIndex = -1,
+            });
+            fallbackPieces++;
+        }
+
+        int layeredSubmeshes = _pieces
+            .Where(p => p.BatchIndex >= 0)
+            .GroupBy(p => p.SubmeshIndex)
+            .Count(g => g.Count() > 1);
+        Console.WriteLine($"[character] render list: {m2.Batches.Count} batch(es) -> {_pieces.Count} draw(s), " +
+                          $"{layeredSubmeshes} layered submesh(es), {fallbackPieces} fallback draw(s)");
     }
 
     /// <summary>
@@ -1220,16 +1349,26 @@ public sealed class CharacterRenderer : IDisposable
             .Distinct()
             .ToList();
 
-        int hair = hairVariants.Contains(PreferredHairVariant)
-            ? PreferredHairVariant
-            : hairVariants.Count > 0 ? hairVariants.Max() : -1;
+        uint raceId = CharSectionsTable.RaceId(Race);
+        uint sexId = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? 1u : 0u;
+        int mappedHair = _charHairGeosets?.Find(raceId, sexId, HairStyleId) ?? -1;
+
+        // The DBC is authoritative. style+1 is only a last-resort convention
+        // for incomplete custom data sets; choosing an arbitrary high variant
+        // pairs one hairstyle's texture with another hairstyle's geometry.
+        int fallbackHair = Math.Max(HairStyleId + 1, 1);
+        int hair = hairVariants.Contains(mappedHair)
+            ? mappedHair
+            : hairVariants.Contains(fallbackHair)
+                ? fallbackHair
+                : hairVariants.Contains(1) ? 1 : -1;
 
         var selected = new Dictionary<int, int>(NakedDefaults);
         Equipment.ApplyGeosets(selected);
 
-        // A closed helm suppresses hair. An open one must not: the scalp dome
-        // is baked into each hair geoset on HumanMale, so hiding it leaves a
-        // hollow above the face.
+        // Closed helms suppress hair. Open helms such as Helm of Might keep the
+        // style-specific scalp; forcing every helmet bald is visibly wrong and
+        // does not affect the material flicker investigated below.
         if (Equipment.HidesHair()) hair = -1;
 
         foreach (var piece in _pieces)
@@ -1248,12 +1387,23 @@ public sealed class CharacterRenderer : IDisposable
 
         if (SoloGeoset >= 0)
         {
-            int index = 0;
-            foreach (var piece in _pieces)
+            var geosets = _pieces
+                .Where(p => p.Visible)
+                .Select(p => (p.Category, p.Variant))
+                .Distinct()
+                .OrderBy(x => x.Category)
+                .ThenBy(x => x.Variant)
+                .ToList();
+
+            if (SoloGeoset < geosets.Count)
             {
-                if (!piece.Visible) continue;
-                if (index != SoloGeoset) piece.Visible = false;
-                index++;
+                var selectedGeoset = geosets[SoloGeoset];
+                foreach (var piece in _pieces)
+                {
+                    if (!piece.Visible) continue;
+                    if ((piece.Category, piece.Variant) != selectedGeoset)
+                        piece.Visible = false;
+                }
             }
         }
 
@@ -1279,7 +1429,9 @@ public sealed class CharacterRenderer : IDisposable
 
         Console.WriteLine(
             $"[character] geosets {VisiblePieces}/{_pieces.Count} visible" +
-            (hair >= 0 ? $" (hair variant {hair})" : " (no hair geoset found)") +
+            (hair >= 0 ? $" (hair style {HairStyleId} -> variant {hair}" +
+                         (hair == mappedHair ? ", DBC)" : ", fallback)")
+                       : " (no hair geoset found)") +
             $": {string.Join(" ", byCategory)}");
     }
 
@@ -1321,11 +1473,13 @@ public sealed class CharacterRenderer : IDisposable
         }
 
         _clipTime += dt * _clipRate;
+        _globalTime += dt;
 
         // Cheap insurance. A NaN here would freeze the pose and look exactly
         // like a state-machine bug, which is a diagnosis I would rather not
         // have to make twice.
         if (float.IsNaN(_clipTime) || float.IsInfinity(_clipTime)) _clipTime = 0f;
+        if (float.IsNaN(_globalTime) || float.IsInfinity(_globalTime)) _globalTime = 0f;
     }
 
     /// <summary>
@@ -1503,14 +1657,19 @@ public sealed class CharacterRenderer : IDisposable
                 BindPose || Strafe != StrafeStyle.Split
                     ? 0f
                     : (Math.Clamp(TorsoFollow, 0f, 1f) - 1f) * _moveYaw;
-            _animator.Evaluate(BindPose ? null : _clip, _clipTime, _skin);
+            _animator.Evaluate(BindPose ? null : _clip, _clipTime, _globalTime, _skin);
             M2Animator.Pack(_skin, Math.Min(bones, M2Animator.MaxBones), _packed);
         }
 
+        var modelTransform = BuildTransform(state);
+        modelTransform.M41 -= camera.Position.X;
+        modelTransform.M42 -= camera.Position.Y;
+        modelTransform.M43 -= camera.Position.Z;
+
         _shader.Use();
-        _shader.Set("uViewProjection", camera.ViewProjection);
-        _shader.Set("uModel", BuildTransform(state));
-        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uModel", modelTransform);
+        _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
+        _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
@@ -1526,18 +1685,9 @@ public sealed class CharacterRenderer : IDisposable
         bool cullingOn = true;
         VisiblePieces = 0;
 
-        // TWO PASSES, AND THIS IS THE FIX FOR THE FLICKER.
-        //
-        // Everything used to go through one pass, opaque, with an alpha discard
-        // and full depth writes. That is right for a building and wrong for a
-        // character: hair cards, eyelashes and eye glow are authored as BLENDED
-        // geometry, and forcing them to write depth makes them fight whatever
-        // is behind them - which is exactly a flicker localised to the head.
-        //
-        // WoWee's m2_renderer does the same thing and says so plainly:
-        // "opaque/alpha-test first (depth write ON), then transparent/additive
-        // (depth write OFF, sorted back-to-front)". Their gate is
-        // `batch.blendMode >= 2`, and so is this one.
+        // Opaque/alpha-test first, then transparent/additive with depth writes
+        // disabled. This preserves the M2 material distinction without making
+        // translucent cards reject each other through the depth buffer.
         for (int pass = 0; pass < 2; pass++)
         {
             bool transparentPass = pass == 1;
@@ -1565,7 +1715,7 @@ public sealed class CharacterRenderer : IDisposable
 
         // Attached items ride the SAME skin matrices that were just evaluated,
         // which is what makes a pauldron follow the shoulder.
-        _attached?.Render(camera, BuildTransform(state), _m2, _skin);
+        _attached?.Render(camera, modelTransform, _m2, _skin);
     }
 
     private unsafe void DrawPieces(bool transparentPass, ref bool cullingOn)
@@ -1576,7 +1726,22 @@ public sealed class CharacterRenderer : IDisposable
             if (piece.Transparent != transparentPass) continue;
 
             var slot = piece.SlotIndex >= 0 ? _slots[piece.SlotIndex] : null;
-            bool unbound = slot is null || slot.Fill == SlotFill.Unbound || slot.Texture is null;
+
+            Texture? drawTexture = slot?.Texture;
+            if (slot?.Fill == SlotFill.BodySkin &&
+                ((piece.Category == 0 && piece.Variant > 0) || piece.Category == 7))
+            {
+                drawTexture = _bareSkin;
+            }
+
+            bool unbound = slot is null || slot.Fill == SlotFill.Unbound || drawTexture is null;
+
+            // SuperUI emits transparent materials for unresolved client-filled
+            // slots. Rendering them as solid grey creates phantom cape/facial-
+            // hair/skin-extra surfaces. Magenta mode intentionally overrides
+            // this so those assignments can still be diagnosed.
+            if (unbound && !MagentaUnbound && slot?.Type is 2 or 7 or 8)
+                continue;
 
             if (piece.TwoSided && cullingOn)
             {
@@ -1605,7 +1770,7 @@ public sealed class CharacterRenderer : IDisposable
             }
             else
             {
-                slot!.Texture!.Bind(0);
+                drawTexture!.Bind(0);
                 _shader.Set("uHasTexture", 1);
 
                 // Blend mode decides whether alpha CUTS or COMPOSITES, and
@@ -1616,7 +1781,7 @@ public sealed class CharacterRenderer : IDisposable
                 float cutoff = piece.BlendMode switch
                 {
                     0 => 0f,
-                    1 => MathF.Min(slot.AlphaCutoff, AlphaCutoff),
+                    1 => MathF.Min(slot!.AlphaCutoff, AlphaCutoff),
                     _ => 0f,
                 };
                 _shader.Set("uAlphaCutoff", cutoff);
@@ -1654,11 +1819,14 @@ public sealed class CharacterRenderer : IDisposable
         // Slots share textures, so dispose distinct instances only - and skip
         // the composited atlas, which is disposed on its own below.
         foreach (var texture in _slots.Select(s => s.Texture)
-                     .Where(t => t is not null && !ReferenceEquals(t, _dressedSkin))
+                     .Where(t => t is not null &&
+                                 !ReferenceEquals(t, _bareSkin) &&
+                                 !ReferenceEquals(t, _dressedSkin))
                      .Distinct())
             texture!.Dispose();
 
         _attached?.Dispose();
+        _bareSkin?.Dispose();
         _dressedSkin?.Dispose();
         _magenta?.Dispose();
         _shader?.Dispose();

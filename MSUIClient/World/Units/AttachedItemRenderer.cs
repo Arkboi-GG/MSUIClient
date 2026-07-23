@@ -9,7 +9,8 @@ namespace MSUIClient.World.Units;
 
 /// <summary>
 /// Draws the equipment that has geometry of its own - helms, shoulders,
-/// weapons, shields, capes.
+/// weapons and shields. Cape cloth is part of the character M2 and is handled
+/// by CharacterRenderer's type-2 replaceable texture slot.
 ///
 /// WHY THESE ARE NOT LIKE THE REST OF THE GEAR
 ///   A breastplate is paint on the character's own skin. A helm is a SEPARATE
@@ -57,6 +58,9 @@ public sealed class AttachedItemRenderer : IDisposable
         public uint IndexCount;
         public Texture? Texture;
         public bool TwoSided;
+        public int BlendMode;
+        public bool NoZWrite;
+        public bool Transparent => BlendMode >= 2 || NoZWrite;
     }
 
     private sealed class ItemModel : IDisposable
@@ -140,12 +144,16 @@ public sealed class AttachedItemRenderer : IDisposable
         _config = config;
     }
 
-    /// <summary>Unskinned, so the plain WMO pair - the same one doodads use.</summary>
+    /// <summary>
+    /// Unskinned attachment shader. It keeps WMO lighting, but uses its own
+    /// vertex stage so clip positions retain character-scale precision at
+    /// large world coordinates.
+    /// </summary>
     public void LoadShaders(string shaderDir)
     {
         _shader = Shader.FromFiles(_gl,
-            Path.Combine(shaderDir, "wmo.vert"),
-            Path.Combine(shaderDir, "wmo.frag"));
+            Path.Combine(shaderDir, "attached.vert"),
+            Path.Combine(shaderDir, "character.frag"));
     }
 
     // ── building the mount list ──────────────────────────────────────────────
@@ -158,7 +166,6 @@ public sealed class AttachedItemRenderer : IDisposable
     {
         CharacterEquipment.Slot.Head => "Head",
         CharacterEquipment.Slot.Shoulders => "Shoulder",
-        CharacterEquipment.Slot.Cloak => "Cape",
         CharacterEquipment.Slot.Shield => "Shield",
         _ => "Weapon",
     };
@@ -332,8 +339,29 @@ public sealed class AttachedItemRenderer : IDisposable
         // no filename - the name comes from ItemDisplayInfo instead.
         var texture = ResolveTexture(textureName, folder);
 
-        foreach (var batch in m2.Batches)
+        // Item models commonly put an opaque base and a specular/environment
+        // effect pass over the exact same submesh. This renderer does not yet
+        // implement those M2 effect shaders; drawing every pass as ordinary
+        // opaque textured geometry makes the identical triangles z-fight.
+        // Keep one base pass per submesh, preferring the authored opaque pass.
+        var baseBatches = m2.Batches
+            .Select((batch, index) => (batch, index))
+            .GroupBy(x => x.batch.SubmeshIndex)
+            .Select(group => group
+                .OrderBy(x => x.batch.MaterialIndex < m2.RenderFlags.Count &&
+                              m2.RenderFlags[x.batch.MaterialIndex].BlendingMode == 0 ? 0 : 1)
+                .ThenBy(x => x.index)
+                .First())
+            .OrderBy(x => x.index)
+            .ToList();
+
+        int suppressedEffectPasses = m2.Batches.Count - baseBatches.Count;
+        if (suppressedEffectPasses > 0)
+            Console.WriteLine($"[attach] suppressed {suppressedEffectPasses} overlapping effect pass(es)");
+
+        foreach (var entry in baseBatches)
         {
+            var batch = entry.batch;
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
             var submesh = m2.Submeshes[batch.SubmeshIndex];
             if (submesh.IndexCount == 0) continue;
@@ -347,13 +375,18 @@ public sealed class AttachedItemRenderer : IDisposable
                     slot = ResolveTexturePath(m2.Textures[texIdx].Filename);
             }
 
+            var renderFlags = batch.MaterialIndex < m2.RenderFlags.Count
+                ? m2.RenderFlags[batch.MaterialIndex]
+                : null;
+
             model.Batches.Add(new Batch
             {
                 IndexStart = submesh.IndexStart,
                 IndexCount = submesh.IndexCount,
                 Texture = slot,
-                TwoSided = batch.MaterialIndex < m2.RenderFlags.Count
-                           && m2.RenderFlags[batch.MaterialIndex].TwoSided,
+                TwoSided = renderFlags?.TwoSided ?? false,
+                BlendMode = renderFlags?.BlendingMode ?? 0,
+                NoZWrite = renderFlags?.NoZWrite ?? false,
             });
         }
 
@@ -420,8 +453,7 @@ public sealed class AttachedItemRenderer : IDisposable
         if (!Enabled || _shader is null || _mounts.Count == 0 || character is null) return;
 
         _shader.Use();
-        _shader.Set("uViewProjection", camera.ViewProjection);
-        _shader.Set("uCameraPos", camera.Position);
+        _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
@@ -430,47 +462,90 @@ public sealed class AttachedItemRenderer : IDisposable
 
         bool cullingOn = true;
 
-        foreach (var mount in _mounts)
+        for (int pass = 0; pass < 2; pass++)
         {
-            if (!mount.Visible) continue;
-
-            var attachment = FindAttachment(character, mount.AttachmentId);
-            if (attachment is null) continue;
-
-            int bone = (int)attachment.BoneIndex;
-            var boneMatrix = bone >= 0 && bone < skin.Length ? skin[bone] : Matrix4x4.Identity;
-
-            var model = Matrix4x4.CreateTranslation(attachment.Position) * boneMatrix * instance;
-            _shader.Set("uModel", model);
-
-            _gl.BindVertexArray(mount.Model.Vao);
-
-            foreach (var batch in mount.Model.Batches)
+            bool transparentPass = pass == 1;
+            if (transparentPass)
             {
-                if (batch.TwoSided && cullingOn) { _gl.Disable(EnableCap.CullFace); cullingOn = false; }
-                else if (!batch.TwoSided && !cullingOn) { _gl.Enable(EnableCap.CullFace); cullingOn = true; }
-
-                if (batch.Texture is not null)
-                {
-                    batch.Texture.Bind(0);
-                    _shader.Set("uHasTexture", 1);
-                    _shader.Set("uAlphaCutoff", AlphaCutoff);
-                }
-                else
-                {
-                    _shader.Set("uHasTexture", 0);
-                    _shader.Set("uAlphaCutoff", 0f);
-                }
-
-                _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
-                    DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                _gl.DepthMask(false);
+                _gl.Enable(EnableCap.Blend);
             }
 
-            DrawnLastFrame++;
+            foreach (var mount in _mounts)
+            {
+                if (!mount.Visible) continue;
+
+                var attachment = FindAttachment(character, mount.AttachmentId);
+                if (attachment is null) continue;
+
+                int bone = (int)attachment.BoneIndex;
+                var boneMatrix = bone >= 0 && bone < skin.Length ? skin[bone] : Matrix4x4.Identity;
+
+                var model = Matrix4x4.CreateTranslation(attachment.Position) * boneMatrix * instance;
+                _shader.Set("uModel", model);
+                _shader.Set("uModelViewProjection", model * camera.RelativeViewProjection);
+
+                _gl.BindVertexArray(mount.Model.Vao);
+
+                foreach (var batch in mount.Model.Batches)
+                {
+                    if (batch.Transparent != transparentPass) continue;
+
+                    if (batch.TwoSided && cullingOn) { _gl.Disable(EnableCap.CullFace); cullingOn = false; }
+                    else if (!batch.TwoSided && !cullingOn) { _gl.Enable(EnableCap.CullFace); cullingOn = true; }
+
+                    if (batch.Texture is not null)
+                    {
+                        batch.Texture.Bind(0);
+                        _shader.Set("uHasTexture", 1);
+                        _shader.Set("uAlphaCutoff", batch.BlendMode == 1 ? AlphaCutoff : 0f);
+                    }
+                    else
+                    {
+                        _shader.Set("uHasTexture", 0);
+                        _shader.Set("uAlphaCutoff", 0f);
+                    }
+
+                    if (transparentPass) ApplyBlendMode(batch.BlendMode);
+
+                    _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
+                        DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                }
+
+                if (!transparentPass) DrawnLastFrame++;
+            }
+
+            if (transparentPass)
+            {
+                _gl.Disable(EnableCap.Blend);
+                _gl.DepthMask(true);
+            }
         }
 
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+    }
+
+    private void ApplyBlendMode(int mode)
+    {
+        switch (mode)
+        {
+            case 3:
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
+                break;
+            case 4:
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
+                break;
+            case 5:
+                _gl.BlendFunc(BlendingFactor.DstColor, BlendingFactor.Zero);
+                break;
+            case 6:
+                _gl.BlendFunc(BlendingFactor.DstColor, BlendingFactor.SrcColor);
+                break;
+            default:
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                break;
+        }
     }
 
     private static M2Attachment? FindAttachment(M2Model model, int id)

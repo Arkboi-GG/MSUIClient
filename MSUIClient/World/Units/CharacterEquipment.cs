@@ -16,10 +16,13 @@ namespace MSUIClient.World.Units;
 ///      drawn - sleeves instead of bare arms, a boot instead of a bare foot.
 ///      ItemDisplayInfo's m_geosetGroup picks the variant.
 ///
-///   3. ATTACHED MODELS. Helms, shoulders, weapons, shields and capes are
+///   3. ATTACHED MODELS. Helms, shoulders, weapons and shields are
 ///      SEPARATE M2 FILES mounted on the skeleton's attachment points. Nothing
 ///      here handles those - they need an item-model render path, and M2Reader
 ///      already parses the Attachments array that will drive it.
+///
+///   Capes are a fourth case: the cloth is geoset 1502 in the character M2,
+///   and its BLP is supplied through replaceable texture type 2.
 ///
 /// So a full Tier 1 set is not one feature. Body armour appears from (1) and
 /// (2); the helm and pauldrons need (3).
@@ -59,7 +62,7 @@ public sealed class CharacterEquipment
         public bool AffectsBody => Row is not null && (Row.HasBodyTexture || Row.GeosetGroup.Any(g => g != 0));
 
         /// <summary>True when the piece is a separate M2 - not handled yet.</summary>
-        public bool NeedsAttachment => Row is not null && Row.HasModel;
+        public bool NeedsAttachment => InventoryType != Slot.Cloak && Row is not null && Row.HasModel;
     }
 
     private readonly List<Piece> _pieces = [];
@@ -130,14 +133,28 @@ public sealed class CharacterEquipment
     /// <summary>The atlas layout is authored against 256x256; anything else scales.</summary>
     private const int AtlasSize = 256;
 
+    /// <summary>Vanilla body-atlas paint order, copied from SuperUI's equip.js.</summary>
+    private static int PaintOrder(int inventoryType) => inventoryType switch
+    {
+        Slot.Shirt => 1,
+        Slot.Legs => 2,
+        Slot.Chest or Slot.Robe => 3,
+        Slot.Feet => 4,
+        Slot.Wrists => 5,
+        Slot.Waist => 6,
+        Slot.Hands => 7,
+        Slot.Tabard => 8,
+        Slot.Cloak => 9,
+        _ => 100,
+    };
+
     /// <summary>
     /// Composite every equipped body texture onto a copy of the base skin.
     ///
-    /// Order matters and is the order pieces were added: vanilla textures are
-    /// frequently OVERLAY strips meant to land on top of another item's paint
-    /// in the same slot. A plate belt's LegUpper strip is a buckle band drawn
-    /// over the legplates' full thigh texture - swap the order and the belt
-    /// disappears under the trousers.
+    /// Order matters and follows SuperUI's tested vanilla paint priorities:
+    /// broad garments first, then boots/bracers/belt/gloves, then tabard/cape.
+    /// A plate belt's LegUpper strip is a buckle band drawn over the legplates'
+    /// full thigh texture - swap the order and the belt disappears.
     ///
     /// Returns a new BGRA buffer; the base is not modified.
     /// </summary>
@@ -150,7 +167,11 @@ public sealed class CharacterEquipment
 
         int painted = 0, missing = 0;
 
-        foreach (var piece in _pieces)
+        foreach (var piece in _pieces
+                     .Select((piece, index) => (piece, index))
+                     .OrderBy(x => PaintOrder(x.piece.InventoryType))
+                     .ThenBy(x => x.index)
+                     .Select(x => x.piece))
         {
             if (piece.Row is null) continue;
 
@@ -303,11 +324,8 @@ public sealed class CharacterEquipment
     /// 401 for gloves, 501 for boots. Expressed as variant numbers that is
     /// dbcValue + 1, which is where the offset comes from.
     ///
-    /// Confidence is not uniform and the source file is honest about it: boots
-    /// and gloves are verified against the decompiled GeosRenderPrep, robes are
-    /// verified against a real DBC row, and chest, pants, tabard and shoulders
-    /// are pattern-matched. If a piece switches the wrong geometry, this table
-    /// is the first place to look.
+    /// This is the tested SuperUI rule table. Pants drive categories 9 and 11;
+    /// category 13 is reserved for the mutually-exclusive robe/thigh geometry.
     /// </summary>
     private static readonly Dictionary<int, (int Category, int GroupIndex, int Offset)[]> SlotGeosets = new()
     {
@@ -317,12 +335,10 @@ public sealed class CharacterEquipment
         [Slot.Legs] = [(9, 0, 1), (11, 1, 1)],
         [Slot.Feet] = [(5, 0, 1)],
         [Slot.Hands] = [(4, 0, 1)],
-        [Slot.Cloak] = [(15, 0, 1)],
         [Slot.Tabard] = [(12, 0, 1)],
         [Slot.Robe] = [(8, 0, 1), (10, 1, 0), (13, 2, 1)],
     };
 
-    /// <summary>Robes cover the waistband and long trousers; those geosets come off.</summary>
     private static readonly Dictionary<int, int[]> SlotForceHide = new()
     {
         [Slot.Robe] = [9, 11],
@@ -342,6 +358,17 @@ public sealed class CharacterEquipment
         foreach (var piece in _pieces)
         {
             if (piece.Row is null) continue;
+
+            // Cloak display rows name a BLP in the model-texture columns. The
+            // geometry choice is fixed: 1501 is the no-cape back panel and
+            // 1502 is the actual hanging cape cloth.
+            if (piece.InventoryType == Slot.Cloak)
+            {
+                if (piece.Row.ModelTexture1.Length > 0 || piece.Row.ModelTexture2.Length > 0)
+                    selectedVariant[15] = 2;
+                continue;
+            }
+
             if (!SlotGeosets.TryGetValue(piece.InventoryType, out var rules)) continue;
 
             foreach (var (category, groupIndex, offset) in rules)
@@ -352,20 +379,15 @@ public sealed class CharacterEquipment
                 if (value > 0) selectedVariant[category] = value + offset;
             }
 
-            if (SlotForceHide.TryGetValue(piece.InventoryType, out var hide))
-                foreach (int category in hide) selectedVariant[category] = 0;
+            if (SlotForceHide.TryGetValue(piece.InventoryType, out var hiddenCategories))
+                foreach (int category in hiddenCategories)
+                    selectedVariant[category] = 0;
         }
     }
 
     /// <summary>
-    /// True when a helm should suppress hair. The encoding of m_helmetGeosetVis
-    /// is only partly understood; SuperUI's heuristic is that a CLOSED helm has
-    /// two different values and an open one has them equal, verified on two
-    /// items - Helm of Wrath 248/306 closed, Helm of Might 247/247 open.
-    ///
-    /// It matters more than it sounds: in HumanMale the scalp dome is baked
-    /// into each hair geoset, so hiding hair for an open helm leaves a hollow
-    /// above the face.
+    /// True when a closed helm should suppress hair. Equal visibility fields
+    /// identify open helms such as Helm of Might, which retain styled hair.
     /// </summary>
     public bool HidesHair()
     {
@@ -394,6 +416,7 @@ public sealed class CharacterEquipment
         kit.Add("Bracers of Might", 31020, Slot.Wrists);
         kit.Add("Belt of Might", 31019, Slot.Waist);
         kit.Add("Tabard of the Scarlet Crusade", 15817, Slot.Tabard);
+        kit.Add("Cape texture test", 13963, Slot.Cloak);
 
         // Separate M2 models - these need the attachment path.
         kit.Add("Helm of Might", 31260, Slot.Head);

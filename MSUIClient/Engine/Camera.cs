@@ -219,6 +219,15 @@ public sealed class Camera
     public Matrix4x4 View
         => Matrix4x4.CreateLookAt(Position, EyeTarget, Vector3.UnitZ);
 
+    /// <summary>
+    /// View matrix for camera-relative rendering. Geometry using this matrix
+    /// must subtract <see cref="Position"/> from its model translation first.
+    /// Keeping both eye and nearby objects close to zero avoids float precision
+    /// loss at large map coordinates.
+    /// </summary>
+    public Matrix4x4 RelativeView
+        => Matrix4x4.CreateLookAt(Vector3.Zero, EyeTarget - Position, Vector3.UnitZ);
+
     public Matrix4x4 Projection
         => Matrix4x4.CreatePerspectiveFieldOfView(
             FieldOfViewDegrees * MathF.PI / 180f, AspectRatio, NearPlane, FarPlane);
@@ -239,6 +248,8 @@ public sealed class Camera
     /// and wastes a lot of time, so leave this alone.
     /// </summary>
     public Matrix4x4 ViewProjection => View * Projection;
+
+    public Matrix4x4 RelativeViewProjection => RelativeView * Projection;
 
     /// <summary>Six frustum planes in WoW space for tile culling. Normals point inward.</summary>
     public Vector4[] FrustumPlanes()

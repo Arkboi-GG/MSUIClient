@@ -45,6 +45,13 @@ public class M2Model
     public List<M2Sequence> Sequences { get; set; } = new();
 
     /// <summary>
+    /// Durations, in milliseconds, of animation loops that run independently
+    /// of the selected Stand/Walk/Run sequence. Character models use these for
+    /// blinks: separate eye polygons are scaled on and off by a global loop.
+    /// </summary>
+    public List<uint> GlobalSequenceDurations { get; set; } = new();
+
+    /// <summary>
     /// The model's OWN collision mesh, separate from the render mesh.
     ///
     /// This is how the real client makes trees and props solid, and why it has
@@ -145,7 +152,7 @@ public class M2Submesh
 public class M2Batch
 {
     public byte Flags { get; set; }
-    public byte PriorityPlane { get; set; }
+    public sbyte PriorityPlane { get; set; }
     public ushort ShaderId { get; set; }
     public ushort SubmeshIndex { get; set; }
     public ushort GeosetIndex { get; set; }
@@ -261,7 +268,7 @@ public class M2Sequence
 /// === Per-sequence indexing ===
 /// All sequences share ONE timestamps array and ONE keys array. For
 /// animation_index N, the slice that belongs to it is
-/// [Ranges[N].Start .. Ranges[N].End] inclusive. Within that slice:
+/// [Ranges[N].Start .. Ranges[N].End). Within that slice:
 ///   - Timestamps[i] is an ABSOLUTE position on the shared timeline (ms)
 ///   - To convert to "time since start of this sequence" (for glTF, which
 ///     needs per-clip relative times), subtract Timestamps[Ranges[N].Start]
@@ -272,20 +279,19 @@ public class M2Sequence
 /// shared global timeline. So we must slice the M2's shared keys/timestamps
 /// into per-sequence sub-arrays at bake time.
 ///
-/// === GlobalSequence (NOT supported here) ===
+/// === GlobalSequence ===
 /// When globalSequence &gt; -1, the track loops independently of any
-/// AnimationData sequence (used for spell effects, particle pulses, etc.).
-/// Character bone tracks don't use global sequences in practice — we treat
-/// any track with globalSequence != -1 as "no per-sequence data" via
-/// <see cref="UsesSequence"/>. If a future character M2 turns out to need
-/// global-sequence support, this is the place to wire it up.
+/// AnimationData sequence. These tracks are excluded from
+/// <see cref="UsesSequence"/> because M2Animator samples them against an
+/// independent global clock instead of restarting them with every movement
+/// clip. Character models use this mechanism for blinking.
 /// </summary>
 public class M2AnimTrack<T> where T : struct
 {
     public ushort InterpolationType { get; set; }
     public short GlobalSequence { get; set; } = -1;
 
-    /// <summary>One {start, end} index pair per sequence (inclusive ends).</summary>
+    /// <summary>One [start, end) index pair per sequence.</summary>
     public List<AnimationRange> Ranges { get; set; } = new();
     /// <summary>Shared timestamp array (absolute timeline positions, milliseconds).</summary>
     public List<uint> Timestamps { get; set; } = new();
@@ -298,20 +304,19 @@ public class M2AnimTrack<T> where T : struct
     /// True if this track has at least one keyframe whose timestamp falls
     /// within the given sequence's absolute time window.
     ///
-    /// We drive entirely off <c>sequence.StartTimestamp/EndTimestamp</c>
-    /// rather than <c>Ranges[i]</c>. Earlier code trusted Ranges as
-    /// per-sequence index windows into the shared Timestamps array; in
-    /// practice many vanilla character M2s leave Ranges as
-    /// <c>(0, Timestamps.Count - 1)</c> for every sequence and only the
-    /// sequence header's start/end timestamps differentiate which keys
-    /// belong to which animation. Using the timestamp window is robust
-    /// to either interpretation.
+    /// A valid <c>Ranges[sequenceIndex]</c> slice wins, matching WoWee. Some
+    /// vanilla character M2s repeat a whole-track sentinel range for every
+    /// sequence, so ranges are validated against the sequence header's
+    /// timestamp window and that window remains the fallback.
     /// </summary>
-    public bool UsesSequence(uint startTimestampMs, uint endTimestampMs)
+    public bool UsesSequence(int sequenceIndex, uint startTimestampMs, uint endTimestampMs)
     {
-        if (GlobalSequence > -1) return false; // see class doc — not supported
+        if (GlobalSequence > -1) return false; // sampled independently at runtime
         if (Timestamps.Count == 0) return false;
         if (endTimestampMs < startTimestampMs) return false;
+
+        if (TryGetRangeSlice(sequenceIndex, startTimestampMs, endTimestampMs, out _, out _))
+            return true;
 
         // Quick reject if the whole sequence window lies outside the
         // track's timeline.
@@ -333,9 +338,18 @@ public class M2AnimTrack<T> where T : struct
     /// is derived from <c>max(keyframe times)</c>.
     /// </summary>
     public IEnumerable<(uint timeMs, T value)> EnumerateSequenceKeys(
-        uint startTimestampMs, uint endTimestampMs)
+        int sequenceIndex, uint startTimestampMs, uint endTimestampMs)
     {
-        if (!UsesSequence(startTimestampMs, endTimestampMs)) yield break;
+        if (!UsesSequence(sequenceIndex, startTimestampMs, endTimestampMs)) yield break;
+
+        if (TryGetRangeSlice(sequenceIndex, startTimestampMs, endTimestampMs,
+                             out int rangeStart, out int rangeEnd))
+        {
+            uint firstTime = Timestamps[rangeStart];
+            for (int i = rangeStart; i < rangeEnd; i++)
+                yield return (Timestamps[i] - firstTime, Keys[i]);
+            yield break;
+        }
 
         for (int i = 0; i < Timestamps.Count; i++)
         {
@@ -344,6 +358,35 @@ public class M2AnimTrack<T> where T : struct
             if (t > endTimestampMs) break; // Timestamps is monotonic
             yield return (t - startTimestampMs, Keys[i]);
         }
+    }
+
+    private bool TryGetRangeSlice(int sequenceIndex,
+                                  uint startTimestampMs, uint endTimestampMs,
+                                  out int start, out int end)
+    {
+        start = end = 0;
+        if (sequenceIndex < 0 || sequenceIndex >= Ranges.Count) return false;
+
+        var range = Ranges[sequenceIndex];
+        if (range.Start >= range.End || range.End > Timestamps.Count || range.End > Keys.Count)
+            return false;
+
+        start = (int)range.Start;
+        end = (int)range.End;
+
+        // Some vanilla character files repeat a whole-track sentinel range for
+        // every animation. Reject it when its timestamps do not fit this
+        // sequence and let the header-window fallback select the real keys.
+        uint first = Timestamps[start];
+        uint last = Timestamps[end - 1];
+        if (first < startTimestampMs || first > endTimestampMs ||
+            last < startTimestampMs || last > endTimestampMs)
+        {
+            start = end = 0;
+            return false;
+        }
+
+        return true;
     }
 }
 
@@ -465,6 +508,8 @@ public class M2Reader
             uint ofsName = ReadUInt32(data, 0x0C);
             if (nName > 0 && ofsName > 0 && ofsName + nName <= data.Length)
                 model.Name = Encoding.ASCII.GetString(data, (int)ofsName, (int)nName).TrimEnd('\0');
+
+            ParseGlobalSequences(data, ReadUInt32(data, 0x014), ReadUInt32(data, 0x018), model);
 
             // ── Sequences (Session O) ───────────────────────────────────────
             // Parsed BEFORE bones, because bone TRS tracks reference sequence
@@ -641,6 +686,16 @@ public class M2Reader
     // The packed format was introduced in TBC. the 8-byte PACK_QUATERNION path is only
     // reached on TBC+. Getting this wrong would produce garbage rotations
     // that look superficially valid (since the byte pattern overlaps).
+    private static void ParseGlobalSequences(byte[] data, uint count, uint offset, M2Model model)
+    {
+        if (count == 0 || offset == 0) return;
+        if (offset + count * 4 > data.Length) return;
+
+        model.GlobalSequenceDurations.Capacity = (int)count;
+        for (uint i = 0; i < count; i++)
+            model.GlobalSequenceDurations.Add(ReadUInt32(data, (int)(offset + i * 4)));
+    }
+
     private static void ParseBones(byte[] data, uint count, uint offset, M2Model model)
     {
         if (count == 0 || offset == 0) return;
@@ -946,7 +1001,7 @@ public class M2Reader
                 model.Batches.Add(new M2Batch
                 {
                     Flags = data[bOff + 0],
-                    PriorityPlane = data[bOff + 1],
+                    PriorityPlane = unchecked((sbyte)data[bOff + 1]),
                     ShaderId = ReadUInt16(data, bOff + 2),
                     SubmeshIndex = ReadUInt16(data, bOff + 4),
                     GeosetIndex = ReadUInt16(data, bOff + 6),
