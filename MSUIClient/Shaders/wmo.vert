@@ -17,10 +17,15 @@
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aUV;
+layout (location = 3) in vec4 aInstanceRow0;
+layout (location = 4) in vec4 aInstanceRow1;
+layout (location = 5) in vec4 aInstanceRow2;
+layout (location = 6) in vec4 aInstanceRow3;
 
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
+uniform int uUseInstancing;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -28,16 +33,24 @@ out vec2 vUV;
 
 void main()
 {
-    vec4 world = uModel * vec4(aPosition, 1.0);
+    // System.Numerics rows arrive as four vertex attributes. A GLSL mat4
+    // constructor treats them as columns, which performs the same row-to-column
+    // flip as the existing uniform upload path.
+    mat4 model = uUseInstancing == 1
+        ? mat4(aInstanceRow0, aInstanceRow1, aInstanceRow2, aInstanceRow3)
+        : uModel;
+    vec4 world = model * vec4(aPosition, 1.0);
 
     vWorldPos = world.xyz;
 
     // The placement transform is rotation plus translation only - no scale and
     // no mirror (its linear part has determinant +1), so normals rotate with
     // the same matrix and need no inverse-transpose.
-    vNormal = normalize(mat3(uModel) * aNormal);
+    vNormal = normalize(mat3(model) * aNormal);
 
     vUV = aUV;
 
-    gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
+    gl_Position = uUseInstancing == 1
+        ? uViewProjection * world
+        : uModelViewProjection * vec4(aPosition, 1.0);
 }

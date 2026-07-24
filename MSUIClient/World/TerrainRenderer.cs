@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
@@ -35,6 +36,9 @@ public sealed class TerrainRenderer : IDisposable
 
     public int TileCount => _tiles.Count;
     public int DrawnLastFrame { get; private set; }
+    public int DrawCallsLastFrame { get; private set; }
+    public int TrianglesLastFrame { get; private set; }
+    public double RenderMilliseconds { get; private set; }
     public int TotalTriangles => _tiles.Values.Sum(t => t.TriangleCount);
 
     /// <summary>
@@ -56,9 +60,14 @@ public sealed class TerrainRenderer : IDisposable
     public float TextureScale { get; set; } = 8f;
 
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
+    public float SunIntensity { get; set; } = 1.15f;
+    public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
+    public float AmbientIntensity { get; set; } = 0.85f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
+    public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
     public TerrainRenderer(
         GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
@@ -325,13 +334,25 @@ public sealed class TerrainRenderer : IDisposable
 
     public void Render(Camera camera)
     {
-        if (_shader is null || _tiles.Count == 0) { DrawnLastFrame = 0; return; }
+        long started = Stopwatch.GetTimestamp();
+        DrawCallsLastFrame = 0;
+        TrianglesLastFrame = 0;
+        if (_shader is null || _tiles.Count == 0)
+        {
+            DrawnLastFrame = 0;
+            RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return;
+        }
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uCameraOrigin", camera.Position);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
@@ -348,15 +369,28 @@ public sealed class TerrainRenderer : IDisposable
 
         foreach (var tile in _tiles.Values)
         {
+            if (DistanceToBox(cameraPosition, tile.BoundsMin, tile.BoundsMax) > VisibilityDistance)
+                continue;
             if (!Camera.BoxInFrustum(viewProjection,
                     tile.BoundsMin - cameraPosition,
                     tile.BoundsMax - cameraPosition)) continue;
             tile.Draw();
             drawn++;
+            DrawCallsLastFrame++;
+            TrianglesLastFrame += tile.TriangleCount;
         }
 
         DrawnLastFrame = drawn;
         _gl.BindVertexArray(0);
+        RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
+
+    private static float DistanceToBox(Vector3 point, Vector3 min, Vector3 max)
+    {
+        float dx = MathF.Max(MathF.Max(min.X - point.X, 0f), point.X - max.X);
+        float dy = MathF.Max(MathF.Max(min.Y - point.Y, 0f), point.Y - max.Y);
+        float dz = MathF.Max(MathF.Max(min.Z - point.Z, 0f), point.Z - max.Z);
+        return MathF.Sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /// <summary>

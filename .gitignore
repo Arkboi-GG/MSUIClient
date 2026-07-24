@@ -68,3 +68,5 @@ Desktop.ini
 *.log
 *.tmp
 scratch/
+# Scene dumps (dev tool output; regenerated on demand)
+dumps/

@@ -41,6 +41,15 @@ public sealed class ClientConfig
     public string RealmdHost { get; set; } = "192.168.0.2";
     public int RealmdPort { get; set; } = 3724;
 
+    /// <summary>
+    /// Master switch for all developer tooling - the in-game overlay, scene
+    /// dumps, vantage capture, the group picker and reason readouts. Everything
+    /// behind this flag lives in the DevTools layer (Program.DevTools.cs) and is
+    /// meant to ship OFF in a release build; see FOUNDATION_PLAN.md section 12.
+    /// Core rendering and movement do not depend on it.
+    /// </summary>
+    public bool DevTools { get; set; } = true;
+
     public WindowConfig Window { get; set; } = new();
     public StartConfig Start { get; set; } = new();
     public RenderConfig Render { get; set; } = new();
@@ -94,6 +103,14 @@ public sealed class ClientConfig
         /// become resident.
         /// </summary>
         public int WmoPreloadRadius { get; set; } = 2;
+
+        /// <summary>
+        /// Legacy startup mode. When true, block the first frame until every
+        /// speculative WMO and M2 in the outer preload ring is resident. The
+        /// default starts after the visible set is ready and warms that ring
+        /// through the normal background streaming pipeline.
+        /// </summary>
+        public bool DrainPreloadsAtStartup { get; set; } = false;
     }
 
     public sealed class RenderConfig
@@ -103,10 +120,11 @@ public sealed class ClientConfig
         public float FarPlane { get; set; } = 2000f;
 
         /// <summary>
-        /// Multisample antialiasing for geometry silhouettes. Four samples is
-        /// the best default quality/cost point for this renderer.
+        /// Multisample antialiasing for geometry silhouettes. Keep the default
+        /// single-sampled: integrated GPUs pay a material bandwidth and resolve
+        /// cost for 4x, and a post-process AA pass is the better future trade.
         /// </summary>
-        public int MsaaSamples { get; set; } = 4;
+        public int MsaaSamples { get; set; } = 1;
 
         /// <summary>
         /// Texture filtering for surfaces viewed at an angle. The driver clamps

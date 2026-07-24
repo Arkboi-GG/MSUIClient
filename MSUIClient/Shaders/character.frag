@@ -33,6 +33,10 @@ uniform float uAlphaCutoff;
 
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;   // points TOWARD the sun, normalised
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uAmbientColor;
+uniform float uAmbientIntensity;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -49,13 +53,14 @@ void main()
 
     vec3 normal = normalize(vNormal);
 
-    // Two-sided lighting: thin panels are often wound away from the viewer, and
-    // an unlit black surface reads as a hole.
-    if (dot(normal, uCameraPos - vWorldPos) < 0.0) normal = -normal;
+    // Use the rasterized face side. Flipping toward the orbit camera makes a
+    // fixed directional light change as the camera moves around the model.
+    if (!gl_FrontFacing) normal = -normal;
 
     float lambert = max(dot(normal, uSunDirection), 0.0);
-    float ambient = 0.45;
-    vec3 lit = albedo.rgb * (ambient + 0.65 * lambert);
+    vec3 light = uAmbientColor * uAmbientIntensity
+        + uSunColor * lambert * uSunIntensity;
+    vec3 lit = albedo.rgb * light;
 
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);

@@ -10,31 +10,6 @@ using Texture = MSUIClient.Engine.Texture;
 namespace MSUIClient.World.Wmo;
 
 /// <summary>
-/// Why a WMO group drew or did not draw. One winning reason per group, decided by
-/// WmoRenderer.ClassifyGroup, which both the render path and the read-only pick /
-/// dump explanation call - so the reason reported can never drift from the reason
-/// acted on. The last group (NotResident..Antiportal) is assigned at the build /
-/// stream stage by the scene dump, not by ClassifyGroup. See PLAN_03_REASON_CODES.md.
-/// </summary>
-public enum WmoReasonCode
-{
-    Drawn,
-    DrawnShellFar,
-    ShellNearSuppressed,
-    InteriorCull,
-    DistanceCulled,
-    FrustumCulled,
-    OcclusionCulled,
-    OverrideShow,
-    OverrideHide,
-    NotResident,
-    MissingFile,
-    NotBuilt,
-    NoGeometry,
-    Antiportal,
-}
-
-/// <summary>
 /// Draws WMO buildings — the abbey, the farmhouses, Stormwind.
 ///
 /// PIPELINE
@@ -110,18 +85,6 @@ public sealed class WmoRenderer : IDisposable
         public Vector3 LocalMin, LocalMax;
         public bool IsInterior;
         public bool IsDistanceLod;
-
-        // Identity, kept for the in-game group picker and for live (re-tunable)
-        // shell classification at draw time.
-        public int GroupIndex;
-        public string GroupName = "";
-        public uint GroupFlags;
-        public int VertexCount;
-
-        // Local-space geometry retained on the CPU purely for the triangle-level
-        // group picker (the GPU copy can't be read back cheaply). Positions only.
-        public Vector3[] PickPositions = [];
-        public int[] PickIndices = [];
 
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
@@ -231,24 +194,6 @@ public sealed class WmoRenderer : IDisposable
         public int DoodadSet;
     }
 
-    /// <summary>Per-frame inputs the group classifier needs, gathered once per instance.</summary>
-    private readonly struct FrameCullContext
-    {
-        public readonly Vector3 CameraPosition;
-        public readonly bool CameraInside;
-        public readonly float EffectiveDrawDistance;
-        public readonly Matrix4x4 ViewProjection;
-
-        public FrameCullContext(Vector3 cameraPosition, bool cameraInside,
-            float effectiveDrawDistance, Matrix4x4 viewProjection)
-        {
-            CameraPosition = cameraPosition;
-            CameraInside = cameraInside;
-            EffectiveDrawDistance = effectiveDrawDistance;
-            ViewProjection = viewProjection;
-        }
-    }
-
     private readonly GL _gl;
     private readonly GpuUploadWorker _uploads;
     private readonly AssetWorkerPool _workers;
@@ -278,9 +223,6 @@ public sealed class WmoRenderer : IDisposable
 
     /// <summary>Frame counter for the throttled [wmo-vis] visibility trace.</summary>
     private int _wmoVisLogFrames;
-
-    /// <summary>Largest WMO group count seen so far this frame (for the HUD trace).</summary>
-    private int _frameLargestWmoGroupCount;
 
     private Shader _shader = null!;
 
@@ -316,53 +258,8 @@ public sealed class WmoRenderer : IDisposable
     /// </summary>
     public float InsideInstanceMargin { get; set; } = 0f;
 
-    /// <summary>Dump the group table of large WMOs once at load (name/flags/LOD).
-    /// Off by default now that it's captured; the HUD toggle re-enables it (then reload).</summary>
-    public bool DumpLargeWmoGroups { get; set; } = false;
-
-    /// <summary>Distance (yd) at which a big WMO's own interior cells are culled
-    /// while the camera is OUTSIDE it. HUD-tunable. Was the hard-coded 120.</summary>
-    public float InteriorCullDistance { get; set; } = 120f;
-
-    /// <summary>Distance (yd) below which an impostor shell hides even from
-    /// outside (you are right on top of it). HUD-tunable. Was the hard-coded 196.</summary>
-    public float ShellNearGuard { get; set; } = 196f;
-
-    /// <summary>An ALWAYS_DRAW group under this many vertices is treated as a
-    /// distance impostor regardless of its interior flag. HUD-tunable; retunes
-    /// the whole city live because classification runs at draw time.</summary>
-    public int ImpostorMaxVertices { get; set; } = 2000;
-
-    /// <summary>Print the throttled [wmo-vis] line to the console. Off by default
-    /// now that the same numbers live in the HUD.</summary>
-    public bool VisTrace { get; set; }
-
-    // Live visibility state for the biggest WMO in view, surfaced in the HUD so
-    // the swap can be watched without console spam.
-    public bool LastInsideCity { get; private set; }
-    public int ShellsDrawnLastFrame { get; private set; }
-    public int ShellsHiddenLastFrame { get; private set; }
-    public string LargestWmoName { get; private set; } = "";
-    public int LargestWmoGroupsDrawn { get; private set; }
-    public int LargestWmoGroupCount { get; private set; }
-
-    /// <summary>Collision BVH used for occlusion tests. Set by the game loop to the
-    /// active world; when null, occlusion culling is skipped.</summary>
-    public CollisionWorld? OcclusionWorld { get; set; }
-
-    /// <summary>Hide exterior groups the collision BVH shows are blocked by nearer
-    /// geometry (only while inside a large WMO). Off by default; tunable/toggleable.</summary>
-    public bool OcclusionCulling { get; set; }
-
-    /// <summary>Only occlusion-test exterior groups beyond this (yd) — nearby ones
-    /// are cheap to just draw and shouldn't flicker.</summary>
-    public float OcclusionMinDistance { get; set; } = 40f;
-
-    /// <summary>Slack (yd) subtracted from the group distance before the occlusion
-    /// ray, so grazing self-hits at the group's own face don't read as blocked.</summary>
-    public float OcclusionMargin { get; set; } = 8f;
-
-    public int OccludedGroupsLastFrame { get; private set; }
+    /// <summary>Dump the group table of large WMOs once at load (name/flags/LOD).</summary>
+    public bool DumpLargeWmoGroups { get; set; } = true;
 
     public float DrawDistance { get; set; }
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
@@ -378,10 +275,6 @@ public sealed class WmoRenderer : IDisposable
     /// it is winding, not lost geometry.
     /// </summary>
     public bool ForceTwoSided { get; set; } = true;
-
-    /// <summary>Curated show/hide overrides consulted by ClassifyGroup before any
-    /// heuristic. Null = none. The data ships and is honoured in release (PLAN_04).</summary>
-    public VisibilityOverrides? Overrides { get; set; }
 
     /// <summary>
     /// Alpha below which a fragment is discarded, for textures that actually
@@ -747,98 +640,6 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
-    /// The single visibility decision for one WMO group: returns exactly one
-    /// WmoReasonCode. Render() switches on it to decide drawing; the read-only
-    /// explanation used by the picker and scene dump calls this SAME method, so the
-    /// reason reported can never drift from the reason acted on. Toggle state is read
-    /// from this renderer's own properties; only the per-frame/per-group varying data
-    /// is passed in. See PLAN_03_REASON_CODES.md.
-    /// </summary>
-    private WmoReasonCode ClassifyGroup(
-        Instance instance, GroupMesh group, Vector3 groupMin, Vector3 groupMax, in FrameCullContext ctx)
-    {
-        // Curated overrides win over every heuristic below (PLAN_04). A hide is
-        // absolute; a show bypasses the heuristic culls but still respects residency
-        // (only resident groups reach here) and frustum. This is the pragmatic fix
-        // for cases the heuristics cannot get right - e.g. the thief01 entrance keep
-        // that stays visible across the open courtyard.
-        bool forceShow = false;
-        if (Overrides is not null)
-        {
-            var ov = Overrides.Resolve(instance.Path, group.GroupIndex, ctx.CameraInside);
-            if (ov == WmoReasonCode.OverrideHide) return WmoReasonCode.OverrideHide;
-            if (ov == WmoReasonCode.OverrideShow) forceShow = true;
-        }
-
-        float groupDistance = DistanceToBox(ctx.CameraPosition, groupMin, groupMax);
-        bool shell = false;
-
-        if (!forceShow)
-        {
-            if (UseDistanceLodShells && group.IsDistanceLod)
-            {
-                var groupCentre = (groupMin + groupMax) * 0.5f;
-                if (ctx.CameraInside ||
-                    Vector3.DistanceSquared(ctx.CameraPosition, groupCentre) < ShellNearGuard * ShellNearGuard)
-                    return WmoReasonCode.ShellNearSuppressed;
-                shell = true;
-            }
-            else if (group.IsInterior)
-            {
-                if (!ctx.CameraInside && groupDistance > InteriorCullDistance)
-                    return WmoReasonCode.InteriorCull;
-            }
-
-            if (groupDistance > ctx.EffectiveDrawDistance)
-                return WmoReasonCode.DistanceCulled;
-        }
-
-        if (FrustumCulling &&
-            !Camera.BoxInFrustum(ctx.ViewProjection,
-                groupMin - ctx.CameraPosition, groupMax - ctx.CameraPosition))
-            return WmoReasonCode.FrustumCulled;
-
-        if (!forceShow && OcclusionCulling && OcclusionWorld is not null
-            && !group.IsDistanceLod
-            && groupDistance > OcclusionMinDistance
-            && IsOccluded(ctx.CameraPosition, groupMin, groupMax))
-            return WmoReasonCode.OcclusionCulled;
-
-        if (forceShow) return WmoReasonCode.OverrideShow;
-        return shell ? WmoReasonCode.DrawnShellFar : WmoReasonCode.Drawn;
-    }
-
-    /// <summary>
-    /// Is the group's nearest point blocked from the camera by nearer solid
-    /// geometry, per the collision BVH? One ray at the group's closest box point,
-    /// stopped a margin short of it, so a hit means something else is in front.
-    /// A coarse single-ray test — good enough to drop the entrance towers seen
-    /// through a district, not a full occlusion pass.
-    /// </summary>
-    private bool IsOccluded(Vector3 camera, Vector3 groupMin, Vector3 groupMax)
-    {
-        // Cull only when EVERY corner of the group's box is blocked by nearer
-        // solid geometry. A single clear corner (a roof edge against the sky, a
-        // tower top over a building) keeps the whole group visible — so this
-        // hides a structure only when it is genuinely fully behind something,
-        // never when it is merely partly obscured.
-        for (int c = 0; c < 8; c++)
-        {
-            var corner = new Vector3(
-                (c & 1) == 0 ? groupMin.X : groupMax.X,
-                (c & 2) == 0 ? groupMin.Y : groupMax.Y,
-                (c & 4) == 0 ? groupMin.Z : groupMax.Z);
-
-            var to = corner - camera;
-            float dist = to.Length();
-            if (dist <= OcclusionMargin) return false;
-            if (!OcclusionWorld!.Raycast(camera, to, dist - OcclusionMargin).HasValue)
-                return false;   // this corner is clear -> group is visible
-        }
-        return true;   // all eight corners blocked
-    }
-
-    /// <summary>
     /// MODF's own bounding box for the placed model, in world space. This is
     /// the target every candidate is scored against.
     /// </summary>
@@ -1113,11 +914,9 @@ public sealed class WmoRenderer : IDisposable
             var group = ready.Groups[groupIndex];
             if (group is null) return false;
 
-            bool isDistanceLod = IsDistanceOnlyLod(
-                job.RootPath, ready.Root.NGroups, group.GroupFlags,
-                group.Vertices.Count, group.GroupName);
+            bool isDistanceLod = IsDistanceOnlyLod(job.RootPath, ready.Root, group);
             var mesh = BuildGroupMesh(
-                group, ready.Root, isDistanceLod, groupIndex, uploaded.Groups[groupIndex]);
+                group, ready.Root, isDistanceLod, uploaded.Groups[groupIndex]);
             if (mesh is null) { job.Unbuilt++; return false; }
 
             job.BatchesDropped += _lastBatchesDropped;
@@ -1190,9 +989,7 @@ public sealed class WmoRenderer : IDisposable
             {
                 var g = ready.Groups[gi];
                 if (g is null) continue;
-                bool lod = IsDistanceOnlyLod(
-                    job.RootPath, ready.Root.NGroups, g.GroupFlags,
-                    g.Vertices.Count, g.GroupName);
+                bool lod = IsDistanceOnlyLod(job.RootPath, ready.Root, g);
                 float cx = (g.BbMinX + g.BbMaxX) * 0.5f;
                 float cy = (g.BbMinY + g.BbMaxY) * 0.5f;
                 float cz = (g.BbMinZ + g.BbMaxZ) * 0.5f;
@@ -1304,7 +1101,7 @@ public sealed class WmoRenderer : IDisposable
     private int _lastIndicesCovered, _lastIndicesTotal;
 
     private unsafe GroupMesh? BuildGroupMesh(
-        WmoGroupData group, WmoRootData root, bool isDistanceLod, int groupIndex,
+        WmoGroupData group, WmoRootData root, bool isDistanceLod,
         UploadedGroup? uploaded = null)
     {
         var vertices = BuildGroupVertexArray(group, out var min, out var max);
@@ -1351,12 +1148,6 @@ public sealed class WmoRenderer : IDisposable
             LocalMax = max,
             IsInterior = group.IsInterior,
             IsDistanceLod = isDistanceLod,
-            GroupIndex = groupIndex,
-            GroupName = group.GroupName,
-            GroupFlags = group.GroupFlags,
-            VertexCount = group.Vertices.Count,
-            PickPositions = BuildPickPositions(group),
-            PickIndices = [.. group.Indices.Select(i => (int)i)],
         };
         mesh.Attach(_gl);
 
@@ -1408,41 +1199,23 @@ public sealed class WmoRenderer : IDisposable
         return mesh;
     }
 
-    /// <summary>
-    /// Whether a group is a distance-only impostor shell. Evaluated live at draw
-    /// time (not baked at load) so the HUD's "Impostor max verts" slider retunes
-    /// the whole city without a reload.
-    ///
-    /// The real distance impostors turned out to be flagged INTERIOR, which the
-    /// old !indoor guards threw away. The Stormwind group dump proved it:
-    ///   [302] 'Cathedral of Light' 0x00012841 INT v=96   (ALWAYS_DRAW set)
-    ///   [303] 'Taventrance16'      0x00012841 INT v=48
-    ///   [304] 'Old Town'           0x00012841 INT v=48
-    /// These are the "double cathedral" / distant-district silhouettes Blizzard
-    /// shows on approach. The signal is ALWAYS_DRAW (0x10000) + a low vertex
-    /// count, NOT the interior/exterior bit: a genuine interior room is never
-    /// ALWAYS_DRAW. So an ALWAYS_DRAW low-poly group is a shell regardless of
-    /// the indoor flag; the detailed versions (e.g. 'Taventrance15' v=2368, no
-    /// ALWAYS_DRAW) are untouched.
-    /// </summary>
-    private bool IsDistanceOnlyLod(
-        string rootPath, uint nGroups, uint flags, int vertexCount, string groupName)
+    private static bool IsDistanceOnlyLod(
+        string rootPath, WmoRootData root, WmoGroupData group)
     {
-        if (nGroups <= 50) return false;
+        if (root.NGroups <= 50) return false;
 
-        bool indoor = (flags & 0x2000) != 0;
-        bool alwaysDraw = (flags & 0x00010000) != 0;
-        string name = (groupName ?? "").ToLowerInvariant();
+        bool indoor = group.IsInterior;
+        bool alwaysDraw = (group.GroupFlags & 0x00010000) != 0;
+        int vertexCount = group.Vertices.Count;
+        string name = group.GroupName.ToLowerInvariant();
         bool facade = name.Contains("facade", StringComparison.Ordinal);
         bool cityShell = name.StartsWith("city", StringComparison.Ordinal) && name.Length <= 8;
         bool stormwind = Path.GetFileName(rootPath)
             .Equals("stormwind.wmo", StringComparison.OrdinalIgnoreCase);
-        bool cathedralShell = stormwind && indoor && (flags & 0x80) != 0;
-        bool alwaysDrawImpostor = alwaysDraw && vertexCount < ImpostorMaxVertices;
+        bool cathedralShell = stormwind && indoor && (group.GroupFlags & 0x80) != 0;
 
         return (vertexCount < 100 && !indoor)
             || (alwaysDraw && vertexCount < 5000 && !indoor)
-            || alwaysDrawImpostor
             || (facade && !indoor)
             || (cityShell && !indoor)
             || cathedralShell;
@@ -1682,8 +1455,6 @@ public sealed class WmoRenderer : IDisposable
         LodGroupsCulledLastFrame = 0;
         DrawCallsLastFrame = 0;
         TrianglesLastFrame = 0;
-        _frameLargestWmoGroupCount = 0;
-        OccludedGroupsLastFrame = 0;
         if (!Enabled || _shader is null || _instances.Count == 0)
         {
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -1733,63 +1504,63 @@ public sealed class WmoRenderer : IDisposable
 
             var visibleGroups = new List<GroupMesh>();
             int shellsDrawn = 0, shellsHidden = 0;
-            var cull = new FrameCullContext(cameraPosition, cameraInside, effectiveDrawDistance, viewProjection);
             foreach (var group in instance.Model.Groups)
             {
                 var (groupMin, groupMax) = TransformedBounds(group, instance.Transform);
+                float groupDistance = DistanceToBox(cameraPosition, groupMin, groupMax);
 
-                // The decision lives in ClassifyGroup so the picker and dump report
-                // the exact reason this loop acts on. The per-reason counters below
-                // reproduce the previous behaviour (shells drawn/hidden, occluded,
-                // LOD-culled); the switch draws for the two Drawn* reasons.
-                switch (ClassifyGroup(instance, group, groupMin, groupMax, in cull))
+                if (UseDistanceLodShells && group.IsDistanceLod)
                 {
-                    case WmoReasonCode.Drawn:
-                        visibleGroups.Add(group);
-                        break;
-                    case WmoReasonCode.DrawnShellFar:
-                        visibleGroups.Add(group);
-                        shellsDrawn++;
-                        break;
-                    case WmoReasonCode.OverrideShow:
-                        visibleGroups.Add(group);
-                        break;
-                    case WmoReasonCode.ShellNearSuppressed:
+                    // Distance-only impostor (the Stormwind cathedral / grand
+                    // entrance stand-ins Blizzard shows so the skyline reads big
+                    // on approach). Draw ONLY from outside the city, and never
+                    // when right on top of it; the moment the camera is inside a
+                    // real cell the detailed geometry takes over. Not subject to
+                    // the interior cull below: these shells are flagged indoor,
+                    // and the old 120-yard rule culled the very impostor that
+                    // should appear on approach.
+                    var groupCentre = (groupMin + groupMax) * 0.5f;
+                    if (cameraInside ||
+                        Vector3.DistanceSquared(cameraPosition, groupCentre) < 196f * 196f)
+                    {
                         LodGroupsCulledLastFrame++;
                         shellsHidden++;
-                        break;
-                    case WmoReasonCode.OcclusionCulled:
-                        OccludedGroupsLastFrame++;
-                        break;
-                    default:
-                        // InteriorCull / DistanceCulled / FrustumCulled: skipped,
-                        // counted only in the frame aggregates.
-                        break;
+                        continue;
+                    }
+                    shellsDrawn++;
                 }
+                else if (group.IsInterior)
+                {
+                    // A real interior cell. Visible from within this WMO
+                    // (bounded by draw distance); from outside, only a nearby
+                    // one seen through a door. The old unconditional 120-yard
+                    // cull removed a large WMO's far interior (the cathedral
+                    // nave) while its exterior spires kept drawing — the
+                    // "floating cathedral" artefact.
+                    if (!cameraInside && groupDistance > 120f)
+                        continue;
+                }
+
+                if (groupDistance > effectiveDrawDistance)
+                    continue;
+                if (FrustumCulling &&
+                    !Camera.BoxInFrustum(viewProjection,
+                        groupMin - cameraPosition, groupMax - cameraPosition))
+                    continue;
+                visibleGroups.Add(group);
             }
 
-            // Surface the biggest WMO's swap state to the HUD (and, if VisTrace
-            // is on, the console). On the approach bridge inside should read
-            // False and shells should draw; in the Trade District inside should
-            // read True and shells hide.
-            if (instance.Model.Groups.Count > _frameLargestWmoGroupCount)
+            // Throttled visibility trace for large WMOs, so the impostor swap can
+            // be validated from the console: on the approach bridge inside should
+            // read False and shells should draw; in the Trade District inside
+            // should read True and shells hide.
+            if (instance.Model.Groups.Count > 50 && ++_wmoVisLogFrames >= 120)
             {
-                _frameLargestWmoGroupCount = instance.Model.Groups.Count;
-                LargestWmoGroupCount = instance.Model.Groups.Count;
-                LargestWmoName = Path.GetFileName(instance.Path);
-                LargestWmoGroupsDrawn = visibleGroups.Count;
-                LastInsideCity = cameraInside;
-                ShellsDrawnLastFrame = shellsDrawn;
-                ShellsHiddenLastFrame = shellsHidden;
-
-                if (VisTrace && ++_wmoVisLogFrames >= 120)
-                {
-                    _wmoVisLogFrames = 0;
-                    Console.WriteLine(
-                        $"[wmo-vis] {LargestWmoName} inside={cameraInside} " +
-                        $"shellsDrawn={shellsDrawn} shellsHidden={shellsHidden} " +
-                        $"groupsDrawn={visibleGroups.Count}/{instance.Model.Groups.Count}");
-                }
+                _wmoVisLogFrames = 0;
+                Console.WriteLine(
+                    $"[wmo-vis] {Path.GetFileName(instance.Path)} inside={cameraInside} " +
+                    $"shellsDrawn={shellsDrawn} shellsHidden={shellsHidden} " +
+                    $"groupsDrawn={visibleGroups.Count}/{instance.Model.Groups.Count}");
             }
 
             if (visibleGroups.Count == 0)
@@ -1858,241 +1629,6 @@ public sealed class WmoRenderer : IDisposable
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
         RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-    }
-
-    // ── in-game diagnostics ────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Re-run shell classification on every loaded group with the current
-    /// <see cref="ImpostorMaxVertices"/>. Cheap, and called from the HUD slider
-    /// so the impostor set retunes live without a reload. Classification is baked
-    /// (not per-frame) to keep the draw loop allocation-free.
-    /// </summary>
-    public void ReclassifyShells()
-    {
-        foreach (var instance in _instances)
-        {
-            uint n = (uint)instance.Model.Groups.Count;
-            foreach (var g in instance.Model.Groups)
-                g.IsDistanceLod = IsDistanceOnlyLod(
-                    instance.Path, n, g.GroupFlags, g.VertexCount, g.GroupName);
-        }
-    }
-
-    /// <summary>One WMO group a pick ray passed through.</summary>
-    public readonly record struct GroupHit(
-        string Path, string Root, int GroupIndex, string Name, uint Flags,
-        int VertexCount, bool Interior, bool Shell, WmoReasonCode Reason, float Distance);
-
-    /// <summary>One WMO group described for the scene dump: identity plus the exact
-    /// WmoReasonCode ClassifyGroup assigned it this view.</summary>
-    public readonly record struct GroupReport(
-        int GroupIndex, string Name, uint Flags, int VertexCount,
-        bool Interior, bool Shell, float Distance, WmoReasonCode Reason);
-
-    /// <summary>One resident WMO instance summarized for the scene dump.</summary>
-    public readonly record struct InstanceSummary(
-        string Root, float Distance, int Groups, int Drawn, int Shells, bool CameraInside);
-
-    private static Vector3[] BuildPickPositions(WmoGroupData group)
-    {
-        var arr = new Vector3[group.Vertices.Count];
-        for (int i = 0; i < arr.Length; i++)
-        {
-            var v = group.Vertices[i];
-            arr[i] = new Vector3(v.x, v.y, v.z);
-        }
-        return arr;
-    }
-
-    /// <summary>
-    /// The WMO groups the ray actually PIERCES (triangle-level), nearest first —
-    /// so the top entry is the surface under the cursor, not every box behind it.
-    /// The ray is taken into each instance's local space (WMO placement is a pure
-    /// rotation+translation, so distances are preserved) and tested against that
-    /// group's retained triangles. A per-group local AABB prunes the misses.
-    /// </summary>
-    public List<GroupHit> PickGroups(Camera camera, Vector3 rayOrigin, Vector3 rayDir, int max = 14)
-    {
-        var cameraPosition = camera.Position;
-        var viewProjection = camera.RelativeViewProjection;
-        float effectiveDrawDistance = MathF.Min(DrawDistance, VisibilityDistance);
-
-        var hits = new List<GroupHit>();
-        foreach (var instance in _instances)
-        {
-            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
-            var lo = Vector3.Transform(rayOrigin, inv);
-            var ld = Vector3.TransformNormal(rayDir, inv);
-            uint n = (uint)instance.Model.Groups.Count;
-
-            var cull = new FrameCullContext(
-                cameraPosition, CameraInsideInstance(instance, cameraPosition),
-                effectiveDrawDistance, viewProjection);
-
-            foreach (var g in instance.Model.Groups)
-            {
-                if (!RayHitsBox(lo, ld, g.LocalMin, g.LocalMax, out _)) continue;
-                if (!NearestTriangle(lo, ld, g.PickPositions, g.PickIndices, out float t)) continue;
-
-                var (groupMin, groupMax) = TransformedBounds(g, instance.Transform);
-                var reason = ClassifyGroup(instance, g, groupMin, groupMax, in cull);
-                bool shell = UseDistanceLodShells && IsDistanceOnlyLod(
-                    instance.Path, n, g.GroupFlags, g.VertexCount, g.GroupName);
-                hits.Add(new GroupHit(
-                    Path.GetFileName(instance.Path), instance.Path, g.GroupIndex, g.GroupName,
-                    g.GroupFlags, g.VertexCount, g.IsInterior, shell, reason, t));
-            }
-        }
-        hits.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-        if (hits.Count > max) hits.RemoveRange(max, hits.Count - max);
-        return hits;
-    }
-
-    /// <summary>
-    /// Every group of the WMO instance the crosshair ray hits, each with the
-    /// WmoReasonCode it draws/skips under - the "why is this building doing that"
-    /// block of the scene dump. Null when the ray hits no WMO. Shares ClassifyGroup
-    /// with Render, so these are the real reasons. Dump-only (PLAN_02).
-    /// </summary>
-    public List<GroupReport>? DescribeInstanceUnderRay(Camera camera, Vector3 rayOrigin, Vector3 rayDir)
-    {
-        Instance? best = null;
-        float bestT = float.MaxValue;
-        foreach (var instance in _instances)
-        {
-            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
-            var lo = Vector3.Transform(rayOrigin, inv);
-            var ld = Vector3.TransformNormal(rayDir, inv);
-            foreach (var g in instance.Model.Groups)
-            {
-                if (!RayHitsBox(lo, ld, g.LocalMin, g.LocalMax, out _)) continue;
-                if (!NearestTriangle(lo, ld, g.PickPositions, g.PickIndices, out float t)) continue;
-                if (t < bestT) { bestT = t; best = instance; }
-            }
-        }
-        if (best is null) return null;
-
-        var cull = new FrameCullContext(
-            camera.Position, CameraInsideInstance(best, camera.Position),
-            MathF.Min(DrawDistance, VisibilityDistance), camera.RelativeViewProjection);
-
-        var report = new List<GroupReport>();
-        foreach (var g in best.Model.Groups)
-        {
-            var (mn, mx) = TransformedBounds(g, best.Transform);
-            var reason = ClassifyGroup(best, g, mn, mx, in cull);
-            report.Add(new GroupReport(
-                g.GroupIndex, g.GroupName, g.GroupFlags, g.VertexCount,
-                g.IsInterior, g.IsDistanceLod, DistanceToBox(camera.Position, mn, mx), reason));
-        }
-        return report;
-    }
-
-    /// <summary>
-    /// Every resident WMO instance summarized (nearest first): root, distance,
-    /// group count, how many drew, how many were distance-shells, camera-inside.
-    /// Classifies each group through ClassifyGroup - a one-shot cost paid only when
-    /// a dump is taken. Dump-only (PLAN_02).
-    /// </summary>
-    public List<InstanceSummary> SummarizeInstances(Camera camera)
-    {
-        var cp = camera.Position;
-        var vp = camera.RelativeViewProjection;
-        float edd = MathF.Min(DrawDistance, VisibilityDistance);
-
-        var summaries = new List<InstanceSummary>();
-        foreach (var instance in _instances)
-        {
-            bool inside = CameraInsideInstance(instance, cp);
-            var cull = new FrameCullContext(cp, inside, edd, vp);
-            int drawn = 0, shells = 0;
-            foreach (var g in instance.Model.Groups)
-            {
-                var (mn, mx) = TransformedBounds(g, instance.Transform);
-                switch (ClassifyGroup(instance, g, mn, mx, in cull))
-                {
-                    case WmoReasonCode.Drawn: drawn++; break;
-                    case WmoReasonCode.DrawnShellFar: drawn++; shells++; break;
-                    case WmoReasonCode.OverrideShow: drawn++; break;
-                }
-            }
-            summaries.Add(new InstanceSummary(
-                Path.GetFileName(instance.Path),
-                DistanceToBox(cp, instance.WorldMin, instance.WorldMax),
-                instance.Model.Groups.Count, drawn, shells, inside));
-        }
-        summaries.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-        return summaries;
-    }
-
-    /// <summary>Nearest ray-triangle hit distance over a group's triangles.</summary>
-    private static bool NearestTriangle(
-        Vector3 o, Vector3 d, Vector3[] verts, int[] indices, out float tMin)
-    {
-        tMin = float.MaxValue;
-        bool hit = false;
-        for (int i = 0; i + 2 < indices.Length; i += 3)
-        {
-            int a = indices[i], b = indices[i + 1], c = indices[i + 2];
-            if (a >= verts.Length || b >= verts.Length || c >= verts.Length) continue;
-            if (RayTriangle(o, d, verts[a], verts[b], verts[c], out float t) && t < tMin)
-            {
-                tMin = t;
-                hit = true;
-            }
-        }
-        return hit;
-    }
-
-    /// <summary>Two-sided Moller-Trumbore ray/triangle. t is distance along d.</summary>
-    private static bool RayTriangle(
-        Vector3 o, Vector3 d, Vector3 v0, Vector3 v1, Vector3 v2, out float t)
-    {
-        t = 0f;
-        const float eps = 1e-7f;
-        var e1 = v1 - v0;
-        var e2 = v2 - v0;
-        var p = Vector3.Cross(d, e2);
-        float det = Vector3.Dot(e1, p);
-        if (MathF.Abs(det) < eps) return false;
-        float invDet = 1f / det;
-        var tv = o - v0;
-        float u = Vector3.Dot(tv, p) * invDet;
-        if (u < 0f || u > 1f) return false;
-        var q = Vector3.Cross(tv, e1);
-        float v = Vector3.Dot(d, q) * invDet;
-        if (v < 0f || u + v > 1f) return false;
-        t = Vector3.Dot(e2, q) * invDet;
-        return t > eps;
-    }
-
-    /// <summary>Slab ray/AABB test. Returns the near entry distance along dir.</summary>
-    private static bool RayHitsBox(Vector3 o, Vector3 d, Vector3 mn, Vector3 mx, out float t)
-    {
-        t = 0f;
-        float tmin = 0f, tmax = float.MaxValue;
-        for (int a = 0; a < 3; a++)
-        {
-            float oa = a == 0 ? o.X : a == 1 ? o.Y : o.Z;
-            float da = a == 0 ? d.X : a == 1 ? d.Y : d.Z;
-            float lo = a == 0 ? mn.X : a == 1 ? mn.Y : mn.Z;
-            float hi = a == 0 ? mx.X : a == 1 ? mx.Y : mx.Z;
-            if (MathF.Abs(da) < 1e-8f)
-            {
-                if (oa < lo || oa > hi) return false;
-                continue;
-            }
-            float inv = 1f / da;
-            float t1 = (lo - oa) * inv;
-            float t2 = (hi - oa) * inv;
-            if (t1 > t2) (t1, t2) = (t2, t1);
-            tmin = MathF.Max(tmin, t1);
-            tmax = MathF.Min(tmax, t2);
-            if (tmin > tmax) return false;
-        }
-        t = tmin;
-        return true;
     }
 
     public void Dispose()

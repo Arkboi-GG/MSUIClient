@@ -8,8 +8,10 @@ namespace MSUIClient.Engine;
 /// <summary>
 /// Owns a hidden OpenGL context sharing objects with the render context.
 /// Resource creation runs exclusively on its dedicated thread; completed tasks
-/// are published only after glFinish, so the render thread never waits on an
-/// upload fence or touches a half-created object.
+/// are published only after an upload-context fence signals, so the render
+/// thread never touches a half-created object. A per-upload fence matters on
+/// integrated Intel drivers: glFinish on the shared context can serialize the
+/// render context too and present as a full-screen freeze.
 /// </summary>
 public sealed class GpuUploadWorker : IDisposable
 {
@@ -60,7 +62,18 @@ public sealed class GpuUploadWorker : IDisposable
             {
                 var timer = System.Diagnostics.Stopwatch.StartNew();
                 T result = upload(gl);
-                gl.Finish();
+                nint fence = gl.FenceSync(
+                    SyncCondition.SyncGpuCommandsComplete, (SyncBehaviorFlags)0);
+                gl.Flush();
+                while (true)
+                {
+                    var status = gl.ClientWaitSync(fence, (SyncObjectMask)0, 1_000_000);
+                    if (status is GLEnum.AlreadySignaled or GLEnum.ConditionSatisfied) break;
+                    if (status == GLEnum.WaitFailed)
+                        throw new InvalidOperationException("OpenGL upload fence wait failed");
+                    Thread.Yield();
+                }
+                gl.DeleteSync(fence);
                 if (timer.Elapsed.TotalMilliseconds >= 8)
                     Console.WriteLine(
                         $"[gpu-upload] {label} completed in {timer.Elapsed.TotalMilliseconds:F0}ms off-thread");

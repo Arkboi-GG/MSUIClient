@@ -13,6 +13,7 @@ namespace MSUIClient.Formats;
 ///   MOHD — header (64 bytes): nTextures, nGroups, etc.
 ///   MOTX — texture filename blob (BLP paths)
 ///   MOMT — materials (64 bytes each): texture offsets into MOTX, flags
+///   MOGN/MOGI — group names and per-group metadata used for LOD classification
 ///   MODS — doodad sets (32 bytes each): set name + first instance + count
 ///   MODN — null-separated M2 filenames for embedded doodads
 ///   MODD — doodad placements (40 bytes each): name offset, flags, pos,
@@ -56,6 +57,8 @@ public class WmoReader
     private static readonly uint MAGIC_MOHD = ChunkId("MOHD");
     private static readonly uint MAGIC_MOTX = ChunkId("MOTX");
     private static readonly uint MAGIC_MOMT = ChunkId("MOMT");
+    private static readonly uint MAGIC_MOGN = ChunkId("MOGN");
+    private static readonly uint MAGIC_MOGI = ChunkId("MOGI");
 
     // Root file chunks — doodads (M2 props embedded inside the WMO)
     // MODS = doodad sets (named groups, e.g. "Set_$DefaultGlobal" + variants)
@@ -65,6 +68,17 @@ public class WmoReader
     private static readonly uint MAGIC_MODS = ChunkId("MODS");
     private static readonly uint MAGIC_MODN = ChunkId("MODN");
     private static readonly uint MAGIC_MODD = ChunkId("MODD");
+
+    // Root file chunks — portals (the data real WMO visibility traversal needs).
+    // MOPV = portal vertices (C3Vector each, quads referenced by MOPT ranges)
+    // MOPT = portal descriptors (20 bytes: startVertex, count, C4Plane)
+    // MOPR = portal-to-group references (8 bytes: portalIndex, groupIndex, side)
+    // These are PARSED but not yet consumed: traversal is a separate step. Until
+    // it exists the renderer keeps its existing per-group frustum/distance path,
+    // so adding these cannot change what draws. See PROJECT_HANDBOOK 3.26.
+    private static readonly uint MAGIC_MOPV = ChunkId("MOPV");
+    private static readonly uint MAGIC_MOPT = ChunkId("MOPT");
+    private static readonly uint MAGIC_MOPR = ChunkId("MOPR");
 
     // Group file chunks
     private static readonly uint MAGIC_MOGP = ChunkId("MOGP");
@@ -157,6 +171,24 @@ public class WmoReader
                     });
                 }
             }
+            else if (chunkId == MAGIC_MOGN)
+            {
+                root.GroupNameBlob = new byte[chunkSize];
+                Array.Copy(data, chunkData, root.GroupNameBlob, 0, (int)chunkSize);
+            }
+            else if (chunkId == MAGIC_MOGI)
+            {
+                int groupCount = (int)(chunkSize / 32);
+                for (int i = 0; i < groupCount; i++)
+                {
+                    int offset = chunkData + i * 32;
+                    root.GroupInfos.Add(new WmoGroupInfo
+                    {
+                        Flags = BitConverter.ToUInt32(data, offset),
+                        NameOffset = BitConverter.ToInt32(data, offset + 28),
+                    });
+                }
+            }
             else if (chunkId == MAGIC_MODS)
             {
                 // Doodad sets, 32 bytes each:
@@ -225,6 +257,64 @@ public class WmoReader
                     });
                 }
             }
+            else if (chunkId == MAGIC_MOPV)
+            {
+                // Portal vertices — C3Vector (3 float) each, WMO local Z-up,
+                // stored raw exactly like MOVT. A portal is a convex polygon
+                // (usually a quad) formed by VertexCount of these starting at
+                // MOPT.StartVertex.
+                int count = (int)(chunkSize / 12);
+                for (int i = 0; i < count; i++)
+                {
+                    int o = chunkData + i * 12;
+                    root.PortalVertices.Add((
+                        BitConverter.ToSingle(data, o + 0),
+                        BitConverter.ToSingle(data, o + 4),
+                        BitConverter.ToSingle(data, o + 8)));
+                }
+            }
+            else if (chunkId == MAGIC_MOPT)
+            {
+                // Portal descriptors, 20 bytes each:
+                //   uint16  startVertex  (index into MOPV)
+                //   uint16  count        (vertices in this portal polygon)
+                //   C4Plane plane        (float normal[3] + float distance)
+                int count = (int)(chunkSize / 20);
+                for (int i = 0; i < count; i++)
+                {
+                    int o = chunkData + i * 20;
+                    root.Portals.Add(new WmoPortal
+                    {
+                        StartVertex = BitConverter.ToUInt16(data, o + 0),
+                        VertexCount = BitConverter.ToUInt16(data, o + 2),
+                        NormalX = BitConverter.ToSingle(data, o + 4),
+                        NormalY = BitConverter.ToSingle(data, o + 8),
+                        NormalZ = BitConverter.ToSingle(data, o + 12),
+                        PlaneDistance = BitConverter.ToSingle(data, o + 16),
+                    });
+                }
+            }
+            else if (chunkId == MAGIC_MOPR)
+            {
+                // Portal references, 8 bytes each:
+                //   uint16 portalIndex (index into MOPT)
+                //   uint16 groupIndex  (the group on the far side of the portal)
+                //   int16  side        (which half-space the group sits in)
+                //   uint16 filler
+                // A group's MOGP header names a run of these via PortalStart/
+                // PortalCount; each entry is one doorway out of that group.
+                int count = (int)(chunkSize / 8);
+                for (int i = 0; i < count; i++)
+                {
+                    int o = chunkData + i * 8;
+                    root.PortalRefs.Add(new WmoPortalRef
+                    {
+                        PortalIndex = BitConverter.ToUInt16(data, o + 0),
+                        GroupIndex = BitConverter.ToUInt16(data, o + 2),
+                        Side = BitConverter.ToInt16(data, o + 4),
+                    });
+                }
+            }
 
             pos = chunkEnd;
         }
@@ -239,6 +329,10 @@ public class WmoReader
                 mat.Texture2Name = ReadStringFromBlob(root.TextureBlob, (int)mat.Texture2Offset);
             }
         }
+
+        if (root.GroupNameBlob != null)
+            foreach (var group in root.GroupInfos)
+                group.Name = ReadStringFromBlob(root.GroupNameBlob, group.NameOffset);
 
         // Resolve doodad M2 filenames from MODN blob
         if (root.DoodadNameBlob != null)
@@ -292,6 +386,13 @@ public class WmoReader
                 group.BbMaxX = BitConverter.ToSingle(data, chunkData + 0x18);
                 group.BbMaxY = BitConverter.ToSingle(data, chunkData + 0x1C);
                 group.BbMaxZ = BitConverter.ToSingle(data, chunkData + 0x20);
+                // MOGP +0x24/0x26 — the run of MOPR portal references that
+                // belong to this group: PortalStart is the first index into the
+                // root MOPR array, PortalCount how many. This is what a real
+                // traversal walks to move from cell to cell. Parsed now, unused
+                // until the traversal lands (PROJECT_HANDBOOK 3.26).
+                group.PortalStart = BitConverter.ToUInt16(data, chunkData + 0x24);
+                group.PortalCount = BitConverter.ToUInt16(data, chunkData + 0x26);
                 // MOGP +0x34 = groupLiquid (uint32 — LiquidType DBC id, used by MLIQ).
                 // Some vanilla WMOs leave this 0 even when MLIQ is present; the actual
                 // per-tile liquid_type bits in SMOLTile take priority for rendering.
@@ -509,11 +610,57 @@ public class WmoRootData
     public float BbMaxZ { get; set; }
     public byte[]? TextureBlob { get; set; }
     public List<WmoMaterial> Materials { get; set; } = new();
+    public byte[]? GroupNameBlob { get; set; }
+    public List<WmoGroupInfo> GroupInfos { get; set; } = new();
 
     // Embedded doodads (MODS + MODN + MODD)
     public List<WmoDoodadSet> DoodadSets { get; set; } = new();
     public byte[]? DoodadNameBlob { get; set; }
     public List<WmoDoodadDef> Doodads { get; set; } = new();
+
+    // Portals (MOPV + MOPT + MOPR). Parsed for the future visibility traversal;
+    // no renderer reads these yet. NPortals (from MOHD) should equal Portals.Count.
+    public List<(float x, float y, float z)> PortalVertices { get; set; } = new();
+    public List<WmoPortal> Portals { get; set; } = new();
+    public List<WmoPortalRef> PortalRefs { get; set; } = new();
+}
+
+/// <summary>
+/// One portal polygon from MOPT (20 bytes). The polygon is
+/// <see cref="VertexCount"/> vertices of <see cref="WmoRootData.PortalVertices"/>
+/// starting at <see cref="StartVertex"/>; the plane (normal + distance) is the
+/// portal's supporting plane, in WMO local space. Consumed by portal traversal,
+/// which does not exist yet.
+/// </summary>
+public class WmoPortal
+{
+    public ushort StartVertex { get; set; }
+    public ushort VertexCount { get; set; }
+    public float NormalX { get; set; }
+    public float NormalY { get; set; }
+    public float NormalZ { get; set; }
+    public float PlaneDistance { get; set; }
+}
+
+/// <summary>
+/// One portal-to-group reference from MOPR (8 bytes). A group's MOGP header
+/// names a contiguous run of these (PortalStart/PortalCount); each says "portal
+/// <see cref="PortalIndex"/> connects this group to group
+/// <see cref="GroupIndex"/>", with <see cref="Side"/> telling the traversal
+/// which half-space of the portal plane the target group is on.
+/// </summary>
+public class WmoPortalRef
+{
+    public ushort PortalIndex { get; set; }
+    public ushort GroupIndex { get; set; }
+    public short Side { get; set; }
+}
+
+public class WmoGroupInfo
+{
+    public uint Flags { get; set; }
+    public int NameOffset { get; set; }
+    public string Name { get; set; } = "";
 }
 
 /// <summary>
@@ -575,6 +722,7 @@ public class WmoMaterial
 
 public class WmoGroupData
 {
+    public string GroupName { get; set; } = "";
     public uint GroupFlags { get; set; }
     public float BbMinX { get; set; }
     public float BbMinY { get; set; }
@@ -587,6 +735,10 @@ public class WmoGroupData
     /// (vanilla WMOs frequently leave this unset and rely on per-tile bits in SMOLTile).
     /// </summary>
     public uint GroupLiquid { get; set; }
+    /// <summary>MOGP +0x24: first index into the root MOPR portal-reference array for this group.</summary>
+    public ushort PortalStart { get; set; }
+    /// <summary>MOGP +0x26: number of MOPR portal references that belong to this group.</summary>
+    public ushort PortalCount { get; set; }
     /// <summary>MOGP +0x28: transparent batch count (rendered first, alpha-blended).</summary>
     public ushort TransBatchCount { get; set; }
     /// <summary>MOGP +0x2A: interior batch count (skip for aerial/editor view).</summary>
@@ -607,6 +759,11 @@ public class WmoGroupData
     public WmoLiquid? Liquid { get; set; }
     public bool IsExterior => (GroupFlags & 0x08) != 0;
     public bool IsInterior => (GroupFlags & 0x2000) != 0;
+    /// <summary>
+    /// Occlusion-only polygon group. It participates in WMO visibility tests
+    /// but is never visible geometry and must not be uploaded or drawn.
+    /// </summary>
+    public bool IsAntiportal => (GroupFlags & 0x04000000) != 0;
     /// <summary>True when MOGP.GroupFlags has SMOGroup::LIQUIDSURFACE (0x1000) set.</summary>
     public bool HasLiquid => (GroupFlags & 0x1000) != 0;
 }

@@ -122,6 +122,10 @@ public sealed class AttachedItemRenderer : IDisposable
 
     /// <summary>Matched to the character so a pauldron lights like the shoulder under it.</summary>
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
+    public float SunIntensity { get; set; } = 1.15f;
+    public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
+    public float AmbientIntensity { get; set; } = 0.85f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
@@ -455,6 +459,10 @@ public sealed class AttachedItemRenderer : IDisposable
         _shader.Use();
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);

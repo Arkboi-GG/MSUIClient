@@ -62,6 +62,18 @@ public sealed class ClientWindow : IDisposable
 
     public GL Gl => _gl;
     public Camera Camera { get; } = new();
+    public Vector3 SkyColor { get; set; } = new(0.56f, 0.71f, 0.85f);
+    public int FramebufferSamples { get; private set; }
+    public bool MultisamplingEnabled
+    {
+        get => _gl is not null && _gl.IsEnabled(EnableCap.Multisample);
+        set
+        {
+            if (_gl is null) return;
+            if (value) _gl.Enable(EnableCap.Multisample);
+            else _gl.Disable(EnableCap.Multisample);
+        }
+    }
 
     /// <summary>
     /// The live swap-interval request. Setting this after the context exists is
@@ -89,6 +101,13 @@ public sealed class ClientWindow : IDisposable
 
     /// <summary>Raised inside the ImGui frame — draw HUD windows here.</summary>
     public event Action? OnGui;
+
+    /// <summary>
+    /// Raised while the render context is still current. GPU owners must
+    /// release queries, buffers, textures and programs here rather than after
+    /// Window.Run returns, when Silk has already torn the context down.
+    /// </summary>
+    public event Action? OnClosing;
 
     // Input state
     private readonly HashSet<Key> _held = [];
@@ -130,6 +149,16 @@ public sealed class ClientWindow : IDisposable
 
     public bool MouseLeftDown { get; private set; }
     public bool MouseRightDown { get; private set; }
+
+    /// <summary>Middle button, polled. Used by the in-world group picker.</summary>
+    public bool MouseMiddleDown { get; private set; }
+
+    /// <summary>Cursor position in window pixels (top-left origin).</summary>
+    public Vector2 MousePosition => _mouse?.Position ?? default;
+
+    /// <summary>Window size in pixels, for unprojecting the cursor into a ray.</summary>
+    public Vector2 FramebufferSize
+        => _window is null ? Vector2.One : new Vector2(_window.Size.X, _window.Size.Y);
 
     /// <summary>Motion events seen since start. Frozen means no events arrive at all.</summary>
     public int MouseMoveEvents { get; private set; }
@@ -292,6 +321,7 @@ public sealed class ClientWindow : IDisposable
         {
             int actualSamples = 0;
             _gl.GetInteger(GLEnum.Samples, &actualSamples);
+            FramebufferSamples = actualSamples;
             float anisotropy = Texture.ConfigureAnisotropy(_gl, _config.Render.Anisotropy);
             Console.WriteLine($"[display] MSAA requested {_config.Render.MsaaSamples}x, " +
                               $"framebuffer reports {actualSamples}x; anisotropy {anisotropy:F0}x");
@@ -371,6 +401,7 @@ public sealed class ClientWindow : IDisposable
 
         MouseLeftDown = _mouse.IsButtonPressed(MouseButton.Left);
         MouseRightDown = _mouse.IsButtonPressed(MouseButton.Right);
+        MouseMiddleDown = _mouse.IsButtonPressed(MouseButton.Middle);
 
         // Pressing the right button turns the character to wherever the camera
         // has been swung, without the view moving. Done on the TRANSITION, so a
@@ -423,8 +454,9 @@ public sealed class ClientWindow : IDisposable
 
         _imgui.Update(dt);
 
-        // Sky colour; the painterly pass will replace this with a gradient.
-        _gl.ClearColor(0.56f, 0.71f, 0.85f, 1f);
+        // Sky colour matches the far fog so the visibility boundary disappears
+        // into aerial perspective instead of ending in a hard silhouette.
+        _gl.ClearColor(SkyColor.X, SkyColor.Y, SkyColor.Z, 1f);
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
         OnRender?.Invoke(dt);
@@ -442,6 +474,8 @@ public sealed class ClientWindow : IDisposable
 
     private void HandleClosing()
     {
+        OnClosing?.Invoke();
+        _window.GLContext?.MakeCurrent();
         _imgui.Dispose();
         _input.Dispose();
         _gl.Dispose();

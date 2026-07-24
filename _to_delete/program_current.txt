@@ -78,7 +78,7 @@ public static class Program
 /// Free-fly survives as an F-key toggle. It is the fastest way to tell a
 /// movement bug from a world bug: if a place looks wrong on foot, fly to it.
 /// </summary>
-public sealed partial class GameLoop : IDisposable
+public sealed class GameLoop : IDisposable
 {
     private readonly ClientWindow _window;
     private readonly ClientConfig _config;
@@ -92,16 +92,11 @@ public sealed partial class GameLoop : IDisposable
     private AssetWorkerPool? _assetWorkers;
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
-    private LiquidRenderer? _liquid;
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
     private CharacterRenderer? _character;
     private GpuFrameProfiler? _gpuProfiler;
     private readonly WorldAtmosphere _atmosphere = new();
-
-    /// <summary>Last crosshair WMO-group pick result, shown in the HUD.</summary>
-    private List<World.Wmo.WmoRenderer.GroupHit> _lastPick = new();
-
     private bool _cycleTimeOfDay;
     private bool _coupleFarPlaneToFog = true;
     private float _gameHoursPerMinute = 1f;
@@ -118,7 +113,6 @@ public sealed partial class GameLoop : IDisposable
     /// <summary>Edge detection for the fly toggle — IsDown reports held, not pressed.</summary>
     private bool _flyKeyDown;
     private bool _collisionKeyDown;
-    private bool _pickButtonDown;
 
     /// <summary>
     /// Draw the character capsule. OFF now that there is a model - the capsule
@@ -151,18 +145,6 @@ public sealed partial class GameLoop : IDisposable
     private float _backgroundDiscoveryDelay = 0.5f;
     private float _doodadDemandDelay;
     private bool _demandStreamDoodads = true;
-
-    // Vantages: reproducible viewpoints (FOUNDATION_PLAN / PLAN_01, step 1).
-    private VantageStore? _vantages;
-    private string _vantageNameInput = "";
-    private bool _reloadVantageKeyDown;
-    private bool _dumpKeyDown;
-    private string? _currentVantage;
-
-    // Curated visibility overrides: core data, loaded and honoured always (even in
-    // a release build); the click-to-author UI is dev-only. See PLAN_04.
-    private VisibilityOverrides? _overrides;
-
     private bool _disposed;
 
     // A player can stand half a tile diagonal from its centre. Keeping objects
@@ -228,7 +210,6 @@ public sealed partial class GameLoop : IDisposable
 
         // One parse per tile, shared by terrain, buildings and doodads.
         _adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
-        if (_config.DevTools) _vantages = VantageStore.Load(_config.RepoRoot);
         PhaseComplete("render setup");
 
         _terrain.LoadAround(_config.Start.X, _config.Start.Y, _config.Start.TileRadius, _adts);
@@ -271,17 +252,6 @@ public sealed partial class GameLoop : IDisposable
             _wmo = null;
         }
         PhaseComplete("buildings");
-
-        // Curated visibility overrides are core: loaded and honoured regardless of
-        // DevTools, so a shipped build gets the hand-authored fixes.
-        _overrides = VisibilityOverrides.Load(_config.RepoRoot);
-        if (_wmo is not null) _wmo.Overrides = _overrides;
-
-        // Open-world liquid (lakes/rivers/ocean). Built for resident tiles,
-        // rebuilt on tile transitions like buildings.
-        _liquid = new LiquidRenderer(gl);
-        _liquid.LoadShaders(shaderDir);
-        _liquid.LoadForTiles(_terrain.LoadedTiles, _adts);
 
         if (_config.Render.Doodads)
         {
@@ -487,7 +457,6 @@ public sealed partial class GameLoop : IDisposable
 
             _wmo?.ResetPlacements();
             _wmo?.LoadForTiles(_terrain.LoadedTiles, _adts);
-            _liquid?.LoadForTiles(_terrain.LoadedTiles, _adts);
 
             var preloadRing = TerrainRenderer.TileRing(next.col, next.row, WmoPreloadRadius);
             _wmo?.QueuePreloadForTiles(preloadRing, _adts);
@@ -840,13 +809,9 @@ public sealed partial class GameLoop : IDisposable
         if (_cycleTimeOfDay)
             _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
 
-        // Ignore keyboard input while ImGui owns the keyboard (typing in a text
-        // field such as the vantage name), so it does not turn/strafe/jump the player.
-        bool typing = ImGui.GetIO().WantCaptureKeyboard;
-
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);
-        if (flyKey && !_flyKeyDown && !typing)
+        if (flyKey && !_flyKeyDown)
         {
             _controller.Flying = !_controller.Flying;
             Console.WriteLine($"[move] {(_controller.Flying ? "flying" : "walking")}");
@@ -855,35 +820,12 @@ public sealed partial class GameLoop : IDisposable
 
         // C toggles the collision wireframe. Edge-triggered.
         bool collisionKey = _window.IsDown(Key.C);
-        if (collisionKey && !_collisionKeyDown && _collisionDebug is not null && _config.DevTools && !typing)
+        if (collisionKey && !_collisionKeyDown && _collisionDebug is not null)
         {
             SetCollisionDebugEnabled(!_collisionDebug.Enabled);
             Console.WriteLine($"[collision] wireframe {(_collisionDebug.Enabled ? "on" : "off")}");
         }
         _collisionKeyDown = collisionKey;
-
-        // Middle-click identifies the WMO group(s) under the cursor. Edge-triggered,
-        // and skipped when the pointer is over the HUD.
-        bool pickButton = _window.MouseMiddleDown;
-        if (pickButton && !_pickButtonDown && !ImGui.GetIO().WantCaptureMouse && _config.DevTools)
-            ScreenPick(_window.MousePosition);
-        _pickButtonDown = pickButton;
-
-        // F8 reloads the current vantage - snap back to the saved viewpoint.
-        // Edge-triggered so holding it does not re-teleport every frame.
-        bool reloadKey = _window.IsDown(Key.F8);
-        if (reloadKey && !_reloadVantageKeyDown && _currentVantage is not null && _vantages is not null && _config.DevTools)
-        {
-            var saved = _vantages.Find(_currentVantage);
-            if (saved is not null) ApplyVantage(saved);
-        }
-        _reloadVantageKeyDown = reloadKey;
-
-        // F9 writes a scene dump (dev only). Edge-triggered.
-        bool dumpKey = _window.IsDown(Key.F9);
-        if (dumpKey && !_dumpKeyDown && _config.DevTools)
-            DumpScene();
-        _dumpKeyDown = dumpKey;
 
         bool shift = _window.IsDown(Key.ShiftLeft) || _window.IsDown(Key.ShiftRight);
 
@@ -900,32 +842,32 @@ public sealed partial class GameLoop : IDisposable
         // mid-fight.
         bool mouseSteering = _window.MouseRightDown;
 
-        float turn = typing ? 0f : _window.Axis(Key.Left, Key.Right);
-        if (!typing && !mouseSteering) turn += _window.Axis(Key.A, Key.D);
+        float turn = _window.Axis(Key.Left, Key.Right);
+        if (!mouseSteering) turn += _window.Axis(Key.A, Key.D);
         turn = Math.Clamp(turn, -1f, 1f);
 
         if (turn != 0f) _window.Camera.Rotate(turn * _turnSpeed * dt, 0f);
 
-        float strafe = typing ? 0f : _window.Axis(Key.E, Key.Q);
-        if (!typing && mouseSteering) strafe += _window.Axis(Key.D, Key.A);
+        float strafe = _window.Axis(Key.E, Key.Q);
+        if (mouseSteering) strafe += _window.Axis(Key.D, Key.A);
         strafe = Math.Clamp(strafe, -1f, 1f);
 
         // Look up and down without the mouse. Rotate clamps pitch either way.
-        float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
+        float tilt = _window.Axis(Key.PageUp, Key.PageDown);
         if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
-        float forward = typing ? 0f : Math.Clamp(
+        float forward = Math.Clamp(
             _window.Axis(Key.W, Key.S) + _window.Axis(Key.Up, Key.Down), -1f, 1f);
 
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing ? 0f : _window.Axis(Key.Space, Key.ControlLeft),
+            Up = _window.Axis(Key.Space, Key.ControlLeft),
             Yaw = _window.Camera.Yaw,
-            Jump = !typing && _window.IsDown(Key.Space),
+            Jump = _window.IsDown(Key.Space),
             Walking = shift && !_controller.Flying,
             Boost = shift && _controller.Flying,
         };
@@ -1038,44 +980,6 @@ public sealed partial class GameLoop : IDisposable
         PopulateDoodads(_residentCentre.Value, reportDiagnostics: false);
     }
 
-    // Vantage capture / apply / echo moved to Program.DevTools.cs
-    // (dev layer, FOUNDATION_PLAN.md section 12).
-
-    /// <summary>
-    /// Identify the WMO group(s) under a screen pixel. Builds a pinhole ray from
-    /// the camera basis (no projection-matrix inversion, so it can't be tripped
-    /// by the GL clip-Z convention) and asks the WMO renderer what boxes it hits.
-    /// Result goes to the HUD and the console so it can be copied out.
-    /// </summary>
-    private void ScreenPick(Vector2 screen)
-    {
-        if (_wmo is null) return;
-
-        var size = _window.FramebufferSize;
-        if (size.X <= 1f || size.Y <= 1f) return;
-
-        // Pixel -> normalised device coords. Screen Y grows down; NDC Y grows up.
-        float ndcX = screen.X / size.X * 2f - 1f;
-        float ndcY = 1f - screen.Y / size.Y * 2f;
-
-        var cam = _window.Camera;
-        var fwd = cam.Forward;
-        var right = Vector3.Normalize(Vector3.Cross(fwd, Vector3.UnitZ));
-        var up = Vector3.Cross(right, fwd);
-        float tanHalf = MathF.Tan(cam.FieldOfViewDegrees * MathF.PI / 180f * 0.5f);
-        var dir = Vector3.Normalize(
-            fwd + right * (ndcX * tanHalf * cam.AspectRatio) + up * (ndcY * tanHalf));
-
-        _lastPick = _wmo.PickGroups(cam, cam.Position, dir);
-
-        Console.WriteLine($"[pick] {_lastPick.Count} WMO group(s) under cursor (near->far):");
-        foreach (var h in _lastPick)
-            Console.WriteLine(
-                $"[pick]   {h.Path} [{h.GroupIndex}] '{h.Name}' 0x{h.Flags:X8} " +
-                $"{(h.Interior ? "INT" : "ext")}{(h.Shell ? " LOD" : "")} " +
-                $"v={h.VertexCount} {h.Distance:F0}yd -> {h.Reason}");
-    }
-
     /// <summary>
     /// What the unit renderer needs to know about the player, in the same shape
     /// it will need for every other unit once packets arrive.
@@ -1171,7 +1075,6 @@ public sealed partial class GameLoop : IDisposable
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Terrain);
 
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Wmo);
-        if (_wmo is not null) _wmo.OcclusionWorld = _collision;
         _wmo?.Render(_window.Camera);
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Wmo);
 
@@ -1186,24 +1089,6 @@ public sealed partial class GameLoop : IDisposable
             _character.Render(_window.Camera, BuildUnitState());
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
-
-        // Water draws AFTER the character, on purpose. It tests depth but does not
-        // write it, so a surface in front of a submerged character blends over him
-        // (you see the waterline climb his body) while the near bank still occludes
-        // it. Then, if the camera eye itself is below a water surface, tint the
-        // whole screen so it reads as being underwater.
-        if (_liquid is not null)
-        {
-            _liquid.Time += dt;
-            _liquid.Render(_window.Camera);
-
-            var eye = _window.Camera.Position;
-            if (_liquid.TryGetSurface(eye.X, eye.Y, out float surfaceZ, out byte liquidType)
-                && eye.Z < surfaceZ)
-            {
-                _liquid.RenderUnderwater(surfaceZ - eye.Z, liquidType);
-            }
-        }
 
         // Last, so it draws over the world it describes.
         long debugStarted = Stopwatch.GetTimestamp();
@@ -1290,26 +1175,10 @@ public sealed partial class GameLoop : IDisposable
         if (_wmo is not null) ApplyWmo(_wmo);
         if (_doodads is not null) ApplyDoodads(_doodads);
         if (_character is not null) ApplyCharacter(_character);
-
-        if (_liquid is not null)
-        {
-            _liquid.SunDirection = _atmosphere.SunDirection;
-            _liquid.SunColor = _atmosphere.SunColor;
-            _liquid.SunIntensity = _atmosphere.SunIntensity;
-            _liquid.AmbientColor = _atmosphere.AmbientColor;
-            _liquid.AmbientIntensity = _atmosphere.AmbientIntensity;
-            _liquid.FogColor = _atmosphere.FogColor;
-            _liquid.FogStart = _atmosphere.ShaderFogStart;
-            _liquid.FogEnd = _atmosphere.ShaderFogEnd;
-        }
     }
 
     public void Gui()
     {
-        // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
-        // in-game overlay is developer tooling and is skipped in a release build.
-        if (!_config.DevTools) return;
-
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);
 
@@ -1325,46 +1194,8 @@ public sealed partial class GameLoop : IDisposable
             if (ImGui.Checkbox($"Multisampling ({_window.FramebufferSamples}x buffer)", ref multisampling))
                 _window.MultisamplingEnabled = multisampling;
 
-            if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-            _vantages ??= VantageStore.Load(_config.RepoRoot);
-
-            ImGui.InputText("Name##vantage", ref _vantageNameInput, 64u);
-            ImGui.SameLine();
-            if (ImGui.Button("Save##vantage") && !string.IsNullOrWhiteSpace(_vantageNameInput))
-            {
-                var saved = CaptureVantage(_vantageNameInput.Trim());
-                _vantages.Upsert(saved);
-                _currentVantage = saved.Name;
-                Console.WriteLine(VantageLine("saved", saved));
-            }
-            ImGui.SameLine();
-            if (ImGui.Button("Dump scene (F9)")) DumpScene();
-
-            if (_currentVantage is not null)
-            {
-                ImGui.SameLine();
-                if (ImGui.Button("Reload (F8)"))
-                {
-                    var cur = _vantages.Find(_currentVantage);
-                    if (cur is not null) ApplyVantage(cur);
-                }
-                ImGui.TextDisabled($"current: {_currentVantage}");
-            }
-
-            if (_vantages.All.Count > 0)
-            {
-                foreach (var saved in _vantages.All)
-                {
-                    if (ImGui.Button($"Load##v_{saved.Name}")) ApplyVantage(saved);
-                    ImGui.SameLine();
-                    ImGui.Text(saved.Name);
-                }
-            }
-            }
-
-            if (ImGui.CollapsingHeader("Performance - CPU draw submission", ImGuiTreeNodeFlags.DefaultOpen))
-            {
+            ImGui.Separator();
+            ImGui.Text("Performance - CPU draw submission");
             ImGui.Text($"  update {_updateMilliseconds,6:F2} ms  " +
                        $"move {_movementMilliseconds,5:F2}  residency {_residencyMilliseconds,5:F2}");
             ImGui.Text($"  preload {_preloadMilliseconds,5:F2} ms  " +
@@ -1404,10 +1235,9 @@ public sealed partial class GameLoop : IDisposable
             {
                 ImGui.Text("  warming up...");
             }
-            }
 
-            if (ImGui.CollapsingHeader("Atmosphere and visibility test", ImGuiTreeNodeFlags.DefaultOpen))
-            {
+            ImGui.Separator();
+            ImGui.Text("Atmosphere and visibility test");
 
             bool dynamicLighting = _atmosphere.DynamicLighting;
             if (ImGui.Checkbox("Time-of-day lighting", ref dynamicLighting))
@@ -1579,10 +1409,9 @@ public sealed partial class GameLoop : IDisposable
                     ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f),
                         "  NO GROUND — off tiles or missing MCVT");
             }
-            }
 
-            if (ImGui.CollapsingHeader("Buildings", ImGuiTreeNodeFlags.DefaultOpen))
-            {
+            ImGui.Separator();
+            ImGui.Text("Buildings");
             if (_wmo is not null)
             {
                 ImGui.Text($"  {_wmo.InstanceCount} placed, {_wmo.DrawnLastFrame} drawn");
@@ -1616,94 +1445,6 @@ public sealed partial class GameLoop : IDisposable
                 {
                     _wmo.DrawDistance = wmoDistance;
                     _config.Render.WmoDistance = wmoDistance;
-                }
-
-                ImGui.Separator();
-                ImGui.Text("Impostor / interior swap (live)");
-
-                // Where the impostor->detailed swap happens. Negative = you must
-                // be deeper in before the city counts as "inside" (impostor
-                // lingers further); positive = swaps sooner / further out.
-                float insideMargin = _wmo.InsideInstanceMargin;
-                if (ImGui.SliderFloat("Inside margin", ref insideMargin, -400f, 400f, "%.0f yd"))
-                    _wmo.InsideInstanceMargin = insideMargin;
-
-                float interiorCull = _wmo.InteriorCullDistance;
-                if (ImGui.SliderFloat("Interior cull (outside)", ref interiorCull, 20f, 800f, "%.0f yd"))
-                    _wmo.InteriorCullDistance = interiorCull;
-
-                float shellGuard = _wmo.ShellNearGuard;
-                if (ImGui.SliderFloat("Shell near-guard", ref shellGuard, 0f, 600f, "%.0f yd"))
-                    _wmo.ShellNearGuard = shellGuard;
-
-                int impostorVerts = _wmo.ImpostorMaxVertices;
-                if (ImGui.SliderInt("Impostor max verts", ref impostorVerts, 0, 6000))
-                {
-                    _wmo.ImpostorMaxVertices = impostorVerts;
-                    _wmo.ReclassifyShells();  // retune the whole city, no reload
-                }
-
-                // Occlusion cull for plain exterior groups (e.g. the entrance
-                // towers seen from inside). Uses the collision BVH; toggle it if
-                // it flickers or costs too much, tune the min distance.
-                bool occlusion = _wmo.OcclusionCulling;
-                if (ImGui.Checkbox("Occlusion cull exterior (BVH)", ref occlusion))
-                    _wmo.OcclusionCulling = occlusion;
-                float occMin = _wmo.OcclusionMinDistance;
-                if (ImGui.SliderFloat("Occlusion min dist", ref occMin, 10f, 400f, "%.0f yd"))
-                    _wmo.OcclusionMinDistance = occMin;
-                ImGui.Text($"  occluded groups: {_wmo.OccludedGroupsLastFrame}");
-
-                bool visTrace = _wmo.VisTrace;
-                if (ImGui.Checkbox("Console visibility trace", ref visTrace))
-                    _wmo.VisTrace = visTrace;
-                ImGui.SameLine();
-                bool dumpGroups = _wmo.DumpLargeWmoGroups;
-                if (ImGui.Checkbox("Dump groups on load", ref dumpGroups))
-                    _wmo.DumpLargeWmoGroups = dumpGroups;
-
-                if (_wmo.LargestWmoGroupCount > 0)
-                    ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f),
-                        $"  {_wmo.LargestWmoName}: inside={_wmo.LastInsideCity}  " +
-                        $"shells {_wmo.ShellsDrawnLastFrame} drawn / {_wmo.ShellsHiddenLastFrame} hidden  " +
-                        $"groups {_wmo.LargestWmoGroupsDrawn}/{_wmo.LargestWmoGroupCount}");
-
-                ImGui.Separator();
-                ImGui.Text("Group picker: MIDDLE-CLICK anything (or crosshair button)");
-                if (ImGui.Button("Pick under crosshair"))
-                    _lastPick = _wmo.PickGroups(_window.Camera, _window.Camera.Position, _window.Camera.Forward);
-                ImGui.SameLine();
-                if (ImGui.Button("Clear pick")) _lastPick.Clear();
-                foreach (var h in _lastPick)
-                    ImGui.Text($"  {h.Path} [{h.GroupIndex,3}] '{h.Name}' 0x{h.Flags:X8} " +
-                               $"{(h.Interior ? "INT" : "ext")}{(h.Shell ? " LOD" : "")} " +
-                               $"v={h.VertexCount} {h.Distance:F0}yd -> {h.Reason}");
-
-                if (_lastPick.Count > 0 && _overrides is not null)
-                {
-                    var top = _lastPick[0];
-                    ImGui.TextDisabled($"override [{top.GroupIndex}] '{top.Name}' in {top.Path}:");
-                    if (ImGui.Button("Hide inside##ov"))
-                        _overrides.Set(top.Root, top.Path, top.GroupIndex, OverrideRule.HideInside,
-                            "hidden once inside the city", _currentVantage ?? "");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Hide always##ov"))
-                        _overrides.Set(top.Root, top.Path, top.GroupIndex, OverrideRule.Hide,
-                            "hidden everywhere", _currentVantage ?? "");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Show inside##ov"))
-                        _overrides.Set(top.Root, top.Path, top.GroupIndex, OverrideRule.ShowInside,
-                            "forced visible inside", _currentVantage ?? "");
-                    ImGui.SameLine();
-                    if (ImGui.Button("Clear##ov"))
-                        _overrides.Remove(top.Root, top.GroupIndex);
-                }
-
-                if (_overrides is not null && _overrides.All.Count > 0)
-                {
-                    ImGui.TextDisabled("active overrides:");
-                    foreach (var ov in _overrides.All)
-                        ImGui.TextDisabled($"  {ov.RootFile} [{ov.GroupIndex}] {ov.Rule}");
                 }
             }
             else
@@ -1743,10 +1484,9 @@ public sealed partial class GameLoop : IDisposable
                 }
 
             }
-            }
 
-            if (ImGui.CollapsingHeader("Character"))
-            {
+            ImGui.Separator();
+            ImGui.Text("Character");
             if (_character is not null)
             {
                 ImGui.Text($"  {_character.Race} {_character.Gender}");
@@ -1974,10 +1714,9 @@ public sealed partial class GameLoop : IDisposable
             {
                 ImGui.Text("  not loaded - see the console");
             }
-            }
 
-            if (ImGui.CollapsingHeader("Collision"))
-            {
+            ImGui.Separator();
+            ImGui.Text("Collision");
             if (_collision is not null)
             {
                 ImGui.Text($"  {_collision.TriangleCount:N0} triangles, {_collision.NodeCount:N0} nodes");
@@ -2067,12 +1806,11 @@ public sealed partial class GameLoop : IDisposable
             {
                 ImGui.Text("  terrain only (no vmaps)");
             }
-            }
 
             var cam = _window.Camera;
             var cp = cam.Position;
-            if (ImGui.CollapsingHeader("Camera", ImGuiTreeNodeFlags.DefaultOpen))
-            {
+            ImGui.Separator();
+            ImGui.Text("Camera");
             ImGui.Text($"  {cp.X,9:F1} {cp.Y,9:F1} {cp.Z,9:F1}");
             ImGui.Text($"  yaw {cam.Yaw * 180f / MathF.PI,5:F0}  pitch {cam.Pitch * 180f / MathF.PI,4:F0}  " +
                        $"dist {cam.EffectiveDistance,4:F1}/{cam.Distance,4:F1}");
@@ -2145,7 +1883,6 @@ public sealed partial class GameLoop : IDisposable
                               "LEFT mouse swings the camera around your character without turning him; " +
                               "RIGHT mouse turns him and the camera together; moving re-centres the " +
                               "camera behind him. Wheel to zoom, Esc to quit.");
-            }
         }
         ImGui.End();
     }
@@ -2162,7 +1899,6 @@ public sealed partial class GameLoop : IDisposable
         _character?.Dispose();
         _collisionDebug?.Dispose();
         _doodads?.Dispose();
-        _liquid?.Dispose();
         _wmo?.Dispose();
         _terrain?.Dispose();
         _uploads?.Dispose();

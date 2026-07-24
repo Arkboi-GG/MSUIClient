@@ -2,9 +2,7 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 21 — 2026-07-24
-Supersedes: Draft 20 (same-ish day; the first water/liquid system landed — see SYSTEM_WATER.md — and the docs began splitting one-system-per-file per §1.2, so system detail now lives in SYSTEM_*.md and this handbook is trending toward a lean index of cross-cutting truth)
-Supersedes: Draft 19 (same day; warm lighting retune, ALWAYS_DRAW-interior impostor classification, per-group inside test, collision-BVH occlusion cull, portal-chunk parsing, and the live in-game tuning HUD + middle-click group picker)
+Version: Draft 19 — 2026-07-23
 Supersedes: Draft 18 (same day; reconciles the handoff/status sections with all runtime-tested renderer, streaming, teardown and Stormwind LOD work)
 Supersedes: Draft 17 (same day; superseded by Stormwind distance-shell classification and near/far swapping)
 Supersedes: Draft 16 (same day; superseded by antiportal rejection, camera-invariant two-sided lighting and context-safe GPU teardown)
@@ -28,7 +26,6 @@ Supersedes: `MSUI_CLIENT_DESIGN.md` (browser-era architecture, abandoned — see
 > **If you are a fresh assistant picking this project up cold, read §0, §1, §3, §4 and §10 before touching anything.**
 > §3 lists facts established empirically that cost real hours. Several are counter-intuitive and several were got wrong once — sometimes twice — before being got right. Re-deriving them will waste a session.
 > §10 lists exactly what to ask Nico for, and why.
-> **§1.2 is the documentation map.** Detail for a specific system (water, terrain, WMO, …) increasingly lives in its own `SYSTEM_<NAME>.md`. When you are working on one system, read *this handbook's* cross-cutting ground truth (§3) plus that system's doc — not every section here. Loading the whole handbook to change one system is the context waste §1.2 exists to stop.
 
 ---
 
@@ -52,16 +49,7 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
 - `ItemDisplayInfo.dbc` and `CharSections.dbc` are read straight out of the MPQs
 - Third-person camera with the vanilla left/right mouse split
 
-**Water/liquid is in (Draft 21).** Open-world MCLQ liquid — lakes, rivers, ocean,
-slime, magma — renders with Gerstner wave displacement, a baked per-vertex depth
-that fades the shoreline transparent and darkens deep water, and a full-screen
-underwater tint when the camera dips below the surface. It draws after the
-character (depth-tested, not depth-written) so submersion reads correctly. Full
-detail, ground truth, tuning knobs and the not-done list are in **SYSTEM_WATER.md**
-— the first per-system doc under the §1.2 rule.
-
-**Not started:** networking, painterly pass. WMO liquid (canals, fountains,
-indoor pools) is also not done — see SYSTEM_WATER.md §5.
+**Not started:** liquid rendering, networking, painterly pass.
 
 **Tile streaming is implemented and partially runtime-validated:** a moving 3×3
 terrain ring follows the player; WMO/doodad placement lists and collision are
@@ -121,47 +109,11 @@ has multiple samples.
 - Stormwind's Cathedral and entrance silhouette groups are now classified from
   MOGN/MOGI and swapped at 196 yards. Runtime-check the default-on `Swap
   distance-only city shells` control: visible on approach, absent inside.
-- **Draft 20 visibility/lighting session (§3.35).** Lighting is warmer and
-  dimmer (§3.28 constants retuned). The impostor classification now catches
-  ALWAYS_DRAW *interior*-flagged low-poly groups — the real Stormwind impostors
-  (`Cathedral of Light` v=96, `Old Town`, `Taventrance16`) — which the old
-  `!indoor` guards discarded, so the cathedral now shows on approach. Shell
-  classification runs live (HUD `Impostor max verts` + `ReclassifyShells`). The
-  inside/outside test is per-group containment with a HUD `Inside margin`;
-  interior cull and shell near-guard are HUD sliders too. A collision-BVH
-  occlusion cull (`OcclusionCulling`, off by default, 8-corner test) hides
-  exterior groups fully behind geometry. MOPV/MOPT/MOPR + group portal refs are
-  parsed but no traversal consumes them yet.
-- **Known ceiling, do not re-litigate blindly.** The SW entrance keep
-  (`stormwind.wmo [46] 'thief01'`, exterior, 17.5k verts) stays visible across an
-  *open* courtyard because nothing blocks it — occlusion only culls when every
-  corner is blocked, and WoWee disables portal culling outdoors on purpose.
-  Matching the real client's aggressive cell-based hiding of visible-but-far
-  exterior geometry needs portal traversal applied OUTDOORS (which WoWee avoids
-  for popout). That is the only remaining lever and it is experimental; occlusion
-  is the correct tool for genuinely-blocked cases.
-- **In-game tools exist now — use them before theorising (§5.3).** Middle-click
-  does triangle-accurate group picking (`[pick]` + HUD); the whole impostor/
-  occlusion panel is live sliders; `[wmo-vis]`/`[doodad-cull]` are HUD readouts
-  (console traces off by default).
-- Temp files `handbook_current.txt` / `program_current.txt` / `wmorenderer_current.txt`
-  were moved to `MSUIClient/_to_delete/` (device tools cannot delete); remove
-  that folder.
+- Portal traversal remains desirable for correct indoor cell visibility, but it
+  is no longer the known fix for the floating-Cathedral defect.
 - All of today's renderer, movement, streaming and handbook work is in the
   current working tree and is **not committed**. Preserve it. Do not reset,
   checkout, clean, or replace broad files when starting cold.
-- **Water/liquid system landed (SYSTEM_WATER.md).** `LiquidRenderer.cs`, the
-  `water.*`/`underwater.*` shaders and the `Program.cs` render-order change are in
-  the working tree. Not yet compiled on Nico's machine at the time of writing —
-  first action next session: build and run, then capture the visual + a scene dump.
-- **`Program.cs` was found reverted and was restored.** On disk it had rolled back
-  to a pre-session copy (`class GameLoop`, not `partial`; no `_liquid`, DevTools,
-  vantage or override wiring) while the new partial files (`Program.DevTools.cs`,
-  `LiquidRenderer.cs`, `VisibilityOverrides.cs`, `Vantage.cs`) were present — a
-  combination that does not compile. The complete, coherent version was restored to
-  the working tree. If `GameLoop` ever shows as non-partial again, the file has been
-  reverted; the good copy is the one with `partial class GameLoop` and the liquid /
-  DevTools / vantage / override wiring.
 
 ---
 
@@ -241,52 +193,6 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 | `Formats/*` | Pure parsing, no GL, no game logic | Rendering, gameplay |
 
 **Rule:** nothing in `Formats/` may reference Silk.NET or GL. `M2Animator` holds no GL either, and could move there if it ever needs to.
-
-### 1.2 Documentation map — one system, one doc
-
-**The rule (pinned).** Each major system gets its own `SYSTEM_<NAME>.md` at the
-repo root. That file is the single source of truth for how that system works: its
-goal, what is implemented, its ground-truth facts, its files, how to tune and test
-it, and what is not done yet. **This handbook stays a lean index of cross-cutting
-truth** — the coordinate system, conventions, startup order, working agreements —
-plus this map. System detail belongs in the system doc, not here.
-
-**Why.** This handbook is already large enough that loading it to change one
-system wastes a whole context window on sections that change is unrelated to. A
-water fix should pull in `SYSTEM_WATER.md` and §3's invariants, nothing else.
-Splitting keeps each read small and each doc owned by exactly one concern — the
-same "where each responsibility ends" discipline §1.1 applies to code.
-
-**Conventions.**
-- File name: `SYSTEM_<NAME>.md` at the repo root (matches the flat `PLAN_*.md`
-  layout already here). `docs/` can come later if the root gets crowded; the rule
-  is one-system-one-file, not the exact folder.
-- Scope: one system per doc. If a doc starts describing two systems, split it.
-- Cross-cutting invariants that many systems depend on (coordinates, camera-relative
-  rendering, the shader ASCII rule, streaming residency) stay in the handbook §3
-  and are *referenced* by the system docs, not copied into them.
-- Foundation / dev-tooling docs keep their existing names (`FOUNDATION_PLAN.md`,
-  `PLAN_0x_*.md`); they already follow the spirit of this rule.
-
-**The map.**
-
-| Doc | Covers | Status |
-|---|---|---|
-| `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
-| `SYSTEM_WATER.md` | Open-world liquid: MCLQ lakes/rivers/ocean/slime/magma, Gerstner waves, baked depth, underwater overlay | **Written** |
-| `FOUNDATION_PLAN.md` + `PLAN_0x_*.md` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | Written |
-| `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
-| `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion, portals | Planned extraction from §3.24–3.35 |
-| `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
-| `SYSTEM_COLLISION.md` | Client-geometry collision, BVH, sweep/slide/step-up | Planned extraction |
-| `SYSTEM_STREAMING.md` | Moving residency ring, worker pools, GPU upload context | Planned extraction from §3.24/§3.27/§3.30 |
-| `SYSTEM_ATMOSPHERE.md` | Time-of-day light, fog, sky, visibility coupling | Planned extraction from §3.28 |
-
-"Planned extraction" means the content still lives in this handbook's §3 for now;
-pull it into its own doc the next time that system is worked on, and replace the
-§3 subsection with a one-line pointer. Do not do a big-bang split — extract a
-system's doc when you next touch that system, so each split is verified by real
-work.
 
 ---
 
@@ -961,83 +867,6 @@ how many shells were hidden that frame. Completed roots log `[wmo-lod]` with the
 number classified. Disabling the checkbox is the A/B control and intentionally
 restores the floating geometry.
 
-### 3.35 City visibility, occlusion and lighting — the Draft 20 pass
-
-This session chased "the city looks wrong from inside/on approach" and settled
-several facts. They are all runtime-observed against Nico's build; none is
-re-derivable from the file format alone.
-
-**Warm/dim lighting.** `WorldAtmosphere`'s day constants were cool and blown
-out. The daytime ambient was blue-biased `(0.42, 0.50, 0.60)` — it coloured every
-shadow cold — and noon sun+ambient stacked to a ~1.42 multiplier on flat ground,
-clipping cobblestone to white. Now: ambient warm `(0.50, 0.46, 0.38)`, noon sun
-golden `(1.00, 0.90, 0.72)`, sun intensity 1.15→0.90, ambient 0.85→~0.64. Ambient
-HUE is the biggest lever for "the world reads warm". The HUD `Sun strength` /
-`Ambient strength` sliders still scale these.
-
-**The real distance impostors are flagged INTERIOR.** This was the key find, and
-it came from the in-game group dump (`DumpLargeWmoGroups` → `[wmo-groups]`):
-
-```
-[302] 'Cathedral of Light' 0x00012841 INT v=96   (0x10000 ALWAYS_DRAW set)
-[303] 'Taventrance16'      0x00012841 INT v=48
-[304] 'Old Town'           0x00012841 INT v=48
-[305] 'Taventrance15'      0x00002A05 INT v=2368  (detailed, NOT always-draw)
-```
-
-Blizzard's "double cathedral" / distant-district silhouettes are low-poly
-`ALWAYS_DRAW` (0x10000) groups that are ALSO flagged interior (0x2000). WoWee's
-classification (which MSUI copied) requires `!indoor`, so it discarded them and
-they were culled on approach. The signal is **ALWAYS_DRAW + low vertex count,
-independent of the interior flag** (`alwaysDrawImpostor = alwaysDraw && verts <
-ImpostorMaxVertices`). A genuine interior room is never ALWAYS_DRAW. The detailed
-versions (`Taventrance15`, not always-draw) are untouched.
-
-**Classification is now live, not baked.** `IsDistanceOnlyLod` takes
-`(rootPath, nGroups, flags, verts, name)` and reads `ImpostorMaxVertices`.
-`ReclassifyShells()` re-bakes every group's `IsDistanceLod` when the HUD slider
-moves, so the whole city retunes without a reload; the draw loop stays
-allocation-free by reading the baked flag.
-
-**Inside/outside is per-group containment, and it is fragile.** `Swap`ping the
-impostor for detailed geometry keys off `CameraInsideInstance`: transform the
-camera into WMO-local space and test it against each non-shell group's local
-AABB, expanded by `InsideInstanceMargin` (HUD, negative shrinks). The
-whole-instance box was too coarse (swallowed the approach bridge); per-group is
-better but still reads `inside=False` in spots you are visibly inside (e.g. the
-open entrance courtyard), and one margin cannot satisfy both the deep-cathedral
-swap and the entrance. Do not trust it as a hard "am I in the city" oracle.
-
-**Occlusion cull reuses the collision BVH.** There is no depth/Hi-Z pass, so
-`OcclusionCulling` (HUD, off by default) shoots collision-BVH rays at a group's
-box corners; the group is culled only when **all eight corners** are blocked by
-nearer solid geometry. It is NOT gated on inside/outside — occlusion is
-view-dependent, and the earlier inside-gate is exactly why the toggle did
-nothing. Caveats that are real, not bugs: it is corner-sampled (a partly-visible
-roof still draws — correct), it tests *collision* geometry (excludes MOPY
-F_DETAIL, so thin railings do not occlude), and it costs raycasts per candidate
-group (`OcclusionMinDistance` bounds it; the toggle disables it).
-
-**What occlusion cannot do, and why.** The SW entrance keep (`thief01`,
-exterior) stays visible from an open courtyard because it is genuinely unblocked
-there — vanilla shows it too. The real client can hide exterior geometry you can
-technically see via portal/cell disconnection; WoWee deliberately disables portal
-culling outdoors because applying it causes direction-dependent popout. So
-neither occlusion nor a faithful WoWee port removes the courtyard keep. The only
-remaining lever is portal traversal run OUTDOORS, accepting popout — experimental,
-not built.
-
-**Portal chunks are parsed, unused.** `WmoReader` now reads MOPV (portal
-vertices), MOPT (portal descriptors: startVertex, count, C4Plane) and MOPR
-(portal→group refs: portalIndex, groupIndex, side), plus per-group
-`PortalStart`/`PortalCount` from the MOGP header (+0x24/+0x26). Nothing consumes
-them yet; they are step 1 of any real traversal.
-
-**The doodad pop-in was placement latency, not a cull.** Raising the doodad
-demand/draw distance fixed statues appearing only when close. The
-`[doodad-cull]` diagnostic (placed / drawn / dist-culled / frustum-culled)
-proved the render cull was not the gate.
-
 ---
 
 ## 4. Verified vs unverified
@@ -1148,15 +977,6 @@ Bones upload as **three vec4 rows per bone**, so skinning is three dot products 
 | Mouse diagnostics | Buttons, capture, move events, applied events, last delta, cursor mode |
 | `C` / Show collision | Green standable, red wall, yellow the exact triangle underfoot |
 | Cyan capsule | Where the character actually is, at real radius and height |
-| **Middle-click / Pick group** | Triangle-accurate WMO group pick under the cursor. Prints `[pick]` and lists in the HUD: file, group index, name, flags, INT/ext, LOD, verts, distance. **This is how `thief01`, `Cathedral of Light` etc. were identified — click first, do not guess which group.** |
-| **Impostor/interior/occlusion sliders** | `Inside margin`, `Interior cull`, `Shell near-guard`, `Impostor max verts` (live reclassify), `Occlusion cull` + `Occlusion min dist`. All live; the readout below shows `inside=`, shells drawn/hidden, groups drawn, and occluded count. |
-| `[wmo-vis]` / `[doodad-cull]` | Same numbers as the HUD, but console (off by default — `Console visibility trace`). |
-| `Dump groups on load` | Re-emits the `[wmo-groups]` table (name/flags/int-ext/LOD/verts/local-centre) for large WMOs; needs a reload. |
-
-Working method note earned this session: the middle-click picker + the group
-dump ended three rounds of guessing which of Stormwind's 306 groups were the
-cathedral impostor and the entrance keep. When "which piece of geometry is
-that?" comes up, pick it; the answer is one click.
 
 ### 5.4 Thread and ownership rules
 
@@ -1409,4 +1229,3 @@ Almost every hard bug here was resolved by a number in the log — the collision
 - **Never question deployment steps.**
 - **Empirical over documented.** If a doc and the bytes disagree, the bytes win.
 - **Land an answer.** Exploration-only replies waste his time; every response should produce something he can build, run or read.
-- **One system, one doc (§1.2).** A system's detail goes in its own `SYSTEM_<NAME>.md`, not into this handbook. Keep the handbook a lean index of cross-cutting truth. When you work on a system, read its doc plus §3 — not the whole handbook — and if you touch a system whose doc is still a "planned extraction", split it out then.

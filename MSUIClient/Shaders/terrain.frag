@@ -18,6 +18,10 @@ uniform sampler2D      uAlphaAtlas;  // unit 1 - 16x16 chunks of 64x64 masks
 
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;         // points TOWARD the sun, normalised
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uAmbientColor;
+uniform float uAmbientIntensity;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -77,10 +81,9 @@ void main()
     }
 
     float ndl     = max(dot(n, normalize(uSunDirection)), 0.0);
-    vec3  sun     = vec3(1.00, 0.95, 0.85) * ndl * 1.15;
-    vec3  ambient = mix(vec3(0.20, 0.19, 0.16),
-                        vec3(0.42, 0.50, 0.60),
-                        n.z * 0.5 + 0.5) * 0.85;
+    vec3 sun = uSunColor * ndl * uSunIntensity;
+    vec3 ambient = uAmbientColor * uAmbientIntensity
+        * mix(0.62, 1.0, n.z * 0.5 + 0.5);
 
     vec3 color = albedo * (sun + ambient);
 

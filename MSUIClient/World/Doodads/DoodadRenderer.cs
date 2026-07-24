@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
@@ -104,7 +106,7 @@ public sealed class DoodadRenderer : IDisposable
 
     private sealed class Model : IDisposable
     {
-        public uint Vao, Vbo, Ebo;
+        public uint Vao, Vbo, Ebo, InstanceVbo;
         public List<Batch> Batches = [];
         public Vector3 LocalMin, LocalMax;
         public int TriangleCount;
@@ -125,6 +127,7 @@ public sealed class DoodadRenderer : IDisposable
             _gl.DeleteVertexArray(Vao);
             _gl.DeleteBuffer(Vbo);
             _gl.DeleteBuffer(Ebo);
+            if (InstanceVbo != 0) _gl.DeleteBuffer(InstanceVbo);
         }
     }
 
@@ -177,6 +180,7 @@ public sealed class DoodadRenderer : IDisposable
 
     /// <summary>Instances grouped by model, so each VAO binds once per frame.</summary>
     private readonly Dictionary<Model, List<Instance>> _byModel = [];
+    private readonly List<Matrix4x4> _visibleTransforms = [];
 
     private readonly HashSet<string> _placed = [];
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
@@ -193,10 +197,29 @@ public sealed class DoodadRenderer : IDisposable
     public int TotalTriangles { get; private set; }
     public int CollisionModels { get; private set; }
     public int DrawnLastFrame { get; private set; }
+    public int DrawCallsLastFrame { get; private set; }
+    public long TrianglesLastFrame { get; private set; }
+
+    /// <summary>Placed instances rejected this frame by the draw-distance test.</summary>
+    public int DistanceCulledLastFrame { get; private set; }
+    /// <summary>Placed instances rejected this frame by the frustum test.</summary>
+    public int FrustumCulledLastFrame { get; private set; }
+    /// <summary>Frame counter for the throttled [doodad-cull] diagnostic.</summary>
+    private int _cullLogFrames;
+    public double RenderMilliseconds { get; private set; }
     public bool Enabled { get; set; } = true;
     public bool FrustumCulling { get; set; } = true;
+    /// <summary>
+    /// When true, a placement whose model is not resident queues that model and
+    /// returns immediately. Runtime placement refreshes will adopt it later.
+    /// This keeps MPQ reads, parsing, texture decoding and uploads out of the
+    /// render thread.
+    /// </summary>
+    public bool DemandStreaming { get; set; }
+    public bool UseInstancing { get; set; } = true;
 
     public float DrawDistance { get; set; } = 300f;
+    public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
     /// <summary>
     /// Alpha below which a doodad fragment is discarded.
@@ -211,6 +234,10 @@ public sealed class DoodadRenderer : IDisposable
     public float AlphaCutoff { get; set; } = 0.5f;
 
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
+    public float SunIntensity { get; set; } = 1.15f;
+    public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
+    public float AmbientIntensity { get; set; } = 0.85f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
@@ -251,10 +278,6 @@ public sealed class DoodadRenderer : IDisposable
             {
                 if (string.IsNullOrWhiteSpace(d.ModelPath)) continue;
 
-                // A doodad straddling a tile edge is listed in both ADTs.
-                string key = $"{d.ModelPath}|{d.PosX:F2}|{d.PosY:F2}|{d.PosZ:F2}";
-                if (!_placed.Add(key)) continue;
-
                 var transform = BuildPlacement(d);
                 if (streamCentre is Vector2 centre && !float.IsPositiveInfinity(maxDistance))
                 {
@@ -262,8 +285,15 @@ public sealed class DoodadRenderer : IDisposable
                     if (delta.LengthSquared() > maxDistanceSq) continue;
                 }
 
+                // A doodad straddling a tile edge is listed in both ADTs. Do
+                // not reserve the key until its model is resident: demand
+                // streaming must be able to retry this placement next refresh.
+                string key = $"{d.ModelPath}|{d.PosX:F2}|{d.PosY:F2}|{d.PosZ:F2}";
+                if (_placed.Contains(key)) continue;
+
                 var model = ResolveModel(d.ModelPath);
                 if (model is null) continue;
+                _placed.Add(key);
 
                 var (min, max) = TransformedBounds(model, transform);
 
@@ -287,10 +317,11 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         var elapsed = DateTime.UtcNow - started;
-        Console.WriteLine(
-            $"[doodad] {InstanceCount} placement(s), {ModelCount} model(s), " +
-            $"{TextureCount} texture(s), {CollisionModels} with collision, " +
-            $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
+        if (reportDiagnostics)
+            Console.WriteLine(
+                $"[doodad] {InstanceCount} placement(s), {ModelCount} model(s), " +
+                $"{TextureCount} texture(s), {CollisionModels} with collision, " +
+                $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
 
         if (reportDiagnostics && _missing.Count > 0)
             Console.WriteLine($"[doodad] {_missing.Count} model(s) not found in the MPQs");
@@ -312,14 +343,34 @@ public sealed class DoodadRenderer : IDisposable
     }
 
     /// <summary>Queue outdoor M2 assets referenced by an outer ADT ring.</summary>
-    public void QueuePreloadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    public void QueuePreloadForTiles(
+        IEnumerable<(int col, int row)> tiles,
+        AdtCache adts,
+        Vector2? streamCentre = null,
+        float maxDistance = float.PositiveInfinity)
     {
+        float maxDistanceSq = maxDistance * maxDistance;
+        var paths = new List<(string Path, float DistanceSq)>();
         foreach (var (col, row) in tiles)
         {
             var adt = adts.Get(col, row);
             if (adt?.Doodads is null) continue;
-            QueuePreloadModels(adt.Doodads.Select(d => d.ModelPath));
+
+            foreach (var doodad in adt.Doodads)
+            {
+                float distanceSq = 0f;
+                if (streamCentre is Vector2 centre && !float.IsPositiveInfinity(maxDistance))
+                {
+                    var transform = BuildPlacement(doodad);
+                    var delta = new Vector2(transform.M41, transform.M42) - centre;
+                    distanceSq = delta.LengthSquared();
+                    if (distanceSq > maxDistanceSq) continue;
+                }
+
+                paths.Add((doodad.ModelPath, distanceSq));
+            }
         }
+        QueuePreloadModels(paths.OrderBy(p => p.DistanceSq).Select(p => p.Path));
     }
 
     /// <summary>Queue M2 paths without creating visible placements.</summary>
@@ -472,8 +523,12 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public bool AddPlaced(string modelPath, Matrix4x4 transform)
     {
+        string key = $"wmo|{modelPath}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
+        if (_placed.Contains(key)) return true;
+
         var model = ResolveModel(modelPath);
         if (model is null) return false;
+        _placed.Add(key);
 
         var (min, max) = TransformedBounds(model, transform);
 
@@ -591,6 +646,9 @@ public sealed class DoodadRenderer : IDisposable
     {
         string cacheKey = ModelCacheKey(modelPath);
         if (_models.TryGetValue(cacheKey, out var cached)) return cached;
+
+        if (DemandStreaming)
+            return null;
 
         if (_preloadJob?.CacheKey.Equals(cacheKey, StringComparison.OrdinalIgnoreCase) == true)
         {
@@ -797,6 +855,18 @@ public sealed class DoodadRenderer : IDisposable
         _gl.EnableVertexAttribArray(2);
         _gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
 
+        uint instanceVbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
+        const uint instanceStride = 16 * sizeof(float);
+        for (uint row = 0; row < 4; row++)
+        {
+            uint location = 3 + row;
+            _gl.EnableVertexAttribArray(location);
+            _gl.VertexAttribPointer(location, 4, VertexAttribPointerType.Float, false,
+                instanceStride, (void*)(row * 4 * sizeof(float)));
+            _gl.VertexAttribDivisor(location, 1);
+        }
+
         _gl.BindVertexArray(0);
 
         var model = new Model
@@ -804,6 +874,7 @@ public sealed class DoodadRenderer : IDisposable
             Vao = vao,
             Vbo = vbo,
             Ebo = ebo,
+            InstanceVbo = instanceVbo,
             LocalMin = min,
             LocalMax = max,
             TriangleCount = indices.Length / 3,
@@ -998,13 +1069,27 @@ public sealed class DoodadRenderer : IDisposable
 
     public unsafe void Render(Camera camera)
     {
+        long started = Stopwatch.GetTimestamp();
         DrawnLastFrame = 0;
-        if (!Enabled || _shader is null || _byModel.Count == 0) return;
+        DrawCallsLastFrame = 0;
+        TrianglesLastFrame = 0;
+        DistanceCulledLastFrame = 0;
+        FrustumCulledLastFrame = 0;
+        if (!Enabled || _shader is null || _byModel.Count == 0)
+        {
+            RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return;
+        }
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uUseInstancing", UseInstancing ? 1 : 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
@@ -1012,8 +1097,19 @@ public sealed class DoodadRenderer : IDisposable
 
         var viewProjection = camera.RelativeViewProjection;
         var eye = camera.Position;
-        float maxDistanceSq = DrawDistance * DrawDistance;
+        float effectiveDrawDistance = MathF.Min(DrawDistance, VisibilityDistance);
+        float maxDistanceSq = effectiveDrawDistance * effectiveDrawDistance;
         bool cullingOn = true;
+
+        if (UseInstancing)
+        {
+            RenderInstanced(viewProjection, eye, maxDistanceSq, ref cullingOn);
+            if (!cullingOn) _gl.Enable(EnableCap.CullFace);
+            _gl.BindVertexArray(0);
+            MaybeLogCull(effectiveDrawDistance);
+            RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return;
+        }
 
         foreach (var (model, instances) in _byModel)
         {
@@ -1024,11 +1120,11 @@ public sealed class DoodadRenderer : IDisposable
                 // Distance first: it is a subtraction, the frustum test is six
                 // dot products, and most doodads fail on distance.
                 var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
-                if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) continue;
+                if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
                 if (FrustumCulling &&
                     !Camera.BoxInFrustum(viewProjection,
                         instance.WorldMin - eye,
-                        instance.WorldMax - eye)) continue;
+                        instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
 
                 if (!bound)
                 {
@@ -1071,6 +1167,8 @@ public sealed class DoodadRenderer : IDisposable
 
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
                         DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                    DrawCallsLastFrame++;
+                    TrianglesLastFrame += batch.IndexCount / 3;
                 }
 
                 DrawnLastFrame++;
@@ -1079,6 +1177,96 @@ public sealed class DoodadRenderer : IDisposable
 
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+        MaybeLogCull(effectiveDrawDistance);
+        RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
+
+    /// <summary>
+    /// Throttled per-cull diagnostic. Answers the "a doodad is well within draw
+    /// distance but does not appear until I am close" question: if a nearby prop
+    /// is missing from `placed` it is a streaming/placement gap, not a cull; if
+    /// it shows under dist-culled or frustum-culled the render cull is eating it.
+    /// Roughly one line every two seconds at 60 FPS.
+    /// </summary>
+    private void MaybeLogCull(float effectiveDrawDistance)
+    {
+        if (++_cullLogFrames < 120) return;
+        _cullLogFrames = 0;
+        Console.WriteLine(
+            $"[doodad-cull] placed {InstanceCount}, drawn {DrawnLastFrame}, " +
+            $"dist-culled {DistanceCulledLastFrame}, frustum-culled {FrustumCulledLastFrame}, " +
+            $"drawDist {effectiveDrawDistance:F0} (slider {DrawDistance:F0}, visCap " +
+            $"{(float.IsPositiveInfinity(VisibilityDistance) ? -1f : VisibilityDistance):F0})");
+    }
+
+    private unsafe void RenderInstanced(
+        Matrix4x4 viewProjection, Vector3 eye, float maxDistanceSq, ref bool cullingOn)
+    {
+        foreach (var (model, instances) in _byModel)
+        {
+            _visibleTransforms.Clear();
+            foreach (var instance in instances)
+            {
+                var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
+                if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
+                if (FrustumCulling &&
+                    !Camera.BoxInFrustum(viewProjection,
+                        instance.WorldMin - eye,
+                        instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
+
+                var transform = instance.Transform;
+                transform.M41 -= eye.X;
+                transform.M42 -= eye.Y;
+                transform.M43 -= eye.Z;
+                _visibleTransforms.Add(transform);
+            }
+
+            if (_visibleTransforms.Count == 0) continue;
+
+            _gl.BindVertexArray(model.Vao);
+            _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.InstanceVbo);
+            var transforms = CollectionsMarshal.AsSpan(_visibleTransforms);
+            fixed (Matrix4x4* p = transforms)
+            {
+                _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                    (nuint)(transforms.Length * sizeof(Matrix4x4)), p, BufferUsageARB.StreamDraw);
+            }
+
+            uint instanceCount = (uint)_visibleTransforms.Count;
+            foreach (var batch in model.Batches)
+            {
+                if (batch.TwoSided && cullingOn)
+                {
+                    _gl.Disable(EnableCap.CullFace);
+                    cullingOn = false;
+                }
+                else if (!batch.TwoSided && !cullingOn)
+                {
+                    _gl.Enable(EnableCap.CullFace);
+                    cullingOn = true;
+                }
+
+                if (batch.Texture is not null)
+                {
+                    batch.Texture.Bind(0);
+                    _shader.Set("uHasTexture", 1);
+                    _shader.Set("uAlphaCutoff", AlphaCutoff);
+                }
+                else
+                {
+                    _shader.Set("uHasTexture", 0);
+                    _shader.Set("uAlphaCutoff", 0f);
+                }
+
+                _gl.DrawElementsInstanced(PrimitiveType.Triangles, batch.IndexCount,
+                    DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)),
+                    instanceCount);
+                DrawCallsLastFrame++;
+                TrianglesLastFrame += (long)(batch.IndexCount / 3) * instanceCount;
+            }
+
+            DrawnLastFrame += _visibleTransforms.Count;
+        }
     }
 
     public void Dispose()

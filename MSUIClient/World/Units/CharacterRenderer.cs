@@ -1709,6 +1709,10 @@ public sealed class CharacterRenderer : IDisposable
         _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
@@ -1753,6 +1757,17 @@ public sealed class CharacterRenderer : IDisposable
 
         // Attached items ride the SAME skin matrices that were just evaluated,
         // which is what makes a pauldron follow the shoulder.
+        if (_attached is not null)
+        {
+            _attached.SunDirection = SunDirection;
+            _attached.SunColor = SunColor;
+            _attached.SunIntensity = SunIntensity;
+            _attached.AmbientColor = AmbientColor;
+            _attached.AmbientIntensity = AmbientIntensity;
+            _attached.FogColor = FogColor;
+            _attached.FogStart = FogStart;
+            _attached.FogEnd = FogEnd;
+        }
         _attached?.Render(camera, modelTransform, _m2, _skin);
     }
 
@@ -1841,6 +1856,10 @@ public sealed class CharacterRenderer : IDisposable
     /// them here.
     /// </summary>
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
+    public float SunIntensity { get; set; } = 1.15f;
+    public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
+    public float AmbientIntensity { get; set; } = 0.85f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;

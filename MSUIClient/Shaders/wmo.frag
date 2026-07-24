@@ -24,6 +24,10 @@ uniform float uAlphaCutoff;
 
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;   // points TOWARD the sun, normalised
+uniform vec3  uSunColor;
+uniform float uSunIntensity;
+uniform vec3  uAmbientColor;
+uniform float uAmbientIntensity;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -43,13 +47,16 @@ void main()
 
     vec3 normal = normalize(vNormal);
 
-    // Two-sided lighting: WMO interiors and thin panels are often wound away
-    // from the viewer, and an unlit black wall reads as a hole in the world.
-    if (dot(normal, uCameraPos - vWorldPos) < 0.0) normal = -normal;
+    // Two-sided materials need the geometric side currently being rasterized,
+    // not a normal forced toward the orbit camera. Camera-facing normal flips
+    // made a fixed sun appear to move whenever the camera crossed a surface's
+    // tangent plane.
+    if (!gl_FrontFacing) normal = -normal;
 
     float lambert = max(dot(normal, uSunDirection), 0.0);
-    float ambient = 0.45;
-    vec3 lit = albedo.rgb * (ambient + 0.65 * lambert);
+    vec3 light = uAmbientColor * uAmbientIntensity
+        + uSunColor * lambert * uSunIntensity;
+    vec3 lit = albedo.rgb * light;
 
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
