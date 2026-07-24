@@ -370,3 +370,108 @@ public sealed class ItemDisplayTable
         return table;
     }
 }
+
+/// <summary>
+/// GroundEffectDoodad.dbc - maps a ground-effect doodad ID to its grass/flower
+/// M2 model path. Vanilla layout has an ID, an internal tag, the model filename
+/// (stringref), flags and a couple of floats, and the exact field order shifted
+/// across versions - so rather than hard-code an offset we SCAN each field for
+/// the one stringref that resolves to a model path (.mdx/.m2/.mdl). Robust and
+/// self-verifying; the record size is logged so a wrong parse is visible.
+/// </summary>
+public sealed class GroundEffectDoodadTable
+{
+    public const string MpqPath = @"DBFilesClient\GroundEffectDoodad.dbc";
+
+    private readonly Dictionary<uint, string> _models = [];
+    public int Count => _models.Count;
+    public string? Model(uint id) => _models.TryGetValue(id, out var m) ? m : null;
+
+    public static GroundEffectDoodadTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        var table = new GroundEffectDoodadTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            string model = "";
+            for (int f = 1; f < dbc.FieldCount; f++)
+            {
+                string s = dbc.GetString(r, f);
+                if (s.Length > 3 &&
+                    (s.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase) ||
+                     s.EndsWith(".m2", StringComparison.OrdinalIgnoreCase) ||
+                     s.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)))
+                { model = s; break; }
+            }
+            if (id != 0 && model.Length > 0) table._models[id] = model;
+        }
+
+        Console.WriteLine($"[dbc] GroundEffectDoodad: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {table._models.Count} with a model path");
+        return table;
+    }
+}
+
+/// <summary>One GroundEffectTexture row, resolved to model paths + weights.</summary>
+public sealed class GroundEffectRecipe
+{
+    public (string Model, int Weight)[] Doodads = [];
+    public int Density = 1;
+}
+
+/// <summary>
+/// GroundEffectTexture.dbc - a ground-effect ID (from MCLY.EffectId) gives up to
+/// four GroundEffectDoodad IDs with weights, plus a density. Vanilla layout is
+/// ID, DoodadID[4], DoodadWeight[4], Density, Sound (11 fields / 44 bytes); the
+/// record size is logged so a mismatch is obvious. Doodad IDs are resolved to
+/// model paths through GroundEffectDoodad at parse time.
+/// </summary>
+public sealed class GroundEffectTextureTable
+{
+    public const string MpqPath = @"DBFilesClient\GroundEffectTexture.dbc";
+
+    private readonly Dictionary<uint, GroundEffectRecipe> _byId = [];
+    public int Count => _byId.Count;
+
+    public GroundEffectRecipe? Get(int effectId)
+        => effectId > 0 && _byId.TryGetValue((uint)effectId, out var r) ? r : null;
+
+    public static GroundEffectTextureTable? Parse(byte[] data, GroundEffectDoodadTable doodads)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        var table = new GroundEffectTextureTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            if (id == 0) continue;
+
+            var list = new List<(string, int)>(4);
+            for (int i = 0; i < 4; i++)
+            {
+                uint doodadId = dbc.GetUInt(r, 1 + i);
+                if (doodadId == 0) continue;
+                string? model = doodads.Model(doodadId);
+                if (model is null) continue;
+                int weight = dbc.FieldCount > 5 + i ? dbc.GetInt(r, 5 + i) : 1;
+                list.Add((model, Math.Max(weight, 1)));
+            }
+            if (list.Count == 0) continue;
+
+            int density = dbc.FieldCount > 9 ? dbc.GetInt(r, 9) : 16;
+            table._byId[id] = new GroundEffectRecipe
+            {
+                Doodads = list.ToArray(),
+                Density = Math.Max(density, 1),
+            };
+        }
+
+        Console.WriteLine($"[dbc] GroundEffectTexture: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {table._byId.Count} effect(s) with resolvable doodads");
+        return table;
+    }
+}

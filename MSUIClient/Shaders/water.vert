@@ -25,6 +25,8 @@ layout (location = 2) in float aDepth;      // water depth here (surfaceZ - grou
 uniform mat4  uViewProjection;   // camera.RelativeViewProjection
 uniform vec3  uCameraOrigin;     // camera.Position
 uniform float uTime;             // seconds, for wave motion
+uniform float uWaveAmp;          // Water Tuning: 0 = flat plane; >0 = Gerstner waves
+uniform float uWaveSpeed;        // Water Tuning: wave scroll-speed multiplier
 
 out vec3  vRelPos;    // camera-relative position (length = view distance, for fog)
 out vec2  vAbsXY;     // undisplaced absolute world XY, for stable ripple/foam noise
@@ -110,29 +112,37 @@ Wave gerstner(vec2 pos, float amp, float freq, float spd, bool ocean)
 
 void main()
 {
-    bool magmaOrSlime = aType > 2.5;
-    bool ocean = (aType > 0.5 && aType < 1.5);
+    // Route by the exact MCLQ type codes (see SYSTEM_WATER.md 1.6):
+    //   1 = ocean, 3 = slime, 4 (and 0/2/5) = river/lake water, 6 = magma.
+    // Only slime and magma get the viscous, self-luminous treatment; river
+    // water (type 4) must NOT - it was falling into the old "> 2.5" bucket and
+    // being displaced/coloured as slime. Anything not ocean/slime/magma is
+    // ordinary water.
+    bool magma = (aType > 5.5);                   // 6
+    bool slime = (aType > 2.5 && aType < 3.5);    // 3
+    bool magmaOrSlime = magma || slime;
+    bool ocean = (aType > 0.5 && aType < 1.5);    // 1
 
     // Gentle, viscous undulation for magma/slime; wind-driven waves for water.
     float amp  = magmaOrSlime ? 0.18 : (ocean ? 0.30 : 0.11);
     float freq = magmaOrSlime ? 0.20 : (ocean ? 0.20 : 0.32);
     float spd  = magmaOrSlime ? 0.55 : (ocean ? 1.20 : 1.40);
 
-    Wave wv = gerstner(aPosition.xy, amp, freq, spd, ocean);
+    Wave wv = gerstner(aPosition.xy, amp, freq, spd * max(uWaveSpeed, 0.0), ocean);
 
     // Flatten the waves as the water gets shallow so nothing rises over the
     // shoreline. Fully flat right at the waterline, full height by ~1.2 yd deep.
     float shore = smoothstep(0.0, 1.2, aDepth);
 
+    // Displacement is scaled by the live uWaveAmp knob. 0 keeps the flat, still
+    // vanilla plane (all motion comes from the animated texture); >0 re-enables
+    // the Gerstner geometry waves. The frag lights the textured surface flat, so
+    // the normal stays up regardless - waves only move the mesh.
     vec3 world = aPosition;
-    world.x += wv.disp.x * shore;
-    world.y += wv.disp.y * shore;
-    world.z += wv.disp.z * shore;
-
-    vec3 n = normalize(cross(wv.binormal, wv.tangent));
-    // Ensure it points up (Z+); cross order can flip near flat regions.
-    if (n.z < 0.0) n = -n;
-    vNormal = normalize(mix(vec3(0.0, 0.0, 1.0), n, shore));
+    world.x += wv.disp.x * shore * uWaveAmp;
+    world.y += wv.disp.y * shore * uWaveAmp;
+    world.z += wv.disp.z * shore * uWaveAmp;
+    vNormal = vec3(0.0, 0.0, 1.0);
 
     vec3 rel = world - uCameraOrigin;
     vRelPos = rel;

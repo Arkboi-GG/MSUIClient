@@ -38,7 +38,53 @@ uniform float uFogEnd;
 uniform vec3  uFogColor;
 uniform float uTime;
 
+// Real vanilla animated liquid textures: one array of frames per basic type.
+// uFrames* is 0 when a type has no texture loaded (then we fall back to the
+// procedural surface below). uWaterFps drives frame cross-fade; uTexScale is
+// world yards -> UV.
+uniform sampler2DArray uTexWater;
+uniform sampler2DArray uTexOcean;
+uniform sampler2DArray uTexSlime;
+uniform sampler2DArray uTexMagma;
+uniform int   uFramesWater;
+uniform int   uFramesOcean;
+uniform int   uFramesSlime;
+uniform int   uFramesMagma;
+uniform float uWaterFps;
+uniform float uTexScale;
+
+// Live tuning knobs (Water Tuning HUD). All default to the current look.
+uniform float uFrameBlend;   // 0 = discrete frame swap, 1 = full cross-fade
+uniform float uTexBright;    // texture brightness multiply
+uniform float uTexContrast;  // texture contrast around mid
+uniform vec3  uTexTint;      // texture per-channel tint
+uniform float uOpacity;      // deep-water alpha
+uniform float uShoreFade;    // alpha fraction at the waterline
+uniform float uShoreWidth;   // yards the shoreline softens over
+uniform float uDepthDarken;  // deep-water brightness multiplier
+uniform float uDepthRate;    // depth darkening rate
+uniform float uBrightness;   // base surface brightness
+uniform float uAmbientAmt;   // ambient contribution
+uniform float uSunAmt;       // sun contribution
+uniform float uSkySheen;     // grazing sky tint
+
 out vec4 FragColor;
+
+// Sample an animated liquid array. uFrameBlend controls the cross-fade: 0 swaps
+// frames in place (the light twinkles/boils - vanilla), 1 blends fully (the light
+// glides/"swims"). Returns vec4(-1) as a sentinel when the type has no texture.
+vec4 sampleLiquid(sampler2DArray tex, int frames, vec2 uv)
+{
+    if (frames <= 0) return vec4(-1.0);
+    float ff = uTime * uWaterFps;
+    float f  = mod(ff, float(frames));
+    float f0 = floor(f);
+    vec4 a = texture(tex, vec3(uv, f0));
+    if (uFrameBlend <= 0.001) return a;
+    float f1 = mod(f0 + 1.0, float(frames));
+    vec4 b = texture(tex, vec3(uv, f1));
+    return mix(a, b, (f - f0) * clamp(uFrameBlend, 0.0, 1.0));
+}
 
 // ---- small hash / value noise, for foam and sparkle ----
 float hash21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -96,12 +142,90 @@ void main()
     float dist = length(vRelPos);
     float fog  = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
 
+    // ===============================================================
+    // AUTHENTIC PATH: vanilla's real animated liquid textures.
+    // If the matching type has frames loaded, the surface IS the scrolling
+    // animated BLP (the true 1.12 shimmer). Scoped block + early return so it
+    // never clashes with, and takes precedence over, the procedural fallback.
+    // ===============================================================
+    {
+        vec2  tuv    = vAbsXY * uTexScale;
+        bool  tmagma = (vType > 5.5);
+        bool  tslime = (vType > 2.5 && vType < 3.5);
+        bool  tocean = (vType > 0.5 && vType < 1.5);
+
+        vec4 liq;
+        if      (tmagma) liq = sampleLiquid(uTexMagma, uFramesMagma, tuv);
+        else if (tslime) liq = sampleLiquid(uTexSlime, uFramesSlime, tuv);
+        else
+        {
+            // River/lake and ocean. Prefer the type's own texture; if it did not
+            // load (e.g. the river frames didn't resolve), borrow the other water
+            // texture so inland water still gets a REAL animated surface - and so
+            // the tuning knobs, which only affect this textured path, stay live.
+            bool useOcean = tocean ? (uFramesOcean > 0)
+                                   : (uFramesWater <= 0 && uFramesOcean > 0);
+            if (useOcean) liq = sampleLiquid(uTexOcean, uFramesOcean, tuv);
+            else          liq = sampleLiquid(uTexWater, uFramesWater, tuv);
+        }
+
+        if (liq.r >= 0.0)   // sentinel check: >= 0 means a real texel
+        {
+            vec3  col   = liq.rgb;
+            float tfog  = fog;
+
+            if (tmagma || tslime)
+            {
+                // Self-luminous: show the texture bright, just fade to fog.
+                col = mix(uFogColor, col, 1.0 - tfog);
+                FragColor = vec4(col, 0.97);
+                return;
+            }
+
+            // Texture look adjust (all default to no-op): tint, brightness, contrast.
+            col *= uTexTint * uTexBright;
+            col = (col - 0.5) * uTexContrast + 0.5;
+            col = max(col, vec3(0.0));
+
+            // FLAT uniform lighting - the texture carries every ripple, so we do
+            // NOT relight with the wave normal (that painted the drifting bands).
+            float tdepthFade = 1.0 - exp(-max(vDepth, 0.0) * uDepthRate);
+            float tshore     = smoothstep(0.0, uShoreWidth, vDepth);
+            float tsun       = max(uSunDirection.z, 0.0);
+            vec3  tamb       = uAmbientColor * uAmbientIntensity;
+
+            col *= mix(1.0, uDepthDarken, tdepthFade);
+            col *= (uBrightness + tamb * uAmbientAmt + uSunColor * uSunIntensity * tsun * uSunAmt);
+
+            // Grazing sky sheen from the VIEW angle only (flat surface) - a smooth
+            // static gradient, never a moving band.
+            vec3  tV    = normalize(-vRelPos);
+            float tfres = clamp(pow(1.0 - max(tV.z, 0.0), 5.0), 0.0, 1.0);
+            col = mix(col, uFogColor, tfres * uSkySheen);
+
+            col = mix(col, uFogColor, tfog);
+
+            float alpha = clamp(uOpacity * mix(uShoreFade, 1.0, tshore), 0.0, 1.0);
+            FragColor = vec4(col, alpha);
+            return;
+        }
+    }
+
+    // ===============================================================
+    // FALLBACK (no texture found): procedural surface, kept intact below.
+    // ===============================================================
+
     // ---------------------------------------------------------------
     // Magma / slime: self-luminous flowing surfaces, own path.
+    // Route by exact MCLQ type code (SYSTEM_WATER.md 1.6): 3 = slime,
+    // 6 = magma. River/lake water is type 4 and must fall through to the
+    // water path below - the old "> 2.5" test wrongly caught type 4 and
+    // painted the river as green slime.
     // ---------------------------------------------------------------
-    if (vType > 2.5)
+    bool magma = (vType > 5.5);                   // 6
+    bool slime = (vType > 2.5 && vType < 3.5);    // 3
+    if (magma || slime)
     {
-        bool magma = vType > 5.5;
         vec2 uv = vAbsXY;
         float n1 = fbm(uv * 0.06 + vec2(uTime*0.02, uTime*0.03), uTime*0.4);
         float n2 = fbm(uv * 0.10 + vec2(-uTime*0.015, uTime*0.025), uTime*0.3);
@@ -138,13 +262,15 @@ void main()
     float NdotL = max(dot(N, L), 0.0);
 
     // Depth cues from the baked per-vertex water depth.
-    float depthFade = 1.0 - exp(-max(vDepth, 0.0) * 0.18);  // 0 shallow -> 1 deep
+    float depthFade = 1.0 - exp(-max(vDepth, 0.0) * 0.22);  // 0 shallow -> 1 deep
     float shore     = smoothstep(0.0, 1.2, vDepth);         // 0 at waterline
 
+    // Opaque, teal-green vanilla water (you do NOT see through it). Kept a touch
+    // brighter than a flat dark sheet so the animated shimmer below reads clearly.
     vec3 shallowCol, deepCol;
     float baseAlpha;
-    if (ocean) { shallowCol=vec3(0.08,0.26,0.42); deepCol=vec3(0.02,0.09,0.22); baseAlpha=0.72; }
-    else       { shallowCol=vec3(0.14,0.34,0.44); deepCol=vec3(0.05,0.16,0.30); baseAlpha=0.50; }
+    if (ocean) { shallowCol=vec3(0.06,0.20,0.28); deepCol=vec3(0.02,0.09,0.16); baseAlpha=0.90; }
+    else       { shallowCol=vec3(0.10,0.26,0.26); deepCol=vec3(0.05,0.15,0.16); baseAlpha=0.85; }
 
     vec3 body = mix(shallowCol, deepCol, depthFade);
 
@@ -152,10 +278,11 @@ void main()
     vec3 amb = uAmbientColor * uAmbientIntensity;
     vec3 lit = body * (amb + uSunColor * uSunIntensity * NdotL * 0.35);
 
-    // Fresnel: transparent looking straight down, sky-tinted at grazing angles.
+    // Fresnel: dark looking straight down, a modest sky sheen at grazing angles.
+    // Vanilla water is reflective, not see-through, so it stays dark-with-sheen.
     float fres = clamp(pow(1.0 - NdotV, 5.0), 0.0, 1.0);
     vec3 sky = uFogColor;
-    vec3 col = mix(lit, sky, fres * (ocean ? 0.55 : 0.40));
+    vec3 col = mix(lit, sky, fres * (ocean ? 0.40 : 0.28));
 
     // Moving specular sun sparkle - the clearest sign of motion.
     vec3 H = normalize(L + V);
@@ -165,6 +292,30 @@ void main()
 
     // Wave-crest brightening.
     col += vec3(smoothstep(0.5, 1.0, vWave) * 0.04);
+
+    // ---- Animated surface shimmer: the signature vanilla 1.12 water look ----
+    // Dense soft caustic highlights that DRIFT steadily sideways (the constant
+    // left-to-right movement), a second cross-scrolling layer to break up tiling,
+    // bright speckles on the peaks, and a slow oscillation so the colour breathes.
+    // This is the procedural stand-in for vanilla's scrolling animated water BLPs.
+    {
+        vec2 flow = vAbsXY;
+        float t = uTime;
+        float g1 = fbm(flow * 0.35 + vec2( t * 0.90, t * 0.20), t);
+        float g2 = fbm(flow * 0.75 + vec2(-t * 0.50, t * 0.55), t * 1.3);
+        float caustic = g1 * 0.6 + g2 * 0.4;
+
+        float shimmer = smoothstep(0.50, 0.90, caustic);
+        col += (ocean ? vec3(0.10, 0.14, 0.18) : vec3(0.11, 0.17, 0.15)) * shimmer;
+
+        // Fine bright speckles riding the caustic peaks.
+        float speck = smoothstep(0.82, 0.99, caustic);
+        col += vec3(0.20, 0.24, 0.22) * speck;
+
+        // Slow light/dark bands drifting sideways -> "oscillating colours".
+        float osc = 0.5 + 0.5 * sin(dot(vAbsXY, vec2(0.12, 0.07)) - t * 1.4);
+        col *= 0.92 + 0.16 * osc;
+    }
 
     // Shoreline foam: scattered particles where the water is shallow.
     if (vDepth > 0.02 && vDepth < 2.2)
@@ -183,8 +334,8 @@ void main()
     // Alpha: see-through at the shore, opaque in deep water, more opaque at
     // grazing angles. This soft waterline is what sells the depth.
     float alpha = baseAlpha * mix(0.12, 1.0, shore);
-    alpha = mix(alpha, min(1.0, alpha * 1.35), fres);
-    alpha = clamp(alpha, 0.10, 0.95);
+    alpha = mix(alpha, min(1.0, alpha * 1.25), fres);
+    alpha = clamp(alpha, 0.12, 0.96);   // near-opaque body; only the very shoreline stays soft
 
     // Match the world's distance fog.
     col = mix(col, uFogColor, fog);

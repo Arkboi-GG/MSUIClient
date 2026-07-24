@@ -3,6 +3,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using Shader = MSUIClient.Engine.Shader;
+using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World;
 
@@ -78,6 +79,64 @@ public sealed class LiquidRenderer : IDisposable
 
     public bool Enabled { get; set; } = true;
 
+    // --- Real vanilla animated liquid textures, loaded from the client MPQs ---
+    // Vanilla stores each liquid as numbered BLP frames; we stack the frames of
+    // one type into a single array texture and cross-fade between frames in the
+    // shader. One array per basic type; a 1x1 dummy keeps every sampler bound.
+    private Texture? _texWater, _texOcean, _texSlime, _texMagma, _dummyTex;
+    private int _framesWater, _framesOcean, _framesSlime, _framesMagma;
+
+    // Frame counts, exposed read-only for the Water Tuning HUD.
+    public int WaterFrames  => _framesWater;
+    public int OceanFrames  => _framesOcean;
+    public int SlimeFrames  => _framesSlime;
+    public int MagmaFrames  => _framesMagma;
+
+    // ================= LIVE WATER TUNING KNOBS =================
+    // Every hard-coded constant that used to live in water.frag/water.vert is now
+    // one of these, pushed as a uniform each frame and driven by the Water Tuning
+    // HUD (Program.WaterTuningWindow). Defaults reproduce the current look, so at
+    // startup nothing changes until a slider is moved. Ranges are in the HUD.
+
+    // Texture + animation
+    public float TextureScale { get; set; } = 0.16f;   // world yards -> UV (smaller = bigger cells)
+    public float AnimationFps { get; set; } = 12f;     // frames per second
+    public float FrameBlend   { get; set; } = 0f;      // 0 = discrete swap, 1 = full cross-fade
+    public float TexBrightness{ get; set; } = 1f;      // multiply texture colour
+    public float TexContrast  { get; set; } = 1f;      // contrast around mid-grey
+    public Vector3 TexTint    { get; set; } = Vector3.One;  // per-channel texture tint
+
+    // Opacity
+    public float Opacity      { get; set; } = 1.0f;    // deep-water alpha
+    public float ShoreFade    { get; set; } = 0.85f;   // alpha fraction at the waterline
+    public float ShoreWidth   { get; set; } = 1.2f;    // yards over which the shoreline softens
+
+    // Depth
+    public float DepthDarken  { get; set; } = 0.78f;   // deep-water brightness multiplier (higher = brighter)
+    public float DepthRate    { get; set; } = 0.12f;   // how fast it darkens with depth
+
+    // Lighting (flat - the texture carries the ripples). Tuned so the texture
+    // shows near its own brightness at noon rather than being multiplied down.
+    public float Brightness   { get; set; } = 0.90f;   // base surface brightness
+    public float AmbientAmount{ get; set; } = 0.6f;    // ambient contribution
+    public float SunAmount    { get; set; } = 0.30f;   // sun contribution
+    public float SkySheen     { get; set; } = 0.14f;   // grazing-angle sky tint
+
+    // Geometry waves (0 = flat still plane, the vanilla look)
+    public float WaveAmplitude{ get; set; } = 0f;      // 0 = flat; >0 re-enables Gerstner displacement
+    public float WaveSpeed    { get; set; } = 1.0f;    // wave scroll-speed multiplier
+
+    /// <summary>Reset every knob to the startup default look.</summary>
+    public void ResetTuning()
+    {
+        TextureScale = 0.16f; AnimationFps = 12f; FrameBlend = 0f;
+        TexBrightness = 1f; TexContrast = 1f; TexTint = Vector3.One;
+        Opacity = 1.0f; ShoreFade = 0.85f; ShoreWidth = 1.2f;
+        DepthDarken = 0.78f; DepthRate = 0.12f;
+        Brightness = 0.90f; AmbientAmount = 0.6f; SunAmount = 0.30f; SkySheen = 0.14f;
+        WaveAmplitude = 0f; WaveSpeed = 1.0f;
+    }
+
     // Shared time-of-day environment, pushed each frame from WorldAtmosphere.
     public Vector3 SunDirection { get; set; } = Vector3.UnitZ;
     public Vector3 SunColor { get; set; } = Vector3.One;
@@ -105,6 +164,126 @@ public sealed class LiquidRenderer : IDisposable
             Path.Combine(shaderDir, "underwater.vert"),
             Path.Combine(shaderDir, "underwater.frag"));
         _overlayVao = _gl.GenVertexArray();
+    }
+
+    /// <summary>
+    /// Load the real vanilla animated liquid textures from the client's MPQs.
+    /// Vanilla stores each liquid as numbered BLP frames (e.g. river.1.blp,
+    /// river.2.blp, ...); the exact folder/name varies, so we probe a small
+    /// ordered candidate list per type, load every consecutive frame that
+    /// resolves into one array texture, and LOG exactly which path won and how
+    /// many frames it had. Nothing is assumed - the MPQ decides, and the console
+    /// says what it found so a wrong path is obvious rather than silent.
+    /// </summary>
+    public void LoadLiquidTextures(string clientDataPath)
+    {
+        // Real vanilla paths per WoWMapViewer's liquid.cpp: the river/lake file is
+        // "lake_a" inside the "river" folder (NOT "river"), ocean is "ocean_h".
+        (_texWater, _framesWater) = LoadFrames(clientDataPath, "water", new[]
+        {
+            @"XTextures\river\lake_a.{0}.blp",   // vanilla river / lake / inland water
+            @"XTextures\river\river.{0}.blp",
+            @"XTextures\lake\lake.{0}.blp",
+        });
+        (_texOcean, _framesOcean) = LoadFrames(clientDataPath, "ocean", new[]
+        {
+            @"XTextures\ocean\ocean_h.{0}.blp",  // vanilla ocean
+            @"XTextures\ocean\ocean.{0}.blp",
+            @"XTextures\sea\sea.{0}.blp",
+        });
+        (_texSlime, _framesSlime) = LoadFrames(clientDataPath, "slime", new[]
+        {
+            @"XTextures\slime\slime.{0}.blp",
+            @"XTextures\ooze\ooze.{0}.blp",
+        });
+        (_texMagma, _framesMagma) = LoadFrames(clientDataPath, "magma", new[]
+        {
+            @"XTextures\lava\lava.{0}.blp",
+            @"XTextures\magma\magma.{0}.blp",
+        });
+
+        // 1x1 transparent array so every sampler unit has a valid binding even
+        // when a type's textures were not found (the shader guards on the frame
+        // count and never actually samples the dummy).
+        _dummyTex = Texture.Array2D(_gl, new List<byte[]> { new byte[] { 0, 0, 0, 0 } },
+            1, 1, mipmaps: false);
+
+        if (_framesWater == 0)
+            Console.WriteLine("[liquid-tex] water texture NOT found - the river falls back to the " +
+                "procedural surface. Auto-discovering real paths from the MPQ (listfile) below.");
+
+        // If anything failed to resolve, ask the MPQ what liquid textures it
+        // actually contains so we can correct the candidate paths with certainty
+        // instead of guessing. Harmless (and quiet) when every type loaded.
+        if (_framesWater == 0 || _framesOcean == 0 || _framesSlime == 0 || _framesMagma == 0)
+            DiscoverLiquidTexturePaths(clientDataPath);
+    }
+
+    /// <summary>
+    /// Read the MPQ (listfile), if present, and print the liquid-texture entries
+    /// so the real vanilla paths are known for certain. Many original Blizzard
+    /// MPQs omit the listfile; if so, we say so rather than pretend.
+    /// </summary>
+    private static void DiscoverLiquidTexturePaths(string clientDataPath)
+    {
+        var lf = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, "(listfile)");
+        if (lf is null)
+        {
+            Console.WriteLine("[liquid-tex] no (listfile) in the MPQs - cannot auto-discover; " +
+                "tell me the failures above and I'll correct the paths.");
+            return;
+        }
+
+        var text = System.Text.Encoding.ASCII.GetString(lf);
+        var hits = text.Split('\n', '\r')
+            .Select(l => l.Trim())
+            .Where(l => l.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)
+                     && (Has(l, "water") || Has(l, "river") || Has(l, "ocean")
+                      || Has(l, "lava") || Has(l, "slime") || Has(l, "lake") || Has(l, "ooze")))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(l => l, StringComparer.OrdinalIgnoreCase)
+            .Take(60)
+            .ToList();
+
+        Console.WriteLine($"[liquid-tex] (listfile) has {hits.Count} liquid-texture path(s):");
+        foreach (var h in hits) Console.WriteLine("    " + h);
+
+        static bool Has(string s, string sub) => s.IndexOf(sub, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    /// <summary>
+    /// Probe the candidate templates in order; the first that yields at least one
+    /// frame wins. Frames are read as consecutive numbers starting at 1 until one
+    /// is missing (or the dimensions change). Returns the array texture + count,
+    /// or (null, 0) if nothing resolved.
+    /// </summary>
+    private (Texture?, int) LoadFrames(string clientDataPath, string label, string[] templates)
+    {
+        const int maxFrames = 64;
+        foreach (var template in templates)
+        {
+            var frames = new List<byte[]>();
+            int w = 0, h = 0;
+            for (int n = 1; n <= maxFrames; n++)
+            {
+                var px = AdtTerrainReader.ReadBlpPixels(clientDataPath, string.Format(template, n));
+                if (px is null) break;
+                if (frames.Count == 0) { w = px.Value.width; h = px.Value.height; }
+                else if (px.Value.width != w || px.Value.height != h) break;
+                frames.Add(px.Value.bgra);
+            }
+
+            if (frames.Count > 0)
+            {
+                Console.WriteLine($"[liquid-tex] {label}: {frames.Count} frame(s) {w}x{h} " +
+                    $"from '{template.Replace("{0}", "N")}'");
+                return (Texture.Array2D(_gl, frames, w, h), frames.Count);
+            }
+        }
+
+        Console.WriteLine($"[liquid-tex] {label}: none of {templates.Length} candidate path(s) " +
+            $"resolved - tried {string.Join("  ", templates.Select(t => t.Replace("{0}", "N")))}");
+        return (null, 0);
     }
 
     /// <summary>Build/keep liquid meshes for exactly the resident tiles; dispose the rest.</summary>
@@ -259,6 +438,32 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTime", Time);
 
+        // Animated liquid textures: bind one array per basic type (dummy where a
+        // type had none) and hand the shader the frame counts + animation rate so
+        // it can cross-fade frames. World-space UV scale controls the tiling.
+        _shader.Set("uTexScale", TextureScale);
+        _shader.Set("uWaterFps", MathF.Max(AnimationFps, 0.01f));
+        _shader.Set("uFrameBlend", FrameBlend);
+        _shader.Set("uTexBright", TexBrightness);
+        _shader.Set("uTexContrast", TexContrast);
+        _shader.Set("uTexTint", TexTint);
+        _shader.Set("uOpacity", Opacity);
+        _shader.Set("uShoreFade", ShoreFade);
+        _shader.Set("uShoreWidth", MathF.Max(ShoreWidth, 0.01f));
+        _shader.Set("uDepthDarken", DepthDarken);
+        _shader.Set("uDepthRate", DepthRate);
+        _shader.Set("uBrightness", Brightness);
+        _shader.Set("uAmbientAmt", AmbientAmount);
+        _shader.Set("uSunAmt", SunAmount);
+        _shader.Set("uSkySheen", SkySheen);
+        _shader.Set("uWaveAmp", WaveAmplitude);
+        _shader.Set("uWaveSpeed", WaveSpeed);
+        BindLiquidTexture("uTexWater", _texWater, 0, "uFramesWater", _framesWater);
+        BindLiquidTexture("uTexOcean", _texOcean, 1, "uFramesOcean", _framesOcean);
+        BindLiquidTexture("uTexSlime", _texSlime, 2, "uFramesSlime", _framesSlime);
+        BindLiquidTexture("uTexMagma", _texMagma, 3, "uFramesMagma", _framesMagma);
+        _gl.ActiveTexture(TextureUnit.Texture0);
+
         // Transparent surface: blend, TEST depth so hills and the near side of the
         // character occlude it, but do NOT write depth so overlapping water and the
         // far side of a submerged character still blend. Both faces, so it reads
@@ -281,6 +486,15 @@ public sealed class LiquidRenderer : IDisposable
         _gl.DepthMask(true);
         _gl.Disable(EnableCap.Blend);
         _gl.BindVertexArray(0);
+    }
+
+    /// <summary>Bind one liquid array texture to a unit (the 1x1 dummy if the type
+    /// had no textures) and set its sampler + frame-count uniforms.</summary>
+    private void BindLiquidTexture(string sampler, Texture? tex, int unit, string framesName, int frames)
+    {
+        (tex ?? _dummyTex)?.Bind((uint)unit);
+        _shader!.Set(sampler, unit);
+        _shader.Set(framesName, frames);
     }
 
     /// <summary>
@@ -365,6 +579,8 @@ public sealed class LiquidRenderer : IDisposable
     {
         foreach (var m in _tiles.Values) m.Dispose();
         _tiles.Clear();
+        _texWater?.Dispose(); _texOcean?.Dispose(); _texSlime?.Dispose(); _texMagma?.Dispose();
+        _dummyTex?.Dispose();
         if (_overlayVao != 0) { _gl.DeleteVertexArray(_overlayVao); _overlayVao = 0; }
     }
 }

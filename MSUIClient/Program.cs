@@ -93,6 +93,7 @@ public sealed partial class GameLoop : IDisposable
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
     private LiquidRenderer? _liquid;
+    private FoliageRenderer? _foliage;
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
     private CharacterRenderer? _character;
@@ -142,6 +143,11 @@ public sealed partial class GameLoop : IDisposable
     private double _collisionBuildSeconds;
     private Task<(int Generation, CollisionWorld World, double Seconds)>? _collisionBuildTask;
     private int _collisionGeneration;
+    // Doodads stream in after the startup collision build, so the initial world
+    // has few/none of them. When new placements arrive we flag the collision
+    // world dirty and rebuild it (coalesced) so trees/fences become solid.
+    private bool _doodadCollisionDirty;
+    private float _doodadCollisionRebuildCooldown;
     private double _lastStreamSeconds;
     private (int col, int row)? _residentCentre;
     private bool _preloadWmoFirst;
@@ -181,6 +187,15 @@ public sealed partial class GameLoop : IDisposable
 
     private int WmoPreloadRadius
         => Math.Max(_config.Start.TileRadius + 1, _config.Start.WmoPreloadRadius);
+
+    // Collision is built from the already-loaded client geometry (WMO + doodads)
+    // unless the config points at server vmaps. Only in this mode do streamed-in
+    // doodads need to trigger a collision rebuild (vmap collision is per-tile).
+    private bool ClientGeometryCollision
+        => _config.Movement.Collision
+         && !string.Equals(_config.Movement.CollisionSource, "vmaps",
+                StringComparison.OrdinalIgnoreCase)
+         && _wmo is not null;
 
     public GameLoop(ClientWindow window, ClientConfig config)
     {
@@ -281,7 +296,14 @@ public sealed partial class GameLoop : IDisposable
         // rebuilt on tile transitions like buildings.
         _liquid = new LiquidRenderer(gl);
         _liquid.LoadShaders(shaderDir);
+        _liquid.LoadLiquidTextures(_config.ClientDataPath);
         _liquid.LoadForTiles(_terrain.LoadedTiles, _adts);
+
+        // Ground-effect foliage: grass/flowers scattered on the terrain near the
+        // camera, driven by the GroundEffect DBCs.
+        _foliage = new FoliageRenderer(gl, _config);
+        _foliage.LoadShaders(shaderDir);
+        _foliage.LoadDbcs();
 
         if (_config.Render.Doodads)
         {
@@ -837,6 +859,20 @@ public sealed partial class GameLoop : IDisposable
         _terrain?.PumpPreloads();
         AcceptReadyCollision();
 
+        // Fold newly-streamed doodads into the collision world once a build slot
+        // is free. Coalesced (one build at a time, at most ~1/s) so a burst of
+        // streaming near a busy tile doesn't rebuild the BVH every frame. This is
+        // what keeps trees/fences solid in demand-stream mode; the world settles
+        // to include all resident doodads within ~a second of them appearing.
+        _doodadCollisionRebuildCooldown -= dt;
+        if (_doodadCollisionDirty && _collisionBuildTask is null
+            && _doodadCollisionRebuildCooldown <= 0f)
+        {
+            _doodadCollisionDirty = false;
+            _doodadCollisionRebuildCooldown = 1.0f;
+            BeginCollisionBuild();
+        }
+
         if (_cycleTimeOfDay)
             _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
 
@@ -1035,7 +1071,15 @@ public sealed partial class GameLoop : IDisposable
 
         // A model that completed since the previous pass can now acquire its
         // placements. Both outdoor and WMO placement keys are idempotent.
+        int placementsBefore = _doodads.InstanceCount;
         PopulateDoodads(_residentCentre.Value, reportDiagnostics: false);
+
+        // Newly-resident doodads are not yet in the collision world (it was built
+        // at startup / last tile-cross, before they streamed in). Flag it so the
+        // Update loop folds them in. Without this, doodad collision is missing
+        // for everything that streams in after the initial build.
+        if (_doodads.InstanceCount != placementsBefore && ClientGeometryCollision)
+            _doodadCollisionDirty = true;
     }
 
     // Vantage capture / apply / echo moved to Program.DevTools.cs
@@ -1178,6 +1222,16 @@ public sealed partial class GameLoop : IDisposable
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Doodads);
         _doodads?.Render(_window.Camera);
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Doodads);
+
+        // Ground-effect foliage: scatter near the camera (throttled internally),
+        // then draw it into the opaque world pass so terrain/water depth-interact.
+        if (_foliage is not null && _adts is not null && _terrain is not null)
+        {
+            _foliage.Time += dt;
+            _foliage.Scatter(_window.Camera, _adts, _terrain.LoadedTiles, _terrain);
+            _foliage.Render(_window.Camera);
+        }
+
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
 
         long characterStarted = Stopwatch.GetTimestamp();
@@ -1301,6 +1355,18 @@ public sealed partial class GameLoop : IDisposable
             _liquid.FogColor = _atmosphere.FogColor;
             _liquid.FogStart = _atmosphere.ShaderFogStart;
             _liquid.FogEnd = _atmosphere.ShaderFogEnd;
+        }
+
+        if (_foliage is not null)
+        {
+            _foliage.SunDirection = _atmosphere.SunDirection;
+            _foliage.SunColor = _atmosphere.SunColor;
+            _foliage.SunIntensity = _atmosphere.SunIntensity;
+            _foliage.AmbientColor = _atmosphere.AmbientColor;
+            _foliage.AmbientIntensity = _atmosphere.AmbientIntensity;
+            _foliage.FogColor = _atmosphere.FogColor;
+            _foliage.FogStart = _atmosphere.ShaderFogStart;
+            _foliage.FogEnd = _atmosphere.ShaderFogEnd;
         }
     }
 
@@ -2148,6 +2214,153 @@ public sealed partial class GameLoop : IDisposable
             }
         }
         ImGui.End();
+
+        WaterTuningWindow();
+        FoliageTuningWindow();
+    }
+
+    /// <summary>
+    /// Dedicated live Water Tuning window: every liquid look/feel knob as a slider
+    /// so the surface can be dialed by eye instead of by shader rebuild. Each knob
+    /// is a live uniform (see LiquidRenderer); defaults reproduce the shipped look.
+    /// DevTools only (gated by the caller).
+    /// </summary>
+    private void WaterTuningWindow()
+    {
+        if (_liquid is null) return;
+        var liq = _liquid;
+
+        void Slider(string label, Func<float> get, Action<float> set, float lo, float hi, string fmt)
+        {
+            float v = get();
+            if (ImGui.SliderFloat(label, ref v, lo, hi, fmt)) set(v);
+        }
+
+        ImGui.SetNextWindowPos(new Vector2(460, 12), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(370, 0), ImGuiCond.FirstUseEver);
+
+        if (ImGui.Begin("Water Tuning"))
+        {
+            bool enabled = liq.Enabled;
+            if (ImGui.Checkbox("Render water", ref enabled)) liq.Enabled = enabled;
+
+            ImGui.TextDisabled($"frames  river {liq.WaterFrames}  ocean {liq.OceanFrames}  " +
+                               $"slime {liq.SlimeFrames}  magma {liq.MagmaFrames}");
+
+            // Which liquid type - and therefore which texture - the water under the
+            // player actually routes to. This is the definitive routing check.
+            if (_controller is not null &&
+                liq.TryGetSurface(_controller.Position.X, _controller.Position.Y, out _, out byte tUnder))
+            {
+                string route = tUnder switch
+                {
+                    1 => "ocean texture",
+                    3 => "slime texture",
+                    6 => "magma texture",
+                    _ => "river/lake texture",
+                };
+                ImGui.TextDisabled($"under you: liquid type {tUnder} -> {route}");
+            }
+            else
+            {
+                ImGui.TextDisabled("under you: (not standing over water)");
+            }
+
+            if (ImGui.CollapsingHeader("Texture & animation", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Texture scale (tiling)", () => liq.TextureScale, x => liq.TextureScale = x, 0.01f, 1.0f, "%.3f");
+                Slider("Animation FPS", () => liq.AnimationFps, x => liq.AnimationFps = x, 0f, 60f, "%.1f");
+                Slider("Frame blend (0 twinkle / 1 glide)", () => liq.FrameBlend, x => liq.FrameBlend = x, 0f, 1f, "%.2f");
+                Slider("Texture brightness", () => liq.TexBrightness, x => liq.TexBrightness = x, 0f, 3f, "%.2f");
+                Slider("Texture contrast", () => liq.TexContrast, x => liq.TexContrast = x, 0.2f, 2.5f, "%.2f");
+                Vector3 tint = liq.TexTint;
+                if (ImGui.ColorEdit3("Texture tint", ref tint)) liq.TexTint = tint;
+            }
+
+            if (ImGui.CollapsingHeader("Opacity", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Opacity (deep)", () => liq.Opacity, x => liq.Opacity = x, 0f, 1f, "%.2f");
+                Slider("Shoreline alpha", () => liq.ShoreFade, x => liq.ShoreFade = x, 0f, 1f, "%.2f");
+                Slider("Shoreline width (yd)", () => liq.ShoreWidth, x => liq.ShoreWidth = x, 0.05f, 5f, "%.2f");
+            }
+
+            if (ImGui.CollapsingHeader("Depth colour", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Deep darkening", () => liq.DepthDarken, x => liq.DepthDarken = x, 0.1f, 1f, "%.2f");
+                Slider("Depth rate", () => liq.DepthRate, x => liq.DepthRate = x, 0.01f, 1f, "%.3f");
+            }
+
+            if (ImGui.CollapsingHeader("Lighting", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Base brightness", () => liq.Brightness, x => liq.Brightness = x, 0f, 2f, "%.2f");
+                Slider("Ambient amount", () => liq.AmbientAmount, x => liq.AmbientAmount = x, 0f, 2f, "%.2f");
+                Slider("Sun amount", () => liq.SunAmount, x => liq.SunAmount = x, 0f, 1f, "%.2f");
+                Slider("Sky sheen (grazing)", () => liq.SkySheen, x => liq.SkySheen = x, 0f, 1f, "%.2f");
+            }
+
+            if (ImGui.CollapsingHeader("Geometry waves", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Wave amplitude (0 = flat)", () => liq.WaveAmplitude, x => liq.WaveAmplitude = x, 0f, 2f, "%.2f");
+                Slider("Wave speed", () => liq.WaveSpeed, x => liq.WaveSpeed = x, 0f, 3f, "%.2f");
+            }
+
+            ImGui.Separator();
+            if (ImGui.Button("Reset to defaults")) liq.ResetTuning();
+        }
+        ImGui.End();
+    }
+
+    /// <summary>Live tuning for the ground-effect foliage (grass). DevTools only.</summary>
+    private void FoliageTuningWindow()
+    {
+        if (_foliage is null) return;
+        var f = _foliage;
+
+        void Slider(string label, Func<float> get, Action<float> set, float lo, float hi, string fmt)
+        {
+            float v = get();
+            if (ImGui.SliderFloat(label, ref v, lo, hi, fmt)) set(v);
+        }
+
+        ImGui.SetNextWindowPos(new Vector2(840, 12), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(360, 0), ImGuiCond.FirstUseEver);
+
+        if (ImGui.Begin("Foliage Tuning"))
+        {
+            bool enabled = f.Enabled;
+            if (ImGui.Checkbox("Render foliage", ref enabled)) f.Enabled = enabled;
+
+            ImGui.TextDisabled(f.DbcsReady
+                ? $"effects {f.EffectCount}  models {f.ModelCount}  instances {f.InstanceCount}"
+                : "GroundEffect DBCs not loaded");
+
+            if (ImGui.Button("Re-scatter now")) f.ForceRescatter();
+
+            if (ImGui.CollapsingHeader("Coverage", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Radius (yd)", () => f.Radius, x => f.Radius = x, 5f, 120f, "%.0f");
+                Slider("Density", () => f.DensityScale, x => f.DensityScale = x, 0f, 4f, "%.2f");
+                int mpc = f.MaxPerCell;
+                if (ImGui.SliderInt("Max per cell", ref mpc, 0, 24)) f.MaxPerCell = mpc;
+                Slider("Scale", () => f.Scale, x => f.Scale = x, 0.1f, 4f, "%.2f");
+                Slider("Scale jitter", () => f.ScaleJitter, x => f.ScaleJitter = x, 0f, 0.9f, "%.2f");
+            }
+
+            if (ImGui.CollapsingHeader("Wind and fade", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Wind strength", () => f.WindStrength, x => f.WindStrength = x, 0f, 0.4f, "%.3f");
+                Slider("Wind speed", () => f.WindSpeed, x => f.WindSpeed = x, 0f, 5f, "%.2f");
+                Slider("Fade start (yd)", () => f.FadeStart, x => f.FadeStart = x, 0f, 120f, "%.0f");
+                Slider("Fade end (yd)", () => f.FadeEnd, x => f.FadeEnd = x, 1f, 120f, "%.0f");
+            }
+
+            if (ImGui.CollapsingHeader("Look", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Slider("Alpha cutoff", () => f.AlphaCutoff, x => f.AlphaCutoff = x, 0.05f, 0.95f, "%.2f");
+                Slider("Brightness", () => f.Brightness, x => f.Brightness = x, 0.2f, 2f, "%.2f");
+            }
+        }
+        ImGui.End();
     }
 
     public void Dispose()
@@ -2163,6 +2376,7 @@ public sealed partial class GameLoop : IDisposable
         _collisionDebug?.Dispose();
         _doodads?.Dispose();
         _liquid?.Dispose();
+        _foliage?.Dispose();
         _wmo?.Dispose();
         _terrain?.Dispose();
         _uploads?.Dispose();

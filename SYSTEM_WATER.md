@@ -6,166 +6,169 @@ plus the handbook's cross-cutting ground truth (§3.1 coordinates, §8.5 shader
 ASCII rule, §11 working agreements) before touching water. You should not need
 the rest of the handbook for a water change.
 
-Version: Draft 1 — 2026-07-24 (first water system, "look at WoWee" pass)
+Version: Draft 2 — 2026-07-24 ("real vanilla textures + live tuning" pass)
+Previous: Draft 1 — first water system, procedural "look at WoWee" pass.
 Owner files: `World/LiquidRenderer.cs`, `Shaders/water.vert`, `Shaders/water.frag`,
 `Shaders/underwater.vert`, `Shaders/underwater.frag`, the MCLQ parse in
-`Formats/AdtTerrainReader.cs`, and the render/atmosphere wiring in `Program.cs`.
+`Formats/AdtTerrainReader.cs`, and the render/atmosphere/HUD wiring plus the
+`WaterTuningWindow` in `Program.cs` / `Program.DevTools.cs`.
 
 ---
 
 ## 0. The bar
 
-Water has to **feel and look like WoW water** — not match a reference pixel for
-pixel, but read as water: it has depth, it moves, you can be in it and under it.
-The reference studied for this pass is **WoWee** (`Desktop/WoWee-master`), a C++
-/ Vulkan 1.12 client with a mature water renderer. We took its *technique*, not
-its code (it is Vulkan; this client is OpenGL/Silk.NET). §6 records exactly what
-was borrowed and what was deliberately left out.
+Water has to **feel and look like WoW 1.12 water** — the real client, not a
+stylized reinterpretation. The hard-won lesson of the Draft 2 pass: 1.12 water is
+**a dark, near-opaque surface covered by a scrolling animated texture**. It is NOT
+see-through, and its motion is the *texture* scrolling, not the geometry waving.
+Chasing "transparent, wavy" water (Draft 1 / WoWee) walked away from the target;
+loading the client's own animated liquid textures walked back to it.
 
-The three complaints this pass answered, in Nico's words:
+The complaints this pass answered, in Nico's words, in order:
 
-1. *"Character always in front even though half submerged."*
-2. *"Flat like a line, no dimension, no movement."*
-3. *"Still 0 depth, there is no underwater."*
+1. *"All green."* — river was mis-routed to the slime shader path (fixed §1.1).
+2. *"Too transparent / it's just wrong."* — 1.12 is opaque and textured, not
+   clear; the procedural surface could never match it (fixed §1.2).
+3. *"The light is swimming with the animation."* — cross-fading texture frames
+   made highlights glide; vanilla swaps frames in place (fixed §1.3).
+4. *"Weird undulation."* — the Gerstner geometry waves; flattened (fixed §1.3).
+5. *"Super dark."* — lighting defaults over-dimmed the texture; rebalanced, and
+   every knob is now live in a HUD so it can be dialed by eye (fixed §1.4, §4).
+
+The ground rule that came out of this pass: **build the real thing, not a
+stand-in dressed up as progress.** When only an approximation is possible, say so
+up front. That is why the surface is the client's own BLP frames, not procedural
+noise.
 
 ---
 
 ## 1. What is implemented now
 
-### 1.1 Render order — water draws AFTER the character
+### 1.1 Type routing — river is water, not slime
 
-The submersion bug (#1) was pure ordering. Water used to draw before the
-character, so the character always painted on top of it. Now, in
-`GameLoop.Render`, the order is:
+Vanilla MCLQ stores a per-tile liquid type. `AdtTerrainReader.ParseMclqLayers`
+reduces each layer to a dominant type code, and **the shaders route by that exact
+code**, not by a coarse threshold:
 
-```
-terrain -> WMO -> doodads -> CHARACTER -> water surface -> underwater overlay -> debug/HUD
-```
-
-The water pass **tests depth but does not write it** (`DepthMask(false)`), blends
-(`SrcAlpha / OneMinusSrcAlpha`) and disables face culling (so it reads from below
-too). Because it draws after the character and depth-tests:
-
-- A water surface *in front of* a submerged body part is nearer than that part,
-  passes the depth test, and blends over it — you see the waterline climb the
-  character.
-- The near bank (opaque terrain, already in the depth buffer) still occludes
-  water behind it.
-- A character standing in front of a lake is nearer than the water, so the water
-  fails the test there and the character stays crisply in front.
-
-No depth *write* means overlapping water and the far side of a submerged model
-still blend correctly instead of z-fighting.
-
-### 1.2 Gerstner wave displacement — the surface has real relief (fixes #2)
-
-`water.vert` displaces every water vertex with a stack of **six Gerstner waves**
-(the same model WoWee uses). Each wave contributes vertical *and* horizontal
-motion; the surface normal is derived analytically from the accumulated wave
-slopes (cross product of tangent and binormal), so lighting and specular follow
-the real moving geometry. Ocean uses a broader, choppier octave set than inland
-water. This is what turns the old flat sheet into a surface with dimension and
-motion.
-
-The displacement is **damped to zero at the shoreline** using the per-vertex
-depth (§1.3): `shore = smoothstep(0, 1.2, depth)`. Waves are full height in deep
-water and lie flat where the water meets the beach, so they never climb up over
-dry land.
-
-### 1.3 Per-vertex baked depth — shoreline fade + darkening (fixes #3, part 1)
-
-WoWee gets water depth by sampling a captured scene-depth texture in the shader.
-This client has **no scene-depth pass yet**, so instead the depth is **baked into
-the mesh per vertex** when it is built:
-
-```
-depth = surfaceZ - groundZ         (clamped >= 0)
-```
-
-This is a *direct index lookup*, not a spatial query, because the MCLQ liquid
-grid and the terrain's MCVT outer grid are the same 9×9 grid at the same world
-positions. For liquid vertex `(r, c)` in a chunk:
-
-```
-surfaceZ = MclqLayer.VertexHeights[r*9 + c]          (absolute WoW Z)
-groundZ  = chunk.BaseZ + chunk.OuterHeight(c, r)     (== chunk.WorldHeightAt(c, r))
-```
-
-`water.frag` uses that depth for the two biggest depth cues:
-
-- **Shoreline fade** — alpha goes to almost nothing at the waterline and rises to
-  the type's base alpha in deep water. The soft, see-through edge is what sells
-  "there is depth here."
-- **Depth darkening** — a shallow-to-deep colour ramp (`shallowCol -> deepCol` by
-  `1 - exp(-depth * k)`), a cheap Beer-Lambert stand-in.
-
-This is the pragmatic substitute for WoWee's scene-depth refraction. When/if a
-scene-colour+depth capture pass is added later, the shader can move to
-screen-space depth and gain refraction and soft occlusion edges (see §5).
-
-### 1.4 Underwater overlay — being *in* the water (fixes #3, part 2)
-
-`underwater.vert/frag` draw a single full-screen triangle (generated from
-`gl_VertexID`, no vertex buffer) tinting the whole screen when the **camera eye
-is below a water surface**. `LiquidRenderer.TryGetSurface(x, y)` interpolates the
-resident water grid at the camera's XY; if `cameraZ < surfaceZ`, the overlay
-runs. Tint colour is per liquid type; opacity grows with how deep the eye is;
-a slow caustic wobble and a darkened vignette keep it from looking like a flat
-pane. Drawn with no depth test, on top of everything, before the HUD.
-
-### 1.5 Surface look (`water.frag`)
-
-On top of depth and waves: dual-scroll detail-normal ripples mixed with the mesh
-normal; a Schlick fresnel that tints the surface toward the sky/fog colour at
-grazing angles; a moving specular sun sparkle (the clearest sign of motion);
-scattered cellular **shoreline foam** where the water is shallow; and wave-crest
-brightening. Magma and slime take a separate self-luminous flowing-noise path
-(no fresnel/foam), pulsing between a dark crust and a hot core.
-
-### 1.6 Per-type palette and the MCLQ type codes
-
-Vanilla MCLQ stores a per-tile liquid type in bits 0..2 of each 8×8 flag byte.
-`AdtTerrainReader.ParseMclqLayers` reduces each layer to a dominant type:
-
-| Code | Liquid | Shader path |
+| Code | Liquid | Texture / path |
 |---|---|---|
-| 1 | Ocean | deep blue, choppier waves, higher alpha |
-| 3 | Slime | green self-luminous flow |
-| 4 (and 0) | River / lake water | blue-green, gentler waves |
-| 6 | Magma | orange self-luminous flow |
+| 1 | Ocean | ocean_h / ocean |
+| 3 | Slime | slime |
+| 4 (and 0/2/5) | River / lake / inland water | lake_a |
+| 6 | Magma | lava |
 
-Type routing in the shaders: `vType > 5.5` magma, `> 2.5` slime, `0.5..1.5`
-ocean, else river/water. Colours currently live in the shader, not
-`LiquidType.dbc` — see §5.
+Routing in `water.frag` / `water.vert`: `type > 5.5` magma, `2.5..3.5` slime,
+`0.5..1.5` ocean, **everything else = river/lake water**. The Draft 1 bug was a
+single `type > 2.5` test that swept river (type 4) into the slime branch and
+painted it luminous green. Do not re-introduce a threshold that catches 4.
+
+### 1.2 Real vanilla animated liquid textures (the surface)
+
+`LiquidRenderer.LoadLiquidTextures` reads the client's own numbered BLP frames
+straight from the MPQs (via `AdtTerrainReader.ReadBlpPixels` -> `BlpDecoder`),
+stacks each liquid's frames into one `GL_TEXTURE_2D_ARRAY`, and the shader samples
+them. The real vanilla paths (from WoWMapViewer's `liquid.cpp`, §6):
+
+```
+river/lake  XTextures\river\lake_a.%d.blp     (the file is lake_a, NOT river)
+ocean       XTextures\ocean\ocean_h.%d.blp     (falls back to ocean.%d.blp)
+magma       XTextures\lava\lava.%d.blp
+slime       XTextures\slime\slime.%d.blp
+```
+
+Frames are numbered from 1 until one is missing (vanilla ships 30). The loader
+**probes an ordered candidate list per type and logs what resolved**
+(`[liquid-tex] water: 30 frame(s) 256x256 from 'XTextures\river\lake_a.N.blp'`),
+so a wrong path is visible in the console, not silent. If a type's frames fail to
+load, it logs and — if the MPQ carries a `(listfile)` — dumps the real candidate
+paths (`DiscoverLiquidTexturePaths`).
+
+`water.frag` samples the array with **world-space UVs** (`vAbsXY * uTexScale`, no
+stored UVs), so the texture tiles against world position and stays put on a flat
+surface. A **river-with-no-texture borrows the ocean texture** so inland water
+still gets a real animated surface rather than the fallback (§1.5).
+
+### 1.3 Flat, still surface; frame-swap (not cross-fade) animation
+
+Two Draft 1 behaviours actively fought the texture and were removed:
+
+- **Geometry waves.** `water.vert` still computes the six-octave Gerstner stack,
+  but the displacement is scaled by `uWaveAmp`, which **defaults to 0 = flat
+  plane**. Vanilla water is a flat sheet; physically waving the mesh made the
+  locked texture swim. Raise `uWaveAmp` to bring the waves back.
+- **Wave-normal relighting.** The textured path lights the surface **flat** — it
+  does not use `vNormal`. Relighting with the slow-moving Gerstner normal painted
+  broad light/dark bands that drifted across and fought the texture's animation.
+  The texture carries all the ripple detail.
+
+Frame animation is a **discrete swap by default** (`uFrameBlend = 0`): the current
+frame shows for `1/fps` seconds, then the next. Cross-fading (`uFrameBlend -> 1`)
+blends offset caustic frames, which makes the highlights *glide* — that continuous
+drift is what read as "the light swimming with the water." Vanilla swaps in place,
+so the light twinkles/boils rather than gliding. The knob is continuous.
+
+### 1.4 Opaque, depth-darkened, flat-lit look (`water.frag` textured path)
+
+The textured branch runs first and returns; the procedural surface (§1.5) is only
+a fallback. On top of the sampled texture: **near-opaque alpha** (deep water ~1.0,
+only the shoreline softens — vanilla is not see-through), **depth darkening** (a
+shallow->deep multiplier), **flat lighting** (base brightness + ambient + a
+sun-elevation term; no wave normal), a **static grazing sky sheen** from the view
+angle only, and distance fog. Every one of these is a live uniform (§4). The
+defaults were rebalanced this pass so the texture shows near its own brightness at
+noon instead of being multiplied down; deep water can still read a little dark and
+is a tuning target, not a bug.
+
+### 1.5 Procedural fallback (only when a texture is missing)
+
+If `sampleLiquid` finds zero frames for the routed type (and no ocean texture to
+borrow), the shader falls through to the Draft 1 **procedural surface**: dark
+teal-green body, depth fade, dual-scroll detail normals, scrolling fbm shimmer,
+foam. It exists so the client never renders broken water if the MPQ paths are
+wrong — it is a safety net, loudly logged, **not** the intended look.
+
+### 1.6 Underwater overlay + submersion
+
+`underwater.vert/frag` draw a full-screen tint when the camera eye is below a
+water surface (`LiquidRenderer.TryGetSurface` interpolates the resident grid at
+the camera XY; if `cameraZ < surfaceZ`, the overlay runs). Per-type tint, opacity
+grows with eye depth, slow caustic wobble + vignette. `TryGetSurface` also backs
+the HUD's "liquid type under you" readout (§4) and is the hook a future swim state
+would reuse.
+
+### 1.7 Render order and state (unchanged, still the contract)
+
+Draw order in `GameLoop.Render`:
+`terrain -> WMO -> doodads -> CHARACTER -> water surface -> underwater -> HUD`.
+The water pass **tests depth but does not write it** (`DepthMask(false)`), blends
+`SrcAlpha/OneMinusSrcAlpha`, and disables face culling (reads from below). Drawing
+after the character is what lets a submerged body be covered by the surface in
+front of it. With opaque water the submerged half is simply hidden, which is the
+1.12 look.
 
 ---
 
 ## 2. Ground truth — water facts, do not re-derive
 
-- **Placement mirrors `TerrainTile.Prepare` exactly**, so water aligns with the
-  ground it sits on:
-  ```
-  originX = (32 - row) * 533.33333 ;  originY = (32 - col) * 533.33333
-  worldX  = originX - (chunk.IndexY*8 + r) * CELL_SIZE
-  worldY  = originY - (chunk.IndexX*8 + c) * CELL_SIZE
-  worldZ  = MclqLayer.VertexHeights[r*9 + c]     (already absolute WoW Z)
-  ```
-- **The liquid 9×9 grid is index-aligned with the terrain MCVT outer grid.** This
-  is why depth is a direct lookup (§1.3). Do not spatial-query the terrain for
-  water depth; the indices already correspond.
-- **MCLQ vertex heights are absolute WoW Z.** MCVT heights are *relative to
-  `chunk.BaseZ`*. Mixing the two conventions is the easy mistake; add `BaseZ` to
-  MCVT, do not add it to MCLQ.
-- **Vertex format is 5 floats:** position(3) + type(1) + depth(1), attributes 0/1/2.
-- **Render state is the contract:** depth test on, depth write OFF, blend on, cull
-  off, and it must run *after* the character. Anything drawn after water (debug
-  lines, HUD) can rely on water not having touched the depth buffer.
+- **Vanilla liquid textures live in `XTextures\`** and the river file is `lake_a`,
+  not `river` (the folder is `river`). Ocean is `ocean_h`. 30 frames, 1-indexed,
+  `%s.%d.blp`. Source: WoWMapViewer `liquid.cpp` (§6). These are verified against
+  Nico's client: `river 30`, `ocean 30` in the HUD.
+- **1.12 water is dark and opaque, and its motion is the scrolling texture**, not
+  geometry waves and not transparency. This is the whole point; do not "improve"
+  it back toward clear, wavy water.
+- **UVs are world-space, derived in the fragment shader** (`vAbsXY * uTexScale`).
+  The vertex format is still 5 floats: position(3) + type(1) + depth(1),
+  attributes 0/1/2. There is no UV attribute.
+- **Placement mirrors `TerrainTile.Prepare` exactly** and the liquid 9x9 grid is
+  index-aligned with the terrain MCVT outer grid, so per-vertex depth is a direct
+  lookup (`surfaceZ - groundZ`), not a spatial query. MCLQ heights are absolute
+  WoW Z; MCVT heights are relative to `chunk.BaseZ`.
 - **Camera-relative rendering, as everywhere else** (handbook §3.1). Positions are
-  absolute WoW space; the vertex shader subtracts `camera.Position` and uses
-  `camera.RelativeViewProjection`. There is no coordinate conversion.
-- **Residency follows terrain.** `LoadForTiles` builds/keeps water meshes for
-  exactly the resident tiles and disposes the rest, diffing against the terrain's
-  `LoadedTiles` on tile transitions — same pattern as the moving 3×3 ring.
+  absolute WoW space; the vertex shader subtracts `camera.Position`.
+- **Residency follows terrain.** `LoadForTiles` builds/keeps water meshes for the
+  resident tiles; the textures load once at startup (`LoadLiquidTextures`) and are
+  not per-tile.
 
 ---
 
@@ -173,83 +176,82 @@ ocean, else river/water. Colours currently live in the shader, not
 
 | File | Owns | Does NOT own |
 |---|---|---|
-| `World/LiquidRenderer.cs` | Mesh build (incl. baked depth), residency, the transparent surface pass, `TryGetSurface`, the underwater overlay pass | Terrain heights (reads them), atmosphere values (receives them), swim physics |
-| `Shaders/water.vert` | Gerstner displacement, analytic normal, shore damping | Colour, lighting |
-| `Shaders/water.frag` | Depth fade, darkening, detail normals, fresnel, sparkle, foam, per-type look | Placement, depth source |
+| `World/LiquidRenderer.cs` | Mesh build (baked depth), residency, **loading the animated BLP frames into array textures**, the transparent surface pass, `TryGetSurface`, the underwater pass, and **every live tuning property** | Terrain heights (reads them), atmosphere (receives it), swim physics |
+| `Shaders/water.vert` | Optional Gerstner displacement scaled by `uWaveAmp` (0 = flat), pass-through of world XY for UVs | Colour, lighting, texture |
+| `Shaders/water.frag` | Animated texture sampling + frame swap, textured look (opacity, depth, flat lighting, sheen, fog), river->ocean borrow, procedural fallback | Placement, which frames exist |
 | `Shaders/underwater.vert/frag` | Full-screen submerged tint + caustic | Deciding *when* submerged (Program does) |
-| `Formats/AdtTerrainReader.cs` (MCLQ) | Parsing `MclqLayer` (type, heights, render mask) | Rendering |
-| `Program.cs` (`Render`) | Draw order, feeding atmosphere to the renderer, the submersion check that triggers the overlay | Water internals |
+| `Formats/AdtTerrainReader.cs` | MCLQ parse (type, heights, mask); `ReadBlpPixels`/`ReadFileFromMpqs` used to load the frames | Rendering |
+| `Program.cs` | Draw order, atmosphere feed, submersion check, **`WaterTuningWindow` (the live HUD)** and calling `LoadLiquidTextures` | Water internals |
 
-The atmosphere (sun, ambient, fog) is pushed into `LiquidRenderer` each frame from
-the same evaluated time-of-day environment every other renderer uses, so water
-matches the world's light and fog.
+The atmosphere (sun, ambient, fog) is pushed into `LiquidRenderer` each frame so
+water matches the world's light and fog.
 
 ---
 
-## 4. Tuning and testing
+## 4. Tuning — the live Water Tuning HUD
 
-**Where the feel lives.** The look is a handful of numbers, currently constants:
-wave amplitude/frequency/speed per type (`water.vert`), shore-fade width
-(`smoothstep(0, 1.2, depth)`), depth-darkening rate (`exp(-depth * 0.18)`),
-base alpha per type, specular tightness, foam thresholds (`water.frag`), and the
-underwater tint colours + density (`LiquidRenderer.UnderwaterTint`,
-`underwater.frag`). These are the knobs to turn when dialing the feel. The next
-step is exposing the main ones (wave height, transparency, underwater density) as
-live HUD sliders behind the DevTools switch (FOUNDATION_PLAN §12, Plan 05
-TuningState) so Nico can tune by eye instead of by rebuild.
+**Every look/feel constant is a live uniform, driven by a dedicated ImGui window
+(`Program.WaterTuningWindow`, DevTools only) — a second window next to the main
+one.** Move a slider, see it immediately; nothing needs a rebuild to tune. Groups:
 
-**How to test (the shared-language loop).** Water is visual, so a screenshot is
-the start, not the end. Pair it with data: wade in and confirm the waterline sits
-on the character; look along a shore for the transparent-to-opaque fade; dip the
-camera under for the overlay. When something is off, capture a vantage
-(FOUNDATION_PLAN / PLAN_01) and dump the scene so the decision and the numbers
-(resident water tiles, triangle count, the type at that spot, camera vs surface
-Z) come back as text, not just an image.
+- **Texture & animation** — texture scale (world UV tiling), animation FPS, frame
+  blend (0 twinkle / 1 glide), texture brightness, texture contrast, texture tint.
+- **Opacity** — opacity (deep alpha), shoreline alpha, shoreline width.
+- **Depth colour** — deep darkening (higher = brighter deep water), depth rate.
+- **Lighting** — base brightness, ambient amount, sun amount, sky sheen.
+- **Geometry waves** — wave amplitude (0 = flat), wave speed.
+- **Reset to defaults**, plus read-outs: `frames river/ocean/slime/magma` (0 = that
+  texture did not load) and **`under you: liquid type N -> which texture`** (the
+  definitive routing check — stand in the water and read it).
+
+The knobs are **session-only**: they reset to the coded defaults (in
+`LiquidRenderer`'s property initializers and `ResetTuning`) on restart. Once a set
+of values looks right, bake them into those defaults.
+
+**How to test (the shared-language loop).** Water is visual, so pair a screenshot
+with the HUD read-outs: the `frames` line confirms the textures loaded, the
+`under you` line confirms routing, and the sliders let you bisect any "it looks
+wrong" to a single number. That loop is how the Draft 2 issues were each pinned
+to one cause (mis-routing, frame cross-fade, wave normal, lighting gain).
 
 ---
 
 ## 5. Not done — the honest ceiling
 
-- **WMO liquid (MLIQ).** Stormwind canals, fountains and indoor pools are WMO
-  liquid, parsed from MLIQ in local space, not ADT MCLQ. Not rendered yet. This
-  is the most visible gap in the city.
-- **`LiquidType.dbc` colours.** Palettes are hard-coded per basic type. Real
-  per-liquid colours/materials live in the DBC and are not read yet.
-- **Screen-space refraction and planar reflection.** WoWee captures scene colour +
-  depth and adds refraction, a blue underwater fog on submerged geometry, and a
-  planar reflection pass. This client has none of those passes; depth is baked per
-  vertex instead (§1.3). Adding a scene capture is the unlock for all three.
-- **Player interaction ripples.** WoWee rings water outward from the player and
-  spawns foot splashes / bubbles (`swim_effects`). Not implemented; the shader has
-  no player-position input yet.
-- **Swim physics / buoyancy.** Rendering only. The controller does not yet know it
-  is in water; `TryGetSurface` is the hook that a swim state would reuse.
-- **Real animated water textures.** The surface is fully procedural. Vanilla uses
-  animated BLP frames from the MPQs; not sampled here.
+- **Deep water still reads a little dark.** A tuning target, not a bug — push
+  Deep darkening / Base brightness in the HUD, then bake the values.
+- **Player interaction ripples.** The concentric wake that spreads from a moving
+  swimmer (WoWee feeds player XY + a ripple-strength scalar into its water vertex
+  shader). Designed but NOT wired here yet — the water shader has no player-position
+  input. This is the most likely next feature.
+- **MCLQ liquid-type accuracy.** If the `under you` read-out ever shows a river
+  tagged as ocean, the fix is in `ParseMclqLayers`' type detection (read the type
+  from the MCNK header flags), not the texture.
+- **WMO liquid (MLIQ).** Stormwind canals, fountains, indoor pools — parsed from
+  MLIQ in local space, not ADT MCLQ. Not rendered.
+- **`LiquidType.dbc` colours/materials.** Textures are now real, but the shader's
+  colour/lighting constants are hand-tuned, not read from the DBC.
+- **Swim physics / buoyancy.** Rendering only. `TryGetSurface` is the hook.
 
-Do not treat any of these as bugs — they are unstarted scope, listed so the next
-change knows where the edge is.
+Screen-space refraction / planar reflection (Draft 1's stated "unlock") is
+**deliberately not pursued** — 1.12 water is opaque, so there is nothing to refract
+through. It was a WoWee idea that did not match the target.
 
 ---
 
-## 6. WoWee lineage — what was borrowed, what was not
+## 6. Lineage — what the surface actually comes from
 
-Studied under `Desktop/WoWee-master`: `assets/shaders/water.vert.glsl` +
-`water.frag.glsl`, `src/rendering/water_renderer.cpp` + `.hpp`,
-`src/rendering/swim_effects.cpp`.
+**The surface is the client's own vanilla animated BLP frames.** The authoritative
+source for the paths is **WoWMapViewer** (`glararan/WoWMapViewer`, `liquid.cpp`),
+a vanilla map viewer that hardcodes them; that is where `XTextures\river\lake_a`,
+`ocean\ocean_h`, `lava\lava`, `slime\slime` come from. Verified against Nico's MPQs
+via the loader's `[liquid-tex]` log.
 
-**Borrowed (technique, re-implemented for GL):** the 6-octave Gerstner wave model
-and analytic normals; dual-scroll detail normals; the depth-driven shoreline
-fade + Beer-Lambert darkening idea; the fresnel sky tint; cellular-noise foam;
-the magma/slime self-luminous path; per-basic-type palette split; the
-`camPos.z < waterHeight` submersion test.
-
-**Deliberately not carried over (yet):** WoWee's whole scene-history and planar
-reflection infrastructure (extra render passes, FBOs, descriptor sets) — replaced
-here by per-vertex baked depth, which gets most of the depth read for none of the
-pipeline cost. Its Vulkan push-constant/descriptor plumbing is irrelevant to this
-client. Its swim-effects particle systems.
-
-The rule of the borrow: WoWee is a *reference to learn from, not a bible to
-match*. Where a simpler approach gets the feel (baked depth vs a depth pass), take
-the simpler one and record why here.
+**WoWee** (`Desktop/WoWee-master`) was the Draft 1 reference and is now mostly
+*not* followed: its water is a modern, procedural, refractive, wavy renderer, and
+this pass moved deliberately toward the plain, opaque, texture-scrolling 1.12 look
+instead. What survives from the WoWee study: the Gerstner stack (kept, but off by
+default behind `uWaveAmp`), the per-type routing idea, the `camPos.z < waterHeight`
+submersion test, and the swim-ripple technique that is the documented next step
+(§5). The rule of the borrow still holds — take the technique only where it serves
+the target, and record why here.
