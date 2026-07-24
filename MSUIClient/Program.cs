@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Diagnostics;
 using ImGuiNET;
 using Silk.NET.Input;
@@ -472,10 +472,10 @@ public sealed partial class GameLoop : IDisposable
 
         var interiors = Stopwatch.StartNew();
         int requested = 0, placed = 0;
-        foreach (var (path, transform) in _wmo.EnumerateDoodads(centre, radius))
+        foreach (var (path, transform, light) in _wmo.EnumerateDoodads(centre, radius))
         {
             requested++;
-            if (_doodads.AddPlaced(path, transform)) placed++;
+            if (_doodads.AddPlaced(path, transform, light)) placed++;
         }
 
         if (reportDiagnostics && requested > 0)
@@ -1598,6 +1598,13 @@ public sealed partial class GameLoop : IDisposable
                     : "    collision   (none)");
                 ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f),
                     $"    standing on {_controller.GroundSource}");
+
+                // Terrain holes: the MCNK 0x3C mask, which is how a dungeon
+                // entrance is cut through a hillside. Standing in one means the
+                // height grid deliberately has no answer and collision has to.
+                if (_controller.InTerrainHole)
+                    ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, 1f),
+                        "    in terrain hole (dungeon cut)");
                 if (_controller.GroundTriangle >= 0 && _collision is not null)
                     ImGui.Text($"    surface tri {_controller.GroundTriangle} " +
                                $"({_collision.SourceOf(_controller.GroundTriangle)})");
@@ -1644,6 +1651,49 @@ public sealed partial class GameLoop : IDisposable
                 if (_controller.NoGroundBelow)
                     ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f),
                         "  NO GROUND — off tiles or missing MCVT");
+
+                // Dungeon entry. These two switches together are the difference
+                // between walking into the gold mine and climbing the mountain
+                // it is dug into, so they get their own group rather than
+                // hiding among the speed sliders.
+                ImGui.Separator();
+                ImGui.Text("Dungeon entry (1.12)");
+
+                if (_terrain is not null)
+                {
+                    bool holes = _terrain.ApplyHoles;
+                    if (ImGui.Checkbox("Terrain holes cut ground", ref holes))
+                        _terrain.ApplyHoles = holes;
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(
+                            "MCNK 0x3C holes: a uint16 per chunk, 4x4 bits, each bit\n" +
+                            "covering a 2x2 block of the chunk's 8x8 quads. The mesh has\n" +
+                            "always skipped these; the height grid did not, so the player\n" +
+                            "stood on invisible ground across a mine mouth.\n" +
+                            "Off = the old behaviour.");
+
+                    ImGui.TextDisabled($"  {_terrain.HoleQuadCount} holed quad(s) loaded");
+                }
+
+                bool precedence = _controller.VanillaHeightPrecedence;
+                if (ImGui.Checkbox("Vanilla height precedence", ref precedence))
+                    _controller.VanillaHeightPrecedence = precedence;
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(
+                        "Map::GetHeight: the collision surface wins when it is HIGHER\n" +
+                        "than terrain, or when you are already under terrain and it is\n" +
+                        "CLOSER. Off = highest-surface-wins, which can never put you in\n" +
+                        "a tunnel because a mine floor is below the mountain above it.");
+
+                float slack = _controller.UndergroundSlack;
+                if (ImGui.SliderFloat("Underground slack", ref slack, 0.05f, 4f, "%.2f yd"))
+                    _controller.UndergroundSlack = slack;
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(
+                        "How far below terrain the feet must be before the closer-surface\n" +
+                        "rule may pick a lower floor. Vanilla's server constant is 0.05,\n" +
+                        "but walking uphill puts the feet ~0.16 yd under terrain for a\n" +
+                        "frame, so that value here drops you through the world.");
             }
             }
 
@@ -1671,6 +1721,23 @@ public sealed partial class GameLoop : IDisposable
                 // never lost - it was wound inward and culled.
                 bool twoSided = _wmo.ForceTwoSided;
                 if (ImGui.Checkbox("Force two-sided", ref twoSided)) _wmo.ForceTwoSided = twoSided;
+
+                // Interior lighting (MOCV, 1.12 classic render path). Vanilla
+                // bakes every interior's lighting per vertex; unticking this
+                // reverts to the old "light everything with the outdoor sun"
+                // behaviour, which is the quickest side-by-side.
+                bool wmoVc = _wmo.UseVertexColors;
+                if (ImGui.Checkbox("Baked interior light (MOCV)", ref wmoVc))
+                    _wmo.UseVertexColors = wmoVc;
+                if (wmoVc)
+                {
+                    // 2.0 is the authored value, not a preference: the classic
+                    // path halves MOCV at load and doubles it at draw.
+                    float vcScale = _wmo.VertexColorScale;
+                    if (ImGui.SliderFloat("Interior brightness", ref vcScale, 0.5f, 4f, "x%.2f"))
+                        _wmo.VertexColorScale = vcScale;
+                    ImGui.TextDisabled("  2.00 = vanilla. Reload buildings to re-read MOCV.");
+                }
 
                 // Drag to zero to prove whether the alpha cut is eating walls.
                 float cutoff = _wmo.AlphaCutoff;
@@ -1784,6 +1851,7 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  {_doodads.InstanceCount:N0} placed, {_doodads.DrawnLastFrame:N0} drawn");
                 ImGui.Text($"  {_doodads.ModelCount} model(s), {_doodads.CollisionModels} with collision");
                 ImGui.Text($"  {_doodads.TotalTriangles:N0} triangles");
+                ImGui.Text($"  {_doodads.InteriorLitCount:N0} with baked interior light");
 
                 bool showDoodads = _doodads.Enabled;
                 if (ImGui.Checkbox("Draw doodads", ref showDoodads)) _doodads.Enabled = showDoodads;
@@ -1795,6 +1863,29 @@ public sealed partial class GameLoop : IDisposable
                 bool doodadInstancing = _doodads.UseInstancing;
                 if (ImGui.Checkbox("GPU instancing##doodads", ref doodadInstancing))
                     _doodads.UseInstancing = doodadInstancing;
+
+                // The doodad counterpart of "Baked interior light (MOCV)"
+                // above. A WMO's furniture ships its own pre-baked light in
+                // MODD.color; unticking this lights every barrel with the
+                // outdoor sun again, which is the quickest side-by-side for
+                // "is the tavern too dark now". Takes effect immediately - the
+                // colour rides the instance buffer, so no reload is needed.
+                bool doodadInterior = _doodads.InteriorLighting;
+                if (ImGui.Checkbox("Baked interior light (MODD)", ref doodadInterior))
+                    _doodads.InteriorLighting = doodadInterior;
+
+                if (doodadInterior)
+                {
+                    // Must track the Buildings slider above. MODD.color sits on
+                    // the same scale as raw MOCV (measured r=0.82 against an
+                    // independent floor sample over 7,428 interior doodads), so
+                    // a barrel only matches the floor it stands on while both
+                    // use the same factor. 2.0 is vanilla.
+                    float dScale = _doodads.VertexColorScale;
+                    if (ImGui.SliderFloat("Interior brightness##doodads", ref dScale, 0.5f, 4f, "x%.2f"))
+                        _doodads.VertexColorScale = dScale;
+                    ImGui.TextDisabled("  Match the Buildings slider or props detach from the floor.");
+                }
 
                 float doodadCut = _doodads.AlphaCutoff;
                 if (ImGui.SliderFloat("Doodad alpha cut", ref doodadCut, 0f, 1f))
@@ -2338,12 +2429,66 @@ public sealed partial class GameLoop : IDisposable
 
             if (ImGui.CollapsingHeader("Coverage", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                Slider("Radius (yd)", () => f.Radius, x => f.Radius = x, 5f, 120f, "%.0f");
-                Slider("Density", () => f.DensityScale, x => f.DensityScale = x, 0f, 4f, "%.2f");
+                // Every coverage knob is baked in at SCATTER time (count, radius and
+                // the per-instance scale matrix), not read per frame like wind/fade.
+                // Scatter is throttled to camera movement, so without forcing a
+                // rebuild these sliders look dead until you walk. Force it on change.
+                Slider("Radius (yd)", () => f.Radius, x => { f.Radius = x; f.ForceRescatter(); }, 5f, 120f, "%.0f");
+                Slider("Density", () => f.DensityScale, x => { f.DensityScale = x; f.ForceRescatter(); }, 0f, 4f, "%.2f");
                 int mpc = f.MaxPerCell;
-                if (ImGui.SliderInt("Max per cell", ref mpc, 0, 24)) f.MaxPerCell = mpc;
-                Slider("Scale", () => f.Scale, x => f.Scale = x, 0.1f, 4f, "%.2f");
-                Slider("Scale jitter", () => f.ScaleJitter, x => f.ScaleJitter = x, 0f, 0.9f, "%.2f");
+                if (ImGui.SliderInt("Max per cell", ref mpc, 0, 24)) { f.MaxPerCell = mpc; f.ForceRescatter(); }
+                Slider("Scale", () => f.Scale, x => { f.Scale = x; f.ForceRescatter(); }, 0.1f, 4f, "%.2f");
+                Slider("Scale jitter", () => f.ScaleJitter, x => { f.ScaleJitter = x; f.ForceRescatter(); }, 0f, 0.9f, "%.2f");
+            }
+
+            // Placement rules Blizzard baked into the terrain itself. Both live
+            // in the MCNK header, both work per 8x8 cell, and together they are
+            // why the retail road stays bare while the verge beside it does not.
+            if (ImGui.CollapsingHeader("Placement rules (1.12)", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                bool cellMap = f.UseCellLayerMap;
+                if (ImGui.Checkbox("Per-cell layer map", ref cellMap)) { f.UseCellLayerMap = cellMap; f.ForceRescatter(); }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("MCNK 0x40 ReallyLowQualityTextureingMap: 2 bits per cell naming\n" +
+                                     "which texture layer supplies that cell's ground effect.\n" +
+                                     "Off = guess the layer from the alpha maps (old behaviour).");
+
+                bool noDood = f.UseNoDoodadMask;
+                if (ImGui.Checkbox("No-doodad mask", ref noDood)) { f.UseNoDoodadMask = noDood; f.ForceRescatter(); }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("MCNK 0x50 noEffectDoodad: 1 bit per cell, artist-authored\n" +
+                                     "\"place nothing here\". In Northshire it traces the road.");
+
+                bool skipHoles = f.SkipHoles;
+                if (ImGui.Checkbox("Skip terrain holes", ref skipHoles)) { f.SkipHoles = skipHoles; f.ForceRescatter(); }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("MCNK 0x3C holes: cells cut away so a dungeon entrance is\n" +
+                                     "reachable. Nothing grows there - it is a doorway, not ground.");
+
+                ImGui.TextDisabled($"{f.MaskedCells} cell(s) masked nearby");
+                ImGui.TextDisabled($"{f.HoleCells} cell(s) holed nearby");
+            }
+
+            // Per-type curation. Retail hid clutter types selectively - the road
+            // pebbles (Rock) never showed in the starting zones - so give each
+            // kind its own switch plus a thin-out slider, with the live placed
+            // count on the right. Uncheck Rock to clear the road.
+            if (ImGui.CollapsingHeader("Types", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                foreach (FoliageKind k in Enum.GetValues<FoliageKind>())
+                {
+                    bool on = f.KindEnabled(k);
+                    if (ImGui.Checkbox($"{k}##foliageKind", ref on)) f.SetKindEnabled(k, on);
+
+                    ImGui.SameLine(110);
+                    float keep = f.KindDensity(k);
+                    ImGui.SetNextItemWidth(120);
+                    if (ImGui.SliderFloat($"##keep{k}", ref keep, 0f, 1f, "x%.2f"))
+                        f.SetKindDensity(k, keep);
+
+                    ImGui.SameLine();
+                    ImGui.TextDisabled(f.KindInstances(k).ToString());
+                }
             }
 
             if (ImGui.CollapsingHeader("Wind and fade", ImGuiTreeNodeFlags.DefaultOpen))

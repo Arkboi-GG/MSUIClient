@@ -44,6 +44,14 @@ public sealed class DoodadRenderer : IDisposable
     private const float CoordShift = 32f * 533.33333f;
 
     /// <summary>
+    /// "No baked light, full daylight" - the value every terrain doodad uses,
+    /// and the value GL supplies for a disabled vertex attribute, so a doodad
+    /// with no interior light renders exactly as it did before interior
+    /// lighting existed.
+    /// </summary>
+    private static readonly Vector4 ExteriorLight = new(0f, 0f, 0f, 1f);
+
+    /// <summary>
     /// Bases for the M2 COLLISION hull. The render mesh needs none — an M2
     /// stores render vertices Y-up already — but the collision arrays in the
     /// same file are Z-up, so the hull alone gets converted.
@@ -102,6 +110,15 @@ public sealed class DoodadRenderer : IDisposable
         public uint IndexCount;
         public Texture? Texture;
         public bool TwoSided;
+
+        /// <summary>
+        /// M2 material flag 0x01. The batch is authored at full brightness and
+        /// must ignore lighting entirely: lantern glows, fire, torch flames,
+        /// the additive glow planes around a brazier. Without honouring it, a
+        /// lantern goes out the moment interior lighting darkens the room it
+        /// hangs in, which is the one thing a lantern must never do.
+        /// </summary>
+        public bool Unlit;
     }
 
     private sealed class Model : IDisposable
@@ -168,6 +185,29 @@ public sealed class DoodadRenderer : IDisposable
         public Matrix4x4 Transform;
         public Vector3 WorldMin, WorldMax;
         public string Path = "";
+
+        /// <summary>
+        /// Baked interior light for THIS placement. rgb is MODD.color / 255,
+        /// a is how much daylight to use instead (0 interior, 1 exterior).
+        ///
+        /// (0, 0, 0, 1) means "no baked light, full daylight", which is both
+        /// the correct answer for every terrain doodad and the value GL hands
+        /// a disabled vertex attribute - so the default costs nothing and
+        /// behaves identically to having no interior lighting at all.
+        /// </summary>
+        public Vector4 Light = new(0f, 0f, 0f, 1f);
+    }
+
+    /// <summary>
+    /// What actually goes in the instance VBO: the placement matrix followed by
+    /// the baked light. Sequential layout of 20 floats with no padding, which
+    /// is what the stride arithmetic in BuildModel assumes.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct InstanceData
+    {
+        public Matrix4x4 Transform;
+        public Vector4 Light;
     }
 
     private readonly GL _gl;
@@ -180,7 +220,7 @@ public sealed class DoodadRenderer : IDisposable
 
     /// <summary>Instances grouped by model, so each VAO binds once per frame.</summary>
     private readonly Dictionary<Model, List<Instance>> _byModel = [];
-    private readonly List<Matrix4x4> _visibleTransforms = [];
+    private readonly List<InstanceData> _visibleInstances = [];
 
     private readonly HashSet<string> _placed = [];
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
@@ -191,6 +231,14 @@ public sealed class DoodadRenderer : IDisposable
     private Shader _shader = null!;
 
     public int InstanceCount { get; private set; }
+
+    /// <summary>
+    /// How many placements carry a baked interior light (MODD.color) rather
+    /// than falling back to daylight. Purely diagnostic: if this reads 0 while
+    /// standing in a tavern, MODR or the interior gate is the thing that broke,
+    /// not the shader.
+    /// </summary>
+    public int InteriorLitCount { get; private set; }
     public int ModelCount => _models.Count(m => m.Value is not null);
     public int TextureCount => _textures.Count(t => t.Value is not null);
     public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
@@ -242,6 +290,21 @@ public sealed class DoodadRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
 
+    /// <summary>
+    /// Overbright factor for baked vertex light. MUST TRACK THE WMO RENDERER'S
+    /// VALUE. Vanilla authored vertex colour in [0, 2] rather than [0, 1], and
+    /// a prop lit on a different scale from the floor under it detaches from
+    /// that floor in a way that is instantly visible and hard to name.
+    /// </summary>
+    public float VertexColorScale { get; set; } = 2.0f;
+
+    /// <summary>
+    /// Whether props inside buildings use their baked MODD.color instead of the
+    /// outdoor sun. Off restores the pre-interior-lighting look exactly, which
+    /// is what makes this a useful A/B toggle rather than a debug leftover.
+    /// </summary>
+    public bool InteriorLighting { get; set; } = true;
+
     public DoodadRenderer(
         GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
     {
@@ -251,12 +314,26 @@ public sealed class DoodadRenderer : IDisposable
         _workers = workers;
     }
 
-    /// <summary>Doodads reuse the WMO shader — same lighting, same fog, same alpha cut.</summary>
+    /// <summary>
+    /// Doodads have their OWN shader pair, forked from the WMO one.
+    ///
+    /// They used to load wmo.vert/wmo.frag directly. That was harmless while
+    /// props and walls wanted identical lighting, and became a hazard the
+    /// moment they did not: the baked MOCV lighting on building walls is
+    /// correct and must not move, while props need per-instance interior light
+    /// and the M2 unlit flag, neither of which a wall has any use for.
+    /// Forking the files is what lets doodad lighting change without touching
+    /// wall lighting.
+    ///
+    /// The exterior lighting and fog maths in the fork are character-for-
+    /// character the WMO ones, so a barrel standing in a field lights exactly
+    /// as it did before the fork.
+    /// </summary>
     public void LoadShaders(string shaderDir)
     {
         _shader = Shader.FromFiles(_gl,
-            Path.Combine(shaderDir, "wmo.vert"),
-            Path.Combine(shaderDir, "wmo.frag"));
+            Path.Combine(shaderDir, "doodad.vert"),
+            Path.Combine(shaderDir, "doodad.frag"));
     }
 
     public void LoadForTiles(
@@ -338,6 +415,7 @@ public sealed class DoodadRenderer : IDisposable
         _byModel.Clear();
         _placed.Clear();
         InstanceCount = 0;
+        InteriorLitCount = 0;
         TotalTriangles = 0;
         DrawnLastFrame = 0;
     }
@@ -521,7 +599,12 @@ public sealed class DoodadRenderer : IDisposable
     /// the same VAO per model, the same batching, and the same collision hull
     /// treatment. A bed is solid for exactly the same reason a tree is.
     /// </summary>
-    public bool AddPlaced(string modelPath, Matrix4x4 transform)
+    /// <param name="light">
+    /// Baked interior light for this placement: rgb = MODD.color / 255, a = how
+    /// much daylight to use instead. Null keeps the exterior default, which is
+    /// what an unlit-by-the-building placement wants.
+    /// </param>
+    public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null)
     {
         string key = $"wmo|{modelPath}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
         if (_placed.Contains(key)) return true;
@@ -544,9 +627,11 @@ public sealed class DoodadRenderer : IDisposable
             WorldMin = min,
             WorldMax = max,
             Path = modelPath,
+            Light = light ?? new Vector4(0f, 0f, 0f, 1f),
         });
 
         InstanceCount++;
+        if ((light ?? new Vector4(0f, 0f, 0f, 1f)).W < 0.5f) InteriorLitCount++;
         TotalTriangles += model.TriangleCount;
         return true;
     }
@@ -857,7 +942,10 @@ public sealed class DoodadRenderer : IDisposable
 
         uint instanceVbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
-        const uint instanceStride = 16 * sizeof(float);
+
+        // 16 floats of placement matrix followed by 4 of baked light: one
+        // InstanceData. Locations 3..6 are the matrix rows, 7 the light.
+        const uint instanceStride = 20 * sizeof(float);
         for (uint row = 0; row < 4; row++)
         {
             uint location = 3 + row;
@@ -866,6 +954,11 @@ public sealed class DoodadRenderer : IDisposable
                 instanceStride, (void*)(row * 4 * sizeof(float)));
             _gl.VertexAttribDivisor(location, 1);
         }
+
+        _gl.EnableVertexAttribArray(7);
+        _gl.VertexAttribPointer(7, 4, VertexAttribPointerType.Float, false,
+            instanceStride, (void*)(16 * sizeof(float)));
+        _gl.VertexAttribDivisor(7, 1);
 
         _gl.BindVertexArray(0);
 
@@ -953,6 +1046,8 @@ public sealed class DoodadRenderer : IDisposable
 
             bool twoSided = batch.MaterialIndex < m2.RenderFlags.Count
                 && m2.RenderFlags[batch.MaterialIndex].TwoSided;
+            bool unlit = batch.MaterialIndex < m2.RenderFlags.Count
+                && m2.RenderFlags[batch.MaterialIndex].Unlit;
 
             model.Batches.Add(new Batch
             {
@@ -962,6 +1057,7 @@ public sealed class DoodadRenderer : IDisposable
                 // Foliage is nearly always two-sided; when in doubt, draw both
                 // faces. A missing leaf reads as a bug, a doubled one does not.
                 TwoSided = twoSided || texture is null,
+                Unlit = unlit,
             });
         }
 
@@ -1094,6 +1190,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
+        _shader.Set("uVertexColorScale", VertexColorScale);
 
         var viewProjection = camera.RelativeViewProjection;
         var eye = camera.Position;
@@ -1139,6 +1236,8 @@ public sealed class DoodadRenderer : IDisposable
 
                 _shader.Set("uModel", modelTransform);
                 _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
+                _shader.Set("uInstanceLight",
+                    InteriorLighting ? instance.Light : ExteriorLight);
 
                 foreach (var batch in model.Batches)
                 {
@@ -1164,6 +1263,8 @@ public sealed class DoodadRenderer : IDisposable
                         _shader.Set("uHasTexture", 0);
                         _shader.Set("uAlphaCutoff", 0f);
                     }
+
+                    _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
 
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
                         DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
@@ -1204,7 +1305,7 @@ public sealed class DoodadRenderer : IDisposable
     {
         foreach (var (model, instances) in _byModel)
         {
-            _visibleTransforms.Clear();
+            _visibleInstances.Clear();
             foreach (var instance in instances)
             {
                 var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
@@ -1218,21 +1319,25 @@ public sealed class DoodadRenderer : IDisposable
                 transform.M41 -= eye.X;
                 transform.M42 -= eye.Y;
                 transform.M43 -= eye.Z;
-                _visibleTransforms.Add(transform);
+                _visibleInstances.Add(new InstanceData
+                {
+                    Transform = transform,
+                    Light = InteriorLighting ? instance.Light : ExteriorLight,
+                });
             }
 
-            if (_visibleTransforms.Count == 0) continue;
+            if (_visibleInstances.Count == 0) continue;
 
             _gl.BindVertexArray(model.Vao);
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.InstanceVbo);
-            var transforms = CollectionsMarshal.AsSpan(_visibleTransforms);
-            fixed (Matrix4x4* p = transforms)
+            var instanceData = CollectionsMarshal.AsSpan(_visibleInstances);
+            fixed (InstanceData* p = instanceData)
             {
                 _gl.BufferData(BufferTargetARB.ArrayBuffer,
-                    (nuint)(transforms.Length * sizeof(Matrix4x4)), p, BufferUsageARB.StreamDraw);
+                    (nuint)(instanceData.Length * sizeof(InstanceData)), p, BufferUsageARB.StreamDraw);
             }
 
-            uint instanceCount = (uint)_visibleTransforms.Count;
+            uint instanceCount = (uint)_visibleInstances.Count;
             foreach (var batch in model.Batches)
             {
                 if (batch.TwoSided && cullingOn)
@@ -1258,6 +1363,8 @@ public sealed class DoodadRenderer : IDisposable
                     _shader.Set("uAlphaCutoff", 0f);
                 }
 
+                _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+
                 _gl.DrawElementsInstanced(PrimitiveType.Triangles, batch.IndexCount,
                     DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)),
                     instanceCount);
@@ -1265,7 +1372,7 @@ public sealed class DoodadRenderer : IDisposable
                 TrianglesLastFrame += (long)(batch.IndexCount / 3) * instanceCount;
             }
 
-            DrawnLastFrame += _visibleTransforms.Count;
+            DrawnLastFrame += _visibleInstances.Count;
         }
     }
 

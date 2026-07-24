@@ -23,15 +23,30 @@ public sealed class TerrainRenderer : IDisposable
     private readonly Dictionary<(int col, int row), TerrainTile> _tiles = [];
     private readonly Dictionary<(int col, int row), Task<TerrainTile.Uploaded?>> _preloads = [];
     private readonly Dictionary<(int col, int row), float[]> _preloadHeights = [];
+    private readonly Dictionary<(int col, int row), byte[]> _preloadHoles = [];
     private readonly HashSet<(int col, int row)> _missingPreloads = [];
     private HashSet<(int col, int row)> _desired = [];
 
     /// <summary>Height grids kept CPU-side for ground queries, keyed like the tiles.</summary>
     private readonly Dictionary<(int col, int row), float[]> _heights = [];
 
+    /// <summary>
+    /// Per-quad hole masks, one per loaded tile, in lockstep with _heights.
+    /// The mesh has always skipped holed quads; the height grid never did,
+    /// which is why the player could stand on invisible ground across a mine
+    /// mouth and climb the mountain instead of walking in.
+    /// </summary>
+    private readonly Dictionary<(int col, int row), byte[]> _holes = [];
+    private int _holeQuadCount;
+    private bool _holeCountDirty = true;
+
     private Shader _shader = null!;
 
     public const int HeightGridSide = 129;
+
+    /// <summary>Quads per tile edge — one less than the vertex grid.</summary>
+    public const int QuadGridSide = HeightGridSide - 1;
+
     public const float GridSize = 533.33333f;
 
     public int TileCount => _tiles.Count;
@@ -55,6 +70,42 @@ public sealed class TerrainRenderer : IDisposable
 
     /// <summary>0 textured, 1 normals, 2 UVs, 3 flat, 4 splat mask, 5 untextured.</summary>
     public int DebugMode { get; set; }
+
+    /// <summary>
+    /// Honour MCNK holes when answering ground queries. Off restores the old
+    /// behaviour, where the height grid reported solid ground through a
+    /// doorway the mesh had already cut away.
+    /// </summary>
+    public bool ApplyHoles { get; set; } = true;
+
+    /// <summary>Holed quads across the loaded tiles — a HUD sanity read.</summary>
+    public int HoleQuadCount
+    {
+        get
+        {
+            if (_holeCountDirty)
+            {
+                int n = 0;
+                foreach (var grid in _holes.Values)
+                    foreach (byte b in grid)
+                        if (b != 0) n++;
+                _holeQuadCount = n;
+                _holeCountDirty = false;
+            }
+            return _holeQuadCount;
+        }
+    }
+
+    private void SetHoles((int col, int row) key, byte[] grid)
+    {
+        _holes[key] = grid;
+        _holeCountDirty = true;
+    }
+
+    private void RemoveHoles((int col, int row) key)
+    {
+        if (_holes.Remove(key)) _holeCountDirty = true;
+    }
 
     /// <summary>Tileset repeats per chunk. Vanilla is about 8; tune it live.</summary>
     public float TextureScale { get; set; } = 8f;
@@ -136,6 +187,7 @@ public sealed class TerrainRenderer : IDisposable
 
             _tiles[(col, row)] = tile;
             _heights[(col, row)] = BuildHeightGrid(adt);
+            SetHoles((col, row), BuildHoleGrid(adt));
             loaded++;
         }
 
@@ -161,6 +213,7 @@ public sealed class TerrainRenderer : IDisposable
             _tiles[key].Dispose();
             _tiles.Remove(key);
             _heights.Remove(key);
+            RemoveHoles(key);
             changed = true;
         }
 
@@ -182,7 +235,9 @@ public sealed class TerrainRenderer : IDisposable
                 if (uploaded is null) continue;
                 _tiles[(col, row)] = TerrainTile.Adopt(_gl, uploaded);
                 _heights[(col, row)] = _preloadHeights.GetValueOrDefault((col, row), []);
+                SetHoles((col, row), _preloadHoles.GetValueOrDefault((col, row), []));
                 _preloadHeights.Remove((col, row));
+                _preloadHoles.Remove((col, row));
                 changed = true;
                 continue;
             }
@@ -193,6 +248,7 @@ public sealed class TerrainRenderer : IDisposable
 
             _tiles[(col, row)] = tile;
             _heights[(col, row)] = BuildHeightGrid(adt);
+            SetHoles((col, row), BuildHoleGrid(adt));
             changed = true;
         }
 
@@ -219,6 +275,7 @@ public sealed class TerrainRenderer : IDisposable
                 continue;
             }
             _preloadHeights[key] = BuildHeightGrid(adt);
+            _preloadHoles[key] = BuildHoleGrid(adt);
 
             var preparation = _workers.Run(() => TerrainTile.Prepare(
                 adt, _config.ClientDataPath, col, row));
@@ -258,7 +315,9 @@ public sealed class TerrainRenderer : IDisposable
                 if (uploaded is null) continue;
                 _tiles[key] = TerrainTile.Adopt(_gl, uploaded);
                 _heights[key] = _preloadHeights.GetValueOrDefault(key, []);
+                SetHoles(key, _preloadHoles.GetValueOrDefault(key, []));
                 _preloadHeights.Remove(key);
+                _preloadHoles.Remove(key);
             }
             catch (Exception ex)
             {
@@ -295,11 +354,69 @@ public sealed class TerrainRenderer : IDisposable
     }
 
     /// <summary>
+    /// Per-quad hole mask for one tile: 128x128 bytes, 1 where the MCNK holes
+    /// field says the ground is cut away. Indexed by the quad's lower corner,
+    /// exactly like the height grid, so holes[r * 128 + c] guards the quad
+    /// whose corners are heights (r,c)..(r+1,c+1).
+    ///
+    /// Vanilla stores this as a uint16 per chunk at MCNK+0x3C: sixteen bits in
+    /// a 4x4 layout, each bit covering a 2x2 block of the chunk's 8x8 quads.
+    /// It is how Blizzard cuts a doorway through a hillside so a dungeon WMO's
+    /// tunnel mouth is reachable — in Azeroth_32_48 the only two chunks with a
+    /// non-zero mask are the two sitting directly under md_goldmine.wmo. (The
+    /// 64-bit high-resolution variant is MoP 5.3+ and does not exist here.)
+    /// </summary>
+    private static byte[] BuildHoleGrid(AdtTerrainReader.AdtResult? adt)
+    {
+        var grid = new byte[QuadGridSide * QuadGridSide];
+
+        if (adt?.Chunks == null) return grid;
+
+        foreach (var chunk in adt.Chunks)
+        {
+            if (chunk is null || chunk.Holes == 0) continue;
+
+            for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 8; c++)
+            {
+                if (!chunk.IsHole(c, r)) continue;
+                int gr = chunk.IndexY * 8 + r;
+                int gc = chunk.IndexX * 8 + c;
+                if (gr >= QuadGridSide || gc >= QuadGridSide) continue;
+                grid[gr * QuadGridSide + gc] = 1;
+            }
+        }
+
+        return grid;
+    }
+
+    /// <summary>True if the quad under a world position was cut away.</summary>
+    public bool IsHoleAt(float worldX, float worldY)
+    {
+        SampleHeight(worldX, worldY, out bool hole);
+        return hole;
+    }
+
+    /// <summary>
     /// Bilinear ground height at a WoW position, or null off the loaded tiles.
     /// Cheap enough to call every frame — this is what the character stands on.
     /// </summary>
     public float? SampleHeight(float worldX, float worldY)
+        => SampleHeight(worldX, worldY, out _);
+
+    /// <summary>
+    /// As above, but also reports whether the query landed in a terrain hole.
+    /// The two null cases are not the same thing and callers must not treat
+    /// them alike: a hole is a deliberate opening the artists cut so you can
+    /// walk into a WMO, so the caller should look for a collision surface (or
+    /// fall through), whereas a plain null means "no data" and freezing is the
+    /// safer answer. Vanilla draws the same line between INVALID_HEIGHT and
+    /// VMAP_INVALID_HEIGHT_VALUE.
+    /// </summary>
+    public float? SampleHeight(float worldX, float worldY, out bool hole)
     {
+        hole = false;
+
         var key = TileAt(worldX, worldY);
         if (!_heights.TryGetValue(key, out var grid)) return null;
 
@@ -313,6 +430,19 @@ public sealed class TerrainRenderer : IDisposable
         int r0 = (int)MathF.Floor(fr);
         int c0 = (int)MathF.Floor(fc);
         if (r0 < 0 || c0 < 0 || r0 >= HeightGridSide - 1 || c0 >= HeightGridSide - 1) return null;
+
+        // TerrainTile already drops holed quads from the mesh. Skipping the
+        // same quads here is the whole fix: otherwise the height grid keeps
+        // answering with terrain that is neither drawn nor there, and the
+        // player walks up an invisible hillside instead of into the mine.
+        if (ApplyHoles &&
+            _holes.TryGetValue(key, out var holeGrid) &&
+            holeGrid.Length == QuadGridSide * QuadGridSide &&
+            holeGrid[r0 * QuadGridSide + c0] != 0)
+        {
+            hole = true;
+            return null;
+        }
 
         float tr = fr - r0;
         float tc = fc - c0;
@@ -431,8 +561,11 @@ public sealed class TerrainRenderer : IDisposable
             }
         _tiles.Clear();
         _heights.Clear();
+        _holes.Clear();
+        _holeCountDirty = true;
         _preloads.Clear();
         _preloadHeights.Clear();
+        _preloadHoles.Clear();
         _missingPreloads.Clear();
         _shader?.Dispose();
     }

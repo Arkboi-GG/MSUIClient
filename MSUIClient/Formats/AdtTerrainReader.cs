@@ -1,4 +1,4 @@
-using MSUIClient.Formats.Mpq;
+﻿using MSUIClient.Formats.Mpq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -1396,6 +1396,25 @@ public static class AdtTerrainReader
         // a 2×2 cell block. Used by the client to punch holes in the terrain
         // where cave/dungeon WMO entrances sit below the ground surface.
         chunk.Holes = BitConverter.ToUInt16(data, mcnkDataStart + 0x3C);
+
+        // Ground-effect placement controls. Both are hand-authored per 8x8 cell
+        // by the map artists and both sit directly in the MCNK header:
+        //
+        //   0x40  ReallyLowQualityTextureingMap - 16 bytes, 2 bits per cell,
+        //         naming the MCLY layer index (0..3) that supplies that cell's
+        //         ground effect. This is what keeps grass off a cobblestone
+        //         road: the road cells name the road layer, whose
+        //         GroundEffectTexture recipe holds a pebble and nothing else.
+        //   0x50  noEffectDoodad - 8 bytes, 1 bit per cell. Set means "place
+        //         nothing here at all". In Azeroth_32_48 it traces the
+        //         Northshire road and the abbey courtyard.
+        //
+        // Cell order in both is row-major (row * 8 + col), the same convention
+        // the MCAL alpha maps use.
+        chunk.GroundEffectLayerMap = new byte[16];
+        Buffer.BlockCopy(data, mcnkDataStart + 0x40, chunk.GroundEffectLayerMap, 0, 16);
+        chunk.NoEffectDoodad = BitConverter.ToUInt64(data, mcnkDataStart + 0x50);
+
         int nLayers = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x0C);
 
         // Chunk world origin, MCNK header offsets 0x68/0x6C/0x70.
@@ -1867,6 +1886,61 @@ public static class AdtTerrainReader
             if (Holes == 0) return false;
             int bit = (row / 2) * 4 + (col / 2);
             return (Holes & (1 << bit)) != 0;
+        }
+
+        /// <summary>
+        /// MCNK header 0x40, "ReallyLowQualityTextureingMap": 2 bits per cell
+        /// across the 8x8 ground-effect grid, naming which of this chunk's
+        /// up-to-4 MCLY layers supplies the clutter there. 16 bytes, row-major.
+        /// Frequently all-zero on tiles the artists never dressed.
+        /// </summary>
+        public byte[] GroundEffectLayerMap { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// MCNK header 0x50, "noEffectDoodad": one bit per cell across the same
+        /// 8x8 grid. Set = the artists explicitly suppressed ground clutter in
+        /// that cell, regardless of what the texture layer would have placed.
+        /// </summary>
+        public ulong NoEffectDoodad { get; set; }
+
+        /// <summary>
+        /// True when cell (col,row) - both 0..7 - was flagged no-ground-clutter.
+        /// </summary>
+        public bool NoGroundEffect(int col, int row)
+        {
+            if (NoEffectDoodad == 0) return false;
+            return (NoEffectDoodad & (1UL << (row * 8 + col))) != 0;
+        }
+
+        /// <summary>
+        /// MCLY layer index owning cell (col,row)'s ground effect, per the baked
+        /// 2-bit map. Returns -1 when this chunk has no usable map; check
+        /// <see cref="HasGroundEffectLayerMap"/> first.
+        /// </summary>
+        public int GroundEffectLayer(int col, int row)
+        {
+            if (GroundEffectLayerMap.Length < 16) return -1;
+            int cellIndex = row * 8 + col;
+            int layer = (GroundEffectLayerMap[cellIndex >> 2] >> ((cellIndex & 3) * 2)) & 3;
+            return layer < Layers.Length ? layer : 0;
+        }
+
+        /// <summary>
+        /// False when the 2-bit map is missing, or entirely zero on a chunk that
+        /// really does have several layers - the artists never filled it in, so
+        /// callers should fall back to sampling the alpha maps rather than pin
+        /// every cell to layer 0.
+        /// </summary>
+        public bool HasGroundEffectLayerMap
+        {
+            get
+            {
+                if (GroundEffectLayerMap.Length < 16) return false;
+                if (Layers.Length <= 1) return true;
+                foreach (byte b in GroundEffectLayerMap)
+                    if (b != 0) return true;
+                return false;
+            }
         }
     }
 

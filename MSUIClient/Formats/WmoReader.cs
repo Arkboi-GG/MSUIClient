@@ -26,6 +26,8 @@ namespace MSUIClient.Formats;
 ///   MOVT — vertices (float x3), stored RAW, exactly as they sit in the file
 ///   MONR — normals (float x3), likewise raw
 ///   MOTV — UV coords (float x2)
+///   MOCV — baked per-vertex lighting (BGRA bytes), the whole basis of
+///          interior lighting in 1.12: see FixVertexColors below
 ///   MOBA — render batches (24 bytes each)
 ///
 /// NO COORDINATE CONVERSION HAPPENS HERE. Vertices and normals come out in WMO
@@ -88,6 +90,11 @@ public class WmoReader
     private static readonly uint MAGIC_MONR = ChunkId("MONR");
     private static readonly uint MAGIC_MOTV = ChunkId("MOTV");
     private static readonly uint MAGIC_MOBA = ChunkId("MOBA");
+    private static readonly uint MAGIC_MOCV = ChunkId("MOCV");
+    // MODR — which root MODD doodads belong to THIS group. One uint16 per
+    // doodad, indexing the root's flat MODD array. Present when MOGP flag
+    // 0x800 (SMOGroup::HAS_DOODADS) is set.
+    private static readonly uint MAGIC_MODR = ChunkId("MODR");
     // MLIQ = liquid inside the WMO group (Stormwind canals, Undercity slime, etc.).
     // Present only when MOGP.GroupFlags bit 0x1000 (SMOGroup::LIQUIDSURFACE) is set.
     private static readonly uint MAGIC_MLIQ = ChunkId("MLIQ");
@@ -135,6 +142,18 @@ public class WmoReader
                     root.NGroups = BitConverter.ToUInt32(data, chunkData + 4);
                     root.NPortals = BitConverter.ToUInt32(data, chunkData + 8);
                     root.NLights = BitConverter.ToUInt32(data, chunkData + 12);
+                    // +0x1C ambColor, CArgb stored BGRA on disk. On vanilla's
+                    // CLASSIC render path this value is already baked into the
+                    // interior MOCV bytes, so the renderer must NOT add it back
+                    // at runtime — it survives here only as the ambient fallback
+                    // for doodads placed inside the WMO.
+                    root.AmbientB = data[chunkData + 0x1C];
+                    root.AmbientG = data[chunkData + 0x1D];
+                    root.AmbientR = data[chunkData + 0x1E];
+                    root.AmbientA = data[chunkData + 0x1F];
+                    // +0x3C flags. A full uint32 in vanilla; Legion later split
+                    // the top half off as numLod.
+                    root.Flags = BitConverter.ToUInt32(data, chunkData + 0x3C);
                     // Bounding box at +0x24 (6 floats)
                     if (chunkSize >= 0x3C)
                     {
@@ -350,7 +369,7 @@ public class WmoReader
     /// Parse a WMO group file from raw bytes.
     /// Returns geometry: vertices, indices, normals, UVs, per-triangle material IDs, batches.
     /// </summary>
-    public static WmoGroupData? ParseGroup(byte[] data)
+    public static WmoGroupData? ParseGroup(byte[] data, uint mohdFlags = 0)
     {
         if (data == null || data.Length < 20) return null;
 
@@ -481,6 +500,32 @@ public class WmoReader
                             }
                         }
                     }
+                    else if (subMagic == MAGIC_MOCV)
+                    {
+                        // MOCV — baked per-vertex lighting, 4 bytes per MOVT
+                        // vertex, stored BGRA. Present when MOGP flag 0x4
+                        // (has_vertex_color) is set; 0x2000 (INTERIOR) is a
+                        // different question and does not gate this chunk.
+                        // A second MOCV exists from Cataclysm on — vanilla
+                        // ships exactly one, so later ones are ignored.
+                        //
+                        // Swizzled to RGBA on the way in so nothing downstream
+                        // has to remember the on-disk order again.
+                        if (group.VertexColors.Length == 0)
+                        {
+                            int colorCount = (int)(subSize / 4);
+                            var rgba = new byte[colorCount * 4];
+                            for (int i = 0; i < colorCount; i++)
+                            {
+                                int cOfs = subData + i * 4;
+                                rgba[i * 4 + 0] = data[cOfs + 2]; // R
+                                rgba[i * 4 + 1] = data[cOfs + 1]; // G
+                                rgba[i * 4 + 2] = data[cOfs + 0]; // B
+                                rgba[i * 4 + 3] = data[cOfs + 3]; // A
+                            }
+                            group.VertexColors = rgba;
+                        }
+                    }
                     else if (subMagic == MAGIC_MOBA)
                     {
                         // Render batches, 24 bytes each
@@ -501,6 +546,23 @@ public class WmoReader
                                 MaterialId = data[bOfs + 23],                          // 0x17
                             });
                         }
+                    }
+                    else if (subMagic == MAGIC_MODR)
+                    {
+                        // MODR — doodad references. The root's MODD array is
+                        // flat and says nothing about which room a barrel is
+                        // in; this is the only thing that does, and it is what
+                        // decides whether a prop takes baked interior light or
+                        // daylight. Measured across 191 vanilla WMOs: every one
+                        // of 70,228 doodads is referenced by at least one group,
+                        // so there is no orphan case to design around.
+                        //
+                        // The mapping is many-to-many. A doodad standing in a
+                        // doorway is legitimately listed by both rooms.
+                        int refCount = (int)(subSize / 2);
+                        group.DoodadRefs.Capacity = refCount;
+                        for (int i = 0; i < refCount; i++)
+                            group.DoodadRefs.Add(BitConverter.ToUInt16(data, subData + i * 2));
                     }
                     else if (subMagic == MAGIC_MLIQ)
                     {
@@ -573,6 +635,10 @@ public class WmoReader
                     subPos = subEnd;
                 }
 
+                // Needs MOBA and the MOGP batch counts, so it can only run once
+                // the whole group has been read.
+                FixVertexColors(group, mohdFlags);
+
                 break; // Only one MOGP per file
             }
 
@@ -582,6 +648,82 @@ public class WmoReader
         return (group.Vertices.Count > 0 && group.Indices.Count >= 3) || group.Liquid != null
             ? group
             : null;
+    }
+
+    /// <summary>
+    /// CMapObjGroup::FixColorVertexAlpha — the load-time half of vanilla's
+    /// baked interior lighting. Destructive and in place; guarded so it can
+    /// never run twice on the same group (a second pass roughly quarters the
+    /// brightness and destroys the transparent range's blend weights).
+    ///
+    /// WHAT THIS IS NOT: the widely-copied pseudocode on wowdev.wiki is
+    /// decompiled from build 18179 (WoD) and belongs to the UNIFIED render
+    /// path, where MOHD.ambColor is subtracted at load and re-added by the
+    /// shader. 1.12 is the CLASSIC path — ambColor is already baked into the
+    /// on-disk MOCV — so we neither subtract nor re-add it. Warcraft.NET's
+    /// MOHDFlags documents the switch: "In 3.3.5a this flag switches between
+    /// classic render path (MOHD color is baked into MCV values) and unified
+    /// (MOHD color is added to lighting at runtime)". Following the wiki
+    /// literally on vanilla data drags every interior toward black.
+    ///
+    /// Alpha means two different things either side of begin_second_fixup:
+    ///   [0, intStart)  transparent batches — portal-proximity blend weight,
+    ///                  genuinely 0..255 in the data, PRESERVED.
+    ///   [intStart, n)  interior + exterior batches — a brightness boost with
+    ///                  64 as unity (rgb *= 1 + a/64), consumed here and then
+    ///                  overwritten with the shader's "mix in runtime light"
+    ///                  switch. Vanilla data keeps it near 0, so this is close
+    ///                  to a no-op in practice — which is itself the evidence
+    ///                  that the values are already fully baked.
+    ///
+    /// It is never opacity. Feeding it to glBlendFunc turns walls into glass.
+    ///
+    /// The classic path also divides the transparent range's RGB by 2 while
+    /// the shader multiplies every vertex colour by 2 — a matched pair. We
+    /// fold it away here instead of round-tripping 8-bit values through a
+    /// halving; noggit3 does the same, with the comment "I removed the
+    /// color = color/2 because it's just multiplied by 2 in the shader
+    /// afterward in blizzard's code."
+    /// </summary>
+    private static void FixVertexColors(WmoGroupData group, uint mohdFlags)
+    {
+        var mocv = group.VertexColors;
+        if (mocv.Length == 0 || group.VertexColorsFixed) return;
+        group.VertexColorsFixed = true;
+
+        int n = mocv.Length / 4;
+        // MOGP 0x8 = EXTERIOR. Exterior-lit vertices take the runtime sun on
+        // top of their baked colour; interior ones are baked and nothing else.
+        byte settledAlpha = (group.GroupFlags & 0x08) != 0 ? (byte)255 : (byte)0;
+
+        // begin_second_fixup: the first vertex past the transparent batches.
+        // MOBA.VertexEnd is INCLUSIVE, hence the +1.
+        int intStart = 0;
+        if (group.TransBatchCount > 0 && group.TransBatchCount <= group.Batches.Count)
+            intStart = group.Batches[group.TransBatchCount - 1].VertexEnd + 1;
+        if (intStart > n) intStart = n;
+        group.InteriorVertexStart = intStart;
+
+        if ((mohdFlags & 0x08) != 0)
+        {
+            // do_not_fix_vertex_color_alpha: RGB is final as authored.
+            for (int i = intStart; i < n; i++) mocv[i * 4 + 3] = settledAlpha;
+            return;
+        }
+
+        for (int i = intStart; i < n; i++)
+        {
+            int o = i * 4;
+            int boost = mocv[o + 3];
+            for (int c = 0; c < 3; c++)
+            {
+                // v * boost reaches 65025 — it must not be computed in a byte.
+                int v = mocv[o + c];
+                v += v * boost / 64;
+                mocv[o + c] = v > 255 ? (byte)255 : (byte)v;
+            }
+            mocv[o + 3] = settledAlpha;
+        }
     }
 
     private static string ReadStringFromBlob(byte[] blob, int offset)
@@ -602,6 +744,20 @@ public class WmoRootData
     public uint NGroups { get; set; }
     public uint NPortals { get; set; }
     public uint NLights { get; set; }
+    /// <summary>
+    /// MOHD +0x3C. 0x1 = do_not_attenuate_vertices_based_on_distance_to_portal,
+    /// 0x2 = use_unified_render_path, 0x4 = use_liquid_type_dbc_id,
+    /// 0x8 = do_not_fix_vertex_color_alpha. Every vanilla WMO checked ships 0,
+    /// i.e. the classic render path with ambColor pre-baked into MOCV.
+    /// </summary>
+    public uint Flags { get; set; }
+    /// <summary>MOHD +0x1C ambColor, swizzled from the on-disk BGRA.
+    /// Already baked into interior MOCV on the classic path — do not add it to
+    /// lighting. Kept as the ambient fallback for doodads inside the WMO.</summary>
+    public byte AmbientR { get; set; }
+    public byte AmbientG { get; set; }
+    public byte AmbientB { get; set; }
+    public byte AmbientA { get; set; }
     public float BbMinX { get; set; }
     public float BbMinY { get; set; }
     public float BbMinZ { get; set; }
@@ -680,7 +836,22 @@ public class WmoDoodadSet
 /// Single doodad instance from MODD (40 bytes), in the WMO's local
 /// coordinate system (Z-up). Position, rotation (quaternion XYZW), and
 /// scale must be composed with the parent WMO's world transform at
-/// placement time. Color is a BGRA tint (255,255,255,255 = no tint).
+/// placement time.
+///
+/// COLOR IS NOT A TINT, despite what the wiki calls it. It is the light the
+/// artist baked into THIS PLACEMENT when the building was authored - the same
+/// barrel model carries (60, 60, 60) in a dark corner and (114, 113, 110) two
+/// rooms away. Measured against an independent MOCV sample taken at each
+/// doodad's own position it correlates at 0.89 over 4,929 channels (0.97 on
+/// Stormwind's Subway alone, 1,006 doodads), so it lives on the same scale as
+/// raw MOCV and belongs behind the same overbright factor the walls use.
+///
+/// It is only meaningful for doodads owned by an INTERIOR group. Exterior-owned
+/// doodads carry dark, mostly-ignored values (mean RGB 51/51/63, 13% pure
+/// black) because the real client lights those by daylight and never reads the
+/// field. Applying it ungated turns every lamp-post black.
+///
+/// Alpha is 255 in every vanilla WMO measured and carries no information.
 /// </summary>
 public class WmoDoodadDef
 {
@@ -752,6 +923,27 @@ public class WmoGroupData
     public List<(float u, float v)> UVs { get; set; } = new();
     public List<WmoBatch> Batches { get; set; } = new();
     /// <summary>
+    /// MOCV baked lighting, 4 bytes per vertex, RGBA (the file stores BGRA).
+    /// Empty when the group has no MOCV, which in vanilla means an exterior
+    /// group lit by the sun instead. After FixVertexColors the alpha channel
+    /// is a portal blend weight below InteriorVertexStart and a "mix in the
+    /// runtime light" switch (255 yes, 0 baked-only) above it. Never opacity.
+    /// </summary>
+    public byte[] VertexColors { get; set; } = Array.Empty<byte>();
+    /// <summary>
+    /// MODR — indices into the ROOT's MODD array for the doodads that belong to
+    /// this group. Empty when the group has no doodads (MOGP flag 0x800 clear).
+    ///
+    /// A doodad may appear in more than one group's list; that is not a data
+    /// error, it is a prop sitting on a boundary.
+    /// </summary>
+    public List<ushort> DoodadRefs { get; set; } = new();
+
+    /// <summary>begin_second_fixup: first vertex past the transparent batches.</summary>
+    public int InteriorVertexStart { get; set; }
+    /// <summary>Guard — FixColorVertexAlpha is destructive and in place.</summary>
+    public bool VertexColorsFixed { get; set; }
+    /// <summary>
     /// Water/lava surface inside this group (null = no MLIQ). Set when GroupFlags &amp; 0x1000
     /// (SMOGroup::LIQUIDSURFACE). Coordinates are in WMO local space — caller must
     /// transform by the WMO instance's MODF position+rotation.
@@ -759,6 +951,8 @@ public class WmoGroupData
     public WmoLiquid? Liquid { get; set; }
     public bool IsExterior => (GroupFlags & 0x08) != 0;
     public bool IsInterior => (GroupFlags & 0x2000) != 0;
+    /// <summary>MOGP 0x4 (has_vertex_color) — the group ships a MOCV chunk.</summary>
+    public bool HasVertexColors => (GroupFlags & 0x04) != 0;
     /// <summary>
     /// Occlusion-only polygon group. It participates in WMO visibility tests
     /// but is never visible geometry and must not be uploaded or drawn.

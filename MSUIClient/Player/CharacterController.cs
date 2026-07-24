@@ -130,6 +130,36 @@ public sealed class CharacterController
     /// <summary>True when neither terrain nor collision could say what is below.</summary>
     public bool NoGroundBelow { get; private set; }
 
+    /// <summary>True when the feet are over a quad the MCNK holes field cut away.</summary>
+    public bool InTerrainHole { get; private set; }
+
+    /// <summary>
+    /// Choose ground the way vanilla's Map::GetHeight does rather than by
+    /// "highest surface wins".
+    ///
+    /// Highest-wins can never put you inside a dungeon. A mine floor is BELOW
+    /// the mountain the height grid reports, so terrain beats it every frame
+    /// no matter how good the WMO collision is. Vanilla instead takes the vmap
+    /// surface when it is higher than terrain OR simply CLOSER to where the
+    /// character already is — and that second half is the entire reason
+    /// tunnels work.
+    /// </summary>
+    public bool VanillaHeightPrecedence { get; set; } = true;
+
+    /// <summary>
+    /// How far below the terrain surface the feet must be before the closer-
+    /// surface rule is allowed to pick a lower floor.
+    ///
+    /// Vanilla's literal GROUND_HEIGHT_TOLERANCE is 0.05, but that constant
+    /// guards a server-side query, not a movement loop. Walking uphill at
+    /// 7 yd/s legitimately leaves the feet ~0.16 yd under the new terrain
+    /// height for a frame, so 0.05 here would hand the frame to whatever
+    /// collision triangle happened to be nearby and drop the character through
+    /// the world. One yard is far more than any single frame of walking can
+    /// produce and far less than any tunnel's headroom.
+    /// </summary>
+    public float UndergroundSlack { get; set; } = 1f;
+
     /// <summary>
     /// The surface that last stopped horizontal movement: where it was hit, its
     /// normal, and how long ago.
@@ -384,9 +414,18 @@ public sealed class CharacterController
     }
 
     /// <summary>
-    /// Ground resolution. The height grid is authoritative for terrain. A
-    /// downward raycast covers anything standing above it; whichever surface is
-    /// higher, and within reach, wins.
+    /// Ground resolution. The height grid is authoritative for terrain where
+    /// terrain exists; a downward raycast covers everything built on top of it.
+    ///
+    /// TWO THINGS DECIDE WHICH ONE HOLDS YOU UP, AND BOTH MATTER FOR DUNGEONS.
+    /// First, the height grid now returns nothing inside an MCNK hole — the
+    /// deliberate opening the artists cut so a mine or crypt entrance is
+    /// reachable — instead of reporting terrain that was never drawn. Second,
+    /// selection follows vanilla's Map::GetHeight: the collision surface wins
+    /// when it is higher than terrain, or when the character is already
+    /// underneath terrain and the collision surface is closer. Plain
+    /// highest-wins can only ever put you on the mountain, never in the mine
+    /// under it.
     ///
     /// THE PROBE STARTS AT StepHeight, NOT AT Height, AND THAT MATTERS.
     /// Casting from head height finds surfaces up to two yards ABOVE the feet,
@@ -403,11 +442,12 @@ public sealed class CharacterController
     /// </summary>
     private void ResolveGround(bool allowGroundAdhesion)
     {
-        float? groundZ = _terrain.SampleHeight(Position.X, Position.Y);
+        float? groundZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
 
+        InTerrainHole = inHole;
         TerrainGroundZ = groundZ;
         CollisionGroundZ = null;
-        GroundSource = groundZ is null ? "none" : "terrain";
+        GroundSource = groundZ is null ? (inHole ? "hole" : "none") : "terrain";
         GroundProbeOffset = Vector2.Zero;
         GroundProbesLastFrame = 0;
         GroundAdhesion = false;
@@ -465,7 +505,21 @@ public sealed class CharacterController
             {
                 CollisionGroundZ = bestSurfaceZ;
 
-                if (groundZ is null || bestSurfaceZ > groundZ.Value)
+                // Vanilla's Map::GetHeight, in the two clauses it actually is:
+                // take the collision surface when it is above terrain, or when
+                // the feet are genuinely under terrain and it is the closer of
+                // the two. The second clause is what lets a tunnel floor beat
+                // the mountain sitting on top of it; the slack gate is what
+                // stops an ordinary uphill step from qualifying.
+                bool underTerrain = groundZ is float overhead &&
+                                    overhead - Position.Z > UndergroundSlack;
+                bool closerThanTerrain = groundZ is float rival &&
+                                         MathF.Abs(rival - Position.Z) >
+                                         MathF.Abs(bestSurfaceZ - Position.Z);
+
+                if (groundZ is null ||
+                    bestSurfaceZ > groundZ.Value ||
+                    (VanillaHeightPrecedence && underTerrain && closerThanTerrain))
                 {
                     groundZ = bestSurfaceZ;
                     GroundSource = "collision";
@@ -476,6 +530,20 @@ public sealed class CharacterController
         }
 
         GroundZ = groundZ;
+
+        if (groundZ is null && inHole)
+        {
+            // A hole is not missing data, it is authored geometry: the ground
+            // was cut away on purpose so a WMO interior is reachable. Standing
+            // in the doorway with no collision under the feet yet means we
+            // should FALL — which is how you get into the mine — not freeze.
+            // Vanilla draws the same line between INVALID_HEIGHT (a hole, keep
+            // falling) and VMAP_INVALID_HEIGHT_VALUE (no data at all).
+            NoGroundBelow = false;
+            _warnedNoGround = false;
+            Grounded = false;
+            return;
+        }
 
         if (groundZ is null)
         {

@@ -81,8 +81,8 @@ public enum WmoReasonCode
 /// </summary>
 public sealed class WmoRenderer : IDisposable
 {
-    /// <summary>Position(3) + Normal(3) + UV(2).</summary>
-    private const int FloatsPerVertex = 8;
+    /// <summary>Position(3) + Normal(3) + UV(2) + MOCV colour(4).</summary>
+    private const int FloatsPerVertex = 12;
 
     /// <summary>Map corner offset. Identical to VmapFormat.CoordShift.</summary>
     private const float CoordShift = 32f * 533.33333f;
@@ -101,6 +101,17 @@ public sealed class WmoRenderer : IDisposable
         /// </summary>
         public bool AlphaTest;
         public bool Transparent;
+
+        /// <summary>
+        /// Which MOBA run this batch belongs to, which is what decides how its
+        /// baked MOCV colour combines with the runtime sun:
+        ///   1 transparent — fades from baked to daylight across a portal
+        ///   2 interior    — baked only; no sun, no runtime ambient
+        ///   3 exterior    — daylight only; MOCV ignored
+        /// Also 3 for any group with no MOCV at all, which is how a vanilla
+        /// exterior group is lit and matches the pre-MOCV behaviour exactly.
+        /// </summary>
+        public int Type = 3;
     }
 
     private sealed class GroupMesh : IDisposable
@@ -148,6 +159,19 @@ public sealed class WmoRenderer : IDisposable
         /// </summary>
         public List<WmoDoodadSet> DoodadSets = [];
         public List<WmoDoodadDef> Doodads = [];
+
+        /// <summary>
+        /// Per-doodad baked interior light, index-parallel to <see cref="Doodads"/>.
+        ///
+        /// rgb = MODD.color / 255, a = daylight blend (0 = fully baked interior,
+        /// 1 = fully outdoor sun+ambient). Doodads owned by an EXTERIOR or
+        /// EXTERIOR_LIT group — lamp posts, chimneys, the crates stacked against
+        /// an outside wall — get (0,0,0,1), i.e. lit exactly as they are today.
+        ///
+        /// See BuildDoodadLighting for why MODD.color is a baked light and not
+        /// the "tint" the wiki calls it.
+        /// </summary>
+        public Vector4[] DoodadLight = [];
 
         /// <summary>
         /// Collidable triangles in WMO local space, three vertices each.
@@ -389,6 +413,22 @@ public sealed class WmoRenderer : IDisposable
     /// whose texture has no alpha must never be subject to it.
     /// </summary>
     public float AlphaCutoff { get; set; } = 0.35f;
+
+    /// <summary>
+    /// Light WMO interiors from their baked MOCV vertex colours instead of the
+    /// outdoor sun. Off reverts to the old behaviour exactly (every batch takes
+    /// the exterior path), which is the fastest way to see what MOCV is doing.
+    /// </summary>
+    public bool UseVertexColors { get; set; } = true;
+
+    /// <summary>
+    /// The overbright factor applied to MOCV. 2.0 is not a taste setting: the
+    /// classic render path halves vertex colours at load and doubles them at
+    /// draw, so the authored range is [0, 2] rather than [0, 1] and lanterns
+    /// are meant to blow past white. Exposed because it is the single knob
+    /// that says whether interiors are too dark or too flat.
+    /// </summary>
+    public float VertexColorScale { get; set; } = 2.0f;
 
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
     public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
@@ -932,7 +972,7 @@ public sealed class WmoRenderer : IDisposable
                 continue;
             }
 
-            var group = WmoReader.ParseGroup(groupBytes);
+            var group = WmoReader.ParseGroup(groupBytes, root.Flags);
             if (group is null)
             {
                 prepared.Unparsed++;
@@ -1172,6 +1212,7 @@ public sealed class WmoRenderer : IDisposable
 
         model.DoodadSets = ready.Root.DoodadSets;
         model.Doodads = ready.Root.Doodads;
+        model.DoodadLight = BuildDoodadLighting(ready);
 
         int lodShells = model.Groups.Count(g => g.IsDistanceLod);
         if (lodShells > 0)
@@ -1339,6 +1380,10 @@ public sealed class WmoRenderer : IDisposable
         _gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
         _gl.EnableVertexAttribArray(2);
         _gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, stride, (void*)(6 * sizeof(float)));
+        // Location 7, not 3: locations 3-6 are the four rows of the instancing
+        // matrix and are claimed even when instancing is off for this draw.
+        _gl.EnableVertexAttribArray(7);
+        _gl.VertexAttribPointer(7, 4, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
 
         _gl.BindVertexArray(0);
 
@@ -1365,8 +1410,20 @@ public sealed class WmoRenderer : IDisposable
         _lastIndicesCovered = 0;
         _lastIndicesTotal = indices.Length;
 
-        foreach (var b in group.Batches)
+        // MOBA is ordered transparent, then interior, then exterior, and the
+        // three MOGP counts say where the boundaries are. When they do not add
+        // up to the table we actually got, trust nothing and light the whole
+        // group the old way rather than guessing a boundary.
+        bool hasColors = group.VertexColors.Length >= group.Vertices.Count * 4;
+        int transEnd = group.TransBatchCount;
+        int intEnd = transEnd + group.IntBatchCount;
+        bool countsUsable = hasColors
+            && intEnd + group.ExtBatchCount == group.Batches.Count
+            && group.Batches.Count > 0;
+
+        for (int bi = 0; bi < group.Batches.Count; bi++)
         {
+            var b = group.Batches[bi];
             if (b.IndexCount == 0) { _lastBatchesDropped++; continue; }
             if (b.IndexStart + b.IndexCount > (uint)indices.Length) { _lastBatchesDropped++; continue; }
 
@@ -1389,6 +1446,7 @@ public sealed class WmoRenderer : IDisposable
                 // turned ordinary walls and roofs into torn paper.
                 AlphaTest = material?.BlendMode == 1 && MaterialHasAlpha(material),
                 Transparent = material?.BlendMode >= 2,
+                Type = !countsUsable ? 3 : bi < transEnd ? 1 : bi < intEnd ? 2 : 3,
             });
         }
 
@@ -1461,6 +1519,16 @@ public sealed class WmoRenderer : IDisposable
             var n = i < group.Normals.Count ? group.Normals[i] : (x: 0f, y: 0f, z: 1f);
             var uv = i < group.UVs.Count ? group.UVs[i] : (u: 0f, v: 0f);
 
+            // No MOCV: 0.5 is neutral, because the render path doubles it.
+            // Those groups are classified exterior anyway, so the shader never
+            // reads this - it just must not be black if something slips through.
+            int c = i * 4;
+            bool hasColor = c + 3 < group.VertexColors.Length;
+            float cr = hasColor ? group.VertexColors[c + 0] / 255f : 0.5f;
+            float cg = hasColor ? group.VertexColors[c + 1] / 255f : 0.5f;
+            float cb = hasColor ? group.VertexColors[c + 2] / 255f : 0.5f;
+            float ca = hasColor ? group.VertexColors[c + 3] / 255f : 1.0f;
+
             int o = i * FloatsPerVertex;
             vertices[o + 0] = v.x;
             vertices[o + 1] = v.y;
@@ -1470,6 +1538,10 @@ public sealed class WmoRenderer : IDisposable
             vertices[o + 5] = n.z;
             vertices[o + 6] = uv.u;
             vertices[o + 7] = uv.v;
+            vertices[o + 8] = cr;
+            vertices[o + 9] = cg;
+            vertices[o + 10] = cb;
+            vertices[o + 11] = ca;
 
             var p = new Vector3(v.x, v.y, v.z);
             min = Vector3.Min(min, p);
@@ -1605,14 +1677,85 @@ public sealed class WmoRenderer : IDisposable
         0, 0, 0, 1);
 
     /// <summary>
-    /// Every embedded doodad of every placed building, as a model path and a
-    /// world transform, ready to hand to the doodad renderer.
+    /// "No baked light, full daylight" — the encoding a doodad gets when it is
+    /// not owned by an interior group, and the value OpenGL itself supplies for
+    /// a disabled vertex attribute. Terrain doodads therefore need no special
+    /// case: they land on this by default and render exactly as before.
+    /// </summary>
+    private static readonly Vector4 ExteriorDoodadLight = new(0f, 0f, 0f, 1f);
+
+    /// <summary>
+    /// Resolve each doodad's baked interior light from MODD.color, gated by
+    /// which group owns it (MODR).
+    ///
+    /// MODD.color is NOT a tint. The wiki calls it one; measuring says
+    /// otherwise. Sampling the group's own MOCV floor directly beneath each
+    /// doodad and correlating that against the shipped MODD.color gives
+    /// r = 0.89 over 4929 channel samples, and the ratio sits at ~1.0 across
+    /// every brightness bucket — MODD.color lives on the same scale as RAW
+    /// MOCV. Two instances of the SAME model in the same building carry
+    /// different colours (BARREL01 as (60,60,60) in one room and (114,113,110)
+    /// in another), which a tint could not do. It is Blizzard's own pre-baked
+    /// answer to "how lit is this prop", computed once at map-compile time.
+    ///
+    /// Scale: the retail client halves MOCV at load and doubles it at draw, so
+    /// CMapObj::QueryLighting effectively returns 2x the raw stored value. Our
+    /// wall path skips the halving and multiplies by VertexColorScale = 2.0 at
+    /// draw instead, landing on the same place. Since MODD.color is on the raw
+    /// MOCV scale, doodads feed color/255 into that SAME 2.0 — never
+    /// pre-doubled, which would give 4x. This preserves the invariant that
+    /// actually shows on screen: a barrel matches the floor it stands on.
+    ///
+    /// No MOHD.ambColor is added on top. The wall path does not add it either,
+    /// and in classic-era data the ambient is already baked into MOCV.
+    ///
+    /// The gate matters. Measured across 335 WMO roots / 70,228 placements:
+    /// interior-owned doodads average RGB (116,103,99) with 0.1% black, while
+    /// exterior-owned ones average (51,51,63) with 12.7% pure black — because
+    /// the client never reads those, so nobody ever checked them. Applying
+    /// MODD.color ungated would black out every lamp post in the game. Zero
+    /// doodads were unreferenced by MODR, so no fallback is needed.
+    /// </summary>
+    private static Vector4[] BuildDoodadLighting(PreparedWmo ready)
+    {
+        var root = ready.Root;
+        if (root is null || root.Doodads.Count == 0) return [];
+
+        var light = new Vector4[root.Doodads.Count];
+        for (int i = 0; i < light.Length; i++) light[i] = ExteriorDoodadLight;
+
+        foreach (var group in ready.Groups)
+        {
+            if (group is null || group.DoodadRefs.Count == 0) continue;
+            if (!group.IsInterior) continue;
+
+            // EXTERIOR (0x8) and EXTERIOR_LIT (0x40) both mean "use daylight".
+            // CMapObj::QueryLighting rejects such a group outright and falls
+            // back to the outdoor sun, so a doodad inside one must too.
+            if ((group.GroupFlags & 0x48) != 0) continue;
+
+            foreach (ushort index in group.DoodadRefs)
+            {
+                if (index >= light.Length) continue;
+                var d = root.Doodads[index];
+                light[index] = new Vector4(
+                    d.ColorR / 255f, d.ColorG / 255f, d.ColorB / 255f, 0f);
+            }
+        }
+
+        return light;
+    }
+
+    /// <summary>
+    /// Every embedded doodad of every placed building, as a model path, a
+    /// world transform and its baked light, ready to hand to the doodad
+    /// renderer.
     ///
     /// Set 0 is "$DefaultGlobal" and is always present; a placement may name a
     /// second set on top of it, which is how one tavern model furnishes
     /// differently in different towns.
     /// </summary>
-    public IEnumerable<(string ModelPath, Matrix4x4 Transform)> EnumerateDoodads()
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light)> EnumerateDoodads()
         => EnumerateDoodads(Vector2.Zero, float.PositiveInfinity);
 
     /// <summary>
@@ -1621,7 +1764,7 @@ public sealed class WmoRenderer : IDisposable
     /// filtering individual MODD transforms prevents that furniture from
     /// dominating startup.
     /// </summary>
-    public IEnumerable<(string ModelPath, Matrix4x4 Transform)> EnumerateDoodads(
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light)> EnumerateDoodads(
         Vector2 centre, float maxDistance)
     {
         float maxDistanceSq = maxDistance * maxDistance;
@@ -1656,7 +1799,11 @@ public sealed class WmoRenderer : IDisposable
                         if (delta.LengthSquared() > maxDistanceSq) continue;
                     }
 
-                    yield return (d.ModelPath, transform);
+                    var light = index < (uint)model.DoodadLight.Length
+                        ? model.DoodadLight[(int)index]
+                        : ExteriorDoodadLight;
+
+                    yield return (d.ModelPath, transform, light);
                 }
             }
         }
@@ -1703,6 +1850,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
+        _shader.Set("uVertexColorScale", VertexColorScale);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;
@@ -1827,6 +1975,8 @@ public sealed class WmoRenderer : IDisposable
                             _gl.Enable(EnableCap.CullFace);
                             cullingOn = true;
                         }
+
+                        _shader.Set("uBatchType", UseVertexColors ? batch.Type : 3);
 
                         if (batch.Texture is not null)
                         {

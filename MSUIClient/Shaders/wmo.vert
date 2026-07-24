@@ -21,6 +21,9 @@ layout (location = 3) in vec4 aInstanceRow0;
 layout (location = 4) in vec4 aInstanceRow1;
 layout (location = 5) in vec4 aInstanceRow2;
 layout (location = 6) in vec4 aInstanceRow3;
+// MOCV baked lighting, already fixed up and swizzled to RGBA on the CPU.
+// Location 7 because 3-6 belong to the instancing matrix.
+layout (location = 7) in vec4 aColor;
 
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
@@ -30,6 +33,7 @@ uniform int uUseInstancing;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUV;
+out vec4 vColor;
 
 void main()
 {
@@ -49,6 +53,7 @@ void main()
     vNormal = normalize(mat3(model) * aNormal);
 
     vUV = aUV;
+    vColor = aColor;
 
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world

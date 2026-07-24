@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
@@ -7,6 +7,17 @@ using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World;
+
+/// <summary>
+/// Broad clutter categories, read from a ground-effect model's name code — the
+/// 2-3 letter tag just before the trailing number (ElwGra01 -> Grass,
+/// ElwRoc01 -> Rock, ApkBus01 -> Bush). Retail hand-curated which of these
+/// appeared where — most visibly, it kept road pebbles out of the starting
+/// zones — and the raw DBCs don't encode that. A per-kind toggle lets that
+/// curation be reproduced by hand instead of scattering everything the data
+/// technically allows.
+/// </summary>
+public enum FoliageKind { Grass, Flower, Bush, Rock, Plant, Mushroom, Other }
 
 /// <summary>
 /// Ground-effect foliage: the grass tufts, ferns and flowers vanilla scatters on
@@ -93,6 +104,37 @@ public sealed class FoliageRenderer : IDisposable
     public float Radius { get; set; } = 45f;          // scatter/draw radius (yards)
     public float DensityScale { get; set; } = 0.5f;   // multiplies the DBC density
     public int MaxPerCell { get; set; } = 6;          // cap doodads per ~4yd cell
+
+    /// <summary>
+    /// Decide each 8x8 cell's texture layer from the MCNK 0x40 map the artists
+    /// baked in, instead of guessing it by sampling the alpha maps at the cell
+    /// centre. This is what the retail client does and it is the whole reason
+    /// grass never creeps onto the Northshire cobblestone - those cells name the
+    /// road layer, whose recipe holds one pebble and no grass at all.
+    /// Off = the old alpha-sampling guess, kept for A/B comparison.
+    /// </summary>
+    public bool UseCellLayerMap { get; set; } = true;
+
+    /// <summary>
+    /// Honour the MCNK 0x50 noEffectDoodad bitmap - a hand-authored per-cell
+    /// "place nothing here". In Azeroth_32_48 (Northshire) it covers 303 cells,
+    /// 195 of them road, and it is the second half of why the road reads clean.
+    /// </summary>
+    public bool UseNoDoodadMask { get; set; } = true;
+
+    /// <summary>Cells skipped by the no-doodad mask on the last scatter.</summary>
+    public int MaskedCells { get; private set; }
+
+    /// <summary>
+    /// Don't scatter into cells the MCNK holes field cut away. Those quads are
+    /// not drawn and have no ground under them - they are the doorway the
+    /// artists carved so a dungeon WMO's entrance is reachable. Scattering
+    /// there is what puts shrubs growing through the mine's wooden beams.
+    /// </summary>
+    public bool SkipHoles { get; set; } = true;
+
+    /// <summary>Cells skipped because the terrain there is a hole.</summary>
+    public int HoleCells { get; private set; }
     public int MaxInstances { get; set; } = 24000;    // hard cap
     public float RescatterDistance { get; set; } = 8f;// rescatter after moving this far
     public float Scale { get; set; } = 1.0f;          // global size multiplier
@@ -115,10 +157,64 @@ public sealed class FoliageRenderer : IDisposable
     public float FogEnd { get; set; } = 777f;
     public float Time { get; set; }
 
+    // ---------------- per-kind curation ----------------
+    // One visibility toggle and one thin-out factor (0..1, a keep-probability)
+    // per clutter kind, plus a live placed-count for the HUD. Changing any of
+    // them forces a re-scatter, same as the coverage knobs.
+    private static readonly int KindCount = Enum.GetValues<FoliageKind>().Length;
+    private readonly bool[] _kindEnabled = new bool[KindCount];
+    private readonly float[] _kindDensity = new float[KindCount];
+    private readonly int[] _kindInstances = new int[KindCount];
+
+    public bool KindEnabled(FoliageKind k) => _kindEnabled[(int)k];
+    public void SetKindEnabled(FoliageKind k, bool on)
+    {
+        if (_kindEnabled[(int)k] == on) return;
+        _kindEnabled[(int)k] = on;
+        _hasScattered = false;   // rebuild so the change is visible immediately
+    }
+
+    public float KindDensity(FoliageKind k) => _kindDensity[(int)k];
+    public void SetKindDensity(FoliageKind k, float keep)
+    {
+        keep = Math.Clamp(keep, 0f, 1f);
+        if (_kindDensity[(int)k] == keep) return;
+        _kindDensity[(int)k] = keep;
+        _hasScattered = false;
+    }
+
+    public int KindInstances(FoliageKind k) => _kindInstances[(int)k];
+
+    /// <summary>
+    /// Map a ground-effect model path to a broad clutter kind by its name code —
+    /// the letters just before the trailing number ("ElwRoc01" -> "roc" -> Rock).
+    /// Zone-prefixed variants that carry an extra letter (Durotar's "DurIRo01")
+    /// still land on the right 3-letter tail. Anything unrecognised is Other.
+    /// </summary>
+    public static FoliageKind Classify(string modelPath)
+    {
+        string name = Path.GetFileNameWithoutExtension(modelPath);
+        int end = name.Length;
+        while (end > 0 && char.IsDigit(name[end - 1])) end--;
+        int start = Math.Max(0, end - 3);
+        string code = name[start..end].ToLowerInvariant();
+        return code switch
+        {
+            "gra" or "igr" => FoliageKind.Grass,
+            "flo" or "ifl" => FoliageKind.Flower,
+            "bus" or "ibu" or "scr" or "shr" => FoliageKind.Bush,
+            "roc" or "iro" => FoliageKind.Rock,
+            "wea" or "pla" or "tho" or "cre" or "vin" or "sap" or "bra" => FoliageKind.Plant,
+            "mus" or "fun" or "spo" => FoliageKind.Mushroom,
+            _ => FoliageKind.Other,
+        };
+    }
+
     public FoliageRenderer(GL gl, ClientConfig config)
     {
         _gl = gl;
         _config = config;
+        for (int i = 0; i < KindCount; i++) { _kindEnabled[i] = true; _kindDensity[i] = 1f; }
     }
 
     public void LoadShaders(string shaderDir)
@@ -160,6 +256,9 @@ public sealed class FoliageRenderer : IDisposable
         _hasScattered = true;
 
         foreach (var list in _instances.Values) list.Clear();
+        Array.Clear(_kindInstances);
+        MaskedCells = 0;
+        HoleCells = 0;
 
         int total = 0;
         float radiusSq = Radius * Radius;
@@ -190,7 +289,23 @@ public sealed class FoliageRenderer : IDisposable
                 for (int cy = 0; cy < 8; cy++)
                 for (int cx = 0; cx < 8; cx++)
                 {
-                    int dom = DominantLayer(chunk, cx, cy);
+                    // Vanilla decides clutter per cell, not per chunk, and it
+                    // reads both answers out of the MCNK header rather than
+                    // deriving them. Keep both switchable so the old
+                    // alpha-derived behaviour is still one click away.
+                    if (UseNoDoodadMask && chunk.NoGroundEffect(cx, cy)) { MaskedCells++; continue; }
+
+                    // A holed cell has no terrain at all - it is the cut the
+                    // artists made for a dungeon entrance. SampleHeight now
+                    // refuses these too, but rejecting the whole cell up front
+                    // is cheaper and gives the HUD something to read.
+                    if (SkipHoles && chunk.IsHole(cx, cy)) { HoleCells++; continue; }
+
+                    int dom = UseCellLayerMap && chunk.HasGroundEffectLayerMap
+                            ? chunk.GroundEffectLayer(cx, cy)
+                            : DominantLayer(chunk, cx, cy);
+                    if (dom < 0 || dom >= chunk.Layers.Length) dom = 0;
+
                     int effect = chunk.Layers[dom].EffectId;
                     if (effect < 0) continue;
 
@@ -216,6 +331,17 @@ public sealed class FoliageRenderer : IDisposable
                         if (h is null) continue;
 
                         string modelPath = PickWeighted(recipe.Doodads, rng);
+
+                        // Per-kind curation: skip a doodad whose kind is hidden,
+                        // and thin the rest by the kind's keep-probability. This
+                        // is how a rock-only road recipe ends up placing nothing
+                        // when Rock is switched off. Roll before ResolveModel so a
+                        // hidden kind costs nothing to load.
+                        var kind = Classify(modelPath);
+                        if (!_kindEnabled[(int)kind]) continue;
+                        float keep = _kindDensity[(int)kind];
+                        if (keep <= 0f || (keep < 1f && rng.NextDouble() > keep)) continue;
+
                         var gm = ResolveModel(modelPath);
                         if (gm is null) continue;
 
@@ -229,6 +355,7 @@ public sealed class FoliageRenderer : IDisposable
 
                         if (!_instances.TryGetValue(gm, out var il)) { il = []; _instances[gm] = il; }
                         il.Add(m);
+                        _kindInstances[(int)kind]++;
 
                         if (++total >= MaxInstances) goto done;
                     }
@@ -315,11 +442,37 @@ public sealed class FoliageRenderer : IDisposable
         return gm;
     }
 
+    // GroundEffectDoodad stores BARE model filenames ("ElwGra01.mdl"), but the
+    // models live under these folders in the MPQs and are .m2 there - not .mdl or
+    // .mdx. The overwhelming majority are in World\NoDXT\Detail; a handful sit in
+    // World\Detail. Without prepending a folder, every lookup reads from the
+    // archive root and misses, so nothing scatters.
+    private static readonly string[] FoliageDirs =
+    {
+        @"World\NoDXT\Detail\",
+        @"World\Detail\",
+    };
+
     private static IEnumerable<string> Candidates(string path)
+    {
+        // As-authored first, in case a DBC ever stores a full path.
+        foreach (var p in ExtVariants(path)) yield return p;
+
+        // Bare filename (the real case here): try it under each ground-effect
+        // folder. ExtVariants also swaps .mdl/.mdx for the .m2 that is actually
+        // in the archive.
+        bool bare = !path.Contains('\\') && !path.Contains('/');
+        if (bare)
+            foreach (var dir in FoliageDirs)
+                foreach (var p in ExtVariants(dir + path))
+                    yield return p;
+    }
+
+    private static IEnumerable<string> ExtVariants(string path)
     {
         yield return path;
         if (path.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
-        if (path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
+        else if (path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
     }
 
     private unsafe GrassModel? BuildModel(M2Model m2)

@@ -11,6 +11,7 @@
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUV;
+in vec4 vColor;
 
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
@@ -31,6 +32,14 @@ uniform float uAmbientIntensity;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
+
+// Which MOBA run this batch came from: 1 transparent, 2 interior, 3 exterior.
+// See WmoRenderer.Batch.Type. Anything other than 1 or 2 lights by daylight.
+uniform int   uBatchType;
+
+// The classic render path's overbright factor. Blizzard halves MOCV at load
+// and doubles it at draw, so the authored range is [0, 2], not [0, 1].
+uniform float uVertexColorScale;
 
 out vec4 FragColor;
 
@@ -56,7 +65,27 @@ void main()
     float lambert = max(dot(normal, uSunDirection), 0.0);
     vec3 light = uAmbientColor * uAmbientIntensity
         + uSunColor * lambert * uSunIntensity;
-    vec3 lit = albedo.rgb * light;
+
+    // Vanilla interiors are not lit at runtime at all. Their lighting was baked
+    // per vertex by the artist into MOCV - lantern pools, the dark back of a
+    // mine shaft, the blue cast of Deadmines - and the client only modulates
+    // the texture by it. Feeding an interior the outdoor sun is why every room
+    // used to read as a brightly lit box with a roof on.
+    //
+    // vColor.a is NOT opacity here. On transparent batches it is how close the
+    // vertex sits to a portal, which is what fades a doorway from baked light
+    // to daylight; on interior batches the CPU fixup has already collapsed it
+    // to 0 (baked only) or 255 (also take the sun, for exterior-lit groups).
+    vec3 baked = vColor.rgb * uVertexColorScale;
+    vec3 lighting;
+    if (uBatchType == 1)
+        lighting = mix(baked, light, vColor.a);
+    else if (uBatchType == 2)
+        lighting = mix(baked, light + baked, vColor.a);
+    else
+        lighting = light;
+
+    vec3 lit = albedo.rgb * lighting;
 
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);

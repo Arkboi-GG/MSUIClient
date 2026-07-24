@@ -2,7 +2,8 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 21 — 2026-07-24
+Version: Draft 22 — 2026-07-24
+Supersedes: Draft 21 (same day; §0, §1, §4, §5.2, §5.3 and §7.1 had fallen behind four systems that shipped after it — water Draft 2, WMO interior lighting, doodad lighting and foliage — and behind the foundation/DevTools layer that is now code. Draft 22 reconciles them and moves the per-system detail out under the §1.2 rule)
 Supersedes: Draft 20 (same-ish day; the first water/liquid system landed — see SYSTEM_WATER.md — and the docs began splitting one-system-per-file per §1.2, so system detail now lives in SYSTEM_*.md and this handbook is trending toward a lean index of cross-cutting truth)
 Supersedes: Draft 19 (same day; warm lighting retune, ALWAYS_DRAW-interior impostor classification, per-group inside test, collision-BVH occlusion cull, portal-chunk parsing, and the live in-game tuning HUD + middle-click group picker)
 Supersedes: Draft 18 (same day; reconciles the handoff/status sections with all runtime-tested renderer, streaming, teardown and Stormwind LOD work)
@@ -43,7 +44,7 @@ Nico runs a private VMaNGOS server (WoW 1.12.1 vanilla) plus **MangosSuperUI**, 
 
 **Core design stance.** The client reads WoW's own files directly (MPQ → BLP/ADT/M2/WMO/DBC) and will speak the genuine 1.12.1 network protocol. No asset server, no bake step, no format conversion, no coordinate conversion. The server is unmodified.
 
-### Current state (2026-07-23)
+### Current state (2026-07-24)
 
 Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with no server and **no vmaps**. On top of Draft 3's world, there is now a **character**:
 
@@ -52,13 +53,38 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
 - `ItemDisplayInfo.dbc` and `CharSections.dbc` are read straight out of the MPQs
 - Third-person camera with the vanilla left/right mouse split
 
-**Water/liquid is in (Draft 21).** Open-world MCLQ liquid — lakes, rivers, ocean,
-slime, magma — renders with Gerstner wave displacement, a baked per-vertex depth
-that fades the shoreline transparent and darkens deep water, and a full-screen
-underwater tint when the camera dips below the surface. It draws after the
-character (depth-tested, not depth-written) so submersion reads correctly. Full
-detail, ground truth, tuning knobs and the not-done list are in **SYSTEM_WATER.md**
-— the first per-system doc under the §1.2 rule.
+**Four systems have landed since Draft 3's world, and each owns its own doc
+(§1.2). Do not read the summary here and act on it — open the doc.**
+
+- **Water/liquid** — open-world MCLQ lakes, rivers, ocean, slime and magma,
+  surfaced with the client's own animated liquid BLP frames, per-type routing and
+  a live tuning window. Drawn after the character, depth-tested but not
+  depth-written, so submersion and the underwater overlay read correctly.
+  **SYSTEM_WATER.md** (Draft 2). Note the Draft 1 → Draft 2 reversal: 1.12 water
+  is a dark, near-opaque *textured* surface whose motion is the texture scrolling.
+  The Gerstner geometry waves of Draft 1 were flattened deliberately.
+- **WMO interior lighting** — MOCV read back faithfully, `FixVertexColors`
+  reproduced, `VertexColorScale = 2.0`, the `0x2000 / 0x48` interior gate.
+  **SYSTEM_WMO_INTERIOR_LIGHTING.md**. *Signed off — do not re-open casually; it
+  is the reference the doodad system was built to match.*
+- **Doodad lighting** — `MODD.color` established as Blizzard's baked
+  per-placement interior light (not the tint the wiki claims), gated through
+  MODR, plus the M2 Unlit flag so lanterns stay lit in dark rooms.
+  **SYSTEM_DOODAD_LIGHTING.md**. Its one invariant: *a barrel matches the floor
+  it stands on.*
+- **Foliage / ground effects** — the authored `MCLY.EffectId` →
+  `GroundEffectTexture` → `GroundEffectDoodad` chain, driven by the MCNK cell
+  layer map and the no-doodad mask rather than by alpha sampling.
+  **SYSTEM_FOLIAGE.md**. Its one test: *grass must not creep onto the Northshire
+  cobblestone.*
+
+**The foundation/DevTools layer is no longer a proposal — it is code.**
+`FOUNDATION_PLAN.md` and `PLAN_01`–`PLAN_06` specified a shared-language layer;
+vantages, visibility reason codes, the scene dump and the visibility override
+database now exist in `Engine/Vantage.cs`, `Engine/VisibilityOverrides.cs`,
+`World/Wmo/WmoRenderer.cs` and `Program.DevTools.cs`. `vantages.json` holds two
+saved viewpoints and `dumps/` holds a real captured dump. **Use it — the paired
+artifact (vantage + screenshot + dump) is the working agreement now, see §5.3.**
 
 **Not started:** networking, painterly pass. WMO liquid (canals, fountains,
 indoor pools) is also not done — see SYSTEM_WATER.md §5.
@@ -104,6 +130,27 @@ has multiple samples.
 
 ### Stop point — read this first in the next session
 
+**Git state as of Draft 22.** Branch `main`, 6 commits, head `1292c91 proper
+water`. Water is therefore **committed and shipped**, not pending a first
+compile — the Draft 21 note saying otherwise is resolved and has been removed.
+Uncommitted in the working tree, and to be preserved:
+
+```
+ M Formats/AdtTerrainReader.cs   Formats/DbcReader.cs   Formats/WmoReader.cs
+ M Player/CharacterController.cs Program.cs
+ M Shaders/wmo.frag  Shaders/wmo.vert
+ M World/Doodads/DoodadRenderer.cs  World/FoliageRenderer.cs
+ M World/TerrainRenderer.cs  World/Wmo/WmoRenderer.cs
+ M PROJECT_HANDBOOK.md
+ ?? Shaders/doodad.frag  Shaders/doodad.vert
+ ?? SYSTEM_DOODAD_LIGHTING.md  SYSTEM_FOLIAGE.md  SYSTEM_WMO_INTERIOR_LIGHTING.md
+ ?? _to_delete/*
+```
+
+That is the interior-lighting, doodad-lighting and foliage work plus their three
+docs. **Do not reset, checkout, clean, or replace broad files when starting
+cold.** A commit of this set is the obvious first housekeeping move.
+
 - Last build: **success, 0 warnings, 0 errors**.
 - Iris Xe testing is substantially improved: Trade District is roughly 54–60
   FPS with true 1x MSAA and the former total streaming freezes have become small
@@ -144,24 +191,18 @@ has multiple samples.
   does triangle-accurate group picking (`[pick]` + HUD); the whole impostor/
   occlusion panel is live sliders; `[wmo-vis]`/`[doodad-cull]` are HUD readouts
   (console traces off by default).
-- Temp files `handbook_current.txt` / `program_current.txt` / `wmorenderer_current.txt`
-  were moved to `MSUIClient/_to_delete/` (device tools cannot delete); remove
-  that folder.
-- All of today's renderer, movement, streaming and handbook work is in the
-  current working tree and is **not committed**. Preserve it. Do not reset,
-  checkout, clean, or replace broad files when starting cold.
-- **Water/liquid system landed (SYSTEM_WATER.md).** `LiquidRenderer.cs`, the
-  `water.*`/`underwater.*` shaders and the `Program.cs` render-order change are in
-  the working tree. Not yet compiled on Nico's machine at the time of writing —
-  first action next session: build and run, then capture the visual + a scene dump.
-- **`Program.cs` was found reverted and was restored.** On disk it had rolled back
-  to a pre-session copy (`class GameLoop`, not `partial`; no `_liquid`, DevTools,
-  vantage or override wiring) while the new partial files (`Program.DevTools.cs`,
-  `LiquidRenderer.cs`, `VisibilityOverrides.cs`, `Vantage.cs`) were present — a
-  combination that does not compile. The complete, coherent version was restored to
-  the working tree. If `GameLoop` ever shows as non-partial again, the file has been
-  reverted; the good copy is the one with `partial class GameLoop` and the liquid /
-  DevTools / vantage / override wiring.
+- **`_to_delete/` is still on disk and is still growing** — it now holds
+  `program_current.txt`, `wmorenderer_current.txt`, `_auth_Program.cs`,
+  `_auth_FoliageRenderer.cs` and three PNGs. Device tools cannot delete; Nico
+  removes the folder by hand. Nothing in it is needed. It is also untracked, so
+  it must not be swept into a `git add -A`.
+- **`Program.cs` reverted once and was restored (Draft 21).** The disk copy had
+  rolled back to `class GameLoop` (not `partial`) with no `_liquid`, DevTools,
+  vantage or override wiring, while the new partial files were present — a
+  combination that does not compile. **If `GameLoop` ever shows as non-partial
+  again, the file has been reverted**; the good copy is the one with
+  `partial class GameLoop` and the liquid / DevTools / vantage / override wiring.
+  This is a cheap thing to check first when a build breaks inexplicably.
 
 ---
 
@@ -178,11 +219,19 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 ├── setup-vmaps.ps1                  optional; -Wsl mode for the travel machine
 ├── .gitignore                       MUST contain GameData/ — see §8.6
 ├── .gitattributes                   CRLF for C#/shaders/config, LF for markdown
+├── SYSTEM_*.md                      one system, one doc — see §1.2
+├── FOUNDATION_PLAN.md / PLAN_0x_*.md / PLAN_TEMPLATE.md
+├── vantages.json                    saved reproducible viewpoints (§5.3)
+├── dumps/                           scene dumps, one per vantage capture
+├── refs/                            real 1.12 client captures, same vantage names
+├── _to_delete/                      scratch; UNTRACKED, delete by hand, never add
 ├── GameData/                        GITIGNORED, several GB
 │   ├── Data/                        the WoW 1.12.1 .MPQ archives
 │   └── vmaps/                       optional; collision comes from client geometry
 └── MSUIClient/                      project folder
-    ├── Program.cs                   entry point + GameLoop + ImGui HUD + diagnostics
+    ├── Program.cs                   entry point + partial GameLoop + ImGui HUD
+    ├── Program.DevTools.cs          partial GameLoop: vantages, dump, overrides,
+    │                                TuningState, the water tuning window
     ├── ClientConfig.cs
     │
     ├── Engine/
@@ -190,6 +239,9 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     │   ├── Camera.cs                orbit camera, Yaw vs OrbitYaw (see §3.12)
     │   ├── AssetWorkerPool.cs       bounded 2–8 worker CPU preparation pool
     │   ├── GpuUploadWorker.cs       hidden shared GL context + upload queue
+    │   ├── GpuFrameProfiler.cs      non-blocking GL_TIME_ELAPSED rings (§3.30)
+    │   ├── Vantage.cs               capture/restore a named viewpoint (§5.3)
+    │   ├── VisibilityOverrides.cs   hand-authored show/hide DB, consulted first
     │   ├── Shader.cs                compile/link/uniform cache + SetVec4Array
     │   └── Texture.cs
     │
@@ -199,8 +251,11 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     ├── World/
     │   ├── AdtCache.cs
     │   ├── TerrainTile.cs / TerrainTextures.cs / TerrainRenderer.cs
-    │   ├── Wmo/WmoRenderer.cs
-    │   ├── Doodads/DoodadRenderer.cs
+    │   ├── WorldAtmosphere.cs       the one evaluated sun/ambient/fog/sky (§3.28)
+    │   ├── LiquidRenderer.cs        <- SYSTEM_WATER.md
+    │   ├── FoliageRenderer.cs       <- SYSTEM_FOLIAGE.md
+    │   ├── Wmo/WmoRenderer.cs       <- SYSTEM_WMO_INTERIOR_LIGHTING.md
+    │   ├── Doodads/DoodadRenderer.cs <- SYSTEM_DOODAD_LIGHTING.md
     │   ├── Collision/{CollisionWorld,CollisionDebugRenderer,VmapCollisionLoader}.cs
     │   └── Units/                   <- ALL CHARACTER WORK LIVES HERE
     │       ├── M2Animator.cs        clip baking, bone matrices, the two strafe yaws
@@ -210,30 +265,47 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     │
     ├── Formats/
     │   ├── Mpq/{MpqCrypto,MpqArchive,PkwareExplode,MpqArchiveWriter}.cs
-    │   ├── MpqMount.cs              opens all archives once — §3.9, critical
+    │   ├── MpqMount.cs              opens all archives once — §3.20, critical
     │   ├── BlpDecoder.cs
-    │   ├── AdtTerrainReader.cs      ADT + the general MPQ file read
+    │   ├── AdtTerrainReader.cs      ADT + MCLQ + the general MPQ file read
     │   ├── WmoReader.cs / M2Reader.cs / M2TextureParser.cs
     │   ├── DbcReader.cs             WDBC + ItemDisplayInfo + CharSections
+    │   │                            + GroundEffectTexture/GroundEffectDoodad
     │   └── VmapFormat.cs
     │
     └── Shaders/                     ALL PURE ASCII, NO BOM — see §8.5
         ├── terrain.vert / terrain.frag
-        ├── wmo.vert / wmo.frag      also used by doodads AND attached items
-        ├── character.vert           skinned; pairs with wmo.frag UNCHANGED
+        ├── wmo.vert / wmo.frag          WmoRenderer ONLY — see §5.2
+        ├── doodad.vert / doodad.frag    forked from wmo.*; DO NOT re-merge
+        ├── grass.vert / grass.frag      foliage: wind sway, distance fade
+        ├── water.vert / water.frag
+        ├── underwater.vert / underwater.frag
+        ├── character.vert / character.frag   skinned
+        ├── attached.vert                pairs with character.frag
         └── collision.vert / collision.frag
 ```
+
+**Every renderer now owns its own shader pair.** That was not true through
+Draft 21 and the sharing that used to exist has been deliberately broken; §5.2
+says why, and SYSTEM_DOODAD_LIGHTING.md §5 says why the doodad fork in
+particular must stay a fork.
 
 ### 1.1 Where each file's responsibility ends
 
 | File | Owns | Does NOT own |
 |---|---|---|
 | `Program.cs` | Startup order, game loop, HUD, cross-system diagnostics | Rendering internals, parsing |
+| `Program.DevTools.cs` | Vantage save/load, scene dump, override editing, `TuningState`, tuning windows | Any visibility or lighting *decision* — it reads and reports them |
+| `Vantage.cs` | Serializing/restoring position, camera, atmosphere and every toggle | Deciding what any toggle means |
+| `VisibilityOverrides.cs` | The curated show/hide DB and its reason code | The heuristics it overrides |
 | `ClientWindow.cs` | GL context, loop, raw input, mouse capture | What gets drawn |
 | `AssetWorkerPool.cs` | Bounded CPU concurrency and render-thread headroom | Asset parsing rules, GL |
 | `GpuUploadWorker.cs` | Dedicated shared GL context, ordered upload queue, completion barrier | Visibility, residency policy |
 | `Camera.cs` | View/projection, frustum, the Yaw/OrbitYaw split | Input handling, movement rules |
 | `CharacterController.cs` | Movement, gravity, ground resolution | What the world is made of |
+| `WorldAtmosphere.cs` | The single evaluated sun/ambient/fog/sky every renderer reads | Per-system lighting rules (MOCV, MODD) |
+| `LiquidRenderer.cs` | Open-world liquid surfacing and the underwater pass | Terrain heights, MCLQ parsing |
+| `FoliageRenderer.cs` | Ground-effect scatter, curation, grass draw | Terrain heights, DBC table layout |
 | `M2Animator.cs` | Clip baking, bone matrices, leg and torso yaw | GL, textures, which clip to play |
 | `CharacterRenderer.cs` | Skinned draw, geoset visibility, texture slots, appearance, clip choice | Item data, attachment placement |
 | `CharacterEquipment.cs` | Body-atlas composite, geoset rules from ItemDisplayInfo | GL, drawing |
@@ -273,10 +345,13 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | Doc | Covers | Status |
 |---|---|---|
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
-| `SYSTEM_WATER.md` | Open-world liquid: MCLQ lakes/rivers/ocean/slime/magma, Gerstner waves, baked depth, underwater overlay | **Written** |
-| `FOUNDATION_PLAN.md` + `PLAN_0x_*.md` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | Written |
+| `SYSTEM_WATER.md` | Open-world liquid: MCLQ lakes/rivers/ocean/slime/magma, the client's own animated liquid BLPs, per-type routing, underwater overlay, the water tuning window | **Written (Draft 2)** — Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves |
+| `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
+| `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
+| `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation | **Written** |
+| `FOUNDATION_PLAN.md` + `PLAN_0x_*.md` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. `FOUNDATION_PLAN.md` still says "Status: proposed. Nothing here is code yet" — **that line is stale**; fix it when you next touch the file |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
-| `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion, portals | Planned extraction from §3.24–3.35 |
+| `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion, portals (**lighting is already split out — see the two lighting docs above**) | Planned extraction from §3.24–3.35 |
 | `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
 | `SYSTEM_COLLISION.md` | Client-geometry collision, BVH, sweep/slide/step-up | Planned extraction |
 | `SYSTEM_STREAMING.md` | Moving residency ring, worker pools, GPU upload context | Planned extraction from §3.24/§3.27/§3.30 |
@@ -1057,6 +1132,15 @@ proved the render cull was not the gate.
 - Antiportal geometry rejection removes the black WMO slabs; fixed-sun lighting
   no longer changes with camera orbit
 - Context-safe shutdown prevents GPU timer-query deletion after GL destruction
+- **WMO interior lighting** — signed off by Nico by eye ("the interior lighting
+  looked good") and committed. SYSTEM_WMO_INTERIOR_LIGHTING.md is the reference
+- **Doodad lighting** — `MODD.color` correlates 0.824 with sampled floor MOCV
+  across 7,428 doodads; the interior gate is measured across 70,228 placements
+  with zero orphans. SYSTEM_DOODAD_LIGHTING.md §1, §3
+- **Water** — shipped and committed (`proper water`) after Nico's five specific
+  complaints were each closed by eye. SYSTEM_WATER.md §0
+- **Vantages, reason codes, scene dump and the override DB** run in game — a
+  real dump and two saved vantages are on disk
 
 ### Not yet verified — expect bugs here
 
@@ -1076,7 +1160,19 @@ proved the render cull was not the gate.
 - **Streaming smoothness is only partially validated.** The shared-context build
   is substantially better but remains visibly behind the real client. Capture
   a post-refactor timing log before choosing the next optimization (§3.27).
-- Liquid and networking: not written
+- **Foliage has not been checked against a real-client capture.** The Northshire
+  road test (SYSTEM_FOLIAGE.md §0) is the pass/fail, and the per-kind curation
+  is explicitly a blunt stand-in for retail's hand curation — the reference
+  screenshot under `refs/` has not been taken.
+- **The three new systems have no `refs/` captures at all.** Water, interior
+  lighting and doodad lighting are all emulation-core by FOUNDATION_PLAN §2, so
+  "done" means side-by-side with the real client, and so far all three were
+  signed off by eye alone. That is the largest single gap in the verification
+  story right now.
+- **The foundation's own loop is unexercised.** Vantages, dumps and reason codes
+  exist but only one dump has ever been captured. The layer is not proven until
+  a real defect gets diagnosed through it.
+- Networking: not written. WMO liquid (MLIQ): not written
 
 ---
 
@@ -1093,7 +1189,10 @@ AssetWorkerPool                      2–8 bounded CPU workers
 TerrainRenderer.LoadShaders
 AdtCache
 TerrainRenderer.LoadAround / VerifyAgainst      initial inner 3x3
-WmoRenderer.LoadForTiles             buildings BEFORE collision
+WmoRenderer.LoadShaders + LoadForTiles          buildings BEFORE collision
+LiquidRenderer.LoadShaders           water.* + underwater.*
+FoliageRenderer.LoadShaders          grass.*; DBC ground-effect tables
+DoodadRenderer.LoadShaders           doodad.*, NOT wmo.* — see §5.2
 DoodadRenderer queues visible-radius outdoor + WMO interior models without a startup drain
 DoodadRenderer.LoadForTiles + nearby WMO interior doodads
 adts.Retain(preload 5x5 ring)
@@ -1126,11 +1225,39 @@ build collision BVH on worker
 atomically replace controller collision when BVH completes
 ```
 
-### 5.2 Shaders
+### 5.2 Shaders — every renderer now owns its own pair
 
-`wmo.vert`/`wmo.frag` are used by `WmoRenderer`, `DoodadRenderer` **and** `AttachedItemRenderer`. `character.vert` pairs with `wmo.frag` **unchanged**, so a character cannot light differently from the world.
+**This changed after Draft 21 and the old sharing is gone.** Current ownership,
+read from the `LoadShaders` calls:
 
-Each owns its **own `Shader` instance, which is a separate GL program** — a uniform set on one does not apply to another. Forgetting `uAlphaCutoff` on the doodad program turned every tree into a black rectangle.
+| Renderer | Vertex | Fragment |
+|---|---|---|
+| `TerrainRenderer` | `terrain.vert` | `terrain.frag` |
+| `WmoRenderer` | `wmo.vert` | `wmo.frag` |
+| `DoodadRenderer` | `doodad.vert` | `doodad.frag` |
+| `FoliageRenderer` | `grass.vert` | `grass.frag` |
+| `LiquidRenderer` | `water.vert` + `underwater.vert` | `water.frag` + `underwater.frag` |
+| `CharacterRenderer` | `character.vert` | `character.frag` |
+| `AttachedItemRenderer` | `attached.vert` | `character.frag` |
+| `CollisionDebugRenderer` | `collision.vert` | `collision.frag` |
+
+**Why the forks exist, and why re-merging them is a regression, not a cleanup.**
+Doodads and the world used to share `wmo.*`. Once interiors were correctly lit
+from MOCV and signed off, any lighting change made for furniture would have
+altered wall lighting — the one thing that had just been declared correct. So
+`doodad.*` was forked *before* any lighting change landed, and the WMO pair's
+md5s are provably unchanged (SYSTEM_WMO_INTERIOR_LIGHTING.md's header records
+them). Grass forked for the same reason: wind sway is wanted on a fern and not
+on a table. **Do not re-merge any of these to reduce file count.**
+
+The one remaining share is deliberate: `attached.vert` pairs with
+`character.frag`, so a sword cannot light differently from the hand holding it.
+
+Each program is a **separate GL program object** — a uniform set on one does not
+apply to another. Forgetting `uAlphaCutoff` on the doodad program turned every
+tree into a black rectangle. With eight pairs instead of four, that failure mode
+is now twice as easy to hit: when a new uniform is added to one shader, grep for
+every renderer that needs the matching `Set` call.
 
 Bones upload as **three vec4 rows per bone**, so skinning is three dot products and there is no mat3x4 column-order question.
 
@@ -1152,11 +1279,27 @@ Bones upload as **three vec4 rows per bone**, so skinning is three dot products 
 | **Impostor/interior/occlusion sliders** | `Inside margin`, `Interior cull`, `Shell near-guard`, `Impostor max verts` (live reclassify), `Occlusion cull` + `Occlusion min dist`. All live; the readout below shows `inside=`, shells drawn/hidden, groups drawn, and occluded count. |
 | `[wmo-vis]` / `[doodad-cull]` | Same numbers as the HUD, but console (off by default — `Console visibility trace`). |
 | `Dump groups on load` | Re-emits the `[wmo-groups]` table (name/flags/int-ext/LOD/verts/local-centre) for large WMOs; needs a reload. |
+| **Vantages** | Save/load a named viewpoint — position, camera, time of day and *every* toggle. `vantages.json`. Two are saved: `looking at the visible castle`, `looking at green river water`. |
+| **Scene dump** | Writes `dumps/<vantage>.json`: camera, player, atmosphere, terrain residency, per-group WMO decisions with reason codes, doodad counts, perf, and the full toggle state. Self-describing — it records what was on when it was taken. |
+| **Reason codes** | Every WMO group's draw/skip resolves to exactly one code via the shared `ClassifyGroup` predicate in `WmoRenderer`. "Why is this building missing?" is a lookup, not a guess. |
+| **Visibility override DB** | `VisibilityOverrides.cs` — hand-authored show/hide, built by clicking, consulted **before** the heuristics. For cases the heuristics will never get right. |
+| **Buildings panel** | Baked interior light (MOCV) + Interior brightness — SYSTEM_WMO_INTERIOR_LIGHTING.md §4 |
+| **Doodads panel** | Baked interior light (MODD) + Interior brightness + "N with baked interior light" — SYSTEM_DOODAD_LIGHTING.md §8 |
+| **Foliage panel** | Coverage, the three 1.12 authenticity switches, per-kind curation, wind/fade, look — SYSTEM_FOLIAGE.md §4 |
+| **Water tuning window** | SYSTEM_WATER.md §4 |
 
-Working method note earned this session: the middle-click picker + the group
+**The paired-artifact rule is the working agreement now (FOUNDATION_PLAN §3.3):
+no visual bug report without its dump, and no dump without its vantage.** One
+screenshot + one dump + one vantage name = one testable observation, plus a
+`refs/<vantage>.png` real-client capture for anything emulation-core. This is
+what replaces "here's a picture, what's wrong" — and it is currently
+under-used: only one dump has ever been captured.
+
+Working method note earned earlier: the middle-click picker + the group
 dump ended three rounds of guessing which of Stormwind's 306 groups were the
 cathedral impostor and the entrance keep. When "which piece of geometry is
-that?" comes up, pick it; the answer is one click.
+that?" comes up, pick it; the answer is one click. The reason codes generalize
+exactly that win to every group, every frame.
 
 ### 5.4 Thread and ownership rules
 
@@ -1215,34 +1358,61 @@ Written down because the same three moves have solved almost every hard bug in t
 
 ### 7.1 Immediate next steps
 
+**Housekeeping, before anything else**
+
 1. **Start safely.** Read the stop-point block in §0, inspect `git status` and
-   the existing diff, then build. Do not discard the uncommitted day of work.
-2. **Validate the Stormwind distance-shell swap.** With the default-on test
+   the existing diff, then build. Do not discard the uncommitted work.
+2. **Commit the lighting + foliage set.** Three systems and three docs are
+   sitting untracked. `_to_delete/` must not be swept in with them.
+3. **Fix `FOUNDATION_PLAN.md`'s status line** — it still reads "proposed.
+   Nothing here is code yet" and the layer shipped.
+
+**Close the verification gap (this is the cheapest real win available)**
+
+4. **Capture `refs/` shots from the real 1.12 client for the two saved
+   vantages,** then the same shots from MSUI plus their dumps. Water, interior
+   lighting, doodad lighting and foliage are all emulation-core by
+   FOUNDATION_PLAN §2 and all four were signed off by eye alone. This also
+   exercises the foundation loop for the first time, which is its own point.
+5. **Run the Northshire road test for foliage** (SYSTEM_FOLIAGE.md §0) and the
+   tavern test for doodad lighting (a barrel must match its floor;
+   "N with baked interior light" must be non-zero indoors).
+6. **Validate the Stormwind distance-shell swap.** With the default-on test
    toggle, approach Stormwind from outside and confirm its silhouette remains;
    inside Trade District, confirm the Cathedral/entrance shells disappear.
    Record `[wmo-lod]` and `LOD shells hidden nearby`. Toggle it off for A/B.
-3. **Measure the current streaming build, not an older one.** Record a fresh
+   The dump's reason codes now answer this directly.
+
+**Then, the open engineering fronts — pick one, do not braid them**
+
+7. **Streaming.** Measure the *current* build, not an older one: a fresh
    `[game] ready in`, then walk—not fly—over at least two tile edges near large
-   WMOs and mark the visible hitch moments.
-   Capture `[stream]`, `[wmo-preload]`, `[doodad-preload]`, `[gpu-upload]`,
-   `[stream-budget]`, `[collision-async]`, queue depths and frame-time spikes.
-   If the log cannot correlate a hitch, add phase timing before optimizing.
-   Use the existing delayed GPU timer results alongside CPU submission timings.
-4. **If hitches still coincide with uploads, inspect package size and driver
-   fence duration.** The global `glFinish` barrier is already gone; the next
-   step is splitting whole-WMO uploads into independently publishable groups.
-5. **If hitches do not coincide with uploads, profile the boundary main-thread
-   work:** placement rebuild, collision-triangle snapshot, ADT/preload discovery,
-   then steady-state draw submission/culling. Fix the measured phase only.
-6. **Reduce repeat-launch cost after measuring it.** The likely architectural
-   step is a persistent cache of prepared meshes/textures keyed by source asset
-   identity, not another wider startup preload.
-7. **Implement WMO portal visibility when indoor-cell correctness becomes the
-   active target.** Use MOPV/MOPT/MOPR semantics from WoWee (§3.26); this is no
-   longer prerequisite to the Stormwind distance-shell fix.
-8. **Liquid.** `MCLQ` and `MLIQ` are both parsed and drawn nowhere.
-9. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
-10. **P2 networking.**
+   WMOs, marking the visible hitch moments. Capture `[stream]`,
+   `[wmo-preload]`, `[doodad-preload]`, `[gpu-upload]`, `[stream-budget]`,
+   `[collision-async]`, queue depths and frame-time spikes. If a hitch
+   coincides with an upload, split whole-WMO uploads into independently
+   publishable groups; if it does not, profile the boundary main-thread work
+   (placement rebuild, collision snapshot, discovery) and fix only the measured
+   phase. Repeat-launch cost wants a persistent prepared-asset cache, but only
+   after it is measured (§3.27, §8.7).
+8. **WMO portal visibility.** MOPV/MOPT/MOPR are parsed and consumed by nothing
+   (§3.26, §3.35). This is the remaining lever for indoor correctness and for
+   the Stormwind courtyard keep — and note §3.35's warning that outdoor portal
+   traversal is experimental and trades popout for it.
+9. **WMO liquid (MLIQ)** — canals, fountains, indoor pools. `MCLQ` open-world
+   liquid is done and shipped; `MLIQ` is parsed and drawn nowhere.
+   SYSTEM_WATER.md §5.
+10. **MFOG, per-interior fog** — offered and not taken during the interior
+    lighting pass, and named there as the most likely next real gain for
+    interiors. SYSTEM_WMO_INTERIOR_LIGHTING.md §5.
+11. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
+12. **P2 networking.**
+
+**A note on sequencing.** Items 7–12 are genuinely independent and the project
+has more open fronts than it has sessions. Prefer finishing the verification of
+what already shipped (4–6) over opening a seventh front; the docs are ahead of
+the evidence right now, which is the specific failure mode §11's "empirical over
+documented" exists to prevent.
 
 ### 7.2 Deliberately out of scope, permanently
 
@@ -1355,6 +1525,8 @@ made twice, once on WMO rendering and once on the DBC layer.
 | Work | Ask for | Why |
 |---|---|---|
 | WMO portal visibility | WoWee WMO renderer/visibility code using MOPV, MOPT and MOPR | Replace the approximate 120-yard ordinary-interior heuristic with real cell traversal; distance shells remain §3.34's separate system |
+| WMO liquid (MLIQ) | WoWee's MLIQ path, plus a real-client capture of a fountain/canal | Open-world MCLQ is done; MLIQ is a different chunk with its own per-group placement — SYSTEM_WATER.md §5 |
+| Any emulation-core sign-off | A real 1.12 client screenshot from the named vantage, saved to `refs/<vantage>.png` | FOUNDATION_PLAN §2: emulation-core work is measured against the real client, not by eye. Four shipped systems currently lack this |
 | Streaming smoothness | A post-Draft-14 console log plus the exact moments Nico felt hitches | Separate upload contention, residency publication and steady-state rendering |
 | The flicker (§9) | WoWee `src/rendering/m2_renderer.cpp` render-state setup | Whether they honour NoZWrite, blend mode and priority plane |
 | Torso yaw constant | WoWee `src/rendering/character_renderer.cpp`, `setInstanceTorsoYaw` | The real fraction behind §3.10's 0.66 |

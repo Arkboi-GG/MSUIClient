@@ -81,6 +81,27 @@ public sealed class DbcFile
 
         return Encoding.UTF8.GetString(_strings, (int)offset, end - (int)offset);
     }
+
+    /// <summary>
+    /// Like <see cref="GetString"/>, but only when the stored value points at the
+    /// START of a string in the block - offset 0 (the empty string), or a byte
+    /// immediately preceded by a null. An INTEGER column misread as a stringref
+    /// lands in the middle of a neighbouring string; this tells the two apart.
+    /// Returns null when the field is not a valid string start, so a column scan
+    /// can skip it instead of accepting a truncated fragment.
+    /// </summary>
+    public string? GetStringIfStart(int row, int field)
+    {
+        uint offset = GetUInt(row, field);
+        if (offset == 0) return "";
+        if (offset >= _strings.Length) return null;
+        if (_strings[offset - 1] != 0) return null;   // mid-string: not a real ref
+
+        int end = (int)offset;
+        while (end < _strings.Length && _strings[end] != 0) end++;
+
+        return Encoding.UTF8.GetString(_strings, (int)offset, end - (int)offset);
+    }
 }
 
 /// <summary>
@@ -399,8 +420,15 @@ public sealed class GroundEffectDoodadTable
             string model = "";
             for (int f = 1; f < dbc.FieldCount; f++)
             {
-                string s = dbc.GetString(r, f);
-                if (s.Length > 3 &&
+                // Only accept a value that points at the START of a string. The
+                // model path shares the record with plain integer columns, and
+                // because the whole string block is packed with model paths, an
+                // integer misread as an offset almost always lands INSIDE one and
+                // still ends in ".mdl"/".mdx" - a convincing but truncated fake
+                // ("wFlo01.mdl" where the real path is "ElwGra01.mdl"), which then
+                // fails to load. Requiring a genuine string start rejects those.
+                string? s = dbc.GetStringIfStart(r, f);
+                if (s is { Length: > 3 } &&
                     (s.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase) ||
                      s.EndsWith(".m2", StringComparison.OrdinalIgnoreCase) ||
                      s.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)))
@@ -424,10 +452,18 @@ public sealed class GroundEffectRecipe
 
 /// <summary>
 /// GroundEffectTexture.dbc - a ground-effect ID (from MCLY.EffectId) gives up to
-/// four GroundEffectDoodad IDs with weights, plus a density. Vanilla layout is
-/// ID, DoodadID[4], DoodadWeight[4], Density, Sound (11 fields / 44 bytes); the
-/// record size is logged so a mismatch is obvious. Doodad IDs are resolved to
-/// model paths through GroundEffectDoodad at parse time.
+/// four GroundEffectDoodad IDs plus a density (doodads scattered per cell). Two
+/// column layouts exist and the field count tells them apart:
+///
+///   7 fields  (vanilla 1.12): ID, DoodadId[4], Density, Sound   - NO weights
+///   11 fields (WotLK+):       ID, DoodadId[4], Weight[4], Density, Sound
+///
+/// This client loads the 7-field file, so density lives at field 5, not 9, and
+/// there are no per-doodad weights (each doodad is equally likely). Reading the
+/// wrong column left every recipe pinned to a fallback density, which scattered
+/// grass far denser and more uniform than the data intends. The record size is
+/// logged so a mismatch is obvious. Doodad IDs are resolved to model paths
+/// through GroundEffectDoodad at parse time.
 /// </summary>
 public sealed class GroundEffectTextureTable
 {
@@ -445,6 +481,13 @@ public sealed class GroundEffectTextureTable
         if (dbc is null) return null;
 
         var table = new GroundEffectTextureTable();
+
+        // 11-field files carry a Weight[4] block before density; the 7-field
+        // vanilla file has neither, so density sits at field 5 and every doodad
+        // is equally weighted. See the class summary for both layouts.
+        bool hasWeights = dbc.FieldCount >= 11;
+        int densityField = hasWeights ? 9 : 5;
+
         for (int r = 0; r < dbc.RecordCount; r++)
         {
             uint id = dbc.GetUInt(r, 0);
@@ -454,15 +497,15 @@ public sealed class GroundEffectTextureTable
             for (int i = 0; i < 4; i++)
             {
                 uint doodadId = dbc.GetUInt(r, 1 + i);
-                if (doodadId == 0) continue;
+                if (doodadId == 0 || doodadId == 0xFFFFFFFF) continue;   // 0 / -1 = empty slot
                 string? model = doodads.Model(doodadId);
                 if (model is null) continue;
-                int weight = dbc.FieldCount > 5 + i ? dbc.GetInt(r, 5 + i) : 1;
+                int weight = hasWeights ? dbc.GetInt(r, 5 + i) : 1;
                 list.Add((model, Math.Max(weight, 1)));
             }
             if (list.Count == 0) continue;
 
-            int density = dbc.FieldCount > 9 ? dbc.GetInt(r, 9) : 16;
+            int density = dbc.FieldCount > densityField ? dbc.GetInt(r, densityField) : 1;
             table._byId[id] = new GroundEffectRecipe
             {
                 Doodads = list.ToArray(),
