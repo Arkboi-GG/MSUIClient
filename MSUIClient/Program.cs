@@ -509,6 +509,14 @@ public sealed partial class GameLoop : IDisposable
         LoadCollision();
         PhaseComplete("collision world");
 
+        // Map.dbc, every WDT, AreaTrigger.dbc and the teleport table. Loaded
+        // here rather than on first use because UpdatePortals runs every frame
+        // in every build and must not depend on a DevTools panel having been
+        // opened - and because a lazy load would stall a frame mid-play instead
+        // of a startup phase that is already being timed.
+        EnsureInstanceData();
+        PhaseComplete("maps + portals");
+
         _controller = new CharacterController(_terrain, _config.Movement)
         {
             Collision = _collision,
@@ -1283,6 +1291,11 @@ public sealed partial class GameLoop : IDisposable
 
         phaseStarted = Stopwatch.GetTimestamp();
         UpdateWorldResidency();
+
+        // Portals (PLAN_13 stage 2b). AFTER residency, so the volume test runs
+        // against the map we are actually on rather than the one we were on
+        // when the frame began.
+        UpdatePortals();
         _residencyMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         // WoWee gives ready assets a small main-thread integration budget.

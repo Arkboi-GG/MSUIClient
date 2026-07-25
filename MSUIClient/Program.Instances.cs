@@ -59,6 +59,7 @@ public sealed partial class GameLoop
 
             var trig = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, AreaTriggerTable.MpqPath);
             _areaTriggers = trig is null ? null : AreaTriggerTable.Parse(trig);
+            _teleports = AreaTriggerTeleportTable.Load(_config.RepoRoot);
 
             _mapWdts = new Dictionary<int, WdtFile?>(_maps.Count);
             int withWdt = 0, globalWmo = 0, terrain = 0;
@@ -125,6 +126,19 @@ public sealed partial class GameLoop
             ImGui.TextDisabled($"({back.Position.X:F0}, {back.Position.Y:F0}, {back.Position.Z:F0})");
         }
 
+        ImGui.Checkbox("Portals fire on contact", ref _portalsEnabled);
+        if (_teleports is null || _teleports.Count == 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f),
+                $"no {AreaTriggerTeleportTable.FileName} - portals disabled");
+        }
+        else if (_lastPortalMessage.Length > 0)
+        {
+            ImGui.SameLine();
+            ImGui.TextDisabled($"last: {_lastPortalMessage}");
+        }
+
         if (_travelStatus.Length > 0) ImGui.TextUnformatted(_travelStatus);
 
         ImGui.Separator();
@@ -158,15 +172,32 @@ public sealed partial class GameLoop
 
             ImGui.TextDisabled($"MPHD flags 0x{wdt.Flags:X4}   MVER {wdt.Version}");
 
+            // The doors that lead here, and the spot in the wider world you
+            // would walk in from. This is the affordance that matters: it puts
+            // you OUTSIDE the dungeon facing its entrance, and the portal does
+            // the rest - which is what actually happens in the game.
+            foreach (var (tel, volume, stand, facing) in EntrancesTo(m.Id))
+            {
+                if (ImGui.Button($"Go to entrance##ent{tel.Id}"))
+                    GoToEntrance(volume, stand, facing, tel.Name);
+                ImGui.SameLine();
+                ImGui.TextDisabled($"{tel.Name}  (trigger {tel.Id} on map {volume.MapId})");
+                if (tel.RequiredLevel > 0)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled($"lvl {tel.RequiredLevel}");
+                }
+            }
+
             // Travel. H1: the button does not care whether this is a dungeon,
             // only whether the map has terrain to stand on - which is why
             // Azeroth and Deadmines are the same row with different numbers.
             bool canTravel = !wdt.UsesGlobalWmo && wdt.TileCount > 0 && !here;
             if (canTravel)
             {
-                if (ImGui.Button($"Travel here##go{m.Id}")) TravelTo(m, wdt);
+                if (ImGui.Button($"Travel straight in##go{m.Id}")) TravelTo(m, wdt);
                 ImGui.SameLine();
-                ImGui.TextDisabled("arrival point, not the real entrance (H3)");
+                ImGui.TextDisabled("skips the portal - arrival point, not the real entrance (H3)");
             }
             else if (here)
             {
@@ -371,7 +402,8 @@ public sealed partial class GameLoop
     /// is a bug hunt. So every check that can be made BEFORE the teardown is
     /// made before it, and the teardown itself cannot fail.
     /// </summary>
-    private bool TravelTo(MapRow map, WdtFile wdt, Vector3? exactPosition = null, float? facing = null)
+    private bool TravelTo(MapRow map, WdtFile wdt, Vector3? exactPosition = null,
+                          float? facing = null, bool recordReturn = true)
     {
         if (_travelInProgress) return false;
 
@@ -385,6 +417,19 @@ public sealed partial class GameLoop
         Vector2 arrive;
         if (exactPosition is Vector3 exact)
         {
+            // An exact destination skips TryPlanArrival, and with it both of its
+            // refusals - which is how a portal into the Stockade (map 34) or the
+            // Deeprun Tram (map 369) would tear the world down and land in the
+            // restore path. Those are real teleport rows, so the guard has to be
+            // repeated here rather than assumed unreachable.
+            if (wdt.UsesGlobalWmo || wdt.TileCount == 0)
+            {
+                _travelStatus = $"refused: {map.Name} has no terrain tiles (stage 3)";
+                Console.WriteLine($"[travel] refused {map.Name} - " +
+                                  (wdt.UsesGlobalWmo ? "global-WMO map, that is stage 3"
+                                                     : "zero terrain tiles"));
+                return false;
+            }
             arrive = new Vector2(exact.X, exact.Y);
         }
         else if (!TryPlanArrival(map, wdt, out arrive, out string why))
@@ -486,7 +531,15 @@ public sealed partial class GameLoop
 
             _foliage?.ForceRescatter();
 
-            _travelReturn = exactPosition is null ? from : null;
+            // RE-LATCH AGAINST THE DESTINATION'S TRIGGERS, on every arrival and
+            // not just the portal path. Without this the Return button is
+            // unusable for any dungeon entered through a portal: the return trip
+            // puts you back INSIDE the entrance volume you walked into, the
+            // stale latch still names a trigger on the map you just left, and
+            // the next frame sends you straight back in. Same for "Travel
+            // straight in", which deliberately arrives at a trigger centre.
+            _portalLatch = _areaTriggers?.Containing(_config.Start.Map, _controller.Position)?.Id ?? 0;
+
             _travelStatus =
                 $"{map.Name}: {_terrain.TileCount} tile(s), {_wmo?.InstanceCount ?? 0} WMO, " +
                 $"{_doodads?.InstanceCount ?? 0} doodad(s) in {timer.Elapsed.TotalSeconds:F2}s";
@@ -496,6 +549,11 @@ public sealed partial class GameLoop
                               $"{_terrain.TileCount} terrain, {_wmo?.InstanceCount ?? 0} WMO, " +
                               $"{_doodads?.InstanceCount ?? 0} doodad placement(s), " +
                               $"{timer.Elapsed.TotalSeconds:F2}s");
+
+            // LAST, not earlier. If anything above throws, RestoreAfterFailedTravel
+            // puts us back on `from`'s map - and a return point naming the map we
+            // are standing on offers a Return button that goes nowhere.
+            _travelReturn = recordReturn ? from : null;
             return true;
         }
         catch (Exception ex)
@@ -590,7 +648,10 @@ public sealed partial class GameLoop
         _controller.Teleport(from.Position.X, from.Position.Y, from.Position.Z);
         _controller.Yaw = from.Facing;
         _window.Camera.Target = _controller.Position;
+        _window.Camera.Yaw = _controller.Yaw;
         _foliage?.ForceRescatter();
+
+        _portalLatch = _areaTriggers?.Containing(_config.Start.Map, _controller.Position)?.Id ?? 0;
 
         Console.WriteLine($"[travel] restored {from.DisplayName} at " +
                           $"({from.Position.X:F0}, {from.Position.Y:F0}, {from.Position.Z:F0})");
@@ -610,12 +671,228 @@ public sealed partial class GameLoop
             return;
         }
 
-        // No _travelReturn = null here. TravelTo already clears it on the path
-        // that succeeds (an explicit position means "this IS the return trip").
+        // No _travelReturn = null here. TravelTo clears it on the path that
+        // succeeds, because recordReturn is false for the return trip itself.
         // Clearing it here as well would only ever fire when the trip was
         // REFUSED or failed and restored - taking away the button that is the
         // way back, while the player is still in the dungeon.
-        TravelTo(row, wdt, back.Position, back.Facing);
+        TravelTo(row, wdt, back.Position, back.Facing, recordReturn: false);
+    }
+
+    // ========================================================================
+    // PORTALS — walking through a doorway instead of being placed behind one.
+    //
+    // Two halves, from two sources, joined here:
+    //   AreaTrigger.dbc          the VOLUME. 432 of them, both sides of every
+    //                            portal, sphere or oriented box.
+    //   areatrigger_teleport     where each one SENDS you. VMaNGOS's world DB;
+    //                            nothing in the client carries it.
+    //
+    // A trigger with no teleport row is not a portal - most of the 432 are
+    // quest and script triggers - so the join is what turns the table into a
+    // set of doorways.
+    // ========================================================================
+
+    private AreaTriggerTeleportTable? _teleports;
+
+    /// <summary>
+    /// EntrancesTo is a nested scan over two tables and the panel would call it
+    /// once per expanded row per frame. The tables never change after load.
+    /// </summary>
+    private readonly Dictionary<int, List<(AreaTriggerTeleport Entrance, AreaTriggerRow Volume, Vector3 Stand, float Facing)>>
+        _entrancesByMap = [];
+
+    /// <summary>
+    /// The trigger we are currently standing in and must not re-fire. Set after
+    /// every travel, because vanilla drops you close enough to the return portal
+    /// that a naive test bounces you straight back: Deadmines' entrance lands
+    /// you 8.2 yards from exit trigger 119, whose radius is 6. Outside it, but
+    /// only just, and one step is enough to make an infinite loop.
+    /// </summary>
+    private int _portalLatch;
+
+    private bool _portalsEnabled = true;
+    private string _lastPortalMessage = "";
+
+    /// <summary>
+    /// Fire a portal if the player has walked into one. Called once per Update.
+    ///
+    /// Deliberately NOT gated on DevTools: this is world behaviour, not an
+    /// instrument. It is gated on having the teleport table at all, which a
+    /// shipping build without the .tsv simply does not.
+    /// </summary>
+    private void UpdatePortals()
+    {
+        if (!_portalsEnabled || _controller is null ||
+            _areaTriggers is null || _teleports is null || _teleports.Count == 0) return;
+        if (_travelInProgress) return;
+
+        var inside = _areaTriggers.Containing(_config.Start.Map, _controller.Position);
+        if (inside is null)
+        {
+            // Left every volume, so the next one may fire.
+            _portalLatch = 0;
+            return;
+        }
+
+        if (inside.Id == _portalLatch) return;
+
+        var dest = _teleports.Get(inside.Id);
+        if (dest is null)
+        {
+            // A quest or script trigger, not a doorway. Latch it anyway so we
+            // do not look it up again every frame while standing in it.
+            _portalLatch = inside.Id;
+            return;
+        }
+
+        Console.WriteLine($"[portal] entered trigger {inside.Id} '{dest.Name}' " +
+                          $"-> map {dest.TargetMap} " +
+                          $"({dest.TargetPosition.X:F0},{dest.TargetPosition.Y:F0},{dest.TargetPosition.Z:F0})");
+
+        // The level requirement is recorded and shown, never enforced: there is
+        // no character level here yet, and refusing a portal we cannot evaluate
+        // would make the feature untestable.
+        if (dest.RequiredLevel > 0)
+            _lastPortalMessage = $"{dest.Name} (vanilla requires level {dest.RequiredLevel})";
+        else
+            _lastPortalMessage = dest.Name;
+
+        _portalLatch = inside.Id;
+        TravelToMapId(dest.TargetMap, dest.TargetPosition, dest.TargetOrientation, dest.Name);
+    }
+
+    /// <summary>
+    /// Travel by map id, for the portal path where the destination is exact and
+    /// comes from the server's own table rather than from a guess.
+    /// </summary>
+    private bool TravelToMapId(int mapId, Vector3 position, float orientation, string why)
+    {
+        if (_maps is null || _mapWdts is null)
+        {
+            Console.WriteLine($"[portal] '{why}' cannot fire - the map table is not loaded " +
+                              "(open the Instances panel once)");
+            return false;
+        }
+
+        var row = _maps.Get(mapId);
+        var wdt = row is null ? null : _mapWdts.GetValueOrDefault(mapId);
+        if (row is null || wdt is null)
+        {
+            Console.WriteLine($"[portal] '{why}' targets map {mapId}, which has no Map.dbc row or WDT");
+            return false;
+        }
+
+        // TravelTo re-latches on arrival for us - see the note beside it.
+        return TravelTo(row, wdt, position, orientation);
+    }
+
+    /// <summary>
+    /// Every portal that leads TO this map, with the spot in the wider world
+    /// where you would stand to use it.
+    ///
+    /// The standing spot is derived, not guessed: it is the destination of the
+    /// PAIRED EXIT - the trigger inside the dungeon that leads back out. That
+    /// is by construction a legal, walkable position just outside the entrance,
+    /// authored by Blizzard, and it needs no geometry from us.
+    ///
+    /// Pairing is geometric, never by name. For an entrance E on map A leading
+    /// to map B, the paired exit is the trigger on map B whose destination is
+    /// nearest E's own volume. For Deadmines that picks exit 119 (9.4 yd from
+    /// entrance 78) over the Back Exit 121 (173 yd), which is also what the
+    /// names say - but the names are VMaNGOS's prose and this does not depend
+    /// on them.
+    /// </summary>
+    private List<(AreaTriggerTeleport Entrance, AreaTriggerRow Volume, Vector3 Stand, float Facing)>
+        EntrancesTo(int mapId)
+    {
+        if (_entrancesByMap.TryGetValue(mapId, out var cached)) return cached;
+
+        var result = new List<(AreaTriggerTeleport Entrance, AreaTriggerRow Volume, Vector3 Stand, float Facing)>();
+        if (_areaTriggers is null || _teleports is null) return result;
+
+        foreach (var (id, tel) in _teleports.ById)
+        {
+            if (tel.TargetMap != mapId) continue;
+
+            // The volume this teleport belongs to. Without it we do not know
+            // where in the world the doorway is.
+            AreaTriggerRow? volume = null;
+            foreach (var t in _areaTriggers.All)
+                if (t.Id == id) { volume = t; break; }
+            if (volume is null) continue;
+
+            // The way back out, chosen by where it lands relative to this door.
+            AreaTriggerTeleport? bestExit = null;
+            float bestSq = float.MaxValue;
+            foreach (var (_, back) in _teleports.ById)
+            {
+                if (back.TargetMap != volume.MapId) continue;
+
+                // Never pair a door with itself. When volume.MapId == mapId both
+                // filters below are satisfied by `tel`, at distance zero, so it
+                // would always win - and "Go to entrance" would stand you on the
+                // FAR side of the door, facing backwards.
+                if (back.Id == tel.Id) continue;
+                var v = _areaTriggers.All.FirstOrDefault(t => t.Id == back.Id);
+                if (v is null || v.MapId != mapId) continue;
+
+                float dx = back.TargetPosition.X - volume.X;
+                float dy = back.TargetPosition.Y - volume.Y;
+                float d = dx * dx + dy * dy;
+                if (d >= bestSq) continue;
+                bestSq = d;
+                bestExit = back;
+            }
+
+            Vector3 stand;
+            float facing;
+            if (bestExit is not null)
+            {
+                stand = bestExit.TargetPosition;
+                // The exit faces AWAY from the door it just spat you out of, so
+                // turn around and the doorway is straight ahead: walk forward
+                // and you go in.
+                facing = bestExit.TargetOrientation + MathF.PI;
+            }
+            else
+            {
+                stand = new Vector3(volume.X, volume.Y, volume.Z);
+                facing = tel.TargetOrientation;
+            }
+
+            result.Add((tel, volume, stand, facing));
+        }
+
+        result.Sort((a, b) => string.CompareOrdinal(a.Entrance.Name, b.Entrance.Name));
+        _entrancesByMap[mapId] = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Put the player in the wider world, just outside a dungeon's door, facing
+    /// it. This is the "walk in yourself" affordance, and it is what H3 should
+    /// have said all along: the entrance is not something to derive, it is
+    /// something the data already knows.
+    /// </summary>
+    private void GoToEntrance(AreaTriggerRow volume, Vector3 stand, float facing, string label)
+    {
+        if (_maps is null || _mapWdts is null) return;
+
+        var row = _maps.Get(volume.MapId);
+        var wdt = row is null ? null : _mapWdts.GetValueOrDefault(volume.MapId);
+        if (row is null || wdt is null)
+        {
+            Console.WriteLine($"[portal] cannot reach map {volume.MapId} for '{label}'");
+            return;
+        }
+
+        Console.WriteLine($"[portal] going to '{label}' - standing at " +
+                          $"({stand.X:F0},{stand.Y:F0},{stand.Z:F0}) facing the door " +
+                          $"(trigger {volume.Id} is {Vector2.Distance(new Vector2(stand.X, stand.Y), new Vector2(volume.X, volume.Y)):F0} yd ahead)");
+
+        if (TravelToMapId(volume.MapId, stand, facing, label))
+            _travelStatus = $"outside {label} - walk forward to enter";
     }
 
 }

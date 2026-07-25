@@ -512,3 +512,86 @@ wrong, and both now unwind:
 5. **`[adt] map -> X, dropped N cached tile(s)`** should appear on every travel.
    Its absence means `SetMap` early-returned on a name compare and the cache is
    about to serve the wrong world.
+
+
+## 15. Stage 2b — portals (built 2026-07-25, unrun)
+
+### 15.1 H3 was wrong, and the correction matters
+
+H3 said the entrance destinations *"live in the server's `areatrigger_teleport`
+table, which we do not have"*, and built a derived spawn instead. **This project
+talks to a VMaNGOS server. We always had it — it just was not in the repo.**
+Nico dumped it in about ten seconds.
+
+The cost of that mistake was not wasted work, it was the wrong shape of work: a
+derived arrival point put the player 469 yards from the Deadmines with every
+doodad distance-culled, when the real answer — walk in through the door, like
+the game does — was one query away. **"We do not have it" deserved a check, not
+a design.** Ruled out on the way to the correction, so nobody re-treads it:
+`AreaPOI.dbc` is landmarks ("Echo Ridge Mine", "Sentinel Hill"), and pfQuest's
+`areatrigger.lua` carries only map-pin percentages.
+
+### 15.2 The two halves
+
+| Source | Gives | Where |
+|---|---|---|
+| `AreaTrigger.dbc` | 432 trigger VOLUMES — sphere or oriented box, both sides of every portal | `AreaTriggerTable` in `Formats/DbcReader.cs` |
+| `areatrigger_teleport` | where each one sends you: target map, position, facing | `Formats/AreaTriggerTeleport.cs`, from `areatrigger_teleport.tsv` |
+
+Most of the 432 are quest and script triggers. **The join is what turns the
+table into a set of doorways** — a trigger with no teleport row is not a portal.
+
+The key is `(id, patch)`, not `id`. VMaNGOS gates content by patch and six of
+Dire Maul's entrances appear twice: patch 0 with *"You Shall Not Pass!"* at level
+61, patch 1 with the real level-45 requirement. 1.12.1 is the last vanilla patch,
+so the highest patch row wins. Taking the first would lock Dire Maul at level 61
+forever — a bug that reads as content rather than as parsing.
+
+### 15.3 The entrance is derived from the data, not authored
+
+"Go to entrance" stands you where the dungeon's **paired exit** drops you, facing
+back at the door. That spot is a legal, walkable position just outside the
+entrance, authored by Blizzard, and it costs us no geometry at all.
+
+Pairing is geometric, never by name: for an entrance E on map A leading to map B,
+the paired exit is the trigger on B whose destination is nearest E's own volume.
+For Deadmines that picks exit 119 (9.4 yd from entrance 78) over the Back Exit
+121 (173 yd) — which is also what the names say, but the names are VMaNGOS's
+prose and nothing depends on them.
+
+### 15.4 The latch, and why it is not optional
+
+Vanilla drops you close enough to the return portal that a naive volume test
+bounces: Deadmines' entrance lands you **8.2 yards** from exit trigger 119, whose
+radius is **6**. Outside it — but only just, and one step is an infinite loop.
+
+So every arrival latches the trigger it lands in, and the latch clears only when
+the player leaves every volume. Review caught that the latch was being set on the
+portal path alone, which made the Return button unusable for any dungeon entered
+through a portal: the return trip puts you back inside the entrance volume, the
+stale latch names a trigger on the map you just left, and the next frame sends
+you straight back in. It is set inside `TravelTo` now, so every arrival is
+covered.
+
+### 15.5 What is deliberately not enforced
+
+`required_level` is read and displayed, never checked. There is no character
+level in this client yet, and refusing a portal on a value we cannot evaluate
+would make the feature untestable. The message is shown so it is obvious what
+vanilla would have said.
+
+Portals into global-WMO maps — the Stockade (34), Deeprun Tram (369) — are
+refused, because that is stage 3. Those are real teleport rows, so the refusal is
+repeated on the exact-position path rather than assumed unreachable.
+
+### 15.6 What to watch on the first run
+
+1. `[teleport] N destination(s) from areatrigger_teleport.tsv` at startup. Absent
+   means the file is not at the repo root and portals are off.
+2. **Go to entrance -> Deadmines.** You should be standing in Moonbrook facing
+   the mineshaft. Walk forward: `[portal] entered trigger 78 'Deadmines -
+   Entrance' -> map 36` and you are inside.
+3. **Walk back out.** The exit should return you to Moonbrook, and you must not
+   immediately bounce back in — that is §15.4's latch doing its job.
+4. **Return button after a portal entry.** Must not ping-pong.
+5. Walking into the Stockade portal must log a refusal, not tear the world down.
