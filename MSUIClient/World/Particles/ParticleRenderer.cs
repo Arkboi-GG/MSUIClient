@@ -3,6 +3,13 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 
+// Silk.NET.OpenGL ships its own Shader and Texture types, so both names are
+// ambiguous the moment that namespace is imported. Every other renderer in this
+// project aliases them the same way - LiquidRenderer, TerrainRenderer,
+// FoliageRenderer and DoodadRenderer all carry these two lines.
+using Shader = MSUIClient.Engine.Shader;
+using Texture = MSUIClient.Engine.Texture;
+
 namespace MSUIClient.World.Particles;
 
 /// <summary>
