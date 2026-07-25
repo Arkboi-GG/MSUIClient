@@ -48,6 +48,49 @@ Placement is **deterministic per cell** —
 so the same tuft lands in the same place every time you walk back. Grass that
 reshuffles when you turn around is the giveaway that this seeding got broken.
 
+### 1.1a The reshuffle bug — the seed was never the problem (fixed 2026-07-25)
+
+Nico: *"its redrawing into different spots as I'm moving."* He was right, and the
+paragraph above points at the wrong culprit. **The seed was always correct. The
+stream POSITION was not.**
+
+The draws used to be interleaved with the rejection tests:
+
+```csharp
+float px = ... rng.NextDouble() ...          // 2 draws
+if (offRadius) continue;                     // <-- CAMERA-DEPENDENT, skips the rest
+float? h = terrain.SampleHeight(px, py);
+if (h is null) continue;
+string modelPath = PickWeighted(..., rng);   // 1 draw
+...                rng.NextDouble()          // keep roll
+float yaw        = rng.NextDouble()          // yaw
+float s          = rng.NextDouble()          // scale
+```
+
+The radius test depends on **where the camera is**. When it rejected tuft `i`,
+the loop skipped four further draws — so the stream position at tuft `i+1`
+depended on the camera, and **every remaining tuft in that cell got a new
+position, model, rotation and scale on every re-scatter.**
+
+Cells fully inside the radius never showed it. Cells straddling the radius edge
+reshuffled constantly — and as you walk, **every cell takes its turn at the
+edge**. That is why it read as continuous churn rather than an occasional glitch.
+
+**Fix:** draw every random value for a tuft *before* any test, then reject using
+values already drawn. The stream position now depends only on `(cell, i)`.
+
+> **The rule this leaves behind matters more than the fix: no `continue` may
+> appear between the first and last `rng` call of a placement loop.** A
+> deterministic seed buys nothing if consumption is conditional. Any future
+> filter goes below the draws, never among them.
+
+Two things came free with the reordering:
+
+- **The rejections are now cheapest-first.** `SampleHeight` used to run before
+  the per-kind filter, so every in-radius candidate paid a height lookup even
+  when its kind was switched off and it was about to be discarded.
+- **`ResolveModel` moved above `SampleHeight`** for the same reason.
+
 ### 1.2 The MCNK cell layer map (`0x40`) — not alpha sampling
 
 Each cell's texture layer is read from the **8x8 map the artists baked into the
@@ -101,6 +144,23 @@ Re-scatter only happens once the camera has moved `RescatterDistance` (8 yd) fro
 the last scatter point. Whole chunks are rejected when their centre is outside
 `Radius + 24` yd. `MaxInstances` (24,000) is the hard ceiling.
 
+**A re-scatter is a full rebuild — every resident tile, every chunk in range,
+every cell — not an incremental update.** At walking pace 8 yd arrives roughly
+once a second, so this fires about once a second while moving and does nothing in
+between. That schedule is why it must not be averaged with the draw (§1.7a).
+
+`adts.TryPeek` is used, never `adts.Get`. `Get` blocks on a pending parse
+(`return pending.GetAwaiter().GetResult();`) and this runs inside `Render` on the
+main thread — the same call cost the WMO ring 61 ms
+(`SYSTEM_STREAMING.md` §3.1, which listed `FoliageRenderer:270` as the identical
+latent bug). Unparsed tiles are counted in `DeferredTiles` and the throttle is
+cleared so the next frame retries, rather than leaving a bald patch until the
+camera has moved another 8 yd.
+
+> `TryPeek` returning **true with a null adt** means "known to have no ADT" —
+> an answer, not a miss. It must not set the retry flag, or ocean tiles spin
+> forever.
+
 ### 1.7 Rendering
 
 Reuses the doodad pipeline exactly: one interleaved VBO (pos3 + normal3 + uv2)
@@ -111,6 +171,33 @@ for float precision**.
 Grass has its own shader pair (`grass.vert` / `grass.frag`) for wind sway,
 distance fade and alpha cutout. It is a fork of the doodad path and should stay
 one — the sway is not wanted on furniture.
+
+### 1.7a Cost — scatter and draw are measured apart
+
+`Program.cs` timed `Scatter` and `Render` together as one
+`_foliageRenderMilliseconds`. They are unrelated jobs on **different schedules**:
+the draw runs every frame and is small, the scatter runs about once a second and
+rebuilds everything. Averaged together they read as a small constant and hide a
+periodic spike — the failure `SYSTEM_STREAMING.md` §1.2 already records three
+times.
+
+Now reported separately as `FoliageRenderer.ScatterMilliseconds` and
+`DrawMilliseconds`, carried into the hitch record as
+`render.foliage.rescatterMs` / `drawMs`, with `dominantPhase` naming
+`foliage-rescatter` or `foliage-draw` instead of the old combined
+`foliage-scatter-render`. The combined number is kept as the bracket that must
+still sum.
+
+Each scatter also prints what it did:
+
+```
+[foliage]   3.4 ms over 812 cell(s), 3210 candidate(s) rolled, 1006 kept
+```
+
+`ScatterCells`, `ScatterCandidates` and `ScatterCount` are the rate story. **The
+cost driver here is frequency, not the cost of one scatter** — raising
+`RescatterDistance` is the cheapest lever if it ever matters, and §5 records the
+real fix.
 
 ---
 
@@ -201,3 +288,15 @@ frame rather than after you walk 8 yards.
 - **No LOD or impostor** for distant foliage — it simply fades out at
   `FadeEnd`.
 - **Density is uniform within a cell.** Vanilla's clumping is not reproduced.
+- **The re-scatter is still a full rebuild.** Walking 8 yd throws away every
+  instance and re-derives all of them, when the overwhelming majority of cells
+  did not change — only the annulus entering and leaving `Radius` did. The
+  per-cell determinism means a cell's tufts are now genuinely reproducible, so
+  the incremental version is *possible*: keep per-cell instance lists, add cells
+  that entered, drop cells that left, touch nothing else. This is the same shape
+  as PLAN_08 D3 for doodads and the same reason applies — re-deriving data you
+  already have is the cost.
+
+  **Measure before building it.** With the split timers in place, read
+  `render.foliage.rescatterMs` on the frames it fires. If it is a millisecond or
+  two, the full rebuild is fine and this stays undone.

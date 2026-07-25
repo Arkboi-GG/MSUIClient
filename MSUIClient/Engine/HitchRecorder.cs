@@ -137,7 +137,16 @@ public sealed class HitchRecorder
             _pending.TerrainRenderMs = phases.TerrainRenderMs;
             _pending.WmoRenderMs = phases.WmoRenderMs;
             _pending.DoodadRenderMs = phases.DoodadRenderMs;
+            _pending.DoodadCullMs = phases.DoodadCullMs;
+            _pending.DoodadInstanceUploadMs = phases.DoodadInstanceUploadMs;
+            _pending.DoodadDrawMs = phases.DoodadDrawMs;
+            _pending.DoodadFirstTouchModels = phases.DoodadFirstTouchModels;
+            _pending.DoodadUploadedModels = phases.DoodadUploadedModels;
+            _pending.DoodadCullModels = phases.DoodadCullModels;
+            _pending.DoodadCullInstances = phases.DoodadCullInstances;
             _pending.FoliageRenderMs = phases.FoliageRenderMs;
+            _pending.FoliageScatterMs = phases.FoliageScatterMs;
+            _pending.FoliageDrawMs = phases.FoliageDrawMs;
             _pending.LiquidRenderMs = phases.LiquidRenderMs;
             _pending.CharacterRenderMs = phases.CharacterRenderMs;
             _pending.DebugRenderMs = phases.DebugRenderMs;
@@ -145,7 +154,19 @@ public sealed class HitchRecorder
             _pending.InputMs = phases.InputMs;
             _pending.ImguiUpdateMs = phases.ImguiUpdateMs;
             _pending.GuiMs = phases.GuiMs;
+            _pending.HudMs = phases.HudMs;
+            _pending.ImguiRenderMs = phases.ImguiRenderMs;
             _pending.PresentMs = phases.PresentMs;
+
+            _pending.UploadsInFlight = phases.UploadsInFlight;
+            _pending.UploadsCompleted = phases.UploadsCompleted;
+
+            _pending.Gen0 = phases.Gen0;
+            _pending.Gen1 = phases.Gen1;
+            _pending.Gen2 = phases.Gen2;
+            _pending.AllocatedBytes = phases.AllocatedBytes;
+            _pending.GcPauseMs = phases.GcPauseMs;
+            _pending.ThreadCycles = phases.ThreadCycles;
 
             _pending.GpuTotalMs = phases.GpuTotalMs;
             _pending.GpuTerrainMs = phases.GpuTerrainMs;
@@ -308,9 +329,68 @@ public sealed class HitchRecorder
         public double WmoRenderMs;
         public double DoodadRenderMs;
         public double FoliageRenderMs;
+
+        /// <summary>
+        /// The periodic full foliage re-scatter, split out of FoliageRenderMs.
+        /// It fires roughly once a second while walking and rebuilds the whole
+        /// resident set; the other ~60 frames it is zero. Averaging the two
+        /// together reported a small constant and hid a periodic spike.
+        /// </summary>
+        public double FoliageScatterMs;
+
+        /// <summary>Drawing foliage. Every frame.</summary>
+        public double FoliageDrawMs;
         public double LiquidRenderMs;
         public double CharacterRenderMs;
         public double DebugRenderMs;
+
+        // ── Inside the doodad pass (2026-07-25) ─────────────────────────────
+        //
+        // DoodadRenderMs hit 60.3 on a crossing frame while the GPU drew the
+        // same pass in 0.1 ms. One number could not say whether that was our
+        // cull arithmetic over 6,695 placements or the driver stalling on first
+        // touch of models uploaded from the shared context. These three sum to
+        // DoodadRenderMs and settle it.
+
+        /// <summary>Distance + frustum rejection. Ours, pure CPU, scales with placements.</summary>
+        public double DoodadCullMs;
+
+        /// <summary>Per-model glBufferData of instance data. Driver call.</summary>
+        public double DoodadInstanceUploadMs;
+
+        /// <summary>Texture binds, uniform sets, DrawElementsInstanced. Driver calls.</summary>
+        public double DoodadDrawMs;
+
+        /// <summary>Models drawn this frame that were not drawn last frame.</summary>
+        public int DoodadFirstTouchModels;
+
+        /// <summary>Models that issued a glBufferData this frame.</summary>
+        public int DoodadUploadedModels;
+
+        /// <summary>_byModel entries walked by the cull this frame.</summary>
+        public int DoodadCullModels;
+
+        /// <summary>Instances examined by the cull this frame.</summary>
+        public int DoodadCullInstances;
+
+        /// <summary>
+        /// Nanoseconds of cull per instance examined. THE number, because it
+        /// converts a one-off measurement into a rate that can be compared
+        /// against the neighbouring frames in the ring - which walk the SAME
+        /// instances. Identical instance count with a 100x time difference
+        /// cannot be explained by workload, only by the state of the memory
+        /// those instances live in.
+        /// </summary>
+        public double DoodadCullNsPerInstance => DoodadCullInstances > 0
+            ? DoodadCullMs * 1_000_000.0 / DoodadCullInstances
+            : 0.0;
+
+        /// <summary>
+        /// Time in the doodad pass that the three-way split does not cover. The
+        /// split is a breakdown, so it has to be checked like one.
+        /// </summary>
+        public double DoodadUnaccountedMs => Math.Max(
+            0.0, DoodadRenderMs - DoodadCullMs - DoodadInstanceUploadMs - DoodadDrawMs);
 
         // GPU EXECUTION, delayed by a frame or two - the half of the frame that
         // went unmeasured for this whole investigation. CPU submission time says
@@ -327,8 +407,108 @@ public sealed class HitchRecorder
         // The frame boundary, previously invisible (handbook 3.30).
         public double InputMs;
         public double ImguiUpdateMs;
+
+        /// <summary>HudMs + ImguiRenderMs. Kept whole so the residual balances.</summary>
         public double GuiMs;
+
+        /// <summary>Our HUD code building ImGui windows. Pure CPU, ~0.25 ms, flat.</summary>
+        public double HudMs;
+
+        /// <summary>
+        /// The frame's LAST GL submission. Not "ImGui cost" - the driver's
+        /// implicit flush lands here, so this is the bucket that holds a stall
+        /// the rest of the frame caused. If this is large while GpuTotalMs is
+        /// small, the GPU was idle and the CPU was blocked in the driver.
+        /// </summary>
+        public double ImguiRenderMs;
+
         public double PresentMs;
+
+        /// <summary>
+        /// Shared-context uploads still outstanding as this frame CLOSED - the
+        /// phases are gathered at the next Update entry, so this is an
+        /// end-of-frame sample, not a during-frame maximum. An upload that
+        /// started and finished inside the frame reads 0 here and 1 in
+        /// <see cref="UploadsCompleted"/>. Read both.
+        /// </summary>
+        public int UploadsInFlight;
+
+        /// <summary>
+        /// Shared-context uploads that finished during this frame. A true delta
+        /// over the frame, so this is the reliable half of the pair.
+        /// </summary>
+        public int UploadsCompleted;
+
+        // ── GC, added 2026-07-25 ────────────────────────────────────────────
+        //
+        // Added because a record finally arrived that no GL explanation fits:
+        // 33 ms frame, hud 16.4 (our ImGui window building - no GL, no I/O),
+        // imguiFlush 0.1, uploads 0, GPU 0.9. Managed code doing nothing but
+        // building strings does not block for a vblank. A collection does, and
+        // it stops every thread wherever they happen to be - which is exactly
+        // the "wanders between phases" behaviour that has looked like a driver
+        // throttle all along.
+        //
+        // It also explains the thing that should have been the loudest clue:
+        // FOUR correct, measured fixes moved work off the main thread and the
+        // felt stutter survived every one. Moving an allocation to a worker
+        // thread does not stop it triggering a collection, and a collection
+        // pauses the render thread regardless of who allocated. See the
+        // 505,037-triangle expansion and the 194,861-node BVH - both are
+        // Large Object Heap allocations, and LOH allocation forces gen2.
+
+        /// <summary>Gen0 collections during this frame. Cheap and frequent; noise unless large.</summary>
+        public int Gen0;
+
+        /// <summary>Gen1 collections during this frame.</summary>
+        public int Gen1;
+
+        /// <summary>
+        /// Gen2 collections during this frame. THE field to read first. Any
+        /// non-zero value on a hitch frame ends the investigation.
+        /// </summary>
+        public int Gen2;
+
+        /// <summary>
+        /// Managed bytes allocated process-wide during this frame, all threads.
+        /// Names the pressure even on frames that did not collect.
+        /// </summary>
+        public long AllocatedBytes;
+
+        /// <summary>
+        /// Milliseconds this frame spent in GC pause, from
+        /// <c>GC.GetTotalPauseDuration()</c>. Process-wide and exact - not
+        /// inferred from collection counts. If this holds most of a hitch
+        /// frame, no renderer or streaming change can fix it and the work is in
+        /// allocation, not in GL.
+        /// </summary>
+        public double GcPauseMs;
+
+        /// <summary>
+        /// Cycles the render thread actually retired during this frame
+        /// (QueryThreadCycleTime; 0 where unavailable). Read against
+        /// <see cref="FrameMs"/>, never on its own.
+        /// </summary>
+        public ulong ThreadCycles;
+
+        /// <summary>
+        /// Millions of retired cycles per millisecond of wall time. THE
+        /// discriminator for a frame where nothing we own was running.
+        ///
+        /// A fully busy thread on this i7-12800H sits around 4-5 M/ms. So on a
+        /// long frame:
+        ///   ~4-5 - the thread WAS running and burning CPU. A driver busy-wait
+        ///          spin, which Intel's GL driver is known to do. The fix is to
+        ///          stop it spinning: swap interval, adaptive vsync, or our own
+        ///          frame pacing.
+        ///   &lt;1  - the thread was NOT running. Blocked in a kernel wait or
+        ///          descheduled by the OS. A completely different fix.
+        /// No calibration needed: the comparison is against this frame's own
+        /// wall clock and the two answers are an order of magnitude apart.
+        /// </summary>
+        public double ThreadMCyclesPerMs => FrameMs > 0.0
+            ? ThreadCycles / 1_000_000.0 / FrameMs
+            : 0.0;
 
         public float X, Y, Z;
         public int Col, Row;
@@ -361,6 +541,16 @@ public sealed class HitchRecorder
         /// <summary>Which measured phase held the most time. Names the suspect.</summary>
         public string DominantPhase()
         {
+            // GC is checked first and separately because it is NOT a peer of the
+            // other buckets. A collection pauses the thread wherever it happens
+            // to be, so its cost is already inside whichever phase was running -
+            // adding it to the ranking would double-count it, and ranking it
+            // against the phase it is hiding inside would always lose. A pause
+            // holding a third of the frame is the cause of that frame no matter
+            // which bucket got charged, so it wins outright.
+            if (GcPauseMs > 1.0 && GcPauseMs > FrameMs * 0.33)
+                return Gen2 > 0 ? "gc-pause-gen2" : "gc-pause";
+
             double best = UnaccountedMs;
             string name = "unmeasured";
 
@@ -382,15 +572,34 @@ public sealed class HitchRecorder
             Consider(CameraMs, "camera-collision");
             Consider(TerrainRenderMs, "terrain-render");
             Consider(WmoRenderMs, "wmo-render");
-            Consider(DoodadRenderMs, "doodad-render");
-            Consider(FoliageRenderMs, "foliage-scatter-render");
+            // Named at the sub-phase, because "doodad-render" was true and
+            // useless: it did not distinguish our cull arithmetic from a driver
+            // stall on first touch, and those have opposite fixes.
+            Consider(DoodadCullMs, "doodad-cull-cpu");
+            Consider(DoodadInstanceUploadMs, "doodad-instance-upload");
+            Consider(DoodadDrawMs, "doodad-draw-submit");
+            Consider(DoodadUnaccountedMs, "doodad-render-unmeasured");
+            // Was one bucket named "foliage-scatter-render", which named both
+            // jobs and identified neither. The scatter is periodic and large;
+            // the draw is per frame and small.
+            Consider(FoliageScatterMs, "foliage-rescatter");
+            Consider(FoliageDrawMs, "foliage-draw");
             Consider(LiquidRenderMs, "liquid-render");
             Consider(CharacterRenderMs, "character-render");
             Consider(DebugRenderMs, "debug-render");
 
-            Consider(PresentMs, "present-swap-driver");
+            // "present-swap-driver" smuggled a conclusion into a bucket that
+            // only measures render-end to next-update-entry. On the Iris Xe the
+            // driver does not block in the swap at all - present stays under a
+            // millisecond on 26 ms frames - so the name was wrong twice over.
+            Consider(PresentMs, "swap-and-events");
             Consider(GpuTotalMs, "gpu-execution");
-            Consider(GuiMs, "hud-imgui");
+
+            // Was one "hud-imgui" bucket, which blamed our HUD for driver
+            // stalls. HudMs is our code; ImguiRenderMs is the frame's last GL
+            // call and is where a driver flush lands. Never merge them again.
+            Consider(HudMs, "hud-build");
+            Consider(ImguiRenderMs, "driver-flush-at-imgui");
             Consider(ImguiUpdateMs, "imgui-update");
             Consider(InputMs, "input-poll");
 
@@ -406,12 +615,21 @@ public sealed class HitchRecorder
         public double DiscoverMs, DoodadDemandMs, WarmMs;
         public double RenderMs, WorldRenderMs, CharacterRenderMs, DebugRenderMs;
         public double FoliageRenderMs, LiquidRenderMs;
+        public double FoliageScatterMs, FoliageDrawMs;
         public double TerrainRenderMs, WmoRenderMs, DoodadRenderMs;
-        public double InputMs, ImguiUpdateMs, GuiMs, PresentMs;
+        public double DoodadCullMs, DoodadInstanceUploadMs, DoodadDrawMs;
+        public int DoodadFirstTouchModels, DoodadUploadedModels;
+        public int DoodadCullModels, DoodadCullInstances;
+        public double InputMs, ImguiUpdateMs, GuiMs, HudMs, ImguiRenderMs, PresentMs;
         public double GpuTotalMs, GpuTerrainMs, GpuWmoMs, GpuDoodadMs, GpuCharacterMs;
         public float X, Y, Z;
         public int Col, Row;
         public int ResidentTiles, WmoQueued, M2Queued, DiscoveryTiles;
+        public int UploadsInFlight, UploadsCompleted;
+        public int Gen0, Gen1, Gen2;
+        public long AllocatedBytes;
+        public double GcPauseMs;
+        public ulong ThreadCycles;
     }
 
     public struct LogEvent

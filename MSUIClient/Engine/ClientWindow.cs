@@ -159,9 +159,35 @@ public sealed class ClientWindow : IDisposable
     public double GuiMilliseconds { get; private set; }
 
     /// <summary>
+    /// Our HUD code alone: the OnGui handlers building ImGui windows. Pure CPU,
+    /// none of our GL. Baseline is ~0.25 ms and it does not move.
+    /// </summary>
+    public double HudMilliseconds { get; private set; }
+
+    /// <summary>
+    /// <c>_imgui.Render()</c> alone - the LAST GL submission of the frame, and
+    /// therefore where the driver's implicit flush lands.
+    ///
+    /// Split out from <see cref="GuiMilliseconds"/> because the combined number
+    /// was actively misleading. Measured 2026-07-25: hitch records blamed
+    /// "hud-imgui" for 27-33 ms frames while our HUD cost 0.25 ms on every
+    /// neighbouring frame - the time was the driver blocking inside ImGui's draw
+    /// calls, not ImGui. Same mistake shape as the three in SYSTEM_STREAMING 1.2:
+    /// a bracket charged for a wait it does not own. Two numbers, no ambiguity.
+    /// </summary>
+    public double ImguiRenderMilliseconds { get; private set; }
+
+    /// <summary>
     /// End of one render to the start of the next update: the buffer swap and
     /// the platform event pump. On a driver that stalls behind shared-context
     /// uploads, or on a vsync wait, the time shows up HERE and nowhere else.
+    ///
+    /// NOT TRUE ON THIS HARDWARE - the sentence above is left standing as the
+    /// assumption it was. Measured on the Iris Xe: present is 0.05-0.9 ms even on
+    /// 26 ms frames. The driver does not block in the swap; it blocks in the next
+    /// GL call that needs a buffer, which is whichever of update, render or the
+    /// ImGui draw comes first. Turning vsync off makes the whole cost vanish.
+    /// Read present as "swap and event pump", never as "the driver".
     /// </summary>
     public double PresentMilliseconds { get; private set; }
 
@@ -498,12 +524,25 @@ public sealed class ClientWindow : IDisposable
 
         OnRender?.Invoke(dt);
 
-        long guiStarted = Stopwatch.GetTimestamp();
+        // Two brackets, not one. OnGui is our HUD code and is pure CPU;
+        // _imgui.Render() is the frame's last GL submission and is where the
+        // driver's implicit flush lands. Lumping them made every driver stall
+        // read as "the HUD is slow", which it never was. See the field docs.
+        long hudStarted = Stopwatch.GetTimestamp();
         OnGui?.Invoke();
-        _imgui.Render();
-        GuiMilliseconds = Stopwatch.GetElapsedTime(guiStarted).TotalMilliseconds;
+        long imguiRenderStarted = Stopwatch.GetTimestamp();
+        HudMilliseconds = Stopwatch.GetElapsedTime(hudStarted, imguiRenderStarted).TotalMilliseconds;
 
+        _imgui.Render();
         _renderEndStamp = Stopwatch.GetTimestamp();
+
+        ImguiRenderMilliseconds =
+            Stopwatch.GetElapsedTime(imguiRenderStarted, _renderEndStamp).TotalMilliseconds;
+
+        // Kept as the sum so the recorder's unaccounted residual still balances
+        // and nothing downstream double-counts. HudMs + ImguiRenderMs == GuiMs
+        // is asserted by construction here; do not compute it any other way.
+        GuiMilliseconds = HudMilliseconds + ImguiRenderMilliseconds;
     }
 
     private void HandleResize(Vector2D<int> size)

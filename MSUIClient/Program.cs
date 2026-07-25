@@ -106,8 +106,19 @@ public sealed partial class GameLoop : IDisposable
     private bool _cycleTimeOfDay;
     private bool _coupleFarPlaneToFog = true;
     private float _gameHoursPerMinute = 1f;
+    private SkyRenderer? _sky;
     private double _worldRenderMilliseconds;
     private double _foliageRenderMilliseconds;
+
+    /// <summary>
+    /// The periodic full re-scatter. Zero on the frames that skip it, so an
+    /// average over frames is meaningless - read it on the frames it fires.
+    /// </summary>
+    private double _foliageScatterMilliseconds;
+
+    /// <summary>Drawing foliage. Every frame.</summary>
+    private double _foliageDrawMilliseconds;
+
     private double _liquidRenderMilliseconds;
     private double _characterRenderMilliseconds;
     private double _debugRenderMilliseconds;
@@ -356,9 +367,19 @@ public sealed partial class GameLoop : IDisposable
 
         // Ground-effect foliage: grass/flowers scattered on the terrain near the
         // camera, driven by the GroundEffect DBCs.
+        _sky = new SkyRenderer(gl);
+        _sky.LoadShaders(shaderDir);
+
         _foliage = new FoliageRenderer(gl, _config);
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
+
+        // Exterior lighting's authored data (PLAN_09). Read-only for now: the
+        // probe reports what vanilla intends, nothing applies it yet. Loading it
+        // early means the [dbc] shape lines land next to foliage's, where a
+        // schema mismatch is obvious at startup rather than inferred later from
+        // a strange sunset.
+        InitLightProbe();
 
         if (_config.Render.Doodads)
         {
@@ -1074,6 +1095,16 @@ public sealed partial class GameLoop : IDisposable
         if (_cycleTimeOfDay)
             _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
 
+        // Resolve what the authored data says here, now. Read-only: it feeds the
+        // probe panel and nothing else. In Update rather than Render so the
+        // render pass stays free of work that is not drawing.
+        UpdateLightProbe();
+
+        // Which WMO group the camera stands in (PLAN_10 D1). Read-only for now:
+        // the HUD shows it, nothing culls on it yet. Cheap - a world-box reject
+        // per instance before any matrix is inverted.
+        _wmo?.UpdateCameraCell(_window.Camera.Position);
+
         // Ignore keyboard input while ImGui owns the keyboard (typing in a text
         // field such as the vantage name), so it does not turn/strafe/jump the player.
         bool typing = ImGui.GetIO().WantCaptureKeyboard;
@@ -1441,6 +1472,14 @@ public sealed partial class GameLoop : IDisposable
         _gpuProfiler?.BeginFrame();
 
         long worldStarted = Stopwatch.GetTimestamp();
+
+        // Sky first, depth writes off, so everything else draws over it. This
+        // replaces nothing yet - ClientWindow still clears to the fog colour, so
+        // if the sky pass is disabled the old flat behaviour is exactly what is
+        // left (PLAN_09 §1.1: do not remove the clear-colour trick before the
+        // replacement is proven, or the far clip becomes a visible edge).
+        _sky?.Render(_window.Camera, _atmosphere);
+
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Terrain);
         if (_terrain is not null) _terrain.Render(_window.Camera);
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Terrain);
@@ -1464,6 +1503,14 @@ public sealed partial class GameLoop : IDisposable
             _foliage.Render(_window.Camera);
         }
         _foliageRenderMilliseconds = Stopwatch.GetElapsedTime(foliageStarted).TotalMilliseconds;
+
+        // Scatter and Render are separate jobs on separate schedules - Render
+        // every frame and cheap, Scatter about once a second while walking and
+        // a full rebuild. Averaged together they read as a small constant cost
+        // and hide a periodic spike, so they are now reported apart. The
+        // combined number stays as the bracket that must still sum.
+        _foliageScatterMilliseconds = _foliage?.ScatterMilliseconds ?? 0;
+        _foliageDrawMilliseconds = _foliage?.DrawMilliseconds ?? 0;
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
 
@@ -1677,6 +1724,7 @@ public sealed partial class GameLoop : IDisposable
             }
 
             DrawHitchPanel();
+            DrawLightProbePanel();
 
             if (ImGui.CollapsingHeader("Performance - CPU draw submission", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -1946,6 +1994,8 @@ public sealed partial class GameLoop : IDisposable
             }
             }
 
+            DrawPortalPanel();
+
             if (ImGui.CollapsingHeader("Buildings", ImGuiTreeNodeFlags.DefaultOpen))
             {
             if (_wmo is not null)
@@ -2112,6 +2162,17 @@ public sealed partial class GameLoop : IDisposable
                 bool doodadInstancing = _doodads.UseInstancing;
                 if (ImGui.Checkbox("GPU instancing##doodads", ref doodadInstancing))
                     _doodads.UseInstancing = doodadInstancing;
+
+                // A/B for the flat-bounds cull. Measured before the change:
+                // 751-9,053 ns per instance, against ~50-100 for the arithmetic
+                // the loop actually performs - Instance is a class, so the cull
+                // was chasing thousands of scattered pointers. Untick to walk
+                // the old array-of-pointers path and diff `cull` in the [hitch]
+                // doodad line. PLAN_08 section 7 step 3: if the number does not
+                // move, the change did nothing and gets backed out.
+                bool flatCull = _doodads.FlatCullBounds;
+                if (ImGui.Checkbox("Flat cull bounds (SoA)##doodads", ref flatCull))
+                    _doodads.FlatCullBounds = flatCull;
 
                 // The doodad counterpart of "Baked interior light (MOCV)"
                 // above. A WMO's furniture ships its own pre-baked light in
@@ -2488,6 +2549,21 @@ public sealed partial class GameLoop : IDisposable
             ImGui.Text($"  orbit {cam.OrbitYaw * 180f / MathF.PI,5:F0} deg   " +
                        $"view {cam.ViewYaw * 180f / MathF.PI,5:F0} deg");
 
+            // Field of view, live. It was a config-file-plus-restart setting,
+            // which is the wrong shape for something judged by eye: 70 is the
+            // shipped default (client-config.json.example and Camera's own
+            // default), and a spell at 45 flattened the world enough to be
+            // disliked on sight without it being obvious which knob did it.
+            //
+            // Lower = telephoto, flatter, less peripheral vision. Higher =
+            // wider and more curved at the edges. Applied straight to the
+            // camera; client-config.json still sets the value at startup.
+            float fov = cam.FieldOfViewDegrees;
+            if (ImGui.SliderFloat("Field of view (deg)", ref fov, 30f, 110f, "%.0f"))
+                cam.FieldOfViewDegrees = fov;
+            ImGui.SameLine();
+            if (ImGui.Button("70##fov")) cam.FieldOfViewDegrees = 70f;
+
             float turnSpeed = _turnSpeed * 180f / MathF.PI;
             if (ImGui.SliderFloat("Turn speed (deg/s)", ref turnSpeed, 45f, 360f))
                 _turnSpeed = turnSpeed * MathF.PI / 180f;
@@ -2792,6 +2868,7 @@ public sealed partial class GameLoop : IDisposable
         _foliage?.Dispose();
         _wmo?.Dispose();
         _terrain?.Dispose();
+        _sky?.Dispose();
         _uploads?.Dispose();
         _assetWorkers?.Dispose();
 

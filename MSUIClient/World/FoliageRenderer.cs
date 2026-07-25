@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
@@ -94,6 +95,35 @@ public sealed class FoliageRenderer : IDisposable
     public int InstanceCount { get; private set; }
     public int ModelCount => _models.Count(m => m.Value is not null);
     public long TrianglesLastFrame { get; private set; }
+
+    // ── Cost, split (2026-07-25) ────────────────────────────────────────────
+    //
+    // Program.cs timed Scatter and Render together as one
+    // _foliageRenderMilliseconds. They are unrelated jobs on completely
+    // different schedules: Render runs every frame and costs very little,
+    // Scatter runs roughly once a second while walking and rebuilds the entire
+    // resident set from scratch. One number over two schedules cannot be read -
+    // the same mistake SYSTEM_STREAMING 1.2 already records three times.
+
+    /// <summary>The last full re-scatter. Zero on the frames that skip it.</summary>
+    public double ScatterMilliseconds { get; private set; }
+
+    /// <summary>Drawing the instances. Every frame, normally small.</summary>
+    public double DrawMilliseconds { get; private set; }
+
+    /// <summary>Cells examined and candidate tufts rolled by the last scatter.</summary>
+    public int ScatterCells { get; private set; }
+    public int ScatterCandidates { get; private set; }
+
+    /// <summary>Scatters performed this session. The rate is the cost driver.</summary>
+    public int ScatterCount { get; private set; }
+
+    /// <summary>
+    /// Tiles the last scatter skipped because their ADT was not parsed yet.
+    /// Non-zero means the next frame retries rather than blocking on a parse.
+    /// </summary>
+    public int DeferredTiles { get; private set; }
+
     public bool DbcsReady => _recipes is not null && _recipes.Count > 0;
     public int EffectCount => _recipes?.Count ?? 0;
 
@@ -275,6 +305,7 @@ public sealed class FoliageRenderer : IDisposable
         var cam2 = new Vector2(camera.Position.X, camera.Position.Y);
         if (_hasScattered && Vector2.DistanceSquared(cam2, _lastScatterXY) < RescatterDistance * RescatterDistance)
             return;
+        long scatterStarted = Stopwatch.GetTimestamp();
         _lastScatterXY = cam2;
         _hasScattered = true;
 
@@ -282,6 +313,9 @@ public sealed class FoliageRenderer : IDisposable
         Array.Clear(_kindInstances);
         MaskedCells = 0;
         HoleCells = 0;
+        ScatterCells = 0;
+        ScatterCandidates = 0;
+        DeferredTiles = 0;
 
         int total = 0;
         float radiusSq = Radius * Radius;
@@ -290,7 +324,19 @@ public sealed class FoliageRenderer : IDisposable
 
         foreach (var (col, row) in tiles)
         {
-            var adt = adts.Get(col, row);
+            // TryPeek, never Get. AdtCache.Get waits on a pending parse
+            // (`return pending.GetAwaiter().GetResult();`) and this runs inside
+            // Render on the main thread - the exact latent bug
+            // SYSTEM_STREAMING 3.1 lists against FoliageRenderer:270 after the
+            // same call cost the WMO ring 61 ms. It measures ~0 today only
+            // because these tiles are cache hits.
+            //
+            // A tile that has not been parsed is skipped and counted, and the
+            // next frame retries rather than waiting. TryPeek returning true
+            // with a null adt means "known to have no ADT" - an answer, not a
+            // miss - so that case must NOT set the retry flag or it would spin
+            // forever on ocean tiles.
+            if (!adts.TryPeek(col, row, out var adt)) { DeferredTiles++; continue; }
             if (adt?.Chunks is null) continue;
 
             double originX = (32 - row) * 533.33333;
@@ -338,38 +384,74 @@ public sealed class FoliageRenderer : IDisposable
                     int perCell = Math.Clamp((int)MathF.Round(recipe.Density * DensityScale), 0, MaxPerCell);
                     if (perCell <= 0) continue;
 
+                    ScatterCells++;
+                    ScatterCandidates += perCell;
+
                     var rng = new Random(HashCode.Combine(col, row, chunk.IndexX, chunk.IndexY, cx, cy));
                     double cellX = chunkX - cy * cell;
                     double cellY = chunkY - cx * cell;
 
                     for (int i = 0; i < perCell; i++)
                     {
+                        // ── Draw EVERY random value for this tuft FIRST ──────
+                        //
+                        // This ordering is the whole fix for "the grass moves
+                        // around as I walk", and it is not a style choice.
+                        //
+                        // The seed is per cell and deterministic, so the tufts
+                        // were supposed to be stable. But the draws used to be
+                        // interleaved with the rejection tests, and one of those
+                        // tests - the radius check - depends on WHERE THE CAMERA
+                        // IS. When it rejected tuft i, the loop skipped the
+                        // model, keep, yaw and scale draws for that tuft. So the
+                        // stream position at tuft i+1 depended on the camera,
+                        // and every remaining tuft in that cell got a different
+                        // position, model, rotation and size on every re-scatter.
+                        //
+                        // Cells fully inside the radius never showed it. Cells
+                        // straddling the radius edge reshuffled constantly - and
+                        // as you walk, every cell takes its turn at the edge.
+                        //
+                        // SYSTEM_FOLIAGE 1.1 says "grass that reshuffles when
+                        // you turn around is the giveaway that this seeding got
+                        // broken". The seeding was fine. The CONSUMPTION was not.
+                        //
+                        // Rule to keep: the rng stream position must depend only
+                        // on (cell, i). Never on the camera, and never on a
+                        // toggle. No `continue` may appear above this block.
                         float px = (float)(cellX - rng.NextDouble() * cell);
                         float py = (float)(cellY - rng.NextDouble() * cell);
+                        string modelPath = PickWeighted(recipe.Doodads, rng);
+                        double keepRoll = rng.NextDouble();
+                        float yaw = (float)(rng.NextDouble() * Math.PI * 2.0);
+                        float jitter = (float)rng.NextDouble();
 
+                        // ── Rejections below consume nothing ─────────────────
+                        //
+                        // Ordered cheapest-first, which is also a real saving:
+                        // SampleHeight used to run before the kind filter, so
+                        // every in-radius candidate paid a height lookup even
+                        // when its kind was switched off and it was about to be
+                        // discarded.
                         float dxp = px - camX, dyp = py - camY;
                         if (dxp * dxp + dyp * dyp > radiusSq) continue;
-
-                        float? h = terrain.SampleHeight(px, py);
-                        if (h is null) continue;
-
-                        string modelPath = PickWeighted(recipe.Doodads, rng);
 
                         // Per-kind curation: skip a doodad whose kind is hidden,
                         // and thin the rest by the kind's keep-probability. This
                         // is how a rock-only road recipe ends up placing nothing
-                        // when Rock is switched off. Roll before ResolveModel so a
-                        // hidden kind costs nothing to load.
+                        // when Rock is switched off.
                         var kind = Classify(modelPath);
                         if (!_kindEnabled[(int)kind]) continue;
                         float keep = _kindDensity[(int)kind];
-                        if (keep <= 0f || (keep < 1f && rng.NextDouble() > keep)) continue;
+                        if (keep <= 0f || (keep < 1f && keepRoll > keep)) continue;
 
                         var gm = ResolveModel(modelPath);
                         if (gm is null) continue;
 
-                        float yaw = (float)(rng.NextDouble() * Math.PI * 2.0);
-                        float s = Scale * (1f - ScaleJitter + (float)rng.NextDouble() * ScaleJitter * 2f);
+                        float? h = terrain.SampleHeight(px, py);
+                        if (h is null) continue;
+
+                        float s = Scale * (1f - ScaleJitter + jitter * ScaleJitter * 2f);
 
                         var m = YUpToZUp
                               * Matrix4x4.CreateScale(s)
@@ -388,8 +470,21 @@ public sealed class FoliageRenderer : IDisposable
 
     done:
         InstanceCount = total;
+        ScatterCount++;
+
+        // A tile that was not parsed yet leaves a hole in the foliage, and the
+        // throttle would otherwise hold that hole until the camera moved
+        // another RescatterDistance. Clearing the flag makes the next frame
+        // retry - the cost of one extra scatter, versus a visible bald patch.
+        if (DeferredTiles > 0) _hasScattered = false;
+
+        ScatterMilliseconds = Stopwatch.GetElapsedTime(scatterStarted).TotalMilliseconds;
+
         Console.WriteLine($"[foliage] scattered {total} grass instance(s) over {_instances.Count(kv => kv.Value.Count > 0)} " +
             $"model(s); {ModelCount} model(s) loaded, {_missing} missing");
+        Console.WriteLine($"[foliage]   {ScatterMilliseconds:F1} ms over {ScatterCells} cell(s), " +
+            $"{ScatterCandidates} candidate(s) rolled, {total} kept" +
+            (DeferredTiles > 0 ? $"  ({DeferredTiles} tile(s) deferred, retrying next frame)" : ""));
     }
 
     private static int DominantLayer(AdtTerrainReader.McnkChunk chunk, int cx, int cy)
@@ -584,8 +679,10 @@ public sealed class FoliageRenderer : IDisposable
     public unsafe void Render(Camera camera)
     {
         TrianglesLastFrame = 0;
+        DrawMilliseconds = 0;
         if (!Enabled || _shader is null || _instances.Count == 0) return;
 
+        long drawStarted = Stopwatch.GetTimestamp();
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uCameraOrigin", camera.Position);
@@ -646,6 +743,7 @@ public sealed class FoliageRenderer : IDisposable
 
         _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+        DrawMilliseconds = Stopwatch.GetElapsedTime(drawStarted).TotalMilliseconds;
     }
 
     public void Dispose()

@@ -129,6 +129,13 @@ public sealed class WmoRenderer : IDisposable
         public uint GroupFlags;
         public int VertexCount;
 
+        // The run of MOPR entries that belong to this group (MOGP +0x24/+0x26):
+        // every doorway out of it. Retained here so the portal graph survives
+        // the load job - PreparedWmo is transient and the raw WmoGroupData is
+        // discarded once the mesh is uploaded. PLAN_10 D1/D2.
+        public int PortalStart;
+        public int PortalCount;
+
         // Local-space geometry retained on the CPU purely for the triangle-level
         // group picker (the GPU copy can't be read back cheaply). Positions only.
         public Vector3[] PickPositions = [];
@@ -150,6 +157,21 @@ public sealed class WmoRenderer : IDisposable
     {
         public List<GroupMesh> Groups = [];
         public int TriangleCount;
+
+        // ── Portal graph (PLAN_10) ──────────────────────────────────────────
+        //
+        // MOPV/MOPT/MOPR, retained from the load job. WmoReader has parsed these
+        // since the WMO reader was written and the comment on WmoRootData.Portals
+        // still says "no renderer reads these yet" - this is where that stops
+        // being true. Kept in WMO LOCAL space, exactly as authored: an instance
+        // transform turns them into world space when needed, and storing them
+        // pre-transformed would break the moment a model is placed twice.
+        public List<(float x, float y, float z)> PortalVertices = [];
+        public List<WmoPortal> Portals = [];
+        public List<WmoPortalRef> PortalRefs = [];
+
+        /// <summary>MOHD's portal count, for the cross-check in PLAN_10 §7 step 2.</summary>
+        public uint DeclaredPortalCount;
 
         /// <summary>
         /// The building's embedded doodads — its furniture. Beds, kitchen
@@ -358,6 +380,168 @@ public sealed class WmoRenderer : IDisposable
     /// <summary>Distance (yd) at which a big WMO's own interior cells are culled
     /// while the camera is OUTSIDE it. HUD-tunable. Was the hard-coded 120.</summary>
     public float InteriorCullDistance { get; set; } = 120f;
+
+    // ════════════════════════════════════════════════════════════════════════
+    // PLAN_10 D1 — which group is the camera in?
+    //
+    // Portal traversal starts from the camera's group, so this is the whole
+    // problem before it is any of the problem: get it wrong and every later
+    // symptom looks like a portal bug. It is also useful on its own - interior
+    // lighting and MFOG both need it - which is why the plan says build it
+    // alone and confirm it against walking through a door.
+    //
+    // Nothing here culls anything yet. This is the instrument.
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Where the camera is, in WMO terms. Null means outdoors.</summary>
+    public readonly record struct CameraCell(
+        string InstancePath, int GroupIndex, string GroupName,
+        bool IsInterior, float Volume, int PortalCount);
+
+    /// <summary>
+    /// The most specific group containing the camera, or null when outdoors.
+    /// Recomputed once per frame; read by the HUD and, later, by traversal.
+    /// </summary>
+    public CameraCell? CameraGroup { get; private set; }
+
+    /// <summary>How many groups contained the camera before the tie-break.</summary>
+    public int CameraGroupCandidates { get; private set; }
+
+    /// <summary>
+    /// Find the group the camera is standing in.
+    ///
+    /// TWO RULES, both learned from CameraInsideInstance's comment above:
+    ///
+    /// 1. DISTANCE-LOD SHELLS ARE NOT CELLS. A shell's box is huge and being
+    ///    inside it does not mean you are indoors - counting them made the
+    ///    whole-instance box swallow Stormwind's approach bridge. Skipped, and
+    ///    PLAN_10 D5 says the same thing for traversal.
+    ///
+    /// 2. SMALLEST VOLUME WINS. Group boxes NEST: a room sits inside a building
+    ///    shell which sits inside a district cell. All three contain the camera
+    ///    and only the smallest is the cell you are actually in. Picking the
+    ///    first match instead would return whichever the file happened to list
+    ///    first, which is stable, plausible, and wrong.
+    ///
+    /// No margin is applied, unlike CameraInsideInstance's InsideInstanceMargin:
+    /// that margin exists to keep the impostor suppressed slightly outside a
+    /// building, whereas this answers "which room", where a margin would make
+    /// two adjacent rooms both claim the doorway.
+    /// </summary>
+    public void UpdateCameraCell(Vector3 cameraWorld)
+    {
+        CameraCell? best = null;
+        float bestVolume = float.MaxValue;
+        int candidates = 0;
+
+        foreach (var instance in _instances)
+        {
+            // Cheap reject on the world box before inverting a matrix.
+            if (cameraWorld.X < instance.WorldMin.X || cameraWorld.X > instance.WorldMax.X ||
+                cameraWorld.Y < instance.WorldMin.Y || cameraWorld.Y > instance.WorldMax.Y ||
+                cameraWorld.Z < instance.WorldMin.Z || cameraWorld.Z > instance.WorldMax.Z)
+                continue;
+
+            if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
+            var local = Vector3.Transform(cameraWorld, inv);
+
+            foreach (var g in instance.Model.Groups)
+            {
+                if (g.IsDistanceLod) continue;               // rule 1
+                if (local.X < g.LocalMin.X || local.X > g.LocalMax.X ||
+                    local.Y < g.LocalMin.Y || local.Y > g.LocalMax.Y ||
+                    local.Z < g.LocalMin.Z || local.Z > g.LocalMax.Z)
+                    continue;
+
+                candidates++;
+                var size = g.LocalMax - g.LocalMin;
+                float volume = MathF.Max(size.X, 0f) * MathF.Max(size.Y, 0f) * MathF.Max(size.Z, 0f);
+                if (volume >= bestVolume) continue;          // rule 2
+
+                bestVolume = volume;
+                best = new CameraCell(instance.Path, g.GroupIndex, g.GroupName,
+                                      g.IsInterior, volume, g.PortalCount);
+            }
+        }
+
+        CameraGroup = best;
+        CameraGroupCandidates = candidates;
+    }
+
+    /// <summary>
+    /// Print the portal graph of every loaded WMO that has one.
+    ///
+    /// PLAN_10 §7 step 2: this is what turns "the traversal is wrong" into
+    /// "portal 12 links group 4 to group 7 and it should not". It also runs the
+    /// two integrity checks the reader only ever asserted in a comment -
+    /// MOHD's NPortals against the parsed count, and every MOPR group index
+    /// being in range.
+    /// </summary>
+    public void DumpPortalGraph()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int withPortals = 0;
+
+        foreach (var instance in _instances)
+        {
+            if (!seen.Add(instance.Path)) continue;
+            var model = instance.Model;
+            if (model.Portals.Count == 0 && model.DeclaredPortalCount == 0) continue;
+            withPortals++;
+
+            string name = Path.GetFileName(instance.Path);
+            Console.WriteLine($"[portals] {name}: {model.Portals.Count} portal(s), " +
+                              $"{model.PortalRefs.Count} reference(s), " +
+                              $"{model.PortalVertices.Count} vertex(es), " +
+                              $"{model.Groups.Count} group(s)");
+
+            if (model.DeclaredPortalCount != (uint)model.Portals.Count)
+                Console.WriteLine($"[portals]   MISMATCH: MOHD declares {model.DeclaredPortalCount} " +
+                                  $"but MOPT parsed {model.Portals.Count} - the reader's assumption " +
+                                  "is broken and traversal must not be trusted");
+
+            // MOPR group indices are FILE indices. Model.Groups is the list of
+            // groups that produced a mesh, and a group that was empty, missing
+            // or antiportal never got one - so the list is NOT index-aligned
+            // with the file and must never be indexed by a MOPR value. Look up
+            // by GroupMesh.GroupIndex, which is the file index.
+            var byFileIndex = new Dictionary<int, GroupMesh>();
+            foreach (var g in model.Groups) byFileIndex[g.GroupIndex] = g;
+
+            int badRefs = 0, badPortals = 0;
+            foreach (var r in model.PortalRefs)
+            {
+                if (!byFileIndex.ContainsKey(r.GroupIndex)) badRefs++;
+                if (r.PortalIndex >= model.Portals.Count) badPortals++;
+            }
+            if (badRefs > 0 || badPortals > 0)
+                Console.WriteLine($"[portals]   {badRefs} ref(s) point at a group with no mesh, " +
+                                  $"{badPortals} portal ref(s) out of range " +
+                                  "(refs with no mesh are usually fine - empty or antiportal groups)");
+
+            foreach (var g in model.Groups)
+            {
+                if (g.PortalCount == 0) continue;
+                var targets = new List<string>();
+                for (int i = 0; i < g.PortalCount; i++)
+                {
+                    int idx = g.PortalStart + i;
+                    if (idx < 0 || idx >= model.PortalRefs.Count) { targets.Add("?"); continue; }
+                    var r = model.PortalRefs[idx];
+                    string to = byFileIndex.TryGetValue(r.GroupIndex, out var target)
+                        ? $"{r.GroupIndex}:{target.GroupName}"
+                        : $"{r.GroupIndex}:no-mesh";
+                    targets.Add($"p{r.PortalIndex}->{to}{(r.Side < 0 ? "-" : "+")}");
+                }
+                Console.WriteLine($"[portals]   [{g.GroupIndex,3}] '{g.GroupName}' " +
+                                  $"{(g.IsInterior ? "INT" : "ext")}  {g.PortalCount} door(s): " +
+                                  string.Join("  ", targets));
+            }
+        }
+
+        if (withPortals == 0)
+            Console.WriteLine("[portals] no loaded WMO declares any portals");
+    }
 
     /// <summary>Distance (yd) below which an impostor shell hides even from
     /// outside (you are right on top of it). HUD-tunable. Was the hard-coded 196.</summary>
@@ -1170,6 +1354,14 @@ public sealed class WmoRenderer : IDisposable
         job.Empty = ready.Empty;
         job.Antiportal = ready.Antiportal;
 
+        // Carry the portal graph onto the Model before `ready` goes out of
+        // scope. Copied by reference: the arrays are immutable after parse and
+        // one WMO root is shared by every placement of it.
+        job.Model.PortalVertices = ready.Root.PortalVertices;
+        job.Model.Portals = ready.Root.Portals;
+        job.Model.PortalRefs = ready.Root.PortalRefs;
+        job.Model.DeclaredPortalCount = ready.Root.NPortals;
+
         if (job.Upload is null)
         {
             var pendingTextures = ready.Textures
@@ -1481,6 +1673,8 @@ public sealed class WmoRenderer : IDisposable
             GroupIndex = groupIndex,
             GroupName = group.GroupName,
             GroupFlags = group.GroupFlags,
+            PortalStart = group.PortalStart,
+            PortalCount = group.PortalCount,
             VertexCount = group.Vertices.Count,
             PickPositions = BuildPickPositions(group),
             PickIndices = [.. group.Indices.Select(i => (int)i)],

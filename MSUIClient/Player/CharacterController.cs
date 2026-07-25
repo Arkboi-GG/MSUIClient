@@ -94,6 +94,18 @@ public sealed class CharacterController
     /// <summary>Radians CCW about +Z from +X. This IS the WoW orientation value.</summary>
     public float Yaw;
 
+    /// <summary>
+    /// How close to the ground counts as standing on it. Small, because it only
+    /// has to absorb one frame of gravity plus float error.
+    ///
+    /// It is deliberately NOT scaled by dt or by jump velocity. It used to be
+    /// compared against a rising character, which made the epsilon a frame-rate
+    /// dependent jump killer - see the guard in ResolveGround. With that guard
+    /// in place this value only ever meets a descending or resting character,
+    /// where a fixed distance is the right thing.
+    /// </summary>
+    private const float GroundContactEpsilon = 0.05f;
+
     public bool Grounded { get; private set; }
     public bool Flying { get; set; }
     public float FallTimeMs { get; private set; }
@@ -571,10 +583,40 @@ public sealed class CharacterController
         NoGroundBelow = false;
         _warnedNoGround = false;
 
-        if (Position.Z <= groundZ.Value + 0.05f)
+        // ── The `Velocity.Z <= 0f` guard is why jumping works ────────────────
+        //
+        // This landing test used to be distance-only. Ascending inside the
+        // epsilon, it yanked Position.Z back down to groundZ and set Grounded -
+        // which SWALLOWS A JUMP ENTIRELY, as a function of frame rate. That is
+        // why it presented as "space works maybe 1 in 10 times" rather than as a
+        // clean break.
+        //
+        // The first frame of a jump rises by (JumpVelocity - Gravity*dt) * dt.
+        // With the shipped 7.9558 / 19.2911:
+        //
+        //      60 fps (dt 16.7 ms) -> 0.127  clears 0.05  works
+        //     144 fps (dt  6.9 ms) -> 0.054  clears 0.05  barely
+        //     165 fps (dt  6.1 ms) -> 0.047  FAILS
+        //     300 fps (dt  3.3 ms) -> 0.026  FAILS
+        //
+        // Above roughly 160 fps the rise never clears the epsilon, so every
+        // frame re-clamped Position.Z back to groundZ. Height could not
+        // accumulate, gravity kept eating the velocity, and the character stayed
+        // pinned to the floor - with Grounded still true, so holding space just
+        // re-triggered a jump that was cancelled again. The presses that DID
+        // work were the ones landing on a frame long enough to clear 0.05 by
+        // itself: a stutter frame.
+        //
+        // So this got WORSE as frame times got better, and it is broken outright
+        // with vsync off. That is also how to confirm it: vsync ON at 60 always
+        // worked, vsync OFF was almost totally dead.
+        //
+        // Snapping to ground is for landing, and for staying on the floor. A
+        // character moving UPWARD is doing neither and must be left alone.
+        if (Velocity.Z <= 0f && Position.Z <= groundZ.Value + GroundContactEpsilon)
         {
             Position.Z = groundZ.Value;
-            if (Velocity.Z < 0) Velocity.Z = 0;
+            Velocity.Z = 0f;
             Grounded = true;
         }
         else if (allowGroundAdhesion && Velocity.Z <= 0f &&

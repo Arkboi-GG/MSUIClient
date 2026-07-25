@@ -1,0 +1,69 @@
+using ImGuiNET;
+using MSUIClient.World.Wmo;
+
+namespace MSUIClient;
+
+// ============================================================================
+// The portal instrument (PLAN_10_WMO_PORTALS.md §6).
+//
+// Same rule as Program.DevTools.cs, Program.Hitch.cs and Program.LightProbe.cs:
+// developer TOOLING. It reads renderer state and prints; core never depends on
+// it, and nothing here culls anything.
+//
+// PLAN_10 D1 says the containing-group question comes first and gets confirmed
+// on its own before any traversal exists, because every later symptom looks
+// like a portal bug if this is wrong. This panel is that confirmation.
+// ============================================================================
+public sealed partial class GameLoop
+{
+    private void DrawPortalPanel()
+    {
+        if (!ImGui.CollapsingHeader("Portals (PLAN_10)")) return;
+
+        if (_wmo is null)
+        {
+            ImGui.TextDisabled("no WMO renderer");
+            return;
+        }
+
+        var cell = _wmo.CameraGroup;
+        if (cell is { } c)
+        {
+            ImGui.Text($"in: [{c.GroupIndex}] '{c.GroupName}'");
+            ImGui.Text($"    {(c.IsInterior ? "INTERIOR" : "exterior")}   " +
+                       $"{c.PortalCount} door(s)   volume {c.Volume:N0}");
+            ImGui.TextDisabled($"    {Path.GetFileName(c.InstancePath)}");
+        }
+        else
+        {
+            ImGui.Text("in: outdoors");
+        }
+
+        // Group boxes NEST - a room inside a shell inside a district - so more
+        // than one containing the camera is normal and expected. Seeing this
+        // number lets the smallest-volume tie-break be checked rather than
+        // trusted: walking into a room should raise it, not replace it.
+        ImGui.TextDisabled($"    {_wmo.CameraGroupCandidates} group(s) contain the camera");
+
+        ImGui.Separator();
+        ImGui.TextWrapped(
+            "PLAN_10 §7 step 1: the group must change AT the doorway walking in, " +
+            "and return to 'outdoors' walking out. If it flips early or late, the " +
+            "cell test is wrong and no traversal built on it can be right.");
+
+        if (ImGui.Button("Dump portal graph")) _wmo.DumpPortalGraph();
+
+        ImGui.SameLine();
+        if (ImGui.Button("Print camera cell"))
+        {
+            if (_wmo.CameraGroup is { } p)
+                Console.WriteLine($"[portals] camera in [{p.GroupIndex}] '{p.GroupName}' " +
+                                  $"{(p.IsInterior ? "INT" : "ext")} {p.PortalCount} door(s) " +
+                                  $"volume {p.Volume:F0} of {Path.GetFileName(p.InstancePath)} " +
+                                  $"({_wmo.CameraGroupCandidates} candidate(s))");
+            else
+                Console.WriteLine($"[portals] camera outdoors " +
+                                  $"({_wmo.CameraGroupCandidates} candidate(s))");
+        }
+    }
+}

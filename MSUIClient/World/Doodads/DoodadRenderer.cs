@@ -220,6 +220,50 @@ public sealed class DoodadRenderer : IDisposable
 
     /// <summary>Instances grouped by model, so each VAO binds once per frame.</summary>
     private readonly Dictionary<Model, List<Instance>> _byModel = [];
+
+    /// <summary>
+    /// Just the cull bounds, 24 bytes, contiguous. A value type on purpose.
+    /// </summary>
+    private readonly struct CullBounds(Vector3 min, Vector3 max)
+    {
+        public readonly Vector3 Min = min;
+        public readonly Vector3 Max = max;
+    }
+
+    /// <summary>
+    /// Bounds parallel to <see cref="_byModel"/>, same model key, same index.
+    ///
+    /// Measured 2026-07-25: the cull ran at **751-9,053 ns per instance** across
+    /// two crossings, against roughly 50-100 ns for the arithmetic it actually
+    /// performs. The loop was never the problem. `Instance` is a sealed CLASS,
+    /// so `List&lt;Instance&gt;` is a list of pointers, and reading `WorldMin`
+    /// and `WorldMax` for every placement means dereferencing thousands of
+    /// scattered heap objects that PopulateDoodads allocated moments earlier in
+    /// the same frame. The rate tracked model count (512 models -> 9,053 ns,
+    /// 153 models -> 751 ns), which is locality, not workload: more models means
+    /// more separate lists means a more scattered walk.
+    ///
+    /// So the cull reads THIS instead. 6,364 placements x 24 bytes is ~153 KB,
+    /// contiguous, and it fits in L2. The heap object is touched only for the
+    /// instances that survive - roughly 250 of 6,600, so about 96 percent of the
+    /// pointer chases disappear.
+    ///
+    /// Kept parallel rather than folded into one type to hold the change down to
+    /// three sites; the two Add paths and the two Clear paths are the only
+    /// places it can drift, and DrainCullBounds self-heals if it ever does.
+    /// </summary>
+    private readonly Dictionary<Model, List<CullBounds>> _cullBounds = [];
+
+    /// <summary>
+    /// A/B switch for the flat-bounds cull, so the change can be proven in one
+    /// session without a rebuild. PLAN_08 section 7 step 3: a change that does
+    /// not move its own named field did nothing. The named field here is
+    /// `cull` in the [hitch] doodad line. Toggle it, cross the same boundary,
+    /// diff that number.
+    /// </summary>
+    public bool FlatCullBounds { get; set; } = true;
+
+    private bool _cullBoundsDriftReported;
     private readonly List<InstanceData> _visibleInstances = [];
 
     private readonly HashSet<string> _placed = [];
@@ -255,6 +299,79 @@ public sealed class DoodadRenderer : IDisposable
     /// <summary>Frame counter for the throttled [doodad-cull] diagnostic.</summary>
     private int _cullLogFrames;
     public double RenderMilliseconds { get; private set; }
+
+    // ── The 60 ms split (2026-07-25) ────────────────────────────────────────
+    //
+    // A crossing frame measured `doodad 60.3 ms` of CPU render while the GPU
+    // drew the same pass in 0.1 ms, with no GC pause (1.7 of 91 ms), no upload
+    // in flight, and the frame's last GL call returning in 0.1 ms. The cost is
+    // inside RenderInstanced and it is not the GPU, not the collector and not
+    // the swap. RenderInstanced does three unrelated things in one loop, and one
+    // RenderMilliseconds cannot tell them apart:
+    //
+    //   Cull   - pure CPU over every placement (6,695 at the crossing)
+    //   Upload - one glBufferData per visible model, StreamDraw
+    //   Draw   - texture binds, uniform sets, DrawElementsInstanced
+    //
+    // They fail for different reasons. Cull is our own arithmetic and scales
+    // with placement count. Upload and Draw are driver calls: on this Intel
+    // driver the FIRST bind of a texture created on the shared upload context
+    // can force a synchronization, and a crossing is exactly when dozens of
+    // models are touched by the render context for the first time.
+    //
+    // Note the uploads counter added earlier CANNOT see that case - it reports
+    // uploads in flight during the frame, and these completed frames earlier.
+    // First-touch is a different failure from concurrent-upload, so it needs its
+    // own count. That is what FirstTouchModelsLastFrame is for.
+
+    /// <summary>Distance and frustum rejection over every placement. Pure CPU, ours.</summary>
+    public double CullMilliseconds { get; private set; }
+
+    /// <summary>The per-model glBufferData of visible instance data. Driver call.</summary>
+    public double InstanceUploadMilliseconds { get; private set; }
+
+    /// <summary>Binds, uniform sets and DrawElementsInstanced. Driver calls.</summary>
+    public double DrawMilliseconds { get; private set; }
+
+    /// <summary>
+    /// Models drawn this frame that were not drawn last frame. A crossing spikes
+    /// this; a steady walk holds it near zero. If the cost tracks THIS rather
+    /// than the placement count, it is first-touch of shared-context objects and
+    /// the fix is a warm-up pass, not a cheaper cull.
+    /// </summary>
+    public int FirstTouchModelsLastFrame { get; private set; }
+
+    /// <summary>Models that issued a glBufferData this frame.</summary>
+    public int UploadedModelsLastFrame { get; private set; }
+
+    /// <summary>
+    /// Entries of _byModel walked this frame, and instances examined across all
+    /// of them. Without these, CullMilliseconds cannot be divided by anything
+    /// and "55.8 ms" stays a number instead of a rate.
+    ///
+    /// The measured rate is what decides the next move. Roughly:
+    ///   ~50-100 ns/instance  - normal; the cull is fine and the cost is elsewhere
+    ///   ~1000+ ns/instance   - memory, not arithmetic. Instance is a sealed
+    ///                          class, so this loop pointer-chases 6,000+
+    ///                          scattered heap objects that PopulateDoodads
+    ///                          allocated moments earlier in the same frame.
+    ///                          The fix is flat contiguous bounds, not a cheaper
+    ///                          test.
+    /// High ns/model with low ns/instance would mean the opposite - per-model
+    /// overhead over a dictionary with far more entries than expected.
+    /// </summary>
+    public int CullModelsLastFrame { get; private set; }
+
+    /// <summary>Instances examined by the cull this frame, across all models.</summary>
+    public int CullInstancesLastFrame { get; private set; }
+
+    // Preallocated and reused - an instrument that allocates two sets per frame
+    // would add to the allocation rate it exists to help explain.
+    // Not readonly: these are swapped rather than copied at the end of each
+    // instanced pass.
+    private HashSet<Model> _drawnPreviousFrame = [];
+    private HashSet<Model> _drawnThisFrame = [];
+
     public bool Enabled { get; set; } = true;
     public bool FrustumCulling { get; set; } = true;
     /// <summary>
@@ -387,6 +504,7 @@ public sealed class DoodadRenderer : IDisposable
                     WorldMax = max,
                     Path = d.ModelPath,
                 });
+                CullBoundsFor(model).Add(new CullBounds(min, max));
 
                 InstanceCount++;
                 TotalTriangles += model.TriangleCount;
@@ -413,6 +531,7 @@ public sealed class DoodadRenderer : IDisposable
     public void ResetPlacements()
     {
         _byModel.Clear();
+        _cullBounds.Clear();
         _placed.Clear();
         InstanceCount = 0;
         InteriorLitCount = 0;
@@ -629,6 +748,7 @@ public sealed class DoodadRenderer : IDisposable
             Path = modelPath,
             Light = light ?? new Vector4(0f, 0f, 0f, 1f),
         });
+        CullBoundsFor(model).Add(new CullBounds(min, max));
 
         InstanceCount++;
         if ((light ?? new Vector4(0f, 0f, 0f, 1f)).W < 0.5f) InteriorLitCount++;
@@ -1304,6 +1424,13 @@ public sealed class DoodadRenderer : IDisposable
         _gl.BindVertexArray(0);
         MaybeLogCull(effectiveDrawDistance);
         RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+        // The non-instanced path does not produce the three-way split. Zero it
+        // rather than leaving the last instanced frame's numbers standing - a
+        // stale timer reporting a plausible value is worse than a missing one.
+        CullMilliseconds = InstanceUploadMilliseconds = DrawMilliseconds = 0;
+        UploadedModelsLastFrame = FirstTouchModelsLastFrame = 0;
+        CullModelsLastFrame = CullInstancesLastFrame = 0;
     }
 
     /// <summary>
@@ -1324,34 +1451,119 @@ public sealed class DoodadRenderer : IDisposable
             $"{(float.IsPositiveInfinity(VisibilityDistance) ? -1f : VisibilityDistance):F0})");
     }
 
+    private List<CullBounds> CullBoundsFor(Model model)
+    {
+        if (!_cullBounds.TryGetValue(model, out var bounds))
+        {
+            bounds = [];
+            _cullBounds[model] = bounds;
+        }
+        return bounds;
+    }
+
+    /// <summary>
+    /// Bring the parallel bounds back in line if a placement path ever forgets
+    /// to append. Self-healing on purpose: a cull reading a stale or short
+    /// bounds list would silently draw the wrong props, and a wrong picture is
+    /// far worse than a slow one. Reported once, not per frame, but reported -
+    /// a silent repair is how a bug survives a whole session.
+    /// </summary>
+    private void RebuildCullBounds(List<Instance> instances, List<CullBounds> bounds)
+    {
+        bounds.Clear();
+        foreach (var instance in instances)
+            bounds.Add(new CullBounds(instance.WorldMin, instance.WorldMax));
+
+        if (_cullBoundsDriftReported) return;
+        _cullBoundsDriftReported = true;
+        Console.WriteLine(
+            "[doodad-cull] cull bounds drifted from placements and were rebuilt - " +
+            "a placement path is adding to _byModel without updating _cullBounds");
+    }
+
     private unsafe void RenderInstanced(
         Matrix4x4 viewProjection, Vector3 eye, float maxDistanceSq, ref bool cullingOn)
     {
+        // Three accumulators rather than three brackets around the whole loop:
+        // the phases interleave per model, so only a running total is honest.
+        double cullTicks = 0, uploadTicks = 0, drawTicks = 0;
+        int uploadedModels = 0;
+        int firstTouch = 0;
+        int cullModels = 0;
+        int cullInstances = 0;
+        _drawnThisFrame.Clear();
+
         foreach (var (model, instances) in _byModel)
         {
+            long cullStarted = Stopwatch.GetTimestamp();
+            cullModels++;
+            cullInstances += instances.Count;
             _visibleInstances.Clear();
-            foreach (var instance in instances)
+            if (FlatCullBounds)
             {
-                var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
-                if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
-                if (FrustumCulling &&
-                    !Camera.BoxInFrustum(viewProjection,
-                        instance.WorldMin - eye,
-                        instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
+                // The reject path never touches an Instance. About 96% of
+                // placements are rejected (5,616 of 6,694 measured), so this is
+                // where the pointer chases go: a linear walk over 24-byte
+                // structs, dereferencing the heap object only for survivors.
+                var bounds = CullBoundsFor(model);
+                if (bounds.Count != instances.Count) RebuildCullBounds(instances, bounds);
 
-                var transform = instance.Transform;
-                transform.M41 -= eye.X;
-                transform.M42 -= eye.Y;
-                transform.M43 -= eye.Z;
-                _visibleInstances.Add(new InstanceData
+                var boundsSpan = CollectionsMarshal.AsSpan(bounds);
+                for (int i = 0; i < boundsSpan.Length; i++)
                 {
-                    Transform = transform,
-                    Light = InteriorLighting ? instance.Light : ExteriorLight,
-                });
+                    ref readonly var b = ref boundsSpan[i];
+                    var centre = (b.Min + b.Max) * 0.5f;
+                    if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
+                    if (FrustumCulling &&
+                        !Camera.BoxInFrustum(viewProjection,
+                            b.Min - eye,
+                            b.Max - eye)) { FrustumCulledLastFrame++; continue; }
+
+                    var instance = instances[i];
+                    var transform = instance.Transform;
+                    transform.M41 -= eye.X;
+                    transform.M42 -= eye.Y;
+                    transform.M43 -= eye.Z;
+                    _visibleInstances.Add(new InstanceData
+                    {
+                        Transform = transform,
+                        Light = InteriorLighting ? instance.Light : ExteriorLight,
+                    });
+                }
             }
+            else
+            {
+                // The original array-of-pointers walk, kept verbatim as the A/B
+                // baseline. Deleting it would make the toggle a lie.
+                foreach (var instance in instances)
+                {
+                    var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
+                    if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
+                    if (FrustumCulling &&
+                        !Camera.BoxInFrustum(viewProjection,
+                            instance.WorldMin - eye,
+                            instance.WorldMax - eye)) { FrustumCulledLastFrame++; continue; }
+
+                    var transform = instance.Transform;
+                    transform.M41 -= eye.X;
+                    transform.M42 -= eye.Y;
+                    transform.M43 -= eye.Z;
+                    _visibleInstances.Add(new InstanceData
+                    {
+                        Transform = transform,
+                        Light = InteriorLighting ? instance.Light : ExteriorLight,
+                    });
+                }
+            }
+
+            cullTicks += Stopwatch.GetTimestamp() - cullStarted;
 
             if (_visibleInstances.Count == 0) continue;
 
+            _drawnThisFrame.Add(model);
+            if (!_drawnPreviousFrame.Contains(model)) firstTouch++;
+
+            long uploadStarted = Stopwatch.GetTimestamp();
             _gl.BindVertexArray(model.Vao);
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.InstanceVbo);
             var instanceData = CollectionsMarshal.AsSpan(_visibleInstances);
@@ -1360,7 +1572,10 @@ public sealed class DoodadRenderer : IDisposable
                 _gl.BufferData(BufferTargetARB.ArrayBuffer,
                     (nuint)(instanceData.Length * sizeof(InstanceData)), p, BufferUsageARB.StreamDraw);
             }
+            uploadTicks += Stopwatch.GetTimestamp() - uploadStarted;
+            uploadedModels++;
 
+            long drawStarted = Stopwatch.GetTimestamp();
             uint instanceCount = (uint)_visibleInstances.Count;
             foreach (var batch in model.Batches)
             {
@@ -1396,8 +1611,23 @@ public sealed class DoodadRenderer : IDisposable
                 TrianglesLastFrame += (long)(batch.IndexCount / 3) * instanceCount;
             }
 
+            drawTicks += Stopwatch.GetTimestamp() - drawStarted;
             DrawnLastFrame += _visibleInstances.Count;
         }
+
+        double perTick = 1000.0 / Stopwatch.Frequency;
+        CullMilliseconds = cullTicks * perTick;
+        InstanceUploadMilliseconds = uploadTicks * perTick;
+        DrawMilliseconds = drawTicks * perTick;
+        UploadedModelsLastFrame = uploadedModels;
+        FirstTouchModelsLastFrame = firstTouch;
+        CullModelsLastFrame = cullModels;
+        CullInstancesLastFrame = cullInstances;
+
+        // Swap, do not copy: this runs every frame and copying a set of live
+        // models per frame is exactly the kind of quiet allocation that made
+        // 40 MB/frame possible in the first place.
+        (_drawnPreviousFrame, _drawnThisFrame) = (_drawnThisFrame, _drawnPreviousFrame);
     }
 
     public void Dispose()
@@ -1420,6 +1650,7 @@ public sealed class DoodadRenderer : IDisposable
         _models.Clear();
         _textures.Clear();
         _byModel.Clear();
+        _cullBounds.Clear();
         _preloadQueue.Clear();
         _preloadQueued.Clear();
         _preloadJob = null;

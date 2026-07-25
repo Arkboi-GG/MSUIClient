@@ -22,6 +22,40 @@ public sealed class GpuUploadWorker : IDisposable
         TaskCreationOptions.RunContinuationsAsynchronously);
     private GL? _gl;
 
+    private int _inFlight;
+    private int _completedTotal;
+    private int _completedAtLastFrame;
+
+    /// <summary>
+    /// Uploads queued but not yet finished. Read once per frame by the hitch
+    /// recorder and NOT used for any control decision - it is evidence, not a
+    /// gate.
+    ///
+    /// Why it exists: the surviving stutter is a multi-ms block inside the
+    /// frame's LAST GL call, on frames where our own CPU work is under 1 ms and
+    /// the GPU is under 1 ms. The standing hypothesis (SYSTEM_STREAMING 5.2 H2)
+    /// is that this shared upload context serializes the render context on the
+    /// Intel driver - the exact failure the fence below was chosen to avoid. That
+    /// hypothesis is only testable if each record can say whether an upload was
+    /// in flight at the time, so this counter IS the discriminator: flush spikes
+    /// that always coincide with in-flight uploads confirm it, flush spikes on
+    /// quiet frames refute it.
+    /// </summary>
+    public int InFlight => Volatile.Read(ref _inFlight);
+
+    /// <summary>
+    /// Uploads that finished since the previous call. Call exactly once per
+    /// frame - it consumes what it reports, so a second caller silently sees
+    /// zero. Only ever called from the render thread.
+    /// </summary>
+    public int ConsumeCompletedSinceLastFrame()
+    {
+        int total = Volatile.Read(ref _completedTotal);
+        int delta = total - _completedAtLastFrame;
+        _completedAtLastFrame = total;
+        return delta;
+    }
+
     public GpuUploadWorker(IWindow renderWindow, GraphicsAPI api)
     {
         var options = WindowOptions.Default with
@@ -56,6 +90,10 @@ public sealed class GpuUploadWorker : IDisposable
         var completion = new TaskCompletionSource<T>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // Incremented before the item is queued, so InFlight can never read low
+        // during the window where work exists but has not been picked up.
+        Interlocked.Increment(ref _inFlight);
+
         _queue.Add(gl =>
         {
             try
@@ -83,6 +121,14 @@ public sealed class GpuUploadWorker : IDisposable
             {
                 completion.TrySetException(ex);
             }
+            finally
+            {
+                // In the finally, so a failed upload cannot leave InFlight
+                // permanently high and make every later record read as
+                // "uploads were busy".
+                Interlocked.Decrement(ref _inFlight);
+                Interlocked.Increment(ref _completedTotal);
+            }
         });
 
         return completion.Task;
@@ -101,7 +147,9 @@ public sealed class GpuUploadWorker : IDisposable
         catch (Exception ex)
         {
             _started.TrySetException(ex);
-            while (_queue.TryTake(out _)) { }
+            // Discarded items never run their finally, so balance InFlight here
+            // or a dead worker leaves every later record reading "uploads busy".
+            while (_queue.TryTake(out _)) Interlocked.Decrement(ref _inFlight);
         }
         finally
         {

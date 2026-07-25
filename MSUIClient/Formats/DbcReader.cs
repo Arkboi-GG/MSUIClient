@@ -68,6 +68,14 @@ public sealed class DbcFile
     public int GetInt(int row, int field) => unchecked((int)GetUInt(row, field));
 
     /// <summary>
+    /// Reinterpret a field's four bytes as a float. The Light tables need it:
+    /// positions, falloff radii and every LightFloatBand value are IEEE floats
+    /// sitting in the same fixed-width columns as the integers.
+    /// </summary>
+    public float GetFloat(int row, int field)
+        => BitConverter.Int32BitsToSingle(GetInt(row, field));
+
+    /// <summary>
     /// Read a stringref field. The value stored is an offset into the string
     /// block; the string runs to the next null byte.
     /// </summary>
@@ -515,6 +523,519 @@ public sealed class GroundEffectTextureTable
 
         Console.WriteLine($"[dbc] GroundEffectTexture: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
             $"{dbc.RecordSize} bytes; {table._byId.Count} effect(s) with resolvable doodads");
+        return table;
+    }
+}
+// ============================================================================
+// EXTERIOR LIGHTING — the Light.dbc chain (PLAN_09_EXTERIOR_LIGHTING.md §11).
+//
+//   Light.dbc          which light applies where, and how it falls off
+//     -> LightParams.dbc     one setting-set per weather state
+//        -> LightIntBand.dbc    18 colour curves over the day
+//        -> LightFloatBand.dbc   6 scalar curves over the day
+//
+// Two unit traps, both of which produce results that look like bad data rather
+// than like a bug:
+//   * Positions and falloff radii are stored YARDS x 36. Converted once here,
+//     at the reader boundary, so nothing downstream has to remember.
+//   * Times are HALF-MINUTES from midnight, 0..2880. Also converted here, to
+//     hours, for the same reason.
+//
+// Field indices come from wowdev.wiki and are verified against the record size
+// on load, not trusted. GroundEffectTexture above records what a single wrong
+// column costs: every recipe silently pinned to a fallback density, visible only
+// as "the grass looks too thick". A wrong column here reads as slightly wrong
+// colours, which is worse - so each table logs its shape and complains loudly
+// when the geometry does not match 1.12.
+// ============================================================================
+
+/// <summary>One Light.dbc row: where a lighting setup applies, and how it fades.</summary>
+public sealed class LightZone
+{
+    public uint Id;
+    public uint MapId;
+
+    /// <summary>Centre in WoW world space, YARDS (the x36 is already undone).</summary>
+    public System.Numerics.Vector3 Position;
+
+    /// <summary>Inside this radius the zone applies at full strength. Yards.</summary>
+    public float FalloffStart;
+
+    /// <summary>Past this radius the zone does not apply at all. Yards.</summary>
+    public float FalloffEnd;
+
+    public uint ParamsClear;
+    public uint ParamsClearWater;
+    public uint ParamsStorm;
+    public uint ParamsStormWater;
+    public uint ParamsDeath;
+
+    /// <summary>
+    /// A row at the origin with no radius is the MAP-WIDE DEFAULT rather than a
+    /// zone at the map origin. Everything else blends on top of it.
+    /// </summary>
+    public bool IsMapDefault =>
+        FalloffEnd <= 0f && Position.LengthSquared() <= 0.001f;
+}
+
+/// <summary>Light.dbc — vanilla 1.12 layout is 12 fields / 48 bytes.</summary>
+public sealed class LightTable
+{
+    public const string MpqPath = @"DBFilesClient\Light.dbc";
+
+    /// <summary>Stored x36. Undone at parse so callers only ever see yards.</summary>
+    private const float DbcDistanceScale = 36f;
+
+    private readonly List<LightZone> _zones = [];
+    public IReadOnlyList<LightZone> Zones => _zones;
+    public int Count => _zones.Count;
+
+    public static LightTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        // 12 fields in 1.12; WotLK grew three more phase params on the end.
+        // Fewer than 12 means the layout below is not this file's layout.
+        if (dbc.FieldCount < 12)
+        {
+            Console.WriteLine($"[dbc] Light: {dbc.FieldCount} field(s) - expected at least 12 " +
+                              "for the 1.12 layout. NOT LOADED; exterior lighting stays on its constants.");
+            return null;
+        }
+
+        var table = new LightTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            var zone = new LightZone
+            {
+                Id = dbc.GetUInt(r, 0),
+                MapId = dbc.GetUInt(r, 1),
+                Position = new System.Numerics.Vector3(
+                    dbc.GetFloat(r, 2) / DbcDistanceScale,
+                    dbc.GetFloat(r, 3) / DbcDistanceScale,
+                    dbc.GetFloat(r, 4) / DbcDistanceScale),
+                FalloffStart = dbc.GetFloat(r, 5) / DbcDistanceScale,
+                FalloffEnd = dbc.GetFloat(r, 6) / DbcDistanceScale,
+                ParamsClear = dbc.GetUInt(r, 7),
+                ParamsClearWater = dbc.GetUInt(r, 8),
+                ParamsStorm = dbc.GetUInt(r, 9),
+                ParamsStormWater = dbc.GetUInt(r, 10),
+                ParamsDeath = dbc.GetUInt(r, 11),
+            };
+            if (zone.Id != 0) table._zones.Add(zone);
+        }
+
+        int defaults = table._zones.Count(z => z.IsMapDefault);
+        Console.WriteLine($"[dbc] Light: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {table._zones.Count} zone(s), {defaults} map default(s)");
+        return table;
+    }
+
+    /// <summary>Zones on one map, map default first so it can be the blend base.</summary>
+    public List<LightZone> ForMap(uint mapId)
+        => _zones.Where(z => z.MapId == mapId)
+                 .OrderByDescending(z => z.IsMapDefault)
+                 .ToList();
+}
+
+/// <summary>One LightParams.dbc row.</summary>
+public sealed class LightParamsRow
+{
+    public uint Id;
+    public bool HighlightSky;
+    public uint SkyboxId;
+    public float Glow;
+    public float WaterShallowAlpha;
+    public float WaterDeepAlpha;
+    public float OceanShallowAlpha;
+    public float OceanDeepAlpha;
+    public uint Flags;
+}
+
+/// <summary>LightParams.dbc — 9 fields / 36 bytes in 1.12.</summary>
+public sealed class LightParamsTable
+{
+    public const string MpqPath = @"DBFilesClient\LightParams.dbc";
+
+    private readonly Dictionary<uint, LightParamsRow> _byId = [];
+    public int Count => _byId.Count;
+    public LightParamsRow? Get(uint id) => _byId.TryGetValue(id, out var p) ? p : null;
+
+    public static LightParamsTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount < 9)
+        {
+            Console.WriteLine($"[dbc] LightParams: {dbc.FieldCount} field(s) - expected 9. NOT LOADED.");
+            return null;
+        }
+
+        var table = new LightParamsTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            if (id == 0) continue;
+            table._byId[id] = new LightParamsRow
+            {
+                Id = id,
+                HighlightSky = dbc.GetUInt(r, 1) != 0,
+                SkyboxId = dbc.GetUInt(r, 2),
+                Glow = dbc.GetFloat(r, 3),
+                WaterShallowAlpha = dbc.GetFloat(r, 4),
+                WaterDeepAlpha = dbc.GetFloat(r, 5),
+                OceanShallowAlpha = dbc.GetFloat(r, 6),
+                OceanDeepAlpha = dbc.GetFloat(r, 7),
+                Flags = dbc.GetUInt(r, 8),
+            };
+        }
+
+        Console.WriteLine($"[dbc] LightParams: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {table._byId.Count} usable");
+        return table;
+    }
+}
+
+/// <summary>
+/// One SCALAR band: up to 16 (time, value) keys forming a curve over the day.
+///
+/// Times arrive as half-minutes 0..2880 and are stored here as HOURS, so
+/// everything downstream speaks one unit. The curve WRAPS - the segment from the
+/// last key to the first crosses midnight, and a band that does not wrap
+/// produces a hard snap at 00:00 that reads as a rendering glitch.
+///
+/// COLOURS DO NOT USE THIS CLASS, and that separation is deliberate. See
+/// <see cref="LightColorBand"/> for why.
+/// </summary>
+public sealed class LightBand
+{
+    public float[] Hours = [];
+    public float[] Values = [];
+
+    public bool HasData => Hours.Length > 0;
+
+    /// <summary>Sample the curve, wrapping across midnight. 0 if the band is empty.</summary>
+    public float Sample(float hours)
+    {
+        int n = Hours.Length;
+        if (n == 0) return 0f;
+        if (n == 1) return Values[0];
+
+        hours %= 24f;
+        if (hours < 0f) hours += 24f;
+
+        // Before the first key or after the last: we are inside the wrap
+        // segment that spans midnight.
+        if (hours < Hours[0] || hours >= Hours[n - 1])
+        {
+            float from = Hours[n - 1];
+            float to = Hours[0] + 24f;
+            float at = hours < Hours[0] ? hours + 24f : hours;
+            float span = to - from;
+            float t = span <= 0f ? 0f : (at - from) / span;
+            return Values[n - 1] + (Values[0] - Values[n - 1]) * t;
+        }
+
+        for (int i = 0; i < n - 1; i++)
+        {
+            if (hours >= Hours[i] && hours < Hours[i + 1])
+            {
+                float span = Hours[i + 1] - Hours[i];
+                float t = span <= 0f ? 0f : (hours - Hours[i]) / span;
+                return Values[i] + (Values[i + 1] - Values[i]) * t;
+            }
+        }
+        return Values[n - 1];
+    }
+}
+
+/// <summary>
+/// One COLOUR band: the same 16 keys, but the value is a PACKED colour and is
+/// kept packed until the moment it is sampled.
+///
+/// This exists because of a real bug, caught by the probe on its first run
+/// (PLAN_09 §7). Sharing <see cref="LightBand"/> meant colours were interpolated
+/// as SINGLE NUMBERS: lerping 0x0000FF toward 0xFF0000 carries across the byte
+/// boundaries and lands on a colour that belongs to neither key. The symptom was
+/// green ambient, cyan fog and a dark purple sun at 11:11, while every scalar
+/// band in the same rows read perfectly plausibly - because lerping a float is
+/// meaningful and lerping a packed RGB is not.
+///
+/// So: find the bracketing keys, decode BOTH, then interpolate per channel.
+/// Decoding stays at sample time rather than at parse time so
+/// <see cref="LightIntBandTable.SwapRedBlue"/> remains a live toggle.
+/// </summary>
+public sealed class LightColorBand
+{
+    public float[] Hours = [];
+    public uint[] Packed = [];
+
+    public bool HasData => Hours.Length > 0;
+
+    public System.Numerics.Vector3 Sample(float hours)
+    {
+        int n = Hours.Length;
+        if (n == 0) return System.Numerics.Vector3.Zero;
+        if (n == 1) return LightIntBandTable.Decode(Packed[0]);
+
+        hours %= 24f;
+        if (hours < 0f) hours += 24f;
+
+        int i0, i1;
+        float t;
+
+        if (hours < Hours[0] || hours >= Hours[n - 1])
+        {
+            // The wrap segment: last key -> first key, across midnight.
+            i0 = n - 1;
+            i1 = 0;
+            float from = Hours[n - 1];
+            float to = Hours[0] + 24f;
+            float at = hours < Hours[0] ? hours + 24f : hours;
+            float span = to - from;
+            t = span <= 0f ? 0f : (at - from) / span;
+        }
+        else
+        {
+            i0 = 0;
+            for (int i = 0; i < n - 1; i++)
+            {
+                if (hours >= Hours[i] && hours < Hours[i + 1]) { i0 = i; break; }
+                i0 = i + 1;
+            }
+            i1 = Math.Min(i0 + 1, n - 1);
+            float span = Hours[i1] - Hours[i0];
+            t = span <= 0f ? 0f : (hours - Hours[i0]) / span;
+        }
+
+        var a = LightIntBandTable.Decode(Packed[i0]);
+        var b = LightIntBandTable.Decode(Packed[i1]);
+        return System.Numerics.Vector3.Lerp(a, b, Math.Clamp(t, 0f, 1f));
+    }
+
+    /// <summary>The raw keys, for the probe. A wrong curve is obvious in a list.</summary>
+    public string Describe()
+    {
+        if (!HasData) return "(no keys)";
+        var parts = new string[Hours.Length];
+        for (int i = 0; i < Hours.Length; i++)
+        {
+            var c = LightIntBandTable.Decode(Packed[i]);
+            parts[i] = $"{Hours[i]:F2}h={c.X:F2}/{c.Y:F2}/{c.Z:F2}";
+        }
+        return string.Join("  ", parts);
+    }
+}
+
+/// <summary>
+/// Shared layout for LightIntBand and LightFloatBand: id, entry count, 16 times,
+/// 16 values. 34 fields / 136 bytes. Only the value type differs.
+/// </summary>
+public static class LightBandLayout
+{
+    public const int FieldCount = 34;
+    public const int MaxEntries = 16;
+    public const int TimeField = 2;
+    public const int ValueField = 18;
+
+    /// <summary>Half-minutes from midnight, 0..2880, to hours.</summary>
+    public const float HalfMinutesPerHour = 120f;
+}
+
+/// <summary>
+/// LightIntBand.dbc — the 18 colour curves per LightParams.
+///
+/// Band rows for LightParams P are ids `P*18-17 .. P*18`, i.e. band b is
+/// id `P*18-17+b`. Looked up BY ID rather than by row index: the two usually
+/// coincide and relying on that is exactly the assumption that breaks quietly.
+/// </summary>
+public sealed class LightIntBandTable
+{
+    public const string MpqPath = @"DBFilesClient\LightIntBand.dbc";
+
+    /// <summary>Names for the 18 slots, so the probe reads as English.</summary>
+    public static readonly string[] BandNames =
+    [
+        "global diffuse", "global ambient",
+        "sky top", "sky middle", "sky band 1", "sky band 2", "sky smog",
+        "fog", "sun", "cloud sun", "cloud emissive",
+        "cloud L1 ambient", "cloud L2 ambient",
+        "ocean close", "ocean far", "river close", "river far",
+        "shadow opacity",
+    ];
+
+    public const int BandsPerParams = 18;
+
+    // Colour channel order is the one thing here the schema pages do not agree
+    // on, and it cannot be settled by reading. It IS settled by looking: the sky
+    // top at noon must be strongly BLUE. If it comes out red-dominant this flag
+    // is wrong, so it is a flag and not a hard-coded shuffle. The probe shows the
+    // raw hex beside the decoded triplet for exactly this check.
+    public static bool SwapRedBlue;
+
+    private readonly Dictionary<uint, LightColorBand> _byId = [];
+    public int Count => _byId.Count;
+
+    /// <summary>Band b (0..17) for a LightParams id, or null when unauthored.</summary>
+    public LightColorBand? Band(uint lightParamsId, int band)
+    {
+        if (lightParamsId == 0 || band < 0 || band >= BandsPerParams) return null;
+        uint id = lightParamsId * BandsPerParams - 17 + (uint)band;
+        return _byId.TryGetValue(id, out var b) && b.HasData ? b : null;
+    }
+
+    /// <summary>Packed colour to 0..1 RGB. See <see cref="SwapRedBlue"/>.</summary>
+    public static System.Numerics.Vector3 Decode(uint v)
+    {
+        float r = ((v >> 16) & 0xFF) / 255f;
+        float g = ((v >> 8) & 0xFF) / 255f;
+        float b = (v & 0xFF) / 255f;
+        return SwapRedBlue
+            ? new System.Numerics.Vector3(b, g, r)
+            : new System.Numerics.Vector3(r, g, b);
+    }
+
+    /// <summary>
+    /// Sample a colour band. The per-channel interpolation lives in
+    /// LightColorBand.Sample - do NOT reintroduce a version that lerps the
+    /// packed value, which is the bug this table was rewritten to remove.
+    /// </summary>
+    public System.Numerics.Vector3 SampleColor(uint lightParamsId, int band, float hours)
+        => Band(lightParamsId, band)?.Sample(hours) ?? System.Numerics.Vector3.Zero;
+
+    public static LightIntBandTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount < LightBandLayout.FieldCount)
+        {
+            Console.WriteLine($"[dbc] LightIntBand: {dbc.FieldCount} field(s) - expected " +
+                              $"{LightBandLayout.FieldCount}. NOT LOADED.");
+            return null;
+        }
+
+        var table = new LightIntBandTable();
+        int withData = 0;
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            if (id == 0) continue;
+            var band = ReadColorBand(dbc, r);
+            table._byId[id] = band;
+            if (band.HasData) withData++;
+        }
+
+        Console.WriteLine($"[dbc] LightIntBand: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {withData} band(s) with keys");
+        return table;
+    }
+
+    /// <summary>
+    /// Read one band row. `numEntries` is trusted only as far as the array
+    /// allows, and a row claiming more than 16 keys is clamped rather than
+    /// throwing - a corrupt count should cost a band, not the client.
+    /// </summary>
+    internal static LightColorBand ReadColorBand(DbcFile dbc, int row)
+    {
+        int n = Math.Clamp(dbc.GetInt(row, 1), 0, LightBandLayout.MaxEntries);
+        var hours = new float[n];
+        var packed = new uint[n];
+        for (int i = 0; i < n; i++)
+        {
+            hours[i] = dbc.GetInt(row, LightBandLayout.TimeField + i)
+                     / LightBandLayout.HalfMinutesPerHour;
+            packed[i] = dbc.GetUInt(row, LightBandLayout.ValueField + i);
+        }
+        return new LightColorBand { Hours = hours, Packed = packed };
+    }
+
+    /// <summary>Scalar rows. Same layout, meaningful to interpolate as numbers.</summary>
+    internal static LightBand ReadFloatBand(DbcFile dbc, int row)
+    {
+        int n = Math.Clamp(dbc.GetInt(row, 1), 0, LightBandLayout.MaxEntries);
+        var hours = new float[n];
+        var values = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            hours[i] = dbc.GetInt(row, LightBandLayout.TimeField + i)
+                     / LightBandLayout.HalfMinutesPerHour;
+            values[i] = dbc.GetFloat(row, LightBandLayout.ValueField + i);
+        }
+        return new LightBand { Hours = hours, Values = values };
+    }
+}
+
+/// <summary>
+/// LightFloatBand.dbc — the 6 scalar curves per LightParams.
+/// Band rows for LightParams P are ids `P*6-5 .. P*6`.
+/// </summary>
+public sealed class LightFloatBandTable
+{
+    public const string MpqPath = @"DBFilesClient\LightFloatBand.dbc";
+
+    public static readonly string[] BandNames =
+    [
+        "fog end", "fog start multiplier", "celestial glow through",
+        "cloud density", "unknown 4", "unknown 5",
+    ];
+
+    public const int BandsPerParams = 6;
+
+    /// <summary>Band 0 is a distance and is stored x36, like Light.dbc's radii.</summary>
+    public const int FogEndBand = 0;
+    public const int FogStartMultiplierBand = 1;
+    private const float DbcDistanceScale = 36f;
+
+    private readonly Dictionary<uint, LightBand> _byId = [];
+    public int Count => _byId.Count;
+
+    public LightBand? Band(uint lightParamsId, int band)
+    {
+        if (lightParamsId == 0 || band < 0 || band >= BandsPerParams) return null;
+        uint id = lightParamsId * BandsPerParams - 5 + (uint)band;
+        return _byId.TryGetValue(id, out var b) && b.HasData ? b : null;
+    }
+
+    /// <summary>
+    /// Sample a float band. Band 0 is converted from the stored x36 to yards
+    /// here so no caller has to know which bands are distances.
+    /// </summary>
+    public float Sample(uint lightParamsId, int band, float hours)
+    {
+        var b = Band(lightParamsId, band);
+        if (b is null) return 0f;
+        float v = b.Sample(hours);
+        return band == FogEndBand ? v / DbcDistanceScale : v;
+    }
+
+    public static LightFloatBandTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount < LightBandLayout.FieldCount)
+        {
+            Console.WriteLine($"[dbc] LightFloatBand: {dbc.FieldCount} field(s) - expected " +
+                              $"{LightBandLayout.FieldCount}. NOT LOADED.");
+            return null;
+        }
+
+        var table = new LightFloatBandTable();
+        int withData = 0;
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            if (id == 0) continue;
+            var band = LightIntBandTable.ReadFloatBand(dbc, r);
+            table._byId[id] = band;
+            if (band.HasData) withData++;
+        }
+
+        Console.WriteLine($"[dbc] LightFloatBand: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {withData} band(s) with keys");
         return table;
     }
 }

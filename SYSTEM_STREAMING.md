@@ -238,6 +238,10 @@ Every surviving hitch looks like this:
 Our code does **nothing** in these frames. Same spot, no `[stream] crossing`
 nearby.
 
+> **Superseded in part by §5A (2026-07-25).** The `present` numbers above are a
+> mis-attribution — on this hardware the driver does not block in the swap. Read
+> §5A before acting on anything in §5.
+
 ### 5.1 The blind spot that lasted the whole session
 
 **Only the CPU was ever measured.** `GpuFrameProfiler` (`GL_TIME_ELAPSED` rings,
@@ -269,8 +273,435 @@ from a 25 ms one.
 
 1. **Untick VSync.** If the stutter vanishes, it is frame pacing / vblank misses
    and `present` was never a stall. If unchanged, vblank is exonerated.
+   **RUN 2026-07-25 — see §5A. Stutter vanished: "night and day, not close."**
 2. **Untick GPU instancing.** A/B the doodad path directly — 6,300 instances is
-   the largest thing submitted.
+   the largest thing submitted. **Not run — H1 is refuted by `gpu.totalMs` 0.6–0.9,
+   so the doodad submission cost is not a live suspect. Skip unless §5A.4 turns up
+   nothing.**
+
+---
+
+## 5A. The vsync A/B — read this before believing any number in §3 or §5
+
+Untick VSync, walk the same `[32,48] → [32,49]` crossing. Felt result, Nico's
+words: **"night and day. not close."** Measured diff, same crossing, same tiles:
+
+| | vsync ON | vsync OFF |
+|---|---|---|
+| `[stream] terrain` | 13.2 ms | **1.9 ms** |
+| `[stream] doodads` | 8.4 | 6.5 |
+| `duskwood_inn` preload | 0.23 s | **0.04 s** |
+| `[stream-budget] finalize` lines | ~35, all 14–17 ms | **zero** |
+| crossing hitch | 65 ms (`model-finalize`) | **none** |
+| survivor | 34 ms (`hud-imgui`) | 28 ms (`hud-imgui`) |
+
+### 5A.1 Every `[stream-budget] ... took 16ms` line is an artefact
+
+`WmoRenderer.WarmNextPreload` steps **one** model per frame, so the eleven
+`duskwood_inn` lines are eleven separate frames, not one 175 ms stall. Each
+16 ms is the vblank wait landing inside whatever GL call that step happened to
+make. Vsync off, same models, same order: **the lines do not appear at all.**
+
+This is §1.2's lesson in a new shape. Not a bracket that fails to cover its
+phase — a bracket charged for a **wait it does not own**. A timer around a GL
+call on a vsync-throttled driver measures the throttle, not the work.
+
+**Do not read any `[stream-budget]` number, or the 65 ms `model-finalize` hitch,
+as a cost.** Re-measure with vsync off before optimizing anything they point at.
+This also puts §3's `terrain 13.2` under suspicion: uncapped it is 1.9.
+
+### 5A.2 H1 is refuted by measurement
+
+`gpu.totalMs` is **0.6–0.9 ms** on every record, hitch frames included. The
+Iris Xe is nowhere near the 16.7 ms vblank. The GPU frame is not the problem.
+
+### 5A.3 The wait is not in `present`, and the bucket name claimed it was
+
+`present` reads 0.05–0.9 ms on 26 ms frames. The driver does **not** block in
+the swap on this hardware — it blocks in the next GL call that needs a buffer,
+which is whichever of update, render or the ImGui draw comes first. In the ring
+you can watch the ~16 ms move between `update`, `render` and `gui` frame to
+frame while the frame period stays pinned at 16.7:
+
+```
+i     frame   update  render  gui     present
+-11   16.66   0.03    0.32    16.19   0.08
+-10   16.86   0.03    16.49   0.24    0.07   <- moved to render
+-9    16.98   16.26   0.36    0.24    0.05   <- moved to update
+```
+
+`present-swap-driver` is renamed `swap-and-events`. A bucket name is not a place
+to store a conclusion.
+
+### 5A.4 What survives vsync off — the real remaining bug
+
+```
+vsync OFF:  hitch-32-49-2: 28 ms -> hud-imgui
+            update 0.0   render 0.4   present 0.1   gui 27.1
+            GPU (delayed): total 0.7
+```
+
+No vblank to wait for, GPU idle, our own work under 1 ms. And `gui` is not the
+HUD: on every neighbouring frame where the wait landed elsewhere, `gui` reads
+**0.24 ms**. That is the HUD's real cost. The 27 ms is the driver's implicit
+flush, which lands in `_imgui.Render()` because it is the frame's last GL
+submission.
+
+It fires on the **crossing frame**, beside `[gpu-upload] ... completed in 9ms
+off-thread`. That points at **H2** — shared-context uploads serializing the
+render context — which stayed invisible because it lands in `gui` while everyone
+watched `present`.
+
+### 5A.5 The instrument change this bought
+
+`gui` is now two numbers that cannot be confused:
+
+- `hud` — `OnGui`, our HUD code. Pure CPU, ~0.25 ms, flat.
+- `imguiFlush` — `_imgui.Render()`, the frame's last GL call, where a driver
+  stall lands. Large here with `gpu.totalMs` small means the GPU was idle and
+  the CPU was blocked in the driver.
+
+Plus `uploadsInFlight` / `uploadsCompleted` from `GpuUploadWorker`, per frame,
+in the record and in the ring. **That pair is the H2 verdict**: a large
+`imguiFlush` beside a non-zero upload count confirms it; a large `imguiFlush` on
+a frame with no uploads refutes it and sends the search to the swap chain.
+
+`hud + imguiFlush == gui` by construction in `ClientWindow.HandleRender`, so the
+split cannot drift the way the single bucket did.
+
+### 5A.6 The split fired, and it refuted H2 as well (2026-07-25, second run)
+
+First record from the split instrument, vsync **on**, same crossing:
+
+```
+[hitch] hitch-32-49-2: 33 ms frame at [32,49] -> swap-and-events
+[hitch]   update 0.0 (all zero)  render 0.4  present 16.5
+          hud 16.4  imguiFlush 0.1  input 0.0  unaccounted 0.0
+[hitch]   GPU (delayed): total 0.9
+[hitch]   uploads: 0 in flight, 0 completed during the frame
+```
+
+Two clean vblanks — 16.5 in `present`, 16.4 in `hud` — so the frame dropped one.
+And every GL-flavoured explanation dies on this record at once:
+
+- `imguiFlush 0.1` — the frame's last GL call returned instantly. **The block is
+  not in a GL call.**
+- `uploads 0 in flight, 0 completed` — **H2 refuted.** No shared-context upload
+  was anywhere near this frame.
+- `gpu 0.9` — H1 was already dead; it stays dead.
+- The 16.4 ms is in `hud`, which is `Gui()` in Program.cs: `ImGui.Text`,
+  `ImGui.Checkbox`, `ImGui.Button`. **No GL, no file I/O, no syscall.** Its
+  baseline on every other frame is 0.25 ms.
+
+Managed code doing nothing but building strings and widgets does not block for a
+vblank. Something stopped the thread from outside.
+
+### 5A.7 The hypothesis that fits everything: GC pauses
+
+A collection stops **every** thread, wherever each one happens to be. That single
+property explains the entire shape of this investigation:
+
+| Observation | Under the GC hypothesis |
+|---|---|
+| The stall wanders between `update`, `render`, `gui`, `hud`, `present` | a pause lands wherever the thread was; it has no home phase |
+| Uncorrelated with uploads, GPU, draw counts | correct — it is not graphics at all |
+| **Four correct off-thread fixes did not help** | moving an allocation to a worker does not stop it triggering a collection, and the pause still stops the render thread |
+| "Always the same spots" | a crossing allocates the same enormous arrays every time |
+| "No matter how much time I SIT before it" | the allocation happens at the crossing, not before it |
+| Far worse under vsync | a 16 ms pause against a 16.7 ms budget guarantees a dropped frame; uncapped at ~300 fps it is one blip among many cheap frames |
+
+The suspects are already measured and already in this doc — we just never read
+them as allocations:
+
+- **505,037 triangles expanded** per collision rebuild → multi-megabyte
+  `Vector3[]`, straight to the **Large Object Heap**. LOH allocation forces gen2.
+- **194,861-node BVH**, built from scratch each time → same.
+- **1,166,289 WMO triangles**, **37,120 verts × 9 terrain tiles**, BLP decodes on
+  8 worker threads.
+
+`MSUIClient.csproj` sets no GC properties, so this runs on workstation background
+GC. That is the right latency choice already — which means the fix is to allocate
+less and reuse buffers, not to flip a switch.
+
+**Status: hypothesis, not verdict.** `gcPauseMs`, `gen0/1/2` and
+`allocatedBytes` are now measured per frame and written to every record and every
+ring row, with `dominantPhase` returning `gc-pause` / `gc-pause-gen2` when a
+pause holds a third of the frame. GC is checked *before* the phase ranking and
+never competes in it — a pause is already inside whichever phase was running, so
+ranking it as a peer would double-count it.
+
+One line decides it:
+
+```
+[hitch]   GC: pause 16.4 ms of 33 ms frame  gen0 2 gen1 1 gen2 1  allocated 12.40 MB this frame
+```
+
+If the pause holds the frame, the phase split above it is naming the unlucky
+bucket, not the cause — and no renderer or streaming change can fix it.
+
+**If GC comes back clean**, the next measurement is thread CPU time
+(`QueryThreadCycleTime`) across the frame, which separates "the OS descheduled
+us" from "the driver is spinning in a busy-wait". Do that before anything else.
+
+### 5A.8 GC refuted, and the real number appears (2026-07-25, third run)
+
+```
+[hitch] hitch-32-49-2: 91 ms frame at [32,49] -> doodad-render
+[hitch]   update 28.7 (resid 26.7 finalize 2.0)  render 60.6
+          present 1.3  hud 0.6  imguiFlush 0.1  unaccounted 0.0
+[hitch]   render split: world 60.5 = terrain 0.0 + wmo 0.1 + doodad 60.3 + foliage 0.0
+[hitch]   GPU (delayed): total 0.9 = terrain 0.7 + wmo 0.1 + doodad 0.1
+[hitch]   uploads: 0 in flight, 0 completed during the frame
+[hitch]   GC: pause 1.7 ms of 91 ms frame  gen0 1 gen1 1 gen2 0  allocated 40.45 MB
+```
+
+**The GC hypothesis (§5A.7) is refuted: 1.7 ms of a 91 ms frame, no gen2.** It
+cost one run to kill and that was worth it — it was the best available theory and
+it was wrong. Leave §5A.7 standing as a record of the reasoning; do not re-derive
+it.
+
+**`allocated 40.45 MB in one frame` is real and stays on the list**, just not as
+the cause of this hitch. It is process-wide, so most of it is the off-thread
+507,873-triangle expansion and the 195,943-node BVH. It is the pressure behind
+whatever gen2 eventually lands; it is not what stalled this frame.
+
+**What actually stalled: `doodad 60.3 ms` of CPU while the GPU drew that same
+pass in 0.1 ms.** Nothing else is close. `hud 0.6` and `imguiFlush 0.1` are back
+to baseline, `present 1.3`, `unaccounted 0.0`. For the first time the frame is
+fully accounted for and one bucket holds two thirds of it.
+
+`RenderInstanced` does three unrelated jobs in one loop over `_byModel`, and one
+timer could not tell them apart:
+
+| Job | What it is | Fails because |
+|---|---|---|
+| cull | distance + frustum over every placement (6,695 at the crossing) | our arithmetic, scales with placement count |
+| instance upload | one `glBufferData` per visible model, `StreamDraw` | driver call |
+| draw submit | texture binds, uniform sets, `DrawElementsInstanced` | driver call |
+
+They are now three separate timers plus two counts, summing to `DoodadRenderMs`
+with an explicit `unmeasured` residual, and `dominantPhase` reports
+`doodad-cull-cpu` / `doodad-instance-upload` / `doodad-draw-submit` instead of
+the useless `doodad-render`.
+
+**`firstTouchModels` is the field to watch.** The uploads counter added in §5A.5
+answers "was an upload in flight *during* this frame" — and it reads 0 here. But
+the models being drawn at a crossing were uploaded on the shared context frames
+*earlier*, and on this Intel driver the first bind of such an object by the
+render context can force a synchronization. **First-touch is a different failure
+from concurrent-upload**, and the earlier counter is structurally blind to it.
+If the cost tracks `firstTouchModels` rather than placement count, the fix is a
+warm-up pass, not a cheaper cull.
+
+The three outcomes and what each means:
+
+- **cull holds it** → our own code, 6,695 placements re-culled from scratch every
+  frame. Fix is PLAN_08 D3 (per-tile ownership) plus a spatial index.
+- **instanceUpload holds it** → `glBufferData` orphaning per model per frame.
+  Fix is persistent-mapped or double-buffered instance storage.
+- **drawSubmit holds it, with firstTouch high** → shared-context first-bind
+  stall. Fix is warming new models before they are drawn.
+
+### 5A.9 The split lands: it is our own cull (2026-07-25, fourth run)
+
+```
+[hitch] hitch-32-49-2: 86 ms frame at [32,49] -> doodad-cull-cpu
+[hitch]   update 29.6 (resid 29.5)  render 56.3  present 0.1  hud 0.3  imguiFlush 0.1
+[hitch]   render split: world 56.1 = terrain 0.0 + wmo 0.1 + doodad 56.0 + foliage 0.0
+[hitch]   doodad 56.0 = cull 55.8 + instanceUpload 0.0 + drawSubmit 0.1 + unmeasured 0.0
+                        (41 model(s) uploaded, 0 first-touch)
+[hitch]   GPU total 0.8   uploads 0 in flight, 0 completed
+[hitch]   GC: pause 2.8 ms of 86 ms  gen0 2 gen1 0 gen2 0  allocated 37.42 MB
+```
+
+Every driver hypothesis is now dead, by measurement rather than by argument:
+
+| Hypothesis | Killed by |
+|---|---|
+| H1 GPU exceeds vblank | `gpu.total 0.8` |
+| H2 concurrent shared-context upload | `uploads 0 in flight, 0 completed` |
+| First-touch of shared-context objects | `0 first-touch` |
+| Driver flush at the last GL call | `imguiFlush 0.1` |
+| GC pause | `2.8 ms of 86` |
+| `glBufferData` orphaning | `instanceUpload 0.0` |
+| Draw submission | `drawSubmit 0.1` |
+
+**`cull 55.8` — our own arithmetic, in `DoodadRenderer.RenderInstanced`.** No GL
+call is involved in that bracket at all.
+
+### 5A.10 Why 55.8 ms is not a plausible amount of arithmetic
+
+The loop is a distance-squared test and, for survivors, `Camera.BoxInFrustum`.
+`BoxInFrustum` was read and is clean: no allocation, no per-call plane
+extraction, early-out at the first corner that is inside. `Render` is called once
+per frame (`Program.cs:1454`). So this is ~6,163 iterations of cheap vector maths
+costing **~9 µs each**, which is two orders of magnitude off what that code
+should cost.
+
+**Leading suspect, stated as a hypothesis:** `Instance` is a **`sealed class`**
+(`DoodadRenderer.cs:183`), so `List<Instance>` is a list of *pointers*. The cull
+dereferences 6,163 scattered heap objects, and on a crossing frame every one of
+them was allocated moments earlier by `PopulateDoodads` in the same frame's
+`resid 29.5` — part of that 37.42 MB. If that is right, the cost is memory, not
+maths, and no cheaper test will touch it.
+
+**It is a hypothesis and it gets measured before anything is rewritten.** The GC
+theory in §5A.7 was just as tidy and just as wrong.
+
+### 5A.11 The measurement that decides it
+
+`cullModels`, `cullInstances` and `cullNsPerInstance` are now recorded, and
+`doodadCullMs` / `doodadCullInstances` / `doodadCullNsPerInstance` are in **every
+ring row**, not just the tripped frame. That placement is the whole design:
+
+> The frames on either side of a crossing cull the **same instances**. Identical
+> `doodadCullInstances` with a 100× difference in `doodadCullMs` cannot be
+> explained by workload. Only by the state of the memory those instances are in.
+
+Reading the rate:
+
+- **~50–100 ns/instance** — normal arithmetic. The cull is fine, look elsewhere.
+- **~1000+ ns/instance** — memory, not maths. Confirms the pointer-chase.
+  The fix is contiguous bounds (a flat `struct` array of `WorldMin`/`WorldMax`
+  written by `PopulateDoodads` as it builds), **not** a cheaper cull test and not
+  a smaller radius.
+- **High ns/model with low ns/instance** — the opposite: per-model overhead over
+  a `_byModel` with far more entries than expected.
+
+If the flat-bounds change goes in, PLAN_08 §7 step 3 applies without amendment:
+`cull` is the named field, and a change that does not move it did nothing.
+
+### 5A.12 The rate confirms it: memory, not maths (2026-07-25, fifth run)
+
+Two crossings, same code, same route:
+
+| | run 4 | run 5 |
+|---|---|---|
+| `cull` | 55.8 ms | 4.8 ms |
+| instances | 6,163 | 6,364 |
+| **models** | **512** | **153** |
+| **ns/instance** | **9,053** | **751** |
+| frame | 86 ms | 32 ms |
+
+Nico, on run 5: *"that FELT and seemed a smaller hitch."*
+
+**Both are far above the 50–100 ns the arithmetic costs** — 7.5× and 90×. And
+the rate tracks **model count**, not instance count: 3.3× the models gave 12× the
+per-instance cost, on a *smaller* placement set. Instance count barely moved.
+
+That is locality, and nothing else fits it. `Instance` is a `sealed class`
+(`DoodadRenderer.cs:183`), so `List<Instance>` is a list of pointers. More models
+means more separate lists means a more scattered walk over objects
+`PopulateDoodads` allocated moments earlier in the same frame. The cull was never
+doing too much work; it was waiting on memory.
+
+### 5A.13 The fix, and how to back it out
+
+`_cullBounds`: a `Dictionary<Model, List<CullBounds>>` parallel to `_byModel`,
+where `CullBounds` is a 24-byte readonly struct of `Min`/`Max`. The cull walks
+that span; the `Instance` object is dereferenced **only for survivors**.
+
+Measured selectivity: `placed 6694, drawn 195, dist-culled 5616,
+frustum-culled 883`. **97% of placements are rejected**, so 97% of the pointer
+chases disappear. 6,364 × 24 B ≈ 153 KB, contiguous, L2-resident.
+
+Maintained at exactly four sites — the two `list.Add` paths, `ResetPlacements`
+and `Dispose`. If a future placement path forgets, `RebuildCullBounds` repairs it
+and prints `[doodad-cull] cull bounds drifted…` **once**. Self-healing because a
+short bounds list would silently draw the wrong props, and a wrong picture is
+worse than a slow one — but reported, because a silent repair is how a bug
+survives a session.
+
+**A/B without a rebuild:** HUD → `Flat cull bounds (SoA)`. Unticking runs the
+original array-of-pointers loop, kept verbatim. Cross `[32,48] → [32,49]` both
+ways and diff `cull` and `ns/instance` in the `[hitch] doodad` line.
+
+Per PLAN_08 §7 step 3: **`cull` is the named field. If it does not move, this
+change did nothing and comes out.** Expect ~50–100 ns/instance if the diagnosis
+is right.
+
+### 5A.14 Still open after this
+
+Even at 32 ms the frame was over budget, and `cull` was only 4.8 of it.
+**`resid 25.5` is now the largest remaining term** — `[stream] terrain 14.1 +
+doodads 6.8` inside it. Some of that is the vsync artefact of §5A.1 and has to be
+re-measured uncapped before anyone optimizes it. That is the next thread, and
+PLAN_08 D2 (budgeted resumable adoption) is still unbuilt and still the
+structural answer to it.
+
+### 5A.15 The cull is fixed — and the pacing bug is now alone (2026-07-25, sixth run)
+
+Cull, at the same crossing, across runs:
+
+| | run 4 | run 5 | run 6 |
+|---|---|---|---|
+| `cull` | 55.8 ms | 4.8 ms | **0.3 ms** |
+| instances | 6,163 | 6,364 | 6,623 |
+| models | 512 | 153 | 169 |
+| **ns/instance** | 9,053 | 751 | **41–46** |
+
+**41–46 ns/instance is inside the normal-arithmetic band** for the first time.
+The doodad pass at a crossing is now `doodad 0.4 = cull 0.3 + instanceUpload 0.0
++ drawSubmit 0.0`, against 60.3 ms two runs earlier.
+
+> **Caveat on attribution, recorded honestly.** Nico reports the second reading
+> was taken with the SoA toggle OFF, and it read 41 ns — the same as ON. Model
+> count also fell from 512 to 169 between runs 4 and 6, and the rate tracked
+> model count before. So the run-6 numbers do **not** by themselves prove the
+> flat-bounds change caused the improvement. The clean test is both toggle
+> states at the same spot, back to back, in one session. Until that is done,
+> treat the cull as fixed but the *reason* as unconfirmed, and see PLAN_08 §7
+> step 3 — if the toggle makes no difference at equal model count, back the
+> change out.
+
+### 5A.16 The pacing bug, fully isolated at last
+
+```
+[hitch] hitch-32-48-4: 34 ms frame at [32,48] -> swap-and-events
+[hitch]   update 0.0 (all zero)  render 0.4  present 17.6  hud 15.8  imguiFlush 0.1
+[hitch]   GPU (delayed): total 0.8    uploads: 0 in flight, 0 completed
+[hitch]   GC: pause 0.0 ms  gen0 0 gen1 0 gen2 0  allocated 0.00 MB this frame
+```
+
+**Zero work, zero allocation, zero collections, zero uploads, idle GPU — and two
+vblanks.** This is the micro-stutter with every other variable eliminated, and it
+is the same shape §5A.3 first saw: the ~16 ms wait wandering between `present`
+and `hud`, neither of which is a GL call of ours.
+
+Nothing about our workload can explain it. The remaining question is not "what
+were we doing" but **"were we running at all"**, and it has exactly two answers
+with opposite fixes.
+
+`QueryThreadCycleTime` is now sampled per frame, reported as
+`threadMCyclesPerMs` in the record and in every ring row:
+
+```
+[hitch]   thread: 1.4M cycles over 34 ms = 0.04 M/ms  (~4-5 = running and spinning; <1 = blocked or descheduled)
+```
+
+- **~4–5 M/ms on a long frame** — the thread WAS running, burning CPU. A driver
+  busy-wait spin, which Intel's GL driver is known to do. Fix is to stop it
+  spinning: swap interval, adaptive vsync (`EXT_swap_control_tear`), or our own
+  frame pacing.
+- **<1 M/ms on a long frame** — the thread was NOT running. Blocked in a kernel
+  wait or descheduled. Entirely different fix.
+
+No calibration is needed: the comparison is against the frame's own wall clock
+and the two answers are an order of magnitude apart. `GetThreadTimes` cannot
+answer this — its resolution is the ~15.6 ms scheduler tick, the same size as the
+thing being measured.
+
+The ring carries it per frame on purpose: the 16.7 ms frames *around* a hitch are
+also waiting on vsync. If they show the same rate, the hitch is a longer wait of
+the same kind rather than a different event — and that distinction decides
+whether this is one bug or two.
+
+### 5A.17 Vsync off is not the fix
+
+It tears, and it burns an integrated GPU rendering frames nobody sees. The
+finding is not "ship it off" — it is that **the cost is a driver throttle
+interacting with our upload pattern, not our workload**. Do not close this by
+changing the default.
 
 ---
 
