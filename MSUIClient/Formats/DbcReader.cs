@@ -868,6 +868,14 @@ public sealed class LightIntBandTable
 
     public const int BandsPerParams = 18;
 
+    // Named indices for the bands other systems consume, so a call site reads
+    // as intent instead of as a magic number. LightFloatBandTable already does
+    // this for fog; these four are PLAN_12's (SYSTEM_WATER.md section 5).
+    public const int OceanCloseBand = 13;
+    public const int OceanFarBand   = 14;
+    public const int RiverCloseBand = 15;
+    public const int RiverFarBand   = 16;
+
     // Colour channel order is the one thing here the schema pages do not agree
     // on, and it cannot be settled by reading. It IS settled by looking: the sky
     // top at noon must be strongly BLUE. If it comes out red-dominant this flag
@@ -1036,6 +1044,119 @@ public sealed class LightFloatBandTable
 
         Console.WriteLine($"[dbc] LightFloatBand: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
             $"{dbc.RecordSize} bytes; {withData} band(s) with keys");
+        return table;
+    }
+}
+
+// ============================================================================
+// MAPS — Map.dbc (PLAN_13_INSTANCES.md section 1.1).
+//
+// 44 rows in 1.12, 42 fields, 168-byte records. This is the list of every
+// world the client can be standing in, and the Directory column is what turns
+// a map id into a path: World\Maps\{Directory}\{Directory}.wdt and every ADT
+// under it.
+//
+// RESOLUTION ORDER MATTERS. Map.dbc ships in patch.MPQ, patch-2.MPQ and
+// dbc.MPQ, and patch.MPQ wins. MpqMount's load order already gets this right,
+// and reading the dbc.MPQ copy instead would be the kind of bug that looks
+// like bad data.
+//
+// Column indices verified against the file, not trusted to a wiki: ids 33
+// Shadowfang, 36 Deadmines, 43 Wailing Caverns, 90 Gnomeregan and 189 Scarlet
+// Monastery all land on the right names with this layout.
+// ============================================================================
+
+/// <summary>What kind of world a map is, from Map.dbc's instanceType column.</summary>
+public enum MapInstanceType
+{
+    World = 0,
+    Dungeon = 1,
+    Raid = 2,
+    Battleground = 3,
+}
+
+/// <summary>One Map.dbc row.</summary>
+public sealed class MapRow
+{
+    public int Id { get; init; }
+
+    /// <summary>
+    /// The on-disk directory name — "Azeroth", "DeadminesInstance". This is
+    /// what AdtCache takes as its map name, and it is NOT the display name.
+    /// </summary>
+    public string Directory { get; init; } = "";
+
+    /// <summary>The enUS display name — "Eastern Kingdoms", "Deadmines".</summary>
+    public string Name { get; init; } = "";
+
+    public MapInstanceType InstanceType { get; init; }
+
+    public bool IsInstance => InstanceType != MapInstanceType.World;
+
+    public override string ToString() => $"{Id} {Name} ({Directory})";
+}
+
+public sealed class MapTable
+{
+    public const string MpqPath = @"DBFilesClient\Map.dbc";
+
+    // Column layout of the 1.12 file. Fields 5..12 are the other locales and
+    // field 13 is the locale mask; nothing here needs them.
+    private const int FieldId = 0;
+    private const int FieldDirectory = 1;
+    private const int FieldInstanceType = 2;
+    private const int FieldNameEnUs = 4;
+
+    private readonly Dictionary<int, MapRow> _byId = [];
+    private readonly List<MapRow> _all = [];
+
+    /// <summary>Every row, in file order (which is ascending id in 1.12).</summary>
+    public IReadOnlyList<MapRow> All => _all;
+    public int Count => _all.Count;
+
+    public MapRow? Get(int id) => _byId.TryGetValue(id, out var r) ? r : null;
+
+    public MapRow? ByDirectory(string directory)
+    {
+        foreach (var r in _all)
+            if (string.Equals(r.Directory, directory, StringComparison.OrdinalIgnoreCase))
+                return r;
+        return null;
+    }
+
+    public static MapTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount <= FieldNameEnUs)
+        {
+            Console.WriteLine($"[dbc] Map: {dbc.FieldCount} field(s), expected more than " +
+                              $"{FieldNameEnUs}. NOT LOADED.");
+            return null;
+        }
+
+        var table = new MapTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            string dir = dbc.GetString(r, FieldDirectory);
+            if (string.IsNullOrWhiteSpace(dir)) continue;
+
+            uint type = dbc.GetUInt(r, FieldInstanceType);
+            var row = new MapRow
+            {
+                Id = dbc.GetInt(r, FieldId),
+                Directory = dir,
+                Name = dbc.GetString(r, FieldNameEnUs),
+                InstanceType = type <= 3 ? (MapInstanceType)type : MapInstanceType.World,
+            };
+
+            table._all.Add(row);
+            table._byId[row.Id] = row;
+        }
+
+        Console.WriteLine($"[dbc] Map: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
+            $"{dbc.RecordSize} bytes; {table._all.Count} map(s) with a directory");
         return table;
     }
 }

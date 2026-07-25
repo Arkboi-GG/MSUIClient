@@ -24,9 +24,23 @@ GameData/
 *.wdt
 *.dbc
 
+# Extracted client UI art. `Interface/` at the repo root is a loose dump of
+# interface.MPQ's Interface\ tree - 52 MB of Blizzard's files, the same class
+# of content as GameData and ignored for the same reason. Nothing needs the
+# loose copy: WowSkin reads the .blp files straight out of the archive at
+# runtime, and tools/mpqpeek reads them offline.
+Interface/
+
 # Per-machine paths. client-config.json.example is committed instead, so
 # a fresh clone has a template without carrying anyone's local layout.
 client-config.json
+
+# Per-user preferences written by the settings modal (Escape). Taste, not
+# wiring: it holds view distance, clutter density, water look and any named
+# presets. Ignored for the same reason client-config.json is - it is one
+# person's machine. The built-in quality levels live in code (GameSettings
+# .ApplyQuality), so a fresh clone is never short of a sane starting point.
+settings.json
 
 # Archives produced by setup-vmaps.ps1
 *.tar.gz
@@ -70,3 +84,5 @@ Desktop.ini
 scratch/
 # Scene dumps (dev tool output; regenerated on demand)
 dumps/
+__pycache__/
+*.pyc

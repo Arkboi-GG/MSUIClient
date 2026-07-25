@@ -189,10 +189,19 @@ one changes, both must.
   we fell into once and backed out of. Do not wire MOLT up expecting it to fix
   anything.
 - **MFOG (per-interior fog) is not implemented.** Offered, not accepted. It is
-  the most likely next real gain for interiors.
-- **Portal culling is not implemented.** MOPV/MOPT/MOPR are parsed and sitting
-  there unused. This is a performance and correctness feature (seeing through
-  walls into unlit rooms), not a lighting one.
+  the most likely next real gain for interiors. **Its blocker is now gone
+  (2026-07-25):** MFOG needs to know which group the camera is in, and PLAN_10
+  D1 built exactly that readout — `WmoRenderer.CameraGroup`, shown in the
+  Portals panel (`Program.Portals.cs`). Note also that exterior fog is no longer
+  invented; `LightIntBand` band 7 is the authored *outdoor* fog colour
+  (SYSTEM_EXTERIOR_LIGHTING.md §2.2), so an interior fog pass now has a
+  data-driven neighbour to blend against rather than a hand-tuned one.
+- **Portal culling is not implemented.** MOPV/MOPT/MOPR are parsed, and
+  PLAN_10 D1's *instrument* is built (camera group, portal quad draw,
+  `DumpPortalGraph`) — but **no traversal culls anything yet** and the 120-yard
+  interior rule still runs. This is a performance and correctness feature
+  (seeing through walls into unlit rooms), not a lighting one.
+  **PLAN_10_WMO_PORTALS.md** is the live plan.
 
 ---
 

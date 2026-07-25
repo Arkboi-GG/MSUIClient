@@ -107,6 +107,82 @@ public sealed class WorldAtmosphere
 
     private bool Authored => UseAuthoredData && HasAuthored;
 
+    // ── Authored water colours (PLAN_12) ────────────────────────────────────
+    //
+    // LightIntBand 13-16 are ocean close/far and river close/far; LightParams
+    // carries the matching shallow/deep alphas. Both were resolved, blended and
+    // printed by the light probe from 2026-07-25 and consumed by nothing, while
+    // water.frag held six invented numbers for exactly the same quantities.
+    //
+    // They ride SetAuthored's gate deliberately (PLAN_12 H1): one switch decides
+    // whether the client believes the data, and water must not be able to
+    // disagree with the sky about it.
+
+    private Vector3 _authoredOceanClose, _authoredOceanFar;
+    private Vector3 _authoredRiverClose, _authoredRiverFar;
+    // Seeded with water.frag's own textured-path values (uShoreFade 0.85,
+    // uOpacity 1.0) so that a rejected alpha pair renders like today rather
+    // than like alpha zero.
+    private float _authoredOceanAlphaShallow = 0.85f, _authoredOceanAlphaDeep = 1f;
+    private float _authoredRiverAlphaShallow = 0.85f, _authoredRiverAlphaDeep = 1f;
+    private bool _hasAuthoredWater;
+
+    /// <summary>True once resolved water colours have been handed over.</summary>
+    public bool HasAuthoredWater => _hasAuthoredWater;
+
+    /// <summary>
+    /// The single question LiquidRenderer asks: should it use the data? False
+    /// leaves water.frag on the constants it shipped with, byte for byte.
+    /// </summary>
+    public bool AuthoredWaterReady => Authored && _hasAuthoredWater;
+
+    public Vector3 OceanCloseColor => _authoredOceanClose;
+    public Vector3 OceanFarColor => _authoredOceanFar;
+    public Vector3 RiverCloseColor => _authoredRiverClose;
+    public Vector3 RiverFarColor => _authoredRiverFar;
+    public float OceanShallowAlpha => _authoredOceanAlphaShallow;
+    public float OceanDeepAlpha => _authoredOceanAlphaDeep;
+    public float RiverShallowAlpha => _authoredRiverAlphaShallow;
+    public float RiverDeepAlpha => _authoredRiverAlphaDeep;
+
+    /// <summary>
+    /// Hand over the resolved water colours. Colours are taken as given - an
+    /// unauthored band resolves to black and black IS a legal water colour, so
+    /// there is nothing honest to guard against.
+    ///
+    /// The ALPHAS are guarded, because they are not: a deep alpha of zero would
+    /// make every lake in the world invisible, and an unauthored LightParams row
+    /// reads as zero rather than as absent. A deep alpha at or below 0.01 is
+    /// therefore treated as "not authored" and the whole alpha pair is rejected,
+    /// leaving the shader's own constants. Same shape as SetAuthored's fog-end
+    /// guard and for the same reason (PLAN_09 D7): data may change the look, it
+    /// may not delete the world.
+    /// </summary>
+    public void SetAuthoredWater(
+        Vector3 oceanClose, Vector3 oceanFar, Vector3 riverClose, Vector3 riverFar,
+        float oceanShallowAlpha, float oceanDeepAlpha,
+        float riverShallowAlpha, float riverDeepAlpha)
+    {
+        _authoredOceanClose = oceanClose;
+        _authoredOceanFar = oceanFar;
+        _authoredRiverClose = riverClose;
+        _authoredRiverFar = riverFar;
+
+        if (oceanDeepAlpha > 0.01f)
+        {
+            _authoredOceanAlphaDeep = Math.Clamp(oceanDeepAlpha, 0.05f, 1f);
+            _authoredOceanAlphaShallow = Math.Clamp(oceanShallowAlpha, 0.02f, 1f);
+        }
+
+        if (riverDeepAlpha > 0.01f)
+        {
+            _authoredRiverAlphaDeep = Math.Clamp(riverDeepAlpha, 0.05f, 1f);
+            _authoredRiverAlphaShallow = Math.Clamp(riverShallowAlpha, 0.02f, 1f);
+        }
+
+        _hasAuthoredWater = true;
+    }
+
     // The five sky bands the SkyRenderer draws. Fall back to the flat
     // fog-coloured sky when there is no data, which is exactly the old
     // behaviour - so a missing DBC degrades to what shipped before, not to

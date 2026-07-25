@@ -68,6 +68,19 @@ uniform float uAmbientAmt;   // ambient contribution
 uniform float uSunAmt;       // sun contribution
 uniform float uSkySheen;     // grazing sky tint
 
+// Authored water colours, LightIntBand 13-16 + LightParams alphas (PLAN_12).
+// uAuthoredWater is the whole switch: at 0 every mix() below picks the left
+// operand and this file computes exactly what it computed before PLAN_12.
+uniform float uAuthoredWater;
+uniform vec3  uOceanClose;
+uniform vec3  uOceanFar;
+uniform vec3  uRiverClose;
+uniform vec3  uRiverFar;
+uniform float uOceanAlphaShallow;
+uniform float uOceanAlphaDeep;
+uniform float uRiverAlphaShallow;
+uniform float uRiverAlphaDeep;
+
 out vec4 FragColor;
 
 // Sample an animated liquid array. uFrameBlend controls the cross-fade: 0 swaps
@@ -182,15 +195,34 @@ void main()
                 return;
             }
 
+            // Depth ramp first. The authored tint is a close->far blend, so it
+            // has to exist before the tint is applied. Moving these two lines up
+            // changes nothing for the old path: both depend only on vDepth and
+            // the two uniforms, and neither reads col.
+            float tdepthFade = 1.0 - exp(-max(vDepth, 0.0) * uDepthRate);
+            float tshore     = smoothstep(0.0, uShoreWidth, vDepth);
+
+            // PLAN_12. The authored colour MODULATES the texture, it does not
+            // replace it - SYSTEM_WATER.md Draft 2's finding is that 1.12 water
+            // IS the scrolling texture, and the light data supplies the colour
+            // that texture is tinted by. If this makes the shimmer go flat it
+            // has been implemented as a replacement and is wrong.
+            vec3  aBody  = mix(tocean ? uOceanClose : uRiverClose,
+                               tocean ? uOceanFar   : uRiverFar,  tdepthFade);
+            float aAlpha = mix(tocean ? uOceanAlphaShallow : uRiverAlphaShallow,
+                               tocean ? uOceanAlphaDeep    : uRiverAlphaDeep, tdepthFade);
+
+            // uTexTint stays a MULTIPLIER on top of the data (PLAN_12 H6), so a
+            // by-eye session still works and Adopt live still captures it.
+            vec3 tint = mix(uTexTint, uTexTint * aBody, uAuthoredWater);
+
             // Texture look adjust (all default to no-op): tint, brightness, contrast.
-            col *= uTexTint * uTexBright;
+            col *= tint * uTexBright;
             col = (col - 0.5) * uTexContrast + 0.5;
             col = max(col, vec3(0.0));
 
             // FLAT uniform lighting - the texture carries every ripple, so we do
             // NOT relight with the wave normal (that painted the drifting bands).
-            float tdepthFade = 1.0 - exp(-max(vDepth, 0.0) * uDepthRate);
-            float tshore     = smoothstep(0.0, uShoreWidth, vDepth);
             float tsun       = max(uSunDirection.z, 0.0);
             vec3  tamb       = uAmbientColor * uAmbientIntensity;
 
@@ -205,7 +237,11 @@ void main()
 
             col = mix(col, uFogColor, tfog);
 
-            float alpha = clamp(uOpacity * mix(uShoreFade, 1.0, tshore), 0.0, 1.0);
+            // uOpacity likewise stays a multiplier over the authored depth ramp.
+            // The shoreline softening is a separate, finer effect (uShoreWidth is
+            // about a yard) and survives either way.
+            float tbodyA = mix(uOpacity, uOpacity * aAlpha, uAuthoredWater);
+            float alpha  = clamp(tbodyA * mix(uShoreFade, 1.0, tshore), 0.0, 1.0);
             FragColor = vec4(col, alpha);
             return;
         }
@@ -271,6 +307,14 @@ void main()
     float baseAlpha;
     if (ocean) { shallowCol=vec3(0.06,0.20,0.28); deepCol=vec3(0.02,0.09,0.16); baseAlpha=0.90; }
     else       { shallowCol=vec3(0.10,0.26,0.26); deepCol=vec3(0.05,0.15,0.16); baseAlpha=0.85; }
+
+    // PLAN_12: the six numbers above are precisely what LightIntBand 13-16 and
+    // the LightParams alphas author. This path only runs when a liquid texture
+    // failed to load, but the constants were invented here too and the data is
+    // already in the uniforms.
+    shallowCol = mix(shallowCol, ocean ? uOceanClose : uRiverClose, uAuthoredWater);
+    deepCol    = mix(deepCol,    ocean ? uOceanFar   : uRiverFar,   uAuthoredWater);
+    baseAlpha  = mix(baseAlpha,  ocean ? uOceanAlphaDeep : uRiverAlphaDeep, uAuthoredWater);
 
     vec3 body = mix(shallowCol, deepCol, depthFade);
 

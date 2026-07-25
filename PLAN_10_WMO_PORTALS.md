@@ -44,13 +44,43 @@ the same chunks in the same files. There is an external right answer.
 
 ## 3. Target
 
-The renderer decides which interior groups to draw by **traversing doorways from
-the group the camera is in**, not by distance. Concretely:
+The renderer decides which interior groups to draw by **traversing doorways**,
+not by distance. The rule, stated once and precisely:
 
-- Standing in a room, only that room and what is visible *through its doorways*
-  is submitted.
-- The 120-yard rule is deleted, not tuned.
-- No interior group is ever drawn because it happened to be near.
+> **A group is drawn if there is an unbroken chain of doorways from the camera to
+> it, and every doorway in that chain is on screen.**
+
+That is the same test the eye performs, and it runs **in both directions**.
+
+**Standing inside** — only the current room and what its doorways expose is
+submitted. Rooms behind solid walls are not.
+
+**Standing outside, looking in** — a room visible through an open door **draws**,
+at any distance. Step sideways so the doorframe hides it and it stops. This case
+matters as much as the first one and is the reason the target is not "interiors
+only when indoors".
+
+**Standing outside, not looking at any door** — the WMO's exterior groups draw
+exactly as they do today. **Never nothing.**
+
+Concretely, approaching Northshire Abbey with the door in view:
+
+| | today | with portals |
+|---|---|---|
+| at 150 yd | interior invisible — culled by distance despite the open door | the room behind the door draws |
+| crossing 120 yd | **the whole interior pops in at once** | nothing happens; there is no threshold |
+| at 20 yd, facing a wall | rooms behind that wall are submitted and rasterised | they are not |
+
+So on approach the player sees **strictly more correct, not less**. The only
+thing that stops drawing is geometry that was never visible. The 120-yard rule is
+deleted, not tuned, and no interior group is ever drawn because it happened to be
+near.
+
+> **This section was rewritten 2026-07-25** after Nico read the first version and
+> asked, reasonably: *"on approach, before I get to a doorway, it would be very
+> weird if stuff just was empty until we were inside."* The original wording
+> described only the indoor case and never said what happens outdoors, which
+> reads exactly like that. It does not do that; the wording was the defect.
 
 ## 4. Hypotheses / key design decisions
 
@@ -75,11 +105,26 @@ backwards silently inverts the world.** Each MOPR entry is
 portals facing away from the camera using it. **If interiors vanish when they
 should appear and appear when they should vanish, this is the bit.**
 
-**D4 — Outdoor groups are not part of the graph, and must not be dragged into
-it.** Exterior groups are drawn by the existing frustum + LOD path (§3.34's shell
-swap). Portal traversal governs **interiors only**. Handbook §3.35 warns
-explicitly that outdoor portal traversal is experimental and trades popout for
-it — so this plan does not attempt it.
+**D4 — No traversal BETWEEN WMOs. Exterior groups WITHIN a WMO are part of the
+graph and seed it.** These are two different statements and collapsing them is
+what made §3 read wrong.
+
+What is out of scope: portal traversal across the open world, WMO to WMO.
+Handbook §3.35 warns it is experimental and trades popout for it.
+
+What is very much in scope: a WMO's own exterior groups. **Stormwind's streets
+ARE groups.** Standing in the Trade District the camera is in an exterior group,
+and the portals out of it lead into the buildings — traversal seeds there and
+works normally.
+
+And when the camera is in **no group at all** — a field in Elwynn, outside every
+WMO — the seed is that WMO's exterior groups plus any interior reachable through
+a portal that is in frustum. This is the case §3's table describes, and it is why
+"camera outdoors" must never mean "traverse nothing".
+
+Exterior groups keep their existing frustum + LOD path (§3.34's shell swap)
+regardless; traversal only ever *adds* interior visibility, it never removes an
+exterior group.
 
 **D5 — The ALWAYS_DRAW distance shells are untouchable.** §3.34/§3.35: Stormwind's
 approach silhouettes are `ALWAYS_DRAW (0x10000)` groups that are *also* flagged
@@ -89,9 +134,13 @@ loses its skyline. **This is the single most likely way to break something that
 currently works.**
 
 **D6 — Degrade to the current behaviour, never to nothing.** A WMO with no
-portals (`NPortals == 0`), a camera in no group, or a traversal that reaches
-nothing must fall back to the existing heuristic. Half of Azeroth's WMOs are
-single-group huts with no portals at all; they must keep working.
+portals (`NPortals == 0`), or a traversal that reaches nothing, falls back to the
+existing heuristic. Half of Azeroth's WMOs are single-group huts with no portals
+at all; they must keep working.
+
+This is the floor under §3: **the worst failure this change can produce is what
+ships today**, not an empty building. If that guarantee is ever hard to maintain,
+that is the signal to stop and take §9's one-hop fallback instead.
 
 **D7 — Keep it a toggle for its whole life.** Every visibility change in this
 project has shipped with an A/B (`§3.34`'s shell swap, foliage's placement
@@ -166,6 +215,11 @@ Written before the change, per the template.
    outside. The skyline silhouettes must be unchanged (D5). Record `[wmo-lod]`
    before and after and diff them.
 7. Walk a long hall. Nothing vanishes at 120 yards any more.
+8. **The approach case, from §3's table.** Stand 150 yd from Northshire Abbey
+   with the door in view: the room behind it draws. Walk in slowly — nothing
+   pops at any distance. Step sideways until the doorframe covers the opening:
+   the room stops drawing. This is the test Nico's question earned, and a build
+   that fails it is wrong even if every other step passes.
 
 ## 8. Definition of done
 

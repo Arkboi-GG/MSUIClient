@@ -123,6 +123,32 @@ public sealed class LiquidRenderer : IDisposable
     public float SkySheen     { get; set; } = 0.14f;   // grazing-angle sky tint
 
     // Geometry waves (0 = flat still plane, the vanilla look)
+    // ── Authored colours (PLAN_12) ──────────────────────────────────────────
+    //
+    // Defaults are water.frag's own invented constants, so these are inert until
+    // WorldAtmosphere hands over something better. UseAuthoredColors AND
+    // HasAuthoredColors must both be true before the shader looks at them, and
+    // when either is false the shader arithmetic reduces to exactly what shipped.
+
+    /// <summary>The A/B for PLAN_12. Off is bit-identical to the pre-PLAN_12 look.</summary>
+    public bool UseAuthoredColors { get; set; } = true;
+
+    /// <summary>Set from WorldAtmosphere.AuthoredWaterReady - see ApplyAtmosphere.</summary>
+    public bool HasAuthoredColors { get; set; }
+
+    public Vector3 OceanClose { get; set; } = new(0.06f, 0.20f, 0.28f);
+    public Vector3 OceanFar   { get; set; } = new(0.02f, 0.09f, 0.16f);
+    public Vector3 RiverClose { get; set; } = new(0.10f, 0.26f, 0.26f);
+    public Vector3 RiverFar   { get; set; } = new(0.05f, 0.15f, 0.16f);
+
+    public float OceanAlphaShallow { get; set; } = 0.85f;
+    public float OceanAlphaDeep    { get; set; } = 1.00f;
+    public float RiverAlphaShallow { get; set; } = 0.85f;
+    public float RiverAlphaDeep    { get; set; } = 1.00f;
+
+    /// <summary>True when the shader is actually being told to use the data.</summary>
+    public bool AuthoredColorsActive => UseAuthoredColors && HasAuthoredColors;
+
     public float WaveAmplitude{ get; set; } = 0f;      // 0 = flat; >0 re-enables Gerstner displacement
     public float WaveSpeed    { get; set; } = 1.0f;    // wave scroll-speed multiplier
 
@@ -456,6 +482,18 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Set("uAmbientAmt", AmbientAmount);
         _shader.Set("uSunAmt", SunAmount);
         _shader.Set("uSkySheen", SkySheen);
+        // PLAN_12. One float decides it: 0 leaves every authored term mixed out
+        // and the shader reduces to the constants it shipped with.
+        _shader.Set("uAuthoredWater", AuthoredColorsActive ? 1f : 0f);
+        _shader.Set("uOceanClose", OceanClose);
+        _shader.Set("uOceanFar", OceanFar);
+        _shader.Set("uRiverClose", RiverClose);
+        _shader.Set("uRiverFar", RiverFar);
+        _shader.Set("uOceanAlphaShallow", OceanAlphaShallow);
+        _shader.Set("uOceanAlphaDeep", OceanAlphaDeep);
+        _shader.Set("uRiverAlphaShallow", RiverAlphaShallow);
+        _shader.Set("uRiverAlphaDeep", RiverAlphaDeep);
+
         _shader.Set("uWaveAmp", WaveAmplitude);
         _shader.Set("uWaveSpeed", WaveSpeed);
         BindLiquidTexture("uTexWater", _texWater, 0, "uFramesWater", _framesWater);

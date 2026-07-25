@@ -703,6 +703,66 @@ finding is not "ship it off" — it is that **the cost is a driver throttle
 interacting with our upload pattern, not our workload**. Do not close this by
 changing the default.
 
+### 5A.18 The number is read: **the thread is NOT running** (2026-07-25, seventh run)
+
+§5A.16 posed the last two candidates and the handbook's §7.1 item 8 says to read
+`threadMCyclesPerMs` before writing any streaming code. **It has now been read,
+three times in one run, and it answers decisively.**
+
+Captured from a normal startup-and-stream sequence at `[32,48]`, vsync on:
+
+| record | frame | `present` | GPU | thread | **M/ms** |
+|---|---|---|---|---|---|
+| `hitch-32-48-2` | 31 ms | 27.1 | 8.4 | 13.4 M | **0.43** |
+| `hitch-32-48-3` | 33 ms | 30.2 | 8.3 | 11.2 M | **0.34** |
+| `hitch-32-48-4` | 34 ms | 31.4 | 14.3 | 10.2 M | **0.30** |
+
+All three are **well under 1 M/ms**. Against §5A.16's two branches:
+
+- ~~**~4–5 M/ms — driver busy-wait spin.**~~ **Refuted.** The Intel-driver-spin
+  theory, and with it the "stop it spinning" fix — adaptive vsync,
+  `EXT_swap_control_tear`, our own pacing to pre-empt a spin — is not the answer.
+- **<1 M/ms — the thread was not running.** Blocked in a kernel wait or
+  descheduled. `Program.Hitch.cs`'s own note on this branch: *"A driver vsync
+  wait looks like this."*
+
+**The control that makes the reading trustworthy.** The same run's foliage
+rescatter frame — 2,616 ms, genuinely burning CPU — reads **2.62 M/ms**, an order
+of magnitude above the pacing frames. The counter is not stuck near zero; it
+distinguishes.
+
+### 5A.19 What that changes, and what it does not
+
+**Changed.** The question is no longer "why is the thread spinning" but **"why
+did we miss the vblank deadline we were then made to wait for"**. A blocked
+thread on a 31–34 ms frame at 60 Hz is two refresh intervals: the deadline was
+missed and a whole extra refresh was paid for. That is the signature of a
+double-buffered FIFO swap chain, where overshooting 16.67 ms by any margin costs
+a full frame and can lock to 30 fps until something breaks the cycle.
+
+**New, and different from every earlier record.** In these three the GPU is
+**8.3–14.3 ms**, not the 0.6–0.9 ms of §5A.2 and §5A.16. 14.3 ms is most of a
+16.67 ms budget on its own. So unlike §5A.16 — zero work, idle GPU, still two
+vblanks — these frames have a plausible reason to miss. **Whether that makes them
+the same bug or a second one is exactly the distinction §5A.16 says the per-frame
+ring exists to settle.**
+
+**Not changed, and stated plainly so nobody over-reads this.** These were caught
+during a startup/streaming sequence, **not** the controlled `[32,48] → [32,49]`
+walk §5A specifies, and not at a saved vantage. So:
+
+- the *verdict on the branch* — blocked, not spinning — is solid, because it does
+  not depend on the workload;
+- the *cause of the miss* is not settled by them, because the workload was busy.
+
+**Still owed:** the controlled crossing with `threadMCyclesPerMs` read on a frame
+whose GPU is back under 1 ms. If a sub-1-ms-GPU frame **also** reads <1 M/ms,
+then §5A.16's zero-work stall is the same blocked-wait and the swap chain is the
+suspect. If it reads 4–5, there are two bugs and this section only killed one.
+
+**Do not** close this by measuring harder in the same place. The next reading is
+cheap and specific, and §5A.17 still stands: vsync off is a diagnostic, not a fix.
+
 ---
 
 ## 6. Not done — the honest ceiling

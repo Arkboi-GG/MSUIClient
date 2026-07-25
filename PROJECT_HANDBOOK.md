@@ -2,7 +2,16 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 23 — 2026-07-25
+Version: Draft 24 — 2026-07-25
+Supersedes: Draft 23 (same day; a documentation-sync pass. Draft 23 was written
+before the exterior-lighting session and before the streaming investigation ran
+to ground, so its stop point still said "GPU timings have not been read yet" and
+"run the two A/B tests" — both are done, and six further measured runs are
+recorded in SYSTEM_STREAMING.md §5A. Draft 24 also registers the fifth system
+doc, SYSTEM_EXTERIOR_LIGHTING.md, adds PLAN_09 and PLAN_10 to the §1.2 map,
+corrects the git-state block, and brings §1, §4, §5.2 and §5.3 back in line with
+the files actually on disk. **No new engineering claims are made here — every
+number in this draft is carried over from a system doc or a plan.**)
 Supersedes: Draft 22 (previous day; the streaming/performance session — the hitch
 recorder was built (PLAN_07), the tile-crossing freeze was measured at 187 ms and
 eliminated, and SYSTEM_STREAMING.md was extracted under the §1.2 rule. The felt
@@ -49,7 +58,7 @@ Nico runs a private VMaNGOS server (WoW 1.12.1 vanilla) plus **MangosSuperUI**, 
 
 **Core design stance.** The client reads WoW's own files directly (MPQ → BLP/ADT/M2/WMO/DBC) and will speak the genuine 1.12.1 network protocol. No asset server, no bake step, no format conversion, no coordinate conversion. The server is unmodified.
 
-### Current state (2026-07-24)
+### Current state (2026-07-25)
 
 Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with no server and **no vmaps**. On top of Draft 3's world, there is now a **character**:
 
@@ -58,7 +67,7 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
 - `ItemDisplayInfo.dbc` and `CharSections.dbc` are read straight out of the MPQs
 - Third-person camera with the vanilla left/right mouse split
 
-**Four systems have landed since Draft 3's world, and each owns its own doc
+**Six systems have landed since Draft 3's world, and each owns its own doc
 (§1.2). Do not read the summary here and act on it — open the doc.**
 
 - **Water/liquid** — open-world MCLQ lakes, rivers, ocean, slime and magma,
@@ -82,6 +91,28 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
   layer map and the no-doodad mask rather than by alpha sampling.
   **SYSTEM_FOLIAGE.md**. Its one test: *grass must not creep onto the Northshire
   cobblestone.*
+- **Streaming, residency and frame performance** — the moving ring, tile
+  crossings, the worker pools, the GPU upload context, the hitch recorder, and
+  the full frame-time breakdown. **SYSTEM_STREAMING.md** (Draft 1). The
+  tile-crossing freeze is dead (187 ms → not measurable) and the doodad cull is
+  down from 55.8 ms to 0.3 ms, but a **pacing bug survives every elimination**
+  — read §5A before believing any older number, including §3.27's.
+- **Exterior lighting (sky, fog, ambient, sun)** — `Light.dbc` →
+  `LightParams` → `LightIntBand`/`LightFloatBand` resolved by a light probe and
+  applied; a five-band screen-space sky pass replaces the flat clear.
+  **SYSTEM_EXTERIOR_LIGHTING.md** (Draft 1). Its headline: *the by-eye ambient
+  retune of 2026-07-23 rejected `(0.42, 0.50, 0.60)` and the authored value at
+  noon is `(0.408, 0.510, 0.604)`* — §3.28 and §3.35's constants are superseded
+  by data.
+
+- **Settings UI / the Escape menu** — `GameMenuFrame` and a Video Options
+  frame drawn from Blizzard's own `Interface\` art at Blizzard's own layout
+  numbers, backed by `settings.json` with presets and live apply. **This is
+  the first thing that works with `DevTools: false`**, and the preference
+  half of the HUD moved into it — the Water and Foliage tuning windows are
+  gone. **SYSTEM_SETTINGS_UI.md** (Draft 1). Its headline: *the real 1.12 UI
+  ships as FrameXML inside interface.MPQ, so a UI question is a read, not a
+  guess* — two rounds of plausible recall lost to one extraction.
 
 **The foundation/DevTools layer is no longer a proposal — it is code.**
 `FOUNDATION_PLAN.md` and `PLAN_01`–`PLAN_06` specified a shared-language layer;
@@ -102,12 +133,12 @@ large WMO no longer dominates Northshire startup. Runtime WMO/M2 reads, parses
 and BLP decodes now run on workers; collision BVHs are built off-thread and
 swapped in only when ready. Terrain, WMO and M2 GPU transfers now run through a
 dedicated shared OpenGL context rather than blocking the render context.
-Nico's current qualitative verdict is **much better FPS and preferable tiny
-stutters instead of the former absolute freezes**, but still not as smooth or
-as fast to populate as the real 1.12 client. Demand-streamed M2s, worker-side
-outer-ADT parsing and upload-context fences removed the worst stalls. Remaining
-jitter must be correlated with the existing CPU/GPU profiler and stream logs
-rather than guessed.
+Demand-streamed M2s, worker-side outer-ADT parsing and upload-context fences
+removed the worst stalls, and the doodad cull that dominated crossing frames is
+fixed. **The remaining jitter is a frame-pacing bug, not a workload problem** —
+GPU, uploads, first-touch, driver flush, GC and every one of our own phases have
+each been eliminated by measurement. **SYSTEM_STREAMING.md §5A is the only
+current account; do not re-derive it and do not trust §3.27's older numbers.**
 
 **Player renderer v1 is complete:** the character, appearance, animation, gear,
 attachments and render-state handling all render correctly. The earlier texture
@@ -135,58 +166,92 @@ has multiple samples.
 
 ### Stop point — read this first in the next session
 
-> ## MACHINE SWITCH, 2026-07-25
+> ## STOP POINT, 2026-07-25 (end of the exterior-lighting session)
 >
-> **First thing: `git log --oneline -3` and `git status`.** The streaming work is
-> committed. If the tree looks empty of it, you are on the wrong machine or the
-> wrong branch.
+> **First thing: `git log --oneline -3` and `git status`.** Head should be
+> `5699c44 cont` on `main`, eight commits, with `PLAN_10_WMO_PORTALS.md` the
+> only modified file. If the tree looks empty of the lighting work, you are on
+> the wrong machine or the wrong branch.
 >
-> **What was achieved, measured:** the tile-crossing freeze is gone —
-> 187 ms → not measurable, three consecutive crossings under a 40 ms threshold.
-> Four defects fixed: blocking ADT reads on the preload ring (61.2 → 0.0 ms),
-> main-thread collision expansion (92.9 → 0.3 ms), a full world re-derivation
-> running four times a second forever, and collision BVH churn during streaming.
+> ### Two threads are open. Do not braid them.
 >
-> **What was NOT achieved, and do not let a summary tell you otherwise:** Nico
-> still feels micro-stutter. Every surviving hitch is
-> `present-swap-driver`, 27–38 ms, with `update 0.1` and `render 3.7` — our code
-> doing nothing. **All four fixes above were real and none of them was the thing
-> he can feel.**
+> **Thread A — exterior lighting. Shipped, numerically verified, photographically
+> unverified.** `Light.dbc` and its three band tables are read, resolved by
+> position and time, and applied; the sky is a real five-band gradient. Every
+> value in SYSTEM_EXTERIOR_LIGHTING.md was read out of Nico's own MPQs by the
+> probe. **What is still ours and still a guess: the three sky band *heights*
+> and the sun *direction*** (§4 of that doc). Those are the most likely reason
+> the sky still reads slightly off, and **they cannot be settled without a
+> `refs/` capture** — `refs/` still holds only a README. Not done at all:
+> skyboxes, clouds, weather, and the ocean/river colours (bands 13–16) that
+> `SYSTEM_WATER.md` currently invents.
 >
-> **The blind spot, stated plainly so it is not repeated:** that entire session
-> measured only the CPU. `GpuFrameProfiler` existed the whole time and was never
-> read. GPU timings are wired into the hitch record now but **have not been read
-> yet** — the very next run should produce a `[hitch] GPU (delayed)` line, and it
-> decides between the two hypotheses in SYSTEM_STREAMING.md §5.2.
+> **Thread B — the streaming pacing bug. Isolated, not fixed.** Six measured
+> runs are in SYSTEM_STREAMING.md §5A and every hypothesis died by measurement:
+> GPU frame (0.8 ms), concurrent shared-context uploads (0 in flight),
+> first-touch (0), driver flush at the last GL call (`imguiFlush 0.1`), GC
+> (2.8 ms of 86), `glBufferData` orphaning (0.0), draw submission (0.1). The
+> doodad cull *was* real — 55.8 ms → 0.3 ms, 41–46 ns/instance — but §5A.15
+> records honestly that **the flat-bounds change is not yet proven to be the
+> cause**; model count fell at the same time. The clean A/B is both toggle
+> states at the same spot, back to back.
 >
-> **Before writing any code, run the two one-click A/B tests** in
-> SYSTEM_STREAMING.md §5.3 (VSync off; GPU instancing off). 27/30/37 ms are 2–3×
-> the 16.7 ms vblank interval, which is the signature of missing vblank — not of
-> a driver misbehaving, whatever the phase happens to be named.
+> What survives is a 34 ms frame with **zero work, zero allocation, zero
+> collections, zero uploads and an idle GPU** (§5A.16). The question is no longer
+> "what were we doing" but **"were we running at all"**, and
+> `threadMCyclesPerMs` is already instrumented to answer it: **~4–5 M/ms means a
+> driver busy-wait; <1 M/ms means descheduled.** Those have opposite fixes.
+> **Read that one number before writing any streaming code.** And note §5A.17:
+> vsync off is a diagnostic, not the fix.
+>
+> ### One defect found by this doc sync, not yet fixed
+>
+> **Authored exterior lighting is gated behind `_config.DevTools`.**
+> `UpdateLightProbe` early-returns when DevTools is off, and it holds the only
+> call to `WorldAtmosphere.SetAuthored` — so a non-DevTools run silently reverts
+> to the invented constants Thread A just replaced. It is a FOUNDATION_PLAN §12
+> seam violation and it is small: move the resolve into core and leave the probe
+> observing. §4 has the detail.
+>
+> ### Two traps this session set
+>
+> - **`[stream-budget]` numbers and the 65 ms `model-finalize` hitch are
+>   artefacts of the vsync throttle** (§5A.1). A timer around a GL call on a
+>   throttled driver measures the throttle. Re-measure uncapped before
+>   optimizing anything they point at — including §3.27's `terrain 13.2`, which
+>   is 1.9 uncapped.
+> - **PLAN_10 D1 is built and traversal is not.** `Program.Portals.cs`, the
+>   camera-group readout and `DumpPortalGraph` exist; nothing culls by portals
+>   yet and the 120-yard interior rule is still in place (§3.26).
 >
 > Read **SYSTEM_STREAMING.md** before touching streaming, residency or
-> performance. It has every number.
+> performance, and **SYSTEM_EXTERIOR_LIGHTING.md** before touching anything
+> atmospheric. They have every number.
 
-**Git state as of Draft 22.** Branch `main`, 6 commits, head `1292c91 proper
-water`. Water is therefore **committed and shipped**, not pending a first
-compile — the Draft 21 note saying otherwise is resolved and has been removed.
-Uncommitted in the working tree, and to be preserved:
+**Git state as of Draft 24, verified 2026-07-25.** Branch `main`, **8 commits**:
 
 ```
- M Formats/AdtTerrainReader.cs   Formats/DbcReader.cs   Formats/WmoReader.cs
- M Player/CharacterController.cs Program.cs
- M Shaders/wmo.frag  Shaders/wmo.vert
- M World/Doodads/DoodadRenderer.cs  World/FoliageRenderer.cs
- M World/TerrainRenderer.cs  World/Wmo/WmoRenderer.cs
- M PROJECT_HANDBOOK.md
- ?? Shaders/doodad.frag  Shaders/doodad.vert
- ?? SYSTEM_DOODAD_LIGHTING.md  SYSTEM_FOLIAGE.md  SYSTEM_WMO_INTERIOR_LIGHTING.md
- ?? _to_delete/*
+5699c44 cont                                              <- HEAD
+721ceac Lighting work continued (ext)
+d7ce1fb interior lighting + render optimization work
+dcb27f0 Streaming: kill the tile-crossing freeze; build the hitch recorder
+b0837a9 WMO interior lighting, doodad lighting, foliage + handbook Draft 22
+1292c91 proper water
+af00fc4 water, more render work, etc
+ac0b071 intiail engine work
 ```
 
-That is the interior-lighting, doodad-lighting and foliage work plus their three
-docs. **Do not reset, checkout, clean, or replace broad files when starting
-cold.** A commit of this set is the obvious first housekeeping move.
+The Draft 22/23 note listing a large uncommitted diff is **resolved** — that
+work is in `b0837a9` and later. The working tree now carries exactly one
+modification:
+
+```
+ M PLAN_10_WMO_PORTALS.md
+```
+
+which is the §3/D4 rewrite recorded in that plan. **Do not reset, checkout,
+clean, or replace broad files when starting cold.** `_to_delete/` is untracked
+and must never be swept into a `git add -A`.
 
 - Last build: **success, 0 warnings, 0 errors**.
 - Iris Xe testing is substantially improved: Trade District is roughly 54–60
@@ -205,8 +270,16 @@ cold.** A commit of this set is the obvious first housekeeping move.
 - Stormwind's Cathedral and entrance silhouette groups are now classified from
   MOGN/MOGI and swapped at 196 yards. Runtime-check the default-on `Swap
   distance-only city shells` control: visible on approach, absent inside.
-- **Draft 20 visibility/lighting session (§3.35).** Lighting is warmer and
-  dimmer (§3.28 constants retuned). The impostor classification now catches
+- **Exterior lighting is data-driven as of 2026-07-25.** The invented
+  `DayFog`/`NightAmbient`/`NoonSun` constants and the invented `FogStart 350 /
+  FogEnd 777` are replaced by `Light.dbc` values resolved per position and time,
+  and a five-band screen-space sky pass draws before the world. The Draft 20
+  by-eye warm retune below is **superseded** — see SYSTEM_EXTERIOR_LIGHTING.md
+  §5.3 for why it was wrong and why it was not careless. Still ours and still a
+  guess: the three sky band heights and the sun direction.
+- **Draft 20 visibility/lighting session (§3.35), lighting part superseded.**
+  The warmer/dimmer §3.28 retune is now overridden by the authored data (see the
+  bullet above); the visibility work below stands. The impostor classification now catches
   ALWAYS_DRAW *interior*-flagged low-poly groups — the real Stormwind impostors
   (`Cathedral of Light` v=96, `Old Town`, `Taventrance16`) — which the old
   `!indoor` guards discarded, so the cathedral now shows on approach. Shell
@@ -215,7 +288,8 @@ cold.** A commit of this set is the obvious first housekeeping move.
   interior cull and shell near-guard are HUD sliders too. A collision-BVH
   occlusion cull (`OcclusionCulling`, off by default, 8-corner test) hides
   exterior groups fully behind geometry. MOPV/MOPT/MOPR + group portal refs are
-  parsed but no traversal consumes them yet.
+  parsed, and PLAN_10 D1's instrument (camera-group readout, portal quad draw,
+  `DumpPortalGraph`) is built — **but no traversal consumes them yet.**
 - **Known ceiling, do not re-litigate blindly.** The SW entrance keep
   (`stormwind.wmo [46] 'thief01'`, exterior, 17.5k verts) stays visible across an
   *open* courtyard because nothing blocks it — occlusion only culls when every
@@ -227,7 +301,11 @@ cold.** A commit of this set is the obvious first housekeeping move.
 - **In-game tools exist now — use them before theorising (§5.3).** Middle-click
   does triangle-accurate group picking (`[pick]` + HUD); the whole impostor/
   occlusion panel is live sliders; `[wmo-vis]`/`[doodad-cull]` are HUD readouts
-  (console traces off by default).
+  (console traces off by default). Since Draft 23 there are three more:
+  the **hitch recorder** (`Program.Hitch.cs`, ring buffer + auto-vantage +
+  per-phase/GPU/GC/thread-cycle breakdown), the **light probe** (`data` vs
+  `applied` deltas, all 18 colour bands, convention scoring) and the **portal
+  panel** (`Program.Portals.cs`, camera group + portal quad draw).
 - **`_to_delete/` is still on disk and is still growing** — it now holds
   `program_current.txt`, `wmorenderer_current.txt`, `_auth_Program.cs`,
   `_auth_FoliageRenderer.cs` and three PNGs. Device tools cannot delete; Nico
@@ -258,6 +336,8 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 ├── .gitattributes                   CRLF for C#/shaders/config, LF for markdown
 ├── SYSTEM_*.md                      one system, one doc — see §1.2
 ├── FOUNDATION_PLAN.md / PLAN_0x_*.md / PLAN_TEMPLATE.md
+├── tools/mpqpeek/                   read the client's own MPQs (Python, stdlib, read-only)
+│                                    find/cat/stat/png/cells - SYSTEM_SETTINGS_UI.md §7
 ├── vantages.json                    saved reproducible viewpoints (§5.3)
 ├── dumps/                           scene dumps, one per vantage capture
 ├── refs/                            real 1.12 client captures, same vantage names
@@ -269,6 +349,12 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     ├── Program.cs                   entry point + partial GameLoop + ImGui HUD
     ├── Program.DevTools.cs          partial GameLoop: vantages, dump, overrides,
     │                                TuningState, the water tuning window
+    ├── Program.Hitch.cs             partial GameLoop: the hitch recorder's HUD,
+    │                                ring readout and record writing (PLAN_07)
+    ├── Program.LightProbe.cs        partial GameLoop: "what the DBCs say" panel
+    │                                <- SYSTEM_EXTERIOR_LIGHTING.md §6
+    ├── Program.Portals.cs           partial GameLoop: camera-group readout and
+    │                                portal quad draw (PLAN_10 D1) — TOOLING ONLY
     ├── ClientConfig.cs
     │
     ├── Engine/
@@ -277,6 +363,8 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     │   ├── AssetWorkerPool.cs       bounded 2–8 worker CPU preparation pool
     │   ├── GpuUploadWorker.cs       hidden shared GL context + upload queue
     │   ├── GpuFrameProfiler.cs      non-blocking GL_TIME_ELAPSED rings (§3.30)
+    │   ├── HitchRecorder.cs         frame-spike ring + record writer + console
+    │   │                            tee <- SYSTEM_STREAMING.md §1
     │   ├── Vantage.cs               capture/restore a named viewpoint (§5.3)
     │   ├── VisibilityOverrides.cs   hand-authored show/hide DB, consulted first
     │   ├── Shader.cs                compile/link/uniform cache + SetVec4Array
@@ -288,12 +376,17 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     ├── World/
     │   ├── AdtCache.cs
     │   ├── TerrainTile.cs / TerrainTextures.cs / TerrainRenderer.cs
-    │   ├── WorldAtmosphere.cs       the one evaluated sun/ambient/fog/sky (§3.28)
+    │   ├── WorldAtmosphere.cs       the one evaluated sun/ambient/fog/sky —
+    │   │                            evaluate + apply <- SYSTEM_EXTERIOR_LIGHTING.md
+    │   ├── ExteriorLighting.cs      Light.dbc chain resolve, zone blending, the
+    │   │                            dbc->world convention <- same doc §1-§3
+    │   ├── SkyRenderer.cs           five-band screen-space sky <- same doc §4.1
     │   ├── LiquidRenderer.cs        <- SYSTEM_WATER.md
     │   ├── FoliageRenderer.cs       <- SYSTEM_FOLIAGE.md
     │   ├── Wmo/WmoRenderer.cs       <- SYSTEM_WMO_INTERIOR_LIGHTING.md
     │   ├── Doodads/DoodadRenderer.cs <- SYSTEM_DOODAD_LIGHTING.md
-    │   ├── Collision/{CollisionWorld,CollisionDebugRenderer,VmapCollisionLoader}.cs
+    │   ├── Collision/{CollisionWorld,CollisionBatch,CollisionDebugRenderer,
+    │   │              VmapCollisionLoader}.cs
     │   └── Units/                   <- ALL CHARACTER WORK LIVES HERE
     │       ├── M2Animator.cs        clip baking, bone matrices, the two strafe yaws
     │       ├── CharacterRenderer.cs skinned draw, geosets, texture slots, appearance
@@ -308,6 +401,7 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     │   ├── WmoReader.cs / M2Reader.cs / M2TextureParser.cs
     │   ├── DbcReader.cs             WDBC + ItemDisplayInfo + CharSections
     │   │                            + GroundEffectTexture/GroundEffectDoodad
+    │   │                            + Light/LightParams/LightIntBand/LightFloatBand
     │   └── VmapFormat.cs
     │
     └── Shaders/                     ALL PURE ASCII, NO BOM — see §8.5
@@ -315,6 +409,7 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
         ├── wmo.vert / wmo.frag          WmoRenderer ONLY — see §5.2
         ├── doodad.vert / doodad.frag    forked from wmo.*; DO NOT re-merge
         ├── grass.vert / grass.frag      foliage: wind sway, distance fade
+        ├── sky.vert / sky.frag          fullscreen triangle, 5-band gradient
         ├── water.vert / water.frag
         ├── underwater.vert / underwater.frag
         ├── character.vert / character.frag   skinned
@@ -326,6 +421,12 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 Draft 21 and the sharing that used to exist has been deliberately broken; §5.2
 says why, and SYSTEM_DOODAD_LIGHTING.md §5 says why the doodad fork in
 particular must stay a fork.
+
+**Three `Program.*.cs` partials are developer tooling, not core** —
+`Program.DevTools.cs`, `Program.Hitch.cs`, `Program.LightProbe.cs` and
+`Program.Portals.cs` all sit behind the FOUNDATION_PLAN §12 seam: *core decides,
+the dev layer observes.* Nothing in them culls, lights or streams anything. If a
+change to one of these files alters what is on screen, the seam has been broken.
 
 ### 1.1 Where each file's responsibility ends
 
@@ -340,7 +441,10 @@ particular must stay a fork.
 | `GpuUploadWorker.cs` | Dedicated shared GL context, ordered upload queue, completion barrier | Visibility, residency policy |
 | `Camera.cs` | View/projection, frustum, the Yaw/OrbitYaw split | Input handling, movement rules |
 | `CharacterController.cs` | Movement, gravity, ground resolution | What the world is made of |
-| `WorldAtmosphere.cs` | The single evaluated sun/ambient/fog/sky every renderer reads | Per-system lighting rules (MOCV, MODD) |
+| `WorldAtmosphere.cs` | The single evaluated sun/ambient/fog/sky every renderer reads, and applying it | Resolving *which* light applies, per-system lighting rules (MOCV, MODD) |
+| `ExteriorLighting.cs` | Resolving the `Light.dbc` chain for a position + time, zone falloff blending, the dbc→world convention | Drawing anything; deciding how a renderer uses the values |
+| `SkyRenderer.cs` | The screen-space sky gradient pass | Fog, ambient, sun — those are `WorldAtmosphere`'s |
+| `HitchRecorder.cs` | The frame ring, the spike trigger, writing a record | Deciding what a phase *means* — phase brackets live at their call sites |
 | `LiquidRenderer.cs` | Open-world liquid surfacing and the underwater pass | Terrain heights, MCLQ parsing |
 | `FoliageRenderer.cs` | Ground-effect scatter, curation, grass draw | Terrain heights, DBC table layout |
 | `M2Animator.cs` | Clip baking, bone matrices, leg and torso yaw | GL, textures, which clip to play |
@@ -386,15 +490,21 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
 | `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
 | `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation | **Written** |
-| `PLAN_07_HITCH_RECORDER.md` | The automatic frame-spike recorder: ring buffer, console tee, auto-vantage | **Built and proven** — caught the freeze on the first walk |
-| `PLAN_08_INCREMENTAL_RESIDENCY.md` | Per-tile ownership, budgeted adoption, and WoWee's five mechanisms quoted from source | D1 done; D2/D3 outstanding; D4/D5 dropped with reasons |
-| `FOUNDATION_PLAN.md` + `PLAN_0x_*.md` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. `FOUNDATION_PLAN.md` still says "Status: proposed. Nothing here is code yet" — **that line is stale**; fix it when you next touch the file |
+| `SYSTEM_EXTERIOR_LIGHTING.md` | Sky, fog, ambient, sun from `Light.dbc` + `LightParams` + the two band tables; the light probe; the screen-space sky pass | **Written (Draft 1)** — 2026-07-25. **Supersedes §3.28's and §3.35's invented constants.** Numerically verified, photographically unverified |
+| `SYSTEM_STREAMING.md` | Moving residency ring, tile crossings, worker pools, GPU upload context, the hitch recorder, and the frame-time breakdown | **Written (Draft 1)** — extracted 2026-07-25, then extended through §5A with six measured runs. Carries the fixed defects AND the still-open pacing bug. **Read §5A before trusting any older number, including §3.27's** |
+| `SYSTEM_SETTINGS_UI.md` | The Escape menu: the Game Menu and Video Options frames, the `settings.json` model with presets and composites, and the Blizzard-art skin layer (`WowSkin`/`UiFont`) all three are drawn with | **Written (Draft 1)** — 2026-07-25. Carries the 1.12 frame geometry read out of the FrameXML that ships in `interface.MPQ`, and the five ImGui traps this cost. **§1.1's `.blp` rule and §2.3's clip-rect rule are the two that will bite the next UI** |
+| `PLAN_07_HITCH_RECORDER.md` | The automatic frame-spike recorder: ring buffer, console tee, auto-vantage | **Built and proven** — caught the freeze on the first walk. Superset now in `SYSTEM_STREAMING.md` §1 |
+| `PLAN_08_INCREMENTAL_RESIDENCY.md` | Per-tile ownership, budgeted adoption, and WoWee's five mechanisms quoted from source | D1 done; **D2/D3 outstanding and still the structural answer to `resid`** (SYSTEM_STREAMING §5A.14); D4/D5 dropped with reasons |
+| `PLAN_09_EXTERIOR_LIGHTING.md` | The reasoning, test protocol and verified 1.12 schemas behind exterior lighting | **Built.** The system doc is the current truth; this plan keeps the schemas (§11) and the argument |
+| `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **D1 (the instrument) is BUILT** — `Program.Portals.cs`, camera-group readout, `DumpPortalGraph`. **Traversal is NOT built**; the 120-yard rule still stands (§3.26). §3/D4 were rewritten 2026-07-25 |
+| `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stage 1 (the readers) is BUILT** — `Formats/WdtReader.cs`, `MapTable`, `Program.Instances.cs`. Stages 2–3 (the world swap) are specified, not built. §1's headline: **Deadmines is a TERRAIN map, not one WMO** |
+| `FOUNDATION_PLAN.md` + `PLAN_01`–`PLAN_06` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. Its own §11 index is correct |
+| `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
-| `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion, portals (**lighting is already split out — see the two lighting docs above**) | Planned extraction from §3.24–3.35 |
+| `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion (**lighting is split out into the two lighting docs; portals will be their own doc**) | Planned extraction from §3.24–3.35 |
 | `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
 | `SYSTEM_COLLISION.md` | Client-geometry collision, BVH, sweep/slide/step-up | Planned extraction |
-| `SYSTEM_STREAMING.md` | Moving residency ring, tile crossings, worker pools, GPU upload context, the hitch recorder, and the frame-time breakdown | **Written (Draft 1)** — extracted 2026-07-25. Carries the measured numbers AND the unsolved micro-stutter (§5). Read it before any performance work |
-| `SYSTEM_ATMOSPHERE.md` | Time-of-day light, fog, sky, visibility coupling | Planned extraction from §3.28 |
+| ~~`SYSTEM_ATMOSPHERE.md`~~ | Time-of-day light, fog, sky, visibility coupling | **Cancelled — delivered as `SYSTEM_EXTERIOR_LIGHTING.md`.** Do not create a second atmosphere doc; §3.28's *visibility/draw-count* half still belongs in this handbook |
 
 "Planned extraction" means the content still lives in this handbook's §3 for now;
 pull it into its own doc the next time that system is worked on, and replace the
@@ -844,9 +954,19 @@ interior/exterior classification was actually based on a string-table offset.
 Large city WMOs exposed this dramatically: distant Cathedral interior groups
 appeared above Stormwind's Trade District.
 
+> **Status correction, 2026-07-25.** MOPV/MOPT/MOPR **are parsed now**, and
+> PLAN_10 D1's instrument is built (`Program.Portals.cs`: which group the camera
+> is in, portal quads drawn through walls, `DumpPortalGraph` cross-checking
+> MOHD's `NPortals`). **What has not changed is the culling** — the 120-yard
+> rule below is still what runs. The wording "until those root chunks are
+> parsed" is therefore obsolete; the correct statement is *"until traversal
+> consumes them."* **PLAN_10_WMO_PORTALS.md is the live plan**, and its §10
+> lists exactly what in this section dies when traversal ships.
+
 Full indoor WMO visibility is portal traversal through MOPV/MOPT/MOPR. Until
-those root chunks are parsed, the renderer uses per-group frustum culling and
-draws ordinary interior groups only within 120 yards of their transformed AABB.
+traversal consumes those root chunks, the renderer uses per-group frustum culling
+and draws ordinary interior groups only within 120 yards of their transformed
+AABB.
 Stormwind's approach silhouettes are a separate authored distance-LOD system
 handled by §3.34, not portal cells. Portal traversal should eventually replace
 the ordinary-interior heuristic; it should not replace the near/far shell swap.
@@ -857,7 +977,10 @@ shell and is now handled by MOGN/MOGI classification plus the 196-yard swap in
 §3.34. The 120-yard AABB rule remains only a temporary approximation for other
 interior groups.
 
-The eventual portal implementation is:
+The eventual portal implementation is sketched below. **PLAN_10 supersedes this
+sketch where the two differ** — in particular PLAN_10 D4 corrects step 2: a
+WMO's *own* exterior groups (Stormwind's streets are groups) do seed traversal,
+and only WMO-to-WMO traversal across the open world is out of scope.
 
 1. Parse root portal vertices (`MOPV`), portal descriptors (`MOPT`) and
    portal-to-group relations (`MOPR`), preserving relation side/orientation.
@@ -952,6 +1075,14 @@ most contained), then the placement rebuild and collision snapshot. Re-measure
 with the recorder after each — same route, same threshold, diff the numbers.
 
 ### 3.28 Atmosphere, visibility and truthful draw counts
+
+> **The lighting half of this section is superseded by
+> SYSTEM_EXTERIOR_LIGHTING.md (2026-07-25).** The colours and fog distances
+> described here as tuned constants are now read from `Light.dbc` and its band
+> tables; `WorldAtmosphere` still *evaluates and applies* them, but it no longer
+> *invents* them, and `SkyRenderer` now draws a real gradient where this section
+> assumes a flat clear. **The visibility / draw-count half below is still
+> current and stays here** — it is cross-cutting, not atmospheric.
 
 `WorldAtmosphere` is the single live source for sun direction/colour/intensity,
 ambient colour/intensity, fog colour/start/end and sky clear colour. Every world
@@ -1117,13 +1248,22 @@ This session chased "the city looks wrong from inside/on approach" and settled
 several facts. They are all runtime-observed against Nico's build; none is
 re-derivable from the file format alone.
 
-**Warm/dim lighting.** `WorldAtmosphere`'s day constants were cool and blown
-out. The daytime ambient was blue-biased `(0.42, 0.50, 0.60)` — it coloured every
-shadow cold — and noon sun+ambient stacked to a ~1.42 multiplier on flat ground,
-clipping cobblestone to white. Now: ambient warm `(0.50, 0.46, 0.38)`, noon sun
-golden `(1.00, 0.90, 0.72)`, sun intensity 1.15→0.90, ambient 0.85→~0.64. Ambient
-HUE is the biggest lever for "the world reads warm". The HUD `Sun strength` /
-`Ambient strength` sliders still scale these.
+**Warm/dim lighting — SUPERSEDED 2026-07-25, kept as a lesson.**
+`WorldAtmosphere`'s day constants were cool and blown out. The daytime ambient
+was blue-biased `(0.42, 0.50, 0.60)` — it coloured every shadow cold — and noon
+sun+ambient stacked to a ~1.42 multiplier on flat ground, clipping cobblestone to
+white. That pass replaced it with warm `(0.50, 0.46, 0.38)`, noon sun golden
+`(1.00, 0.90, 0.72)`, sun intensity 1.15→0.90, ambient 0.85→~0.64.
+
+> **The authored value at noon is `(0.408, 0.510, 0.604)`** — very nearly the
+> exact colour this pass rejected as wrong. Exterior lighting now reads
+> `Light.dbc`, so **none of the constants in this paragraph is live any more**
+> and re-tuning them is not a fix for anything. SYSTEM_EXTERIOR_LIGHTING.md §5.3
+> records why the pass was reasonable and still wrong: it had no yardstick. The
+> HUD `Sun strength` / `Ambient strength` sliders survive as multipliers over the
+> data, and **1.0 means "use the data exactly"** — that is the correctness check,
+> not a taste setting. The clipping-to-white symptom was real; if it returns, it
+> is a *tone-mapping* problem, not a constants problem.
 
 **The real distance impostors are flagged INTERIOR.** This was the key find, and
 it came from the in-game group dump (`DumpLargeWmoGroups` → `[wmo-groups]`):
@@ -1216,6 +1356,16 @@ proved the render cull was not the gate.
   complaints were each closed by eye. SYSTEM_WATER.md §0
 - **Vantages, reason codes, scene dump and the override DB** run in game — a
   real dump and two saved vantages are on disk
+- **Exterior lighting, numerically.** The `LightIntBand`/`LightFloatBand` row
+  mapping is proved by arithmetic (`7668 = 426 × 18`, `2556 = 426 × 6`, exactly);
+  the dbc→world convention is proved by landing light 77 on Stormwind within
+  ~20 yards; and with `Use authored lighting` on at strength 1.0 the probe's
+  `data` vs `applied` deltas read 0.000. SYSTEM_EXTERIOR_LIGHTING.md §1–§2
+- **The tile-crossing freeze is dead:** 187 ms → not measurable, three
+  consecutive crossings under a 40 ms threshold. SYSTEM_STREAMING.md §3
+- **The doodad cull is fixed:** 55.8 ms → 0.3 ms at the same crossing,
+  41–46 ns/instance, inside the normal-arithmetic band. SYSTEM_STREAMING.md
+  §5A.15 — *but see the unverified list for the attribution caveat*
 
 ### Not yet verified — expect bugs here
 
@@ -1226,28 +1376,66 @@ proved the render cull was not the gate.
 - **Geoset rules for chest, pants, tabard and shoulders** are pattern-matched, not verified.
 - **`TorsoFollow` 0.66** is Nico's read by eye, not their constant.
 - `BlpDecoder` alpha scaling (§3.19) and MOPY F_DETAIL filter
-- **WMO portal visibility is missing.** The 120-yard ordinary-interior cull is
-  still approximate (§3.26), although the separate Cathedral distance-shell
-  defect now has the authored near/far behavior (§3.34).
+- **WMO portal visibility is missing.** The chunks are parsed and PLAN_10 D1's
+  instrument is built, but nothing traverses; the 120-yard ordinary-interior cull
+  is still what runs (§3.26). The separate Cathedral distance-shell defect does
+  have the authored near/far behavior (§3.34).
+- **Authored exterior lighting only applies while DevTools is ON — found during
+  the Draft 24 doc sync, 2026-07-25, and not yet fixed.** `UpdateLightProbe`
+  (`Program.LightProbe.cs`) opens with `if (!_config.DevTools ||
+  !_exteriorLight.Ready) return;`, and the *only* call to
+  `WorldAtmosphere.SetAuthored` is inside it. With DevTools off, `HasAuthored`
+  stays false and `Authored` gates every colour back to the invented constants,
+  silently. **This is a FOUNDATION_PLAN §12 seam violation** — core's lighting
+  now depends on the dev layer running. The resolve belongs in core
+  (`ExteriorLighting` + `WorldAtmosphere`), with the probe left observing it.
+  Two smaller stale notes in the same file: `Program.cs`'s comment above
+  `InitLightProbe` still says *"nothing applies it yet"*, and the panel is the
+  only thing that calls `DetectConvention`.
+- **The sky's three band heights and the sun's direction are ours, not the
+  data's.** `StopMiddle/StopBand1/StopBand2 = 0.45 / 0.18 / 0.06` and
+  `SunDirectionAt`'s six/twelve/eighteen clock are honest inventions —
+  `LightIntBand` gives five sky colours and no elevations, and `Light.dbc`
+  carries no sun position. SYSTEM_EXTERIOR_LIGHTING.md §4 names these as **the
+  single most likely reason the sky still reads off**, and they cannot be settled
+  without a `refs/` capture.
+- **The doodad cull fix is not proven to be the cause of its own improvement.**
+  Run 6 read 41 ns/instance with the SoA toggle *off*, and model count fell 512 →
+  169 between the runs. The clean test is both toggle states at the same spot,
+  back to back. Per PLAN_08 §7 step 3, if the toggle makes no difference at equal
+  model count, the change comes out. SYSTEM_STREAMING.md §5A.15
+- **The frame-pacing bug is isolated but unexplained.** A 34 ms frame with zero
+  work, zero allocation, zero collections, zero uploads and an idle GPU
+  (§5A.16). Every graphics-flavoured hypothesis is dead by measurement.
+  `threadMCyclesPerMs` is instrumented and **has not been read yet** — ~4–5 M/ms
+  means a driver busy-wait, <1 M/ms means descheduled, and the two have opposite
+  fixes.
 - **Stormwind shell swap needs final runtime confirmation.** Verify that the
   Cathedral/entrance silhouette is present on approach and absent inside with
   `Swap distance-only city shells` enabled.
 - **Streaming smoothness is only partially validated.** The shared-context build
-  is substantially better but remains visibly behind the real client. Capture
-  a post-refactor timing log before choosing the next optimization (§3.27).
+  is substantially better but remains visibly behind the real client. Read
+  SYSTEM_STREAMING.md §5A — **not** §3.27 — before choosing the next
+  optimization, and treat every `[stream-budget]` figure as an artefact until
+  re-measured with vsync off (§5A.1).
 - **Foliage has not been checked against a real-client capture.** The Northshire
   road test (SYSTEM_FOLIAGE.md §0) is the pass/fail, and the per-kind curation
   is explicitly a blunt stand-in for retail's hand curation — the reference
   screenshot under `refs/` has not been taken.
-- **The three new systems have no `refs/` captures at all.** Water, interior
-  lighting and doodad lighting are all emulation-core by FOUNDATION_PLAN §2, so
-  "done" means side-by-side with the real client, and so far all three were
-  signed off by eye alone. That is the largest single gap in the verification
-  story right now.
-- **The foundation's own loop is unexercised.** Vantages, dumps and reason codes
-  exist but only one dump has ever been captured. The layer is not proven until
-  a real defect gets diagnosed through it.
-- Networking: not written. WMO liquid (MLIQ): not written
+- **No system has a `refs/` capture. `refs/` holds only a README.** Water,
+  interior lighting, doodad lighting, foliage and exterior lighting are *all*
+  emulation-core by FOUNDATION_PLAN §2, so "done" means side-by-side with the
+  real client, and every one of them was signed off by eye or by number alone.
+  **This is the largest single gap in the verification story** and it has grown,
+  not shrunk, since Draft 22 — five systems now depend on a capture that does not
+  exist.
+- **The foundation's own loop is half-exercised.** Vantages, dumps and reason
+  codes exist and only one dump has ever been captured — but the *instrument*
+  half of the loop has now proved itself twice in anger: the hitch recorder
+  killed six hypotheses in six runs, and the light probe overturned a by-eye
+  tuning pass. What remains unexercised is the **`refs/` comparison half**.
+- Networking: not written. WMO liquid (MLIQ): not written. Skyboxes, clouds and
+  weather: parsed/resolved and applied nowhere (SYSTEM_EXTERIOR_LIGHTING.md §7)
 
 ---
 
@@ -1311,6 +1499,7 @@ read from the `LoadShaders` calls:
 | `WmoRenderer` | `wmo.vert` | `wmo.frag` |
 | `DoodadRenderer` | `doodad.vert` | `doodad.frag` |
 | `FoliageRenderer` | `grass.vert` | `grass.frag` |
+| `SkyRenderer` | `sky.vert` | `sky.frag` |
 | `LiquidRenderer` | `water.vert` + `underwater.vert` | `water.frag` + `underwater.frag` |
 | `CharacterRenderer` | `character.vert` | `character.frag` |
 | `AttachedItemRenderer` | `attached.vert` | `character.frag` |
@@ -1328,9 +1517,15 @@ on a table. **Do not re-merge any of these to reduce file count.**
 The one remaining share is deliberate: `attached.vert` pairs with
 `character.frag`, so a sword cannot light differently from the hand holding it.
 
+`sky.*` is the newest and is unlike the others: it takes no geometry at all. The
+vertex stage builds a fullscreen triangle from `gl_VertexID` and the fragment
+stage evaluates a five-band gradient against the view direction, so it is exact
+at any FOV with nothing to cull or get wrong at the poles
+(SYSTEM_EXTERIOR_LIGHTING.md §4.1).
+
 Each program is a **separate GL program object** — a uniform set on one does not
 apply to another. Forgetting `uAlphaCutoff` on the doodad program turned every
-tree into a black rectangle. With eight pairs instead of four, that failure mode
+tree into a black rectangle. With nine pairs instead of four, that failure mode
 is now twice as easy to hit: when a new uniform is added to one shader, grep for
 every renderer that needs the matching `Set` call.
 
@@ -1362,6 +1557,10 @@ Bones upload as **three vec4 rows per bone**, so skinning is three dot products 
 | **Doodads panel** | Baked interior light (MODD) + Interior brightness + "N with baked interior light" — SYSTEM_DOODAD_LIGHTING.md §8 |
 | **Foliage panel** | Coverage, the three 1.12 authenticity switches, per-kind curation, wind/fade, look — SYSTEM_FOLIAGE.md §4 |
 | **Water tuning window** | SYSTEM_WATER.md §4 |
+| **Light probe** — *"what the DBCs say"* | Which zone lights reach you and at what blend weight; all 18 colour bands with swatches; all 6 scalars; and a **`data` vs `applied` block with deltas that must all read 0.000** at strength 1.0. Plus a time pin, a raw key dump, `Score all conventions` and `Re-detect from here`. SYSTEM_EXTERIOR_LIGHTING.md §6 |
+| **Hitch recorder** | Automatic frame-spike capture: a ring of recent frames plus a written record with the per-phase split (`update`/`render`/`present`/`hud`/`imguiFlush`), the render split (terrain/wmo/doodad/foliage), the doodad split (cull/instanceUpload/drawSubmit + `firstTouchModels`), delayed GPU timings, GC pause and generation counts, upload counts, and `threadMCyclesPerMs`. Auto-saves a vantage at the spike. **`dominantPhase` names a bucket, not a cause** — SYSTEM_STREAMING.md §1 and §5A.3 |
+| **Portal panel** (PLAN_10) | Which group the camera is in (index, name, INT/ext, door count, volume, file), portal quads drawn depth-off so a doorway can be checked against its opening, and `DumpPortalGraph` — which cross-checks MOHD's `NPortals` against the parsed count. **Tooling only; it culls nothing** |
+| **Instances panel** (PLAN_13) | Every `Map.dbc` row with its kind (`global WMO` / `terrain`), tile count, col/row range, centre tile and world origin, plus the global-WMO path, MODF placement and bounds. `Dump to console` prints the whole table for diffing against PLAN_13 §1. **Read-only — it loads nothing and moves nobody** |
 
 **The paired-artifact rule is the working agreement now (FOUNDATION_PLAN §3.3):
 no visual bug report without its dump, and no dump without its vantage.** One
@@ -1436,23 +1635,34 @@ Written down because the same three moves have solved almost every hard bug in t
 **Housekeeping, before anything else**
 
 1. **Start safely.** Read the stop-point block in §0, inspect `git status` and
-   the existing diff, then build. Do not discard the uncommitted work.
-2. **Commit the lighting + foliage set.** Three systems and three docs are
-   sitting untracked. `_to_delete/` must not be swept in with them.
-3. **Fix `FOUNDATION_PLAN.md`'s status line** — it still reads "proposed.
-   Nothing here is code yet" and the layer shipped.
+   the existing diff, then build. The only uncommitted file should be
+   `PLAN_10_WMO_PORTALS.md`.
+2. ~~Commit the lighting + foliage set.~~ **Done** — `b0837a9` and later.
+3. ~~Fix `FOUNDATION_PLAN.md`'s status line.~~ **Done** in the Draft 24 doc sync.
+4. ~~**Fix the DevTools lighting gate.**~~ **Done, 2026-07-25.** The resolve is
+   split out as `UpdateExteriorLighting` in `Program.LightProbe.cs` and runs in
+   every build; only `_lightSample`, which feeds the panel and the console dump,
+   stays behind the flag. The call site's comment had asserted the opposite of
+   the truth — *"Read-only: it feeds the probe panel and nothing else"* — which
+   is how the violation survived several readings; it now says what the call
+   does. **The switch that decides whether the renderer consumes authored data
+   is `WorldAtmosphere.UseAuthoredData`, a setting on the Lighting page. It is
+   not the DevTools flag and must never become it again.**
 
-**Close the verification gap (this is the cheapest real win available)**
+**Close the verification gap (this is still the cheapest real win available)**
 
-4. **Capture `refs/` shots from the real 1.12 client for the two saved
-   vantages,** then the same shots from MSUI plus their dumps. Water, interior
-   lighting, doodad lighting and foliage are all emulation-core by
-   FOUNDATION_PLAN §2 and all four were signed off by eye alone. This also
-   exercises the foundation loop for the first time, which is its own point.
-5. **Run the Northshire road test for foliage** (SYSTEM_FOLIAGE.md §0) and the
+5. **Capture `refs/` shots from the real 1.12 client.** `refs/` holds a README
+   and nothing else, and **five** emulation-core systems now depend on it —
+   water, interior lighting, doodad lighting, foliage and exterior lighting.
+   Start with the two saved vantages, then the same shots from MSUI plus their
+   dumps. For exterior lighting this is not optional garnish: the three sky band
+   heights and the sun direction are the only invented quantities left in that
+   system and **nothing but a capture can settle them**
+   (SYSTEM_EXTERIOR_LIGHTING.md §4, §7).
+6. **Run the Northshire road test for foliage** (SYSTEM_FOLIAGE.md §0) and the
    tavern test for doodad lighting (a barrel must match its floor;
    "N with baked interior light" must be non-zero indoors).
-6. **Validate the Stormwind distance-shell swap.** With the default-on test
+7. **Validate the Stormwind distance-shell swap.** With the default-on test
    toggle, approach Stormwind from outside and confirm its silhouette remains;
    inside Trade District, confirm the Cathedral/entrance shells disappear.
    Record `[wmo-lod]` and `LOD shells hidden nearby`. Toggle it off for A/B.
@@ -1460,34 +1670,46 @@ Written down because the same three moves have solved almost every hard bug in t
 
 **Then, the open engineering fronts — pick one, do not braid them**
 
-7. **Streaming.** Measure the *current* build, not an older one: a fresh
-   `[game] ready in`, then walk—not fly—over at least two tile edges near large
-   WMOs, marking the visible hitch moments. Capture `[stream]`,
-   `[wmo-preload]`, `[doodad-preload]`, `[gpu-upload]`, `[stream-budget]`,
-   `[collision-async]`, queue depths and frame-time spikes. If a hitch
-   coincides with an upload, split whole-WMO uploads into independently
-   publishable groups; if it does not, profile the boundary main-thread work
-   (placement rebuild, collision snapshot, discovery) and fix only the measured
-   phase. Repeat-launch cost wants a persistent prepared-asset cache, but only
-   after it is measured (§3.27, §8.7).
-8. **WMO portal visibility.** MOPV/MOPT/MOPR are parsed and consumed by nothing
-   (§3.26, §3.35). This is the remaining lever for indoor correctness and for
-   the Stormwind courtyard keep — and note §3.35's warning that outdoor portal
-   traversal is experimental and trades popout for it.
-9. **WMO liquid (MLIQ)** — canals, fountains, indoor pools. `MCLQ` open-world
-   liquid is done and shipped; `MLIQ` is parsed and drawn nowhere.
-   SYSTEM_WATER.md §5.
-10. **MFOG, per-interior fog** — offered and not taken during the interior
+8. **The frame-pacing bug — the number has been read (§5A.18).** Three hitches
+   in one run read **0.30–0.43 M/ms**, with a 2.62 M/ms control on a frame that
+   was genuinely working. **<1 = the thread was not running**, so the
+   driver-busy-wait branch and its whole fix family (adaptive vsync,
+   `EXT_swap_control_tear`, pacing to pre-empt a spin) are **refuted**. The
+   question is now *why the vblank deadline was missed*, and the swap chain is
+   the suspect. **Still owed before writing streaming code:** the same reading on
+   a controlled `[32,48] → [32,49]` crossing where GPU is back under 1 ms —
+   §5A.19 says exactly what each outcome means. Also owed here: the clean
+   SoA A/B at equal model count (§5A.15) and PLAN_08 D2's budgeted resumable
+   adoption, which is the structural answer to the `resid` term that is now the
+   largest remaining one (§5A.14).
+9. **WMO portal visibility — PLAN_10.** The chunks are parsed and D1's
+   instrument is built; traversal is not. This is the remaining lever for indoor
+   correctness and for the Stormwind courtyard keep. Note D4: a WMO's own
+   exterior groups *do* seed traversal; only WMO-to-WMO traversal across the
+   open world is out of scope, and §3.35 warns it trades popout.
+10. **Finish exterior lighting's honest gaps** — skyboxes
+    (`LightParams.lightSkyboxID` is read and applied nowhere), clouds (bands
+    9–12), weather (only `ParamsClear` is ever read, so underwater lighting is a
+    visible hole), and **the ocean/river colours in bands 13–16, which are the
+    authored answer to values `SYSTEM_WATER.md` currently invents.**
+    SYSTEM_EXTERIOR_LIGHTING.md §7.
+11. **WMO liquid (MLIQ)** — canals, fountains, indoor pools. `MCLQ` open-world
+    liquid is done and shipped; `MLIQ` is parsed and drawn nowhere.
+    SYSTEM_WATER.md §5.
+12. **MFOG, per-interior fog** — offered and not taken during the interior
     lighting pass, and named there as the most likely next real gain for
-    interiors. SYSTEM_WMO_INTERIOR_LIGHTING.md §5.
-11. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
-12. **P2 networking.**
+    interiors. SYSTEM_WMO_INTERIOR_LIGHTING.md §5. PLAN_10 D1 has now made
+    "which group am I in" answerable, which MFOG needs.
+13. **`BlpDecoder` alpha fix** (§3.19), then remove the three point-of-use guards.
+14. **P2 networking.**
 
-**A note on sequencing.** Items 7–12 are genuinely independent and the project
-has more open fronts than it has sessions. Prefer finishing the verification of
-what already shipped (4–6) over opening a seventh front; the docs are ahead of
-the evidence right now, which is the specific failure mode §11's "empirical over
-documented" exists to prevent.
+**A note on sequencing.** Items 8–14 are genuinely independent and the project
+has more open fronts than it has sessions. **Prefer 5–7 over opening another
+front.** The gap has widened since Draft 22, not closed: five emulation-core
+systems are now signed off without a single real-client capture between them.
+That is exactly the failure mode §11's "empirical over documented" exists to
+prevent, and exterior lighting just demonstrated the cost of it — a careful
+by-eye tune picked a value the data contradicts.
 
 ### 7.2 Deliberately out of scope, permanently
 

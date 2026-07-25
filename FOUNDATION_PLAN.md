@@ -2,13 +2,30 @@
 
 **The shared-language layer: how we test, how we speak, and how every later step gets planned.**
 
-Companion to `PROJECT_HANDBOOK.md` (Draft 20). This document does **not** fix
+Companion to `PROJECT_HANDBOOK.md` (Draft 24). This document does **not** fix
 rendering. It builds the instrument panel and the working agreement that every
 rendering fix will run through, so we stop trying reasonable-seeming things at
 random and start closing a loop we can both read.
 
-Status: proposed. Nothing here is code yet. Section 7 is the ordered build
-sequence; sections 3–6 are the specs those steps implement.
+**Status: BUILT (2026-07-25).** Plans 01–04 and 06 are code; 05's `TuningState`
+exists in `Program.DevTools.cs` but the HUD is not fully reorganized. §11's plan
+index is the per-step detail. Section 7 is the ordered build sequence it was
+built in; sections 3–6 are the specs those steps implement and remain the
+reference for what each piece is *supposed* to do.
+
+> *This line read "Status: proposed. Nothing here is code yet" until the Draft 24
+> doc sync, long after the layer shipped — handbook §1.2 had been carrying a note
+> saying so. Two things it earned since: the hitch recorder killed six streaming
+> hypotheses in six runs (SYSTEM_STREAMING.md §5A), and the light probe overturned
+> a by-eye lighting tune (SYSTEM_EXTERIOR_LIGHTING.md §5.3). **What is still
+> unexercised is the `refs/` comparison half of the loop** — §3.3's paired
+> artifact has never had a real-client capture on the other side of it.*
+>
+> *One live violation of §12's seam, recorded here because this is the document
+> that defines it: authored exterior lighting is applied from inside
+> `Program.LightProbe.cs`, which early-returns when DevTools is off. Core's
+> lighting therefore depends on the dev layer running. Handbook §4 and §7.1 item
+> 4 carry the fix.*
 
 ---
 
@@ -500,6 +517,19 @@ The foundation loop is complete: name a vantage, dump the scene, compare to
 `refs/<vantage>.png`, read the reason codes, and curate with the override DB — all
 behind the DevTools switch. Troubleshooting the actual look/feel starts from here,
 one `PLAN_TEMPLATE.md` at a time.
+
+**Plans written against this template since (not part of the foundation layer;
+handbook §1.2 is their index):**
+
+| # | File | Step | Status |
+|---|---|---|---|
+| 07 | `PLAN_07_HITCH_RECORDER.md` | automatic frame-spike recorder | **BUILT** — caught the freeze on the first walk |
+| 08 | `PLAN_08_INCREMENTAL_RESIDENCY.md` | per-tile ownership, budgeted adoption | D1 built; **D2/D3 open**; D4/D5 dropped with reasons |
+| 09 | `PLAN_09_EXTERIOR_LIGHTING.md` | sky/fog/ambient/sun from `Light.dbc` | **BUILT** — see `SYSTEM_EXTERIOR_LIGHTING.md` |
+| 10 | `PLAN_10_WMO_PORTALS.md` | portal traversal from MOPV/MOPT/MOPR | **D1 (instrument) BUILT; traversal not** |
+
+The `refs/` half of the loop is still unused — see the status note at the top of
+this file.
 
 ---
 

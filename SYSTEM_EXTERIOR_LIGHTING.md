@@ -162,6 +162,56 @@ class as rebuilding placements at a tile boundary.
 
 ## 4. What is applied, and what is still ours
 
+> ### 4.0 ~~Known defect~~ — FIXED, 2026-07-25
+>
+> Found in the 2026-07-25 doc-sync pass, fixed the same day. Recorded rather than
+> deleted, because the shape of it is worth keeping.
+>
+> `WorldAtmosphere.SetAuthored` had exactly one caller, `UpdateLightProbe`, and
+> that method opened with
+>
+> ```csharp
+> if (!_config.DevTools || !_exteriorLight.Ready) return;
+> ```
+>
+> so in a run with `DevTools` off, `SetAuthored` was never called, `HasAuthored`
+> stayed `false`, and `WorldAtmosphere`'s `Authored` gate silently routed every
+> colour back to the invented constants this whole system exists to replace.
+> `DetectConvention` never ran either. **A FOUNDATION_PLAN §12 seam violation,
+> inverted:** the rule is *core decides, the dev layer observes*, and here the
+> dev layer decided and core followed.
+>
+> **The fix.** `Program.LightProbe.cs` now has two halves:
+>
+> - `UpdateExteriorLighting()` — **core, runs in every build.** Detects the
+>   convention, resolves at the **world clock**, calls `SetAuthored`.
+> - the rest — `_lightSample`, which feeds `DrawLightProbePanel` and
+>   `PrintLightProbe` and nothing else — stays behind `_config.DevTools`, which
+>   is the half that legitimately belongs there.
+>
+> Pinning the probe's time still resolves a second, separate sample, so scrubbing
+> to inspect a curve cannot relight the scene. Unpinned, the one answer is reused
+> instead of resolved twice, which the old code did.
+>
+> **The switch that decides whether the renderer consumes authored data is
+> `WorldAtmosphere.UseAuthoredData` — a setting on the Video Options → Lighting
+> page (SYSTEM_SETTINGS_UI.md). It is not the DevTools flag and must never
+> become it again.**
+>
+> **What let it survive several readings:** the call site's comment asserted the
+> opposite of the truth — *"Read-only: it feeds the probe panel and nothing
+> else"* — and `Program.cs`'s note above `InitLightProbe` still said *"nothing
+> applies it yet"*, which had been false since PLAN_09 landed. Both now say what
+> the code does. A comment that is confidently wrong is worse than no comment,
+> because it ends the search.
+>
+> It took the settings modal to make this bite: its Lighting page offers
+> **Use authored lighting data (Light.dbc)** in exactly the build where the
+> resolve was not running.
+>
+> Everything in the table below was measured **with DevTools on**, which is now
+> the same code path as with it off.
+
 | Quantity | Source |
 |---|---|
 | Ambient colour | **data**, band 1 |
@@ -259,9 +309,11 @@ can be pasted into a plan instead of screenshotted.
   `ParamsStormWat` and `ParamsDeath` are parsed and ignored — underwater lighting
   in particular is a visible gap.
 - **`highlightSky` and `glow`** are read and unused.
-- **Water colours.** Bands 13-16 are the authored answer for the ocean and river
-  colours `SYSTEM_WATER.md` currently invents. The probe surfaces them
-  deliberately; `LiquidRenderer` has not been touched.
+- ~~**Water colours.**~~ **Wired 2026-07-25 by PLAN_12**, unverified. Bands 13-16
+  and the `LightParams` alphas now reach `LiquidRenderer` through
+  `WorldAtmosphere.SetAuthoredWater`, on the same `UseAuthoredData` gate as the
+  sky. PLAN_12 §7 is the test protocol and §4 H4 records why the river pair is
+  suspect.
 - **Band heights unverified.** §4's three stops are guesses until a real-client
   capture exists. This is the single most likely reason the sky still looks off.
 - **No `refs/` capture.** PLAN_09 §7 steps 6 is unrun; `refs/` holds only a

@@ -231,6 +231,26 @@ to one cause (mis-routing, frame cross-fade, wave normal, lighting gain).
   MLIQ in local space, not ADT MCLQ. Not rendered.
 - **`LiquidType.dbc` colours/materials.** Textures are now real, but the shader's
   colour/lighting constants are hand-tuned, not read from the DBC.
+- **The ocean and river colours are invented ~~and unread~~ - WIRED 2026-07-25 by
+  PLAN_12, and NOT YET VERIFIED.** `LiquidRenderer` now takes bands 13-16 and the
+  `LightParams` alphas through `WorldAtmosphere`, behind
+  `Video Options -> Water -> Authored water colours`, whose OFF state is
+  bit-identical to the constants below. **Before believing it, run PLAN_12 §7 -
+  step 1 in particular, because the river pair reads inverted (see H4).** The
+  original entry follows as the record of what was invented: `LightIntBand` bands **13 (ocean close), 14
+  (ocean far), 15 (river close), 16 (river far)** are resolved per zone and per
+  time of day by `ExteriorLighting` and surfaced by the light probe —
+  deliberately, so this entry could be written. `LiquidRenderer` has not been
+  touched. **SYSTEM_EXTERIOR_LIGHTING.md §2.3, §7.** Measured for Azeroth's map
+  default at noon: ocean close `0.380 0.510 0.718`, ocean far
+  `0.067 0.294 0.349`, river close `0.000 0.114 0.161`, river far
+  `0.310 0.365 0.078`. This is the same move foliage made with
+  `GroundEffectTexture` and exterior lighting made with `Light.dbc`: stop tuning,
+  start reading. `LightParams` also carries `waterShallowAlpha` /
+  `waterDeepAlpha` / `oceanShallowAlpha` / `oceanDeepAlpha` (PLAN_09 §11), which
+  is the authored answer to the "deep water reads a little dark" item at the top
+  of this list — **push those sliders no further until they have been checked
+  against the data.**
 - **Swim physics / buoyancy.** Rendering only. `TryGetSurface` is the hook.
 
 Screen-space refraction / planar reflection (Draft 1's stated "unlock") is

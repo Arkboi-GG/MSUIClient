@@ -233,6 +233,16 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Multiplier on camera.mouseSensitivity, so a too-slow look is one drag away from fixed.</summary>
     public float MouseSensitivity { get; set; } = 1f;
 
+    /// <summary>
+    /// Path to a TTF for the whole UI, or null for ImGui's own bitmap font. Set
+    /// by Program.Main BEFORE Run(): ImGui rasterises its glyph atlas when the
+    /// controller is constructed and there is no supported way to swap it after.
+    /// </summary>
+    public string? UiFontPath { get; set; }
+
+    /// <summary>Pixel height to rasterise <see cref="UiFontPath"/> at. See UiFont.SizeFor.</summary>
+    public int UiFontSize { get; set; } = 13;
+
     public ClientWindow(ClientConfig config) => _config = config;
 
     public GpuUploadWorker CreateGpuUploadWorker()
@@ -269,7 +279,17 @@ public sealed class ClientWindow : IDisposable
         var startup = Stopwatch.StartNew();
         _gl = _window.CreateOpenGL();
         _input = _window.CreateInput();
-        _imgui = new ImGuiController(_gl, _window, _input);
+
+        // WoW's own UI face, if Program.Main managed to pull it out of the
+        // archives. ImGui builds its glyph atlas during construction, so this is
+        // the only moment it can be supplied - and a bitmap font that is
+        // obviously not the game's is the loudest thing wrong with an in-game
+        // menu, louder than the frame art. See Engine/UI/UiFont.cs.
+        ImGuiFontConfig? font = null;
+        if (!string.IsNullOrEmpty(UiFontPath) && File.Exists(UiFontPath))
+            font = new ImGuiFontConfig(UiFontPath, Math.Clamp(UiFontSize, 8, 64));
+
+        _imgui = new ImGuiController(_gl, _window, _input, font);
 
         // Reapply after context creation. Some Windows/driver combinations do
         // not honor the creation-time hint, which leaves automatic swaps free
@@ -278,15 +298,22 @@ public sealed class ClientWindow : IDisposable
         Console.WriteLine($"[display] VSync requested {(_config.Window.VSync ? "on" : "off")}, " +
                           $"window reports {(_window.VSync ? "on" : "off")}");
 
-        // ImGui's default font is unreadably small on a high-DPI panel. Scale
-        // the font and every widget metric together so the HUD stays legible.
+        // Widget metrics always scale. The FONT only scales when we are stuck
+        // with ImGui's bitmap face: a real TTF was already rasterised at the
+        // right pixel height above, and scaling it again on top would blur it
+        // and break every size that was chosen to match a 21-pixel button.
         var scale = Math.Clamp(_config.Window.UiScale, 0.5f, 4f);
+        bool realFont = font is not null;
+
         if (Math.Abs(scale - 1f) > 0.01f)
         {
-            ImGui.GetIO().FontGlobalScale = scale;
+            if (!realFont) ImGui.GetIO().FontGlobalScale = scale;
             ImGui.GetStyle().ScaleAllSizes(scale);
-            Console.WriteLine($"[ui] scale {scale:F2}");
         }
+
+        Console.WriteLine($"[ui] scale {scale:F2}, font " +
+                          (realFont ? $"{Path.GetFileName(UiFontPath)} at {UiFontSize}px"
+                                    : "ImGui default (scaled)"));
 
         Console.WriteLine($"[gl] {_gl.GetStringS(StringName.Renderer)}");
         Console.WriteLine($"[gl] {_gl.GetStringS(StringName.Version)}");

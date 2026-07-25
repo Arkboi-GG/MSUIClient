@@ -66,9 +66,34 @@ public sealed partial class GameLoop
     /// lookups and lerps - but not free, so it is skipped when dev tooling is
     /// off, and it never runs inside the render pass.
     /// </summary>
-    private void UpdateLightProbe()
+    /// <summary>
+    /// Resolve the authored exterior lighting for where the player is and what
+    /// the world clock says, and hand it to the atmosphere.
+    ///
+    /// THIS IS CORE. IT RUNS IN EVERY BUILD.
+    ///   It used to be the front half of UpdateLightProbe, which returned early
+    ///   on `!_config.DevTools` - and it held the ONLY call to SetAuthored. So a
+    ///   DevTools-off build silently reverted to the hand-invented constants
+    ///   that SYSTEM_EXTERIOR_LIGHTING.md replaced with data, and nothing said
+    ///   so. A whole shipped system was reachable only from developer tooling.
+    ///
+    ///   The call site's comment made it worse by asserting the opposite -
+    ///   "Read-only: it feeds the probe panel and nothing else" - which is how a
+    ///   seam violation survives a reading. FOUNDATION_PLAN section 12: the
+    ///   DevTools flag may gate what you can SEE, never what the renderer does.
+    ///
+    ///   The settings modal is what made this load-bearing: its Lighting page
+    ///   offers "Use authored lighting data (Light.dbc)" in exactly the build
+    ///   where the resolve was not running.
+    ///
+    /// ALWAYS THE WORLD CLOCK, NEVER THE PINNED PROBE TIME.
+    ///   Scrubbing the probe to inspect a curve must not relight the scene. The
+    ///   probe's own (possibly pinned) sample is taken separately below, and
+    ///   only when there is a panel to show it in.
+    /// </summary>
+    private void UpdateExteriorLighting()
     {
-        if (!_config.DevTools || !_exteriorLight.Ready) return;
+        if (!_exteriorLight.Ready) return;
 
         var p = _controller?.Position ?? Vector3.Zero;
 
@@ -76,27 +101,54 @@ public sealed partial class GameLoop
         // Idempotent after that; the HUD can force a re-detect from elsewhere.
         _exteriorLight.DetectConvention((uint)_config.Start.Map, p);
 
-        float hours = _probePinTime ? _probeHours : _atmosphere.TimeOfDayHours;
-        _lightSample = _exteriorLight.Resolve((uint)_config.Start.Map, p, hours);
+        var applied = _exteriorLight.Resolve(
+            (uint)_config.Start.Map, p, _atmosphere.TimeOfDayHours);
 
-        // Hand the resolved answer to the atmosphere. The probe stays read-only
-        // about the DATA; this is the one line that lets the renderer consume
-        // it, and WorldAtmosphere.UseAuthoredData is the switch that decides
-        // whether it does. Always sampled at the WORLD clock, never the pinned
-        // probe time - otherwise scrubbing the probe to inspect a curve would
-        // silently relight the scene.
-        if (_lightSample is { HasData: true })
+        // WorldAtmosphere.UseAuthoredData is the switch that decides whether the
+        // renderer consumes this. That switch is a SETTING, on the Lighting page;
+        // it is not the DevTools flag and must never become it again.
+        if (applied is { HasData: true })
         {
-            var applied = _probePinTime
-                ? _exteriorLight.Resolve((uint)_config.Start.Map, p, _atmosphere.TimeOfDayHours)
-                : _lightSample;
-
             _atmosphere.SetAuthored(
                 applied.Ambient, applied.Diffuse, applied.FogColor,
                 applied.SkyTop, applied.SkyMiddle, applied.SkyBand1,
                 applied.SkyBand2, applied.SkySmog,
                 applied.FogStart, applied.FogEnd);
+
+            // PLAN_12. The four water COLOURS are bands like any other and are
+            // already blended across every contributing zone by Resolve.
+            //
+            // The four ALPHAS are not. They live on LightParams, which is a row
+            // and not a band table, so there is nothing to interpolate and the
+            // NEAREST zone's row is used - Contributors is ordered nearest-last,
+            // which is the same row the probe panel calls dominant. That is a
+            // real approximation at a zone boundary and it is written down here
+            // rather than discovered later from a seam in a lake.
+            var dominant = applied.Contributors.Count > 0
+                ? _exteriorLight.Params(applied.Contributors[^1].ParamsId)
+                : null;
+
+            _atmosphere.SetAuthoredWater(
+                applied.Colors[LightIntBandTable.OceanCloseBand],
+                applied.Colors[LightIntBandTable.OceanFarBand],
+                applied.Colors[LightIntBandTable.RiverCloseBand],
+                applied.Colors[LightIntBandTable.RiverFarBand],
+                dominant?.OceanShallowAlpha ?? 0f, dominant?.OceanDeepAlpha ?? 0f,
+                dominant?.WaterShallowAlpha ?? 0f, dominant?.WaterDeepAlpha ?? 0f);
         }
+
+        // ── Everything below is the PANEL's sample, and is tooling ───────────
+        //
+        // _lightSample feeds DrawLightProbePanel and PrintLightProbe and nothing
+        // else, so it is the half that legitimately belongs behind the flag.
+        if (!_config.DevTools) { _lightSample = null; return; }
+
+        // Pinned, this is a SECOND resolve at the probe's time - deliberately
+        // not the one that was applied. Unpinned the two are the same answer and
+        // it is reused rather than resolved twice, which the old code did.
+        _lightSample = _probePinTime
+            ? _exteriorLight.Resolve((uint)_config.Start.Map, p, _probeHours)
+            : applied;
     }
 
     private void DrawLightProbePanel()

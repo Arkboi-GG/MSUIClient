@@ -41,8 +41,29 @@ public static class Program
         Console.WriteLine($"[start] map {config.Start.Map} ({config.Start.MapName}) " +
                           $"at ({config.Start.X:F1}, {config.Start.Y:F1}, {config.Start.Z:F1})");
 
-        using var window = new ClientWindow(config);
-        var game = new GameLoop(window, config);
+        // The player's settings are read BEFORE the window exists, because four
+        // of them are decided at window creation and cannot be changed after it:
+        // the resolution, the requested multisample COUNT, the initial vsync
+        // request, and the anisotropy the texture uploader selects once. Those
+        // are folded into the ClientConfig the window is about to read.
+        // Everything else is pushed onto the live renderers by InitSettings.
+        //
+        // A missing or corrupt settings.json is not an error - SettingsStore.Load
+        // logs a line and starts from the shipped defaults.
+        var settings = SettingsStore.Load(config.RepoRoot);
+        ApplyStartupSettings(config, settings.Settings);
+
+        // WoW's own UI typeface, straight out of fonts.MPQ. It has to happen
+        // before the window exists: ImGui rasterises its glyph atlas when the
+        // controller is constructed, and there is no supported way to swap the
+        // font afterwards. Null falls back to ImGui's bitmap font.
+        using var window = new ClientWindow(config)
+        {
+            UiFontPath = MSUIClient.Engine.UI.UiFont.Extract(config.ClientDataPath),
+            UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
+        };
+
+        var game = new GameLoop(window, config) { SettingsFile = settings };
 
         window.OnLoad += game.Load;
         window.OnUpdate += game.Update;
@@ -62,6 +83,39 @@ public static class Program
 
         game.Dispose();
         return 0;
+    }
+
+    /// <summary>
+    /// The restart-scoped half of the settings: values the window and the texture
+    /// uploader read once, at creation, and can never be told about again.
+    ///
+    /// They are folded into ClientConfig rather than read from GameSettings
+    /// directly so that exactly one type describes "what this window was built
+    /// with" - a second source of truth for the resolution is how a window ends
+    /// up disagreeing with itself after a resize.
+    /// </summary>
+    private static void ApplyStartupSettings(ClientConfig config, GameSettings settings)
+    {
+        config.Window.Width = Math.Clamp(settings.Display.WindowWidth, 640, 7680);
+        config.Window.Height = Math.Clamp(settings.Display.WindowHeight, 480, 4320);
+        config.Window.VSync = settings.Display.VSync;
+        config.Window.UiScale = Math.Clamp(settings.Display.UiScale, 0.5f, 4f);
+
+        config.Render.MsaaSamples = Math.Clamp(settings.Display.MsaaSamples, 1, 16);
+        config.Render.Anisotropy = Math.Clamp(settings.Display.Anisotropy, 1f, 16f);
+        config.Render.FieldOfView = Math.Clamp(settings.View.FieldOfView, 30f, 110f);
+        config.Render.NearPlane = settings.View.NearPlane;
+        config.Render.FarPlane = settings.View.FarPlane;
+
+        config.Start.TileRadius = Math.Clamp(settings.Streaming.TileRadius, 1, 3);
+        config.Start.WmoPreloadRadius = Math.Clamp(settings.Streaming.WmoPreloadRadius, 1, 4);
+        config.Start.DrainPreloadsAtStartup = settings.Streaming.DrainPreloadsAtStartup;
+
+        Console.WriteLine($"[settings] window {config.Window.Width}x{config.Window.Height} " +
+                          $"vsync {(config.Window.VSync ? "on" : "off")} " +
+                          $"msaa {config.Render.MsaaSamples}x " +
+                          $"aniso {config.Render.Anisotropy:F0}x " +
+                          $"ui {config.Window.UiScale:F2}x");
     }
 }
 
@@ -374,11 +428,15 @@ public sealed partial class GameLoop : IDisposable
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
 
-        // Exterior lighting's authored data (PLAN_09). Read-only for now: the
-        // probe reports what vanilla intends, nothing applies it yet. Loading it
-        // early means the [dbc] shape lines land next to foliage's, where a
-        // schema mismatch is obvious at startup rather than inferred later from
-        // a strange sunset.
+        // Exterior lighting's authored data (PLAN_09). This IS applied - see
+        // UpdateExteriorLighting, which runs every frame in every build. The
+        // comment here used to say "nothing applies it yet", which stopped being
+        // true when PLAN_09 landed and then helped hide the DevTools gate that
+        // was quietly un-applying it again.
+        //
+        // Loading it early means the [dbc] shape lines land next to foliage's,
+        // where a schema mismatch is obvious at startup rather than inferred
+        // later from a strange sunset.
         InitLightProbe();
 
         if (_config.Render.Doodads)
@@ -523,6 +581,12 @@ public sealed partial class GameLoop : IDisposable
                          Math.Abs(tile.row - initialCentre.row)))
                 _backgroundDiscovery.Enqueue(tile);
         }
+
+        // The settings modal's skin needs GL and the MPQ mount, so it is built
+        // last; applying the saved settings needs every renderer to exist, so it
+        // happens here rather than in the constructor.
+        InitSettings(gl);
+        PhaseComplete("settings + UI skin");
 
         Console.WriteLine($"[game] ready in {startup.Elapsed.TotalSeconds:F2}s - " +
                           $"startup preload {(_config.Start.DrainPreloadsAtStartup ? "blocking" : "background")}, " +
@@ -1027,6 +1091,16 @@ public sealed partial class GameLoop : IDisposable
         // alternative silently blames the wrong frame.
         if (_hitch.FrameBoundary(CurrentFramePhases())) WriteHitchRecord();
 
+        // Quitting is deferred out of the GUI pass and lands HERE, between
+        // frames, before anything is touched. ClientWindow.Close tears the GL
+        // context down synchronously - it raises Closing, which runs
+        // GameLoop.Dispose and deletes every texture and buffer we own - so
+        // calling it from inside a button handler left the rest of that ImGui
+        // frame drawing into freed memory. That is an AccessViolationException on
+        // the next widget, and the stack points at the widget rather than at the
+        // button, which is what makes it worth a comment.
+        if (ConsumeQuitRequest()) return;
+
         long updateStarted = Stopwatch.GetTimestamp();
         if (_controller is null) return;
 
@@ -1095,19 +1169,27 @@ public sealed partial class GameLoop : IDisposable
         if (_cycleTimeOfDay)
             _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
 
-        // Resolve what the authored data says here, now. Read-only: it feeds the
-        // probe panel and nothing else. In Update rather than Render so the
-        // render pass stays free of work that is not drawing.
-        UpdateLightProbe();
+        // Resolve what Light.dbc says here, now, and APPLY it. This is core and
+        // runs in every build - the comment that used to sit here said "Read-only:
+        // it feeds the probe panel and nothing else", which was false, and is how
+        // the DevTools seam violation survived several readings. In Update rather
+        // than Render so the render pass stays free of work that is not drawing.
+        UpdateExteriorLighting();
 
         // Which WMO group the camera stands in (PLAN_10 D1). Read-only for now:
         // the HUD shows it, nothing culls on it yet. Cheap - a world-box reject
         // per instance before any matrix is inverted.
         _wmo?.UpdateCameraCell(_window.Camera.Position);
 
+        // Escape. It used to close the client outright; it now opens the game
+        // menu, and quitting is a button inside it. See Program.Settings.cs.
+        UpdateSettingsInput();
+
         // Ignore keyboard input while ImGui owns the keyboard (typing in a text
-        // field such as the vantage name), so it does not turn/strafe/jump the player.
-        bool typing = ImGui.GetIO().WantCaptureKeyboard;
+        // field such as the vantage name), so it does not turn/strafe/jump the
+        // player - and equally while the settings modal is up, or you walk into a
+        // lake while dragging a slider.
+        bool typing = ImGui.GetIO().WantCaptureKeyboard || _settingsOpen;
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);
@@ -1257,7 +1339,6 @@ public sealed partial class GameLoop : IDisposable
         ResolveCameraCollision(dt);
         _cameraCollisionMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
-        if (_window.IsDown(Key.Escape)) _window.Close();
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
 
@@ -1650,6 +1731,19 @@ public sealed partial class GameLoop : IDisposable
             _liquid.FogColor = _atmosphere.FogColor;
             _liquid.FogStart = _atmosphere.ShaderFogStart;
             _liquid.FogEnd = _atmosphere.ShaderFogEnd;
+
+            // PLAN_12. Water colours arrive through the same object and the same
+            // gate as the sky, so turning authored lighting off takes the water
+            // with it - they cannot disagree about whether to believe the data.
+            _liquid.HasAuthoredColors = _atmosphere.AuthoredWaterReady;
+            _liquid.OceanClose = _atmosphere.OceanCloseColor;
+            _liquid.OceanFar = _atmosphere.OceanFarColor;
+            _liquid.RiverClose = _atmosphere.RiverCloseColor;
+            _liquid.RiverFar = _atmosphere.RiverFarColor;
+            _liquid.OceanAlphaShallow = _atmosphere.OceanShallowAlpha;
+            _liquid.OceanAlphaDeep = _atmosphere.OceanDeepAlpha;
+            _liquid.RiverAlphaShallow = _atmosphere.RiverShallowAlpha;
+            _liquid.RiverAlphaDeep = _atmosphere.RiverDeepAlpha;
         }
 
         if (_foliage is not null)
@@ -1667,6 +1761,13 @@ public sealed partial class GameLoop : IDisposable
 
     public void Gui()
     {
+        // THE SETTINGS MODAL IS DRAWN FIRST, AND DELIBERATELY ABOVE THE RETURN
+        // BELOW. It is the PLAYER's surface - the Escape menu - so it must exist
+        // in a shipping build where all the developer tooling is off. Moving this
+        // call after the DevTools check would reproduce exactly the seam
+        // violation the handbook already records against UpdateLightProbe.
+        DrawSettingsModal();
+
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
         if (!_config.DevTools) return;
@@ -1678,13 +1779,14 @@ public sealed partial class GameLoop : IDisposable
         {
             ImGui.Text($"{_window.Fps:F0} fps   {_window.FrameMs:F2} ms");
 
-            bool vsync = _window.VSync;
-            if (ImGui.Checkbox("VSync (prevent tearing)", ref vsync))
-                _window.VSync = vsync;
+            // VSync and multisampling moved to the settings modal (Escape).
+            // They are preferences, not instruments - PLAN_11 section 6. VSync is
+            // still worth flipping as a DIAGNOSTIC (SYSTEM_STREAMING.md 5A.17),
+            // but the modal is one keypress away and two copies of a switch is
+            // how two surfaces start disagreeing about the truth.
+            ImGui.TextDisabled("Esc - game menu / video settings");
 
-            bool multisampling = _window.MultisamplingEnabled;
-            if (ImGui.Checkbox($"Multisampling ({_window.FramebufferSamples}x buffer)", ref multisampling))
-                _window.MultisamplingEnabled = multisampling;
+            DrawUiSkinPanel();
 
             if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -1773,14 +1875,12 @@ public sealed partial class GameLoop : IDisposable
             if (ImGui.CollapsingHeader("Atmosphere and visibility test", ImGuiTreeNodeFlags.DefaultOpen))
             {
 
-            bool dynamicLighting = _atmosphere.DynamicLighting;
-            if (ImGui.Checkbox("Time-of-day lighting", ref dynamicLighting))
-                _atmosphere.DynamicLighting = dynamicLighting;
-
-            bool cycleTime = _cycleTimeOfDay;
-            if (ImGui.Checkbox("Cycle time automatically", ref cycleTime))
-                _cycleTimeOfDay = cycleTime;
-
+            // Time of day is the ONE control both surfaces keep. It is a
+            // preference when it is cycling and an instrument when it is pinned,
+            // and pinning it to compare two frames is worth not having to open a
+            // modal for. Everything else that used to live here - sun and ambient
+            // strength, the three fog controls, far-plane coupling and the
+            // vanilla-visibility preset - is now Escape / Graphics.
             float time = _atmosphere.TimeOfDayHours;
             if (ImGui.SliderFloat("Time of day", ref time, 0f, 24f, "%.2f h"))
                 _atmosphere.TimeOfDayHours = time;
@@ -1791,52 +1891,13 @@ public sealed partial class GameLoop : IDisposable
             ImGui.SameLine();
             if (ImGui.Button("Night")) _atmosphere.SetNight();
 
-            if (_cycleTimeOfDay)
-            {
-                float speed = _gameHoursPerMinute;
-                if (ImGui.SliderFloat("Game hours / minute", ref speed, 0.1f, 12f, "%.1f"))
-                    _gameHoursPerMinute = speed;
-            }
-
-            float sunStrength = _atmosphere.SunStrength;
-            if (ImGui.SliderFloat("Sun strength", ref sunStrength, 0f, 2f, "%.2f"))
-                _atmosphere.SunStrength = sunStrength;
-
-            float ambientStrength = _atmosphere.AmbientStrength;
-            if (ImGui.SliderFloat("Ambient strength", ref ambientStrength, 0f, 2f, "%.2f"))
-                _atmosphere.AmbientStrength = ambientStrength;
-
-            bool fogEnabled = _atmosphere.FogEnabled;
-            if (ImGui.Checkbox("Draw distance fog", ref fogEnabled))
-                _atmosphere.FogEnabled = fogEnabled;
-
-            float fogStart = _atmosphere.FogStart;
-            if (ImGui.SliderFloat("Fog starts", ref fogStart, 0f, 1500f, "%.0f yd"))
-                _atmosphere.FogStart = MathF.Min(fogStart, _atmosphere.FogEnd - 1f);
-
-            float fogEnd = _atmosphere.FogEnd;
-            if (ImGui.SliderFloat("Fog fully opaque", ref fogEnd, 100f, 2000f, "%.0f yd"))
-                _atmosphere.FogEnd = MathF.Max(fogEnd, _atmosphere.FogStart + 1f);
-
-            bool cullAtFog = _atmosphere.CullAtFogEnd;
-            if (ImGui.Checkbox("Stop submitting past fog", ref cullAtFog))
-                _atmosphere.CullAtFogEnd = cullAtFog;
-
-            bool coupleFarPlane = _coupleFarPlaneToFog;
-            if (ImGui.Checkbox("Match camera far plane to fog", ref coupleFarPlane))
-                _coupleFarPlaneToFog = coupleFarPlane;
-
-            if (ImGui.Button("Vanilla-ish visibility preset"))
-            {
-                _atmosphere.FogEnabled = true;
-                _atmosphere.CullAtFogEnd = true;
-                _coupleFarPlaneToFog = true;
-                _atmosphere.FogStart = 350f;
-                _atmosphere.FogEnd = 777f;
-                if (_wmo is not null) _wmo.DrawDistance = 777f;
-                if (_doodads is not null) _doodads.DrawDistance = 300f;
-                _residentCentre = null;
-            }
+            ImGui.TextDisabled(
+                $"fog {_atmosphere.FogStart:F0} -> {_atmosphere.FogEnd:F0} yd" +
+                $"{(_atmosphere.FogEnabled ? "" : " (off)")}" +
+                $"{(_atmosphere.CullAtFogEnd ? ", culling past" : "")}");
+            ImGui.TextDisabled(
+                $"sun x{_atmosphere.SunStrength:F2}  ambient x{_atmosphere.AmbientStrength:F2}  " +
+                $"{(_atmosphere.HasAuthored ? "authored" : "INVENTED constants")}");
 
             if (_terrain is not null)
             {
@@ -1855,13 +1916,8 @@ public sealed partial class GameLoop : IDisposable
                 {
                     ImGui.Text($"M2 preload {_doodads.PendingPreloads} queued  " +
                                $"discovery {_backgroundDiscovery.Count} tile(s)");
-                    bool demandStream = _demandStreamDoodads;
-                    if (ImGui.Checkbox("Stream only nearby doodads", ref demandStream))
-                    {
-                        _demandStreamDoodads = demandStream;
-                        _doodadDemandDelay = 0f;
-                    }
-                    ImGui.Text($"M2 demand radius {DoodadDemandRadius:F0} yd");
+                    ImGui.Text($"M2 demand {(_demandStreamDoodads ? "on" : "off")}, " +
+                               $"radius {DoodadDemandRadius:F0} yd");
                 }
             }
 
@@ -1996,6 +2052,7 @@ public sealed partial class GameLoop : IDisposable
             }
 
             DrawPortalPanel();
+            DrawInstancesPanel();
 
             if (ImGui.CollapsingHeader("Buildings", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -2005,87 +2062,27 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  {_wmo.ModelCount} model(s), {_wmo.TextureCount} texture(s)");
                 ImGui.Text($"  {_wmo.TotalTriangles:N0} triangles");
 
-                bool showWmo = _wmo.Enabled;
-                if (ImGui.Checkbox("Draw buildings", ref showWmo)) _wmo.Enabled = showWmo;
+                // Every switch and slider that used to live here is now
+                // Escape / Graphics / Advanced - buildings. What is left is the
+                // readout half, which is what actually answers "why is that
+                // building missing" (PLAN_11 section 6).
+                ImGui.TextDisabled(
+                    $"  draw {(_wmo.Enabled ? "on" : "OFF")}  " +
+                    $"frustum {(_wmo.FrustumCulling ? "on" : "off")}  " +
+                    $"shells {(_wmo.UseDistanceLodShells ? "on" : "off")}  " +
+                    $"two-sided {(_wmo.ForceTwoSided ? "on" : "off")}");
+                ImGui.TextDisabled(
+                    $"  distance {_wmo.DrawDistance:F0} yd  alpha {_wmo.AlphaCutoff:F2}  " +
+                    $"MOCV {(_wmo.UseVertexColors ? $"x{_wmo.VertexColorScale:F2}" : "off")}");
+                ImGui.TextDisabled(
+                    $"  impostor <= {_wmo.ImpostorMaxVertices} verts  " +
+                    $"inside margin {_wmo.InsideInstanceMargin:F0}  " +
+                    $"interior cull {_wmo.InteriorCullDistance:F0}  " +
+                    $"guard {_wmo.ShellNearGuard:F0}");
 
-                bool wmoFrustum = _wmo.FrustumCulling;
-                if (ImGui.Checkbox("Frustum culling##wmo", ref wmoFrustum))
-                    _wmo.FrustumCulling = wmoFrustum;
-
-                bool distanceLod = _wmo.UseDistanceLodShells;
-                if (ImGui.Checkbox("Swap distance-only city shells", ref distanceLod))
-                    _wmo.UseDistanceLodShells = distanceLod;
                 ImGui.Text($"  LOD shells hidden nearby: {_wmo.LodGroupsCulledLastFrame}");
-
-                // If missing walls reappear when this is on, the geometry was
-                // never lost - it was wound inward and culled.
-                bool twoSided = _wmo.ForceTwoSided;
-                if (ImGui.Checkbox("Force two-sided", ref twoSided)) _wmo.ForceTwoSided = twoSided;
-
-                // Interior lighting (MOCV, 1.12 classic render path). Vanilla
-                // bakes every interior's lighting per vertex; unticking this
-                // reverts to the old "light everything with the outdoor sun"
-                // behaviour, which is the quickest side-by-side.
-                bool wmoVc = _wmo.UseVertexColors;
-                if (ImGui.Checkbox("Baked interior light (MOCV)", ref wmoVc))
-                    _wmo.UseVertexColors = wmoVc;
-                if (wmoVc)
-                {
-                    // 2.0 is the authored value, not a preference: the classic
-                    // path halves MOCV at load and doubles it at draw.
-                    float vcScale = _wmo.VertexColorScale;
-                    if (ImGui.SliderFloat("Interior brightness", ref vcScale, 0.5f, 4f, "x%.2f"))
-                        _wmo.VertexColorScale = vcScale;
-                    ImGui.TextDisabled("  2.00 = vanilla. Reload buildings to re-read MOCV.");
-                }
-
-                // Drag to zero to prove whether the alpha cut is eating walls.
-                float cutoff = _wmo.AlphaCutoff;
-                if (ImGui.SliderFloat("Alpha cutoff", ref cutoff, 0f, 1f))
-                    _wmo.AlphaCutoff = cutoff;
-
-                float wmoDistance = _wmo.DrawDistance;
-                if (ImGui.SliderFloat("Building distance", ref wmoDistance, 300f, 1250f, "%.0f yd"))
-                {
-                    _wmo.DrawDistance = wmoDistance;
-                    _config.Render.WmoDistance = wmoDistance;
-                }
-
-                ImGui.Separator();
-                ImGui.Text("Impostor / interior swap (live)");
-
-                // Where the impostor->detailed swap happens. Negative = you must
-                // be deeper in before the city counts as "inside" (impostor
-                // lingers further); positive = swaps sooner / further out.
-                float insideMargin = _wmo.InsideInstanceMargin;
-                if (ImGui.SliderFloat("Inside margin", ref insideMargin, -400f, 400f, "%.0f yd"))
-                    _wmo.InsideInstanceMargin = insideMargin;
-
-                float interiorCull = _wmo.InteriorCullDistance;
-                if (ImGui.SliderFloat("Interior cull (outside)", ref interiorCull, 20f, 800f, "%.0f yd"))
-                    _wmo.InteriorCullDistance = interiorCull;
-
-                float shellGuard = _wmo.ShellNearGuard;
-                if (ImGui.SliderFloat("Shell near-guard", ref shellGuard, 0f, 600f, "%.0f yd"))
-                    _wmo.ShellNearGuard = shellGuard;
-
-                int impostorVerts = _wmo.ImpostorMaxVertices;
-                if (ImGui.SliderInt("Impostor max verts", ref impostorVerts, 0, 6000))
-                {
-                    _wmo.ImpostorMaxVertices = impostorVerts;
-                    _wmo.ReclassifyShells();  // retune the whole city, no reload
-                }
-
-                // Occlusion cull for plain exterior groups (e.g. the entrance
-                // towers seen from inside). Uses the collision BVH; toggle it if
-                // it flickers or costs too much, tune the min distance.
-                bool occlusion = _wmo.OcclusionCulling;
-                if (ImGui.Checkbox("Occlusion cull exterior (BVH)", ref occlusion))
-                    _wmo.OcclusionCulling = occlusion;
-                float occMin = _wmo.OcclusionMinDistance;
-                if (ImGui.SliderFloat("Occlusion min dist", ref occMin, 10f, 400f, "%.0f yd"))
-                    _wmo.OcclusionMinDistance = occMin;
-                ImGui.Text($"  occluded groups: {_wmo.OccludedGroupsLastFrame}");
+                ImGui.Text($"  occluded groups: {_wmo.OccludedGroupsLastFrame}" +
+                           $"{(_wmo.OcclusionCulling ? "" : "  (occlusion off)")}");
 
                 bool visTrace = _wmo.VisTrace;
                 if (ImGui.Checkbox("Console visibility trace", ref visTrace))
@@ -2153,63 +2150,24 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  {_doodads.TotalTriangles:N0} triangles");
                 ImGui.Text($"  {_doodads.InteriorLitCount:N0} with baked interior light");
 
-                bool showDoodads = _doodads.Enabled;
-                if (ImGui.Checkbox("Draw doodads", ref showDoodads)) _doodads.Enabled = showDoodads;
-
-                bool doodadFrustum = _doodads.FrustumCulling;
-                if (ImGui.Checkbox("Frustum culling##doodads", ref doodadFrustum))
-                    _doodads.FrustumCulling = doodadFrustum;
-
-                bool doodadInstancing = _doodads.UseInstancing;
-                if (ImGui.Checkbox("GPU instancing##doodads", ref doodadInstancing))
-                    _doodads.UseInstancing = doodadInstancing;
-
-                // A/B for the flat-bounds cull. Measured before the change:
-                // 751-9,053 ns per instance, against ~50-100 for the arithmetic
-                // the loop actually performs - Instance is a class, so the cull
-                // was chasing thousands of scattered pointers. Untick to walk
-                // the old array-of-pointers path and diff `cull` in the [hitch]
-                // doodad line. PLAN_08 section 7 step 3: if the number does not
-                // move, the change did nothing and gets backed out.
-                bool flatCull = _doodads.FlatCullBounds;
-                if (ImGui.Checkbox("Flat cull bounds (SoA)##doodads", ref flatCull))
-                    _doodads.FlatCullBounds = flatCull;
-
-                // The doodad counterpart of "Baked interior light (MOCV)"
-                // above. A WMO's furniture ships its own pre-baked light in
-                // MODD.color; unticking this lights every barrel with the
-                // outdoor sun again, which is the quickest side-by-side for
-                // "is the tavern too dark now". Takes effect immediately - the
-                // colour rides the instance buffer, so no reload is needed.
-                bool doodadInterior = _doodads.InteriorLighting;
-                if (ImGui.Checkbox("Baked interior light (MODD)", ref doodadInterior))
-                    _doodads.InteriorLighting = doodadInterior;
-
-                if (doodadInterior)
-                {
-                    // Must track the Buildings slider above. MODD.color sits on
-                    // the same scale as raw MOCV (measured r=0.82 against an
-                    // independent floor sample over 7,428 interior doodads), so
-                    // a barrel only matches the floor it stands on while both
-                    // use the same factor. 2.0 is vanilla.
-                    float dScale = _doodads.VertexColorScale;
-                    if (ImGui.SliderFloat("Interior brightness##doodads", ref dScale, 0.5f, 4f, "x%.2f"))
-                        _doodads.VertexColorScale = dScale;
-                    ImGui.TextDisabled("  Match the Buildings slider or props detach from the floor.");
-                }
-
-                float doodadCut = _doodads.AlphaCutoff;
-                if (ImGui.SliderFloat("Doodad alpha cut", ref doodadCut, 0f, 1f))
-                    _doodads.AlphaCutoff = doodadCut;
-
-                float dist = _doodads.DrawDistance;
-                if (ImGui.SliderFloat("Doodad distance", ref dist, 50f, 1200f))
-                {
-                    _doodads.DrawDistance = dist;
-                    _config.Render.DoodadDistance = dist;
-                    _residentCentre = null; // refresh object residency next update
-                }
-
+                // Moved to Escape / Graphics / Advanced - doodads: draw, frustum
+                // cull, GPU instancing, flat cull bounds, MODD interior light and
+                // its brightness, alpha cut and draw distance. The A/B arguments
+                // that used to be comments here are now the tooltips on those
+                // controls, so the reason lives beside the switch.
+                //
+                // The one that matters for measurement: flat cull bounds was
+                // 55.8 ms -> 0.3 ms on a crossing frame, and PLAN_08 section 7
+                // step 3 says it gets backed out if the number does not move.
+                // Diff `cull` in the [hitch] doodad line, not this panel.
+                ImGui.TextDisabled(
+                    $"  draw {(_doodads.Enabled ? "on" : "OFF")}  " +
+                    $"frustum {(_doodads.FrustumCulling ? "on" : "off")}  " +
+                    $"instanced {(_doodads.UseInstancing ? "on" : "off")}  " +
+                    $"flat bounds {(_doodads.FlatCullBounds ? "on" : "off")}");
+                ImGui.TextDisabled(
+                    $"  distance {_doodads.DrawDistance:F0} yd  alpha {_doodads.AlphaCutoff:F2}  " +
+                    $"MODD {(_doodads.InteriorLighting ? $"x{_doodads.VertexColorScale:F2}" : "off")}");
             }
             }
 
@@ -2550,24 +2508,15 @@ public sealed partial class GameLoop : IDisposable
             ImGui.Text($"  orbit {cam.OrbitYaw * 180f / MathF.PI,5:F0} deg   " +
                        $"view {cam.ViewYaw * 180f / MathF.PI,5:F0} deg");
 
-            // Field of view, live. It was a config-file-plus-restart setting,
-            // which is the wrong shape for something judged by eye: 70 is the
-            // shipped default (client-config.json.example and Camera's own
-            // default), and a spell at 45 flattened the world enough to be
-            // disliked on sight without it being obvious which knob did it.
-            //
-            // Lower = telephoto, flatter, less peripheral vision. Higher =
-            // wider and more curved at the edges. Applied straight to the
-            // camera; client-config.json still sets the value at startup.
-            float fov = cam.FieldOfViewDegrees;
-            if (ImGui.SliderFloat("Field of view (deg)", ref fov, 30f, 110f, "%.0f"))
-                cam.FieldOfViewDegrees = fov;
-            ImGui.SameLine();
-            if (ImGui.Button("70##fov")) cam.FieldOfViewDegrees = 70f;
-
-            float turnSpeed = _turnSpeed * 180f / MathF.PI;
-            if (ImGui.SliderFloat("Turn speed (deg/s)", ref turnSpeed, 45f, 360f))
-                _turnSpeed = turnSpeed * MathF.PI / 180f;
+            // Field of view, turn speed, eye height, mouse sensitivity and the
+            // raw-cursor switch are now Escape / Camera and controls. They stopped
+            // being config-file-plus-restart settings for a good reason - a spell
+            // at FOV 45 flattened the world enough to be disliked on sight without
+            // it being obvious which knob did it - and the modal keeps them live
+            // AND persists them, which is what that episode actually wanted.
+            ImGui.TextDisabled(
+                $"  fov {cam.FieldOfViewDegrees:F0} deg   turn {_turnSpeed * 180f / MathF.PI:F0} deg/s   " +
+                $"eye {cam.EyeHeight:F2}");
 
             // Mouse-look diagnostics. Read these WHILE dragging - each line
             // eliminates one link in the chain, so "the mouse does nothing"
@@ -2582,15 +2531,11 @@ public sealed partial class GameLoop : IDisposable
             ImGui.Text($"  moves {_window.MouseMoveEvents}  applied {_window.MouseLookEvents}  " +
                        $"last delta ({_window.LastMouseDelta.X,6:F1},{_window.LastMouseDelta.Y,6:F1})");
 
-            // If look is dead, this is the first thing to try. Raw is the mode a
-            // game wants but the one most likely to be refused.
-            bool rawCursor = _window.RawCursor;
-            if (ImGui.Checkbox("Raw cursor (uncheck if look is dead)", ref rawCursor))
-                _window.RawCursor = rawCursor;
-
-            float mouseScale = _window.MouseSensitivity;
-            if (ImGui.SliderFloat("Mouse sensitivity x", ref mouseScale, 0.1f, 10f))
-                _window.MouseSensitivity = mouseScale;
+            // If look is dead, raw cursor is the first thing to turn off, and it
+            // now lives in Escape / Camera and controls with that sentence on it.
+            ImGui.TextDisabled(
+                $"  raw cursor {(_window.RawCursor ? "on" : "OFF")}   " +
+                $"sensitivity x{_window.MouseSensitivity:F2}");
 
             ImGui.Separator();
 
@@ -2601,9 +2546,6 @@ public sealed partial class GameLoop : IDisposable
             }
 
             ImGui.Checkbox("Show player capsule", ref _showPlayerMarker);
-
-            float eye = cam.EyeHeight;
-            if (ImGui.SliderFloat("Eye height", ref eye, 0f, 10f)) cam.EyeHeight = eye;
 
             if (_terrain is not null)
             {
@@ -2627,230 +2569,16 @@ public sealed partial class GameLoop : IDisposable
                               "(Space/Ctrl for height while flying, Shift boosts). " +
                               "LEFT mouse swings the camera around your character without turning him; " +
                               "RIGHT mouse turns him and the camera together; moving re-centres the " +
-                              "camera behind him. Wheel to zoom, Esc to quit.");
+                              "camera behind him. Wheel to zoom, Esc for the game menu.");
             }
         }
         ImGui.End();
 
-        WaterTuningWindow();
-        FoliageTuningWindow();
-    }
-
-    /// <summary>
-    /// Dedicated live Water Tuning window: every liquid look/feel knob as a slider
-    /// so the surface can be dialed by eye instead of by shader rebuild. Each knob
-    /// is a live uniform (see LiquidRenderer); defaults reproduce the shipped look.
-    /// DevTools only (gated by the caller).
-    /// </summary>
-    private void WaterTuningWindow()
-    {
-        if (_liquid is null) return;
-        var liq = _liquid;
-
-        void Slider(string label, Func<float> get, Action<float> set, float lo, float hi, string fmt)
-        {
-            float v = get();
-            if (ImGui.SliderFloat(label, ref v, lo, hi, fmt)) set(v);
-        }
-
-        ImGui.SetNextWindowPos(new Vector2(460, 12), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(370, 0), ImGuiCond.FirstUseEver);
-
-        if (ImGui.Begin("Water Tuning"))
-        {
-            bool enabled = liq.Enabled;
-            if (ImGui.Checkbox("Render water", ref enabled)) liq.Enabled = enabled;
-
-            ImGui.TextDisabled($"frames  river {liq.WaterFrames}  ocean {liq.OceanFrames}  " +
-                               $"slime {liq.SlimeFrames}  magma {liq.MagmaFrames}");
-
-            // Which liquid type - and therefore which texture - the water under the
-            // player actually routes to. This is the definitive routing check.
-            if (_controller is not null &&
-                liq.TryGetSurface(_controller.Position.X, _controller.Position.Y, out _, out byte tUnder))
-            {
-                string route = tUnder switch
-                {
-                    1 => "ocean texture",
-                    3 => "slime texture",
-                    6 => "magma texture",
-                    _ => "river/lake texture",
-                };
-                ImGui.TextDisabled($"under you: liquid type {tUnder} -> {route}");
-            }
-            else
-            {
-                ImGui.TextDisabled("under you: (not standing over water)");
-            }
-
-            if (ImGui.CollapsingHeader("Texture & animation", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Texture scale (tiling)", () => liq.TextureScale, x => liq.TextureScale = x, 0.01f, 1.0f, "%.3f");
-                Slider("Animation FPS", () => liq.AnimationFps, x => liq.AnimationFps = x, 0f, 60f, "%.1f");
-                Slider("Frame blend (0 twinkle / 1 glide)", () => liq.FrameBlend, x => liq.FrameBlend = x, 0f, 1f, "%.2f");
-                Slider("Texture brightness", () => liq.TexBrightness, x => liq.TexBrightness = x, 0f, 3f, "%.2f");
-                Slider("Texture contrast", () => liq.TexContrast, x => liq.TexContrast = x, 0.2f, 2.5f, "%.2f");
-                Vector3 tint = liq.TexTint;
-                if (ImGui.ColorEdit3("Texture tint", ref tint)) liq.TexTint = tint;
-            }
-
-            if (ImGui.CollapsingHeader("Opacity", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Opacity (deep)", () => liq.Opacity, x => liq.Opacity = x, 0f, 1f, "%.2f");
-                Slider("Shoreline alpha", () => liq.ShoreFade, x => liq.ShoreFade = x, 0f, 1f, "%.2f");
-                Slider("Shoreline width (yd)", () => liq.ShoreWidth, x => liq.ShoreWidth = x, 0.05f, 5f, "%.2f");
-            }
-
-            if (ImGui.CollapsingHeader("Depth colour", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Deep darkening", () => liq.DepthDarken, x => liq.DepthDarken = x, 0.1f, 1f, "%.2f");
-                Slider("Depth rate", () => liq.DepthRate, x => liq.DepthRate = x, 0.01f, 1f, "%.3f");
-            }
-
-            if (ImGui.CollapsingHeader("Lighting", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Base brightness", () => liq.Brightness, x => liq.Brightness = x, 0f, 2f, "%.2f");
-                Slider("Ambient amount", () => liq.AmbientAmount, x => liq.AmbientAmount = x, 0f, 2f, "%.2f");
-                Slider("Sun amount", () => liq.SunAmount, x => liq.SunAmount = x, 0f, 1f, "%.2f");
-                Slider("Sky sheen (grazing)", () => liq.SkySheen, x => liq.SkySheen = x, 0f, 1f, "%.2f");
-            }
-
-            if (ImGui.CollapsingHeader("Geometry waves", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Wave amplitude (0 = flat)", () => liq.WaveAmplitude, x => liq.WaveAmplitude = x, 0f, 2f, "%.2f");
-                Slider("Wave speed", () => liq.WaveSpeed, x => liq.WaveSpeed = x, 0f, 3f, "%.2f");
-            }
-
-            ImGui.Separator();
-            if (ImGui.Button("Reset to defaults")) liq.ResetTuning();
-        }
-        ImGui.End();
-    }
-
-    /// <summary>Live tuning for the ground-effect foliage (grass). DevTools only.</summary>
-    private void FoliageTuningWindow()
-    {
-        if (_foliage is null) return;
-        var f = _foliage;
-
-        void Slider(string label, Func<float> get, Action<float> set, float lo, float hi, string fmt)
-        {
-            float v = get();
-            if (ImGui.SliderFloat(label, ref v, lo, hi, fmt)) set(v);
-        }
-
-        ImGui.SetNextWindowPos(new Vector2(840, 12), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(360, 0), ImGuiCond.FirstUseEver);
-
-        if (ImGui.Begin("Foliage Tuning"))
-        {
-            bool enabled = f.Enabled;
-            if (ImGui.Checkbox("Render foliage", ref enabled)) f.Enabled = enabled;
-
-            ImGui.TextDisabled(f.DbcsReady
-                ? $"effects {f.EffectCount}  models {f.ModelCount}  instances {f.InstanceCount}"
-                : "GroundEffect DBCs not loaded");
-
-            if (ImGui.Button("Re-scatter now")) f.ForceRescatter();
-
-            if (ImGui.CollapsingHeader("Coverage", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                // Every coverage knob is baked in at SCATTER time (count, radius and
-                // the per-instance scale matrix), not read per frame like wind/fade.
-                // Scatter is throttled to camera movement, so without forcing a
-                // rebuild these sliders look dead until you walk. Force it on change.
-                Slider("Radius (yd)", () => f.Radius, x => { f.Radius = x; f.ForceRescatter(); }, 5f, 120f, "%.0f");
-                Slider("Density", () => f.DensityScale, x => { f.DensityScale = x; f.ForceRescatter(); }, 0f, 4f, "%.2f");
-                int mpc = f.MaxPerCell;
-                if (ImGui.SliderInt("Max per cell", ref mpc, 0, 24)) { f.MaxPerCell = mpc; f.ForceRescatter(); }
-                Slider("Scale", () => f.Scale, x => { f.Scale = x; f.ForceRescatter(); }, 0.1f, 4f, "%.2f");
-                Slider("Scale jitter", () => f.ScaleJitter, x => { f.ScaleJitter = x; f.ForceRescatter(); }, 0f, 0.9f, "%.2f");
-            }
-
-            // Placement rules Blizzard baked into the terrain itself. Both live
-            // in the MCNK header, both work per 8x8 cell, and together they are
-            // why the retail road stays bare while the verge beside it does not.
-            if (ImGui.CollapsingHeader("Placement rules (1.12)", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                bool cellMap = f.UseCellLayerMap;
-                if (ImGui.Checkbox("Per-cell layer map", ref cellMap)) { f.UseCellLayerMap = cellMap; f.ForceRescatter(); }
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("MCNK 0x40 ReallyLowQualityTextureingMap: 2 bits per cell naming\n" +
-                                     "which texture layer supplies that cell's ground effect.\n" +
-                                     "Off = guess the layer from the alpha maps (old behaviour).");
-
-                bool noDood = f.UseNoDoodadMask;
-                if (ImGui.Checkbox("No-doodad mask", ref noDood)) { f.UseNoDoodadMask = noDood; f.ForceRescatter(); }
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("MCNK 0x50 noEffectDoodad: 1 bit per cell, artist-authored\n" +
-                                     "\"place nothing here\". In Northshire it traces the road.");
-
-                bool skipHoles = f.SkipHoles;
-                if (ImGui.Checkbox("Skip terrain holes", ref skipHoles)) { f.SkipHoles = skipHoles; f.ForceRescatter(); }
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("MCNK 0x3C holes: cells cut away so a dungeon entrance is\n" +
-                                     "reachable. Nothing grows there - it is a doorway, not ground.");
-
-                ImGui.TextDisabled($"{f.MaskedCells} cell(s) masked nearby");
-                ImGui.TextDisabled($"{f.HoleCells} cell(s) holed nearby");
-            }
-
-            // Per-type curation. Retail hid clutter types selectively - the road
-            // pebbles (Rock) never showed in the starting zones - so give each
-            // kind its own switch plus a thin-out slider, with the live placed
-            // count on the right. Uncheck Rock to clear the road.
-            if (ImGui.CollapsingHeader("Types", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                foreach (FoliageKind k in Enum.GetValues<FoliageKind>())
-                {
-                    bool on = f.KindEnabled(k);
-                    if (ImGui.Checkbox($"{k}##foliageKind", ref on)) f.SetKindEnabled(k, on);
-
-                    ImGui.SameLine(110);
-                    float keep = f.KindDensity(k);
-                    ImGui.SetNextItemWidth(120);
-                    if (ImGui.SliderFloat($"##keep{k}", ref keep, 0f, 1f, "x%.2f"))
-                        f.SetKindDensity(k, keep);
-
-                    ImGui.SameLine();
-                    ImGui.TextDisabled(f.KindInstances(k).ToString());
-                }
-            }
-
-            if (ImGui.CollapsingHeader("Wind and fade", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Wind strength", () => f.WindStrength, x => f.WindStrength = x, 0f, 0.4f, "%.3f");
-                Slider("Wind speed", () => f.WindSpeed, x => f.WindSpeed = x, 0f, 5f, "%.2f");
-                bool linkFade = f.LinkFadeToRadius;
-                if (ImGui.Checkbox("Fade follows radius", ref linkFade)) f.LinkFadeToRadius = linkFade;
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(
-                        "On: the fade window is derived from Radius, so raising Radius\n" +
-                        "actually shows more grass. Off: the two sliders below apply, and\n" +
-                        "grass past 'Fade end' is invisible no matter how large Radius is.");
-
-                if (f.LinkFadeToRadius)
-                {
-                    ImGui.TextDisabled(
-                        $"fade {f.EffectiveFadeStart:F0} -> {f.EffectiveFadeEnd:F0} yd (from radius)");
-                    float startFrac = f.FadeStartFraction;
-                    if (ImGui.SliderFloat("Fade start (fraction)", ref startFrac, 0.1f, 1.0f, "%.2f"))
-                        f.FadeStartFraction = startFrac;
-                }
-                else
-                {
-                    Slider("Fade start (yd)", () => f.FadeStart, x => f.FadeStart = x, 0f, 120f, "%.0f");
-                    Slider("Fade end (yd)", () => f.FadeEnd, x => f.FadeEnd = x, 1f, 120f, "%.0f");
-                }
-            }
-
-            if (ImGui.CollapsingHeader("Look", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Slider("Alpha cutoff", () => f.AlphaCutoff, x => f.AlphaCutoff = x, 0.05f, 0.95f, "%.2f");
-                Slider("Brightness", () => f.Brightness, x => f.Brightness = x, 0.2f, 2f, "%.2f");
-            }
-        }
-        ImGui.End();
+        // The Water Tuning and Foliage Tuning windows are gone: every knob in
+        // both is now Escape / Graphics, under Water and Ground clutter, where it
+        // persists instead of evaporating at exit. The methods that drew them are
+        // deleted rather than left unreferenced - a dead HUD window is a second
+        // place for a value to disagree with itself.
     }
 
     public void Dispose()
@@ -2862,6 +2590,8 @@ public sealed partial class GameLoop : IDisposable
         catch { /* Shutdown must continue after a failed background build. */ }
         _gpuProfiler?.Dispose();
         _gpuProfiler = null;
+        _skin?.Dispose();
+        _skin = null;
         _character?.Dispose();
         _collisionDebug?.Dispose();
         _doodads?.Dispose();
