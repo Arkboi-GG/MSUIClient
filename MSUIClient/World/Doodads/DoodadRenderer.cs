@@ -135,6 +135,14 @@ public sealed class DoodadRenderer : IDisposable
         public Vector3 CollisionMin, CollisionMax;
         public string SourcePath = "";
 
+        /// <summary>
+        /// The M2's particle emitters (PLAN_14). Kept on the shared Model
+        /// because the emitter DEFINITION is per-model, while the live particle
+        /// pool a stage-2 renderer spawns from it will be per-instance - two
+        /// torches must not share one pool (PLAN_14 H5).
+        /// </summary>
+        public List<M2ParticleEmitter> Emitters = [];
+
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
 
@@ -284,6 +292,28 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public int InteriorLitCount { get; private set; }
     public int ModelCount => _models.Count(m => m.Value is not null);
+
+    /// <summary>
+    /// Every loaded model that carries particle emitters, with its path.
+    /// Read-only; PLAN_14 stage 1's panel is the only caller.
+    /// </summary>
+    public IEnumerable<(string Path, IReadOnlyList<M2ParticleEmitter> Emitters)> ModelsWithEmitters()
+    {
+        foreach (var (path, model) in _models)
+            if (model is not null && model.Emitters.Count > 0)
+                yield return (path, model.Emitters);
+    }
+
+    /// <summary>Total emitters across every loaded model.</summary>
+    public int EmitterCount
+    {
+        get
+        {
+            int n = 0;
+            foreach (var m in _models.Values) n += m?.Emitters.Count ?? 0;
+            return n;
+        }
+    }
     public int TextureCount => _textures.Count(t => t.Value is not null);
     public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
     public int TotalTriangles { get; private set; }
@@ -1096,6 +1126,7 @@ public sealed class DoodadRenderer : IDisposable
 
         BuildBatches(m2, model, indices.Length);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
+        model.Emitters = m2.ParticleEmitters;
 
         if (model.CollisionTriangles.Length >= 3)
         {

@@ -2066,6 +2066,7 @@ public sealed partial class GameLoop : IDisposable
 
             DrawPortalPanel();
             DrawInstancesPanel();
+            DrawParticlesPanel();
 
             if (ImGui.CollapsingHeader("Buildings", ImGuiTreeNodeFlags.DefaultOpen))
             {
