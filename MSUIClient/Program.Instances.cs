@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Formats;
+using MSUIClient.World;
 
 namespace MSUIClient;
 
