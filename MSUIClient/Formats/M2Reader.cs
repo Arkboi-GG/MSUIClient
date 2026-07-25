@@ -492,8 +492,59 @@ public class M2ParticleEmitter
     public float EmissionAreaWidth { get; set; }
     public float ZSource { get; set; }
 
+    // ── The ramp block at +332, derived 2026-07-26 (PLAN_14 §3.4) ────────────
+    //
+    // Confirmed the same way as the stride: +332 is in [0,1] on 1086/1086
+    // emitters, and the three floats at +348 are finite and non-negative on
+    // 1086/1086. Their SHAPE settles it - 510 of them grow then shrink, 252
+    // shrink, 225 grow. That is what a particle scale ramp looks like and what
+    // nothing else does.
+    //
+    // The earlier guess of three 16-byte FBlocks here was wrong (§3.3). This is
+    // not that: the keys are INLINE and there are exactly three of them, with
+    // MidPoint saying where in the particle's life the middle key falls.
+
+    /// <summary>
+    /// Where the middle colour/scale key sits in the particle's life, 0..1.
+    /// InstancePortal uses 0.20 and 0.30 - the flash happens early.
+    /// </summary>
+    public float MidPoint { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Start / middle / end colour, straight BGRA bytes. InstancePortal's first
+    /// emitter is (210,158,91) = RGB (91,158,210), a light blue - which is what
+    /// a 1.12 instance portal looks like, and is the check that this block is
+    /// read the right way round.
+    /// </summary>
+    public uint[] ColorKeys { get; set; } = new uint[3];
+
+    /// <summary>Start / middle / end size in yards. Portal: 0.278 -> 0.972 -> 0.028.</summary>
+    public float[] ScaleKeys { get; set; } = new float[3];
+
     /// <summary>Key counts for the ten tracks, in declaration order. >1 means animated.</summary>
     public int[] TrackKeyCounts { get; set; } = new int[10];
+
+    /// <summary>Sample the three-key ramp at life fraction t, honouring MidPoint.</summary>
+    public void SampleRamp(float t, out Vector4 rgba, out float scale)
+    {
+        float mid = MathF.Min(MathF.Max(MidPoint, 0.001f), 0.999f);
+        int a, b;
+        float f;
+        if (t <= mid) { a = 0; b = 1; f = t / mid; }
+        else { a = 1; b = 2; f = (t - mid) / (1f - mid); }
+
+        scale = ScaleKeys[a] + (ScaleKeys[b] - ScaleKeys[a]) * f;
+
+        var ca = Bgra(ColorKeys[a]);
+        var cb = Bgra(ColorKeys[b]);
+        rgba = ca + (cb - ca) * f;
+    }
+
+    private static Vector4 Bgra(uint packed)
+        => new(((packed >> 16) & 0xFF) / 255f,   // R sits in the third byte
+               ((packed >> 8) & 0xFF) / 255f,
+               (packed & 0xFF) / 255f,
+               ((packed >> 24) & 0xFF) / 255f);
 
     public bool AnyTrackAnimated
     {
@@ -1282,7 +1333,14 @@ public class M2Reader
                 HeadOrTail = data[o + 45],
                 TextureRows = ReadUInt16(data, o + 48),
                 TextureCols = ReadUInt16(data, o + 50),
+                MidPoint = BitConverter.ToSingle(data, o + 332),
             };
+
+            for (int k = 0; k < 3; k++)
+            {
+                e.ColorKeys[k] = ReadUInt32(data, o + 336 + k * 4);
+                e.ScaleKeys[k] = BitConverter.ToSingle(data, o + 348 + k * 4);
+            }
 
             // The ten tracks. Static evaluation only, exactly like
             // TransparencyStaticAlphas: one key is a constant and is read, more
@@ -1295,7 +1353,11 @@ public class M2Reader
                 uint nKeys = ReadUInt32(data, to + 20);
                 uint ofsKeys = ReadUInt32(data, to + 24);
                 e.TrackKeyCounts[t] = (int)nKeys;
-                values[t] = nKeys >= 1 && ofsKeys != 0 && ofsKeys + 4 <= data.Length
+                // `ofsKeys + 4 <= data.Length` would be unchecked uint arithmetic:
+                // a misparsed offset near uint.MaxValue wraps to something small,
+                // passes, and then (int)ofsKeys is NEGATIVE and BitConverter
+                // throws - taking the whole model load down. Subtract instead.
+                values[t] = nKeys >= 1 && ofsKeys != 0 && ofsKeys <= (uint)data.Length - 4u
                     ? BitConverter.ToSingle(data, (int)ofsKeys)
                     : 0f;
             }

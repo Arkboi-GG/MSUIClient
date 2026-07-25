@@ -9,9 +9,9 @@ namespace MSUIClient;
 //
 // Same rule as Program.DevTools.cs, Program.Hitch.cs, Program.LightProbe.cs,
 // Program.Portals.cs and Program.Instances.cs: developer TOOLING. It reads what
-// M2Reader parsed and prints it. Nothing here spawns, simulates or draws a
-// particle - stage 1 is read-only on purpose, so it cannot regress a working
-// client (PLAN_14 H1).
+// M2Reader parsed and what ParticleRenderer is doing with it, and prints both.
+// The renderer itself is core and runs in every build; this panel only watches
+// it, and its switches are the usual DevTools affordances.
 //
 // WHAT THIS PANEL IS FOR. §3 makes a set of claims about a binary layout that
 // was DERIVED rather than looked up - and the number every reference gives for
@@ -29,6 +29,29 @@ public sealed partial class GameLoop
     {
         if (!ImGui.CollapsingHeader("Particles (PLAN_14)")) return;
 
+        if (_particles is not null)
+        {
+            ImGui.Separator();
+            ImGui.Text($"LIVE: {_particles.LiveParticles:N0} particle(s) in " +
+                       $"{_particles.ActivePools} pool(s), {_particles.DrawnLastFrame:N0} drawn");
+            ImGui.TextDisabled($"simulate {_particles.SimulateMilliseconds:F2} ms   " +
+                               $"draw {_particles.DrawMilliseconds:F2} ms");
+
+            bool on = _particles.Enabled;
+            if (ImGui.Checkbox("Draw particles", ref on)) _particles.Enabled = on;
+
+            float density = _particles.DensityScale;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
+                _particles.DensityScale = density;
+
+            float dist = _particles.SimulationDistance;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Simulate within (yd)", ref dist, 10f, 400f, "%.0f"))
+                _particles.SimulationDistance = dist;
+            ImGui.Separator();
+        }
+
         if (_doodads is null)
         {
             ImGui.TextDisabled("no doodad renderer");
@@ -41,7 +64,6 @@ public sealed partial class GameLoop
         ImGui.Text($"{models.Count} loaded model(s) with emitters, {emitters} emitter(s) total");
         ImGui.TextDisabled($"of {_doodads.ModelCount} model(s) loaded   " +
                            "(18% of the archives' 15,214 M2s carry emitters)");
-        ImGui.TextDisabled("read-only - nothing here is simulated or drawn yet");
 
         ImGui.SetNextItemWidth(160f);
         ImGui.InputText("filter##pfx", ref _particleFilter, 64u);

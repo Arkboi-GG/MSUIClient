@@ -1,7 +1,8 @@
 # Plan 14 — M2 particle emitters
 
-Status: **layout derived from the bytes. Stage 1 VERIFIED on Nico's machine
-2026-07-26 across ~35 models. Stages 2-3 specified, not built.**
+Status: **stage 1 VERIFIED on Nico's machine across ~35 models. Stage 2 (the
+ramp block, the simulator and the billboard renderer) BUILT and unrun. Stage 3
+specified, not built.**
 
 ## 1. Why this, and why it is not a portal task
 
@@ -203,3 +204,93 @@ Two structural facts fall straight out of that table and shape stage 2:
 
 `dustwestfall`'s rate of 0.0 is worth a note: an emitter can be authored inert.
 Stage 2 must skip a zero-rate emitter rather than divide by it.
+
+
+## 8. §3.3 cracked — the ramp block at +332
+
+The 172 bytes §3.3 left open are not three FBlocks. They are **inline keys**, and
+the first twenty bytes are all stage 2 needed:
+
+| offset | field | confirmation |
+|---|---|---|
+| +332 | `float midPoint` | **1086/1086** emitters in `[0,1]`; range 0.05..0.95 |
+| +336 | `CImVector colour[3]` — BGRA bytes | see below |
+| +348 | `float scale[3]` | **1086/1086** finite and non-negative |
+
+**The shape is what settles it, not the range.** Of 1086 scale triples, **510
+grow then shrink**, 252 shrink, 225 grow, 23 are flat. That is what a particle
+size ramp looks like and what nothing else does.
+
+**The colour is BGRA and the alpha byte is real.** Across the same 1086
+emitters: **zero** have all three alpha bytes at zero, **100%** have at least
+one non-zero, **85%** peak on the middle key, and **40%** are an exact
+`(0, X, 0)` fade-in/fade-out. Median peak 255. This was worth measuring rather
+than assuming, because `Fill` culls a particle whose alpha is ~0 — if that byte
+had been padding, **every particle would have been silently culled and stage 2
+would have drawn nothing**, which is indistinguishable from a dozen other bugs.
+
+Read the right way round it also self-checks: InstancePortal's first emitter is
+`(210, 158, 91)` = RGB `(91, 158, 210)`, **a light blue** — which is what a 1.12
+instance portal is.
+
+```
+InstancePortal emitter 0:  midPoint 0.200  colour BGRA (210,158,91,0) (170,118,51,50) (210,158,91,0)
+                           scale 0.278 -> 0.972 -> 0.028
+           emitter 1:  midPoint 0.300  colour BGRA (210,187,157,0) (210,187,157,100) (210,187,157,0)
+                           scale 0.056 -> 0.042 -> 0.033
+```
+
+Note the middle key sits at **0.20** and **0.30**, not 0.5 — the flash happens
+early. A renderer that assumed half-life would put the peak in the wrong place
+on every emitter in the game.
+
+## 9. Stage 2 as built
+
+`World/Particles/ParticleRenderer.cs` plus `Shaders/particle.vert|frag`.
+CPU simulation, one instanced draw per (texture, blend mode), camera-facing
+billboards, depth test on and depth write off.
+
+Per-instance pools keyed by placement position **and rotation** (H5) — two
+torches do not share particles, and two placements in the same tenth-of-a-yard
+cell do not either.
+
+### 9.1 What review caught before it ran
+
+- **A missing texture bound name 0**, which samples opaque black; black at the
+  ramp's alpha survives the discard, so an alpha-blended group would have
+  painted black squares over the scene instead of drawing nothing. Skips now.
+- **Depth test was enabled and never restored** — a silent z-fail in whatever
+  pass ran next.
+- **Pools froze their transform at creation.** `PoolKey` carries only the
+  rounded translation, so a placement rebuilt with a new rotation kept emitting
+  along an orientation that no longer existed.
+- **`HorizontalRange` was parsed, printed, and never used**, so a narrow fan
+  emitted a full ring.
+- **Placement scale reached the spawn rectangle but not the speed or the sprite
+  size** — a doodad at scale 2 would have had a doubled emission area, half-size
+  sprites and unscaled speed: three different worlds in one effect.
+- **`ofsKeys + 4 <= data.Length` was unchecked `uint` arithmetic** — a misparsed
+  offset near `uint.MaxValue` wraps, passes, and then throws on the cast, taking
+  down the model load.
+
+### 9.2 Still not done
+
+The **4x4 sprite-sheet flipbook**. Every flame in §7.1 uses one and glows use
+1x1, so a torch will glow but not lick. `headCellTrack` lives in the part of the
+struct still uncracked — +360 to +504, which now holds only cell tracks, spin,
+drag, tumble and wind. Also absent: bone animation of the emitter origin, sphere
+and spline emitter types, tails, and ribbons (2% of models).
+
+## 10. First-run checklist
+
+1. `[particles] texture not found:` lines at startup mean the BLP path from the
+   M2 did not resolve — the sprites will be missing, and that is the first thing
+   to look at if nothing appears.
+2. Stand at the Deadmines entrance. The portal should be **blue, additive, and
+   pulling inward** — not a fountain. A fountain means the negative speed got
+   clamped somewhere (H4).
+3. The panel's `LIVE:` line should read roughly **800 particles in 2 pools** for
+   a portal alone.
+4. Torches and campfires should glow. They will not flicker through their sheet
+   yet — that is §9.2.
+5. `simulate` and `draw` in the panel should both be well under a millisecond.

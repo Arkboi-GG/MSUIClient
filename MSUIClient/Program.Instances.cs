@@ -619,6 +619,11 @@ public sealed partial class GameLoop
         _doodads?.ResetPlacements();
         _liquid?.UnloadAll();
         _terrain?.UnloadAll();
+
+        // Pools are keyed by placement position. Keeping them across a map
+        // change would leave a dungeon's torches burning in mid-air over Elwynn
+        // until something happened to walk past the same coordinates.
+        _particles?.Clear();
     }
 
     /// <summary>

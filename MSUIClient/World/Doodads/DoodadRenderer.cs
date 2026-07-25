@@ -143,6 +143,14 @@ public sealed class DoodadRenderer : IDisposable
         /// </summary>
         public List<M2ParticleEmitter> Emitters = [];
 
+        /// <summary>
+        /// The BLP path for each emitter's texture, resolved once at load.
+        /// Emitter.Texture indexes the M2's TEXTURES array directly - NOT
+        /// through TextureLookup, which is the mesh's indirection and would
+        /// pick the wrong file.
+        /// </summary>
+        public string[] EmitterTexturePaths = [];
+
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
 
@@ -302,6 +310,38 @@ public sealed class DoodadRenderer : IDisposable
         foreach (var (path, model) in _models)
             if (model is not null && model.Emitters.Count > 0)
                 yield return (path, model.Emitters);
+    }
+
+    /// <summary>
+    /// One entry per (placement, emitter) within <paramref name="radius"/> of a
+    /// point, for the particle renderer to keep pools for.
+    ///
+    /// Distance is measured to the PLACEMENT, not the emitter, because the
+    /// emitter's own offset needs the transform applied and the caller does that
+    /// anyway. A generous radius here is cheap - the pool map is what bounds the
+    /// work, not this walk.
+    /// </summary>
+    public IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                        int EmitterIndex, string TexturePath)>
+        EmitterInstances(Vector3 near, float radius)
+    {
+        float r2 = radius * radius;
+        foreach (var (model, instances) in _byModel)
+        {
+            if (model.Emitters.Count == 0) continue;
+            foreach (var inst in instances)
+            {
+                var origin = new Vector3(inst.Transform.M41, inst.Transform.M42, inst.Transform.M43);
+                if (Vector3.DistanceSquared(origin, near) > r2) continue;
+
+                for (int e = 0; e < model.Emitters.Count; e++)
+                {
+                    string tex = e < model.EmitterTexturePaths.Length
+                        ? model.EmitterTexturePaths[e] : "";
+                    yield return (inst.Path, inst.Transform, model.Emitters[e], e, tex);
+                }
+            }
+        }
     }
 
     /// <summary>Total emitters across every loaded model.</summary>
@@ -1127,6 +1167,13 @@ public sealed class DoodadRenderer : IDisposable
         BuildBatches(m2, model, indices.Length);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
         model.Emitters = m2.ParticleEmitters;
+        model.EmitterTexturePaths = new string[m2.ParticleEmitters.Count];
+        for (int i = 0; i < m2.ParticleEmitters.Count; i++)
+        {
+            int ti = m2.ParticleEmitters[i].Texture;
+            model.EmitterTexturePaths[i] =
+                ti >= 0 && ti < m2.Textures.Count ? m2.Textures[ti].Filename : "";
+        }
 
         if (model.CollisionTriangles.Length >= 3)
         {

@@ -9,6 +9,7 @@ using MSUIClient.Player;
 using MSUIClient.World;
 using MSUIClient.World.Collision;
 using MSUIClient.World.Doodads;
+using MSUIClient.World.Particles;
 using MSUIClient.World.Units;
 using MSUIClient.World.Wmo;
 
@@ -169,6 +170,9 @@ public sealed partial class GameLoop : IDisposable
     /// average over frames is meaningless - read it on the frames it fires.
     /// </summary>
     private double _foliageScatterMilliseconds;
+    private ParticleRenderer? _particles;
+    private double _particleSimulateMilliseconds;
+    private double _particleDrawMilliseconds;
 
     /// <summary>Drawing foliage. Every frame.</summary>
     private double _foliageDrawMilliseconds;
@@ -427,6 +431,19 @@ public sealed partial class GameLoop : IDisposable
         _foliage = new FoliageRenderer(gl, _config);
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
+
+        // M2 particle emitters (PLAN_14 stage 2). 18% of models carry them, and
+        // for the instance portal they ARE the model.
+        try
+        {
+            _particles = new ParticleRenderer(gl, _config);
+            _particles.LoadShaders(shaderDir);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[particles] FAILED - {ex.Message}");
+            _particles = null;
+        }
 
         // Exterior lighting's authored data (PLAN_09). This IS applied - see
         // UpdateExteriorLighting, which runs every frame in every build. The
@@ -1607,6 +1624,19 @@ public sealed partial class GameLoop : IDisposable
         // the sticky one to the phase split made DominantPhase call every hitch
         // "foliage-rescatter" on the strength of a number bigger than the frame.
         _foliageScatterMilliseconds = _foliage?.ScatterMillisecondsThisFrame ?? 0;
+
+        // Particles LAST in the world pass. They are transparent and depth-write
+        // is off, so everything opaque must already be in the depth buffer or
+        // they draw over walls they are standing behind.
+        if (_particles is not null && _doodads is not null)
+        {
+            var eye = _window.Camera.Position;
+            _particles.Simulate(dt, eye,
+                _doodads.EmitterInstances(eye, _particles.SimulationDistance));
+            _particles.Render(_window.Camera);
+            _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
+            _particleDrawMilliseconds = _particles.DrawMilliseconds;
+        }
         _foliageDrawMilliseconds = _foliage?.DrawMilliseconds ?? 0;
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
@@ -2623,6 +2653,7 @@ public sealed partial class GameLoop : IDisposable
         // Renderer disposal joins any asset-preparation workers before the
         // extractor is detached and its shared archive handles are closed.
         AdtTerrainReader.StormLibExtractor = null;
+        _particles?.Dispose();
         _mpq?.Dispose();
     }
 }
