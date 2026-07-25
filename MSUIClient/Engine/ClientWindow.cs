@@ -142,6 +142,31 @@ public sealed class ClientWindow : IDisposable
     public float Fps { get; private set; }
     public double FrameMs { get; private set; }
 
+    // ---- Frame boundary breakdown (PLAN_07) ------------------------------
+    // Handbook 3.30 says a slow frame with low GPU and low update time "points
+    // at unmeasured UI/presentation/driver pacing and requires instrumenting
+    // that boundary". These four are that instrument. Without them every
+    // millisecond spent here lands in the hitch recorder's "unaccounted"
+    // bucket, which names the region but not the cause.
+
+    /// <summary>Mouse polling and camera input application, per frame.</summary>
+    public double InputMilliseconds { get; private set; }
+
+    /// <summary>ImGui's own per-frame update (not our HUD code).</summary>
+    public double ImguiUpdateMilliseconds { get; private set; }
+
+    /// <summary>Building and drawing the HUD: OnGui plus the ImGui draw pass.</summary>
+    public double GuiMilliseconds { get; private set; }
+
+    /// <summary>
+    /// End of one render to the start of the next update: the buffer swap and
+    /// the platform event pump. On a driver that stalls behind shared-context
+    /// uploads, or on a vsync wait, the time shows up HERE and nowhere else.
+    /// </summary>
+    public double PresentMilliseconds { get; private set; }
+
+    private long _renderEndStamp;
+
     // ── mouse diagnostics, all published for the HUD ─────────────────────────
 
     /// <summary>True while the mouse is captured for camera look.</summary>
@@ -427,6 +452,14 @@ public sealed class ClientWindow : IDisposable
 
     private void HandleUpdate(float dt)
     {
+        // Everything between the last render finishing and this update starting
+        // is swap + present + platform events. Measured before anything else
+        // happens this frame, or it cannot be measured at all.
+        if (_renderEndStamp != 0)
+            PresentMilliseconds = Stopwatch.GetElapsedTime(_renderEndStamp).TotalMilliseconds;
+
+        long inputStarted = Stopwatch.GetTimestamp();
+
         // Clamp so an alt-tab or a breakpoint doesn't teleport anything.
         dt = MathF.Min(dt, 0.05f);
 
@@ -436,6 +469,8 @@ public sealed class ClientWindow : IDisposable
         Camera.RotateView(_pendingOrbitYaw);
         if (_pendingZoom != 0) Camera.Zoom(_pendingZoom);
         _pendingYaw = _pendingOrbitYaw = _pendingPitch = _pendingZoom = 0;
+
+        InputMilliseconds = Stopwatch.GetElapsedTime(inputStarted).TotalMilliseconds;
 
         OnUpdate?.Invoke(dt);
     }
@@ -452,7 +487,9 @@ public sealed class ClientWindow : IDisposable
             _framesSinceSample = 0;
         }
 
+        long imguiStarted = Stopwatch.GetTimestamp();
         _imgui.Update(dt);
+        ImguiUpdateMilliseconds = Stopwatch.GetElapsedTime(imguiStarted).TotalMilliseconds;
 
         // Sky colour matches the far fog so the visibility boundary disappears
         // into aerial perspective instead of ending in a hard silhouette.
@@ -461,8 +498,12 @@ public sealed class ClientWindow : IDisposable
 
         OnRender?.Invoke(dt);
 
+        long guiStarted = Stopwatch.GetTimestamp();
         OnGui?.Invoke();
         _imgui.Render();
+        GuiMilliseconds = Stopwatch.GetElapsedTime(guiStarted).TotalMilliseconds;
+
+        _renderEndStamp = Stopwatch.GetTimestamp();
     }
 
     private void HandleResize(Vector2D<int> size)

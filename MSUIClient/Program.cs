@@ -107,6 +107,8 @@ public sealed partial class GameLoop : IDisposable
     private bool _coupleFarPlaneToFog = true;
     private float _gameHoursPerMinute = 1f;
     private double _worldRenderMilliseconds;
+    private double _foliageRenderMilliseconds;
+    private double _liquidRenderMilliseconds;
     private double _characterRenderMilliseconds;
     private double _debugRenderMilliseconds;
     private double _updateMilliseconds;
@@ -115,6 +117,24 @@ public sealed partial class GameLoop : IDisposable
     private double _preloadMilliseconds;
     private double _characterUpdateMilliseconds;
     private double _cameraCollisionMilliseconds;
+
+    // Update had three untimed regions at its head. hitch-32-49-3 reported
+    // "update 100.3 (move 0.1 resid 0.0 preload 0.0)" - 100 ms inside Update
+    // that no sub-timer covered, which is the same lie the [stream] timer told
+    // by starting late. Named now, plus an unaccounted residual so a hole here
+    // can never hide again.
+    private double _pumpPreloadsMilliseconds;
+    private double _acceptCollisionMilliseconds;
+    private double _doodadCollisionSnapshotMilliseconds;
+
+    // The preload block is four different jobs sharing one timer, and one of
+    // them ate 96 ms. Same lesson as every other split so far.
+    private double _outdoorPlacementMilliseconds;
+    private double _interiorPlacementMilliseconds;
+    private int _placementsRequested;
+    private double _discoverMilliseconds;
+    private double _doodadDemandMilliseconds;
+    private double _warmMilliseconds;
 
     /// <summary>Edge detection for the fly toggle — IsDown reports held, not pressed.</summary>
     private bool _flyKeyDown;
@@ -147,6 +167,27 @@ public sealed partial class GameLoop : IDisposable
     // has few/none of them. When new placements arrive we flag the collision
     // world dirty and rebuild it (coalesced) so trees/fences become solid.
     private bool _doodadCollisionDirty;
+
+    /// <summary>
+    /// Solid doodad placements that have appeared since the last collision
+    /// build. A rebuild re-expands the WHOLE world (~509,000 triangles) and
+    /// rebuilds the whole BVH (0.4-1.2s of worker time), so doing it for ten
+    /// new props is almost pure waste - it re-derives geometry it already had.
+    /// Until collision is per-tile and spliced (PLAN_08 D3), requiring a
+    /// meaningful delta is the cheap way to stop paying that every few seconds.
+    /// </summary>
+    private int _doodadCollisionPending;
+
+    /// <summary>New placements needed before a rebuild is worth its cost.</summary>
+    private const int DoodadCollisionRebuildThreshold = 96;
+
+    /// <summary>
+    /// Rebuild anyway after this long, so a trickle of stragglers still becomes
+    /// solid rather than waiting forever below the threshold.
+    /// </summary>
+    private const float DoodadCollisionMaxDeferSeconds = 15f;
+
+    private float _doodadCollisionDeferredFor;
     private float _doodadCollisionRebuildCooldown;
     private double _lastStreamSeconds;
     private (int col, int row)? _residentCentre;
@@ -156,6 +197,19 @@ public sealed partial class GameLoop : IDisposable
     private (int col, int row) _backgroundAdtTile;
     private float _backgroundDiscoveryDelay = 0.5f;
     private float _doodadDemandDelay;
+
+    /// <summary>
+    /// Where the last demand scan ran. The scan re-derives EVERY placement in
+    /// residency range - 7,562 of them - plus a LINQ sort over every MODD entry
+    /// in radius, and it was doing that four times a second forever, moving or
+    /// not, changed or not. That is the "I cross the same spot, nothing changes
+    /// visually, and it still hitches" report: the work is not caused by the
+    /// crossing, it is simply always running.
+    /// </summary>
+    private Vector2? _lastDemandCentre;
+
+    /// <summary>How far the player must move before a rescan can find anything new.</summary>
+    private const float DemandRescanDistance = 24f;
     private bool _demandStreamDoodads = true;
 
     // Vantages: reproducible viewpoints (FOUNDATION_PLAN / PLAN_01, step 1).
@@ -244,6 +298,7 @@ public sealed partial class GameLoop : IDisposable
         // One parse per tile, shared by terrain, buildings and doodads.
         _adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
         if (_config.DevTools) _vantages = VantageStore.Load(_config.RepoRoot);
+        InitHitchRecorder();
         PhaseComplete("render setup");
 
         _terrain.LoadAround(_config.Start.X, _config.Start.Y, _config.Start.TileRadius, _adts);
@@ -462,8 +517,14 @@ public sealed partial class GameLoop : IDisposable
         Vector2 centre = TerrainRenderer.TileCenter(centreTile.col, centreTile.row);
         float radius = ObjectResidencyRadius;
 
+        // Two very different jobs share this method's cost: walking nine ADTs'
+        // MDDF lists, and enumerating every MODD placement of every resident
+        // WMO. At 7,562 placements this measured 71 ms and we do not yet know
+        // which half. Split before optimizing - that has been right every time.
+        long doodadPhase = Stopwatch.GetTimestamp();
         _doodads.LoadForTiles(
             _terrain.LoadedTiles, _adts, centre, radius, reportDiagnostics);
+        _outdoorPlacementMilliseconds = Stopwatch.GetElapsedTime(doodadPhase).TotalMilliseconds;
 
         // Furniture. A huge WMO can touch the terrain ring while most of its
         // MODD placements are far outside doodad draw range. Resolve only the
@@ -477,6 +538,8 @@ public sealed partial class GameLoop : IDisposable
             requested++;
             if (_doodads.AddPlaced(path, transform, light)) placed++;
         }
+        _interiorPlacementMilliseconds = interiors.Elapsed.TotalMilliseconds;
+        _placementsRequested = requested;
 
         if (reportDiagnostics && requested > 0)
             _doodads.ReportInterior(requested, placed, interiors.Elapsed.TotalSeconds);
@@ -493,6 +556,11 @@ public sealed partial class GameLoop : IDisposable
         var next = TerrainRenderer.TileAt(_controller.Position.X, _controller.Position.Y);
         if (_residentCentre == next) return;
 
+        // The timer starts HERE, not after the readiness gate. It used to start
+        // below and reported 0.06s for a crossing the hitch recorder measured at
+        // 0.17s - a phase timer that starts late lies quietly (handbook 8.7).
+        var timer = Stopwatch.StartNew();
+
         var terrainLead = TerrainRenderer.TileRing(
             next.col, next.row, _config.Start.TileRadius + 1);
         _terrain.QueuePreload(terrainLead, _adts);
@@ -500,33 +568,67 @@ public sealed partial class GameLoop : IDisposable
             next.col, next.row, _config.Start.TileRadius);
         if (!_terrain.PreloadReady(desiredTerrain)) return;
 
-        var timer = Stopwatch.StartNew();
+        double gateSeconds = timer.Elapsed.TotalSeconds;
         Console.WriteLine($"[stream] crossing to tile [{next.col},{next.row}]");
 
         try
         {
+            // Sub-phase timing. The crossing is one synchronous block that
+            // rebuilds every placement in the resident ring from scratch, and
+            // NO amount of waiting before the boundary avoids it - that is
+            // Nico's observation and it rules out "the async work had not
+            // finished" as the explanation. So the question is only WHICH
+            // rebuild dominates, and that is a measurement, not a theory.
+            long t0 = Stopwatch.GetTimestamp();
             _terrain.SetResidency(next.col, next.row, _config.Start.TileRadius, _adts);
+            double terrainMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
 
+            t0 = Stopwatch.GetTimestamp();
             _wmo?.ResetPlacements();
             _wmo?.LoadForTiles(_terrain.LoadedTiles, _adts);
+            double wmoMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+
+            t0 = Stopwatch.GetTimestamp();
             _liquid?.LoadForTiles(_terrain.LoadedTiles, _adts);
+            double liquidMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
 
             var preloadRing = TerrainRenderer.TileRing(next.col, next.row, WmoPreloadRadius);
-            _wmo?.QueuePreloadForTiles(preloadRing, _adts);
 
+            t0 = Stopwatch.GetTimestamp();
+            _wmo?.QueuePreloadForTiles(preloadRing, _adts);
+            double wmoQueueMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+
+            t0 = Stopwatch.GetTimestamp();
             _doodads?.ResetPlacements();
             PopulateDoodads(next, reportDiagnostics: false);
+            double doodadMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
 
+            t0 = Stopwatch.GetTimestamp();
             _adts.Retain(preloadRing);
+            double retainMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
 
             _residentCentre = next;
+
+            t0 = Stopwatch.GetTimestamp();
             BeginCollisionBuild();
+            double collisionMs = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
 
             _lastStreamSeconds = timer.Elapsed.TotalSeconds;
             Console.WriteLine($"[stream] tile [{next.col},{next.row}] ready: " +
                               $"{_terrain.TileCount} terrain, {_wmo?.InstanceCount ?? 0} WMO, " +
                               $"{_doodads?.InstanceCount ?? 0} doodad placement(s), " +
-                              $"{_lastStreamSeconds:F2}s");
+                              $"{_lastStreamSeconds:F2}s (queue/gate {gateSeconds:F2}s)");
+            Console.WriteLine($"[stream]   terrain {terrainMs:F1} ms  wmo {wmoMs:F1}  " +
+                              $"liquid {liquidMs:F1}  wmoQueue {wmoQueueMs:F1}  " +
+                              $"doodads {doodadMs:F1}  retain {retainMs:F1}  " +
+                              $"collisionSnapshot {collisionMs:F1}  " +
+                              $"(ring deferred {_wmo?.DeferredRingTiles ?? 0})");
+            Console.WriteLine($"[stream]   doodads {doodadMs:F1} = outdoor " +
+                              $"{_outdoorPlacementMilliseconds:F1} + wmoInterior " +
+                              $"{_interiorPlacementMilliseconds:F1} over " +
+                              $"{_placementsRequested:N0} MODD placement(s); " +
+                              $"residency radius {ObjectResidencyRadius:F0} yd, " +
+                              $"draw {_doodads?.DrawDistance ?? 0:F0} yd");
         }
         catch (Exception ex)
         {
@@ -804,16 +906,60 @@ public sealed partial class GameLoop : IDisposable
             return;
         }
 
-        var next = new CollisionWorld();
-        _wmo.AppendCollision(next);
-        _doodads?.AppendCollision(next);
+        // Snapshot ONLY the placement list here: a reference to each model's
+        // immutable triangle array plus its transform. A few thousand tiny
+        // structs, sub-millisecond.
+        //
+        // What used to be here was the full expansion - ~509,000 triangles,
+        // three Vector3.Transform calls each - measured by the hitch recorder
+        // at 92.9 ms and fired on a timer every few seconds while doodads
+        // streamed, to add a handful of props. Nothing on screen changed
+        // because nothing on screen HAD changed; the work was re-deriving
+        // geometry it already had.
+        //
+        // Handbook 5.4 forbids a worker reading live renderer placement
+        // collections while they mutate. That applies to the LIST, which is
+        // copied here, not to model geometry, which is immutable once loaded -
+        // so the expansion belongs with the BVH build on the worker.
+        var batches = new List<CollisionBatch>(8192);
+        int buildings = _wmo.SnapshotCollision(batches);
+        int props = _doodads?.SnapshotCollision(batches) ?? 0;
         _collisionDebug?.Clear();
 
         int generation = ++_collisionGeneration;
         _collisionBuildTask = Task.Run(() =>
         {
             var timer = Stopwatch.StartNew();
+            var next = new CollisionWorld();
+
+            int triangles = 0, skipped = 0;
+            foreach (var batch in batches)
+            {
+                var tris = batch.Triangles;
+                int source = next.RegisterSource(Path.GetFileName(batch.Path));
+                var m = batch.Transform;
+
+                for (int i = 0; i + 2 < tris.Length; i += 3)
+                {
+                    next.AddTriangle(
+                        Vector3.Transform(tris[i], m),
+                        Vector3.Transform(tris[i + 1], m),
+                        Vector3.Transform(tris[i + 2], m),
+                        source);
+                    triangles++;
+                }
+
+                skipped += batch.Skipped;
+            }
+
+            double expandSeconds = timer.Elapsed.TotalSeconds;
             next.Build();
+
+            Console.WriteLine(
+                $"[collision] {buildings} building(s) + {props} doodad(s), " +
+                $"{triangles:N0} triangles expanded in {expandSeconds * 1000:F0}ms " +
+                $"off-thread ({skipped:N0} detail excluded)");
+
             return (generation, next, timer.Elapsed.TotalSeconds);
         });
     }
@@ -854,10 +1000,26 @@ public sealed partial class GameLoop : IDisposable
 
     public void Update(float dt)
     {
+        // Frame boundary. Update-entry to Update-entry is the only placement
+        // where a frame's Update AND its Render both fall inside the period
+        // being measured - see HitchRecorder.FrameBoundary for why the obvious
+        // alternative silently blames the wrong frame.
+        if (_hitch.FrameBoundary(CurrentFramePhases())) WriteHitchRecord();
+
         long updateStarted = Stopwatch.GetTimestamp();
         if (_controller is null) return;
+
+        // Adopting ready terrain creates VAOs and installs height grids on this
+        // thread; five tiles can land in one frame.
+        long headStarted = Stopwatch.GetTimestamp();
         _terrain?.PumpPreloads();
+        _pumpPreloadsMilliseconds = Stopwatch.GetElapsedTime(headStarted).TotalMilliseconds;
+
+        headStarted = Stopwatch.GetTimestamp();
         AcceptReadyCollision();
+        _acceptCollisionMilliseconds = Stopwatch.GetElapsedTime(headStarted).TotalMilliseconds;
+
+        _doodadCollisionSnapshotMilliseconds = 0;
 
         // Fold newly-streamed doodads into the collision world once a build slot
         // is free. Coalesced (one build at a time, at most ~1/s) so a burst of
@@ -865,12 +1027,48 @@ public sealed partial class GameLoop : IDisposable
         // what keeps trees/fences solid in demand-stream mode; the world settles
         // to include all resident doodads within ~a second of them appearing.
         _doodadCollisionRebuildCooldown -= dt;
+        if (_doodadCollisionDirty) _doodadCollisionDeferredFor += dt;
+
+        // Two gates, not one. The cooldown limits how OFTEN; the delta limits
+        // whether it is worth doing at all. A rebuild costs a full ~509,000
+        // triangle re-expansion plus a from-scratch BVH, so firing it because
+        // ten props arrived re-derives the entire world to add a rounding
+        // error. The defer timer is the safety valve: a slow trickle still
+        // becomes solid, just later.
+        // Rebuild when streaming has SETTLED, not while it is in flight. Each
+        // rebuild is a ~500,000 triangle expansion plus a from-scratch BVH -
+        // 0.6 to 1.1 s of worker time - and firing one every couple of seconds
+        // during a stream-in kept a core pegged and the memory bus busy
+        // continuously. On an integrated GPU sharing that bus with the render
+        // thread, that is not free even though it is "off the main thread":
+        // the present-swap stalls in the same logs are what it looks like.
+        bool streamingSettled = (_doodads?.PendingPreloads ?? 0) == 0;
+        bool worthRebuilding =
+            (streamingSettled && _doodadCollisionPending > 0) ||
+            _doodadCollisionDeferredFor >= DoodadCollisionMaxDeferSeconds;
+
         if (_doodadCollisionDirty && _collisionBuildTask is null
-            && _doodadCollisionRebuildCooldown <= 0f)
+            && _doodadCollisionRebuildCooldown <= 0f && worthRebuilding)
         {
             _doodadCollisionDirty = false;
-            _doodadCollisionRebuildCooldown = 1.0f;
+            _doodadCollisionPending = 0;
+            _doodadCollisionDeferredFor = 0f;
+            // 1.0s meant a full ~1.17M-triangle main-thread re-walk EVERY SECOND
+            // while doodads streamed in - visible as the repeated
+            // "[collision] from client geometry" spam in every log. Until the
+            // snapshot is per-tile and spliced (PLAN_08 D3), coalescing harder
+            // is the cheap win: trees become solid a couple of seconds later,
+            // which no one can perceive, and the stutter happens a third as often.
+            _doodadCollisionRebuildCooldown = 3.0f;
+
+            // NOT free, and until now not measured: this is the same ~500k
+            // triangle main-thread walk the crossing pays, fired on a timer
+            // while doodads stream. Timed separately from the crossing's copy
+            // (which is inside residency) so neither is double-counted.
+            long snapshotStarted = Stopwatch.GetTimestamp();
             BeginCollisionBuild();
+            _doodadCollisionSnapshotMilliseconds =
+                Stopwatch.GetElapsedTime(snapshotStarted).TotalMilliseconds;
         }
 
         if (_cycleTimeOfDay)
@@ -979,8 +1177,20 @@ public sealed partial class GameLoop : IDisposable
         // second GL upload/build after the first has consumed this frame.
         phaseStarted = Stopwatch.GetTimestamp();
         var preloadBudget = Stopwatch.StartNew();
+
+        long subStarted = Stopwatch.GetTimestamp();
         DiscoverNextBackgroundTile(dt);
+        _discoverMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
+
+        subStarted = Stopwatch.GetTimestamp();
         QueueVisibleDoodadDemand(dt);
+        _doodadDemandMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
+
+        // NOTE the budget only gates the SECOND warm call. A single
+        // WarmNextPreload finalizes a whole model on this thread, so one heavy
+        // model blows straight through it - which is precisely what WoWee's
+        // resumable advanceFinalization cursor prevents (PLAN_08 D2).
+        subStarted = Stopwatch.GetTimestamp();
         if (_preloadWmoFirst) _wmo?.WarmNextPreload();
         else _doodads?.WarmNextPreload();
         if (preloadBudget.Elapsed.TotalMilliseconds < 6)
@@ -988,6 +1198,7 @@ public sealed partial class GameLoop : IDisposable
             if (_preloadWmoFirst) _doodads?.WarmNextPreload();
             else _wmo?.WarmNextPreload();
         }
+        _warmMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
         _preloadWmoFirst = !_preloadWmoFirst;
         _preloadMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
@@ -1060,6 +1271,21 @@ public sealed partial class GameLoop : IDisposable
         _doodadDemandDelay = 0.25f;
 
         var centre = new Vector2(_controller.Position.X, _controller.Position.Y);
+
+        // Nothing can have changed if no model is still in flight to acquire
+        // placements AND the player has not moved far enough to bring anything
+        // new into range. Skipping is not an optimization here - running was
+        // the bug. Back the interval off while idle so a stationary player
+        // costs nothing at all.
+        bool streamingInFlight = _doodads.PendingPreloads > 0;
+        if (!streamingInFlight && _lastDemandCentre is { } last &&
+            Vector2.DistanceSquared(centre, last) < DemandRescanDistance * DemandRescanDistance)
+        {
+            _doodadDemandDelay = 1.0f;
+            return;
+        }
+
+        _lastDemandCentre = centre;
         float radius = DoodadDemandRadius;
         _doodads.QueuePreloadForTiles(_terrain.LoadedTiles, _adts, centre, radius);
         if (_wmo is not null)
@@ -1079,7 +1305,10 @@ public sealed partial class GameLoop : IDisposable
         // Update loop folds them in. Without this, doodad collision is missing
         // for everything that streams in after the initial build.
         if (_doodads.InstanceCount != placementsBefore && ClientGeometryCollision)
+        {
+            _doodadCollisionPending += Math.Abs(_doodads.InstanceCount - placementsBefore);
             _doodadCollisionDirty = true;
+        }
     }
 
     // Vantage capture / apply / echo moved to Program.DevTools.cs
@@ -1206,6 +1435,8 @@ public sealed partial class GameLoop : IDisposable
 
     public void Render(float dt)
     {
+        long renderSpanStarted = Stopwatch.GetTimestamp();
+
         ApplyAtmosphere();
         _gpuProfiler?.BeginFrame();
 
@@ -1225,12 +1456,14 @@ public sealed partial class GameLoop : IDisposable
 
         // Ground-effect foliage: scatter near the camera (throttled internally),
         // then draw it into the opaque world pass so terrain/water depth-interact.
+        long foliageStarted = Stopwatch.GetTimestamp();
         if (_foliage is not null && _adts is not null && _terrain is not null)
         {
             _foliage.Time += dt;
             _foliage.Scatter(_window.Camera, _adts, _terrain.LoadedTiles, _terrain);
             _foliage.Render(_window.Camera);
         }
+        _foliageRenderMilliseconds = Stopwatch.GetElapsedTime(foliageStarted).TotalMilliseconds;
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
 
@@ -1246,6 +1479,7 @@ public sealed partial class GameLoop : IDisposable
         // (you see the waterline climb his body) while the near bank still occludes
         // it. Then, if the camera eye itself is below a water surface, tint the
         // whole screen so it reads as being underwater.
+        long liquidStarted = Stopwatch.GetTimestamp();
         if (_liquid is not null)
         {
             _liquid.Time += dt;
@@ -1258,6 +1492,7 @@ public sealed partial class GameLoop : IDisposable
                 _liquid.RenderUnderwater(surfaceZ - eye.Z, liquidType);
             }
         }
+        _liquidRenderMilliseconds = Stopwatch.GetElapsedTime(liquidStarted).TotalMilliseconds;
 
         // Last, so it draws over the world it describes.
         long debugStarted = Stopwatch.GetTimestamp();
@@ -1279,6 +1514,18 @@ public sealed partial class GameLoop : IDisposable
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Debug);
         _gpuProfiler?.EndFrame();
         _debugRenderMilliseconds = Stopwatch.GetElapsedTime(debugStarted).TotalMilliseconds;
+
+        _renderSpanMilliseconds = Stopwatch.GetElapsedTime(renderSpanStarted).TotalMilliseconds;
+
+        // Self-test stall, deliberately after the render span closes so it
+        // lands in no measured phase and reports as unaccounted time - which is
+        // exactly the field it exists to prove works (PLAN_07 section 7).
+        if (_hitch.PendingForcedStallMs > 0)
+        {
+            int ms = (int)_hitch.PendingForcedStallMs;
+            _hitch.PendingForcedStallMs = 0;
+            System.Threading.Thread.Sleep(ms);
+        }
     }
 
     private void ApplyAtmosphere()
@@ -1428,6 +1675,8 @@ public sealed partial class GameLoop : IDisposable
                 }
             }
             }
+
+            DrawHitchPanel();
 
             if (ImGui.CollapsingHeader("Performance - CPU draw submission", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -2495,8 +2744,27 @@ public sealed partial class GameLoop : IDisposable
             {
                 Slider("Wind strength", () => f.WindStrength, x => f.WindStrength = x, 0f, 0.4f, "%.3f");
                 Slider("Wind speed", () => f.WindSpeed, x => f.WindSpeed = x, 0f, 5f, "%.2f");
-                Slider("Fade start (yd)", () => f.FadeStart, x => f.FadeStart = x, 0f, 120f, "%.0f");
-                Slider("Fade end (yd)", () => f.FadeEnd, x => f.FadeEnd = x, 1f, 120f, "%.0f");
+                bool linkFade = f.LinkFadeToRadius;
+                if (ImGui.Checkbox("Fade follows radius", ref linkFade)) f.LinkFadeToRadius = linkFade;
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(
+                        "On: the fade window is derived from Radius, so raising Radius\n" +
+                        "actually shows more grass. Off: the two sliders below apply, and\n" +
+                        "grass past 'Fade end' is invisible no matter how large Radius is.");
+
+                if (f.LinkFadeToRadius)
+                {
+                    ImGui.TextDisabled(
+                        $"fade {f.EffectiveFadeStart:F0} -> {f.EffectiveFadeEnd:F0} yd (from radius)");
+                    float startFrac = f.FadeStartFraction;
+                    if (ImGui.SliderFloat("Fade start (fraction)", ref startFrac, 0.1f, 1.0f, "%.2f"))
+                        f.FadeStartFraction = startFrac;
+                }
+                else
+                {
+                    Slider("Fade start (yd)", () => f.FadeStart, x => f.FadeStart = x, 0f, 120f, "%.0f");
+                    Slider("Fade end (yd)", () => f.FadeEnd, x => f.FadeEnd = x, 1f, 120f, "%.0f");
+                }
             }
 
             if (ImGui.CollapsingHeader("Look", ImGuiTreeNodeFlags.DefaultOpen))

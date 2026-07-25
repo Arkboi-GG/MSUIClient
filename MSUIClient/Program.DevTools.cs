@@ -165,6 +165,10 @@ public sealed partial class GameLoop
         }
 
         _currentVantage = v.Name;
+        // A teleport produces a legitimately enormous frame while the
+        // destination streams in. That is not the bug the hitch recorder
+        // hunts, so give it a grace window (PLAN_07).
+        _hitch.SuppressFor(3.0);
         Console.WriteLine(VantageLine("loaded", v));
     }
 

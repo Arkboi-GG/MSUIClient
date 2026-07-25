@@ -1128,6 +1128,30 @@ public sealed class DoodadRenderer : IDisposable
     /// transform the renderer draws with. Models without a hull contribute
     /// nothing, which is correct: you are meant to walk through a torch.
     /// </summary>
+    /// <summary>
+    /// Record each solid doodad placement as a reference to its immutable
+    /// collision geometry plus a transform. See CollisionBatch for why this
+    /// does not expand triangles.
+    /// </summary>
+    public int SnapshotCollision(List<CollisionBatch> into)
+    {
+        int solid = 0;
+
+        foreach (var (model, instances) in _byModel)
+        {
+            var tris = model.CollisionTriangles;
+            if (tris.Length < 3) continue;
+
+            foreach (var instance in instances)
+            {
+                into.Add(new CollisionBatch(tris, instance.Transform, instance.Path, 0));
+                solid++;
+            }
+        }
+
+        return solid;
+    }
+
     public void AppendCollision(CollisionWorld world)
     {
         int solid = 0, triangles = 0;

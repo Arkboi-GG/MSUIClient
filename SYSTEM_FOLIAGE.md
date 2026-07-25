@@ -162,8 +162,24 @@ authenticity switches.** Turning any of them off is a diagnostic, not a setting.
 **Types** — per-kind enable and per-kind density, plus a live instance count per
 kind. This is where the retail curation gets reproduced.
 
-**Wind and fade** — `WindStrength` (0.06), `WindSpeed` (1.4), `FadeStart` (30),
-`FadeEnd` (45).
+**Wind and fade** — `WindStrength` (0.06), `WindSpeed` (1.4), and the fade
+window.
+
+> **`Radius` alone does nothing past the fade window, and that was a real bug.**
+> `grass.frag` computes
+> `fade = clamp((uFadeEnd - dist) / (uFadeEnd - uFadeStart), 0, 1)`, so grass
+> beyond `FadeEnd` is alpha-faded to nothing however far `Radius` reaches. With
+> the old fixed defaults (30/45) against a Radius slider that goes to 120, the
+> slider scattered instances nobody could see — Nico's report was "doesn't
+> actually increase past about 30 yards", which is `FadeStart` exactly.
+>
+> `LinkFadeToRadius` (**default on**) now derives the window from Radius:
+> `FadeEnd = Radius`, `FadeStart = Radius * FadeStartFraction` (0.66). Coverage
+> and visibility were two knobs for one intent. Untick it to tune the window by
+> hand; the two yard sliders reappear and the old behaviour returns.
+>
+> Cost scales with area, so doubling Radius roughly quadruples instance count —
+> watch `MaxInstances` (24,000) before blaming the renderer.
 
 **Look** — `Scale` (1.0), `ScaleJitter` (±0.25), `AlphaCutoff` (0.4),
 `Brightness` (1.0).

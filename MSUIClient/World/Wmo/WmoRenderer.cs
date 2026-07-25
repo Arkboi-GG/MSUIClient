@@ -283,6 +283,14 @@ public sealed class WmoRenderer : IDisposable
     private readonly List<Instance> _instances = [];
     private readonly HashSet<string> _placed = [];
     private readonly Queue<string> _preloadQueue = new();
+
+    /// <summary>
+    /// Preload-ring tiles whose ADT had not finished parsing when the ring was
+    /// computed. Retried every frame from <see cref="WarmNextPreload"/> instead
+    /// of being waited on - see the contract on QueuePreloadForTiles.
+    /// </summary>
+    private readonly HashSet<(int col, int row)> _deferredRingTiles = new();
+    private AdtCache? _ringAdts;
     private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
     private ModelLoadJob? _preloadJob;
     private readonly Queue<string> _newDoodadModels = new();
@@ -319,6 +327,9 @@ public sealed class WmoRenderer : IDisposable
     public int ModelCount => _models.Count(m => m.Value is not null);
     public int TextureCount => _textures.Count(t => t.Value is not null);
     public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
+
+    /// <summary>Ring tiles still waiting on an ADT parse. Should trend to zero.</summary>
+    public int DeferredRingTiles => _deferredRingTiles.Count;
     public int TotalTriangles { get; private set; }
     public int DrawnLastFrame { get; private set; }
     public int VisibleGroupsLastFrame { get; private set; }
@@ -558,30 +569,78 @@ public sealed class WmoRenderer : IDisposable
     /// parsed models, decoded textures and GPU buffers stay in the normal
     /// caches, so making the inner ring resident later is a cheap cache hit.
     /// </summary>
+    /// <summary>
+    /// Queue every WMO referenced by these tiles for background warming.
+    ///
+    /// NON-BLOCKING BY CONTRACT (PLAN_08 D1). This is speculative warming of the
+    /// outer preload ring, so a tile whose ADT is not parsed yet is deferred and
+    /// retried next frame rather than waited on.
+    ///
+    /// It used to call adts.Get(), which blocks on a pending parse. With 25 ring
+    /// tiles and a worker pool busy with doodads, the hitch recorder measured
+    /// that at 61 ms of a 187 ms tile-crossing freeze - the single largest item.
+    /// Nothing warmed here is needed this frame: the buildings are two tiles
+    /// away. Waiting for them was pure loss.
+    /// </summary>
     public void QueuePreloadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
     {
-        foreach (var (col, row) in tiles)
+        _ringAdts = adts;
+        foreach (var key in tiles) TryQueueRingTile(key, adts);
+    }
+
+    /// <summary>
+    /// Enqueue one ring tile's WMOs if its ADT is already parsed; otherwise
+    /// start the parse on the pool and remember the tile for a later retry.
+    /// </summary>
+    private void TryQueueRingTile((int col, int row) key, AdtCache adts)
+    {
+        if (!adts.TryPeek(key.col, key.row, out var adt))
         {
-            var adt = adts.Get(col, row);
-            if (adt?.Wmos is null) continue;
-
-            foreach (var w in adt.Wmos)
-            {
-                string path = w.ModelPath;
-                if (string.IsNullOrWhiteSpace(path) ||
-                    path.StartsWith("Unknown_", StringComparison.Ordinal) ||
-                    _models.ContainsKey(path) ||
-                    _preloadJob?.RootPath.Equals(path, StringComparison.OrdinalIgnoreCase) == true ||
-                    !_preloadQueued.Add(path)) continue;
-
-                _preloadQueue.Enqueue(path);
-            }
+            // Kick the parse off-thread and come back to it. QueueLoad is
+            // idempotent, so calling it again next frame costs nothing.
+            adts.QueueLoad(key.col, key.row, _workers);
+            _deferredRingTiles.Add(key);
+            return;
         }
+
+        // Authoritative answer, including "this tile has no ADT" - either way
+        // the tile is finished and must not be retried forever.
+        _deferredRingTiles.Remove(key);
+        if (adt?.Wmos is null) return;
+
+        foreach (var w in adt.Wmos)
+        {
+            string path = w.ModelPath;
+            if (string.IsNullOrWhiteSpace(path) ||
+                path.StartsWith("Unknown_", StringComparison.Ordinal) ||
+                _models.ContainsKey(path) ||
+                _preloadJob?.RootPath.Equals(path, StringComparison.OrdinalIgnoreCase) == true ||
+                !_preloadQueued.Add(path)) continue;
+
+            _preloadQueue.Enqueue(path);
+        }
+    }
+
+    /// <summary>
+    /// Retry ring tiles whose ADT has finished parsing since it was deferred.
+    /// Cheap: a dictionary probe each, and the set empties as parses land.
+    /// </summary>
+    private void DrainDeferredRingTiles()
+    {
+        if (_ringAdts is null || _deferredRingTiles.Count == 0) return;
+
+        // Snapshot: TryQueueRingTile mutates the set it is iterating.
+        foreach (var key in _deferredRingTiles.ToArray())
+            TryQueueRingTile(key, _ringAdts);
     }
 
     /// <summary>Warm one queued model. Runtime streaming calls this once per frame.</summary>
     public bool WarmNextPreload(bool waitForWorker = false)
     {
+        // Ring tiles deferred by TryQueueRingTile get their retry here, because
+        // this is already called once per frame by the streaming update.
+        DrainDeferredRingTiles();
+
         while (_preloadJob is null && _preloadQueue.Count > 0)
         {
             string path = _preloadQueue.Dequeue();
@@ -1300,6 +1359,29 @@ public sealed class WmoRenderer : IDisposable
     /// Feed every placed building's collidable triangles into a collision
     /// world, using the SAME transform the renderer draws with.
     /// </summary>
+    /// <summary>
+    /// Record each placed building as a reference to its immutable collision
+    /// geometry plus a transform. Does NOT expand triangles - that is the whole
+    /// point (see CollisionBatch). Cheap enough to run on the render thread
+    /// every time collision needs rebuilding.
+    /// </summary>
+    public int SnapshotCollision(List<CollisionBatch> into)
+    {
+        int placed = 0;
+
+        foreach (var instance in _instances)
+        {
+            var tris = instance.Model.CollisionTriangles;
+            if (tris.Length < 3) continue;
+
+            into.Add(new CollisionBatch(
+                tris, instance.Transform, instance.Path, instance.Model.CollisionSkipped));
+            placed++;
+        }
+
+        return placed;
+    }
+
     public void AppendCollision(CollisionWorld world)
     {
         int placed = 0, triangles = 0, skipped = 0;

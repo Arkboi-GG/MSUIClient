@@ -2,7 +2,12 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 22 — 2026-07-24
+Version: Draft 23 — 2026-07-25
+Supersedes: Draft 22 (previous day; the streaming/performance session — the hitch
+recorder was built (PLAN_07), the tile-crossing freeze was measured at 187 ms and
+eliminated, and SYSTEM_STREAMING.md was extracted under the §1.2 rule. The felt
+micro-stutter is NOT solved; §3.27 and SYSTEM_STREAMING.md §5 state the open
+problem honestly)
 Supersedes: Draft 21 (same day; §0, §1, §4, §5.2, §5.3 and §7.1 had fallen behind four systems that shipped after it — water Draft 2, WMO interior lighting, doodad lighting and foliage — and behind the foundation/DevTools layer that is now code. Draft 22 reconciles them and moves the per-system detail out under the §1.2 rule)
 Supersedes: Draft 20 (same-ish day; the first water/liquid system landed — see SYSTEM_WATER.md — and the docs began splitting one-system-per-file per §1.2, so system detail now lives in SYSTEM_*.md and this handbook is trending toward a lean index of cross-cutting truth)
 Supersedes: Draft 19 (same day; warm lighting retune, ALWAYS_DRAW-interior impostor classification, per-group inside test, collision-BVH occlusion cull, portal-chunk parsing, and the live in-game tuning HUD + middle-click group picker)
@@ -129,6 +134,38 @@ cost on Iris Xe: roughly 5–7 FPS in Trade District. The default is now a true
 has multiple samples.
 
 ### Stop point — read this first in the next session
+
+> ## MACHINE SWITCH, 2026-07-25
+>
+> **First thing: `git log --oneline -3` and `git status`.** The streaming work is
+> committed. If the tree looks empty of it, you are on the wrong machine or the
+> wrong branch.
+>
+> **What was achieved, measured:** the tile-crossing freeze is gone —
+> 187 ms → not measurable, three consecutive crossings under a 40 ms threshold.
+> Four defects fixed: blocking ADT reads on the preload ring (61.2 → 0.0 ms),
+> main-thread collision expansion (92.9 → 0.3 ms), a full world re-derivation
+> running four times a second forever, and collision BVH churn during streaming.
+>
+> **What was NOT achieved, and do not let a summary tell you otherwise:** Nico
+> still feels micro-stutter. Every surviving hitch is
+> `present-swap-driver`, 27–38 ms, with `update 0.1` and `render 3.7` — our code
+> doing nothing. **All four fixes above were real and none of them was the thing
+> he can feel.**
+>
+> **The blind spot, stated plainly so it is not repeated:** that entire session
+> measured only the CPU. `GpuFrameProfiler` existed the whole time and was never
+> read. GPU timings are wired into the hitch record now but **have not been read
+> yet** — the very next run should produce a `[hitch] GPU (delayed)` line, and it
+> decides between the two hypotheses in SYSTEM_STREAMING.md §5.2.
+>
+> **Before writing any code, run the two one-click A/B tests** in
+> SYSTEM_STREAMING.md §5.3 (VSync off; GPU instancing off). 27/30/37 ms are 2–3×
+> the 16.7 ms vblank interval, which is the signature of missing vblank — not of
+> a driver misbehaving, whatever the phase happens to be named.
+>
+> Read **SYSTEM_STREAMING.md** before touching streaming, residency or
+> performance. It has every number.
 
 **Git state as of Draft 22.** Branch `main`, 6 commits, head `1292c91 proper
 water`. Water is therefore **committed and shipped**, not pending a first
@@ -349,12 +386,14 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
 | `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
 | `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation | **Written** |
+| `PLAN_07_HITCH_RECORDER.md` | The automatic frame-spike recorder: ring buffer, console tee, auto-vantage | **Built and proven** — caught the freeze on the first walk |
+| `PLAN_08_INCREMENTAL_RESIDENCY.md` | Per-tile ownership, budgeted adoption, and WoWee's five mechanisms quoted from source | D1 done; D2/D3 outstanding; D4/D5 dropped with reasons |
 | `FOUNDATION_PLAN.md` + `PLAN_0x_*.md` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. `FOUNDATION_PLAN.md` still says "Status: proposed. Nothing here is code yet" — **that line is stale**; fix it when you next touch the file |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
 | `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion, portals (**lighting is already split out — see the two lighting docs above**) | Planned extraction from §3.24–3.35 |
 | `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
 | `SYSTEM_COLLISION.md` | Client-geometry collision, BVH, sweep/slide/step-up | Planned extraction |
-| `SYSTEM_STREAMING.md` | Moving residency ring, worker pools, GPU upload context | Planned extraction from §3.24/§3.27/§3.30 |
+| `SYSTEM_STREAMING.md` | Moving residency ring, tile crossings, worker pools, GPU upload context, the hitch recorder, and the frame-time breakdown | **Written (Draft 1)** — extracted 2026-07-25. Carries the measured numbers AND the unsolved micro-stutter (§5). Read it before any performance work |
 | `SYSTEM_ATMOSPHERE.md` | Time-of-day light, fog, sky, visibility coupling | Planned extraction from §3.28 |
 
 "Planned extraction" means the content still lives in this handbook's §3 for now;
@@ -862,19 +901,55 @@ next run must correlate visible hitches with:
 - `[collision-async]`;
 - WMO and doodad queue depth.
 
-Likely remaining causes, in evidence order rather than certainty:
+> **§3.27 is superseded by SYSTEM_STREAMING.md (2026-07-25).** That doc is the
+> single source of truth for streaming and frame performance now, including the
+> parts of this section that are still true. What follows is the first
+> measurement pass, kept because its method is worth reading; the outcome and
+> the open problem are in the system doc.
 
-- whole-WMO upload packages instead of independently publishable groups;
-- shared-driver contention while upload-context fences are outstanding;
-- main-thread placement rebuilding and collision-triangle snapshotting at the
-  atomic residency change;
-- cold MPQ parsing/decompression and texture preparation with no persistent
-  prepared-asset cache between launches;
-- steady-state draw-call and per-instance/per-group culling cost rather than
-  loading at all.
+**MEASURED, 2026-07-24 — the guesswork above is over.** The hitch recorder
+(PLAN_07, `Engine/HitchRecorder.cs`) caught the felt stutter on the first walk.
+Two consecutive runs, same tile crossing, same verdict:
 
-Instrument before changing architecture again. In particular, first determine
-whether a hitch coincides with an upload, a residency publication, or neither.
+```
+[hitch] hitch-32-49-2: 172 ms frame at [32,49] (-9067,-43,88) -> residency
+[hitch]   update 169.0 (move 0.1 resid 168.8 preload 0.0)  render 2.0
+          present 0.3  gui 0.5  input 0.0  unaccounted 0.4
+```
+
+**`UpdateWorldResidency` is the whole hitch: 168.8 of 172 ms, on the main
+thread.** Render is 2 ms. Present is 0.3 ms. So the four suspects that were
+ranked first above are all *cleared* — it is not upload packaging, not driver
+contention behind fences, not steady-state draw cost, and not the unmeasured
+window/swap boundary. It is one synchronous method.
+
+Two facts inside that number, both of which cost time to see:
+
+1. **`[stream] ... ready: 0.06s` under-reports the crossing by ~3x.** Its
+   `Stopwatch` starts at `Program.cs:504`, *after* `QueuePreload` and
+   `PreloadReady` have already run. The missing ~109 ms is in
+   `TerrainRenderer.QueuePreload` (`TerrainRenderer.cs:263`), whose doc comment
+   says it prepares tiles "on CPU workers" — but `adts.Get(col,row)`,
+   `BuildHeightGrid` and `BuildHoleGrid` (lines 271-278) all run on the calling
+   thread, and only `TerrainTile.Prepare` reaches a worker. A cold ADT on the
+   entering edge is a full MPQ read, decompress and parse in the render thread.
+   **Do not trust `[stream] ready` as the cost of a crossing.**
+2. The remaining ~60 ms is inside the timer: `ResetPlacements` +
+   `LoadForTiles` + `PopulateDoodads` (6,360 placements rebuilt) +
+   `BeginCollisionBuild`'s main-thread triangle snapshot (~500k triangles).
+
+**Also visible in the same log and not yet a named hitch:** `[collision] from
+client geometry: 41 building(s), 394,123 solid triangles, 800,497 detail
+excluded` repeats roughly once a second while doodads stream in. Each repetition
+re-walks ~1.17M triangles on the main thread to feed an off-thread BVH build.
+The BVH is async; **the snapshot that feeds it is not.** That is the most likely
+source of the sub-threshold stutter, and it is cheap to test — raise the
+recorder's threshold slider down to ~40 ms and walk the same route.
+
+Fix order follows the measurement, not the old ranking: move the ADT
+fetch/height/hole work in `QueuePreload` off the render thread first (largest,
+most contained), then the placement rebuild and collision snapshot. Re-measure
+with the recorder after each — same route, same threshold, diff the numbers.
 
 ### 3.28 Atmosphere, visibility and truthful draw counts
 
@@ -1463,6 +1538,15 @@ One em-dash in a shader comment made Intel's GLSL compiler report "pre-mature EO
 
 ### 8.7 Streaming hitch triage
 
+- **Start here: read `dumps/hitch-*.json`, or the two `[hitch]` console lines.**
+  The recorder fires on its own at any frame over the threshold and names the
+  phase; correlating console tags against a remembered moment by hand is the
+  step it exists to delete. `unaccounted` near zero means the split is complete
+  and the named phase is the answer. `unaccounted` large means some region still
+  has no timer around it — say so rather than reading past it.
+- **A phase timer that starts late lies quietly.** `[stream] ready: 0.06s`
+  reported a third of its own crossing (§3.27). When a phase number disagrees
+  with the frame time, suspect the bracket before suspecting the frame.
 - `[gpu-upload] X completed in 16ms off-thread` alone is not a failure. It says
   how long the dedicated context took, not how long the render thread stopped.
 - `[stream-budget] ... 16ms` is render-thread adoption and is directly suspect.

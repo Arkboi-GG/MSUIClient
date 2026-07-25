@@ -21,10 +21,21 @@ public sealed class TerrainRenderer : IDisposable
     private readonly GpuUploadWorker _uploads;
     private readonly AssetWorkerPool _workers;
     private readonly Dictionary<(int col, int row), TerrainTile> _tiles = [];
-    private readonly Dictionary<(int col, int row), Task<TerrainTile.Uploaded?>> _preloads = [];
-    private readonly Dictionary<(int col, int row), float[]> _preloadHeights = [];
-    private readonly Dictionary<(int col, int row), byte[]> _preloadHoles = [];
+    private readonly Dictionary<(int col, int row), Task<PreloadedTile?>> _preloads = [];
     private readonly HashSet<(int col, int row)> _missingPreloads = [];
+
+    /// <summary>
+    /// One fully-prepared tile: the GPU package plus the two CPU grids that must
+    /// be installed with it. They travel together through the task rather than
+    /// sitting in parallel dictionaries, so a worker never writes renderer state
+    /// (handbook 5.4) and a grid can never be adopted for the wrong tile.
+    /// </summary>
+    private sealed class PreloadedTile
+    {
+        public TerrainTile.Uploaded? Uploaded;
+        public float[] Heights = [];
+        public byte[] Holes = [];
+    }
     private HashSet<(int col, int row)> _desired = [];
 
     /// <summary>Height grids kept CPU-side for ground queries, keyed like the tiles.</summary>
@@ -225,19 +236,25 @@ public sealed class TerrainRenderer : IDisposable
             {
                 if (!preload.IsCompleted) continue;
                 _preloads.Remove((col, row));
-                TerrainTile.Uploaded? uploaded;
-                try { uploaded = preload.GetAwaiter().GetResult(); }
+                PreloadedTile? ready;
+                try { ready = preload.GetAwaiter().GetResult(); }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[terrain-preload] tile [{col},{row}] failed - {ex.Message}");
+                    _missingPreloads.Add((col, row));
                     continue;
                 }
-                if (uploaded is null) continue;
-                _tiles[(col, row)] = TerrainTile.Adopt(_gl, uploaded);
-                _heights[(col, row)] = _preloadHeights.GetValueOrDefault((col, row), []);
-                SetHoles((col, row), _preloadHoles.GetValueOrDefault((col, row), []));
-                _preloadHeights.Remove((col, row));
-                _preloadHoles.Remove((col, row));
+                if (ready?.Uploaded is null)
+                {
+                    // Remember the absence. Without this the tile is re-queued
+                    // every frame, because the _preloads entry has just been
+                    // removed and nothing else records that it does not exist.
+                    _missingPreloads.Add((col, row));
+                    continue;
+                }
+                _tiles[(col, row)] = TerrainTile.Adopt(_gl, ready.Uploaded);
+                _heights[(col, row)] = ready.Heights;
+                SetHoles((col, row), ready.Holes);
                 changed = true;
                 continue;
             }
@@ -256,9 +273,20 @@ public sealed class TerrainRenderer : IDisposable
     }
 
     /// <summary>
-    /// Prepare the one-tile lead ring on CPU workers and upload it through the
+    /// Prepare the lead ring off the render thread and upload it through the
     /// shared GL context. These tiles remain unpublished until residency asks
     /// for them; the render thread only creates their small VAO container.
+    ///
+    /// EVERY part of the work is off-thread now, and that is the whole point of
+    /// this method. Until 2026-07-24 it fetched the ADT, built the height grid
+    /// and built the hole grid on the CALLING thread and sent only the mesh to a
+    /// worker - so a cold tile on the entering edge paid a full MPQ read,
+    /// decompress and parse inside Update. The hitch recorder measured that at
+    /// ~109 ms of a 172 ms tile-crossing freeze, invisible to the [stream] timer
+    /// because that timer starts afterwards (handbook 3.27).
+    ///
+    /// AdtCache.QueueLoad already existed and already parses on the pool. The
+    /// fix is to use it, not to add machinery.
     /// </summary>
     public void QueuePreload(
         IEnumerable<(int col, int row)> tiles, AdtCache adts)
@@ -266,20 +294,13 @@ public sealed class TerrainRenderer : IDisposable
         foreach (var (col, row) in tiles)
         {
             var key = (col, row);
-            if (_tiles.ContainsKey(key) || _preloads.ContainsKey(key)) continue;
+            if (_tiles.ContainsKey(key) ||
+                _preloads.ContainsKey(key) ||
+                _missingPreloads.Contains(key)) continue;
 
-            var adt = adts.Get(col, row);
-            if (adt is null)
-            {
-                _missingPreloads.Add(key);
-                continue;
-            }
-            _preloadHeights[key] = BuildHeightGrid(adt);
-            _preloadHoles[key] = BuildHoleGrid(adt);
-
-            var preparation = _workers.Run(() => TerrainTile.Prepare(
-                adt, _config.ClientDataPath, col, row));
-            _preloads[key] = CompleteTerrainPreload(preparation, col, row);
+            // Registered synchronously so one tile is never queued twice. That
+            // dictionary write is the only work this thread does here.
+            _preloads[key] = PreparePreloadAsync(key, adts);
         }
     }
 
@@ -289,14 +310,34 @@ public sealed class TerrainRenderer : IDisposable
             _missingPreloads.Contains(key) ||
             (_preloads.TryGetValue(key, out var task) && task.IsCompleted));
 
-    private async Task<TerrainTile.Uploaded?> CompleteTerrainPreload(
-        Task<TerrainTile.Prepared?> preparation, int col, int row)
+    /// <summary>
+    /// Parse, mesh and build both CPU grids for one tile on the worker pool,
+    /// then upload through the shared context. One worker job covers the grids
+    /// and the mesh because they share the parsed ADT - splitting them would
+    /// serialize two hops for no gain.
+    /// </summary>
+    private async Task<PreloadedTile?> PreparePreloadAsync(
+        (int col, int row) key, AdtCache adts)
     {
-        var prepared = await preparation.ConfigureAwait(false);
+        var adt = await adts.QueueLoad(key.col, key.row, _workers).ConfigureAwait(false);
+        if (adt is null) return null;
+
+        var cpu = await _workers.Run(() => new PreloadedTile
+        {
+            Heights = BuildHeightGrid(adt),
+            Holes = BuildHoleGrid(adt),
+            Uploaded = null,
+        }).ConfigureAwait(false);
+
+        var prepared = await _workers.Run(() => TerrainTile.Prepare(
+            adt, _config.ClientDataPath, key.col, key.row)).ConfigureAwait(false);
         if (prepared is null) return null;
-        return await _uploads.Enqueue(
-            $"terrain [{col},{row}]",
+
+        cpu.Uploaded = await _uploads.Enqueue(
+            $"terrain [{key.col},{key.row}]",
             uploadGl => TerrainTile.Upload(uploadGl, _gl, prepared)).ConfigureAwait(false);
+
+        return cpu;
     }
 
     /// <summary>Adopt ready terrain belonging to the current desired ring.</summary>
@@ -311,17 +352,16 @@ public sealed class TerrainRenderer : IDisposable
             _preloads.Remove(key);
             try
             {
-                var uploaded = task.GetAwaiter().GetResult();
-                if (uploaded is null) continue;
-                _tiles[key] = TerrainTile.Adopt(_gl, uploaded);
-                _heights[key] = _preloadHeights.GetValueOrDefault(key, []);
-                SetHoles(key, _preloadHoles.GetValueOrDefault(key, []));
-                _preloadHeights.Remove(key);
-                _preloadHoles.Remove(key);
+                var ready = task.GetAwaiter().GetResult();
+                if (ready?.Uploaded is null) { _missingPreloads.Add(key); continue; }
+                _tiles[key] = TerrainTile.Adopt(_gl, ready.Uploaded);
+                _heights[key] = ready.Heights;
+                SetHoles(key, ready.Holes);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[terrain-preload] tile [{key.col},{key.row}] failed - {ex.Message}");
+                _missingPreloads.Add(key);
             }
         }
     }
@@ -553,7 +593,8 @@ public sealed class TerrainRenderer : IDisposable
         catch { /* Continue shutdown after a failed terrain package. */ }
         foreach (var tile in _tiles.Values) tile.Dispose();
         foreach (var task in _preloads.Values)
-            if (task.Status == TaskStatus.RanToCompletion && task.Result is { } uploaded)
+            if (task.Status == TaskStatus.RanToCompletion &&
+                task.Result is { Uploaded: { } uploaded })
             {
                 uploaded.Textures.Dispose();
                 _gl.DeleteBuffer(uploaded.Vbo);
@@ -564,8 +605,6 @@ public sealed class TerrainRenderer : IDisposable
         _holes.Clear();
         _holeCountDirty = true;
         _preloads.Clear();
-        _preloadHeights.Clear();
-        _preloadHoles.Clear();
         _missingPreloads.Clear();
         _shader?.Dispose();
     }

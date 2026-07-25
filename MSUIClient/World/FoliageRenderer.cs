@@ -141,8 +141,31 @@ public sealed class FoliageRenderer : IDisposable
     public float ScaleJitter { get; set; } = 0.25f;   // +/- random size
     public float WindStrength { get; set; } = 0.06f;
     public float WindSpeed { get; set; } = 1.4f;
+    /// <summary>
+    /// Derive the fade window from <see cref="Radius"/> instead of using the
+    /// two sliders below.
+    ///
+    /// THIS DEFAULTS ON BECAUSE THE SLIDERS LIE OTHERWISE. FadeEnd was a fixed
+    /// 45 yd while Radius went to 120, so raising Radius scattered grass that
+    /// grass.frag then alpha-faded to nothing - "the slider does nothing past
+    /// about 30 yards" (it starts thinning at FadeStart=30, which is exactly
+    /// where the effect became invisible). Coverage and visibility were two
+    /// knobs for one intent. Untick to tune the window by hand.
+    /// </summary>
+    public bool LinkFadeToRadius { get; set; } = true;
+
+    /// <summary>Where thinning begins, as a fraction of Radius, when linked.</summary>
+    public float FadeStartFraction { get; set; } = 0.66f;
+
     public float FadeStart { get; set; } = 30f;
     public float FadeEnd { get; set; } = 45f;
+
+    /// <summary>Fade window actually sent to the shader this frame.</summary>
+    public float EffectiveFadeEnd => LinkFadeToRadius ? Radius : FadeEnd;
+
+    /// <summary>Fade window actually sent to the shader this frame.</summary>
+    public float EffectiveFadeStart
+        => LinkFadeToRadius ? Radius * MathF.Max(0f, MathF.Min(1f, FadeStartFraction)) : FadeStart;
     public float AlphaCutoff { get; set; } = 0.4f;
     public float Brightness { get; set; } = 1.0f;
 
@@ -578,8 +601,8 @@ public sealed class FoliageRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uBrightness", Brightness);
-        _shader.Set("uFadeStart", FadeStart);
-        _shader.Set("uFadeEnd", FadeEnd);
+        _shader.Set("uFadeStart", EffectiveFadeStart);
+        _shader.Set("uFadeEnd", EffectiveFadeEnd);
         _shader.Set("uAlphaCutoff", AlphaCutoff);
         _shader.Set("uTexture", 0);
 

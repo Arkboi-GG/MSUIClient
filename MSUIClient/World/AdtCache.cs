@@ -77,6 +77,31 @@ public sealed class AdtCache
         return adt;
     }
 
+    /// <summary>
+    /// The parsed ADT only if it is ALREADY parsed. Never parses, never waits.
+    ///
+    /// <see cref="Get"/> blocks on a pending parse - correct when the caller
+    /// genuinely needs the data, ruinous on the render thread when it does not.
+    /// Speculative warming does not need it: an unparsed tile can simply be
+    /// retried next frame. Returns true when <paramref name="adt"/> is
+    /// authoritative, INCLUDING a cached null for an ocean tile that has no ADT
+    /// at all - "known to be absent" is an answer, "not looked at yet" is not.
+    /// </summary>
+    public bool TryPeek(int col, int row, out AdtTerrainReader.AdtResult? adt)
+    {
+        lock (_gate)
+        {
+            if (_cache.TryGetValue((col, row), out adt))
+            {
+                Hits++;
+                return true;
+            }
+        }
+
+        adt = null;
+        return false;
+    }
+
     /// <summary>Parse a speculative tile on the bounded asset worker pool.</summary>
     public Task<AdtTerrainReader.AdtResult?> QueueLoad(
         int col, int row, AssetWorkerPool workers)
