@@ -294,3 +294,58 @@ and spline emitter types, tails, and ribbons (2% of models).
 4. Torches and campfires should glow. They will not flicker through their sheet
    yet — that is §9.2.
 5. `simulate` and `draw` in the panel should both be well under a millisecond.
+
+
+## 11. The swirl is a bone spin (2026-07-26, after the first render)
+
+First render put particles on screen but Nico's report was exact: *"kinda? seems
+off center, not nearly enough outward swirl to fill out the entrance."* Both
+symptoms have one cause.
+
+**The emitter's `position` IS its bone's pivot.** Emitter 0's position is
+`(0, 0, 2.737)` and bone 1's pivot is `(0, 0, 2.737)` - identical. So the
+position is already model-space and the origin was never the problem.
+
+**Bones 1 and 2 carry flag `0x0200` — animated — and their ONLY animation is
+rotation.** No translation, no scale. Eighteen keys, a steady turn of about
+twenty degrees each, a full revolution every 3334 ms:
+
+```
+t=3333  (0.000, 0, 0, 1.000)
+t=3541  (0.171, 0, 0, 0.985)      ~ 19.7 deg about local X
+t=3750  (0.337, 0, 0, 0.942)      ~ 39.4
+t=3958  (0.493, 0, 0, 0.870)      ~ 59.1
+...
+```
+
+The emission plane is the bone's local XY. A full turn about X sweeps that plane
+through every orientation, which is what throws the particles out into a **disc
+that fills the doorway**. Without it the emitter is fixed, the hemisphere
+collapses into a blob near the origin, and the result is a small off-centre haze
+- precisely what the screenshot showed. **The swirl was never a shader problem.**
+
+### 11.1 Two format facts, both checked rather than assumed
+
+- **Vanilla animation blocks are FLAT.** One timestamp list, one key list, and a
+  `ranges` array giving `[first, last]` per sequence. The nested
+  array-of-arrays is a later format, and reading it that way here yields keys
+  that are not unit quaternions - which is how it was caught.
+- **Vanilla rotation keys are four FLOATS, not packed int16.** The same probe
+  reads **1/18** unit quaternions as int16 and **18/18** as float. Not a close
+  call. `M2Reader` already had this right and says so at line 859; the mistake
+  was in the Python probe, not the client.
+- **Timestamps are ABSOLUTE and need not start at zero.** InstancePortal's
+  sequence runs **3333..6667 ms**, so a sampler that wraps on `duration` and
+  starts at 0 reads off the front of the track forever.
+
+The keys are held raw, in the M2's own Z-up space. `M2Model.Bones` applies the
+glTF Y-up swap for the character pipeline, and particles work in world space
+through the placement matrix, so borrowing that would only mean undoing it.
+
+### 11.2 What the placement contributes
+
+The MDDF entry: world `(-11208.2, 1679.6, 22.6)`, rotation `(0, 89.5, 0)`,
+scale **1269/1024 = 1.239**. Yaw only, so the model is turned rather than tipped,
+and the emitter sits `2.737 x 1.239 = 3.39` yards above the placement point. The
+scale now reaches the sprite size and the speed as well as the spawn rectangle
+(§9.1), so the whole effect grows together.

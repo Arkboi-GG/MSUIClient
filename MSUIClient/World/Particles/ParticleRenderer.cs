@@ -67,6 +67,9 @@ public sealed class ParticleRenderer : IDisposable
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
     public int MaxParticles { get; set; } = 40000;
 
+    /// <summary>Seconds since start, driving every emitter's bone spin.</summary>
+    public double Time { get; private set; }
+
     public int LiveParticles { get; private set; }
     public int ActivePools { get; private set; }
     public int DrawnLastFrame { get; private set; }
@@ -150,6 +153,9 @@ public sealed class ParticleRenderer : IDisposable
     {
         SimulateMilliseconds = 0.0;
         if (!Enabled || _shader is null) return;
+
+        Time += dt;
+        _time = Time;
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         foreach (var pool in _pools.Values) pool.TouchedThisFrame = false;
@@ -251,6 +257,9 @@ public sealed class ParticleRenderer : IDisposable
             list.Add(Spawn(pool, origin));
     }
 
+    /// <summary>Set once per Simulate so Spawn does not have to be threaded a time.</summary>
+    private double _time;
+
     private Particle Spawn(Pool pool, Vector3 origin)
     {
         var e = pool.Emitter;
@@ -275,12 +284,21 @@ public sealed class ParticleRenderer : IDisposable
             MathF.Sin(theta) * MathF.Sin(phi),
             MathF.Cos(theta));
 
+        // THE BONE SPIN, and it is what makes this a portal rather than a haze.
+        // The emitter rides a bone whose only animation is a full revolution
+        // about its local X every 3.33 s, so the emission plane sweeps through
+        // every orientation and throws the particles out into a disc. Applied
+        // BEFORE the placement transform, because it is in model space.
+        var spin = e.SampleBoneRotation(_time);
+        var spawnLocal = Vector3.Transform(new Vector3(lx, ly, 0f), spin);
+        dirLocal = Vector3.Transform(dirLocal, spin);
+
         // Direction only - the placement's rotation must apply, its translation
         // must not, or every particle would be born at the world origin offset.
         var rotation = pool.Transform;
         rotation.M41 = rotation.M42 = rotation.M43 = 0f;
 
-        var offsetWorld = Vector3.Transform(new Vector3(lx, ly, 0f), rotation);
+        var offsetWorld = Vector3.Transform(spawnLocal, rotation);
         var dirWorld = Vector3.Normalize(Vector3.TransformNormal(dirLocal, rotation));
 
         // The placement's scale reaches the spawn rectangle for free, because

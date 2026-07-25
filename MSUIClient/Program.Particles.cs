@@ -118,6 +118,15 @@ public sealed partial class GameLoop
                    $"-> ~{e.SteadyStatePopulation:F0} live sprite(s)");
         ImGui.Text($"     range v {e.VerticalRange:F3} h {e.HorizontalRange:F3} rad   " +
                    $"area {e.EmissionAreaLength:F2} x {e.EmissionAreaWidth:F2}   z {e.ZSource:F2}");
+        ImGui.Text($"     ramp mid {e.MidPoint:F2}   scale {e.ScaleKeys[0]:F3} -> " +
+                   $"{e.ScaleKeys[1]:F3} -> {e.ScaleKeys[2]:F3}");
+
+        if (e.HasBoneSpin)
+            ImGui.TextColored(new Vector4(0.6f, 1f, 0.7f, 1f),
+                $"     BONE SPIN: {e.BoneRotationKeys.Length} key(s) over " +
+                $"{e.SequenceEnd - e.SequenceStart} ms - this is what sweeps the disc");
+        else
+            ImGui.TextDisabled("     no bone spin - emitter is static");
 
         if (e.AnyTrackAnimated)
         {

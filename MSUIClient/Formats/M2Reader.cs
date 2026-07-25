@@ -521,6 +521,62 @@ public class M2ParticleEmitter
     /// <summary>Start / middle / end size in yards. Portal: 0.278 -> 0.972 -> 0.028.</summary>
     public float[] ScaleKeys { get; set; } = new float[3];
 
+    // ── The emitter's bone spin (PLAN_14 §11) ────────────────────────────────
+    //
+    // THIS IS THE SWIRL. InstancePortal's two emitter bones carry an 18-key
+    // rotation track and NOTHING else - no translation, no scale - and the keys
+    // are a steady turn about local X, about 20 degrees apart, a full revolution
+    // every 3334 ms. The emission plane is the bone's local XY, so a full turn
+    // about X sweeps that plane through every orientation and throws the
+    // particles out into a disc.
+    //
+    // Without it the emitter is static, the hemisphere collapses to a blob near
+    // the origin, and the portal reads as a small off-centre haze instead of
+    // something that fills the doorway. Measured, not guessed: the bone flags
+    // are 0x0200 (animated) and the track is right there.
+    //
+    // Held RAW, in the M2's own Z-up space. M2Model.Bones applies the glTF Y-up
+    // swap for the character pipeline, and particles work in world space through
+    // the placement matrix, so borrowing that would need the swap undone again.
+
+    /// <summary>Timestamps of the emitter bone's rotation keys, absolute ms.</summary>
+    public uint[] BoneRotationTimes { get; set; } = [];
+
+    /// <summary>Rotation keys as raw (x, y, z, w). Vanilla stores 4 FLOATS, not packed int16.</summary>
+    public Vector4[] BoneRotationKeys { get; set; } = [];
+
+    /// <summary>Sequence bounds in ms. InstancePortal's runs 3333..6667, not 0..3334.</summary>
+    public uint SequenceStart { get; set; }
+    public uint SequenceEnd { get; set; }
+
+    public bool HasBoneSpin => BoneRotationKeys.Length > 1 && SequenceEnd > SequenceStart;
+
+    /// <summary>
+    /// The emitter bone's rotation at a wall-clock time, looping the sequence.
+    /// Identity when the bone does not animate.
+    /// </summary>
+    public Quaternion SampleBoneRotation(double elapsedSeconds)
+    {
+        if (!HasBoneSpin) return Quaternion.Identity;
+
+        double span = SequenceEnd - SequenceStart;
+        double t = SequenceStart + (elapsedSeconds * 1000.0) % span;
+
+        var times = BoneRotationTimes;
+        int last = times.Length - 1;
+        if (t <= times[0]) return Q(BoneRotationKeys[0]);
+        if (t >= times[last]) return Q(BoneRotationKeys[last]);
+
+        int i = 0;
+        while (i < last && times[i + 1] < t) i++;
+
+        float span2 = times[i + 1] - times[i];
+        float f = span2 > 0f ? (float)((t - times[i]) / span2) : 0f;
+        return Quaternion.Slerp(Q(BoneRotationKeys[i]), Q(BoneRotationKeys[i + 1]), f);
+    }
+
+    private static Quaternion Q(Vector4 v) => new(v.X, v.Y, v.Z, v.W);
+
     /// <summary>Key counts for the ten tracks, in declaration order. >1 means animated.</summary>
     public int[] TrackKeyCounts { get; set; } = new int[10];
 
@@ -722,7 +778,9 @@ public class M2Reader
             ParseTextures(data, ReadUInt32(data, 0x05C), ReadUInt32(data, 0x060), model);
             ParseTextureLookup(data, ReadUInt32(data, 0x094), ReadUInt32(data, 0x098), model);
             ParseRenderFlags(data, ReadUInt32(data, 0x084), ReadUInt32(data, 0x088), model);
-            ParseParticleEmitters(data, ReadUInt32(data, 0x13C), ReadUInt32(data, 0x140), model);
+            ParseParticleEmitters(data, ReadUInt32(data, 0x13C), ReadUInt32(data, 0x140), model,
+                ReadUInt32(data, 0x034), ReadUInt32(data, 0x038),
+                ReadUInt32(data, 0x01C), ReadUInt32(data, 0x020));
             ParseTransparencyStaticAlphas(data,
                 ReadUInt32(data, 0x064), ReadUInt32(data, 0x068), model);
             ParseTransparencyLookup(data,
@@ -1304,7 +1362,9 @@ public class M2Reader
 
     private const int PARTICLE_TRACK_COUNT = 10;
 
-    private static void ParseParticleEmitters(byte[] data, uint count, uint offset, M2Model model)
+    private static void ParseParticleEmitters(byte[] data, uint count, uint offset, M2Model model,
+                                              uint boneCount, uint boneOffset,
+                                              uint seqCount, uint seqOffset)
     {
         if (count == 0 || offset == 0) return;
         if (offset + (long)count * PARTICLE_EMITTER_STRIDE > data.Length)
@@ -1373,7 +1433,87 @@ public class M2Reader
             e.EmissionAreaWidth = values[8];
             e.ZSource = values[9];
 
+            ReadEmitterBoneSpin(data, e, boneCount, boneOffset, seqCount, seqOffset);
             model.ParticleEmitters.Add(e);
+        }
+    }
+
+    /// <summary>
+    /// Pull the emitter bone's rotation keys for sequence 0.
+    ///
+    /// Vanilla's animation block is FLAT - one timestamp list, one key list, and
+    /// a `ranges` array giving the [first, last] index belonging to each
+    /// sequence. That is the pre-WotLK shape; the nested array-of-arrays came
+    /// later, and reading it that way here produces keys that are not unit
+    /// quaternions, which is exactly how this was checked.
+    ///
+    /// The keys are four FLOATS. Packed int16 quaternions are also a later
+    /// format - the same probe reads 1/18 unit quaternions as int16 and 18/18 as
+    /// float, which is not a close call.
+    /// </summary>
+    private static void ReadEmitterBoneSpin(
+        byte[] data, M2ParticleEmitter e,
+        uint boneCount, uint boneOffset, uint seqCount, uint seqOffset)
+    {
+        if (e.Bone >= boneCount || boneOffset == 0) return;
+
+        long boneAt = boneOffset + (long)e.Bone * BONE_STRIDE;
+        long track = boneAt + 40;                       // +40 = rotation block
+        if (track + ANIM_BLOCK_STRIDE_VANILLA > data.Length) return;
+
+        uint nRanges = ReadUInt32(data, (int)track + 4);
+        uint ofsRanges = ReadUInt32(data, (int)track + 8);
+        uint nTimes = ReadUInt32(data, (int)track + 12);
+        uint ofsTimes = ReadUInt32(data, (int)track + 16);
+        uint nKeys = ReadUInt32(data, (int)track + 20);
+        uint ofsKeys = ReadUInt32(data, (int)track + 24);
+
+        if (nKeys < 2 || nTimes < 2 || ofsKeys == 0 || ofsTimes == 0) return;
+        if (ofsTimes > (uint)data.Length - nTimes * 4u) return;
+        if (ofsKeys > (uint)data.Length - nKeys * 16u) return;
+
+        // Sequence 0's slice. No ranges means "all of them".
+        int first = 0, last = (int)Math.Min(nKeys, nTimes) - 1;
+        if (nRanges >= 1 && ofsRanges != 0 && ofsRanges + 8 <= data.Length)
+        {
+            first = (int)ReadUInt32(data, (int)ofsRanges);
+            last = (int)ReadUInt32(data, (int)ofsRanges + 4);
+        }
+        if (first < 0 || last < first) return;
+        last = (int)Math.Min(last, Math.Min(nKeys, nTimes) - 1);
+
+        int n = last - first + 1;
+        if (n < 2) return;
+
+        var times = new uint[n];
+        var keys = new Vector4[n];
+        for (int i = 0; i < n; i++)
+        {
+            int k = first + i;
+            times[i] = ReadUInt32(data, (int)ofsTimes + k * 4);
+            int ko = (int)ofsKeys + k * 16;
+            keys[i] = new Vector4(
+                BitConverter.ToSingle(data, ko),
+                BitConverter.ToSingle(data, ko + 4),
+                BitConverter.ToSingle(data, ko + 8),
+                BitConverter.ToSingle(data, ko + 12));
+        }
+
+        e.BoneRotationTimes = times;
+        e.BoneRotationKeys = keys;
+
+        // The sequence's own bounds, because the timestamps are ABSOLUTE and
+        // need not start at zero: InstancePortal's sequence runs 3333..6667.
+        if (seqCount >= 1 && seqOffset != 0 &&
+            seqOffset + SEQUENCE_STRIDE_VANILLA <= data.Length)
+        {
+            e.SequenceStart = ReadUInt32(data, (int)seqOffset + 4);
+            e.SequenceEnd = ReadUInt32(data, (int)seqOffset + 8);
+        }
+        if (e.SequenceEnd <= e.SequenceStart)
+        {
+            e.SequenceStart = times[0];
+            e.SequenceEnd = times[n - 1];
         }
     }
 
