@@ -42,31 +42,40 @@ public sealed partial class GameLoop
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
-        var bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, MapTable.MpqPath);
-        if (bytes is null)
+        try
         {
-            Console.WriteLine($"[instances] {MapTable.MpqPath} not found in the archives");
-            return;
+            var bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, MapTable.MpqPath);
+            if (bytes is null)
+            {
+                Console.WriteLine($"[instances] {MapTable.MpqPath} not found in the archives");
+                return;
+            }
+
+            _maps = MapTable.Parse(bytes);
+            if (_maps is null) return;
+
+            _mapWdts = new Dictionary<int, WdtFile?>(_maps.Count);
+            int withWdt = 0, globalWmo = 0, terrain = 0;
+            foreach (var m in _maps.All)
+            {
+                var wdt = WdtFile.Read(_config.ClientDataPath, m.Directory);
+                _mapWdts[m.Id] = wdt;
+                if (wdt is null) continue;
+                withWdt++;
+                if (wdt.UsesGlobalWmo) globalWmo++; else terrain++;
+            }
+
+            Console.WriteLine($"[instances] {_maps.Count} map(s), {withWdt} with a WDT " +
+                              $"({globalWmo} global-WMO, {terrain} terrain)");
         }
-
-        _maps = MapTable.Parse(bytes);
-        if (_maps is null) return;
-
-        _mapWdts = new Dictionary<int, WdtFile?>(_maps.Count);
-        int withWdt = 0, globalWmo = 0, terrain = 0;
-        foreach (var m in _maps.All)
+        finally
         {
-            var wdt = WdtFile.Read(_config.ClientDataPath, m.Directory);
-            _mapWdts[m.Id] = wdt;
-            if (wdt is null) continue;
-            withWdt++;
-            if (wdt.UsesGlobalWmo) globalWmo++; else terrain++;
+            // In the finally so the readout is honest on the failure paths too -
+            // "read in 0 ms" next to "Map.dbc did not load" reads like a second
+            // bug when it is only an unstopped stopwatch.
+            sw.Stop();
+            _instancesLoadMs = sw.Elapsed.TotalMilliseconds;
         }
-
-        sw.Stop();
-        _instancesLoadMs = sw.Elapsed.TotalMilliseconds;
-        Console.WriteLine($"[instances] {_maps.Count} map(s), {withWdt} with a WDT " +
-                          $"({globalWmo} global-WMO, {terrain} terrain) in {_instancesLoadMs:F0} ms");
     }
 
     private void DrawInstancesPanel()
@@ -161,7 +170,11 @@ public sealed partial class GameLoop
 
             if (wdt.GlobalWmoPath is not null)
             {
-                ImGui.TextWrapped(wdt.GlobalWmoPath);
+                // TextUnformatted, not TextWrapped: ImGui.NET forwards the
+                // string to native igText* as the FORMAT argument, so a '%' in
+                // archive-derived data renders garbage. No 1.12 path contains
+                // one, but the data decides that, not us.
+                ImGui.TextUnformatted(wdt.GlobalWmoPath);
                 if (wdt.GlobalWmo is { } g)
                 {
                     ImGui.Text($"pos ({g.PosX:F1}, {g.PosY:F1}, {g.PosZ:F1})   " +
