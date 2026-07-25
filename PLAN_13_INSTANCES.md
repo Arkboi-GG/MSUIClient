@@ -595,3 +595,70 @@ repeated on the exact-position path rather than assumed unreachable.
    immediately bounce back in — that is §15.4's latch doing its job.
 4. **Return button after a portal entry.** Must not ping-pong.
 5. Walking into the Stockade portal must log a refusal, not tear the world down.
+
+
+## 16. Stage 2b validated against the data before it was ever run
+
+`areatrigger_teleport.tsv` landed 2026-07-25 (121 rows out of Nico's VMaNGOS
+world DB). The join was then checked in Python, reimplementing exactly what the
+C# does, **before the client was built** — the same move that settled the
+nine-slice in `SYSTEM_SETTINGS_UI`: when you cannot run the renderer, run the
+algorithm somewhere else.
+
+### 16.1 Parsing
+
+```
+115 destination(s), 6 superseded by a later patch, 0 row(s) dropped
+Dire Maul 3183 -> patch 1, level 45          (the level-61 "You Shall Not Pass!" row lost)
+teleports with NO AreaTrigger.dbc volume: 0
+```
+
+Every teleport row has a matching DBC volume, so the join is total — there is no
+destination we cannot place in the world, and no doorway we know about that has
+nowhere to send you. The `(id, patch)` dedup does what §15.2 says: all six
+Dire Maul duplicates collapse to the patch-1 row.
+
+### 16.2 The latch
+
+No destination in the entire table lands inside a *different* portal's volume.
+So the latch is not load-bearing for arrival — but it still is for play, because
+Deadmines' entrance drops you 8.2 yards from exit trigger 119 whose radius is 6:
+outside by 2.2 yards, and one step back through the door re-enters it. It is also
+what makes `Travel straight in` safe, since that arrives at a trigger *centre* by
+construction.
+
+### 16.3 The paired-exit rule, tested on every dungeon
+
+This is the part that was most likely to be quietly wrong, and it is right in all
+twelve cases:
+
+```
+Deadmines         Deadmines - Entrance                  exit  119   9.4 yd  outside  dot +1.00
+Shadowfang        Shadowfang Keep - Entrance            exit  194   9.5 yd  outside  dot +1.00
+ScarletMonastery  Scarlet Monastery Graveyard - Entr..  exit  602   9.6 yd  outside  dot +1.00
+ScarletMonastery  Scarlet Monastery Cathedral - Entr..  exit  604  10.5 yd  outside  dot +1.00
+ScarletMonastery  Scarlet Monastery Armory - Entrance   exit  606   8.7 yd  outside  dot +1.00
+ScarletMonastery  Scarlet Monastery Library - Entrance  exit  608  10.4 yd  outside  dot +1.00
+RazorfenKraul     Razorfen Kraul - Entrance             exit  242  10.6 yd  outside  dot +0.99
+WailingCaverns    Wailing Caverns - Entrance            exit  226  15.9 yd  outside  dot +1.00
+Gnomeregan        Gnomeregan - Entrance                 exit  322  11.8 yd  outside  dot +0.99
+Gnomeregan        Gnomeregan - Back Entrance            exit  525  14.8 yd  outside  dot +1.00
+RazorfenDowns     Razorfen Downs - Entrance             exit  444  14.3 yd  outside  dot +0.96
+Zul'Farrak        Zul'Farrak - Entrance                 exit  922  22.1 yd  outside  dot +1.00
+```
+
+`dot` is the cosine between the facing we set (`exitOrientation + pi`) and the
+direction from the standing spot to the doorway. **+1.00 means looking straight
+at it**, so walking forward walks in. Every stand position is 8.7–22.1 yards out
+and outside the volume, so nothing fires on arrival.
+
+**Scarlet Monastery is the case that proves the rule.** It has four separate
+doors within about sixty yards of each other, and the geometric pairing gave each
+its own correct exit — Graveyard→602, Cathedral→604, Armory→606, Library→608.
+A pairing that was even slightly loose would have crossed them, and the symptom
+would have been arriving outside the wrong wing, which looks like nothing at all
+until you walk in. Gnomeregan's two doors (main→322, back→525) likewise.
+
+None of this makes the feature *run* — the client is still uncompiled — but it
+does mean that if it fails on Nico's machine, the failure is in the C# or the
+travel path, and **not** in the data, the join, the pairing or the facing.
