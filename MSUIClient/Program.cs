@@ -1603,7 +1603,10 @@ public sealed partial class GameLoop : IDisposable
         // a full rebuild. Averaged together they read as a small constant cost
         // and hide a periodic spike, so they are now reported apart. The
         // combined number stays as the bracket that must still sum.
-        _foliageScatterMilliseconds = _foliage?.ScatterMilliseconds ?? 0;
+        // ThisFrame, not the sticky value. See FoliageRenderer's note: feeding
+        // the sticky one to the phase split made DominantPhase call every hitch
+        // "foliage-rescatter" on the strength of a number bigger than the frame.
+        _foliageScatterMilliseconds = _foliage?.ScatterMillisecondsThisFrame ?? 0;
         _foliageDrawMilliseconds = _foliage?.DrawMilliseconds ?? 0;
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;

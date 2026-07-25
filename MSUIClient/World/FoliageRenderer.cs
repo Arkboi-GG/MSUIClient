@@ -106,7 +106,30 @@ public sealed class FoliageRenderer : IDisposable
     // the same mistake SYSTEM_STREAMING 1.2 already records three times.
 
     /// <summary>The last full re-scatter. Zero on the frames that skip it.</summary>
+    /// <summary>
+    /// Cost of the most recent scatter. STICKY - it keeps the last value across
+    /// the many frames that do not scatter, which is what a panel wants and what
+    /// a per-frame phase split must never be given. Use
+    /// <see cref="ScatterMillisecondsThisFrame"/> for the latter.
+    /// </summary>
     public double ScatterMilliseconds { get; private set; }
+
+    /// <summary>
+    /// Cost of the scatter that ran THIS frame, or 0 if none did.
+    ///
+    /// WHY BOTH EXIST. Scatter runs about once a second while walking and is a
+    /// full rebuild; every other frame returns at the throttle. Program.cs was
+    /// copying the sticky value into the frame's phase split every frame, so a
+    /// 33 ms frame reported "rescatter 2347.0" - a number larger than the frame
+    /// containing it - and HitchRecorder.DominantPhase, which ranks the phases
+    /// by cost, therefore labelled EVERY hitch "foliage-rescatter" until the
+    /// next scatter replaced the number. The real cause of those frames was
+    /// present at 28.8 ms against 5.9 ms of GPU.
+    ///
+    /// An instrument that names the wrong cause is worse than no instrument,
+    /// because it is believed. Handbook 8.7 - a phase timer that lies quietly.
+    /// </summary>
+    public double ScatterMillisecondsThisFrame { get; private set; }
 
     /// <summary>Drawing the instances. Every frame, normally small.</summary>
     public double DrawMilliseconds { get; private set; }
@@ -300,6 +323,10 @@ public sealed class FoliageRenderer : IDisposable
     /// </summary>
     public void Scatter(Camera camera, AdtCache adts, IEnumerable<(int col, int row)> tiles, TerrainRenderer terrain)
     {
+        // Cleared FIRST, before every early return, so a frame that does not
+        // scatter reports zero rather than the last scatter's cost.
+        ScatterMillisecondsThisFrame = 0.0;
+
         if (!Enabled || _shader is null || _recipes is null || _recipes.Count == 0) return;
 
         var cam2 = new Vector2(camera.Position.X, camera.Position.Y);
@@ -479,6 +506,7 @@ public sealed class FoliageRenderer : IDisposable
         if (DeferredTiles > 0) _hasScattered = false;
 
         ScatterMilliseconds = Stopwatch.GetElapsedTime(scatterStarted).TotalMilliseconds;
+        ScatterMillisecondsThisFrame = ScatterMilliseconds;
 
         Console.WriteLine($"[foliage] scattered {total} grass instance(s) over {_instances.Count(kv => kv.Value.Count > 0)} " +
             $"model(s); {ModelCount} model(s) loaded, {_missing} missing");

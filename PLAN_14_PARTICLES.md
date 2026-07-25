@@ -1,7 +1,7 @@
 # Plan 14 — M2 particle emitters
 
-Status: **layout derived from the bytes and recorded below. Stage 1 (parse +
-panel) built. Stages 2-3 specified, not built.**
+Status: **layout derived from the bytes. Stage 1 VERIFIED on Nico's machine
+2026-07-26 across ~35 models. Stages 2-3 specified, not built.**
 
 ## 1. Why this, and why it is not a portal task
 
@@ -158,3 +158,48 @@ Done when the Deadmines entrance swirls and pulls inward.
 - Stage 2: the portal looks like a portal, and torches have flames.
 - `SYSTEM_PARTICLES.md` extracted once one emitter type has survived a session.
 - **Not done:** ribbon emitters, and any emitter feature not measured in §3.
+
+
+## 7. Stage 1 result — verified 2026-07-26
+
+`InstancePortal` reads back **exactly** §3.2, to the last decimal:
+
+```
+instanceportal.m2 (2 emitters)
+  [0] bone 1 tex 0 ADD plane 1x1  speed -3.333 var 0.000 life 1.050 rate 500.0 vRange 3.142 area 4.167
+  [1] bone 2 tex 1 ADD plane 1x1  speed -2.778 var 0.500 life 1.100 rate 250.0 vRange 3.142 area 4.167
+```
+
+`generaltorch01` and `smalldock` each show 2 emitters, as §5 required. **The 504
+stride is confirmed.**
+
+### 7.1 The dump is much stronger evidence than the three checks asked for
+
+About thirty-five models came back, and every value is physically sensible —
+which a wrong stride could not produce, because it would slice fields across
+boundaries and print noise:
+
+| model | what the numbers say |
+|---|---|
+| `HOUSESMOKE` | life **17 s**, rate 1/s, speed 0.10 — slow drifting chimney smoke |
+| `elwynncampfire` | 2 emitters: embers 1x1 life 4 s, flame **4x4** life 1.5 s rate 20 |
+| `elwynntallwaterfall01` | **alpha**, speed 3.06, life 4 s, area **18.0** — a wide falling sheet |
+| `fountainparticles` | 3 emitters, speed **8.33** jet + a 4.17-wide ADD haze |
+| `candle01/02` | 4x4, life 6 s, rate **1/s** — six live sprites, a candle flame |
+| `INNCHANDELIER` | **12 emitters** — six candles and six glows |
+| `BLACKSMITH_SMOKE` | alpha, speed 5.4-5.6, life 5.5-5.7 s |
+| `dustwestfall` | rate **0.0** — emits nothing until something drives it |
+
+Two structural facts fall straight out of that table and shape stage 2:
+
+- **The blend split is meaningful.** ADD for anything that is light — flames,
+  glows, embers, the portal. `alpha` for anything that is matter — waterfalls,
+  smoke, steam, dust. H3 said the blend mode is not decoration; this is the
+  evidence.
+- **`4x4` cells appear on every flame** and `1x1` on every glow. So the sprite
+  sheet is a flipbook and flames are *animated* through it. Stage 2 needs cell
+  animation for a torch to look like fire rather than a static blob — and that
+  lives in the tail region §3.3 has not cracked yet (`headCellTrack`).
+
+`dustwestfall`'s rate of 0.0 is worth a note: an emitter can be authored inert.
+Stage 2 must skip a zero-rate emitter rather than divide by it.

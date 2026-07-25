@@ -861,6 +861,67 @@ arithmetic here and should never cost it again.
 
 ---
 
+### 5A.21 The refresh rate answers itself, and the recorder was naming the wrong cause (2026-07-25, ninth run)
+
+Captured at `[28,53]` — Moonbrook, just after arriving through the Deadmines
+portal.
+
+```
+hitch-28-53-7: 33 ms   update 0.3  render 3.1  present 28.8  hud 0.4   GPU 5.9   0.41 M/ms
+hitch-28-53-8: 29 ms   update 0.1  render 1.9  present 26.4  hud 0.4   GPU 11.9  0.30 M/ms
+                                           (window p50 17  p95 18 ms)
+```
+
+**1. `p50 17 p95 18` settles the refresh rate without anyone reading a spec.**
+This scene's *baseline* frame is 17 ms — one 60 Hz interval, hit consistently,
+with p95 only a millisecond above it. The hitches are 29 and 33 ms: **two
+intervals.** That is EMPIRICAL_CHECKS C2 answered by inference, and it confirms
+the double-buffer reading §5A.19 proposed and §5A.20 leaned on. Vsync is on, the
+scene normally makes its deadline, and a hitch is one dropped vblank — not a
+stall of arbitrary length.
+
+The p50/p95 readout was added one commit earlier, in §5A.20's instrument fix, to
+tell a slow scene from a spiking one. It answered a different question on its
+first run, which is the usual return on making an instrument honest.
+
+**2. It weakens §5A.20's "present tracks the GPU".** Hitch 7 has **5.9 ms of
+GPU** and **28.8 ms of present**. Six milliseconds fits inside 16.67 with room
+to spare, so "we overran the deadline doing GPU work" cannot explain that frame.
+§5A.20's record-33 correlation was one clean sample and was labelled a lead
+rather than a proof; this is the counter-sample. The honest position is back to
+§5A.16's shape — **low GPU, blocked thread, long present** — with the swap chain
+the suspect again. Hitch 8 (GPU 11.9) is consistent with either reading, so it
+does not decide.
+
+**3. And the recorder was naming the wrong cause, on every hitch.**
+
+```
+render split: world 2.6 = terrain 0.1 + wmo 0.3 + doodad 1.7 + foliage 0.2 [rescatter 2347.0 + draw 0.2]
+hitch-28-53-7: ... -> foliage-rescatter
+```
+
+**`rescatter 2347.0` inside a 33 ms frame**, and the identical value in the next
+record — so it is not that frame's cost at all. `FoliageRenderer.Scatter` returns
+early at its throttle on almost every frame, leaving `ScatterMilliseconds` at
+whatever the last real scatter cost, and `Program.cs` copied that sticky value
+into the per-frame phase split **every frame**. `DominantPhase` ranks the phases
+by cost, so 2347 beat everything and **every hitch was labelled
+`foliage-rescatter` until the next scatter replaced the number** — while the
+actual cause sat in plain sight at `present 28.8`.
+
+Fixed by splitting the value in two: `ScatterMilliseconds` stays sticky for
+panels, and `ScatterMillisecondsThisFrame` is cleared before every early return
+and is what the phase split now reads.
+
+This is handbook §8.7 — *a phase timer that starts late lies quietly* — in its
+other form: a phase timer that never stops lies loudly, and is believed because
+it is loud. **Every `dominantPhase` reading in this document taken since the
+foliage split landed should be treated as unverified**, including §5A.20's
+`swap-and-events`; those frames had `foliage 0.2` and a plausible dominant, but
+the ranking they came from was compromised.
+
+---
+
 ## 6. Not done — the honest ceiling
 
 - **Per-tile placement and collision ownership (PLAN_08 D3).** Placements are

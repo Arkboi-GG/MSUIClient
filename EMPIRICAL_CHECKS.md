@@ -113,7 +113,13 @@ chain or scheduling** — and the handbook says not to write streaming code befo
 reading it.*
 
 **C2.** What is your monitor's refresh rate?
-> **STILL OPEN, and now the cheapest question in the whole document.** §5A.20
+> **ANSWERED 2026-07-26 by inference — 60 Hz.** §5A.21: this scene's baseline
+> frame is **p50 17 ms, p95 18 ms** — one refresh interval, hit consistently —
+> and the hitches are 29-33 ms, which is two. Vsync is on and normally making
+> its deadline. A direct confirmation from the display settings is still welcome
+> but no longer blocking.
+>
+> *Superseded reasoning below.* §5A.20
 > leaves exactly twelve milliseconds of `present` unexplained by GPU time. At
 > 60 Hz with VSync on (the default) that is a textbook double-buffer miss —
 > render 4.4 + GPU 13.3 = 17.7 overshoots 16.67, so a whole extra refresh is
