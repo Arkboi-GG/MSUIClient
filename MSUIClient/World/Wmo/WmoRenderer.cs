@@ -796,6 +796,27 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
+    /// ResetPlacements PLUS the outer-ring bookkeeping, for a map change.
+    ///
+    /// ResetPlacements alone is right for a tile crossing, where the deferred
+    /// ring is still describing tiles of the same world and is meant to
+    /// survive. Across a map boundary it is describing tiles that no longer
+    /// exist, holding a reference to an AdtCache that has been repointed - so
+    /// retrying them would queue the NEW map's buildings for the OLD map's ring.
+    ///
+    /// Model, texture and GPU-buffer caches are deliberately NOT cleared: they
+    /// are keyed by file path, and a WMO file is the same file whichever map
+    /// places it. Dropping them would make every round trip re-parse and
+    /// re-upload Stormwind.
+    /// </summary>
+    public void ResetForMapChange()
+    {
+        ResetPlacements();
+        _deferredRingTiles.Clear();
+        _ringAdts = null;
+    }
+
+    /// <summary>
     /// Discover WMO assets in an outer tile ring without placing them. The
     /// parsed models, decoded textures and GPU buffers stay in the normal
     /// caches, so making the inner ring resident later is a cheap cache hit.

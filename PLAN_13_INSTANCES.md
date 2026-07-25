@@ -1,7 +1,7 @@
 # Plan 13 — Instances: loading in and out of dungeons
 
-Status: **stage 1 specified, built and VERIFIED on Nico's machine 2026-07-25 —
-all 44 rows match §11 exactly, zero mismatches. Stages 2-3 specified, not
+Status: **stage 1 VERIFIED on Nico's machine 2026-07-25 — all 44 rows match §11
+exactly, zero mismatches. Stage 2 BUILT and unrun. Stage 3 specified, not
 built.** Every fact in §1 was read out of the archives with `tools/mpqpeek`
 before a line was written.
 
@@ -425,3 +425,90 @@ the one row where stage 2 must not use the centre.
 the same MAIN read on both sides, so a transposition would agree with itself.
 Deadmines terrain appearing where it belongs (§7 step 3) is still the only test
 that can catch it — and it is the first thing stage 2 will do.
+
+
+## 14. Stage 2 — travel to terrain maps (built 2026-07-25, unrun)
+
+### 14.1 What was missing, and what closed it
+
+H2 said three of the five per-map clears did not exist. Review of the built code
+found **two more nobody had listed**, and one of them is H4's failure arriving
+through a door H4 was not watching.
+
+| Per-map state | Before | Now |
+|---|---|---|
+| ADT cache's map directory | fixed at construction | `AdtCache.SetMap` |
+| resident terrain tiles | `SetResidency` only moves the ring | `TerrainRenderer.UnloadAll` |
+| built liquid meshes | **not listed in H2** | `LiquidRenderer.UnloadAll` |
+| WMO + doodad placements | `ResetPlacements` existed | `WmoRenderer.ResetForMapChange` adds the ring state |
+| collision world | `LoadCollision` rebuilds it | plus the async-build generation bump below |
+| **in-flight async collision build** | **not listed in H2** | `_collisionGeneration++` in the teardown |
+| **background discovery queue** | **not listed in H2** | cleared in the teardown |
+
+**The tile-key trap is the reason three of these are needed at all.** Tile keys
+are `(col, row)` on a 64x64 grid *every map shares*. Deadmines occupies
+col 30..35 row 30..35, and Azeroth has those tiles too. So `SetResidency`,
+`LiquidRenderer.LoadForTiles` and the ADT cache all *keep* whatever is already
+under a wanted key — and across a map boundary that means Elwynn hillside and
+Elwynn river surface rendering inside the dungeon, **with nothing logged**.
+Clearing is not an optimisation here, it is the correctness condition.
+
+**The async collision race is the one worth remembering.**
+`BeginCollisionBuild` snapshots placements onto a worker and stamps them with
+`_collisionGeneration`; `AcceptReadyCollision` installs the result if the stamp
+still matches. Setting `_collision = null` does not stop a build already in
+flight. A tile crossing that started a second before the travel would therefore
+land the **old map's BVH** on the new map one frame after arrival, and the player
+would be colliding with Elwynn inside the Deadmines. Bumping the generation is
+what makes that result get dropped. H4 said *"WMO collision must be resident
+before the player is placed, not after"* and the ordering in the code obeys that
+— `LoadCollision()` is synchronous and runs before `Teleport`. This defect got
+past that guard entirely, because it arrives a frame later.
+
+### 14.2 Design as built
+
+- **H1 held.** There is no `if (isDungeon)` anywhere in the travel path. The
+  only branch is `wdt.UsesGlobalWmo`, and it is a *refusal* (stage 3), not a
+  second code path. Azeroth and Deadmines travel through identical code.
+- **H2 held.** `Load()` is not re-run. The refill is the same sequence, in the
+  same order, that `UpdateWorldResidency` runs on a tile crossing — deliberately,
+  because a second refill path is a second thing to keep correct.
+- **H3 held.** Arrival is `WdtFile.SpawnTile` centre, dropped onto sampled
+  terrain height, and the UI labels it *"arrival point, not the real entrance"*.
+  No coordinates were hand-authored.
+- **The current map is `_config.Start.Map` / `.MapName`, mutated in place.** That
+  is what makes exterior lighting, vantages, scene dumps, hitch records and the
+  vmap collision loader all follow along without a second notion of "which map
+  are we on". Nothing writes `client-config.json` back, so this is memory-only.
+
+### 14.3 Failure handling (§9)
+
+Every check that can be made before the teardown is: world loaded, not a
+global-WMO map, tile count non-zero. After the teardown two things can still go
+wrong, and both now unwind:
+
+- **Zero terrain tiles loaded** — logged, then `RestoreAfterFailedTravel` puts
+  the old map back. Inline, not a recursive `TravelTo`, because recursing into
+  the same code to handle "the reload produced nothing" is how one bad map
+  becomes an infinite loop.
+- **An exception mid-refill** — the `catch` now restores as well. Before review
+  it only logged, which would have left the config naming the new map while the
+  player stood at the old map's coordinates with no collision; the next frame's
+  `UpdateWorldResidency` would have re-homed around those coordinates and
+  dropped them through the world, with no Return button on a first travel.
+
+### 14.4 What to watch on the first run
+
+1. **Deadmines terrain must appear where it belongs.** This is the col/row
+   convention test §13 said was still owed. Transposed terrain means `col` and
+   `row` are swapped in `WdtReader.ReadMain`, and §1 is the reference.
+2. **`NO GROUND` must never appear on arrival** (H4).
+3. **The trip back must leave Northshire identical.** Compare a scene dump
+   either side.
+4. **Ten round trips**, watching the GL object count and the managed heap. The
+   model, texture and GPU-buffer caches are deliberately kept across maps —
+   they are keyed by file path and a WMO file is the same file whichever map
+   places it — so the heap should plateau, not climb.
+5. **`[adt] map -> X, dropped N cached tile(s)`** should appear on every travel.
+   Its absence means `SetMap` early-returned on a name compare and the cache is
+   about to serve the wrong world.

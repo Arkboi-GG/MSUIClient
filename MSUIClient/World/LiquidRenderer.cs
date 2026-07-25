@@ -312,6 +312,18 @@ public sealed class LiquidRenderer : IDisposable
         return (null, 0);
     }
 
+    /// <summary>
+    /// Drop every built liquid mesh. Needed on a map change for the same reason
+    /// terrain needs it: LoadForTiles keeps any tile whose (col, row) key is
+    /// still wanted, and those keys are shared across maps, so an overlapping
+    /// range would leave Elwynn's river surface floating inside a dungeon.
+    /// </summary>
+    public void UnloadAll()
+    {
+        foreach (var mesh in _tiles.Values) mesh.Dispose();
+        _tiles.Clear();
+    }
+
     /// <summary>Build/keep liquid meshes for exactly the resident tiles; dispose the rest.</summary>
     public void LoadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
     {

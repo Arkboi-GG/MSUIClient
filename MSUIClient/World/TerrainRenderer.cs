@@ -587,10 +587,26 @@ public sealed class TerrainRenderer : IDisposable
             $"expected {expectedZ:F2}, delta {delta:F2}");
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Release every tile and every preload, keeping the shader and this
+    /// object alive. This is the terrain half of a map change (PLAN_13 H2).
+    ///
+    /// SetResidency IS NOT A SUBSTITUTE. It keeps any tile whose key is in the
+    /// new desired ring, and tile keys are (col, row) on a grid every map
+    /// shares - Deadmines occupies col 30..35 row 30..35, which Azeroth also
+    /// has. Moving residency across a map boundary would therefore KEEP the old
+    /// map's meshes wherever the two ranges overlap, and they would render as
+    /// Elwynn hillside inside the dungeon with nothing logged.
+    ///
+    /// The in-flight preload drain is not optional either: those tasks own
+    /// GL buffers and textures uploaded on the shared context, and dropping
+    /// their references without deleting them leaks VRAM every round trip.
+    /// </summary>
+    public void UnloadAll()
     {
         try { Task.WhenAll(_preloads.Values).GetAwaiter().GetResult(); }
-        catch { /* Continue shutdown after a failed terrain package. */ }
+        catch { /* A failed terrain package must not block the unload. */ }
+
         foreach (var tile in _tiles.Values) tile.Dispose();
         foreach (var task in _preloads.Values)
             if (task.Status == TaskStatus.RanToCompletion &&
@@ -600,12 +616,26 @@ public sealed class TerrainRenderer : IDisposable
                 _gl.DeleteBuffer(uploaded.Vbo);
                 _gl.DeleteBuffer(uploaded.Ebo);
             }
+
+        int released = _tiles.Count;
         _tiles.Clear();
         _heights.Clear();
         _holes.Clear();
         _holeCountDirty = true;
         _preloads.Clear();
+
+        // Absences are per-map. "No ADT at [40,20]" is true of Deadmines and
+        // false of Azeroth, and keeping the note would permanently hole the
+        // new map exactly where the old one was ocean.
         _missingPreloads.Clear();
+        _desired = [];
+
+        Console.WriteLine($"[terrain] unloaded {released} tile(s)");
+    }
+
+    public void Dispose()
+    {
+        UnloadAll();
         _shader?.Dispose();
     }
 }
