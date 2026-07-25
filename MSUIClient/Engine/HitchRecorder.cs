@@ -229,6 +229,39 @@ public sealed class HitchRecorder
     }
 
     /// <summary>
+    /// Median and 95th-percentile frame time over the ring, in ms.
+    ///
+    /// WHY A RECORD NEEDS THIS. ThresholdMs is absolute, so the moment a
+    /// scene's BASELINE crosses it the recorder stops reporting spikes and
+    /// starts reporting the scene. Standing still in Stormwind at a steady
+    /// 30-31 ms produced four consecutive records, three seconds apart, that
+    /// looked exactly like four hitches and were in fact one slow scene - and
+    /// the one frame among them that WAS an outlier (38 ms, GPU 25 vs 13) did
+    /// not stand out at all. See SYSTEM_STREAMING.md section 5A.20.
+    ///
+    /// Printing p50 next to the frame time makes that distinction free: a
+    /// 31 ms frame against a 30 ms median is the baseline, and a 38 ms frame
+    /// against the same median is the thing worth reading. The TRIP rule is
+    /// deliberately left absolute - a relative rule set anywhere above 1.2x
+    /// would have suppressed the 38 ms frame, which was the most informative
+    /// one in the run.
+    /// </summary>
+    public (double P50, double P95) WindowPercentiles()
+    {
+        int n = _ringCount;
+        if (n == 0) return (0.0, 0.0);
+
+        var times = new double[n];
+        for (int i = 0; i < n; i++)
+        {
+            int idx = (_ringWrite - n + i + RingCapacity) % RingCapacity;
+            times[i] = _ring[idx].FrameMs;
+        }
+        Array.Sort(times);
+        return (times[n / 2], times[Math.Min(n - 1, (int)(n * 0.95))]);
+    }
+
+    /// <summary>
     /// Ignore trips for a while. Called at startup and after a vantage load,
     /// where a huge frame is expected and means nothing.
     /// </summary>

@@ -1,6 +1,7 @@
 # Plan 13 — Instances: loading in and out of dungeons
 
-Status: **stage 1 specified and built (the readers). Stages 2-3 specified, not
+Status: **stage 1 specified, built and VERIFIED on Nico's machine 2026-07-25 —
+all 44 rows match §11 exactly, zero mismatches. Stages 2-3 specified, not
 built.** Every fact in §1 was read out of the archives with `tools/mpqpeek`
 before a line was written.
 
@@ -392,3 +393,35 @@ a separate `_terrainPresets` path that is not in this file. So the axis question
 is still answered only by our own trace through `AdtCache.Get(col, row)` ->
 `ReadFromMpq(gridX: row, gridY: col)` -> `{map}_{col}_{row}.adt`, and §7 step 3
 (Deadmines terrain appearing where it should) is still the test that proves it.
+
+
+## 13. Stage 1 result — verified 2026-07-25
+
+The panel's `Dump to console` was captured from a running client and diffed
+row-by-row against §11's reference table.
+
+**44 rows out of 44 identical. Zero mismatches, no extra ids, no missing ids.**
+
+That settles §7's two stage-1 steps:
+
+1. 44 maps, and Deadmines 36 tiles col 30..35 row 30..35, Shadowfang 25 tiles
+   col 25..29 row 30..34, Scarlet Monastery (`MonasteryInstances`) 36 tiles col
+   28..33 row 27..32, Razorfen Kraul 6 tiles col 27..29 row 27..28 — all exactly
+   as printed in §1.
+2. Wailing Caverns reads `global WMO` and
+   `world\wmo\dungeon\kl_wailing\wailingcaverns_instance.wmo`.
+
+**What this actually proves.** `Formats/WdtReader.cs` and `MapTable` agree with
+`tools/mpqpeek` on every byte either of them reads, and the two were written
+against the archives independently — the Python before the C# existed. The
+handbook's rule is that the C# wins any disagreement; there was none to
+adjudicate. §1 is now a measurement confirmed twice, not a claim.
+
+`development` still prints centre tile `[31,1]`, which has no ADT. The console
+dump does not show `SpawnTile`; the panel's expanded row does, in amber. That is
+the one row where stage 2 must not use the centre.
+
+**What it does not prove:** the col/row convention. Every number here comes from
+the same MAIN read on both sides, so a transposition would agree with itself.
+Deadmines terrain appearing where it belongs (§7 step 3) is still the only test
+that can catch it — and it is the first thing stage 2 will do.

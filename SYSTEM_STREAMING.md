@@ -763,6 +763,102 @@ suspect. If it reads 4–5, there are two bugs and this section only killed one.
 **Do not** close this by measuring harder in the same place. The next reading is
 cheap and specific, and §5A.17 still stands: vsync off is a diagnostic, not a fix.
 
+> **Superseded in part by §5A.20.** The controlled reading arrived from a
+> *stationary* camera rather than a crossing, which is stronger in one way (no
+> streaming at all) and weaker in another (GPU 13.3 ms, so the sub-1-ms
+> precondition above is still unmet). Read §5A.20 before acting on this section.
+
+---
+
+### 5A.20 Streaming is eliminated, and the trail leads out of this document (2026-07-25, eighth run)
+
+Four records, `hitch-30-48-31` through `-34`, all at tile `[30,48]`, all at the
+**identical position** `(-8764, 847, 87)` — Stormwind, camera stationary. The
+cooldown is 3 s, so these span at least twelve seconds of standing still.
+
+| # | frame | render | present | GPU total | GPU wmo | M/ms |
+|---|---|---|---|---|---|---|
+| 31 | 31 | 4.4 | 25.2 | 13.3 | 10.1 | 0.55 |
+| 32 | 31 | 3.8 | 26.3 | 13.1 | 9.6 | 0.51 |
+| 33 | **38** | 3.2 | **33.6** | **25.0** | **21.6** | 0.35 |
+| 34 | 30 | 4.4 | 25.0 | 13.4 | 9.6 | 0.53 |
+
+**1. Streaming is eliminated — not reduced, measured at zero.** `resid`,
+`preload`, `discover`, `demand`, `finalize`, `adopt`, `collAccept` and
+`collSnap` are all `0.0`. `uploads: 0 in flight, 0 completed`. `0 first-touch`.
+GC pause `0.0`, gen0/gen1/gen2 all `0`, `0.02 MB` allocated. The doodad cull
+returns byte-identical counts frame to frame (8179 / 936 / 936 drawn / 2671 /
+4572). **Every earlier record in §5A was caught mid-crossing or at startup.
+This one has nothing running at all, and the frames are still 30 ms.** Whatever
+this is, it does not belong to the streaming front.
+
+**2. §5A.18's verdict generalises, and its caveat is discharged.** 0.35-0.55
+M/ms across four frames with zero streaming work. §5A.18 read the same range but
+recorded honestly that it was *"caught during startup streaming with the GPU at
+8-14 ms, not on the controlled crossing"*. Here the workload is nothing at all
+and the reading is unchanged. **The thread is blocked or descheduled, in steady
+state, and the Intel driver-busy-wait family stays refuted.**
+
+**3. §5A.19's fork did NOT get its precondition, and did not need it.** It asked
+for a frame *"whose GPU is back under 1 ms"*. GPU here is 13.3 ms. So the formal
+question — is §5A.16's zero-work stall the same blocked wait — is still open.
+What arrived instead is better.
+
+**4. The natural experiment: record 33.** It is the only frame where anything
+moved, and exactly one thing did.
+
+```
+GPU total   13.4 -> 25.0   (+11.6)   of which wmo  9.6 -> 21.6  (+12.0)
+present     25.0 -> 33.6   (+8.6)
+frame          30 -> 38    (+8)
+render        4.4 -> 3.2   (-1.2)    update flat, uploads still zero
+```
+
+**Present tracks the GPU and nothing else.** Render went *down* while present
+went up. n=1, so this is a lead and not a proof — but it is a clean one, because
+only one variable moved and it moved a long way.
+
+**5. WMO is 72-86% of GPU time**, at a stationary camera: 9.6-21.6 ms against
+terrain 2.8-3.1 and doodads 0.3-0.6.
+
+**6. So the next work is neither swap chain nor scheduling.** If present is
+waiting on the GPU, and the GPU is waiting on WMO, then the lever is **cutting
+WMO GPU cost** — and PLAN_10's portal traversal is precisely the mechanism that
+cuts it, by not drawing the groups you cannot see through a doorway. §5A's
+remaining unknown points **out of this document and at the portal front.** That
+is the actionable output of this run, and it reorders the queue: PLAN_10 stops
+being indoor-correctness polish and becomes the performance work.
+
+**7. What is still unexplained, and the one number that would settle it.**
+Present is 25 ms against 13.3 ms of GPU. Twelve milliseconds are unaccounted for.
+Two readings fit:
+
+- **60 Hz, VSync on (the default — `GameSettings.VSync = true`), double
+  buffered.** render 4.4 + GPU 13.3 = 17.7 ms overshoots the 16.67 ms deadline,
+  so a whole extra refresh is paid: 33.3 ms. Observed 30-31, which is two
+  intervals less about two milliseconds of slop in where the phase timers
+  bracket. This is §5A.19's double-buffer signature, now with a *reason* to miss.
+- **Something else caps it**, in which case the double-buffer reading is wrong
+  and has been wrong since §5A.19.
+
+**`refreshRate` is now the cheapest open question in this document.** One number
+separates a settled explanation from a wrong one. EMPIRICAL_CHECKS C2.
+
+**8. An instrument defect this run announced by itself.** `ThresholdMs` is
+absolute and defaults to 25 ms. This scene's *baseline* is 30-31 ms, so the
+recorder is no longer catching spikes — it is logging the scene, one record per
+cooldown, and **`SessionCap` is 40**: about two minutes of standing in Stormwind
+spends the entire session's recording budget, after which genuine hitches
+elsewhere are suppressed (counted, at least, never silent).
+
+The trip rule is **deliberately left absolute**. A relative rule set anywhere
+above 1.2x would have suppressed record 33 — the 38 ms frame that carried the
+whole finding. What changed instead is that every record now prints the window's
+**p50 and p95**, and flags itself `AT BASELINE` when the frame is within 1.2x of
+the median. A 31 ms frame against a 30 ms p50 is the scene; a 38 ms frame against
+the same p50 is the thing to read. That distinction cost a paragraph of manual
+arithmetic here and should never cost it again.
+
 ---
 
 ## 6. Not done — the honest ceiling

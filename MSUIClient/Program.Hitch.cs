@@ -488,9 +488,12 @@ public sealed partial class GameLoop
             Row = s.Row,
         });
 
+        var (p50, p95) = _hitch.WindowPercentiles();
         Console.WriteLine(
             $"[hitch] {name}: {s.FrameMs:F0} ms frame at [{s.Col},{s.Row}] " +
-            $"({s.X:F0},{s.Y:F0},{s.Z:F0}) -> {s.DominantPhase()}");
+            $"({s.X:F0},{s.Y:F0},{s.Z:F0}) -> {s.DominantPhase()}" +
+            $"   (window p50 {p50:F0} p95 {p95:F0} ms" +
+            (s.FrameMs <= p50 * 1.2 ? " - AT BASELINE, this scene is slow, not hitching)" : ")"));
         Console.WriteLine(
             $"[hitch]   update {s.UpdateMs:F1} (move {s.MoveMs:F1} resid {s.ResidencyMs:F1} " +
             $"preload {s.PreloadMs:F1} [discover {s.DiscoverMs:F1} demand " +

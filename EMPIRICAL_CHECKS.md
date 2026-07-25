@@ -11,7 +11,10 @@ and the ones marked ★ are worth more than the rest.
 The whole session is uncompiled — no .NET SDK in my sandbox.
 
 **A1.** Does it build? If not, paste the first 3 errors verbatim.
-> 
+> **ANSWERED 2026-07-25 — yes.** It built and ran: the Instances panel produced
+> a complete 44-map dump and the hitch recorder produced four records. That
+> clears `ImGuiFontConfig` and `AddImageQuad`, the two riskiest calls of the
+> session, plus everything in PLAN_13 stage 1.
 
 **A2.** On startup, paste the four lines:
 ```
@@ -93,7 +96,14 @@ streaming with the GPU at 8–14 ms, not on the controlled crossing.
 
 **C1.** Walk `[32,48] → [32,49]` from a standing start, once, and paste one whole
 `[hitch]` block — all six lines.
-> 
+> **ANSWERED 2026-07-25, differently and better.** Four blocks arrived from a
+> *stationary* camera at `[30,48]` in Stormwind rather than from a crossing.
+> That eliminates streaming outright — resid/preload/discover/demand/adopt and
+> every upload counter read 0.0 — and still shows 30-31 ms frames at
+> 0.35-0.55 M/ms. The thread-blocked verdict now holds without §5A.18's
+> startup caveat. **The fork resolved sideways: present tracks the GPU, WMO is
+> 72-86% of GPU time, and the next lever is PLAN_10 portal culling, not the
+> swap chain and not scheduling.** Full reading in SYSTEM_STREAMING.md §5A.20.
 
 *Why: §5A.19 states the fork exactly. A frame with GPU back under 1 ms that
 **also** reads <1 M/ms means §5A.16's zero-work stall is the same blocked wait and
@@ -103,7 +113,12 @@ chain or scheduling** — and the handbook says not to write streaming code befo
 reading it.*
 
 **C2.** What is your monitor's refresh rate?
-> 
+> **STILL OPEN, and now the cheapest question in the whole document.** §5A.20
+> leaves exactly twelve milliseconds of `present` unexplained by GPU time. At
+> 60 Hz with VSync on (the default) that is a textbook double-buffer miss —
+> render 4.4 + GPU 13.3 = 17.7 overshoots 16.67, so a whole extra refresh is
+> paid. At 144 Hz it means the double-buffer reading has been wrong since
+> §5A.19. **One number decides it.**
 
 *Why: 31–34 ms is exactly two intervals at 60 Hz. At 144 Hz it means something
 completely different and my double-buffer reading is wrong.*
