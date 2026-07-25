@@ -81,8 +81,20 @@ public sealed class WdtFile
     /// record type on purpose — MODF is the same 64 bytes in both files, and a
     /// second copy of that struct is a second thing to get wrong.
     ///
-    /// Every 1.12 global-WMO map sampled has position (0,0,0) and rotation
-    /// (0,0,0); the bounding box is the only part that varies.
+    /// MEASURED ACROSS ALL 21 GLOBAL-WMO MAPS IN 1.12, every one of these
+    /// placements is degenerate in the same way:
+    ///
+    ///     nameId 0   uniqueId 0xFFFFFFFF   flags 0   doodadSet 0   nameSet 0
+    ///     position (0,0,0)                 rotation (0,0,0)
+    ///
+    /// The bounding box is the ONLY field that varies. So stage 3's placement
+    /// maths has nothing to get wrong except the box, and a global-WMO map that
+    /// renders in the wrong place is a bug in the transform, not in the data.
+    ///
+    /// uniqueId is -1 rather than a real id. Nothing here reads it, and
+    /// AdtTerrainReader.ParseModf leaves it commented out for the ADT case too,
+    /// so no instance key collides on it. Worth knowing before something starts
+    /// keying placements by uniqueId.
     /// </summary>
     public AdtTerrainReader.WmoInstance? GlobalWmo { get; private set; }
 
@@ -160,6 +172,15 @@ public sealed class WdtFile
             if (magic == MagicMver)
             {
                 if (size >= 4) wdt.Version = BitConverter.ToUInt32(data, body);
+
+                // Every one of the 44 WDTs in 1.12 is version 18. SuperUI's
+                // reader REJECTS anything else outright; this one warns and
+                // carries on, because a panel row reading "MVER 21" names the
+                // problem and a null does not. If this ever fires, stop
+                // trusting MAIN's layout - that is what the version guards.
+                if (wdt.Version != 0 && wdt.Version != 18)
+                    Console.WriteLine($"[wdt] MVER {wdt.Version}, expected 18 - " +
+                                      "this is not vanilla data and MAIN may not be 64x64x8");
             }
             else if (magic == MagicMphd)
             {

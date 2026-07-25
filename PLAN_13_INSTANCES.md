@@ -317,3 +317,78 @@ handle:
    inferring one from the other. The centre tile of `development` is `[31,1]`,
    which has no ADT at all; H3's "centre of the tile cluster" spawn must fall
    back to the first occupied tile when the centre is empty.
+
+## 12. Cross-check against SuperUI's `WdtReader.cs`
+
+Nico handed over the WDT reader from MangosSuperUI — a codebase where these
+dungeons **actually rendered**. That makes it evidence, not just a second
+opinion, and it was checked line by line against `Formats/WdtReader.cs` and
+against a fresh sweep of all 44 archives.
+
+**The two readers agree on everything that matters.** Chunk walk, `MPHD & 0x01`,
+`MAIN` as 64x64x8 with the low flag bit, MWMO as a string, MODF as 64 bytes at
+the same offsets, and `World\Maps\{dir}\{dir}.wdt`. Nothing in §1 is contradicted
+by a reader that shipped working output.
+
+The sweep that check prompted also closed off the "what else might be in there"
+question. Across all 44 files:
+
+- **MVER is 18 everywhere.** No exceptions.
+- **MPHD flags are only ever `0x00000000` or `0x00000001`.** No other bit is set
+  on any map, so `UsesGlobalWmo` is the *whole* of the header, not one field
+  among several.
+- **MAIN is always exactly 32768 bytes**, so the grid is never short.
+- **MWMO holds exactly one string** when present and is zero bytes on every
+  terrain map. **MODF holds exactly one 64-byte entry.** Never zero, never two.
+- **Chunk order is always `MVER > MPHD > MAIN > MWMO [> MODF]`.** Our deferral of
+  the MODF parse until after MWMO is therefore belt-and-braces, and stays.
+- **Every MODF placement is degenerate the same way:** nameId 0, uniqueId
+  `0xFFFFFFFF`, flags 0, doodadSet 0, nameSet 0, position `(0,0,0)`, rotation
+  `(0,0,0)`. **The bounding box is the only field that varies.** Stage 3's
+  placement maths has nothing to get wrong except the box.
+
+### What was adopted
+
+- **SuperUI's MVER guard**, softened. It returns `null` on anything other than
+  18; ours warns and carries on, because a panel row reading `MVER 21` names the
+  problem where a null just makes the map vanish. The guard's *point* is right:
+  the version is what licenses trusting MAIN's layout.
+- **The degenerate-placement fact**, written into the `GlobalWmo` doc comment so
+  stage 3 starts from it instead of rediscovering it.
+
+### What was deliberately not adopted
+
+- **`Flags`, `NameSet`, `Padding`, `UniqueId` on the MODF record.** SuperUI
+  captures all four; measured, all four are zero (or -1) on all 21 maps. Fields
+  that are constant across the entire dataset are not data.
+- **`KnownDungeonAliases`** — SuperUI needs `Gnomeragon` / `Gnomeregan` /
+  `GnomereganInstance` and `BlackfathomDeeps` as fallback folder names. We read
+  the directory out of `Map.dbc`'s Directory column, which resolved all 44 maps
+  on the first try, so there is nothing to alias. **If a map ever fails to
+  resolve here, the bug is in the DBC read, not in the folder name** — do not
+  reach for an alias table.
+
+### What it independently confirms
+
+SuperUI's own comment lists the terrain-based instances it had to route
+elsewhere: *"Deadmines, Shadowfang, Stratholme, BWL, Scholomance, Scarlet
+Monastery, Zul'Farrak, Razorfen Kraul/Downs, Zul'Gurub, AQ20, AQ40,
+Naxxramas"*. That is §1's terrain column, arrived at independently by a project
+that had to make them render. **§1's headline finding is corroborated, not just
+measured.**
+
+Its curated `KnownDungeons` list is also the right shape for stage 2's travel
+menu: 13 global-WMO maps, excluding `test`, `Test`, `Collin`, `StormwindPrison`,
+the `<unused>` `Monastery` (id 44), `DeeprunTram` and the two PVP barracks —
+exactly the exclusions §11 argues for. It is recorded here rather than hardcoded,
+because the panel lists everything and the *menu* is what needs curating.
+
+### The one thing it does NOT settle
+
+**The col/row convention.** SuperUI stores `TileExists[y, x]` from MAIN index
+`y * 64 + x`, which matches ours — but its `KnownDungeons` list covers only
+global-WMO maps, and those have no tiles at all. Its terrain instances went down
+a separate `_terrainPresets` path that is not in this file. So the axis question
+is still answered only by our own trace through `AdtCache.Get(col, row)` ->
+`ReadFromMpq(gridX: row, gridY: col)` -> `{map}_{col}_{row}.adt`, and §7 step 3
+(Deadmines terrain appearing where it should) is still the test that proves it.
