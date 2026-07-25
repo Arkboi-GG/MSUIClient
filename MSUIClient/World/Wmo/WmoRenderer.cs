@@ -469,6 +469,53 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
+    /// Portal polygons as world-space triangles, for the debug draw.
+    ///
+    /// PLAN_10 §6 item 4: a portal whose plane or winding is wrong is obvious as
+    /// a SHAPE and invisible as a number. Doorways should appear as flat quads
+    /// standing in the door openings - one lying in a floor, or floating in a
+    /// wall, says the transform or the vertex range is wrong before any
+    /// traversal is written on top of it.
+    ///
+    /// Fan-triangulated from the polygon, which is correct because MOPT polygons
+    /// are convex by construction. Reuses CollisionDebugRenderer.RenderHighlight
+    /// rather than adding a GL path - handbook §10 records writing from scratch
+    /// what already existed, twice.
+    /// </summary>
+    public List<Vector3> PortalDebugTriangles(bool onlyCameraWmo)
+    {
+        var tris = new List<Vector3>();
+        string? only = onlyCameraWmo ? CameraGroup?.InstancePath : null;
+        if (onlyCameraWmo && only is null) return tris;
+
+        foreach (var instance in _instances)
+        {
+            if (only is not null &&
+                !instance.Path.Equals(only, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var model = instance.Model;
+            foreach (var portal in model.Portals)
+            {
+                int start = portal.StartVertex;
+                int count = portal.VertexCount;
+                if (count < 3 || start < 0 || start + count > model.PortalVertices.Count) continue;
+
+                var v0 = ToWorld(model.PortalVertices[start], instance.Transform);
+                for (int i = 1; i + 1 < count; i++)
+                {
+                    tris.Add(v0);
+                    tris.Add(ToWorld(model.PortalVertices[start + i], instance.Transform));
+                    tris.Add(ToWorld(model.PortalVertices[start + i + 1], instance.Transform));
+                }
+            }
+        }
+        return tris;
+
+        static Vector3 ToWorld((float x, float y, float z) v, Matrix4x4 m)
+            => Vector3.Transform(new Vector3(v.x, v.y, v.z), m);
+    }
+
+    /// <summary>
     /// Print the portal graph of every loaded WMO that has one.
     ///
     /// PLAN_10 §7 step 2: this is what turns "the traversal is wrong" into

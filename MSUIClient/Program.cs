@@ -1550,6 +1550,7 @@ public sealed partial class GameLoop : IDisposable
             _collision?.Offset ?? Vector3.Zero);
 
         HighlightPhysicsTriangles();
+        DrawPortalDebug();
 
         if (_showPlayerMarker && _collisionDebug is not null && _controller is not null)
             _collisionDebug.RenderPlayerMarker(

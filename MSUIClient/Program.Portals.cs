@@ -16,6 +16,26 @@ namespace MSUIClient;
 // ============================================================================
 public sealed partial class GameLoop
 {
+    private bool _showPortalPolygons;
+    private bool _portalDebugOnlyCameraWmo = true;
+
+    /// <summary>
+    /// Draw the portal quads, reusing the collision debug renderer's
+    /// arbitrary-triangle path. Depth is off there, so doorways show through
+    /// walls - which is what you want when checking whether one sits in the
+    /// right opening.
+    ///
+    /// Defaults to the camera's own building: Stormwind alone has enough
+    /// portals to fill the screen with quads and answer nothing.
+    /// </summary>
+    private void DrawPortalDebug()
+    {
+        if (!_showPortalPolygons || _wmo is null || _collisionDebug is null) return;
+
+        var tris = _wmo.PortalDebugTriangles(_portalDebugOnlyCameraWmo);
+        if (tris.Count >= 3) _collisionDebug.RenderHighlight(_window.Camera, tris);
+    }
+
     private void DrawPortalPanel()
     {
         if (!ImGui.CollapsingHeader("Portals (PLAN_10)")) return;
@@ -50,6 +70,16 @@ public sealed partial class GameLoop
             "PLAN_10 §7 step 1: the group must change AT the doorway walking in, " +
             "and return to 'outdoors' walking out. If it flips early or late, the " +
             "cell test is wrong and no traversal built on it can be right.");
+
+        bool show = _showPortalPolygons;
+        if (ImGui.Checkbox("Draw portal polygons", ref show)) _showPortalPolygons = show;
+        ImGui.SameLine();
+        bool onlyHere = _portalDebugOnlyCameraWmo;
+        if (ImGui.Checkbox("this building only", ref onlyHere))
+            _portalDebugOnlyCameraWmo = onlyHere;
+        ImGui.TextDisabled("  doorways should stand IN the door openings. One lying in a");
+        ImGui.TextDisabled("  floor or floating in a wall means the transform or vertex");
+        ImGui.TextDisabled("  range is wrong - and no traversal built on it can be right.");
 
         if (ImGui.Button("Dump portal graph")) _wmo.DumpPortalGraph();
 
