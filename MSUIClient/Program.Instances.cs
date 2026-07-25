@@ -27,6 +27,7 @@ public sealed partial class GameLoop
 {
     private MapTable? _maps;
     private Dictionary<int, WdtFile?>? _mapWdts;
+    private AreaTriggerTable? _areaTriggers;
     private bool _instancesLoadAttempted;
     private double _instancesLoadMs;
     private string _instanceFilter = "";
@@ -55,6 +56,9 @@ public sealed partial class GameLoop
 
             _maps = MapTable.Parse(bytes);
             if (_maps is null) return;
+
+            var trig = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, AreaTriggerTable.MpqPath);
+            _areaTriggers = trig is null ? null : AreaTriggerTable.Parse(trig);
 
             _mapWdts = new Dictionary<int, WdtFile?>(_maps.Count);
             int withWdt = 0, globalWmo = 0, terrain = 0;
@@ -333,6 +337,30 @@ public sealed partial class GameLoop
         var (col, row) = wdt.SpawnTile;
         where = TerrainRenderer.TileCenter(col, row);
         why = "";
+
+        // THE TILE CENTRE IS USUALLY NOT WHERE THE DUNGEON IS. Measured on the
+        // first run: Deadmines' tile cluster centres on (-267, -267), while its
+        // content - read off the collision BVH it actually built - spans
+        // X -316..162 Y -1050..-342. The arrival missed the dungeon by 469 yards
+        // and every one of its 698 doodads was distance-culled. A dungeon does
+        // not sit in the middle of its tile allocation and there is no reason it
+        // should.
+        //
+        // Every AreaTrigger on an instance map sits INSIDE that instance's
+        // playable space, because that is what a trigger is for. So the nearest
+        // one to the tile centre is a far better guess than the tile centre, and
+        // it costs one table lookup. Still an arrival point and not an entrance
+        // (H3) - the client cannot know which trigger is the way in, only that
+        // they are all somewhere you can stand.
+        var anchor = _areaTriggers?.NearestOnMapXY(map.Id, where);
+        if (anchor is not null)
+        {
+            where = new Vector2(anchor.X, anchor.Y);
+            Console.WriteLine($"[travel] {map.Name}: arriving at AreaTrigger {anchor.Id} " +
+                              $"({anchor.X:F0}, {anchor.Y:F0}, {anchor.Z:F0}) rather than tile centre " +
+                              $"[{col},{row}]");
+        }
+
         return true;
     }
 
