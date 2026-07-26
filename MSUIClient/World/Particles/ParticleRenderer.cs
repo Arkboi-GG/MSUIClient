@@ -62,7 +62,7 @@ public sealed class ParticleRenderer : IDisposable
     public float SimulationDistance { get; set; } = 120f;
 
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
-    public float DensityScale { get; set; } = 1f;
+    public float DensityScale { get; set; } = 1.09f;
 
     /// <summary>
     /// Play a converging emitter's motion BACKWARDS: the particle starts where
@@ -95,7 +95,7 @@ public sealed class ParticleRenderer : IDisposable
     /// ramp is a function of a particle's own age, and age only maps to distance
     /// if every particle starts from the same place. This makes that true.
     /// </summary>
-    public bool ReverseRamp { get; set; } = true;
+    public bool ReverseRamp { get; set; } = false;
 
     /// <summary>
     /// Multiplier on the emitter bone's animation speed. **Nico's observation,
@@ -110,19 +110,34 @@ public sealed class ParticleRenderer : IDisposable
     /// overlap into one continuous band. So "rotate faster" and "more starts"
     /// are the same fix, not two.
     /// </summary>
-    public float SpinRateScale { get; set; } = 4f;
+    public float SpinRateScale { get; set; } = 1.86f;
 
     /// <summary>
-    /// Random extra rotation about the spin axis given to each particle at
-    /// birth, as a fraction of a full turn. 0 means every particle born on the
-    /// same frame shares the emitter's exact angle - which is what makes a
-    /// coherent arm rather than a band.
+    /// Number of evenly spaced spawn slots around the spin axis.
     ///
-    /// The other way to reach Nico's "many more starts that overlap into a
-    /// smooth swirl that never overlaps itself": instead of sweeping faster,
-    /// smear each frame's births around the circle.
+    /// **This is the shape Nico described and random jitter cannot make it:**
+    /// *"many real origin points that let their animation start, go for a bit
+    /// till getting close to center, interrupt, and between that and a restart
+    /// another one starts, and another, but all staggered, and as if each owns a
+    /// position on a 24 hour round clock."*
+    ///
+    /// Random phase scatters births uniformly and reads as a mess, because two
+    /// neighbouring particles can land a degree apart or a hundred. Quantising
+    /// to N slots and issuing them **round-robin** gives every stream its own
+    /// angle, keeps them evenly separated forever, and staggers them in time for
+    /// free - the next particle always belongs to the next slot, so the streams
+    /// are born at different points in their own cycle.
+    ///
+    /// 0 falls back to continuous phase. 24 is the clock face he named.
     /// </summary>
-    public float SpawnPhaseJitter { get; set; } = 0f;
+    public int SpawnArms { get; set; } = 24;
+
+    /// <summary>
+    /// Random phase on TOP of the slot, as a fraction of one slot's width.
+    /// Softens the spokes without dissolving them; 1 would smear a slot into its
+    /// neighbours and give back the mess.
+    /// </summary>
+    public float SpawnPhaseJitter { get; set; } = 0.25f;
 
     /// <summary>
     /// Radius in yards around the emitter inside which particles fade out.
@@ -136,7 +151,7 @@ public sealed class ParticleRenderer : IDisposable
     /// are both unread and both describe where a particle's quad lives relative
     /// to its origin.
     /// </summary>
-    public float CentreHoleYards { get; set; } = 0f;
+    public float CentreHoleYards { get; set; } = 4.74f;
 
 
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
@@ -190,6 +205,9 @@ public sealed class ParticleRenderer : IDisposable
 
         /// <summary>World position of the emitter this frame, for the centre-hole fade.</summary>
         public Vector3 Origin;
+
+        /// <summary>Round-robin cursor over the spawn slots. See SpawnArms.</summary>
+        public int NextArm;
 
         /// <summary>xorshift, so each pool is independent and nothing shares Random.</summary>
         public float Rand()
@@ -411,15 +429,26 @@ public sealed class ParticleRenderer : IDisposable
         // what make the shape; neither does it alone.
         var spin = e.SampleBoneRotation(_time * SpinRateScale);
 
-        // Smear this frame's births around the spin axis. The axis is the bone's
-        // own rotation axis, taken from the track's first moving key rather than
-        // assumed - for InstancePortal that is local X.
-        if (SpawnPhaseJitter > 0f)
+        // Put this particle on the next slot of the clock face. Round-robin
+        // rather than random: it is what keeps the streams evenly separated and
+        // staggered instead of clumping. The axis is the bone's own rotation
+        // axis, which for InstancePortal is local X.
+        float phase = 0f;
+        if (SpawnArms > 0)
         {
-            float extra = MathF.Tau * SpawnPhaseJitter * pool.Symmetric();
-            spin = Quaternion.Concatenate(
-                spin, Quaternion.CreateFromAxisAngle(Vector3.UnitX, extra));
+            phase = MathF.Tau * (pool.NextArm % SpawnArms) / SpawnArms;
+            pool.NextArm++;
+            if (SpawnPhaseJitter > 0f)
+                phase += MathF.Tau / SpawnArms * SpawnPhaseJitter * pool.Symmetric() * 0.5f;
         }
+        else if (SpawnPhaseJitter > 0f)
+        {
+            phase = MathF.Tau * SpawnPhaseJitter * pool.Symmetric();
+        }
+
+        if (phase != 0f)
+            spin = Quaternion.Concatenate(
+                spin, Quaternion.CreateFromAxisAngle(Vector3.UnitX, phase));
         dirLocal = Vector3.Transform(dirLocal, spin);
 
         // ── SPAWN ACROSS THE EMISSION AREA ───────────────────────────────────

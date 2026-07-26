@@ -52,9 +52,17 @@ public sealed partial class GameLoop
             ImGui.TextDisabled($"   arm sweep over one particle life: " +
                                $"{113f * spin:F0} deg  (needs >180 for the two arms to meet)");
 
+            int arms = _particles.SpawnArms;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderInt("Spawn arms (clock face)", ref arms, 0, 48))
+                _particles.SpawnArms = arms;
+            ImGui.TextDisabled(arms > 0
+                ? $"   {arms} evenly spaced origins, issued round-robin - {360f / arms:F0} deg apart"
+                : "   continuous phase (random)");
+
             float jitter = _particles.SpawnPhaseJitter;
             ImGui.SetNextItemWidth(160f);
-            if (ImGui.SliderFloat("Spawn phase jitter", ref jitter, 0f, 1f, "%.2f"))
+            if (ImGui.SliderFloat("Phase jitter (of one slot)", ref jitter, 0f, 1f, "%.2f"))
                 _particles.SpawnPhaseJitter = jitter;
 
             float hole = _particles.CentreHoleYards;

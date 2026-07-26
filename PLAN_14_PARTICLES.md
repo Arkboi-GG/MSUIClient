@@ -882,3 +882,60 @@ number is not blind.
 Whichever combination lands, **record the values and then go find what in the
 data produces them.** A tuned constant that matches the reference is a lead, not
 an answer.
+
+
+## 21. The clock face — quantised spawn slots, and Nico's tuning as the baseline
+
+His settings, now the defaults:
+
+| knob | value |
+|---|---|
+| Density | **1.09** |
+| Spin rate x | **1.86** (arm sweep 210 deg — past the 180 the two arcs need to meet) |
+| Centre hole | **4.74 yd** |
+| Reverse converging (time) | **on** |
+| Density at the far end | **off** |
+| Simulate within | 120 yd |
+
+And the observation that names the last structural piece:
+
+> *"many real origin points that let their animation start, go for a bit till
+> getting close to center, interrupt, and between that and a restart another one
+> starts, and another, but all staggered, and as if each owns a position on a 24
+> hour round clock"*
+
+### 21.1 Why random phase could never produce that
+
+`SpawnPhaseJitter` scattered births uniformly around the circle. Uniform random
+is not evenly spaced — two neighbouring particles can land a degree apart or a
+hundred — so it reads as a **mess**, which is exactly the word he used. Evenly
+spaced streams are a different thing entirely and need a different mechanism.
+
+**`SpawnArms`**: quantise the phase to N slots and issue them **round-robin**.
+Every stream gets its own angle, they stay evenly separated forever, and they
+stagger in time for free — the next particle always belongs to the next slot, so
+each stream is born at a different point in its own cycle. Default **24**, the
+clock face he named. `SpawnPhaseJitter` survives as a fraction of *one slot's
+width* (default 0.25), which softens a spoke without dissolving it back into the
+mess.
+
+### 21.2 This is still tuning, and the debt is now explicit
+
+Six values are hand-set to match a reference by eye. That is the opposite of how
+everything else in this plan was derived, and it should not be allowed to settle:
+
+- **`SpinRateScale` 1.86** — if the emitter bone were played 1.86x faster the
+  sweep would be right. Nothing in the format has been shown to say so. Either a
+  sequence duration is misread, or there is a playback rate that is not being
+  applied. **This one is most likely to have a real answer in the data.**
+- **`SpawnArms` 24** — no field measured so far carries a stream count. If 24 is
+  visually right, the real mechanism is probably that the live client spawns
+  continuously against a *much* faster sweep and the apparent spokes are
+  aliasing, in which case this knob is standing in for `SpinRateScale`.
+- **`CentreHoleYards` 4.74** — suspiciously close to the mesh ring's own outer
+  radius of **4.41**. That is worth chasing before anything else: if the inner
+  cutoff is really the ring geometry, then the "hole" is not a particle
+  behaviour at all.
+
+**Every one of these is a lead, not an answer.** They are recorded here so the
+next session knows which numbers were measured and which were dialled.
