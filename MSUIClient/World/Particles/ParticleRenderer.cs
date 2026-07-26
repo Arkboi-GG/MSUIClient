@@ -304,57 +304,18 @@ public sealed class ParticleRenderer : IDisposable
         float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
         float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
 
-        Vector3 dirRaw;
-        if (e.EmissionSpeed < 0f)
-        {
-            // ── CONVERGING EMITTER: radial, so a negative speed pulls INWARD ──
-            //
-            // WoWee's axis formula makes the direction PERPENDICULAR to the
-            // spawn offset - pre-spin the offset is (lx, ly, 0) and the
-            // direction is (0, 0, 1), and the bone spin rotates both equally, so
-            // they stay perpendicular forever. That is tangential motion, and
-            // tangential motion off a swept plane is exactly the hard coherent
-            // arcs this produced two commits ago, then the outward "white hole"
-            // haze after that.
-            //
-            // The real portal is the opposite: a DARK centre ringed by particles
-            // spiralling in. Three measured things say radial-inward is how the
-            // authored data makes that:
-            //
-            //   * The mesh is a flat ring in the model's YZ plane - 30 vertices,
-            //     all on the UNANIMATED bone 0, radius out to 4.41, only 0.55
-            //     thick in X - centred exactly on the emitter pivot. The face
-            //     normal is local X, so the disc is the plane the particles must
-            //     live in, and its centre is where they must go.
-            //   * The speed is NEGATIVE. Radial direction plus negative speed is
-            //     literally "travel toward the origin"; there is no other reading
-            //     of a converging emitter that uses the sign.
-            //   * The authored ramp makes the centre dark for free: alpha runs
-            //     0 -> 50 -> 0 and scale 0.278 -> 0.972 -> 0.028, so a particle
-            //     is INVISIBLE at birth and again at death. It fades up just
-            //     after leaving the rim and fades out as it reaches the middle.
-            //     The black hole is the ramp, not a special case.
-            //
-            // NOT taken from WoWee, and it cannot be: its particle path returns
-            // immediately for this model (see the note on the area spawn) and
-            // substitutes two glow sprites. This is the authored data plus the
-            // reference screenshot, and it is flagged as such.
-            var radial = new Vector3(lx, ly, 0f);
-            dirRaw = radial.LengthSquared() > 1e-6f
-                ? Vector3.Normalize(radial)
-                : new Vector3(0f, 0f, 1f);
-        }
-        else
-        {
-            // ── JET EMITTER: WoWee's formula, verified against torches ────────
-            dirRaw = new Vector3(
-                pool.Symmetric() * hr,
-                pool.Symmetric() * hr,
-                1f + pool.Symmetric() * vr);
+        // WoWee's formula, verified against torches and campfires. The radial
+        // variant tried on top of this (commit c863cdf) is REVERTED: it made
+        // every particle converge on a single point, which produced a bright
+        // core - the exact inverse of the dark centre it was meant to create.
+        // See PLAN_14 §16 for why that reasoning was wrong.
+        var dirRaw = new Vector3(
+            pool.Symmetric() * hr,
+            pool.Symmetric() * hr,
+            1f + pool.Symmetric() * vr);
 
-            float lenSq = dirRaw.LengthSquared();
-            dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
-        }
+        float lenSq = dirRaw.LengthSquared();
+        dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
 
         // Swapped once into the Y-up space the placement matrix expects, the
         // same `(x, y, z) -> (x, z, -y)` the vertices and the emitter position

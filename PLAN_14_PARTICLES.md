@@ -595,3 +595,50 @@ immediately for this model). It is the authored data plus the reference
 screenshot, and it is recorded as an inference rather than as emulation. If a
 converging emitter somewhere else looks wrong, this is the rule to question
 first.
+
+
+## 16. §15 was wrong, and the reasoning error is worth keeping
+
+Radial-inward produced **two bright cores** — the exact inverse of the dark
+centre it was meant to create. Nico: *"This is as opposite as you can get."*
+
+**The mistake is in §15.1's third bullet.** I claimed the authored ramp makes the
+centre dark for free, because alpha runs `0 -> 50 -> 0`. That is true *per
+particle as a function of its own age* — and I silently treated age as a proxy
+for distance from the centre. It is not. A particle born near the rim reaches
+the middle late in its life, faded out. A particle born near the middle reaches
+it almost immediately, at low age, while its alpha is at peak. **Radial motion
+converges every particle on one point regardless of when it was born**, so the
+centre collects the bright ones and becomes a caustic. Reverted.
+
+### 16.1 What the three failed models have in common
+
+| model | motion | result |
+|---|---|---|
+| cone about the normal | isotropic | volumetric plume |
+| WoWee axis + spin | tangential — direction stays perpendicular to the offset | coherent arcs, then a soft outward haze |
+| radial | converging on a point | two bright cores |
+
+**None of them can produce a dark centre with an inward spiral**, because none
+has an inward component that decays with radius. An orbit that decays is
+tangential *plus* a small radial term, and nothing in the authored fields has so
+far been shown to supply the second one.
+
+### 16.2 Stopping the guessing
+
+Three model guesses, three different wrong pictures. The next change should not
+be a fourth. Two honest ways forward:
+
+1. **Get evidence a still frame cannot carry.** Every screenshot so far is one
+   instant, and the whole question is what the particles *do over time* — orbit,
+   fall in, or drift out. A few seconds of the live portal in motion would settle
+   direction, decay and lifetime at once, and it is the cheapest decisive thing
+   available.
+2. **Adopt WoWee's answer for this one model.** It classifies `instanceportal`
+   by filename and draws a blue additive core at 7x scale plus a halo at 2.4x
+   size and 35% alpha — no particles at all (§14.1). It is explicitly not
+   emulation, and it demonstrably looks right. The handbook's §2 class for this
+   would be **Addition**, not Emulation-core, and it should say so.
+
+The current build is back to §14: WoWee's direction formula plus the area spawn —
+the soft haze, which is the closest of the three and the one to iterate from.
