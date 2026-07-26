@@ -391,3 +391,50 @@ leave it?"**
 
 The console dump now prints the emitter position and whether a bone spin was
 found, because the previous run could not answer either.
+
+
+## 13. The shape is wrong, and it is `verticalRange` — instrumented, not decided
+
+The coordinate fix worked: the portal is now centred in the doorway and blue.
+Side by side against the real 1.12 client, one difference remains and Nico named
+it exactly — ours *"looks like a spinning 3D emitter spitting stuff out"* where
+the live one *"feels more like an animated 2D plane pulling things in a circular
+pattern"*.
+
+**Ours is a bright volumetric plume. Live is a broad, flat, low-contrast sheet
+with a sparse centre.**
+
+That is a direction problem. Today `verticalRange` is read as a cone half-angle,
+so the portal's **pi** is the entire sphere: particles leave the spawn plane in
+every direction and, with a negative speed, converge through the middle. A ball.
+
+### 13.1 What was measured before reaching for a switch
+
+- **212 of 910 sampled emitters use `verticalRange` = pi exactly.** It is a
+  common authored value, not an outlier, so whatever it means has to be right
+  for a quarter of the world's emitters.
+- **The flags do not separate wide from narrow.** `0x29` appears both in the pi
+  group and among torches at 0.087, and no single bit correlates with the mean.
+  So the interpretation is not flag-switched; the same formula has to produce a
+  narrow torch jet at 0.087 and a flat portal sheet at pi.
+
+### 13.2 The fork, as a runtime switch
+
+I have reasoned about this twice now and been wrong once (§12), so this one gets
+instrumented rather than argued:
+
+| model | direction | what it should look like |
+|---|---|---|
+| `Cone` | cone about the plane normal, half-angle = `verticalRange` | today: sphere at pi |
+| `InPlaneRadial` | from the origin out through the spawn point, staying in the plane | flat sheet, negative speed pulls straight in |
+| `Blended` **(default)** | leans from the normal toward in-plane as `verticalRange` goes 0 -> pi | torch stays a narrow jet, portal goes fully flat |
+
+`Blended` is the default because it is the only one of the three that can be
+right for **both** ends of the measured range at once. If it is, the portal reads
+flat and torches keep their shape. If the portal is right but torches go
+sideways, the lean is too aggressive. If `InPlaneRadial` is visibly better for
+the portal, then `verticalRange` is not a cone at all and the torches need a
+separate explanation.
+
+**Whichever wins, record it here and delete the other two.** A switch left in
+place is a decision not taken.

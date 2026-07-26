@@ -45,6 +45,15 @@ public sealed partial class GameLoop
             if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
                 _particles.DensityScale = density;
 
+            // The open question, switchable at runtime so one run settles it
+            // instead of a third round of reasoning. PLAN_14 §13.
+            int model = (int)_particles.DirectionModel;
+            ImGui.SetNextItemWidth(220f);
+            if (ImGui.Combo("Plane direction", ref model,
+                    "Cone (sphere at vRange=pi)\0In-plane radial\0Blended by vRange\0"))
+                _particles.DirectionModel = (World.Particles.ParticleRenderer.PlaneDirection)model;
+            ImGui.TextDisabled("   portal should read as a FLAT sheet pulling inward, not a 3D plume");
+
             float dist = _particles.SimulationDistance;
             ImGui.SetNextItemWidth(160f);
             if (ImGui.SliderFloat("Simulate within (yd)", ref dist, 10f, 400f, "%.0f"))

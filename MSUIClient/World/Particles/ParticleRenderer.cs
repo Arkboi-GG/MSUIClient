@@ -64,6 +64,51 @@ public sealed class ParticleRenderer : IDisposable
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
     public float DensityScale { get; set; } = 1f;
 
+    /// <summary>
+    /// How a plane emitter turns `verticalRange` into a direction. **This is an
+    /// open question, deliberately exposed rather than decided.**
+    ///
+    /// The measured facts: 212 of 910 sampled emitters use verticalRange = pi
+    /// exactly, so it is a common authored value and not an anomaly; and the
+    /// emitter flags do NOT separate the wide ones from the narrow ones -
+    /// 0x29 appears in both the pi group and among torches at 0.087.
+    ///
+    /// Read as a cone half-angle, pi is the whole sphere, and a sphere of
+    /// particles converging through its own centre is what this renderer draws
+    /// today: a bright volumetric plume. The real 1.12 client draws a broad,
+    /// flat, low-contrast sheet with a sparse centre - Nico's words, comparing
+    /// the two side by side, were that ours "looks like a spinning 3D emitter
+    /// spitting stuff out" where the live one "feels more like an animated 2D
+    /// plane pulling things in a circular pattern".
+    ///
+    /// So the cone reading is wrong for wide emitters, right for narrow ones,
+    /// and one run with this switch settles which alternative is right rather
+    /// than a third round of reasoning about it.
+    /// </summary>
+    public enum PlaneDirection
+    {
+        /// <summary>Cone about the plane normal, half-angle = verticalRange. Today's behaviour.</summary>
+        Cone = 0,
+
+        /// <summary>
+        /// Direction is radial WITHIN the plane, from the emitter origin out
+        /// through the spawn point. With a negative speed every particle then
+        /// travels straight back toward the centre and stays in the plane -
+        /// which is the shape the live client appears to draw.
+        /// </summary>
+        InPlaneRadial = 1,
+
+        /// <summary>
+        /// Radial in the plane, blended toward the normal by verticalRange, so a
+        /// torch at 0.087 is still essentially a narrow upward jet and the
+        /// portal at pi is fully in-plane. The compromise reading, and the one
+        /// to prefer if BOTH the portal and the torches have to look right.
+        /// </summary>
+        Blended = 2,
+    }
+
+    public PlaneDirection DirectionModel { get; set; } = PlaneDirection.Blended;
+
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
     public int MaxParticles { get; set; } = 40000;
 
@@ -286,15 +331,36 @@ public sealed class ParticleRenderer : IDisposable
         float sweep = e.HorizontalRange > 0f ? e.HorizontalRange : MathF.Tau;
         float phi = sweep * pool.Symmetric();
 
-        // Built in the M2's own Z-up terms - cone about +Z, spawn plane XY -
-        // and then swapped into the Y-up space the placement matrix expects,
-        // the same `(x, y, z) -> (x, z, -y)` the vertices and the emitter
-        // position get. Building it directly in Y-up would work too; doing it
-        // in one place, one way, is what keeps it checkable.
-        var dirLocal = Swap(new Vector3(
+        // Everything below is written in the M2's own Z-up terms - the spawn
+        // plane is local XY and the normal is +Z - and swapped once at the end
+        // into the Y-up space the placement matrix expects, the same
+        // `(x, y, z) -> (x, z, -y)` the vertices and the emitter position get.
+        var cone = new Vector3(
             MathF.Sin(theta) * MathF.Cos(phi),
             MathF.Sin(theta) * MathF.Sin(phi),
-            MathF.Cos(theta)));
+            MathF.Cos(theta));
+
+        // Radial in the plane, from the origin out through the spawn point. A
+        // particle born at the exact centre has no radial direction, so it
+        // falls back to the cone rather than to a zero vector.
+        var planar = new Vector3(lx, ly, 0f);
+        planar = planar.LengthSquared() > 1e-6f ? Vector3.Normalize(planar) : cone;
+
+        var dirRaw = DirectionModel switch
+        {
+            PlaneDirection.Cone => cone,
+            PlaneDirection.InPlaneRadial => planar,
+
+            // Blended: verticalRange drives how far from the normal the
+            // direction leans, so 0.087 (a torch) is almost the normal and pi
+            // (the portal) is fully in-plane.
+            _ => Vector3.Normalize(Vector3.Lerp(
+                    new Vector3(0f, 0f, 1f), planar,
+                    Math.Clamp(e.VerticalRange / MathF.PI, 0f, 1f))
+                 + cone * 0.0001f),
+        };
+
+        var dirLocal = Swap(dirRaw);
 
         // THE BONE SPIN, and it is what makes this a portal rather than a haze.
         // The emitter rides a bone whose only animation is a full revolution
