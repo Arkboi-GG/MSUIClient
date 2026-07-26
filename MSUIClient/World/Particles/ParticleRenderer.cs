@@ -64,50 +64,6 @@ public sealed class ParticleRenderer : IDisposable
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
     public float DensityScale { get; set; } = 1f;
 
-    /// <summary>
-    /// How a plane emitter turns `verticalRange` into a direction. **This is an
-    /// open question, deliberately exposed rather than decided.**
-    ///
-    /// The measured facts: 212 of 910 sampled emitters use verticalRange = pi
-    /// exactly, so it is a common authored value and not an anomaly; and the
-    /// emitter flags do NOT separate the wide ones from the narrow ones -
-    /// 0x29 appears in both the pi group and among torches at 0.087.
-    ///
-    /// Read as a cone half-angle, pi is the whole sphere, and a sphere of
-    /// particles converging through its own centre is what this renderer draws
-    /// today: a bright volumetric plume. The real 1.12 client draws a broad,
-    /// flat, low-contrast sheet with a sparse centre - Nico's words, comparing
-    /// the two side by side, were that ours "looks like a spinning 3D emitter
-    /// spitting stuff out" where the live one "feels more like an animated 2D
-    /// plane pulling things in a circular pattern".
-    ///
-    /// So the cone reading is wrong for wide emitters, right for narrow ones,
-    /// and one run with this switch settles which alternative is right rather
-    /// than a third round of reasoning about it.
-    /// </summary>
-    public enum PlaneDirection
-    {
-        /// <summary>Cone about the plane normal, half-angle = verticalRange. Today's behaviour.</summary>
-        Cone = 0,
-
-        /// <summary>
-        /// Direction is radial WITHIN the plane, from the emitter origin out
-        /// through the spawn point. With a negative speed every particle then
-        /// travels straight back toward the centre and stays in the plane -
-        /// which is the shape the live client appears to draw.
-        /// </summary>
-        InPlaneRadial = 1,
-
-        /// <summary>
-        /// Radial in the plane, blended toward the normal by verticalRange, so a
-        /// torch at 0.087 is still essentially a narrow upward jet and the
-        /// portal at pi is fully in-plane. The compromise reading, and the one
-        /// to prefer if BOTH the portal and the torches have to look right.
-        /// </summary>
-        Blended = 2,
-    }
-
-    public PlaneDirection DirectionModel { get; set; } = PlaneDirection.Blended;
 
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
     public int MaxParticles { get; set; } = 40000;
@@ -316,67 +272,67 @@ public sealed class ParticleRenderer : IDisposable
     {
         var e = pool.Emitter;
 
-        // PLANE emitter: born on a rectangle in the emitter's local XY, sized
-        // by emissionAreaLength/Width, and thrown along local +Z spread by
-        // verticalRange. The portal's range is pi - a full hemisphere.
-        float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
-        float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
+        // ── DIRECTION, taken from WoWee's m2_renderer_particles.cpp ──────────
+        //
+        // verticalRange and horizontalRange are NOT angles. They are additive
+        // jitter on the components of a direction vector that starts as model
+        // "up", and the whole thing is normalised afterwards:
+        //
+        //     dir = (0, 0, 1)
+        //     dir.x += U(-1,1) * horizontalRange
+        //     dir.y += U(-1,1) * horizontalRange
+        //     dir.z += U(-1,1) * verticalRange
+        //     normalize(dir)
+        //
+        // Read that with InstancePortal's numbers - hRange 0, vRange pi - and
+        // the whole screenshot falls out. X and Y get NOTHING, so there is no
+        // lateral spread at all; z becomes 1 + U(-3.14, 3.14), which normalises
+        // to (0,0,+1) about two thirds of the time and (0,0,-1) the rest. Every
+        // particle travels straight along one axis. That is the flat sheet.
+        //
+        // The cone this used to build - theta over [0,pi], phi over the full
+        // circle - is isotropic at pi, which is precisely the "spinning 3D
+        // emitter spitting stuff out" Nico saw. And the same formula still gives
+        // a torch at 0.087 a tight jet, which is why no flag has to switch
+        // between the two readings and why the flag sweep found no separation.
+        //
+        // The distribution is UNIFORM, not normal: WoWee's `distN` is
+        // `uniform_real_distribution<float>(-1, 1)` despite the name.
+        float hr = e.HorizontalRange;
+        float vr = e.VerticalRange;
 
-        float theta = e.VerticalRange * pool.Rand();
+        var dirRaw = new Vector3(
+            pool.Symmetric() * hr,
+            pool.Symmetric() * hr,
+            1f + pool.Symmetric() * vr);
 
-        // HorizontalRange narrows the sweep around local +X. Zero means "no
-        // constraint" rather than "a degenerate line" - an emitter authored with
-        // a narrow fan would otherwise emit a full ring, which is the difference
-        // between a jet and a fountain.
-        float sweep = e.HorizontalRange > 0f ? e.HorizontalRange : MathF.Tau;
-        float phi = sweep * pool.Symmetric();
+        float lenSq = dirRaw.LengthSquared();
+        dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
 
-        // Everything below is written in the M2's own Z-up terms - the spawn
-        // plane is local XY and the normal is +Z - and swapped once at the end
-        // into the Y-up space the placement matrix expects, the same
-        // `(x, y, z) -> (x, z, -y)` the vertices and the emitter position get.
-        var cone = new Vector3(
-            MathF.Sin(theta) * MathF.Cos(phi),
-            MathF.Sin(theta) * MathF.Sin(phi),
-            MathF.Cos(theta));
-
-        // Radial in the plane, from the origin out through the spawn point. A
-        // particle born at the exact centre has no radial direction, so it
-        // falls back to the cone rather than to a zero vector.
-        var planar = new Vector3(lx, ly, 0f);
-        planar = planar.LengthSquared() > 1e-6f ? Vector3.Normalize(planar) : cone;
-
-        var dirRaw = DirectionModel switch
-        {
-            PlaneDirection.Cone => cone,
-            PlaneDirection.InPlaneRadial => planar,
-
-            // Blended: verticalRange drives how far from the normal the
-            // direction leans, so 0.087 (a torch) is almost the normal and pi
-            // (the portal) is fully in-plane.
-            _ => Vector3.Normalize(Vector3.Lerp(
-                    new Vector3(0f, 0f, 1f), planar,
-                    Math.Clamp(e.VerticalRange / MathF.PI, 0f, 1f))
-                 + cone * 0.0001f),
-        };
-
+        // Swapped once into the Y-up space the placement matrix expects, the
+        // same `(x, y, z) -> (x, z, -y)` the vertices and the emitter position
+        // get.
         var dirLocal = Swap(dirRaw);
 
-        // THE BONE SPIN, and it is what makes this a portal rather than a haze.
-        // The emitter rides a bone whose only animation is a full revolution
-        // about its local X every 3.33 s, so the emission plane sweeps through
-        // every orientation and throws the particles out into a disc. Applied
-        // BEFORE the placement transform, because it is in model space.
+        // THE BONE SPIN. WoWee multiplies the direction by the bone matrix, and
+        // for InstancePortal that bone turns a full revolution every 3.33 s - so
+        // a direction fixed along one axis sweeps a complete circle, and the
+        // particles trace a flat rotating disc. Direction and spin together are
+        // what make the shape; neither does it alone.
         var spin = e.SampleBoneRotation(_time);
-        var spawnLocal = Vector3.Transform(Swap(new Vector3(lx, ly, 0f)), spin);
         dirLocal = Vector3.Transform(dirLocal, spin);
 
-        // Direction only - the placement's rotation must apply, its translation
-        // must not, or every particle would be born at the world origin offset.
+        // WoWee spawns every particle AT the emitter point and does not use
+        // emissionAreaLength/Width at all. Followed here, because it is the
+        // reference that demonstrably looks right: spreading births over a
+        // 4.17-yard rectangle is what turned a crisp disc into a fuzzy ball.
+        // The fields stay parsed and shown - if waterfalls (area 18.0) later
+        // look too thin, this is the line to revisit, with that as the evidence
+        // rather than a preference.
         var rotation = pool.Transform;
         rotation.M41 = rotation.M42 = rotation.M43 = 0f;
 
-        var offsetWorld = Vector3.Transform(spawnLocal, rotation);
+        var offsetWorld = Vector3.Zero;
         var dirWorld = Vector3.Normalize(Vector3.TransformNormal(dirLocal, rotation));
 
         // The placement's scale reaches the spawn rectangle for free, because

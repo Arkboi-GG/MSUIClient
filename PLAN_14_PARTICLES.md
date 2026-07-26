@@ -438,3 +438,56 @@ separate explanation.
 
 **Whichever wins, record it here and delete the other two.** A switch left in
 place is a decision not taken.
+
+### 13.3 Resolved by WoWee before the switch was ever run
+
+Nico: *"surely wowee has this one figured out no?"* It had, and asking sooner
+would have saved two rounds of theory. `src/rendering/m2_renderer_particles.cpp`:
+
+```cpp
+glm::vec3 dir(0.0f, 0.0f, 1.0f);
+dir.x += distN(particleRng_) * hRange;     // distN is uniform_real(-1, 1)
+dir.y += distN(particleRng_) * hRange;
+dir.z += distN(particleRng_) * vRange;
+normalize(dir);
+p.velocity = rotMat * dir * speed;         // rotMat = model * bone, rotation only
+```
+
+**`verticalRange` and `horizontalRange` are not angles at all.** They are
+additive jitter on the *components* of a direction vector that starts as model
+up, normalised afterwards. None of the three models in §13.2 was right.
+
+Read it with InstancePortal's numbers — `hRange 0`, `vRange pi`:
+
+- X and Y get **nothing**, so there is no lateral spread whatsoever;
+- Z becomes `1 + U(-3.14, 3.14)`, which normalises to `(0,0,+1)` about two
+  thirds of the time and `(0,0,-1)` the rest.
+
+**Every particle travels straight along one axis.** That is the flat sheet, and
+the bone's full revolution every 3.33 s sweeps that axis through a circle,
+tracing the disc. Direction and spin together make the shape; neither does it
+alone.
+
+It also explains §13.1's dead end. The same formula gives a torch at `0.087` a
+tight jet and the portal at `pi` a flat sheet, so **no flag needs to switch
+between two readings** — which is exactly why the flag sweep found no separation.
+The absence of a correlation was the answer, and I read it as a missing clue.
+
+One more divergence, followed deliberately: **WoWee never uses
+`emissionAreaLength/Width`.** Every particle is born at the emitter point.
+Spreading births over the portal's 4.17-yard rectangle is what turned a crisp
+disc into a fuzzy ball, so that is now matched. The fields stay parsed and
+displayed; if waterfalls (area 18.0) later look too thin, that is the evidence
+to revisit it with.
+
+### 13.4 The lesson, which is not about particles
+
+Three rounds went into deriving behaviour that a working reimplementation had
+already settled, sitting on the same machine. The handbook's §7 lineage section
+exists because WoWee has been consulted before — for streaming, in PLAN_08 — and
+the reflex did not fire here.
+
+**When the question is "how does the real client behave", the archives answer
+what the data IS and WoWee answers what a client DOES with it.** The rule this
+session earned: reach for the reference implementation the moment the question
+stops being about bytes and starts being about behaviour.

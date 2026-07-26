@@ -31,6 +31,11 @@ GameData/
 # runtime, and tools/mpqpeek reads them offline.
 Interface/
 
+# Reference source copied in from another project for reading, not for
+# building. WoWee is someone else's code and must not enter this history;
+# the handbook's lineage section is where its findings get recorded.
+_wowee_ref/
+
 # Per-machine paths. client-config.json.example is committed instead, so
 # a fresh clone has a template without carrying anyone's local layout.
 client-config.json
