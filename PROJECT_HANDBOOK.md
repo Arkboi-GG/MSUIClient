@@ -2,7 +2,15 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 25 — 2026-07-26
+Version: Draft 26 — 2026-07-26
+Supersedes: Draft 25 (same day; a documentation-sync draft that made no new
+engineering claims. Draft 26 records the WMO-liquid session: **PLAN_15** shipped
+canals, fountains, indoor pools and lava channels, `SYSTEM_WATER.md` went to
+Draft 3 with a new §7, and `tools/mpqpy/` was built — a Python port of the
+client's own MPQ reader that lets format questions be answered from Nico's real
+archives **without a build**. §3.4 gained a fourth array. The MLIQ convention,
+tile unit, flag encoding and type mapping were each derived from 235 real WMO
+groups, and two of the four contradicted comments that were in `WmoReader.cs`.)
 Supersedes: Draft 24 (previous day; the instances + particles session. Two
 systems shipped and two system docs were extracted under the §1.2 rule —
 **SYSTEM_INSTANCES.md** (walk into a dungeon and back out, no server and no
@@ -149,8 +157,16 @@ database now exist in `Engine/Vantage.cs`, `Engine/VisibilityOverrides.cs`,
 saved viewpoints and `dumps/` holds a real captured dump. **Use it — the paired
 artifact (vantage + screenshot + dump) is the working agreement now, see §5.3.**
 
-**Not started:** networking, painterly pass. WMO liquid (canals, fountains,
-indoor pools) is also not done — see SYSTEM_WATER.md §5.
+- **WMO liquid (MLIQ)** — Stormwind's canals, Ironforge's lava channels,
+  Undercity's slime, fountains and indoor pools. 235 groups in `wmo.MPQ` carry
+  one and the client drew none of them. Shares the open-world water pipeline
+  entirely — same shader, same uniforms, same tuning — because a canal and the
+  river outside the gate are the same substance. **SYSTEM_WATER.md §7** (Draft 3).
+  Its headline: *the MLIQ type codes are NOT the codes `water.frag` routes on,
+  and three of the six agree by coincidence* — so passing them through looks
+  right in Stormwind and puts blue water in Ironforge.
+
+**Not started:** networking, painterly pass.
 
 **Tile streaming is implemented and partially runtime-validated:** a moving 3×3
 terrain ring follows the player; WMO/doodad placement lists and collision are
@@ -192,6 +208,68 @@ cost on Iris Xe: roughly 5–7 FPS in Trade District. The default is now a true
 has multiple samples.
 
 ### Stop point — read this first in the next session
+
+> ## STOP POINT, 2026-07-26 (end of the WMO-liquid session)
+>
+> **Nothing here has been compiled.** There is no .NET SDK in the assistant
+> sandbox. `git status` should show six modified `.cs` files plus two new
+> untracked paths, `PLAN_15_WMO_LIQUID.md` and `tools/mpqpy/`. **Build first.**
+>
+> ### What shipped
+>
+> **PLAN_15 — WMO liquid.** Canals, fountains, indoor pools, lava channels.
+> `WmoRenderer.EnumerateLiquid()` yields placed surfaces; `LiquidRenderer` draws
+> them through the *same* shader and uniforms as open-world water. Six files
+> touched: `WmoReader.cs`, `WmoRenderer.cs`, `LiquidRenderer.cs`, `Program.cs`,
+> `Program.Settings.cs`, `GameSettings.cs`.
+>
+> **The format half is settled and is not worth re-opening** — the MLIQ layout,
+> the tile unit, the flag encoding and the type mapping each came out of 235 real
+> groups in `wmo.MPQ`. SYSTEM_WATER.md §7.2 has the table.
+>
+> ### Run these six checks, in this order (SYSTEM_WATER.md §7.5)
+>
+> The first two need no screenshot and catch the two ways this can be wrong:
+>
+> 1. `[wmo-liquid] escape total ...` at load. Large means **the instance
+>    transform is wrong, not the convention.**
+> 2. Video Options -> Water: Stormwind must read `types water=N` only, Ironforge
+>    `magma` only. **Ironforge showing water means the MLIQ->MCLQ type
+>    translation regressed** (§7.3) — and note that a test in Stormwind alone
+>    passes either way, because three of the six codes agree by coincidence.
+>
+> Then: the canal by eye, submersion in and out, the Stormwind round trip
+> (async-adoption race, fails silently), and the A/B toggle.
+>
+> ### Known debt, deliberately taken
+>
+> **WMO liquid depth is one constant, not a measurement** (§7.4). Open-world
+> water subtracts the terrain beneath it; a WMO pool's floor is the building's
+> own mesh. The upgrade is one raycast per vertex against the collision BVH at
+> build time, and the BVH already exists. A canal will not soften where it meets
+> its wall until then.
+>
+> ### The thing to actually notice from this session
+>
+> **`tools/mpqpy/` — the archives can be read without a build.** A Python port of
+> the client's own MPQ reader. Every coordinate question this project has ever
+> had cost a round trip through Nico building and running the client; this one
+> did not, and took about ten minutes. Its README §"The method" generalises the
+> approach. Reach for it before shipping a guess.
+>
+> Limits worth knowing: the device bridge caps a staged file at 400 MB, so
+> `dbc.MPQ`, `interface.MPQ`, `model.MPQ` and `wmo.MPQ` are reachable and
+> `texture.MPQ`, `terrain.MPQ` and `patch.MPQ` are not. That is why
+> `LiquidType.dbc` (in `patch.MPQ`) is still unread.
+>
+> ### Unchanged and still open
+>
+> Everything in the 2026-07-25 stop point below still stands: **the frame-pacing
+> bug** (§5A.20 now points at PLAN_10 portal culling, not the swap chain — WMO is
+> 72-86% of GPU time) and **`refs/`, which still holds only a README**. Nico said
+> this session he will capture `refs/` after the current run of features. Six
+> emulation-core systems are now signed off without a single real-client
+> comparison between them; WMO liquid is the sixth.
 
 > ## STOP POINT, 2026-07-25 (end of the exterior-lighting session)
 >
@@ -516,7 +594,7 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | Doc | Covers | Status |
 |---|---|---|
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
-| `SYSTEM_WATER.md` | Open-world liquid: MCLQ lakes/rivers/ocean/slime/magma, the client's own animated liquid BLPs, per-type routing, underwater overlay, the water tuning window | **Written (Draft 2)** — Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves |
+| `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and (Draft 3) WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 3)** — 2026-07-26. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid; its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
 | `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
 | `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation | **Written** |
@@ -531,6 +609,7 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **D1 (the instrument) is BUILT** — `Program.Portals.cs`, camera-group readout, `DumpPortalGraph`. **Traversal is NOT built**; the 120-yard rule still stands (§3.26). §3/D4 were rewritten 2026-07-25 |
 | `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stages 1 and 2 BUILT AND VERIFIED** on 2026-07-26 — the panel reproduces all 44 rows, and Deadmines/Shadowfang/Scarlet Monastery/Razorfen Kraul travel in and back out. **`SYSTEM_INSTANCES.md` is now the current truth**; this plan keeps the 44-row reference table (§11) and the derivation. Stage 3 (global-WMO maps) specified, not built |
 | `PLAN_14_PARTICLES.md` | M2 particle emitters: the layout derived from the bytes, and what the dungeon portal actually is | **Stages 1 and 2 BUILT** — parse, panel, CPU simulator, billboard renderer; the Deadmines portal draws. **`SYSTEM_PARTICLES.md` is now the current truth**; this plan keeps the derivation record and, more usefully, **every wrong turn** — four direction models, the FBlock reconstruction that failed 0/200, and the reference-implementation citation that was void because the code never ran for this model |
+| `PLAN_15_WMO_LIQUID.md` | WMO liquid: the MLIQ coordinate convention, tile unit, flag encoding and liquid-type mapping, each derived from 235 real groups in `wmo.MPQ` | **BUILT** 2026-07-26. `SYSTEM_WATER.md` §7 is now the current truth; this plan keeps the **derivation record** — five scored candidate layouts, the 470/470 corner snap that fixed the tile unit, and the escape metric that is *monotonically biased* and ranked the wrong unit first. **§6 documents `tools/mpqpy/`, which is the reusable part** |
 | `FOUNDATION_PLAN.md` + `PLAN_01`–`PLAN_06` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. Its own §11 index is correct |
 | `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
@@ -586,13 +665,16 @@ C = 32 * 533.33333 = 17066.67
 
 Linear part determinant +1, so it is a rotation, not a mirror.
 
-### 3.4 Model vertex conventions — three arrays, two conventions
+### 3.4 Model vertex conventions — FOUR arrays, two conventions
 
 | Data | Convention | Basis needed |
 |---|---|---|
 | **WMO vertices (MOVT)** | Z-up | `(x,y,z) -> (x,z,-y)` |
+| **WMO liquid (MLIQ)** | Z-up, same space as MOVT | as MOVT |
 | **M2 render vertices** | **Y-up after M2Reader** | none for a doodad |
 | **M2 collision hull** | Z-up | `(x,y,z) -> (x,z,-y)` |
+
+MLIQ joined this table on 2026-07-26. It was the **second** array in `WmoReader.cs` whose doc comment claimed a Noggit Y-up layout it does not use — MOVT was the first. Derivation and the scoring tables: `SYSTEM_WATER.md` §7.2 and `PLAN_15_WMO_LIQUID.md` §4. **Treat prose in `WmoReader.cs` as a lead, never as ground truth.**
 
 **A bounding-box score is structurally blind to a 180° heading error.** Calibration settles which axis is up; only looking at the screen settles which way something faces.
 
@@ -1467,8 +1549,10 @@ proved the render cull was not the gate.
   half of the loop has now proved itself twice in anger: the hitch recorder
   killed six hypotheses in six runs, and the light probe overturned a by-eye
   tuning pass. What remains unexercised is the **`refs/` comparison half**.
-- Networking: not written. WMO liquid (MLIQ): not written. Skyboxes, clouds and
-  weather: parsed/resolved and applied nowhere (SYSTEM_EXTERIOR_LIGHTING.md §7)
+- Networking: not written. Skyboxes, clouds and weather: parsed/resolved and
+  applied nowhere (SYSTEM_EXTERIOR_LIGHTING.md §7)
+- WMO liquid: **placement is verified numerically and self-checks at load; the
+  LOOK is unverified and the DEPTH is a stand-in** (SYSTEM_WATER.md §7.4)
 
 ---
 
@@ -1727,9 +1811,10 @@ Written down because the same three moves have solved almost every hard bug in t
     visible hole), and **the ocean/river colours in bands 13–16, which are the
     authored answer to values `SYSTEM_WATER.md` currently invents.**
     SYSTEM_EXTERIOR_LIGHTING.md §7.
-11. **WMO liquid (MLIQ)** — canals, fountains, indoor pools. `MCLQ` open-world
-    liquid is done and shipped; `MLIQ` is parsed and drawn nowhere.
-    SYSTEM_WATER.md §5.
+11. ~~**WMO liquid (MLIQ)**~~ — **DONE 2026-07-26, PLAN_15.** Canals, fountains,
+    indoor pools and lava channels draw. Placement is derived from the bytes and
+    self-checks at load (`[wmo-liquid] escape ...`); **the look is unverified and
+    the depth is a labelled stand-in** — SYSTEM_WATER.md §7.4, §7.5.
 12. **MFOG, per-interior fog** — offered and not taken during the interior
     lighting pass, and named there as the most likely next real gain for
     interiors. SYSTEM_WMO_INTERIOR_LIGHTING.md §5. PLAN_10 D1 has now made
@@ -1865,7 +1950,7 @@ made twice, once on WMO rendering and once on the DBC layer.
 | Work | Ask for | Why |
 |---|---|---|
 | WMO portal visibility | WoWee WMO renderer/visibility code using MOPV, MOPT and MOPR | Replace the approximate 120-yard ordinary-interior heuristic with real cell traversal; distance shells remain §3.34's separate system |
-| WMO liquid (MLIQ) | WoWee's MLIQ path, plus a real-client capture of a fountain/canal | Open-world MCLQ is done; MLIQ is a different chunk with its own per-group placement — SYSTEM_WATER.md §5 |
+| WMO liquid (MLIQ) — **built, needs a look-check only** | A real-client capture of the Stormwind canal, and one of Ironforge's lava | The format half is settled from the bytes and does not need WoWee (SYSTEM_WATER.md §7.2). What is unverified is colour/opacity against the real client, and whether the stand-in depth reads badly at a canal edge |
 | Any emulation-core sign-off | A real 1.12 client screenshot from the named vantage, saved to `refs/<vantage>.png` | FOUNDATION_PLAN §2: emulation-core work is measured against the real client, not by eye. Four shipped systems currently lack this |
 | Streaming smoothness | A post-Draft-14 console log plus the exact moments Nico felt hitches | Separate upload contention, residency publication and steady-state rendering |
 | The flicker (§9) | WoWee `src/rendering/m2_renderer.cpp` render-state setup | Whether they honour NoZWrite, blend mode and priority plane |

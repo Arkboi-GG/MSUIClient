@@ -6,7 +6,9 @@ PROJECT_HANDBOOK.md §1.2). Read this plus the handbook's cross-cutting ground
 truth (§3.1 coordinates, §8.5 shader ASCII rule, §11 working agreements) before
 touching foliage. You should not need the rest of the handbook.
 
-Version: Draft 1 — 2026-07-24.
+Version: Draft 2 — 2026-07-26 (adds the LIQUID gate — grass was growing along the
+bed of the Elwynn river because this renderer had no idea liquid existed. See §6.)
+Previous: Draft 1 — 2026-07-24.
 
 Owner files: `World/FoliageRenderer.cs`, `Shaders/grass.vert`,
 `Shaders/grass.frag`, `GroundEffectDoodadTable` / `GroundEffectTextureTable` in
@@ -273,6 +275,39 @@ window.
 
 Any coverage change calls `ForceRescatter()`, so edits take effect on the next
 frame rather than after you walk 8 yards.
+
+---
+
+## 5b. Clutter does not grow in the river (2026-07-26)
+
+**The defect.** `FoliageRenderer` contained not one mention of liquid. Its per-cell
+gate tested the no-doodad mask, terrain holes and the layer map — nothing about
+water — so the Elwynn riverbed, whose texture layer legitimately authors ground
+effects, scattered ordinary grass under several feet of water.
+
+**Why it is a DEPTH test and not a liquid test.** Nico's call, and it is the right
+one: the *water plants* down there are correct. A riverbed's `GroundEffectTexture`
+authors reeds, and reeds at the shallow margin are exactly what vanilla shows. Only
+the ordinary clutter out in the channel is wrong. A blanket "no foliage under
+liquid" would have thrown away the good half.
+
+```csharp
+if (SkipDeepLiquidCells && UnderDeepLiquid(chunk, cx, cy, LiquidFoliageMaxDepth))
+{ LiquidCells++; continue; }
+```
+
+`LiquidFoliageMaxDepth` defaults to **0.75 yd**, on a slider in Video Options ->
+Ground clutter -> Advanced with a live count of skipped cells. Lower cuts into the
+shallows and takes the reeds with it; higher lets grass back into the channel.
+
+**The index arithmetic is a direct lookup, not a spatial query.** The MCLQ tile
+grid is 8x8 per chunk and this scatter loop is 8x8 — index-aligned, the same
+alignment `LiquidRenderer.Build` already relies on for per-vertex depth. The axis
+pairing matches that method: the liquid loop's row `r` is this loop's `cy` and its
+column `c` is `cx`, so the tile index is `cy*8+cx` and the vertex index `cy*9+cx`.
+
+**Test:** stand at the Elwynn river. Reeds at the edge, no grass in the channel.
+The Advanced panel prints how many cells were skipped.
 
 ---
 

@@ -213,15 +213,85 @@ and neither has been re-run since. F3 is handbook §7.1 item 7.*
 
 ---
 
+## H. WMO liquid — PLAN_15, the thing just built (2026-07-26) ★
+
+Six files changed and **none of it has been compiled.** H1 and H2 need no
+screenshot and catch the two ways this can be wrong.
+
+**H1 — does it build?** If not, paste the first 3 errors verbatim. The riskiest
+edit of the session is `Model.Liquids` changing from a tuple carrying a group
+index to one carrying a `GroupMesh`; if something broke, look there first.
+> 
+
+**H2 — the numeric gate.** Paste the three load lines:
+```
+[wmo-liquid] N surface(s), T tile(s) drawn, H hidden, X triangles
+[wmo-liquid] types ...
+[wmo-liquid] escape total ... yd over N surface(s), worst ... yd
+```
+> 
+
+*Why: `escape` recomputes at runtime the exact metric that settled the MLIQ
+coordinate convention offline against 235 groups. It should reproduce those
+figures. **A wildly larger number means the instance transform is wrong, not the
+convention** — the convention is settled and is not the thing to doubt.*
+
+**H3 — the substance check, and it is the one that matters.** Video Options →
+Water, with `Draw WMO liquid` on. Read the `types ...` line **in Stormwind**,
+then **in Ironforge**.
+> Stormwind: 
+> Ironforge: 
+
+*Why: Stormwind must be `water` only, Ironforge `magma` only. MLIQ's type codes
+are NOT the codes `water.frag` routes on, and **three of the six agree by
+coincidence** — so a test in Stormwind passes whether or not the translation is
+right. Ironforge is the discriminating case. PLAN_15 §4.5.*
+
+**H4 — the canal.** Stand on the Trade District canal bridge. Is there water in
+the canal, at the height of the canal walls? Screenshot if it looks wrong.
+> 
+
+**H5 — submersion.** Walk down into the canal until the eye goes under. Does the
+underwater overlay appear, and clear on the way out? Then stand on the bridge
+**above** it — the overlay must NOT fire.
+> 
+
+*Why: `TryGetSurface` changed shape this session — it now takes the eye Z and
+returns the lowest surface above it instead of the first hit it happens to find.
+H5 is the test of both halves.*
+
+**H6 — the silent one.** Walk out of Stormwind and back in. Is the canal still
+there?
+> 
+
+*Why: WMOs are placed several frames before their groups are adopted, so a
+rebuild fired at the tile crossing produces a permanently dry canal with no
+exception and no log line. It is guarded by a version counter; H6 is the only
+thing that proves the guard works.*
+
+**H7 — depth, the known stand-in.** Does the canal edge look wrong where it meets
+the wall? The `WMO liquid depth` slider is right there — what value looks best?
+> 
+
+*Why: WMO pools get one constant depth because there is no terrain under them to
+subtract (PLAN_15 D3). If a value clearly reads better than 3.0, bake it. If the
+edge looks bad at every value, that is the signal to spend the raycast.*
+
+**H8 — A/B.** Toggle `Draw WMO liquid` off. Is everything else exactly as before?
+> 
+
+---
+
 ## G. Direction
 
 **G1.** After water, what do you want next? My read, in order:
 
 1. **PLAN_10 portal traversal** — the biggest remaining lever for indoor
    correctness and the Stormwind courtyard keep. D1's instrument is built,
-   traversal is not. Experimental; §3.35 warns it trades popout.
-2. **WMO liquid (MLIQ)** — Stormwind canals, fountains, indoor pools. Parsed,
-   drawn nowhere. Very visible, well-bounded.
+   traversal is not. Experimental; §3.35 warns it trades popout. **C1 upgraded
+   this**: §5A.20 found WMO is 72-86% of GPU time and named portal culling, not
+   the swap chain, as the next lever — so this is now the performance item too.
+2. ~~**WMO liquid (MLIQ)**~~ — **BUILT 2026-07-26, PLAN_15.** See section H.
 3. **Streaming**, if C1 says something decisive.
 4. **P2 networking** — the actual project goal, and nothing above is a
    prerequisite. Everything above is polish on a world that already renders.

@@ -208,6 +208,26 @@ public sealed class WmoRenderer : IDisposable
         public Vector3[] CollisionTriangles = [];
         public int CollisionSkipped;
 
+        /// <summary>
+        /// MLIQ surfaces — the canals, fountains, indoor pools and lava channels
+        /// this building contains (PLAN_15_WMO_LIQUID.md).
+        ///
+        /// Kept in WMO LOCAL space for the same reason PortalVertices and
+        /// CollisionTriangles are: a model may be placed more than once, and
+        /// storing anything pre-transformed breaks the second placement.
+        /// EnumerateLiquid applies the instance transform.
+        ///
+        /// **Holds the GroupMesh itself, not a group index, and that is
+        /// deliberate.** `Groups` only receives groups that survived being
+        /// non-null and building, so its indices do NOT line up with the source
+        /// group indices in a model where anything was skipped — and something is
+        /// skipped in most large models. An index here would silently read a
+        /// different group's bounding box, which is exactly the kind of
+        /// off-by-a-few-entries fault that produces plausible wrong numbers
+        /// rather than a crash.
+        /// </summary>
+        public List<(WmoLiquid Liquid, GroupMesh Mesh)> Liquids = [];
+
         public void Dispose()
         {
             foreach (var g in Groups) g.Dispose();
@@ -753,6 +773,8 @@ public sealed class WmoRenderer : IDisposable
             VerifyPlacement(w, min, max);
         }
 
+        if (pending.Count > 0) BumpLiquidVersion();
+
         TotalTriangles = _instances.Sum(i => i.Model.TriangleCount);
 
         var elapsed = DateTime.UtcNow - started;
@@ -793,6 +815,7 @@ public sealed class WmoRenderer : IDisposable
         _instances.Clear();
         _placed.Clear();
         TotalTriangles = 0;
+        BumpLiquidVersion();   // PLAN_15 D5: canals must not survive their building
     }
 
     /// <summary>
@@ -1486,6 +1509,20 @@ public sealed class WmoRenderer : IDisposable
             job.Model.Groups.Add(mesh);
             job.Model.TriangleCount += group.Indices.Count / 3;
 
+            // PLAN_15. MLIQ has been parsed since the WMO reader was written and
+            // never read; this is where that stops being true. Retained in LOCAL
+            // space — see Model.Liquids. Note the group's own MOGP bbox is kept
+            // alongside so the runtime escape check (PLAN_15 §7 step 1) can
+            // reproduce the offline derivation without re-reading the file.
+            if (group.Liquid is not null)
+            {
+                // Pair it with the mesh we just built, not with groupIndex: see
+                // Model.Liquids for why an index would quietly misalign.
+                job.Model.Liquids.Add((group.Liquid, mesh));
+                _liquidGroupsSeen++;
+                BumpLiquidVersion();   // adoption is async — see LiquidVersion
+            }
+
             CollectCollision(group, job.Collision, ref job.Skipped);
             return false;
         }
@@ -2102,6 +2139,138 @@ public sealed class WmoRenderer : IDisposable
     public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light)> EnumerateDoodads()
         => EnumerateDoodads(Vector2.Zero, float.PositiveInfinity);
 
+    // ── WMO liquid (PLAN_15_WMO_LIQUID.md) ──────────────────────────────────
+
+    /// <summary>
+    /// MLIQ-bearing groups adopted so far. Exposed rather than private because a
+    /// private counter that is only ever incremented is a CS0414 warning, and this
+    /// project builds at zero warnings — but it is genuinely useful too: it is the
+    /// count BEFORE placement, so comparing it against
+    /// LiquidRenderer.WmoSurfaceCount separates "the model has no liquid" from
+    /// "the liquid was dropped on the way to the mesh".
+    /// </summary>
+    public int LiquidGroupsAdopted => _liquidGroupsSeen;
+
+    private int _liquidGroupsSeen;
+
+    /// <summary>
+    /// Bumped whenever the set of placed instances OR the liquid content of any
+    /// resident model changes.
+    ///
+    /// LiquidRenderer rebuilds its WMO surfaces when this moves, rather than on
+    /// the tile-crossing event. That distinction matters and is not paranoia:
+    /// a WMO is placed the instant its ADT is read but its groups are adopted
+    /// asynchronously over later frames, so a rebuild fired on the crossing runs
+    /// BEFORE Model.Liquids is populated and produces an empty canal that never
+    /// refills. SYSTEM_INSTANCES.md records the same race on async doors, where
+    /// it also failed silently.
+    /// </summary>
+    public int LiquidVersion { get; private set; }
+
+    private void BumpLiquidVersion() => LiquidVersion++;
+
+    /// <summary>
+    /// Every MLIQ surface of every placed instance, converted to WORLD space.
+    ///
+    /// Mirrors <see cref="EnumerateDoodads()"/>: this class owns placement, the
+    /// liquid renderer owns drawing. Keeping the draw in LiquidRenderer is what
+    /// stops a canal from drifting out of sync with the open-world river — they
+    /// share one shader, one uniform block and one tuning HUD.
+    ///
+    /// Vertices come out as a (XVerts x YVerts) grid, row-major over j then i,
+    /// matching <see cref="WmoLiquid.VertexHeights"/>. The local layout is
+    /// PLAN_15 §4.1, derived against 235 real groups:
+    ///
+    ///     local(i, j) = (CornerX + i*UNIT, CornerY + j*UNIT, HeightAt(i, j))
+    ///
+    /// Z-up, same space as MOVT. The docstring on WmoLiquid used to say Y-up and
+    /// was wrong by a factor of 18 on the containment score.
+    /// </summary>
+    public IEnumerable<WmoLiquidSurface> EnumerateLiquid()
+    {
+        const float unit = 33.3333f / 8.0f;   // PROVEN, PLAN_15 §4.2 — 470/470 corners snap to it
+
+        foreach (var instance in _instances)
+        {
+            var model = instance.Model;
+            if (model.Liquids.Count == 0) continue;
+
+            foreach (var (liq, mesh) in model.Liquids)
+            {
+                if (liq.XVerts < 2 || liq.YVerts < 2) continue;
+
+                var world = new Vector3[liq.XVerts * liq.YVerts];
+                for (int j = 0; j < liq.YVerts; j++)
+                for (int i = 0; i < liq.XVerts; i++)
+                {
+                    var local = new Vector3(
+                        liq.CornerX + i * unit,
+                        liq.CornerY + j * unit,
+                        liq.HeightAt(i, j));
+                    world[j * liq.XVerts + i] = Vector3.Transform(local, instance.Transform);
+                }
+
+                yield return new WmoLiquidSurface(
+                    instance.Path, mesh.GroupIndex, mesh.GroupName, liq, world);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Diagnostic for PLAN_15 §7 step 1: how far each MLIQ surface falls outside
+    /// the authored MOGP bounding box of the group that owns it, in LOCAL space.
+    ///
+    /// One deliberate difference from the offline run: this compares against
+    /// GroupMesh.LocalMin/Max, which are derived from the MOVT vertices, whereas
+    /// the offline scorer used the authored MOGP box at +0x0C/+0x18. On the
+    /// groups sampled the two agree to about a tenth of a yard, so the totals are
+    /// comparable — but they are not the same quantity and a small drift between
+    /// the runtime and offline numbers is expected rather than alarming.
+    ///
+    /// This is the metric that settled the coordinate convention offline,
+    /// recomputed at runtime so the two can be compared. Expect it to reproduce:
+    /// 103 of 235 groups at exactly 0.00 and a worst case near 108 yards, on
+    /// groups whose pool genuinely overhangs its render geometry. **A wildly
+    /// larger number means the instance transform is wrong, not the convention** —
+    /// the convention is settled and is not the thing to go back and doubt.
+    /// </summary>
+    public (int surfaces, double totalEscape, double worstEscape, string worstName) LiquidEscapeCheck()
+    {
+        const float unit = 33.3333f / 8.0f;
+        int n = 0;
+        double total = 0, worst = 0;
+        string worstName = "";
+
+        foreach (var instance in _instances)
+        foreach (var (liq, g) in instance.Model.Liquids)
+        {
+            if (liq.XVerts < 2 || liq.YVerts < 2) continue;
+
+            var mn = new Vector3(
+                liq.CornerX, liq.CornerY,
+                liq.VertexHeights.Length == 0 ? 0f : liq.VertexHeights.Min());
+            var mx = new Vector3(
+                liq.CornerX + (liq.XVerts - 1) * unit,
+                liq.CornerY + (liq.YVerts - 1) * unit,
+                liq.VertexHeights.Length == 0 ? 0f : liq.VertexHeights.Max());
+
+            double esc =
+                  Math.Max(0, g.LocalMin.X - mn.X) + Math.Max(0, mx.X - g.LocalMax.X)
+                + Math.Max(0, g.LocalMin.Y - mn.Y) + Math.Max(0, mx.Y - g.LocalMax.Y)
+                + Math.Max(0, g.LocalMin.Z - mn.Z) + Math.Max(0, mx.Z - g.LocalMax.Z);
+
+            n++;
+            total += esc;
+            if (esc > worst)
+            {
+                worst = esc;
+                worstName = $"{Path.GetFileName(instance.Path)} [{g.GroupIndex}] '{g.GroupName}'";
+            }
+        }
+
+        return (n, total, worst, worstName);
+    }
+
     /// <summary>
     /// Embedded doodads near a streaming centre. A huge WMO may intersect the
     /// resident ADT ring while most of its furniture is hundreds of yards away;
@@ -2606,4 +2775,68 @@ public sealed class WmoRenderer : IDisposable
         _announcedDoodadModels.Clear();
         _shader?.Dispose();
     }
+}
+
+/// <summary>
+/// One MLIQ liquid surface, already placed in WORLD space, ready for
+/// LiquidRenderer to turn into triangles. Produced by
+/// <see cref="WmoRenderer.EnumerateLiquid"/>. See PLAN_15_WMO_LIQUID.md.
+///
+/// <para><b>Vertices</b> is the full (XVerts x YVerts) grid, row-major over j
+/// then i, index-parallel to <see cref="WmoLiquid.VertexHeights"/>. Nothing has
+/// been culled: the tile mask decides what is drawn and it is a TILE-level
+/// decision, so the vertex grid has to stay complete or the indices stop
+/// lining up.</para>
+///
+/// <para><b>The tile mask matters more than it looks.</b> Across the 235 MLIQ
+/// groups in wmo.MPQ, 46,455 tiles are hidden against roughly 68,000 drawn. A
+/// liquid grid is a bounding rectangle with the pool cut out of it. Ignore the
+/// mask and Stormwind gets a single sheet of water over the whole district
+/// rather than two canals.</para>
+/// </summary>
+public sealed class WmoLiquidSurface
+{
+    public WmoLiquidSurface(string modelPath, int groupIndex, string groupName,
+                            WmoLiquid liquid, System.Numerics.Vector3[] vertices)
+    {
+        ModelPath = modelPath;
+        GroupIndex = groupIndex;
+        GroupName = groupName;
+        Liquid = liquid;
+        Vertices = vertices;
+    }
+
+    public string ModelPath { get; }
+    public int GroupIndex { get; }
+    public string GroupName { get; }
+    public WmoLiquid Liquid { get; }
+
+    /// <summary>World-space grid, row-major j*XVerts + i.</summary>
+    public System.Numerics.Vector3[] Vertices { get; }
+
+    public int XVerts => Liquid.XVerts;
+    public int YVerts => Liquid.YVerts;
+    public int XTiles => Liquid.XTiles;
+    public int YTiles => Liquid.YTiles;
+
+    /// <summary>
+    /// Substance of tile (i, j) translated into the code water.frag actually
+    /// routes on. THIS TRANSLATION IS THE POINT — PLAN_15 §4.5.
+    ///
+    /// MLIQ encodes 0 water / 1 ocean / 2 magma / 3 slime in the low two bits.
+    /// water.frag routes on the MCLQ codes, where 4 is river/lake, 1 ocean,
+    /// 6 magma, 3 slime (SYSTEM_WATER.md §1.1). Three of the six live MLIQ codes
+    /// mean the same thing under both encodings by coincidence, which is exactly
+    /// why passing them through untranslated survives a test in Stormwind and
+    /// puts blue water in Ironforge's lava channels.
+    /// </summary>
+    public byte ShaderType(int i, int j) => Liquid.BasicType(i, j) switch
+    {
+        0 => (byte)4,   // water -> river/lake
+        1 => (byte)1,   // ocean
+        2 => (byte)6,   // magma
+        _ => (byte)3,   // slime
+    };
+
+    public bool IsHidden(int i, int j) => Liquid.IsHidden(i, j);
 }

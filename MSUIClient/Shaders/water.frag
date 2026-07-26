@@ -81,6 +81,101 @@ uniform float uOceanAlphaDeep;
 uniform float uRiverAlphaShallow;
 uniform float uRiverAlphaDeep;
 
+// How hard the animated liquid texture is ADDED on top of the body colour.
+//
+// MEASURED 2026-07-26, and it is the whole reason this uniform exists: the
+// vanilla water and ocean BLPs are near-black GREYSCALE highlight masks, not
+// coloured surfaces. lake_a.1.blp has mean RGB (0.014, 0.014, 0.014) and a peak
+// luminance of 0.158; ocean_h.1.blp is the same. Compare lava.1.blp
+// (0.688, 0.089, 0.000) and slime.1.blp (0.268, 0.517, 0.074), which ARE real
+// coloured textures - which is exactly why magma and slime look right today and
+// take the early-return branch below, while water and ocean did not.
+//
+// So the texture supplies the animated sparkle and NOTHING ELSE. The colour has
+// to come from the body uniforms above. Gain lifts the 0..0.158 mask into a
+// visible highlight range.
+uniform float uHighlightGain;
+
+// -- The walking wake (PLAN_16) ----------------------------------------------
+//
+// The V-shaped bow wave you push through shallow water.
+//
+// XTextures\splash\wake.blp IS THAT V. Decoded, its alpha channel is a narrow
+// wedge at the top that splits into two diverging arms toward the bottom -
+// dense churn right behind you, spreading into a trailing V. Blizzard authored
+// the shape; this just has to place it.
+//
+// FIRST ATTEMPT GOT THIS WRONG and it is worth recording: the mask was stamped
+// eight times along a trail of recent positions, which drew eight overlapping
+// Vs and read as a chain of blobs. ONE stamp, anchored at the player and
+// extending backward, is the whole effect. The texture is the trail.
+//
+// Only the ALPHA is sampled - wake.blp is near-black greyscale (mean RGB 0.024),
+// a mask like every other water texture here. Colour comes from uWakeColor.
+uniform vec2      uWakePos;      // world XY of the apex
+uniform vec2      uWakeDir;      // unit direction of travel
+uniform float     uWakeAmount;   // 0 = off; ramps with speed, eases out when you stop
+uniform float     uWakeLength;   // yards the V extends BEHIND
+uniform float     uWakeWidth;    // yards across at the widest
+uniform float     uWakeAhead;    // yards the apex sits ahead of the origin
+uniform float     uWakeRepeat;   // how many wavefronts fit along the length
+uniform float     uWakeScroll;   // world-locking phase, driven by distance travelled
+uniform vec3      uWakeColor;
+uniform float     uWakeOpacity;  // how much the wake also lifts ALPHA
+uniform sampler2D uTexWake;
+uniform int       uHasWakeTex;   // 0 = mask missing, fall back to an analytic V
+
+// Wake coverage at this fragment, 0..1.
+float wakeAt(vec2 worldXY)
+{
+    if (uWakeAmount <= 0.001) return 0.0;
+
+    vec2 d    = worldXY - uWakePos;
+    vec2 perp = vec2(-uWakeDir.y, uWakeDir.x);
+
+    float along = dot(d, uWakeDir);   // + is ahead of the player
+    float lat   = dot(d, perp);
+
+    // v runs 0 at the apex (just ahead of the feet) to 1 at the far tail.
+    float v = (uWakeAhead - along) / max(uWakeLength, 0.01);
+    float u = lat / max(uWakeWidth, 0.01) + 0.5;
+    if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return 0.0;
+
+    // PROPAGATION. The V must not ride along rigidly stuck to the character -
+    // in the real client the wavefronts are laid down in the water and the
+    // player moves THROUGH them, so they appear to stream backward and new ones
+    // keep being born at the feet.
+    //
+    // uWakeScroll is advanced by DISTANCE TRAVELLED, not by time, which is what
+    // makes the pattern world-locked: move a yard forward and the phase shifts by
+    // exactly the yard, so a given crest stays put in the river. Tiling by
+    // uWakeRepeat is what gives a train of crests instead of one frozen chevron.
+    float vt = fract(v * uWakeRepeat + uWakeScroll);
+
+    float m;
+    if (uHasWakeTex != 0)
+    {
+        m = texture(uTexWake, vec2(u, vt)).a;
+    }
+    else
+    {
+        // Analytic V, so a missing mask still reads as the right shape rather
+        // than as nothing: two thin arms diverging from the apex.
+        float arm = abs(u - 0.5) * 2.0;      // 0 centre .. 1 edge
+        m = smoothstep(0.10, 0.0, abs(arm - vt)) * step(0.04, vt);
+    }
+
+    // The arms spread with distance behind, so narrow the sampled band near the
+    // apex - without this every tiled crest is the same width and the whole
+    // thing reads as stripes rather than a widening wake.
+    m *= smoothstep(0.0, 0.15, v);
+
+    // Thin the tail out so the V dissolves instead of ending on a hard edge.
+    // Uses the TRUE v, not the tiled coordinate, so distance fade is monotonic.
+    m *= 1.0 - v * v;
+    return clamp(m * uWakeAmount, 0.0, 1.0);
+}
+
 out vec4 FragColor;
 
 // Sample an animated liquid array. uFrameBlend controls the cross-fade: 0 swaps
@@ -202,22 +297,32 @@ void main()
             float tdepthFade = 1.0 - exp(-max(vDepth, 0.0) * uDepthRate);
             float tshore     = smoothstep(0.0, uShoreWidth, vDepth);
 
-            // PLAN_12. The authored colour MODULATES the texture, it does not
-            // replace it - SYSTEM_WATER.md Draft 2's finding is that 1.12 water
-            // IS the scrolling texture, and the light data supplies the colour
-            // that texture is tinted by. If this makes the shimmer go flat it
-            // has been implemented as a replacement and is wrong.
+            // BODY COLOUR + ADDITIVE HIGHLIGHTS.  (Corrected 2026-07-26.)
+            //
+            // This used to be `col *= aBody`, a MULTIPLY, on the theory that the
+            // texture is the surface and the light data tints it. That theory is
+            // dead: the water/ocean BLPs are near-black greyscale masks (see
+            // uHighlightGain above, with the measurements). Multiplying a
+            // near-black mask by a near-black authored colour - Azeroth's
+            // river-close is (0.000, 0.114, 0.161), red exactly zero - is what
+            // turned the river into a flat dark sheet with the animation gone.
+            //
+            // The texture is a HIGHLIGHT OVERLAY. It gets added, not multiplied.
+            // The body uniforms carry the colour; LiquidRenderer decides whether
+            // those hold the tuned constants or the authored Light.dbc bands, so
+            // this shader does not need to know which and uAuthoredWater no
+            // longer gates the colour path at all.
             vec3  aBody  = mix(tocean ? uOceanClose : uRiverClose,
                                tocean ? uOceanFar   : uRiverFar,  tdepthFade);
             float aAlpha = mix(tocean ? uOceanAlphaShallow : uRiverAlphaShallow,
                                tocean ? uOceanAlphaDeep    : uRiverAlphaDeep, tdepthFade);
 
-            // uTexTint stays a MULTIPLIER on top of the data (PLAN_12 H6), so a
-            // by-eye session still works and Adopt live still captures it.
-            vec3 tint = mix(uTexTint, uTexTint * aBody, uAuthoredWater);
+            // The animated sparkle, lifted out of the mask's 0..0.158 range.
+            vec3 highlight = col * uHighlightGain;
 
-            // Texture look adjust (all default to no-op): tint, brightness, contrast.
-            col *= tint * uTexBright;
+            // uTexTint / uTexBright stay MULTIPLIERS on the body so a by-eye
+            // session still works and Adopt live still captures it.
+            col = aBody * uTexTint * uTexBright + highlight;
             col = (col - 0.5) * uTexContrast + 0.5;
             col = max(col, vec3(0.0));
 
@@ -228,6 +333,15 @@ void main()
 
             col *= mix(1.0, uDepthDarken, tdepthFade);
             col *= (uBrightness + tamb * uAmbientAmt + uSunColor * uSunIntensity * tsun * uSunAmt);
+
+            // THE WAKE (PLAN_16). Added after the lighting multiply so churned
+            // water reads bright rather than being dimmed with the body, and
+            // before fog so a distant wake fades with everything else.
+            //
+            // With uWakeAmount 0 this is exactly `col += 0`, which is why the
+            // feature can be switched off to a bit-identical image.
+            float twake = wakeAt(vAbsXY);
+            col += twake * uWakeColor;
 
             // Grazing sky sheen from the VIEW angle only (flat surface) - a smooth
             // static gradient, never a moving band.
@@ -242,6 +356,13 @@ void main()
             // about a yard) and survives either way.
             float tbodyA = mix(uOpacity, uOpacity * aAlpha, uAuthoredWater);
             float alpha  = clamp(tbodyA * mix(uShoreFade, 1.0, tshore), 0.0, 1.0);
+
+            // The wake also lifts ALPHA, and this is not decoration: a wake
+            // happens in SHALLOW water, which is exactly where uShoreFade has
+            // already pulled alpha down. Colour alone would be nearly invisible
+            // in the one place the effect exists.
+            alpha = clamp(alpha + twake * uWakeOpacity, 0.0, 1.0);
+
             FragColor = vec4(col, alpha);
             return;
         }

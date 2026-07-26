@@ -6,9 +6,20 @@ plus the handbook's cross-cutting ground truth (§3.1 coordinates, §8.5 shader
 ASCII rule, §11 working agreements) before touching water. You should not need
 the rest of the handbook for a water change.
 
-Version: Draft 2 — 2026-07-24 ("real vanilla textures + live tuning" pass)
+Version: Draft 5 — 2026-07-26 (the body-colour fix landed — **new §8**, which is the
+section the shader and settings comments point at. Water colour is now declared
+**SUFFICIENT, not 1:1 with the 1.12 client**, and closed until a much later
+refining pass; see §8.4. Foliage no longer grows in the river.)
+Previous: Draft 4 — 2026-07-26 (two corrections, both from evidence gathered the same day.
+**(a) The authored water colours of PLAN_12 are WRONG and are now default-OFF** — see
+§5. The band indexing is right and the values are real; the *interpretation* is not.
+**(b) The WMO-liquid code of PLAN_15 was REVERTED** — §7 is a specification, not a
+description of the build. Its format research stands; the renderer does not exist.)
+Previous: Draft 3 — 2026-07-26 (WMO liquid, since reverted)
+Previous: Draft 2 — 2026-07-24 ("real vanilla textures + live tuning" pass)
 Previous: Draft 1 — first water system, procedural "look at WoWee" pass.
 Owner files: `World/LiquidRenderer.cs`, `Shaders/water.vert`, `Shaders/water.frag`,
+`World/Wmo/WmoRenderer.cs` (`EnumerateLiquid`, `WmoLiquidSurface`),
 `Shaders/underwater.vert`, `Shaders/underwater.frag`, the MCLQ parse in
 `Formats/AdtTerrainReader.cs`, and the render/atmosphere/HUD wiring plus the
 `WaterTuningWindow` in `Program.cs` / `Program.DevTools.cs`.
@@ -218,40 +229,81 @@ to one cause (mis-routing, frame cross-fade, wave normal, lighting gain).
 
 ## 5. Not done — the honest ceiling
 
-- **Deep water still reads a little dark.** A tuning target, not a bug — push
-  Deep darkening / Base brightness in the HUD, then bake the values.
-- **Player interaction ripples.** The concentric wake that spreads from a moving
-  swimmer (WoWee feeds player XY + a ripple-strength scalar into its water vertex
-  shader). Designed but NOT wired here yet — the water shader has no player-position
-  input. This is the most likely next feature.
+- ~~**Deep water still reads a little dark.**~~ **EXPLAINED AND FIXED, §8.** It was
+  not a tuning shortfall: the shader was using a near-black greyscale highlight
+  mask as the water's colour, so *all* the water was dark and deep water merely
+  most obviously so. Water now has a body colour.
+- **Player interaction: the walking wake, and swimming.** Both specified in
+  **PLAN_16_WATER_INTERACTION.md**, neither built. Blizzard ships the assets:
+  `XTextures\splash\wake.blp` and `splash.blp`, plus 29 frames of
+  `XTextures\caustic\`. The character M2 carries all six swim clips (41-46).
+  Note WoWee's concentric-ripple approach is only half applicable — our surface
+  is deliberately flat, so the vertex-displacement half does not apply.
 - **MCLQ liquid-type accuracy.** If the `under you` read-out ever shows a river
   tagged as ocean, the fix is in `ParseMclqLayers`' type detection (read the type
   from the MCNK header flags), not the texture.
 - **WMO liquid (MLIQ).** Stormwind canals, fountains, indoor pools — parsed from
-  MLIQ in local space, not ADT MCLQ. Not rendered.
+  MLIQ in local space, not ADT MCLQ. **Still NOT rendered.** PLAN_15 built it on
+  2026-07-26 and it was **reverted the same day**: it was landed default-ON and it
+  also rewrote `TryGetSurface`, which existing water depended on. §7 below is the
+  specification and the format research, which stand. The code does not exist.
 - **`LiquidType.dbc` colours/materials.** Textures are now real, but the shader's
   colour/lighting constants are hand-tuned, not read from the DBC.
-- **The ocean and river colours are invented ~~and unread~~ - WIRED 2026-07-25 by
-  PLAN_12, and NOT YET VERIFIED.** `LiquidRenderer` now takes bands 13-16 and the
-  `LightParams` alphas through `WorldAtmosphere`, behind
-  `Video Options -> Water -> Authored water colours`, whose OFF state is
-  bit-identical to the constants below. **Before believing it, run PLAN_12 §7 -
-  step 1 in particular, because the river pair reads inverted (see H4).** The
-  original entry follows as the record of what was invented: `LightIntBand` bands **13 (ocean close), 14
-  (ocean far), 15 (river close), 16 (river far)** are resolved per zone and per
-  time of day by `ExteriorLighting` and surfaced by the light probe —
-  deliberately, so this entry could be written. `LiquidRenderer` has not been
-  touched. **SYSTEM_EXTERIOR_LIGHTING.md §2.3, §7.** Measured for Azeroth's map
-  default at noon: ocean close `0.380 0.510 0.718`, ocean far
-  `0.067 0.294 0.349`, river close `0.000 0.114 0.161`, river far
-  `0.310 0.365 0.078`. This is the same move foliage made with
-  `GroundEffectTexture` and exterior lighting made with `Light.dbc`: stop tuning,
-  start reading. `LightParams` also carries `waterShallowAlpha` /
-  `waterDeepAlpha` / `oceanShallowAlpha` / `oceanDeepAlpha` (PLAN_09 §11), which
-  is the authored answer to the "deep water reads a little dark" item at the top
-  of this list — **push those sliders no further until they have been checked
-  against the data.**
-- **Swim physics / buoyancy.** Rendering only. `TryGetSurface` is the hook.
+- **THE AUTHORED OCEAN/RIVER COLOURS ARE WRONG. Default OFF as of 2026-07-26.**
+  PLAN_12 wired `LightIntBand` bands 13-16 into the shader and shipped it ON. It
+  makes the river **dark, monocolour and apparently static** — the animated
+  highlights vanish. Nico: *"the top of the water textures are all gone. It had
+  the animated white/color movement and now it's monocolor static."*
+
+  **The mechanism.** `water.frag:217` is
+  `vec3 tint = mix(uTexTint, uTexTint * aBody, uAuthoredWater);` — a 100%
+  **multiply** of the animated liquid texture by the band colour. Azeroth's
+  authored river-close is `(0.000, 0.114, 0.161)`; **red is exactly zero.** And
+  vanilla's `lake_a.N.blp` frames *are* the bright animated highlight layer (§1.2,
+  §2). Multiply highlights by near-black and you get a flat dark sheet.
+
+  **What is NOT the problem — do not go re-derive these:**
+  - *The band indexing.* Confirmed against wowdev (1-indexed 14..17 = our
+    0-indexed 13..16) and against our own sky, which renders correctly from bands
+    2-6 of the very same record.
+  - *The record being a junk fallback.* It is not. Northshire resolves the map
+    default (`Light id=1 -> LightParams 12`) because no positioned row reaches it
+    — nearest is id 77 at 731 yd with a 495 yd falloff — and that map default **is**
+    authored Azeroth outdoor lighting. The sky proves it.
+  - *A close/far swap.* Across all 426 LightParams there is **no systematic
+    brightness ordering** in either pair (river 156 vs 95, ocean 91 vs 84). If
+    these were shallow/deep you would see a strong direction.
+
+  **What the evidence actually says.** These bands are not a texture tint:
+  - The authored alphas are `waterShallow 0.65 / waterDeep 0.50` and
+    `oceanShallow 1.00 / oceanDeep 0.75` — **shallow MORE opaque than deep**,
+    which is backwards for depth and sensible for *distance from camera*. Our
+    shader drives the blend off `tdepthFade`, i.e. depth.
+  - **WoWee loads all 18 colour bands and consumes seven** — ambient, diffuse,
+    fog and the four sky bands. Its header says *"... more channels exist (ocean,
+    river, shadow, etc.)"* and `WaterRenderer::getLiquidColor` **hardcodes** the
+    colour per liquid type instead. The reference implementation reads these
+    bands and deliberately declines to use them.
+
+  **So: the hand-tuned constants are the shipping look**, not debt. The previous
+  entry here framed them as *"invented and unread"* and that framing is what drove
+  PLAN_12. It was wrong. Do not re-open this without new evidence about what bands
+  13-16 actually drive in the real client.
+
+  Measured for reference (Azeroth map default, noon): ocean close
+  `0.380 0.510 0.718`, ocean far `0.067 0.294 0.349`, river close
+  `0.000 0.114 0.161`, river far `0.310 0.365 0.078`.
+
+  **The process lesson, which is the expensive part.** "Stop tuning, start
+  reading" earned its keep on ambient colour, where the light probe could show
+  `data` vs `applied` deltas of 0.000 AND the result looked right. It was then
+  applied to water as a reflex, over a system already signed off as good, and
+  **shipped defaulted to the unverified branch while its own plan recorded doubt**
+  (PLAN_12 §4 H4; EMPIRICAL_CHECKS B1, labelled *"the one that decides
+  everything"*, never run). An A/B defaulted to the untested side is not an A/B.
+
+- **Swim physics / buoyancy.** Rendering only. `TryGetSurface` is the hook, and
+  it now takes a query Z and returns the lowest surface above it. PLAN_16.
 
 Screen-space refraction / planar reflection (Draft 1's stated "unlock") is
 **deliberately not pursued** — 1.12 water is opaque, so there is nothing to refract
@@ -275,3 +327,204 @@ default behind `uWaveAmp`), the per-type routing idea, the `camPos.z < waterHeig
 submersion test, and the swim-ripple technique that is the documented next step
 (§5). The rule of the borrow still holds — take the technique only where it serves
 the target, and record why here.
+
+---
+
+## 7. WMO liquid — canals, fountains, indoor pools (PLAN_15) — SPEC, NOT BUILT
+
+> **The code described here was written on 2026-07-26 and reverted the same day.**
+> It shipped default-ON into a working system and additionally rewrote
+> `TryGetSurface`, which open-world water depended on. Nothing below is in the
+> client today.
+>
+> **What survives is §7.2 and §7.3** — the MLIQ format facts, derived from 235 real
+> groups and since cross-confirmed twice: `LiquidType.dbc` (extracted from
+> `patch.MPQ`: 1 Water, 2 Ocean, 3 Magma, 4 Slime) and WoWee's own
+> `(liquidType - 1) % 4` reduction both match the `& 3` grouping exactly.
+>
+> If this is rebuilt: **default OFF, and do not touch the shared water path.**
+
+
+Stormwind's canals, Ironforge's lava channels, Undercity's slime, Blackrock's
+lava, the Maraudon and Blackfathom pools, and every fountain. **235 groups in
+`wmo.MPQ` carry an MLIQ chunk.** `WmoReader` had parsed all of them since the WMO
+reader was written and nothing read the result.
+
+### 7.1 It is deliberately the same pipeline as open-world water
+
+`WmoRenderer.EnumerateLiquid()` yields `WmoLiquidSurface` — a placed, world-space
+vertex grid — mirroring `EnumerateDoodads()`. `LiquidRenderer` builds one extra
+mesh from those and draws it **with the same shader, the same uniforms, the same
+draw state and the same tuning knobs** as the MCLQ surface.
+
+That is not laziness, it is the requirement. A canal and the river outside the
+gate are the same substance; one pipeline is what keeps them looking like it
+through every future tuning pass. A second liquid pass inside `WmoRenderer` would
+duplicate the whole `water.frag` uniform block and drift on the first change.
+
+### 7.2 Ground truth — settled from bytes, do not re-derive
+
+Full derivation and the scoring tables are in **PLAN_15 §4**. The short form:
+
+| Fact | Value | How it was settled |
+|---|---|---|
+| Local layout | `(CornerX + i*U, CornerY + j*U, Height)`, **Z-up**, same space as MOVT | 5 candidates scored by escape from each group's authored MOGP box, over 235 groups. Z-up beat the Y-up reading **18 to 1** |
+| Which axis `i` indexes | `i` is X, `j` is Y | the 187 **non-square** grids; square ones cannot tell |
+| `U` | **4.1666667** (`33.3333/8`) | **470 of 470 corner coordinates are exact integer multiples of it.** 4.2 scores 1.1% |
+| Hidden tile | `(b & 0x0F) == 0x0F` | low nibbles 8..14 never occur, so the old `0x08` test is right *by luck* |
+| Substance | `b & 3`: 0 water, 1 ocean, 2 magma, 3 slime | Blackrock+Ironforge land in magma, Undercity+Stratholme in slime, Stormwind's canals in water. Zero counterexamples |
+| `MOGP.groupLiquid` | **always 15** — carries no information | route per tile, always |
+
+**Two comments in `WmoReader.cs` were wrong and are now fixed.** The `WmoLiquid`
+docstring claimed Noggit's Y-up layout; that is Noggit's own render space, not the
+file's. This was the *second* stale Noggit-derived comment in that file — the
+first claimed MOVT was converted to Y-up at parse. **Treat prose in `WmoReader.cs`
+as a lead, never as ground truth.**
+
+### 7.3 THE TRAP — MLIQ type codes are not the shader's type codes
+
+`water.frag` routes on the **MCLQ** codes of §1.1 (`4` river/lake, `1` ocean, `6`
+magma, `3` slime). MLIQ uses a different encoding in the same numeric range, and
+**three of its six live codes happen to mean the same thing under both**. Passing
+a type through untranslated therefore works in Stormwind, works in Undercity,
+works in Blackrock — and puts blue water in Ironforge's lava channels and in
+Stratholme.
+
+`WmoLiquidSurface.ShaderType(i, j)` is the translation and is the only place a
+type should come from. §7.5 step 2 is the test that catches a regression.
+
+### 7.4 Known debt — depth is a stand-in, and it is labelled
+
+Open-world water bakes real per-vertex depth by subtracting the terrain height at
+the same grid index; the two grids are index-aligned, so it is a free lookup. **A
+WMO pool has no terrain beneath it** — its floor is the building's own mesh.
+
+Until that is raycast against the collision BVH, every WMO liquid vertex gets one
+number: `LiquidRenderer.WmoDepth`, default 3.0 yd, on a slider at
+Video Options → Water. The visible cost is that a canal does not soften where it
+meets its wall. **The upgrade is one raycast per vertex at build time and the BVH
+is already there** — this is deferred, not unknown.
+
+A plausible-looking alternative was tried and rejected: MLIQ's `CornerZ` is *not*
+the pool floor. Measured, it equals the minimum vertex height, so
+`height - CornerZ` is zero across the **87%** of surfaces that are flat, which
+would paint every pool entirely at shoreline alpha.
+
+### 7.5 How to test it
+
+1. **The numeric gate — no screenshot needed.** `[wmo-liquid] escape total ...`
+   at load recomputes the metric that settled the convention. If it is wildly
+   large, **the instance transform is wrong, not the convention.**
+2. **Substance.** Video Options → Water shows `types water=N magma=N ...`.
+   Stormwind must read **water only**; Ironforge **magma only**. Ironforge showing
+   water means §7.3's trap came back.
+3. **The canal.** Trade District bridge: water in the canal, at the height of the
+   canal walls.
+4. **Submersion.** Walk in until the eye goes under — the overlay must fire, and
+   must *not* fire while standing on the bridge above it.
+5. **The crossing.** Leave Stormwind and come back. The canal must still be there.
+   This is the async-adoption race and it fails **silently** — see §7.6.
+6. **A/B.** `Draw WMO liquid` off must be bit-identical to the pre-PLAN_15 client.
+
+### 7.6 Two bugs designed out, worth keeping
+
+**Rebuild on a version counter, never on the tile-crossing event.** A WMO is
+placed the instant its ADT is read, but its groups — and therefore its MLIQ — are
+adopted asynchronously over later frames. A rebuild fired at the crossing runs
+before `Model.Liquids` exists and leaves a canal permanently dry, with no
+exception and no log line. `WmoRenderer.LiquidVersion` bumps on placement, on
+adoption and on reset; `LoadWmoLiquid` is an int compare when nothing moved.
+`SYSTEM_INSTANCES.md` records the identical race on async doors.
+
+**`TryGetSurface` no longer returns the first hit.** It now takes the query Z and
+returns the **lowest surface above it**, across both open-world and WMO liquid.
+The old first-match behaviour was already latent-buggy with overlapping tile
+water — whichever tile came first out of a dictionary won — and a canal above a
+lake would have made it visible.
+
+---
+
+## 8. Body colour and the highlight mask (2026-07-26)
+
+**The single most important fact about water in this client, and it was wrong for
+the whole life of the project until now.**
+
+### 8.1 The vanilla water textures contain no colour
+
+Decoded straight out of `texture.MPQ` (`tools/mpqpy`), mean RGB over the whole
+image:
+
+| texture | mean RGB | what it is |
+|---|---|---|
+| `lava.1.blp` | `0.688 0.089 0.000` | a real coloured surface |
+| `slime.1.blp` | `0.268 0.517 0.074` | a real coloured surface |
+| `ElwynnGrassBase.blp` | `0.365 0.412 0.009` | control — decoder is sound |
+| **`lake_a.1.blp`** | **`0.014 0.014 0.014`** | **near-black greyscale mask** |
+| **`ocean_h.1.blp`** | **`0.016 0.016 0.016`** | **near-black greyscale mask** |
+
+`lake_a` peaks at 0.158 luminance. It is a **highlight / caustic overlay**, not a
+water surface. Magma and slime are genuinely coloured, which is exactly why those
+two have always looked right — they take the early-return branch in `water.frag`
+and never reach the code below.
+
+### 8.2 What the shader was doing
+
+`vec3 col = liq.rgb;` — using the mask **as the colour**. So water rendered as a
+near-black sheet with faint moving specks. That was true before PLAN_12 and is
+the real reason "deep water reads a little dark" sat in §5 for so long.
+
+PLAN_12 then made it worse rather than better: it *multiplied* that near-black
+mask by the authored band colour, and Azeroth's river-close is
+`(0.000, 0.114, 0.161)` — **red exactly zero**. The remaining specks went to
+~0.025 in blue and 0 in red. Nico: *"the top of the water textures are all gone.
+It had the animated white/color movement and now it's monocolor static."*
+
+### 8.3 The fix
+
+```glsl
+- col *= tint * uTexBright;                        // multiply: annihilates both
++ col = aBody * uTexTint * uTexBright + highlight; // body colour + added sparkle
+```
+
+The body colour comes from `LiquidRenderer.RiverBody` / `OceanBody`; shallow and
+deep are derived from each (`x1.2` and `x(0.3, 0.5, 0.7)`), so there is **one
+colour to dial per liquid, not four**. `uHighlightGain` lifts the 0..0.158 mask
+into a visible sparkle; set it to 0 to judge the body colour alone.
+
+Starting values are WoWee's — `(0.10, 0.28, 0.55)` inland, `(0.04, 0.16, 0.38)`
+ocean — because WoWee reached the same conclusion independently from the same
+DBCs: it loads all 18 `LightIntBand` colour bands, consumes seven, comments
+*"... more channels exist (ocean, river, shadow, etc.)"* and hardcodes water
+colour per liquid type.
+
+`uAuthoredWater` no longer gates the colour path at all. `LiquidRenderer` decides
+whether the body uniforms carry the tuned constants or the Light.dbc bands, so
+the shader never branches on it.
+
+### 8.4 STATUS: SUFFICIENT, NOT 1:1 — closed until a much later pass
+
+**This is good enough and is not being refined further for now.** It is a
+by-eye match to 1.12, not a verified one, and that is a deliberate, accepted
+position rather than an outstanding defect:
+
+- No `refs/` capture exists, so nothing here is measured against the real client.
+- The body colours are hand-picked (via WoWee), not authored data.
+- `close`/`far` are driven by **depth** in our shader. The evidence points at
+  them meaning **distance from camera**: the authored alphas are
+  `waterShallow 0.65 / waterDeep 0.50` and `ocean 1.00 / 0.75`, i.e. shallow MORE
+  opaque than deep, which is backwards for depth; and across all 426 LightParams
+  the close/far pairs show no systematic brightness ordering (river 156 vs 95,
+  ocean 91 vs 84).
+
+**Do not reopen this on aesthetics.** Reopen it only with a real-client capture
+or a demonstration of what bands 13-16 actually drive. Until then the tuned
+constants are the shipping look, and the sliders in Video Options -> Water ->
+Advanced are how it gets adjusted.
+
+### 8.5 The authored bands are now testable for the first time
+
+`Authored water colours` is default OFF and labelled `[KNOWN BAD]` in the UI —
+but the label is now about history, not mechanism. With the multiply gone,
+ticking it swaps the *body colour source* to the Light bands rather than crushing
+the texture. That is the A/B PLAN_12 intended and never actually delivered,
+because an A/B whose "on" state destroys the image compares nothing.

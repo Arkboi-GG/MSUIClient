@@ -2,6 +2,7 @@ using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.World.Wmo;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -36,8 +37,17 @@ namespace MSUIClient.World;
 ///   worldY  = originY - (chunk.IndexX*8 + c) * CELL_SIZE
 ///   worldZ  = MclqLayer.VertexHeights[r*9 + c]   (already absolute WoW Z)
 ///
-/// WMO liquid (MLIQ - Stormwind canals), LiquidType.dbc colours, planar
-/// reflection and screen-space refraction are still later stages.
+/// WMO LIQUID (MLIQ) IS ALSO DRAWN HERE as of PLAN_15 — Stormwind's canals,
+/// Ironforge's lava channels, Undercity's slime, fountains and indoor pools. It
+/// deliberately shares this class's shader, uniforms, draw state and tuning knobs
+/// rather than getting a pass of its own: a canal and the river outside the gate
+/// are the same substance, and one pipeline is what keeps them looking like it.
+/// The differences are that its vertices arrive already in world space from
+/// WmoRenderer.EnumerateLiquid, and that its depth is a stand-in rather than a
+/// measurement (see WmoDepth).
+///
+/// LiquidType.dbc colours, planar reflection and screen-space refraction are
+/// still later stages.
 /// </summary>
 public sealed class LiquidRenderer : IDisposable
 {
@@ -71,11 +81,77 @@ public sealed class LiquidRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// One placed MLIQ surface, kept CPU-side so submersion can be tested against
+    /// canals and indoor pools as well as against open-world water (PLAN_15 D4).
+    ///
+    /// A WMO pool is a regular lattice carried through a RIGID transform, so the
+    /// grid stays a lattice in world space and a point can be mapped back to
+    /// (i, j) exactly with two dot products — no matrix inverse, no spatial index.
+    /// That is why this stores basis vectors rather than an origin and a cell size
+    /// the way <see cref="SurfaceLayer"/> does: the ADT grid is axis-aligned and a
+    /// building is not.
+    /// </summary>
+    private sealed class WmoSurfaceLayer
+    {
+        public required Vector3 Origin;      // world position of grid vertex (0, 0)
+        public required Vector2 UDir;        // unit XY direction of increasing i
+        public required Vector2 VDir;        // unit XY direction of increasing j
+        public required float Unit;          // yards per grid step
+        public required int XVerts, YVerts;
+        // Carried explicitly rather than derived as XVerts-1. That identity holds
+        // in all 235 vanilla groups, but XTiles and XVerts are SEPARATE fields in
+        // the file, and re-deriving one from the other is how a stride bug gets
+        // in the day some model disagrees.
+        public required int XTiles, YTiles;
+        public required float[] Heights;     // world Z, row-major j*XVerts + i
+        public required bool[] Render;       // row-major j*XTiles + i
+        public required byte[] Types;        // shader-space type per tile
+        public required Vector3 WorldMin, WorldMax;
+        public string Owner = "";
+    }
+
     private readonly GL _gl;
     private Shader? _shader;
     private Shader? _underwater;
     private uint _overlayVao;
     private readonly Dictionary<(int col, int row), TileMesh> _tiles = [];
+
+    // ── WMO liquid: canals, fountains, indoor pools (PLAN_15) ───────────────
+    private TileMesh? _wmoMesh;
+    private readonly List<WmoSurfaceLayer> _wmoSurfaces = [];
+    private int _wmoVersion = -1;
+
+    /// <summary>PLAN_15 §7 step 6. Off must be bit-identical to the pre-PLAN_15 client.</summary>
+    public bool DrawWmoLiquid { get; set; } = true;
+
+    /// <summary>
+    /// Assumed depth, in yards, of every WMO liquid vertex.
+    ///
+    /// **This is a stand-in and it is labelled as one (PLAN_15 D3).** The
+    /// open-world mesh bakes real per-vertex depth by subtracting the terrain
+    /// height at the same grid index — a free lookup, because the liquid grid and
+    /// the MCVT grid are index-aligned. A WMO pool has no terrain under it; its
+    /// floor is the building's own mesh, which needs a raycast per vertex against
+    /// the collision BVH. That is the upgrade and it is not hard, it is just not
+    /// stage 1.
+    ///
+    /// The default sits above <see cref="ShoreWidth"/> so a canal reads as open
+    /// water rather than as one continuous shoreline. The visible cost of the
+    /// shortcut is that a canal does not soften where it meets its wall.
+    ///
+    /// A tempting-looking alternative was rejected: MLIQ's CornerZ is NOT the pool
+    /// floor. Measured, it equals the MINIMUM vertex height, so `height - CornerZ`
+    /// is 0 across the 87% of surfaces that are flat — which would paint every
+    /// pool entirely at shoreline alpha.
+    /// </summary>
+    public float WmoDepth { get; set; } = 3.0f;
+
+    public int WmoSurfaceCount => _wmoSurfaces.Count;
+    public int WmoTrianglesLastFrame { get; private set; }
+
+    /// <summary>Type histogram of the resident WMO liquid, for PLAN_15 §7 step 2.</summary>
+    public string WmoTypeSummary { get; private set; } = "none";
 
     public bool Enabled { get; set; } = true;
 
@@ -130,211 +206,16 @@ public sealed class LiquidRenderer : IDisposable
     // HasAuthoredColors must both be true before the shader looks at them, and
     // when either is false the shader arithmetic reduces to exactly what shipped.
 
-    /// <summary>
-    /// The A/B for PLAN_12. Off is bit-identical to the pre-PLAN_12 look.
-    ///
-    /// **DEFAULTS OFF as of 2026-07-26, and should stay off.** On, this ruins the
-    /// river: water.frag MULTIPLIES the animated liquid texture by the band
-    /// colour, and Azeroth's authored river-close is (0.000, 0.114, 0.161) -- red
-    /// exactly zero. Vanilla's lake_a.N.blp frames ARE the bright animated
-    /// highlight layer, so multiplying them by near-black leaves a dark,
-    /// monocolour, apparently-static surface.
-    ///
-    /// The band indexing is CORRECT and the values are REAL -- the interpretation
-    /// is what is wrong. These bands are not a texture tint. WoWee loads all 18
-    /// colour bands, consumes seven, and hardcodes water colour per liquid type
-    /// instead. SYSTEM_WATER.md section 5 has the full evidence.
-    /// </summary>
-    public bool UseAuthoredColors { get; set; }
+    /// <summary>The A/B for PLAN_12. Off is bit-identical to the pre-PLAN_12 look.</summary>
+    public bool UseAuthoredColors { get; set; } = true;
 
     /// <summary>Set from WorldAtmosphere.AuthoredWaterReady - see ApplyAtmosphere.</summary>
     public bool HasAuthoredColors { get; set; }
 
-    // ── The AUTHORED inbox ──────────────────────────────────────────────────
-    // Program.cs overwrites these from WorldAtmosphere every frame with the
-    // Light.dbc bands. They only reach the shader when AuthoredColorsActive.
     public Vector3 OceanClose { get; set; } = new(0.06f, 0.20f, 0.28f);
     public Vector3 OceanFar   { get; set; } = new(0.02f, 0.09f, 0.16f);
     public Vector3 RiverClose { get; set; } = new(0.10f, 0.26f, 0.26f);
     public Vector3 RiverFar   { get; set; } = new(0.05f, 0.15f, 0.16f);
-
-    // ── The TUNED body colours — the shipping look ──────────────────────────
-    //
-    // THE WATER TEXTURE CARRIES NO COLOUR. Measured 2026-07-26: lake_a.1.blp is
-    // mean RGB (0.014, 0.014, 0.014), ocean_h.1.blp (0.016, 0.016, 0.016) — both
-    // near-black GREYSCALE highlight masks. (Controls decoded with the same code:
-    // lava.1.blp (0.688, 0.089, 0.000), slime.1.blp (0.268, 0.517, 0.074),
-    // ElwynnGrassBase (0.365, 0.412, 0.009) — so the decoder is sound and those
-    // three really are coloured.)
-    //
-    // That is why magma and slime have always looked right and water has always
-    // looked black: the shader was using the mask AS the colour. These two are
-    // where the river and the sea actually get their colour from now.
-    //
-    // Starting values are WoWee's, which is the same conclusion reached
-    // independently after reading the same DBCs — WaterRenderer::getLiquidColor,
-    // "inland: richer blue" and "ocean: deep blue".
-    // RIVERS ARE ESSENTIALLY COLOURLESS in 1.12 - Nico, 2026-07-26, after seeing
-    // the blue version in game. The blue below was WoWee's "inland: richer blue",
-    // which turned out to be WoWee's own look rather than vanilla's. A river reads
-    // as the riverbed seen through a faint cool wash, not as a blue sheet.
-    // The OCEAN keeps its blue - that part was never wrong.
-    public Vector3 RiverBody { get; set; } = new(0.13f, 0.16f, 0.17f);
-    public Vector3 OceanBody { get; set; } = new(0.04f, 0.16f, 0.38f);
-
-    // Shallow/deep are derived from the body rather than authored separately, so
-    // there is ONE colour to dial per liquid instead of four. Factors are WoWee's
-    // (shallowColor = base * 1.2, deepColor = base * vec3(0.3, 0.5, 0.7)) — deep
-    // water gets darker and shifts blue, which is what absorption does.
-    private static Vector3 Shallow(Vector3 body) => body * 1.2f;
-    private static Vector3 Deep(Vector3 body) => body * new Vector3(0.3f, 0.5f, 0.7f);
-
-    /// <summary>
-    /// How hard the animated liquid texture is added on top of the body colour.
-    ///
-    /// The mask peaks at 0.158 luminance, so this lifts it into a visible
-    /// sparkle. 0 gives a completely still surface — useful for seeing the body
-    /// colour on its own while tuning.
-    /// </summary>
-    public float HighlightGain { get; set; } = 4.0f;
-
-    // -- The walking wake (PLAN_16) ------------------------------------------
-    //
-    // A single V-shaped bow wave anchored at the player and extending backward.
-    //
-    // The first version kept a ring of eight recent positions and stamped the
-    // mask at each. That was wrong, and the reason is worth keeping: decoding
-    // XTextures\splash\wake.blp shows its alpha channel IS ALREADY A V - a narrow
-    // wedge that splits into two diverging arms. Stamping it eight times drew
-    // eight overlapping Vs, which read as a chain of blobs. THE TEXTURE IS THE
-    // TRAIL; it only needs placing once.
-    //
-    // The lesson, which this project keeps paying for: LOOK AT THE ASSET before
-    // deciding how to use it. One alpha dump would have settled the shape before
-    // any of the trail machinery was written.
-    private Texture? _texWakeMask, _dummy2D;
-    private bool _hasWakeTex;
-
-    private Vector2 _wakePos;
-    private Vector2 _wakeDir = new(1f, 0f);
-    private float _wakeAmount;
-    private Vector3 _lastWakeSample;
-    private bool _haveLastSample;
-    private float _wakeScroll;
-
-    /// <summary>Master switch. Off is a bit-identical image to pre-PLAN_16 water.</summary>
-    public bool WakeEnabled { get; set; } = true;
-
-    /// <summary>Overall visibility. 0 is the kill switch.</summary>
-    public float WakeStrength { get; set; } = 0.9f;
-
-    /// <summary>Yards the V extends behind you.</summary>
-    public float WakeLength { get; set; } = 4.5f;
-
-    /// <summary>Yards across at its widest.</summary>
-    public float WakeWidth { get; set; } = 2.6f;
-
-    /// <summary>Yards the apex sits ahead of the feet, so the churn starts at the body.</summary>
-    public float WakeAhead { get; set; } = 0.6f;
-
-    /// <summary>Speed, in yards/sec, at which the wake reaches full strength.</summary>
-    public float WakeFullSpeed { get; set; } = 2.5f;
-
-    /// <summary>Seconds the wake takes to fade out once you stop.</summary>
-    public float WakeFade { get; set; } = 0.45f;
-
-    /// <summary>How many wavefronts fit along the length. 1 = a single chevron.</summary>
-    public float WakeRepeat { get; set; } = 2.5f;
-
-    /// <summary>
-    /// How world-locked the crests are. 1.0 = exactly locked: the wake sits still
-    /// in the river and you move through it, which is what the real client does.
-    /// Below 1 the pattern drags along with you; above 1 it streams backward
-    /// faster than you move.
-    /// </summary>
-    public float WakeWorldLock { get; set; } = 1.0f;
-
-    /// <summary>Colour ADDED where the water is churned. Added, so keep it modest.</summary>
-    public Vector3 WakeColor { get; set; } = new(0.30f, 0.36f, 0.42f);
-
-    /// <summary>
-    /// How much the wake also lifts surface alpha. Not decoration: a wake happens
-    /// in SHALLOW water, which is exactly where ShoreFade has already pulled alpha
-    /// down, so colour alone barely shows where the effect lives.
-    /// </summary>
-    public float WakeOpacity { get; set; } = 0.40f;
-
-    /// <summary>Current wake intensity 0..1, for the HUD.</summary>
-    public float WakeAmount => _wakeAmount;
-
-    /// <summary>True when wake.blp resolved out of the MPQs.</summary>
-    public bool HasWakeTexture => _hasWakeTex;
-
-    /// <summary>
-    /// Advance the wake. Call once per frame BEFORE <see cref="Render"/>.
-    ///
-    /// inWater is the caller's gate - it is the only place that knows where the
-    /// feet are relative to the surface.
-    ///
-    /// Direction comes from actual TRAVEL, not body yaw, so strafing or backing
-    /// up lays the V along the way you are really moving. Body yaw only seeds it.
-    /// The direction is HELD when you stop rather than zeroed, so the V fades out
-    /// pointing the way it was instead of snapping to an axis on the last frame.
-    /// </summary>
-    public void UpdateWake(Vector3 playerPos, float bodyYawRadians, float dt, bool inWater)
-    {
-        if (!WakeEnabled) { _wakeAmount = 0f; _haveLastSample = false; return; }
-        if (dt <= 0f) return;
-
-        _wakePos = new Vector2(playerPos.X, playerPos.Y);
-
-        float speed = 0f;
-        if (_haveLastSample)
-        {
-            var delta = new Vector2(playerPos.X - _lastWakeSample.X, playerPos.Y - _lastWakeSample.Y);
-            float moved = delta.Length();
-            speed = moved / dt;
-            // Ignore sub-millimetre jitter, which would otherwise spin the
-            // direction vector wildly while standing still.
-            if (moved > 0.001f) _wakeDir = Vector2.Normalize(delta);
-        }
-        else
-        {
-            _wakeDir = new Vector2(MathF.Cos(bodyYawRadians), MathF.Sin(bodyYawRadians));
-        }
-        // Advance the propagation phase by DISTANCE, not time. That is what makes
-        // the crests stay put in the water while the character moves through
-        // them; a time-based scroll would slide the whole V along with you and
-        // look exactly as stuck as the first version did.
-        if (_haveLastSample && WakeLength > 0.01f)
-        {
-            var mv = new Vector2(playerPos.X - _lastWakeSample.X, playerPos.Y - _lastWakeSample.Y);
-            _wakeScroll -= mv.Length() / WakeLength * WakeRepeat * WakeWorldLock;
-            // Keep it in 0..1 so float precision does not drift after a long walk.
-            _wakeScroll -= MathF.Floor(_wakeScroll);
-        }
-
-        _lastWakeSample = playerPos;
-        _haveLastSample = true;
-
-        float target = 0f;
-        if (inWater && WakeFullSpeed > 0.01f)
-            target = Math.Clamp(speed / WakeFullSpeed, 0f, 1f);
-
-        // Attack fast, release slow: the churn appears the moment you move and
-        // lingers a beat after you stop, which is what disturbed water does.
-        float rate = target > _wakeAmount ? (dt / 0.08f) : (dt / MathF.Max(WakeFade, 0.01f));
-        _wakeAmount += Math.Clamp(target - _wakeAmount, -rate, rate);
-        _wakeAmount = Math.Clamp(_wakeAmount, 0f, 1f);
-    }
-
-    /// <summary>Drop the wake - on teleport, map change or a settings change.</summary>
-    public void ClearWake()
-    {
-        _wakeAmount = 0f;
-        _haveLastSample = false;
-        _wakeScroll = 0f;
-    }
 
     public float OceanAlphaShallow { get; set; } = 0.85f;
     public float OceanAlphaDeep    { get; set; } = 1.00f;
@@ -356,15 +237,9 @@ public sealed class LiquidRenderer : IDisposable
         DepthDarken = 0.78f; DepthRate = 0.12f;
         Brightness = 0.90f; AmbientAmount = 0.6f; SunAmount = 0.30f; SkySheen = 0.14f;
         WaveAmplitude = 0f; WaveSpeed = 1.0f;
-        RiverBody = new Vector3(0.13f, 0.16f, 0.17f);
-        OceanBody = new Vector3(0.04f, 0.16f, 0.38f);
-        HighlightGain = 4.0f;
-        WakeEnabled = true; WakeStrength = 0.9f;
-        WakeLength = 4.5f; WakeWidth = 2.6f; WakeAhead = 0.6f;
-        WakeFullSpeed = 2.5f; WakeFade = 0.45f; WakeOpacity = 0.40f;
-        WakeRepeat = 2.5f; WakeWorldLock = 1.0f;
-        WakeColor = new Vector3(0.30f, 0.36f, 0.42f);
-        ClearWake();
+        WmoDepth = 3.0f;
+        // NOTE: changing WmoDepth needs a rebuild, since it is baked per vertex.
+        // The HUD slider must call UnloadWmoLiquid() so the next frame reloads.
     }
 
     // Shared time-of-day environment, pushed each frame from WorldAtmosphere.
@@ -438,20 +313,6 @@ public sealed class LiquidRenderer : IDisposable
         _dummyTex = Texture.Array2D(_gl, new List<byte[]> { new byte[] { 0, 0, 0, 0 } },
             1, 1, mipmaps: false);
 
-        // The walking wake mask (PLAN_16). XTextures\splash\ holds exactly two
-        // files, wake.blp and splash.blp - Blizzard authored this effect and we
-        // are wiring it, not inventing it.
-        //
-        // CLAMPED, not repeated: it is stamped once per trail sample, and a
-        // wrapping mask would tile the disturbance across the whole river.
-        LoadWakeTexture(clientDataPath);
-
-        // A 1x1 2D dummy so the wake sampler always has something bound even
-        // when wake.blp is missing. Different target from _dummyTex above -
-        // sampler2D and sampler2DArray cannot share a binding.
-        _dummy2D = Texture.From2D(_gl, new byte[] { 0, 0, 0, 0 }, 1, 1,
-            mipmaps: false, repeat: false);
-
         if (_framesWater == 0)
             Console.WriteLine("[liquid-tex] water texture NOT found - the river falls back to the " +
                 "procedural surface. Auto-discovering real paths from the MPQ (listfile) below.");
@@ -461,44 +322,6 @@ public sealed class LiquidRenderer : IDisposable
         // instead of guessing. Harmless (and quiet) when every type loaded.
         if (_framesWater == 0 || _framesOcean == 0 || _framesSlime == 0 || _framesMagma == 0)
             DiscoverLiquidTexturePaths(clientDataPath);
-    }
-
-    /// <summary>
-    /// Load XTextures\splash\wake.blp — the mask the walking wake is stamped
-    /// with. Logs what it found, including the MAX ALPHA, because that number is
-    /// the one that decides whether this works at all.
-    ///
-    /// Only the ALPHA channel is used: wake.blp is a near-black greyscale mask
-    /// (measured mean RGB 0.024, mean alpha 0.451), exactly like the liquid
-    /// frames. If the decoded max alpha comes back as 1 rather than 255 this is
-    /// the 1-bit-alpha trap from handbook section 3.19 and the wake will be
-    /// invisible — the log says so rather than leaving it a mystery.
-    /// </summary>
-    private void LoadWakeTexture(string clientDataPath)
-    {
-        const string path = @"XTextures\splash\wake.blp";
-        var px = AdtTerrainReader.ReadBlpPixels(clientDataPath, path);
-        if (px is null)
-        {
-            _hasWakeTex = false;
-            Console.WriteLine($"[wake] '{path}' not found - falling back to a procedural ring. " +
-                              "The trail will still show, but it is not Blizzard's shape.");
-            return;
-        }
-
-        var (bgra, w, h) = (px.Value.bgra, px.Value.width, px.Value.height);
-        byte maxAlpha = 0;
-        for (int i = 3; i < bgra.Length; i += 4) if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
-
-        _texWakeMask = Texture.From2D(_gl, bgra, w, h, mipmaps: true, repeat: false);
-        _hasWakeTex = maxAlpha > 1;
-
-        Console.WriteLine($"[wake] {path} {w}x{h}, max alpha {maxAlpha}");
-        if (maxAlpha == 0)
-            Console.WriteLine("[wake] max alpha 0 - the mask is empty, using the procedural ring instead.");
-        else if (maxAlpha == 1)
-            Console.WriteLine("[wake] max alpha 1 - 1-bit alpha decoded as 0/1 (handbook 3.19). " +
-                              "Using the procedural ring; the proper fix belongs in BlpDecoder.");
     }
 
     /// <summary>
@@ -578,8 +401,211 @@ public sealed class LiquidRenderer : IDisposable
     {
         foreach (var mesh in _tiles.Values) mesh.Dispose();
         _tiles.Clear();
-        ClearWake();   // a trail must not survive a map change
+        UnloadWmoLiquid();
     }
+
+    /// <summary>Drop WMO liquid and force the next LoadWmoLiquid to rebuild.</summary>
+    public void UnloadWmoLiquid()
+    {
+        _wmoMesh?.Dispose();
+        _wmoMesh = null;
+        _wmoSurfaces.Clear();
+        _wmoVersion = -1;
+        WmoTypeSummary = "none";
+    }
+
+    /// <summary>
+    /// Rebuild the WMO liquid mesh from the renderer's placed instances, but only
+    /// when <paramref name="version"/> has moved (PLAN_15 D5).
+    ///
+    /// **Rebuild on the version, never on the tile-crossing event.** A WMO is
+    /// placed the instant its ADT is read and its groups are adopted
+    /// asynchronously over later frames, so a rebuild fired at the crossing runs
+    /// before Model.Liquids exists and leaves a canal permanently dry. The bug
+    /// does not throw and does not log; it just looks like the feature was never
+    /// built. SYSTEM_INSTANCES.md records the identical race on async doors.
+    ///
+    /// Cost is irrelevant — 235 MLIQ groups is the entire game and a resident set
+    /// is a handful — so this rebuilds wholesale rather than diffing.
+    /// </summary>
+    /// <returns>True when the mesh was actually rebuilt this call.</returns>
+    public unsafe bool LoadWmoLiquid(int version, IEnumerable<WmoLiquidSurface> surfaces)
+    {
+        if (version == _wmoVersion) return false;
+        _wmoVersion = version;
+
+        _wmoMesh?.Dispose();
+        _wmoMesh = null;
+        _wmoSurfaces.Clear();
+
+        var verts = new List<float>();
+        var indices = new List<uint>();
+        int hidden = 0, drawn = 0;
+        var typeCount = new Dictionary<byte, int>();
+
+        foreach (var s in surfaces)
+        {
+            if (s.XVerts < 2 || s.YVerts < 2) continue;
+
+            uint baseV = (uint)(verts.Count / FloatsPerVertex);
+
+            // Per-vertex type: a tile carries the type, a vertex does not, so take
+            // the type of any drawn tile touching it. Mixed-substance surfaces do
+            // not occur in 1.12 (every measured group is one substance), so this
+            // is a formality rather than a blend.
+            var vertType = new byte[s.XVerts * s.YVerts];
+            var heights = new float[s.XVerts * s.YVerts];
+            var render = new bool[s.XTiles * s.YTiles];
+            var tileTypes = new byte[s.XTiles * s.YTiles];
+
+            for (int j = 0; j < s.YTiles; j++)
+            for (int i = 0; i < s.XTiles; i++)
+            {
+                bool vis = !s.IsHidden(i, j);
+                render[j * s.XTiles + i] = vis;
+                byte t = s.ShaderType(i, j);
+                tileTypes[j * s.XTiles + i] = t;
+                if (!vis) { hidden++; continue; }
+                drawn++;
+                typeCount[t] = typeCount.TryGetValue(t, out int c) ? c + 1 : 1;
+                vertType[j * s.XVerts + i] = t;
+                vertType[j * s.XVerts + i + 1] = t;
+                vertType[(j + 1) * s.XVerts + i] = t;
+                vertType[(j + 1) * s.XVerts + i + 1] = t;
+            }
+
+            var wMin = new Vector3(float.MaxValue);
+            var wMax = new Vector3(float.MinValue);
+
+            for (int j = 0; j < s.YVerts; j++)
+            for (int i = 0; i < s.XVerts; i++)
+            {
+                var p = s.Vertices[j * s.XVerts + i];
+                heights[j * s.XVerts + i] = p.Z;
+                wMin = Vector3.Min(wMin, p);
+                wMax = Vector3.Max(wMax, p);
+
+                verts.Add(p.X);
+                verts.Add(p.Y);
+                verts.Add(p.Z);
+                verts.Add(vertType[j * s.XVerts + i] == 0 ? 4f : vertType[j * s.XVerts + i]);
+                verts.Add(WmoDepth);   // PLAN_15 D3 — a labelled stand-in, see WmoDepth
+            }
+
+            bool any = false;
+            for (int j = 0; j < s.YTiles; j++)
+            for (int i = 0; i < s.XTiles; i++)
+            {
+                if (!render[j * s.XTiles + i]) continue;
+                any = true;
+                uint tl = baseV + (uint)(j * s.XVerts + i);
+                uint tr = baseV + (uint)(j * s.XVerts + i + 1);
+                uint bl = baseV + (uint)((j + 1) * s.XVerts + i);
+                uint br = baseV + (uint)((j + 1) * s.XVerts + i + 1);
+                indices.Add(tl); indices.Add(bl); indices.Add(tr);
+                indices.Add(tr); indices.Add(bl); indices.Add(br);
+            }
+
+            if (!any) continue;
+
+            // Lattice basis for the point query. The instance transform is rigid,
+            // so |v(1,0) - v(0,0)| is the authored tile unit and the two in-plane
+            // directions stay orthonormal. Falls back to world axes on a
+            // degenerate grid rather than producing NaNs downstream.
+            var o = s.Vertices[0];
+            var du3 = s.Vertices[1] - o;
+            var dv3 = s.Vertices[s.XVerts] - o;
+            float unit = du3.Length();
+            var du = new Vector2(du3.X, du3.Y);
+            var dv = new Vector2(dv3.X, dv3.Y);
+            if (unit < 1e-4f || du.LengthSquared() < 1e-8f || dv.LengthSquared() < 1e-8f)
+            {
+                unit = 33.3333f / 8.0f;
+                du = Vector2.UnitX;
+                dv = Vector2.UnitY;
+            }
+            else
+            {
+                du = Vector2.Normalize(du);
+                dv = Vector2.Normalize(dv);
+            }
+
+            _wmoSurfaces.Add(new WmoSurfaceLayer
+            {
+                Origin = o,
+                UDir = du,
+                VDir = dv,
+                Unit = unit,
+                XVerts = s.XVerts,
+                YVerts = s.YVerts,
+                XTiles = s.XTiles,
+                YTiles = s.YTiles,
+                Heights = heights,
+                Render = render,
+                Types = tileTypes,
+                WorldMin = wMin,
+                WorldMax = wMax,
+                Owner = $"{Path.GetFileNameWithoutExtension(s.ModelPath)} [{s.GroupIndex}] '{s.GroupName}'",
+            });
+        }
+
+        WmoTypeSummary = typeCount.Count == 0
+            ? "none"
+            : string.Join(" ", typeCount.OrderBy(kv => kv.Key)
+                .Select(kv => $"{NameOfShaderType(kv.Key)}={kv.Value}"));
+
+        if (indices.Count == 0)
+        {
+            if (_wmoSurfaces.Count == 0 && drawn == 0 && hidden == 0) return true;
+            Console.WriteLine("[wmo-liquid] no drawable tiles");
+            return true;
+        }
+
+        var va = verts.ToArray();
+        var ia = indices.ToArray();
+
+        var mesh = new TileMesh { IndexCount = ia.Length };
+        mesh.Attach(_gl);
+        mesh.Vao = _gl.GenVertexArray();
+        _gl.BindVertexArray(mesh.Vao);
+
+        mesh.Vbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, mesh.Vbo);
+        fixed (float* p = va)
+            _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(va.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+        mesh.Ebo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, mesh.Ebo);
+        fixed (uint* p = ia)
+            _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(ia.Length * sizeof(uint)), p, BufferUsageARB.StaticDraw);
+
+        const uint stride = FloatsPerVertex * sizeof(float);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
+        _gl.EnableVertexAttribArray(1);
+        _gl.VertexAttribPointer(1, 1, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
+        _gl.EnableVertexAttribArray(2);
+        _gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride, (void*)(4 * sizeof(float)));
+        _gl.BindVertexArray(0);
+
+        _wmoMesh = mesh;
+
+        Console.WriteLine(
+            $"[wmo-liquid] {_wmoSurfaces.Count} surface(s), {drawn} tile(s) drawn, " +
+            $"{hidden} hidden, {ia.Length / 3:N0} triangles");
+        Console.WriteLine($"[wmo-liquid] types {WmoTypeSummary}");
+        return true;
+    }
+
+    private static string NameOfShaderType(byte t) => t switch
+    {
+        1 => "ocean",
+        3 => "slime",
+        6 => "magma",
+        _ => "water",
+    };
 
     /// <summary>Build/keep liquid meshes for exactly the resident tiles; dispose the rest.</summary>
     public void LoadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
@@ -718,7 +744,9 @@ public sealed class LiquidRenderer : IDisposable
     public unsafe void Render(Camera camera)
     {
         TrianglesLastFrame = 0;
-        if (!Enabled || _shader is null || _tiles.Count == 0) return;
+        WmoTrianglesLastFrame = 0;
+        bool anyWmo = DrawWmoLiquid && _wmoMesh is not null;
+        if (!Enabled || _shader is null || (_tiles.Count == 0 && !anyWmo)) return;
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
@@ -753,33 +781,11 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Set("uSkySheen", SkySheen);
         // PLAN_12. One float decides it: 0 leaves every authored term mixed out
         // and the shader reduces to the constants it shipped with.
-        // uAuthoredWater now only selects the ALPHA source. The COLOUR is always
-        // the body uniforms below; this class decides what goes in them, so the
-        // shader never has to branch on it.
-        bool authored = AuthoredColorsActive;
-        _shader.Set("uAuthoredWater", authored ? 1f : 0f);
-        _shader.Set("uOceanClose", authored ? OceanClose : Shallow(OceanBody));
-        _shader.Set("uOceanFar",   authored ? OceanFar   : Deep(OceanBody));
-        _shader.Set("uRiverClose", authored ? RiverClose : Shallow(RiverBody));
-        _shader.Set("uRiverFar",   authored ? RiverFar   : Deep(RiverBody));
-        _shader.Set("uHighlightGain", MathF.Max(HighlightGain, 0f));
-
-        // The walking wake (PLAN_16). One float is the kill switch: at 0 the
-        // shader's wakeAt() returns immediately and the image is bit-identical
-        // to the pre-PLAN_16 water.
-        float wakeAmt = WakeEnabled ? _wakeAmount * WakeStrength : 0f;
-        _shader.Set("uWakePos", _wakePos);
-        _shader.Set("uWakeDir", _wakeDir);
-        _shader.Set("uWakeAmount", Math.Clamp(wakeAmt, 0f, 1f));
-        _shader.Set("uWakeLength", MathF.Max(WakeLength, 0.1f));
-        _shader.Set("uWakeWidth", MathF.Max(WakeWidth, 0.1f));
-        _shader.Set("uWakeAhead", WakeAhead);
-        _shader.Set("uWakeRepeat", MathF.Max(WakeRepeat, 0.1f));
-        _shader.Set("uWakeScroll", _wakeScroll);
-        _shader.Set("uWakeColor", WakeColor);
-        _shader.Set("uWakeOpacity", WakeOpacity);
-        _shader.Set("uHasWakeTex", _hasWakeTex ? 1 : 0);
-
+        _shader.Set("uAuthoredWater", AuthoredColorsActive ? 1f : 0f);
+        _shader.Set("uOceanClose", OceanClose);
+        _shader.Set("uOceanFar", OceanFar);
+        _shader.Set("uRiverClose", RiverClose);
+        _shader.Set("uRiverFar", RiverFar);
         _shader.Set("uOceanAlphaShallow", OceanAlphaShallow);
         _shader.Set("uOceanAlphaDeep", OceanAlphaDeep);
         _shader.Set("uRiverAlphaShallow", RiverAlphaShallow);
@@ -791,10 +797,6 @@ public sealed class LiquidRenderer : IDisposable
         BindLiquidTexture("uTexOcean", _texOcean, 1, "uFramesOcean", _framesOcean);
         BindLiquidTexture("uTexSlime", _texSlime, 2, "uFramesSlime", _framesSlime);
         BindLiquidTexture("uTexMagma", _texMagma, 3, "uFramesMagma", _framesMagma);
-        // Unit 4: the wake mask. Always bound - a sampler2D left dangling is
-        // undefined behaviour even when the shader never reads it.
-        (_texWakeMask ?? _dummy2D)?.Bind(4);
-        _shader.Set("uTexWake", 4);
         _gl.ActiveTexture(TextureUnit.Texture0);
 
         // Transparent surface: blend, TEST depth so hills and the near side of the
@@ -813,6 +815,19 @@ public sealed class LiquidRenderer : IDisposable
             _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount,
                 DrawElementsType.UnsignedInt, (void*)0);
             TrianglesLastFrame += mesh.IndexCount / 3;
+        }
+
+        // WMO liquid rides the SAME shader, uniforms and draw state as the
+        // open-world surface (PLAN_15 D1). That is the point: a canal and the
+        // river outside the gate are the same substance and must stay looking
+        // like it through every future tuning pass.
+        if (anyWmo)
+        {
+            _gl.BindVertexArray(_wmoMesh!.Vao);
+            _gl.DrawElements(PrimitiveType.Triangles, (uint)_wmoMesh.IndexCount,
+                DrawElementsType.UnsignedInt, (void*)0);
+            WmoTrianglesLastFrame = _wmoMesh.IndexCount / 3;
+            TrianglesLastFrame += WmoTrianglesLastFrame;
         }
 
         _gl.Enable(EnableCap.CullFace);
@@ -835,36 +850,92 @@ public sealed class LiquidRenderer : IDisposable
     /// resident water layer covers that point. Used to decide submersion.
     /// </summary>
     public bool TryGetSurface(float worldX, float worldY, out float height, out byte type)
+        => TryGetSurface(worldX, worldY, float.NegativeInfinity, out height, out type);
+
+    /// <summary>
+    /// The liquid surface a point at <paramref name="worldZ"/> is submerged under:
+    /// the LOWEST surface strictly above it, across both open-world water and WMO
+    /// liquid. Pass <c>float.NegativeInfinity</c> for "the highest surface here",
+    /// which is what the HUD read-out wants.
+    ///
+    /// PLAN_15 D4. Two things changed here and both were latent bugs, not new
+    /// requirements:
+    ///
+    /// 1. **WMO surfaces are now in scope.** Without this you swim through
+    ///    Stormwind's canal with a dry screen.
+    /// 2. **It no longer returns the first hit it finds.** With overlapping
+    ///    surfaces — a canal above a lake, an aqueduct above a river — the first
+    ///    match was whichever tile happened to be first in a dictionary, which is
+    ///    not a stable answer and not necessarily the one you are under.
+    /// </summary>
+    public bool TryGetSurface(float worldX, float worldY, float worldZ,
+                              out float height, out byte type)
     {
-        foreach (var mesh in _tiles.Values)
+        bool found = false;
+        float best = 0f;
+        byte bestType = 0;
+
+        void Consider(float h, byte t)
         {
-            foreach (var s in mesh.Surfaces)
-            {
-                double gr = (s.OriginX - worldX) / s.Cell - s.GridRowBase;
-                double gc = (s.OriginY - worldY) / s.Cell - s.GridColBase;
-                if (gr < 0 || gr > 8 || gc < 0 || gc > 8) continue;
-
-                int cr = Math.Clamp((int)Math.Floor(gr), 0, 7);
-                int cc = Math.Clamp((int)Math.Floor(gc), 0, 7);
-                if (!s.Render[cr * 8 + cc]) continue;
-
-                float fr = (float)(gr - cr);
-                float fc = (float)(gc - cc);
-                float h00 = s.Heights[cr * 9 + cc];
-                float h01 = s.Heights[cr * 9 + cc + 1];
-                float h10 = s.Heights[(cr + 1) * 9 + cc];
-                float h11 = s.Heights[(cr + 1) * 9 + cc + 1];
-                float top = h00 + (h01 - h00) * fc;
-                float bot = h10 + (h11 - h10) * fc;
-                height = top + (bot - top) * fr;
-                type = s.Type;
-                return true;
-            }
+            if (h <= worldZ) return;                       // below the eye: not what we are in
+            if (found && h >= best) return;                // keep the lowest qualifying surface
+            found = true; best = h; bestType = t;
         }
 
-        height = 0f;
-        type = 0;
-        return false;
+        foreach (var mesh in _tiles.Values)
+        foreach (var s in mesh.Surfaces)
+        {
+            double gr = (s.OriginX - worldX) / s.Cell - s.GridRowBase;
+            double gc = (s.OriginY - worldY) / s.Cell - s.GridColBase;
+            if (gr < 0 || gr > 8 || gc < 0 || gc > 8) continue;
+
+            int cr = Math.Clamp((int)Math.Floor(gr), 0, 7);
+            int cc = Math.Clamp((int)Math.Floor(gc), 0, 7);
+            if (!s.Render[cr * 8 + cc]) continue;
+
+            float fr = (float)(gr - cr);
+            float fc = (float)(gc - cc);
+            float h00 = s.Heights[cr * 9 + cc];
+            float h01 = s.Heights[cr * 9 + cc + 1];
+            float h10 = s.Heights[(cr + 1) * 9 + cc];
+            float h11 = s.Heights[(cr + 1) * 9 + cc + 1];
+            float top = h00 + (h01 - h00) * fc;
+            float bot = h10 + (h11 - h10) * fc;
+            Consider(top + (bot - top) * fr, s.Type);
+        }
+
+        foreach (var s in _wmoSurfaces)
+        {
+            // Cheap reject first: most of the map is not inside any pool.
+            if (worldX < s.WorldMin.X - s.Unit || worldX > s.WorldMax.X + s.Unit) continue;
+            if (worldY < s.WorldMin.Y - s.Unit || worldY > s.WorldMax.Y + s.Unit) continue;
+
+            // Rigid lattice, so (i, j) comes back from two dot products.
+            var d = new Vector2(worldX - s.Origin.X, worldY - s.Origin.Y);
+            float fi = Vector2.Dot(d, s.UDir) / s.Unit;
+            float fj = Vector2.Dot(d, s.VDir) / s.Unit;
+            if (fi < 0 || fj < 0 || fi > s.XVerts - 1 || fj > s.YVerts - 1) continue;
+
+            int i0 = Math.Clamp((int)MathF.Floor(fi), 0, s.XVerts - 2);
+            int j0 = Math.Clamp((int)MathF.Floor(fj), 0, s.YVerts - 2);
+            if (i0 >= s.XTiles || j0 >= s.YTiles) continue;
+            int xt = s.XTiles;
+            if (!s.Render[j0 * xt + i0]) continue;
+
+            float ti = fi - i0;
+            float tj = fj - j0;
+            float a = s.Heights[j0 * s.XVerts + i0];
+            float b = s.Heights[j0 * s.XVerts + i0 + 1];
+            float c = s.Heights[(j0 + 1) * s.XVerts + i0];
+            float e = s.Heights[(j0 + 1) * s.XVerts + i0 + 1];
+            float lo = a + (b - a) * ti;
+            float hi = c + (e - c) * ti;
+            Consider(lo + (hi - lo) * tj, s.Types[j0 * xt + i0]);
+        }
+
+        height = best;
+        type = bestType;
+        return found;
     }
 
     /// <summary>
@@ -912,9 +983,11 @@ public sealed class LiquidRenderer : IDisposable
     {
         foreach (var m in _tiles.Values) m.Dispose();
         _tiles.Clear();
+        _wmoMesh?.Dispose();
+        _wmoMesh = null;
+        _wmoSurfaces.Clear();
         _texWater?.Dispose(); _texOcean?.Dispose(); _texSlime?.Dispose(); _texMagma?.Dispose();
         _dummyTex?.Dispose();
-        _texWakeMask?.Dispose(); _dummy2D?.Dispose();
         if (_overlayVao != 0) { _gl.DeleteVertexArray(_overlayVao); _overlayVao = 0; }
     }
 }

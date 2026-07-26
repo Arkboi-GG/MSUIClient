@@ -148,16 +148,6 @@ public sealed partial class GameLoop : IDisposable
     private WmoRenderer? _wmo;
     private DoodadRenderer? _doodads;
     private LiquidRenderer? _liquid;
-
-    /// <summary>
-    /// Deepest water, in yards above the feet, that still counts as WADING for
-    /// the wake (PLAN_16 D3). Past this the character is swimming rather than
-    /// walking through it, and a surface trail is the wrong effect.
-    ///
-    /// Set a little above the eventual swim threshold so the two do not fight at
-    /// the margin; PLAN_16 D4 puts that entry around 1.4 yd.
-    /// </summary>
-    private const float WakeMaxWadeDepth = 1.8f;
     private FoliageRenderer? _foliage;
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
@@ -1668,36 +1658,42 @@ public sealed partial class GameLoop : IDisposable
         {
             _liquid.Time += dt;
 
-            // The walking wake (PLAN_16). The gate lives HERE rather than inside
-            // LiquidRenderer because this is the only place that knows where the
-            // player's feet are.
+            // WMO liquid: canals, fountains, indoor pools (PLAN_15).
             //
-            // "In water" means a liquid surface sits ABOVE the feet and the feet
-            // are not far below it - so wading leaves a trail, walking a bridge
-            // over a river does not, and a swimmer well under the surface does
-            // not either. Three cases, one test.
-            if (_controller is not null)
+            // Synced here, every frame, and NOT on the tile-crossing event. The
+            // call is an int compare when nothing has changed, so this is free —
+            // and it is the only placement that survives async WMO adoption,
+            // where a building is placed several frames before its groups (and
+            // therefore its MLIQ) exist. Rebuilding at the crossing instead
+            // leaves a permanently dry canal and logs nothing. See
+            // LiquidRenderer.LoadWmoLiquid and PLAN_15 D5.
+            //
+            // It uploads GL buffers, so it has to be on the render thread.
+            if (_wmo is not null
+                && _liquid.LoadWmoLiquid(_wmo.LiquidVersion, _wmo.EnumerateLiquid())
+                && _liquid.WmoSurfaceCount > 0)
             {
-                var feet = _controller.Position;
-
-                // NOTE the 2-argument overload. PLAN_16 section 4.3 claimed a
-                // 3-argument TryGetSurface taking a query Z; that was added by
-                // PLAN_15 and went away with its revert. The plan was wrong, not
-                // the code. The height test below does the same job for this gate,
-                // and using the existing overload means the shared water query is
-                // not touched at all.
-                bool inWater =
-                    _liquid.TryGetSurface(feet.X, feet.Y, out float wakeZ, out _)
-                    && wakeZ > feet.Z
-                    && wakeZ - feet.Z < WakeMaxWadeDepth;
-
-                _liquid.UpdateWake(feet, _controller.Yaw, dt, inWater);
+                // PLAN_15 §7 step 1 — the numeric gate, and the only part of this
+                // feature that can be verified without a screenshot.
+                //
+                // This recomputes at runtime the exact metric that settled the
+                // MLIQ coordinate convention offline against 235 groups. It
+                // should reproduce those figures. If it is wildly larger, the
+                // INSTANCE TRANSFORM is wrong - the convention is settled and is
+                // not the thing to go back and doubt.
+                var (n, total, worst, worstName) = _wmo.LiquidEscapeCheck();
+                Console.WriteLine(
+                    $"[wmo-liquid] escape total {total:F2} yd over {n} surface(s), " +
+                    $"worst {worst:F2} yd" + (worst > 0.005 ? $" on {worstName}" : ""));
             }
 
             _liquid.Render(_window.Camera);
 
+            // Pass the eye's Z so overlapping surfaces resolve to the one we are
+            // actually under - a canal above a lake used to be decided by
+            // dictionary order. PLAN_15 D4.
             var eye = _window.Camera.Position;
-            if (_liquid.TryGetSurface(eye.X, eye.Y, out float surfaceZ, out byte liquidType)
+            if (_liquid.TryGetSurface(eye.X, eye.Y, eye.Z, out float surfaceZ, out byte liquidType)
                 && eye.Z < surfaceZ)
             {
                 _liquid.RenderUnderwater(surfaceZ - eye.Z, liquidType);

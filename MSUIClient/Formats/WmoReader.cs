@@ -112,6 +112,11 @@ public class WmoReader
     private const int WMO_LIQUID_TILE_SIZE = 1;
     // Liquid tile size in WMO local units. Per wowdev: same as ADT cell (1/8 of an MCNK chunk).
     // ADT CELL_SIZE = 33.3333 / 8 = 4.16667. WMO uses identical tile size for MLIQ.
+    //
+    // PROVEN 2026-07-26, do not tune (PLAN_15_WMO_LIQUID.md §4.2): all 470 corner
+    // coordinates (CornerX and CornerY) of the 235 MLIQ groups in wmo.MPQ are exact
+    // integer multiples of this value, to within 0.01 yards. 470 of 470. The nearest
+    // competing candidate, 4.2, hits 1.1%. Blizzard authored MLIQ corners on this grid.
     private const float WMO_LIQUID_UNIT = 33.3333f / 8.0f;
 
     /// <summary>
@@ -967,8 +972,21 @@ public class WmoGroupData
 /// a (XVerts × YVerts) vertex grid of heights plus a (XTiles × YTiles) tile mask
 /// (XTiles = XVerts - 1, etc.). Tile flag bit 0x08 means dont_render.
 ///
-/// Local space convention (Noggit wmo_liquid.cpp): tile (i, j) covers
-///   (CornerX + i*UNIT, height, CornerY - j*UNIT) — note Z grows NEGATIVE in j.
+/// LOCAL SPACE CONVENTION — settled 2026-07-26 against 235 real MLIQ groups in
+/// wmo.MPQ. See PLAN_15_WMO_LIQUID.md §4.1 for the scoring table.
+///
+///   vertex(i, j) = ( CornerX + i*UNIT,  CornerY + j*UNIT,  VertexHeights[j*XVerts + i] )
+///
+/// MLIQ is **Z-up, in the same local space as MOVT** (handbook §3.4). This text
+/// previously claimed Noggit's Y-up layout — (CornerX + i*UNIT, height,
+/// CornerY - j*UNIT) — which is Noggit's own RENDER space, not the file's, and
+/// scored 18x worse than the Z-up reading when each candidate was tested for
+/// how far it puts liquid outside its group's own authored MOGP bounding box.
+///
+/// This is the SECOND stale Noggit-derived comment found in this file; the
+/// first claimed MOVT was converted to Y-up at parse, which it also is not.
+/// Treat prose in this file as a lead, never as ground truth.
+///
 /// The caller composes this with the WMO instance's MODF position+rotation to get world coords.
 /// </summary>
 public class WmoLiquid
@@ -984,8 +1002,56 @@ public class WmoLiquid
     /// <summary>Vertex heights, row-major over (yverts × xverts): index = j*xverts + i.</summary>
     public float[] VertexHeights { get; set; } = Array.Empty<float>();
     /// <summary>Tile flag bytes, row-major over (ytiles × xtiles): index = j*xtiles + i.
-    /// Bit 0x08 = dont_render. Bits 0..2 carry legacy liquid type.</summary>
+    ///
+    /// MEASURED over all 235 MLIQ groups (PLAN_15 §4.3): the LOW NIBBLE takes only the
+    /// values 0, 2, 3, 4, 6, 7 and 15 — never 8..14. So:
+    ///
+    ///   (b &amp; 0x0F) == 0x0F  ->  no liquid here, skip the tile
+    ///   otherwise (b &amp; 0x03) ->  0 water, 1 ocean, 2 magma, 3 slime
+    ///
+    /// The older "bit 0x08 = dont_render" test gives the same answer on real data
+    /// ONLY because nibbles 8..14 never occur. It is right by luck, not by
+    /// construction, and it under-counts the type field by a bit. Prefer the nibble
+    /// test. Use <see cref="IsHidden"/> / <see cref="BasicType"/> rather than either.
+    ///
+    /// Hidden tiles are the majority (46,455 of ~115,000): a WMO liquid grid is a
+    /// bounding rectangle with the actual pool cut out of it, so skipping them is not
+    /// an optimisation — it is the difference between a canal and a slab of water
+    /// across the whole district.</summary>
     public byte[] TileFlags { get; set; } = Array.Empty<byte>();
+
+    /// <summary>True when this tile carries no liquid and must not be drawn.
+    /// PLAN_15 §4.3.</summary>
+    public bool IsHidden(int i, int j)
+    {
+        int k = j * XTiles + i;
+        return (uint)k >= (uint)TileFlags.Length || (TileFlags[k] & 0x0F) == 0x0F;
+    }
+
+    /// <summary>Substance of a tile: 0 water, 1 ocean, 2 magma, 3 slime.
+    ///
+    /// Derived from placement, not from LiquidType.dbc (which is in patch.MPQ, over
+    /// the transfer cap). Every one of the 235 groups agrees: `&amp; 3 == 0` is
+    /// Stormwind's canals / Maraudon / Blackfathom, `== 2` is Blackrock and
+    /// Ironforge, `== 3` is Undercity and Stratholme. Zero counterexamples.
+    ///
+    /// **These are NOT the codes water.frag routes on** — see PLAN_15 §4.5 and
+    /// translate before handing a type to the shader. Three of the six live codes
+    /// happen to mean the same thing in both encodings, which is exactly why passing
+    /// them through untranslated survives a test in Stormwind and ships broken in
+    /// Ironforge.</summary>
+    public int BasicType(int i, int j)
+    {
+        int k = j * XTiles + i;
+        return (uint)k >= (uint)TileFlags.Length ? 0 : TileFlags[k] & 0x03;
+    }
+
+    /// <summary>Absolute height of grid vertex (i, j). Row-major over (yverts x xverts).</summary>
+    public float HeightAt(int i, int j)
+    {
+        int k = j * XVerts + i;
+        return (uint)k >= (uint)VertexHeights.Length ? 0f : VertexHeights[k];
+    }
 }
 
 public class WmoBatch

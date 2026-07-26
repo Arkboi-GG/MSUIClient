@@ -157,14 +157,6 @@ public sealed class GameSettings
         public bool UseNoDoodadMask { get; set; } = true;
         public bool SkipHoles { get; set; } = true;
 
-        /// <summary>Suppress land clutter in cells under water deeper than
-        /// <see cref="LiquidFoliageMaxDepth"/>. Grass does not grow in the river.</summary>
-        public bool SkipDeepLiquidCells { get; set; } = true;
-
-        /// <summary>Water depth, in yards, above which a cell stops scattering.
-        /// Kept small on purpose so reeds at the shallow margin survive.</summary>
-        public float LiquidFoliageMaxDepth { get; set; } = 0.75f;
-
         /// <summary>
         /// Per-kind curation, keyed by FoliageKind name so a renamed or added
         /// enum member cannot corrupt an old file - an unknown key is ignored and
@@ -184,35 +176,12 @@ public sealed class GameSettings
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// PLAN_12's A/B: take ocean/river colour from LightIntBand 13-16 instead
-        /// of the hand-tuned constants.
-        ///
-        /// **DEFAULT FLIPPED TO FALSE, 2026-07-26.** This shipped default-ON and
-        /// it ruins the water: `water.frag` MULTIPLIES the animated liquid texture
-        /// by the band colour, Azeroth's authored river-close is
-        /// `(0.000, 0.114, 0.161)` with red exactly zero, and vanilla's
-        /// `lake_a.N.blp` frames ARE the bright animated highlight layer. Multiply
-        /// the highlights by near-black and the river goes dark and monocolour --
-        /// which is exactly what it did.
-        ///
-        /// The band INDEXING is correct (verified against wowdev and against our
-        /// own sky, which is right). The values are real. **The interpretation is
-        /// wrong: these are not a texture tint.** Two more signs -- the authored
-        /// alphas are shallow 0.65 / deep 0.50 and ocean 1.00 / 0.75, i.e. shallow
-        /// MORE opaque than deep, which is backwards for depth and sensible for
-        /// camera distance; and across all 426 LightParams the close/far pairs have
-        /// no systematic brightness ordering at all (river 156 vs 95, ocean 91 vs
-        /// 84), which they would if they were shallow/deep.
-        ///
-        /// WoWee settles it: it loads all 18 colour bands, consumes seven
-        /// (ambient, diffuse, fog, four sky), comments *"more channels exist
-        /// (ocean, river, shadow, etc.)"* and hardcodes water colour per liquid
-        /// type instead. See SYSTEM_WATER.md section 5.
-        ///
-        /// Leave this OFF until someone establishes what these bands actually
-        /// drive in the real client. Off is bit-identical to the tuned look.
+        /// PLAN_12's A/B. On, ocean and river take their close/far colours and
+        /// shallow/deep alphas from LightIntBand 13-16 and LightParams. Off is
+        /// bit-identical to the pre-PLAN_12 look, which is what makes the
+        /// comparison trustworthy rather than approximately trustworthy.
         /// </summary>
-        public bool UseAuthoredColors { get; set; }
+        public bool UseAuthoredColors { get; set; } = true;
 
         public float DetailPercent { get; set; } = 70f;
         public bool DetailCustom { get; set; }
@@ -242,42 +211,19 @@ public sealed class GameSettings
         public float WaveSpeed { get; set; } = 1.0f;
 
         /// <summary>
-        /// River/lake body colour. THE WATER TEXTURE SUPPLIES NO COLOUR --
-        /// lake_a.1.blp is a near-black greyscale highlight mask, measured mean
-        /// RGB (0.014, 0.014, 0.014) -- so this is where the river gets its
-        /// colour. Shallow and deep are derived from it. SYSTEM_WATER.md section 8.
+        /// PLAN_15's A/B: draw MLIQ liquid inside WMOs — Stormwind's canals,
+        /// Ironforge's lava channels, Undercity's slime, fountains and indoor
+        /// pools. Off is bit-identical to the pre-PLAN_15 client.
         /// </summary>
-        public float RiverBodyR { get; set; } = 0.13f;
-        public float RiverBodyG { get; set; } = 0.16f;
-        public float RiverBodyB { get; set; } = 0.17f;
-
-        /// <summary>Ocean body colour. Same story as RiverBody.</summary>
-        public float OceanBodyR { get; set; } = 0.04f;
-        public float OceanBodyG { get; set; } = 0.16f;
-        public float OceanBodyB { get; set; } = 0.38f;
-
-        /// <summary>How hard the animated highlight mask is added over the body.
-        /// 0 = a completely still surface, useful for judging the body colour alone.</summary>
-        public float HighlightGain { get; set; } = 4.0f;
+        public bool DrawWmoLiquid { get; set; } = true;
 
         /// <summary>
-        /// The walking wake (PLAN_16): the trail you leave wading through water,
-        /// stamped from Blizzard's own XTextures\splash\wake.blp. WakeStrength 0
-        /// is the kill switch and restores a bit-identical pre-PLAN_16 surface.
+        /// Assumed depth of WMO liquid, in yards. A labelled stand-in, not a look
+        /// preference — PLAN_15 D3. WMO pools have no terrain beneath them to
+        /// subtract, so until the collision-BVH raycast is built this is what the
+        /// shader's depth term gets. Baked per vertex, so changing it rebuilds.
         /// </summary>
-        public bool WakeEnabled { get; set; } = true;
-        public float WakeStrength { get; set; } = 0.9f;
-        public float WakeLength { get; set; } = 4.5f;
-        public float WakeWidth { get; set; } = 2.6f;
-        public float WakeAhead { get; set; } = 0.6f;
-        public float WakeFullSpeed { get; set; } = 2.5f;
-        public float WakeFade { get; set; } = 0.45f;
-        public float WakeRepeat { get; set; } = 2.5f;
-        public float WakeWorldLock { get; set; } = 1.0f;
-        public float WakeOpacity { get; set; } = 0.40f;
-        public float WakeColorR { get; set; } = 0.30f;
-        public float WakeColorG { get; set; } = 0.36f;
-        public float WakeColorB { get; set; } = 0.42f;
+        public float WmoLiquidDepth { get; set; } = 3.0f;
     }
 
     /// <summary>

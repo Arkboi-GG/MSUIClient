@@ -683,22 +683,6 @@ public sealed partial class GameLoop
                         "here\". In Northshire it traces the road.");
                     Check("Skip terrain holes", () => s.Clutter.SkipHoles, v => s.Clutter.SkipHoles = v,
                         "MCNK 0x3C: cells cut away so a dungeon entrance is reachable.");
-                    Check("Skip cells under water", () => s.Clutter.SkipDeepLiquidCells,
-                        v => s.Clutter.SkipDeepLiquidCells = v,
-                        "Grass does not grow in the river. This renderer had no idea liquid\n" +
-                        "existed, so land clutter scattered happily along the riverbed.\n" +
-                        "Depth-gated, not a blanket cull - reeds at the shallow margin are\n" +
-                        "authored by the riverbed's own texture layer and are correct.");
-                    if (s.Clutter.SkipDeepLiquidCells)
-                    {
-                        Slider("cliqd", "  Water depth cutoff", () => s.Clutter.LiquidFoliageMaxDepth,
-                            v => s.Clutter.LiquidFoliageMaxDepth = v, 0f, 4f, "{0:F2} yd",
-                            "Cells under water deeper than this stop scattering. Lower cuts\n" +
-                            "further into the shallows and takes the reeds with it; higher\n" +
-                            "lets grass back into the channel.");
-                        if (_foliage is not null)
-                            ImGui.TextDisabled($"  {_foliage.LiquidCells} cell(s) skipped as underwater last scatter");
-                    }
 
                     ImGui.TextDisabled("Wind and fade.");
                     Slider("cwind", "Wind strength", () => s.Clutter.WindStrength,
@@ -762,23 +746,56 @@ public sealed partial class GameLoop
             {
                 Check("Render water", () => s.Water.Enabled, v => s.Water.Enabled = v);
 
-                Check("Authored water colours (Light.dbc)  [KNOWN BAD]",
-                    () => s.Water.UseAuthoredColors,
+                Check("Authored water colours (Light.dbc)", () => s.Water.UseAuthoredColors,
                     v => s.Water.UseAuthoredColors = v,
-                    "LEAVE THIS OFF. Takes ocean/river colour from LightIntBand 13-16.\n" +
-                    "The band indexing is correct and the values are real, but they are\n" +
-                    "NOT a texture tint: water.frag multiplies the animated liquid\n" +
-                    "texture by them, Azeroth's river-close is (0.000, 0.114, 0.161)\n" +
-                    "with red exactly zero, and those texture frames ARE the bright\n" +
-                    "animated highlights. Result is dark, monocolour, static-looking\n" +
-                    "water. WoWee reads these same bands and refuses to use them.\n" +
-                    "Off is the tuned look. SYSTEM_WATER.md section 5.");
+                    "On, ocean and river take their close/far colours and shallow/deep\n" +
+                    "alphas from LightIntBand 13-16 and LightParams, per zone and per time\n" +
+                    "of day. Off restores the six hand-invented constants exactly.\n" +
+                    "Needs 'Use authored lighting data' on as well - PLAN_12 H1.");
 
-                if (s.Water.UseAuthoredColors)
-                    ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f),
-                        "This is known to break the river - see the tooltip.");
-                else if (_liquid is not null && !_liquid.AuthoredColorsActive)
-                    ImGui.TextDisabled("Using the hand-tuned colours (the shipping look).");
+                if (_liquid is not null && !_liquid.AuthoredColorsActive && s.Water.UseAuthoredColors)
+                    ImGui.TextColored(new Vector4(1f, 0.72f, 0.30f, 1f),
+                        "No resolved water data here - running on the invented constants.");
+
+                // ── WMO liquid (PLAN_15) ────────────────────────────────────
+                Check("Draw WMO liquid (canals, pools, lava)", () => s.Water.DrawWmoLiquid,
+                    v => s.Water.DrawWmoLiquid = v,
+                    "MLIQ surfaces inside buildings: Stormwind's canals, Ironforge's\n" +
+                    "lava channels, Undercity's slime, fountains and indoor pools.\n" +
+                    "235 groups in wmo.MPQ carry one. Off is bit-identical to the\n" +
+                    "client before PLAN_15.");
+
+                if (_liquid is not null && s.Water.DrawWmoLiquid)
+                {
+                    // PLAN_15 §7 step 2: the substance check. Stormwind must read
+                    // water only; Ironforge must read magma only. If Ironforge
+                    // ever shows water, the MLIQ->MCLQ type translation regressed
+                    // (§4.5) - three of the six codes agree by coincidence, so a
+                    // test in Stormwind alone will not catch it.
+                    ImGui.TextDisabled(
+                        $"resident: {_liquid.WmoSurfaceCount} surface(s), " +
+                        $"{_liquid.WmoTrianglesLastFrame:N0} tri   types {_liquid.WmoTypeSummary}");
+
+                    // Adopted-vs-drawn splits "this building has no liquid" from
+                    // "its liquid was dropped between the parse and the mesh".
+                    if (_wmo is not null && _wmo.LiquidGroupsAdopted != _liquid.WmoSurfaceCount)
+                        ImGui.TextDisabled(
+                            $"  {_wmo.LiquidGroupsAdopted} MLIQ group(s) parsed - " +
+                            $"{_wmo.LiquidGroupsAdopted - _liquid.WmoSurfaceCount} not resident or fully hidden");
+
+                    if (Slider("wmod", "WMO liquid depth", () => s.Water.WmoLiquidDepth,
+                            v => s.Water.WmoLiquidDepth = v, 0.1f, 20f, "{0:F2} yd",
+                            "A STAND-IN, not a look preference - PLAN_15 D3.\n" +
+                            "Open-world water bakes real depth from the terrain beneath it.\n" +
+                            "A WMO pool's floor is the building's own mesh, which needs a\n" +
+                            "raycast against the collision BVH; until that exists every WMO\n" +
+                            "liquid vertex gets this one number. Keep it above the shoreline\n" +
+                            "width or canals read as one continuous shoreline.\n" +
+                            "Baked per vertex, so moving this rebuilds the mesh."))
+                    {
+                        ApplyWater(s);
+                    }
+                }
                 if (Slider("wdet", "Water detail", () => s.Water.DetailPercent,
                         v => { s.Water.DetailPercent = v; s.Water.DetailCustom = false; },
                         0f, 100f, "{0:F0}%",
@@ -823,75 +840,6 @@ public sealed partial class GameLoop
                         v => s.Water.DepthDarken = v, 0.1f, 1f, "{0:F2}");
                     Slider("wdr", "Depth rate", () => s.Water.DepthRate,
                         v => s.Water.DepthRate = v, 0.01f, 1f, "{0:F3}");
-
-                    ImGui.TextDisabled("Body colour - the water texture supplies NONE. See SYSTEM_WATER.md section 8.");
-                    var rBody = new Vector3(s.Water.RiverBodyR, s.Water.RiverBodyG, s.Water.RiverBodyB);
-                    if (ImGui.ColorEdit3("River / lake body", ref rBody))
-                    {
-                        s.Water.RiverBodyR = rBody.X; s.Water.RiverBodyG = rBody.Y; s.Water.RiverBodyB = rBody.Z;
-                        ApplyWater(s);
-                    }
-                    var oBody = new Vector3(s.Water.OceanBodyR, s.Water.OceanBodyG, s.Water.OceanBodyB);
-                    if (ImGui.ColorEdit3("Ocean body", ref oBody))
-                    {
-                        s.Water.OceanBodyR = oBody.X; s.Water.OceanBodyG = oBody.Y; s.Water.OceanBodyB = oBody.Z;
-                        ApplyWater(s);
-                    }
-                    Slider("whg", "Highlight gain", () => s.Water.HighlightGain,
-                        v => s.Water.HighlightGain = v, 0f, 16f, "{0:F2}",
-                        "How hard the animated liquid texture is ADDED over the body colour.\n" +
-                        "lake_a.blp is a near-black greyscale mask peaking at 0.158 luminance -\n" +
-                        "it is the sparkle, not the surface. 0 gives a dead still surface,\n" +
-                        "which is the quickest way to judge the body colour on its own.");
-
-                    ImGui.TextDisabled("Walking wake - the trail you leave wading. PLAN_16.");
-                    Check("Walking wake", () => s.Water.WakeEnabled, v => s.Water.WakeEnabled = v,
-                        "Stamps Blizzard's own XTextures\\splash\\wake.blp along your recent\n" +
-                        "path while you are wading. Off, or strength 0, is a bit-identical\n" +
-                        "surface to before the feature existed.");
-                    if (s.Water.WakeEnabled)
-                    {
-                        Slider("wkst", "  Wake strength", () => s.Water.WakeStrength,
-                            v => s.Water.WakeStrength = v, 0f, 2f, "{0:F2}");
-                        Slider("wkln", "  V length", () => s.Water.WakeLength,
-                            v => s.Water.WakeLength = v, 0.5f, 20f, "{0:F2} yd",
-                            "How far the V trails behind you.");
-                        Slider("wkwd", "  V width", () => s.Water.WakeWidth,
-                            v => s.Water.WakeWidth = v, 0.3f, 12f, "{0:F2} yd",
-                            "How wide the arms spread at the tail.");
-                        Slider("wkah", "  Apex ahead", () => s.Water.WakeAhead,
-                            v => s.Water.WakeAhead = v, -2f, 4f, "{0:F2} yd",
-                            "Where the point of the V sits relative to your feet.");
-                        Slider("wkfs", "  Full-strength speed", () => s.Water.WakeFullSpeed,
-                            v => s.Water.WakeFullSpeed = v, 0.5f, 10f, "{0:F2} yd/s",
-                            "Movement speed at which the wake reaches full visibility.");
-                        Slider("wkfd", "  Fade out", () => s.Water.WakeFade,
-                            v => s.Water.WakeFade = v, 0.05f, 3f, "{0:F2} s",
-                            "How long the churn lingers after you stop.");
-                        Slider("wkrp", "  Wavefronts", () => s.Water.WakeRepeat,
-                            v => s.Water.WakeRepeat = v, 0.5f, 8f, "{0:F2}",
-                            "How many crests fit along the length. 1 is a single frozen\n" +
-                            "chevron; higher gives a train of them streaming backward.");
-                        Slider("wkwl", "  World lock", () => s.Water.WakeWorldLock,
-                            v => s.Water.WakeWorldLock = v, 0f, 2f, "{0:F2}",
-                            "1.0 = crests stay put in the river and you move THROUGH\n" +
-                            "them (what the real client does). 0 = the V rides along\n" +
-                            "stuck to you, which is what the first version did wrong.");
-                        Slider("wkop", "  Alpha lift", () => s.Water.WakeOpacity,
-                            v => s.Water.WakeOpacity = v, 0f, 1f, "{0:F2}",
-                            "A wake happens in shallow water, where the shoreline fade has\n" +
-                            "already made the surface faint. This lifts it back.");
-                        var wc = new Vector3(s.Water.WakeColorR, s.Water.WakeColorG, s.Water.WakeColorB);
-                        if (ImGui.ColorEdit3("  Wake colour", ref wc))
-                        {
-                            s.Water.WakeColorR = wc.X; s.Water.WakeColorG = wc.Y; s.Water.WakeColorB = wc.Z;
-                            ApplyWater(s);
-                        }
-                        if (_liquid is not null)
-                            ImGui.TextDisabled(_liquid.HasWakeTexture
-                                ? $"  wake.blp loaded, amount {_liquid.WakeAmount:F2}"
-                                : $"  wake.blp NOT loaded - analytic V, amount {_liquid.WakeAmount:F2}");
-                    }
 
                     ImGui.TextDisabled("Lighting.");
                     Slider("wbr", "Base brightness##water", () => s.Water.Brightness,
@@ -1486,9 +1434,7 @@ public sealed partial class GameLoop
             f.MaxInstances != s.Clutter.MaxInstances ||
             f.UseCellLayerMap != s.Clutter.UseCellLayerMap ||
             f.UseNoDoodadMask != s.Clutter.UseNoDoodadMask ||
-            f.SkipHoles != s.Clutter.SkipHoles ||
-            f.SkipDeepLiquidCells != s.Clutter.SkipDeepLiquidCells ||
-            MathF.Abs(f.LiquidFoliageMaxDepth - s.Clutter.LiquidFoliageMaxDepth) > 0.001f;
+            f.SkipHoles != s.Clutter.SkipHoles;
 
         f.Enabled = s.Clutter.Enabled;
         f.Radius = s.Clutter.Radius;
@@ -1509,8 +1455,6 @@ public sealed partial class GameLoop
         f.UseCellLayerMap = s.Clutter.UseCellLayerMap;
         f.UseNoDoodadMask = s.Clutter.UseNoDoodadMask;
         f.SkipHoles = s.Clutter.SkipHoles;
-        f.SkipDeepLiquidCells = s.Clutter.SkipDeepLiquidCells;
-        f.LiquidFoliageMaxDepth = s.Clutter.LiquidFoliageMaxDepth;
 
         foreach (FoliageKind kind in Enum.GetValues<FoliageKind>())
         {
@@ -1560,24 +1504,18 @@ public sealed partial class GameLoop
         w.SkySheen = s.Water.SkySheen;
         w.WaveAmplitude = s.Water.WaveAmplitude;
         w.WaveSpeed = s.Water.WaveSpeed;
-        w.RiverBody = new Vector3(s.Water.RiverBodyR, s.Water.RiverBodyG, s.Water.RiverBodyB);
-        w.OceanBody = new Vector3(s.Water.OceanBodyR, s.Water.OceanBodyG, s.Water.OceanBodyB);
-        w.HighlightGain = s.Water.HighlightGain;
 
-        // The wake. Lifetime and spacing change the SHAPE of the trail rather
-        // than its look, so a change there clears the existing samples instead
-        // of leaving a half-old half-new trail on screen for a second.
-        w.WakeEnabled = s.Water.WakeEnabled;
-        w.WakeStrength = s.Water.WakeStrength;
-        w.WakeLength = s.Water.WakeLength;
-        w.WakeWidth = s.Water.WakeWidth;
-        w.WakeAhead = s.Water.WakeAhead;
-        w.WakeFullSpeed = s.Water.WakeFullSpeed;
-        w.WakeFade = s.Water.WakeFade;
-        w.WakeRepeat = s.Water.WakeRepeat;
-        w.WakeWorldLock = s.Water.WakeWorldLock;
-        w.WakeOpacity = s.Water.WakeOpacity;
-        w.WakeColor = new Vector3(s.Water.WakeColorR, s.Water.WakeColorG, s.Water.WakeColorB);
+        // PLAN_15. WmoDepth is baked into the vertex buffer, not a uniform, so a
+        // change has to invalidate the mesh — otherwise the slider moves and
+        // nothing happens, which reads as a broken control rather than a
+        // deliberate one. UnloadWmoLiquid resets the version, and the per-frame
+        // sync in GameLoop.Render rebuilds on the next frame.
+        w.DrawWmoLiquid = s.Water.DrawWmoLiquid;
+        if (MathF.Abs(w.WmoDepth - s.Water.WmoLiquidDepth) > 0.0001f)
+        {
+            w.WmoDepth = s.Water.WmoLiquidDepth;
+            w.UnloadWmoLiquid();
+        }
     }
 
     /// <summary>
@@ -1686,8 +1624,6 @@ public sealed partial class GameLoop
             s.Clutter.UseCellLayerMap = f.UseCellLayerMap;
             s.Clutter.UseNoDoodadMask = f.UseNoDoodadMask;
             s.Clutter.SkipHoles = f.SkipHoles;
-            s.Clutter.SkipDeepLiquidCells = f.SkipDeepLiquidCells;
-            s.Clutter.LiquidFoliageMaxDepth = f.LiquidFoliageMaxDepth;
 
             foreach (FoliageKind kind in Enum.GetValues<FoliageKind>())
             {
@@ -1702,16 +1638,6 @@ public sealed partial class GameLoop
             var w = _liquid;
             s.Water.Enabled = w.Enabled;
             s.Water.UseAuthoredColors = w.UseAuthoredColors;
-            s.Water.WakeEnabled = w.WakeEnabled;
-            s.Water.WakeStrength = w.WakeStrength;
-            s.Water.WakeLength = w.WakeLength;
-            s.Water.WakeWidth = w.WakeWidth;
-            s.Water.WakeAhead = w.WakeAhead;
-            s.Water.WakeFullSpeed = w.WakeFullSpeed;
-            s.Water.WakeFade = w.WakeFade;
-            s.Water.WakeRepeat = w.WakeRepeat;
-            s.Water.WakeWorldLock = w.WakeWorldLock;
-            s.Water.WakeOpacity = w.WakeOpacity;
             s.Water.TextureScale = w.TextureScale;
             s.Water.AnimationFps = w.AnimationFps;
             s.Water.FrameBlend = w.FrameBlend;

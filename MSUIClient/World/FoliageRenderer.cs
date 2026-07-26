@@ -188,6 +188,60 @@ public sealed class FoliageRenderer : IDisposable
 
     /// <summary>Cells skipped because the terrain there is a hole.</summary>
     public int HoleCells { get; private set; }
+
+    /// <summary>
+    /// Don't scatter land clutter into cells that are UNDER WATER.
+    ///
+    /// This renderer had no idea liquid existed - not one mention of it - so
+    /// grass grew happily along the bed of the Elwynn river. Vanilla's ground
+    /// effects are chosen from the terrain texture layer, and a riverbed's layer
+    /// legitimately authors reeds and water plants; what does not belong is the
+    /// ordinary grass scattered from the bank layers where the channel is deep.
+    ///
+    /// So this is a DEPTH test, not a liquid test. Nico's call, and it is the
+    /// right one: reeds at the shallow margin are correct and must survive, only
+    /// the clutter out in the channel goes. <see cref="LiquidFoliageMaxDepth"/>
+    /// is the threshold.
+    /// </summary>
+    public bool SkipDeepLiquidCells { get; set; } = true;
+
+    /// <summary>
+    /// How deep the water over a cell has to be, in yards, before clutter is
+    /// suppressed there. Shallower than this and the cell still scatters, which
+    /// is what keeps reeds at the water's edge.
+    /// </summary>
+    public float LiquidFoliageMaxDepth { get; set; } = 0.75f;
+
+    /// <summary>Cells skipped because they sit under water deeper than the threshold.</summary>
+    public int LiquidCells { get; private set; }
+
+    /// <summary>
+    /// True when a rendered liquid tile covers cell (cx, cy) and the water there
+    /// is deeper than <paramref name="maxDepth"/>.
+    ///
+    /// The index arithmetic is a direct lookup, not a spatial query, because the
+    /// MCLQ tile grid is 8x8 per chunk and this scatter loop is also 8x8 - they
+    /// are index-aligned, exactly like the depth lookup in LiquidRenderer.Build.
+    /// The axis pairing matches that method: the liquid loop's row r is this
+    /// loop's cy and its column c is cx, so the tile index is cy*8+cx and the
+    /// vertex index cy*9+cx.
+    /// </summary>
+    private static bool UnderDeepLiquid(AdtTerrainReader.McnkChunk chunk, int cx, int cy, float maxDepth)
+    {
+        var layers = chunk.Liquid;
+        if (layers is null) return false;
+
+        foreach (var layer in layers)
+        {
+            if (layer.VertexHeights.Length < 81 || layer.TileRender.Length < 64) continue;
+            if (!layer.TileRender[cy * 8 + cx]) continue;
+
+            float surface = layer.VertexHeights[cy * 9 + cx];
+            float ground  = chunk.WorldHeightAt(cx, cy);
+            if (surface - ground > maxDepth) return true;
+        }
+        return false;
+    }
     public int MaxInstances { get; set; } = 24000;    // hard cap
     public float RescatterDistance { get; set; } = 8f;// rescatter after moving this far
     public float Scale { get; set; } = 1.0f;          // global size multiplier
@@ -340,6 +394,7 @@ public sealed class FoliageRenderer : IDisposable
         Array.Clear(_kindInstances);
         MaskedCells = 0;
         HoleCells = 0;
+        LiquidCells = 0;
         ScatterCells = 0;
         ScatterCandidates = 0;
         DeferredTiles = 0;
@@ -396,6 +451,11 @@ public sealed class FoliageRenderer : IDisposable
                     // refuses these too, but rejecting the whole cell up front
                     // is cheaper and gives the HUD something to read.
                     if (SkipHoles && chunk.IsHole(cx, cy)) { HoleCells++; continue; }
+
+                    // Land clutter does not grow in the river. Depth-gated so the
+                    // reeds at the shallow margin, which are correct, survive.
+                    if (SkipDeepLiquidCells && UnderDeepLiquid(chunk, cx, cy, LiquidFoliageMaxDepth))
+                    { LiquidCells++; continue; }
 
                     int dom = UseCellLayerMap && chunk.HasGroundEffectLayerMap
                             ? chunk.GroundEffectLayer(cx, cy)
