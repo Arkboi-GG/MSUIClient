@@ -770,3 +770,59 @@ particles"* — which is the orbit §16 said was missing), `drag`, `spin`,
 `twinkle`, `tumble`, `windVector`, and the head/tail cell flipbook. `0x80` in
 particular is the mechanism for a decaying orbit, and it is a flag rather than a
 formula.
+
+
+## 19. §18's direction change was worse, and measuring it ends the direction hunt
+
+Nico: *"I don't see a difference. Are you sure I have it?"* He had it — the build
+post-dated the source by two minutes. It made no visible difference because the
+change is **worse**, and this time it was measured instead of argued.
+
+The model's mesh is a flat ring in its **YZ** plane: 30 vertices spanning
+`x = -0.273..+0.273` against `y, z = -4.4..+7.2`. **X is the disc's normal.** So
+a particle direction with any X component leaves the plane of the ring the whole
+model is built around.
+
+Sampling 4000 spawns through the real code path — `Swap` then the bone spin:
+
+```
+WoWee's formula   mean |x| of the direction = 0.000   max 0.000
+§18's polar/azimuth reading    mean |x| = 0.636   max 1.000
+```
+
+**WoWee's formula already produces exactly the flat in-plane disc the geometry
+implies**, and the spec-literal reading breaks it. §18's reasoning — that
+`horizontalRange = 0` confines the velocity to XZ — is right about XZ and wrong
+about which plane matters: XZ *contains* the disc's normal. Reverted.
+
+### 19.1 What this settles, and where the actual problem is
+
+**The direction was never the bug.** Four models have been tried and the first
+one adopted — WoWee's — was already producing the correct shape. That line of
+enquiry is closed.
+
+The remaining complaint is *"too much is in the center"*, and it is a **spawn
+distribution** problem, not a direction one:
+
+> `lx = emissionAreaLength * 0.5 * U(-1,1)`, `ly = emissionAreaWidth * 0.5 * U(-1,1)`
+
+is a **centred square**. Uniform over a centred square puts as many particles at
+the middle as anywhere, and once the disc is viewed face-on the middle is where
+paths cross — so the centre is the densest place on screen under *every*
+direction model, forwards or reversed. That is why reverse-time helped and did
+not fix it.
+
+**Two candidates, both cheap, neither yet tested:**
+
+1. **The ring mesh may be the portal's actual body.** It is an annulus of radius
+   up to 4.4 with a hole in the middle, textured `DUST6`, unlit — geometry that
+   is dark in the centre by construction. If the live client's dark middle is the
+   *mesh*, the particles are only sparkle around it and no particle change will
+   ever produce it. **First thing to check: is that 30-vertex mesh drawing at
+   all?** It is blend mode 0, and a doodad renderer that alpha-tests or z-sorts
+   it differently could be dropping it silently.
+2. **Spawn on the ring, not the square.** If the mesh is an annulus, the emission
+   area may be meant as its extent rather than a filled rectangle.
+
+Check 1 first — it needs no new theory, only a look at whether something we
+already parse is on screen.

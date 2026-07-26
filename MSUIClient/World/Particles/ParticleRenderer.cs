@@ -336,14 +336,23 @@ public sealed class ParticleRenderer : IDisposable
         // vertically... they can do it horizontally too" describes a spread
         // either side, and a one-sided [0, range] sample would throw every
         // particle to the same side of the emitter.
-        float theta = e.VerticalRange * pool.Symmetric();     // polar, from +z
-        float phi = e.HorizontalRange * pool.Symmetric();     // azimuth; 0 => no y
-
         float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
         float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
 
-        float st = MathF.Sin(theta), ct = MathF.Cos(theta);
-        var dirRaw = new Vector3(st * MathF.Cos(phi), st * MathF.Sin(phi), ct);
+        // WoWee's formula, kept - and MEASURED to be the right shape, which the
+        // spec-literal reading was not. See PLAN_14 §19: after the axis swap and
+        // the bone spin, this produces directions whose component along the ring
+        // mesh's NORMAL is exactly 0.000 across 4000 samples. Every particle
+        // stays in the plane of the disc the model is built from. The polar/
+        // azimuth reading put a mean 0.636 out-of-plane component in, which is
+        // strictly worse and is why it looked like nothing changed.
+        var dirRaw = new Vector3(
+            pool.Symmetric() * e.HorizontalRange,
+            pool.Symmetric() * e.HorizontalRange,
+            1f + pool.Symmetric() * e.VerticalRange);
+
+        float lenSq = dirRaw.LengthSquared();
+        dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
 
         // Swapped once into the Y-up space the placement matrix expects, the
         // same `(x, y, z) -> (x, z, -y)` the vertices and the emitter position
