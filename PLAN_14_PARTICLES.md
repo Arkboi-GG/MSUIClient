@@ -548,3 +548,50 @@ not do X"* is a claim about WoWee's behaviour, not about the format — and here
 the whole branch was disabled behind a filename check I had not read yet.
 **Check that the code you are citing executes for the case you are citing it
 for.**
+
+
+## 15. White hole vs black hole — the sign of the speed is the switch
+
+Nico, on the soft-haze build: *"We are having the particles emit OUTWARD. The
+live client is like a black hole in the center surrounded by particles it's
+pulling in in a spiral, we are like a white hole."*
+
+That is the last structural error, and it comes from WoWee's formula being
+**perpendicular** to the spawn offset. Pre-spin the offset is `(lx, ly, 0)` and
+the direction is `(0, 0, 1)`; the bone spin rotates both by the same angle about
+X, so they stay perpendicular forever. **Tangential motion.** Off a swept plane
+that is the hard coherent arcs of §14, and once the area spawn softened them, an
+outward haze.
+
+### 15.1 Three measured things say radial-inward
+
+- **The mesh is a flat ring in the model's YZ plane.** 30 vertices, every one
+  weighted to the **unanimated** bone 0, radius out to **4.41**, and only
+  **0.55** thick in X — centred exactly on the emitter pivot `(0, 0, 2.737)`.
+  So the portal's face normal is local **X**, the disc is the plane the
+  particles must live in, and its centre is where they must go.
+- **The speed is NEGATIVE**, −3.333 and −2.778. A radial direction plus a
+  negative speed is literally "travel toward the origin". No other reading of a
+  converging emitter uses the sign at all.
+- **The authored ramp makes the centre dark for free.** Alpha runs `0 -> 50 -> 0`
+  and scale `0.278 -> 0.972 -> 0.028`, so a particle is **invisible at birth and
+  again at death**. It fades up just after leaving the rim and fades out as it
+  arrives at the middle. *The black hole is the ramp*, not a special case — and
+  the spinning spawn plane makes the inward path a spiral rather than a straight
+  fall.
+
+### 15.2 The rule, and its honesty
+
+**Negative `emissionSpeed` -> radial. Positive -> WoWee's axis formula.**
+
+The sign is the switch, which is the only criterion in the data that separates
+the two behaviours without a threshold. It touches very few emitters — the
+portal's two, `BOTTLESMOKE` at −0.556, `VIALSBOTTLES[4]` at −0.833 — and leaves
+every torch, campfire, waterfall and fountain on the path that was verified
+against WoWee.
+
+**This is not taken from WoWee and cannot be** (§14.1: its particle path returns
+immediately for this model). It is the authored data plus the reference
+screenshot, and it is recorded as an inference rather than as emulation. If a
+converging emitter somewhere else looks wrong, this is the rule to question
+first.
