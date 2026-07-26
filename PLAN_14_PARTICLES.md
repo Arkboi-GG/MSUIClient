@@ -826,3 +826,59 @@ not fix it.
 
 Check 1 first — it needs no new theory, only a look at whether something we
 already parse is on screen.
+
+
+## 20. Nico's three observations, and why two of them are one thing
+
+From the reference, with reverse-origin off:
+
+> 1. the rate of rotation is much faster in 1.12 (**verified**)
+> 2. there is NOTHING in the center
+> 3. we have 1 or 2 double swirls; 1.12 has many more "starts" that overlap into
+>    a constant smooth swirl that never overlaps itself
+
+### 20.1 #1 and #3 are the same fix, and the arithmetic says so
+
+WoWee's direction is `1 + U(-pi, pi)` on the Z component — **positive about two
+thirds of the time and negative the rest**. So every spawn instant fires
+particles in *two opposite directions*. That is the double swirl, literally two
+arms 180 degrees apart, and it was never a bug.
+
+A particle lives **1.05 s** while the emitter sweeps
+`1.05 / 3.334 = 113 degrees`. Each arm is therefore a **113-degree arc with a
+gap after it**. Spin fast enough that an arm exceeds 180 degrees and the two
+arcs meet; faster still and they overlap into one continuous band.
+
+So "rotate faster" and "more starts" are **one** change, not two:
+
+| spin x | arc per arm | result |
+|---|---|---|
+| 1 | 113 deg | two separated arms — what is on screen |
+| 1.6 | 181 deg | the two arcs just meet |
+| **4** | **452 deg** | each arm laps itself; a continuous smooth band |
+
+Defaulted to **4**, which is Nico's own estimate arrived at from the opposite
+direction ("maybe 4x the number of starts"). The panel prints the arc so the
+number is not blind.
+
+### 20.2 Three knobs, and what each would prove
+
+- **`SpinRateScale`** — the above. If 4 looks right, the emitter bone animation
+  is being played too slowly by that factor, and the question becomes *why*: a
+  sequence duration misread, a playback rate the format carries, or a global
+  sequence. Worth chasing, because it would be a real format finding rather than
+  a tuning value.
+- **`SpawnPhaseJitter`** — smears each frame's births around the spin axis
+  instead of giving them all the emitter's exact current angle. The other route
+  to a band. If this fixes it and spin rate does not, the mechanism is spawn
+  scatter, not speed.
+- **`CentreHoleYards`** — a linear alpha fade inside a radius. This is the
+  "something fades it" reading of #2, and it is **a knob, not a claim**: nothing
+  measured so far says the format carries an inner cutoff. If a value here makes
+  the portal correct, that is evidence to chase back into the unread flags —
+  `0x400` *STYLE: Pinned Particles* and `0x20000` *STYLE: Outward* both describe
+  where a particle's quad sits relative to its origin.
+
+Whichever combination lands, **record the values and then go find what in the
+data produces them.** A tuned constant that matches the reference is a lead, not
+an answer.

@@ -45,6 +45,23 @@ public sealed partial class GameLoop
             if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
                 _particles.DensityScale = density;
 
+            float spin = _particles.SpinRateScale;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Spin rate x", ref spin, 0.25f, 12f, "%.2f"))
+                _particles.SpinRateScale = spin;
+            ImGui.TextDisabled($"   arm sweep over one particle life: " +
+                               $"{113f * spin:F0} deg  (needs >180 for the two arms to meet)");
+
+            float jitter = _particles.SpawnPhaseJitter;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Spawn phase jitter", ref jitter, 0f, 1f, "%.2f"))
+                _particles.SpawnPhaseJitter = jitter;
+
+            float hole = _particles.CentreHoleYards;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Centre hole (yd)", ref hole, 0f, 5f, "%.2f"))
+                _particles.CentreHoleYards = hole;
+
             bool rev = _particles.ReverseConverging;
             if (ImGui.Checkbox("Reverse converging emitters (time)", ref rev))
                 _particles.ReverseConverging = rev;

@@ -97,6 +97,47 @@ public sealed class ParticleRenderer : IDisposable
     /// </summary>
     public bool ReverseRamp { get; set; } = true;
 
+    /// <summary>
+    /// Multiplier on the emitter bone's animation speed. **Nico's observation,
+    /// and he has verified it against 1.12: the real rotation is much faster.**
+    ///
+    /// It also explains the "double swirl". WoWee's direction is
+    /// `1 + U(-pi, pi)` on Z, positive about two thirds of the time and negative
+    /// the rest - so every spawn instant fires TWO opposite arms. A particle
+    /// lives 1.05 s while the emitter sweeps 1.05 / 3.334 = **113 degrees**, so
+    /// each arm is a 113-degree arc with a gap after it. Spin fast enough that
+    /// an arm exceeds 180 degrees and the two arcs meet; faster still and they
+    /// overlap into one continuous band. So "rotate faster" and "more starts"
+    /// are the same fix, not two.
+    /// </summary>
+    public float SpinRateScale { get; set; } = 4f;
+
+    /// <summary>
+    /// Random extra rotation about the spin axis given to each particle at
+    /// birth, as a fraction of a full turn. 0 means every particle born on the
+    /// same frame shares the emitter's exact angle - which is what makes a
+    /// coherent arm rather than a band.
+    ///
+    /// The other way to reach Nico's "many more starts that overlap into a
+    /// smooth swirl that never overlaps itself": instead of sweeping faster,
+    /// smear each frame's births around the circle.
+    /// </summary>
+    public float SpawnPhaseJitter { get; set; } = 0f;
+
+    /// <summary>
+    /// Radius in yards around the emitter inside which particles fade out.
+    /// **Nico's #2: "there is NOTHING in the center in 1.12 - so something fades
+    /// it or the endpoint sits short of the center."**
+    ///
+    /// This is the "something fades it" reading, and it is a knob rather than a
+    /// claim: nothing measured so far says the format carries an inner cutoff.
+    /// If a value here makes the portal correct, that is evidence worth chasing
+    /// back into the flags - `0x400` STYLE:Pinned and `0x20000` STYLE:Outward
+    /// are both unread and both describe where a particle's quad lives relative
+    /// to its origin.
+    /// </summary>
+    public float CentreHoleYards { get; set; } = 0f;
+
 
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
     public int MaxParticles { get; set; } = 40000;
@@ -146,6 +187,9 @@ public sealed class ParticleRenderer : IDisposable
 
         /// <summary>Uniform scale of the placement, applied to speed and sprite size.</summary>
         public float Scale = 1f;
+
+        /// <summary>World position of the emitter this frame, for the centre-hole fade.</summary>
+        public Vector3 Origin;
 
         /// <summary>xorshift, so each pool is independent and nothing shares Random.</summary>
         public float Rand()
@@ -243,6 +287,7 @@ public sealed class ParticleRenderer : IDisposable
                 transform.M12 * transform.M12 +
                 transform.M13 * transform.M13);
             if (pool.Scale <= 0f || float.IsNaN(pool.Scale)) pool.Scale = 1f;
+            pool.Origin = origin;
             pool.TouchedThisFrame = true;
             Advance(pool, dt, origin);
         }
@@ -364,7 +409,17 @@ public sealed class ParticleRenderer : IDisposable
         // a direction fixed along one axis sweeps a complete circle, and the
         // particles trace a flat rotating disc. Direction and spin together are
         // what make the shape; neither does it alone.
-        var spin = e.SampleBoneRotation(_time);
+        var spin = e.SampleBoneRotation(_time * SpinRateScale);
+
+        // Smear this frame's births around the spin axis. The axis is the bone's
+        // own rotation axis, taken from the track's first moving key rather than
+        // assumed - for InstancePortal that is local X.
+        if (SpawnPhaseJitter > 0f)
+        {
+            float extra = MathF.Tau * SpawnPhaseJitter * pool.Symmetric();
+            spin = Quaternion.Concatenate(
+                spin, Quaternion.CreateFromAxisAngle(Vector3.UnitX, extra));
+        }
         dirLocal = Vector3.Transform(dirLocal, spin);
 
         // ── SPAWN ACROSS THE EMISSION AREA ───────────────────────────────────
@@ -524,6 +579,14 @@ public sealed class ParticleRenderer : IDisposable
             if (ReverseRamp && e.EmissionSpeed < 0f) t = 1f - t;
 
             e.SampleRamp(t, out var rgba, out float scale);
+
+            // Empty the middle. Linear fade from the hole's edge inwards, so the
+            // boundary is not a visible ring of its own.
+            if (CentreHoleYards > 0f)
+            {
+                float r = Vector3.Distance(p.Position, pool.Origin);
+                if (r < CentreHoleYards) rgba.W *= r / CentreHoleYards;
+            }
             if (scale <= 0f || rgba.W <= 0.002f) continue;
 
             _scratch.Add(new GpuParticle
