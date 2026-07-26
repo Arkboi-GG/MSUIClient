@@ -1,9 +1,15 @@
 # Plan 13 — Instances: loading in and out of dungeons
 
-Status: **stage 1 VERIFIED on Nico's machine 2026-07-25 — all 44 rows match §11
-exactly, zero mismatches. Stage 2 BUILT and unrun. Stage 3 specified, not
-built.** Every fact in §1 was read out of the archives with `tools/mpqpeek`
-before a line was written.
+Status: **stages 1 and 2 VERIFIED on Nico's machine.** All 44 rows match §11
+exactly, zero mismatches (2026-07-25); Deadmines, Shadowfang, Scarlet Monastery
+and Razorfen Kraul travel in and back out (2026-07-26). Stage 3 (global-WMO
+maps) specified, not built. Every fact in §1 was read out of the archives with
+`tools/mpqpeek` before a line was written.
+
+> **`SYSTEM_INSTANCES.md` is now the current truth for this system** — extracted
+> 2026-07-26 under handbook §1.2. Read that first. This plan is kept for the
+> **44-row reference table (§11)** the panel is diffed against, and for the
+> derivation.
 
 ## 1. What the data actually says — read, not assumed
 

@@ -1,8 +1,16 @@
 # Plan 14 — M2 particle emitters
 
-Status: **stage 1 VERIFIED on Nico's machine across ~35 models. Stage 2 (the
-ramp block, the simulator and the billboard renderer) BUILT and unrun. Stage 3
-specified, not built.**
+Status: **stages 1 and 2 BUILT and RUN.** The parse is verified across ~35
+models; the simulator and billboard renderer draw the Deadmines portal. Stage 3
+specified, not built.
+
+> **`SYSTEM_PARTICLES.md` is now the current truth for this system** — extracted
+> 2026-07-26 under handbook §1.2. Read that first. **This plan is kept for the
+> derivations and, more usefully, for every wrong turn**: four direction models,
+> an FBlock reconstruction that failed 0/200, and a reference-implementation
+> citation that was void because the code never runs for this model. Sections
+> here contradict each other **on purpose** — later ones supersede earlier ones,
+> and the sequence is the record.
 
 ## 1. Why this, and why it is not a portal task
 

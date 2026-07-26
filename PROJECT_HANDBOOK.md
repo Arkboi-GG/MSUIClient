@@ -2,8 +2,16 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 24 — 2026-07-25
-Supersedes: Draft 23 (same day; a documentation-sync pass. Draft 23 was written
+Version: Draft 25 — 2026-07-26
+Supersedes: Draft 24 (previous day; the instances + particles session. Two
+systems shipped and two system docs were extracted under the §1.2 rule —
+**SYSTEM_INSTANCES.md** (walk into a dungeon and back out, no server and no
+loading screen) and **SYSTEM_PARTICLES.md** (M2 particle emitters, 18% of the
+archives' M2s, and the instance portal's look). Draft 25 registers both in the
+§1.2 map, updates PLAN_13 and PLAN_14's status, and adds the three-way "portal"
+naming trap. **No new engineering claims are made here — every number is
+carried over from a system doc or a plan.**)
+Supersedes: Draft 23 (2026-07-25; a documentation-sync pass. Draft 23 was written
 before the exterior-lighting session and before the streaming investigation ran
 to ground, so its stop point still said "GPU timings have not been read yet" and
 "run the two A/B tests" — both are done, and six further measured runs are
@@ -113,6 +121,25 @@ Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with
   gone. **SYSTEM_SETTINGS_UI.md** (Draft 1). Its headline: *the real 1.12 UI
   ships as FrameXML inside interface.MPQ, so a UI question is a read, not a
   guess* — two rounds of plausible recall lost to one extraction.
+
+- **Instances — walking into a dungeon and back out.** `Map.dbc` + the WDT +
+  `AreaTrigger.dbc` joined against VMaNGOS's `areatrigger_teleport`, with the
+  five per-map clears and a generation guard on every async door. You spawn
+  outside the door in the open world, walk through, and the trip back lands on
+  the spot you left. **SYSTEM_INSTANCES.md** (Draft 1). Its headline:
+  *Deadmines is a TERRAIN map, not one WMO* — four of the dungeons this project
+  cares about most are, which makes them the cheapest targets rather than the
+  hardest.
+
+- **Particles — M2 emitters.** The 504-byte emitter struct derived from the
+  bytes, the colour/scale ramp block, a CPU simulator and an instanced
+  billboard renderer. **18% of the archives' 15,214 M2s carry emitters**, so
+  this was the largest missing piece of the M2 pipeline: every fire, brazier,
+  waterfall, chimney and glow was a mesh with the life taken out.
+  **SYSTEM_PARTICLES.md** (Draft 1). Its headline: *the emitter stride is 504,
+  not the 476 every reference quotes.* The format half is settled; **the
+  portal's final look is still six hand-dialled values, and §6 of that doc is
+  the debt register.**
 
 **The foundation/DevTools layer is no longer a proposal — it is code.**
 `FOUNDATION_PLAN.md` and `PLAN_01`–`PLAN_06` specified a shared-language layer;
@@ -338,6 +365,8 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 ├── FOUNDATION_PLAN.md / PLAN_0x_*.md / PLAN_TEMPLATE.md
 ├── tools/mpqpeek/                   read the client's own MPQs (Python, stdlib, read-only)
 │                                    find/cat/stat/png/cells - SYSTEM_SETTINGS_UI.md §7
+├── areatrigger_teleport.tsv         VMaNGOS dump; where each portal SENDS you
+│                                    raw `mysql -B` output <- SYSTEM_INSTANCES.md §3.1
 ├── vantages.json                    saved reproducible viewpoints (§5.3)
 ├── dumps/                           scene dumps, one per vantage capture
 ├── refs/                            real 1.12 client captures, same vantage names
@@ -385,6 +414,7 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
     │   ├── FoliageRenderer.cs       <- SYSTEM_FOLIAGE.md
     │   ├── Wmo/WmoRenderer.cs       <- SYSTEM_WMO_INTERIOR_LIGHTING.md
     │   ├── Doodads/DoodadRenderer.cs <- SYSTEM_DOODAD_LIGHTING.md
+    │   ├── Particles/ParticleRenderer.cs <- SYSTEM_PARTICLES.md
     │   ├── Collision/{CollisionWorld,CollisionBatch,CollisionDebugRenderer,
     │   │              VmapCollisionLoader}.cs
     │   └── Units/                   <- ALL CHARACTER WORK LIVES HERE
@@ -493,14 +523,16 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `SYSTEM_EXTERIOR_LIGHTING.md` | Sky, fog, ambient, sun from `Light.dbc` + `LightParams` + the two band tables; the light probe; the screen-space sky pass | **Written (Draft 1)** — 2026-07-25. **Supersedes §3.28's and §3.35's invented constants.** Numerically verified, photographically unverified |
 | `SYSTEM_STREAMING.md` | Moving residency ring, tile crossings, worker pools, GPU upload context, the hitch recorder, and the frame-time breakdown | **Written (Draft 1)** — extracted 2026-07-25, then extended through §5A with six measured runs. Carries the fixed defects AND the still-open pacing bug. **Read §5A before trusting any older number, including §3.27's** |
 | `SYSTEM_SETTINGS_UI.md` | The Escape menu: the Game Menu and Video Options frames, the `settings.json` model with presets and composites, and the Blizzard-art skin layer (`WowSkin`/`UiFont`) all three are drawn with | **Written (Draft 1)** — 2026-07-25. Carries the 1.12 frame geometry read out of the FrameXML that ships in `interface.MPQ`, and the five ImGui traps this cost. **§1.1's `.blp` rule and §2.3's clip-rect rule are the two that will bite the next UI** |
+| `SYSTEM_INSTANCES.md` | Instance maps and travel: `Map.dbc`, the WDT, `AreaTrigger.dbc` joined to VMaNGOS's `areatrigger_teleport`, the per-map clears, and the **instance** portals that trigger a trip | **Written (Draft 1)** — 2026-07-26. Its headline: **Deadmines is a TERRAIN map, not one WMO**, so the branch that matters is `UsesGlobalWmo` and never `instanceType`. Carries the tile-key trap and the async-collision race, both of which fail silently |
+| `SYSTEM_PARTICLES.md` | M2 particle emitters: the 504-byte struct derived from the bytes, the ramp block, the Y-up trap, the CPU simulator and billboard renderer, and the instance portal's look | **Written (Draft 1)** — 2026-07-26. Its headline: **the emitter stride is 504, not the 476 every reference quotes.** The format half is emulation-core and settled; **the portal's final look is six hand-dialled values and §6 is the debt register** |
 | `PLAN_07_HITCH_RECORDER.md` | The automatic frame-spike recorder: ring buffer, console tee, auto-vantage | **Built and proven** — caught the freeze on the first walk. Superset now in `SYSTEM_STREAMING.md` §1 |
 | `PLAN_08_INCREMENTAL_RESIDENCY.md` | Per-tile ownership, budgeted adoption, and WoWee's five mechanisms quoted from source | D1 done; **D2/D3 outstanding and still the structural answer to `resid`** (SYSTEM_STREAMING §5A.14); D4/D5 dropped with reasons |
 | `PLAN_09_EXTERIOR_LIGHTING.md` | The reasoning, test protocol and verified 1.12 schemas behind exterior lighting | **Built.** The system doc is the current truth; this plan keeps the schemas (§11) and the argument |
 | `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **D1 (the instrument) is BUILT** — `Program.Portals.cs`, camera-group readout, `DumpPortalGraph`. **Traversal is NOT built**; the 120-yard rule still stands (§3.26). §3/D4 were rewritten 2026-07-25 |
-| `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stage 1 (the readers) is BUILT** — `Formats/WdtReader.cs`, `MapTable`, `Program.Instances.cs`. **Stage 2 (travel to terrain maps) is BUILT and unrun** — `AdtCache.SetMap`, `TerrainRenderer.UnloadAll`, `LiquidRenderer.UnloadAll`, `WmoRenderer.ResetForMapChange`, `TravelTo`. Stage 3 (global-WMO maps) specified, not built. §1's headline: **Deadmines is a TERRAIN map, not one WMO** |
-| `PLAN_14_PARTICLES.md` | M2 particle emitters: the layout derived from the bytes, and what the dungeon portal actually is | **Stage 1 (parse + panel) BUILT** — `M2ParticleEmitter`, `Program.Particles.cs`. §3's headline: **the emitter stride is 504, not the 476 every reference quotes**, and 18% of the archives' 15,214 M2s carry emitters. Stages 2–3 not built |
+| `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stages 1 and 2 BUILT AND VERIFIED** on 2026-07-26 — the panel reproduces all 44 rows, and Deadmines/Shadowfang/Scarlet Monastery/Razorfen Kraul travel in and back out. **`SYSTEM_INSTANCES.md` is now the current truth**; this plan keeps the 44-row reference table (§11) and the derivation. Stage 3 (global-WMO maps) specified, not built |
+| `PLAN_14_PARTICLES.md` | M2 particle emitters: the layout derived from the bytes, and what the dungeon portal actually is | **Stages 1 and 2 BUILT** — parse, panel, CPU simulator, billboard renderer; the Deadmines portal draws. **`SYSTEM_PARTICLES.md` is now the current truth**; this plan keeps the derivation record and, more usefully, **every wrong turn** — four direction models, the FBlock reconstruction that failed 0/200, and the reference-implementation citation that was void because the code never ran for this model |
 | `FOUNDATION_PLAN.md` + `PLAN_01`–`PLAN_06` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. Its own §11 index is correct |
-| `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done |
+| `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
 | `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion (**lighting is split out into the two lighting docs; portals will be their own doc**) | Planned extraction from §3.24–3.35 |
 | `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
