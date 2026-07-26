@@ -305,50 +305,45 @@ public sealed class ParticleRenderer : IDisposable
     {
         var e = pool.Emitter;
 
-        // ── DIRECTION, taken from WoWee's m2_renderer_particles.cpp ──────────
+        // ── DIRECTION: the format spec, not an approximation of it ───────────
         //
-        // verticalRange and horizontalRange are NOT angles. They are additive
-        // jitter on the components of a direction vector that starts as model
-        // "up", and the whole thing is normalised afterwards:
+        // wowdev.wiki/M2, verbatim, for a PLANE generator:
         //
-        //     dir = (0, 0, 1)
-        //     dir.x += U(-1,1) * horizontalRange
-        //     dir.y += U(-1,1) * horizontalRange
-        //     dir.z += U(-1,1) * verticalRange
-        //     normalize(dir)
+        //   verticalRange   "the maximum POLAR angle of the initial velocity;
+        //                    0 makes the velocity straight up (+z)"
+        //   horizontalRange "the maximum AZIMUTH angle of the initial velocity;
+        //                    0 makes the velocity have NO SIDEWAYS (y-axis)
+        //                    component"
+        //   emissionAreaLength / Width  "the width of the plane in the x-axis /
+        //                    y-axis"
         //
-        // Read that with InstancePortal's numbers - hRange 0, vRange pi - and
-        // the whole screenshot falls out. X and Y get NOTHING, so there is no
-        // lateral spread at all; z becomes 1 + U(-3.14, 3.14), which normalises
-        // to (0,0,+1) about two thirds of the time and (0,0,-1) the rest. Every
-        // particle travels straight along one axis. That is the flat sheet.
+        // So they are ordinary spherical angles about +z, and every model this
+        // renderer has worn was wrong about them in a different way:
         //
-        // The cone this used to build - theta over [0,pi], phi over the full
-        // circle - is isotropic at pi, which is precisely the "spinning 3D
-        // emitter spitting stuff out" Nico saw. And the same formula still gives
-        // a torch at 0.087 a tight jet, which is why no flag has to switch
-        // between the two readings and why the flag sweep found no separation.
+        //   * the first cone sampled azimuth over the FULL circle regardless of
+        //     horizontalRange, which at vRange = pi is an isotropic sphere - the
+        //     volumetric plume;
+        //   * WoWee adds both ranges as componentwise jitter and normalises,
+        //     which is a cheap approximation, not the spec. It is why following
+        //     it got close and never right.
         //
-        // The distribution is UNIFORM, not normal: WoWee's `distN` is
-        // `uniform_real_distribution<float>(-1, 1)` despite the name.
-        float hr = e.HorizontalRange;
-        float vr = e.VerticalRange;
+        // The decisive clause is the second one. InstancePortal's horizontalRange
+        // is ZERO, so its velocity has NO y component at all: the direction is
+        // confined to the model's XZ plane. It is a FLAT FAN, and the bone's
+        // full revolution sweeps that fan. Nothing here is 3D.
+        //
+        // Both angles are sampled symmetrically about the axis - "drifting away
+        // vertically... they can do it horizontally too" describes a spread
+        // either side, and a one-sided [0, range] sample would throw every
+        // particle to the same side of the emitter.
+        float theta = e.VerticalRange * pool.Symmetric();     // polar, from +z
+        float phi = e.HorizontalRange * pool.Symmetric();     // azimuth; 0 => no y
 
         float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
         float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
 
-        // WoWee's formula, verified against torches and campfires. The radial
-        // variant tried on top of this (commit c863cdf) is REVERTED: it made
-        // every particle converge on a single point, which produced a bright
-        // core - the exact inverse of the dark centre it was meant to create.
-        // See PLAN_14 §16 for why that reasoning was wrong.
-        var dirRaw = new Vector3(
-            pool.Symmetric() * hr,
-            pool.Symmetric() * hr,
-            1f + pool.Symmetric() * vr);
-
-        float lenSq = dirRaw.LengthSquared();
-        dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
+        float st = MathF.Sin(theta), ct = MathF.Cos(theta);
+        var dirRaw = new Vector3(st * MathF.Cos(phi), st * MathF.Sin(phi), ct);
 
         // Swapped once into the Y-up space the placement matrix expects, the
         // same `(x, y, z) -> (x, z, -y)` the vertices and the emitter position

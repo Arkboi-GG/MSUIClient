@@ -683,3 +683,90 @@ does.
 
 Both are switches in the Particles panel, so if one is right and the other is
 wrong that is one run to find out rather than another rebuild.
+
+
+## 18. The format spec, and what it says we all got wrong
+
+Researched before touching code, at Nico's instruction. Sources: wowdev.wiki's
+M2 page, and WoWee's own vanilla loader.
+
+### 18.1 The parse is independently confirmed byte-for-byte
+
+WoWee's `m2_loader.cpp` vanilla branch lands on exactly the offsets §3 derived
+from the constraint sweep — the ten 28-byte tracks starting at `0x34` (=+52),
+then:
+
+```
++0x14C (332)  float  midpoint
++0x150 (336)  uint32 colorValues[3]   // BGRA, A channel = opacity
++0x15C (348)  float  scaleValues[3]
+```
+
+Its comment says *"empirically confirmed from real vanilla M2 files"*, arrived at
+independently. **Two derivations, same answer, including the BGRA order and the
+alpha byte** — §8's ramp block is settled.
+
+One correction: the tenth track is **deceleration**, not `zSource`. The wiki's
+`drag` — *"speed is multiplied by exp(-drag * t)"* — is the same slot under a
+third name. It was the prime suspect for "too much in the centre", because drag
+bunches particles at the far end of their path. **It is 0.000 on both
+InstancePortal emitters.** Not the lever. Renamed anyway, so nobody else spends
+an hour on it.
+
+### 18.2 The direction spec — and every model so far was wrong
+
+wowdev.wiki, verbatim, for a **plane** generator:
+
+> **verticalRange**: "the maximum **polar** angle of the initial velocity; 0
+> makes the velocity straight up (+z)"
+>
+> **horizontalRange**: "the maximum **azimuth** angle of the initial velocity;
+> **0 makes the velocity have no sideways (y-axis) component**"
+
+They are ordinary spherical angles about +z. The second clause is decisive:
+**InstancePortal's `horizontalRange` is ZERO**, so its velocity has **no y
+component at all** — the direction is confined to the model's XZ plane. A **flat
+fan**, swept by the bone's revolution. Nothing about it is three-dimensional.
+
+Scored against that:
+
+| model | error |
+|---|---|
+| first cone | sampled azimuth over the **full circle** regardless of `horizontalRange`; at `vRange = pi` that is an isotropic sphere — the plume |
+| WoWee's | adds both ranges as componentwise jitter and normalises. A cheap approximation, not the spec — which is why following it got close and never right |
+| radial | not in the spec at all |
+
+Both angles are now sampled **symmetrically** about the axis: *"drifting away
+vertically... they can do it horizontally too"* describes a spread either side,
+and a one-sided `[0, range]` sample would throw every particle to the same side.
+
+### 18.3 The flags, finally decoded — and one of them is direct evidence
+
+`InstancePortal`'s flags are `0x39`:
+
+| bit | meaning |
+|---|---|
+| `0x1` | particles are affected by lighting |
+| `0x8` | particles travel "up" in **world** space, rather than model |
+| `0x10` | do not trail |
+| `0x20` | unlightning |
+
+And the one that is **not** set:
+
+> `0x20000` — *"STYLE: 'Outward' particles, **most emitters have this** and their
+> particles move away from the origin"*
+
+**The portal is explicitly not an outward emitter**, and that was sitting in a
+field parsed since stage 1 and never decoded. It is the format's own statement of
+what Nico said from the screenshots: this thing pulls in, and most emitters do
+not. `0x8` is the other one to watch — a world-space up axis rather than a model
+one is not implemented here yet.
+
+### 18.4 Still not implemented, and now named
+
+`0x20000` outward / `0x40000` its opposite, `0x80` particles-in-model-space
+(*"causes animation of the particle emitter to be carried over to the
+particles"* — which is the orbit §16 said was missing), `drag`, `spin`,
+`twinkle`, `tumble`, `windVector`, and the head/tail cell flipbook. `0x80` in
+particular is the mechanism for a decaying orbit, and it is a flag rather than a
+formula.

@@ -508,7 +508,16 @@ public class M2ParticleEmitter
 
     public float EmissionAreaLength { get; set; }
     public float EmissionAreaWidth { get; set; }
-    public float ZSource { get; set; }
+    /// <summary>
+    /// The tenth track. Labelled `zSource` here originally; WoWee's vanilla
+    /// loader calls it **deceleration**, and the wiki's `drag` - "speed is
+    /// multiplied by exp(-drag * t)" - is the same slot under a third name.
+    ///
+    /// Worth knowing because it was the prime suspect for "too much in the
+    /// centre": drag would bunch particles at the far end of their path. **It is
+    /// 0.000 on both InstancePortal emitters**, so it is not the lever.
+    /// </summary>
+    public float Deceleration { get; set; }
 
     // ── The ramp block at +332, derived 2026-07-26 (PLAN_14 §3.4) ────────────
     //
@@ -1455,7 +1464,7 @@ public class M2Reader
             e.EmissionRate = values[6];
             e.EmissionAreaLength = values[7];
             e.EmissionAreaWidth = values[8];
-            e.ZSource = values[9];
+            e.Deceleration = values[9];
 
             ReadEmitterBoneSpin(data, e, boneCount, boneOffset, seqCount, seqOffset);
             model.ParticleEmitters.Add(e);

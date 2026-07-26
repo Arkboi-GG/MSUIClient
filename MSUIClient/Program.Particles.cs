@@ -126,7 +126,7 @@ public sealed partial class GameLoop
         ImGui.Text($"     lifespan {e.Lifespan:F3}s   rate {e.EmissionRate:F0}/s   " +
                    $"-> ~{e.SteadyStatePopulation:F0} live sprite(s)");
         ImGui.Text($"     range v {e.VerticalRange:F3} h {e.HorizontalRange:F3} rad   " +
-                   $"area {e.EmissionAreaLength:F2} x {e.EmissionAreaWidth:F2}   z {e.ZSource:F2}");
+                   $"area {e.EmissionAreaLength:F2} x {e.EmissionAreaWidth:F2}   decel {e.Deceleration:F2}");
         ImGui.Text($"     ramp mid {e.MidPoint:F2}   scale {e.ScaleKeys[0]:F3} -> " +
                    $"{e.ScaleKeys[1]:F3} -> {e.ScaleKeys[2]:F3}");
 
