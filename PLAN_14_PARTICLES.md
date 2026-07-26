@@ -642,3 +642,44 @@ be a fourth. Two honest ways forward:
 
 The current build is back to §14: WoWee's direction formula plus the area spawn —
 the soft haze, which is the closest of the three and the one to iterate from.
+
+
+## 17. Nico's fix: reverse time, and move the density to the far end
+
+Two changes, both his, and together they are a better answer than three rounds of
+arguing about what `verticalRange` means.
+
+**1. Play a converging emitter backwards.** A time-reversed outward spiral *is*
+an inward spiral. The authored direction, speed, lifetime and bone sweep are all
+kept exactly as they are and simply run the other way, so nothing has to be
+reinterpreted and the sweep still supplies the curve — the path is a spiral, not
+a fall. Implemented as a spawn-time transform rather than a simulation mode:
+displace the particle by one lifetime of travel and negate the velocity.
+Gravity, the ramp and culling are untouched.
+
+**2. Sample the ramp at `1 - t`, so the END owns the density.** This is what
+empties the middle. InstancePortal's ramp peaks at MidPoint **0.20** — very
+early — so particles are brightest just after birth, and whichever end of the
+path birth happens to be, *that* end is bright. Flipping the sample moves the
+peak to `t = 0.80`, putting the bright band at the far end.
+
+Both apply only where `emissionSpeed` is negative, so torches, campfires,
+waterfalls and fountains are untouched.
+
+### 17.1 Why this fixes §16's error rather than repeating it
+
+§16 concluded that no single direction can give a dark centre with an inward
+spiral, *because none has an inward component that decays with radius*. That is
+still true — and this does not add one. It sidesteps the requirement entirely:
+the radius decay comes from **running the outward path in reverse**, and the dark
+centre from **where the ramp peaks**, which are two independent knobs rather than
+one overloaded direction vector.
+
+It also repairs the specific mistake in §15.1. I had assumed the ramp already
+darkened the centre; it could not, because the ramp is a function of a particle's
+own age and age only maps to distance if every particle starts from the same
+place. Reversing the motion makes every particle start at the rim — so now it
+does.
+
+Both are switches in the Particles panel, so if one is right and the other is
+wrong that is one run to find out rather than another rebuild.

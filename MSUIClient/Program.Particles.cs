@@ -45,6 +45,15 @@ public sealed partial class GameLoop
             if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
                 _particles.DensityScale = density;
 
+            bool rev = _particles.ReverseConverging;
+            if (ImGui.Checkbox("Reverse converging emitters (time)", ref rev))
+                _particles.ReverseConverging = rev;
+
+            bool ramp = _particles.ReverseRamp;
+            if (ImGui.Checkbox("Density at the far end (flip ramp)", ref ramp))
+                _particles.ReverseRamp = ramp;
+            ImGui.TextDisabled("   both apply only where emissionSpeed is negative");
+
             float dist = _particles.SimulationDistance;
             ImGui.SetNextItemWidth(160f);
             if (ImGui.SliderFloat("Simulate within (yd)", ref dist, 10f, 400f, "%.0f"))

@@ -64,6 +64,39 @@ public sealed class ParticleRenderer : IDisposable
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
     public float DensityScale { get; set; } = 1f;
 
+    /// <summary>
+    /// Play a converging emitter's motion BACKWARDS: the particle starts where
+    /// it would have finished and travels back to the emitter.
+    ///
+    /// Nico's idea, and it is a better one than three rounds of arguing about
+    /// what the direction field means. **A time-reversed outward spiral is an
+    /// inward spiral** - the same authored direction, speed, lifetime and bone
+    /// sweep, run the other way. Nothing has to be reinterpreted, and the sweep
+    /// still supplies the curve, so the path is a spiral rather than a fall.
+    ///
+    /// Implemented as a spawn-time transform, not a simulation mode: displace
+    /// the particle by one full lifetime of travel and negate the velocity.
+    /// Everything downstream - gravity, the ramp, culling - is untouched.
+    /// </summary>
+    public bool ReverseConverging { get; set; } = true;
+
+    /// <summary>
+    /// Sample the colour/scale ramp at `1 - t`, so the END of the animation owns
+    /// the density instead of the beginning.
+    ///
+    /// The second half of Nico's idea, and it is what empties the middle.
+    /// InstancePortal's ramp peaks at MidPoint **0.20** - very early - so
+    /// particles are brightest just after birth. Whichever end of the path birth
+    /// happens to be, that end is the bright one. Flipping the sample moves the
+    /// peak to t = 0.80, so the bright band sits at the FAR end and the centre
+    /// goes dark on its own.
+    ///
+    /// §16 got this exactly backwards by assuming the ramp already did it: the
+    /// ramp is a function of a particle's own age, and age only maps to distance
+    /// if every particle starts from the same place. This makes that true.
+    /// </summary>
+    public bool ReverseRamp { get; set; } = true;
+
 
     /// <summary>Hard ceiling on live particles, so one bad emitter cannot eat the frame.</summary>
     public int MaxParticles { get; set; } = 40000;
@@ -367,10 +400,22 @@ public sealed class ParticleRenderer : IDisposable
         // unscaled speed: three different worlds in one effect.
         float speed = e.EmissionSpeed * (1f + e.SpeedVariation * pool.Symmetric()) * pool.Scale;
 
+        var velocity = dirWorld * speed;      // NEGATIVE speed pulls inward. H4.
+        var position = origin + offsetWorld;
+
+        // TIME REVERSAL. Start where this particle would have ENDED and travel
+        // back. Applied only to converging emitters - the ones the author gave a
+        // negative speed - so torches, campfires and waterfalls are untouched.
+        if (ReverseConverging && e.EmissionSpeed < 0f)
+        {
+            position += velocity * e.Lifespan;
+            velocity = -velocity;
+        }
+
         return new Particle
         {
-            Position = origin + offsetWorld,
-            Velocity = dirWorld * speed,      // NEGATIVE speed pulls inward. H4.
+            Position = position,
+            Velocity = velocity,
             Age = 0f,
             Life = e.Lifespan,
         };
@@ -470,6 +515,10 @@ public sealed class ParticleRenderer : IDisposable
         foreach (var p in pool.Particles)
         {
             float t = p.Life > 0f ? p.Age / p.Life : 1f;
+
+            // Flip which end of the life owns the density. See ReverseRamp.
+            if (ReverseRamp && e.EmissionSpeed < 0f) t = 1f - t;
+
             e.SampleRamp(t, out var rgba, out float scale);
             if (scale <= 0f || rgba.W <= 0.002f) continue;
 
