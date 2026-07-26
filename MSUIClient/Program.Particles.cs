@@ -165,7 +165,11 @@ public sealed partial class GameLoop
                     $"{e.BlendName,-12} {e.TypeName,-7} {e.TextureRows}x{e.TextureCols}  " +
                     $"speed {e.EmissionSpeed,8:F3} var {e.SpeedVariation,6:F3} " +
                     $"life {e.Lifespan,6:F3} rate {e.EmissionRate,7:F1} " +
-                    $"vRange {e.VerticalRange,6:F3} area {e.EmissionAreaLength,6:F3}");
+                    $"vRange {e.VerticalRange,6:F3} area {e.EmissionAreaLength,6:F3}  " +
+                    (e.HasBoneSpin
+                        ? $"SPIN {e.BoneRotationKeys.Length}k/{e.SequenceEnd - e.SequenceStart}ms"
+                        : "no-spin") +
+                    $"  pos({e.PosX:F2},{e.PosY:F2},{e.PosZ:F2})");
             }
         }
     }

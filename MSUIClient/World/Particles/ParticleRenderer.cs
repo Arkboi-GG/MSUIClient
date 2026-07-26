@@ -123,6 +123,13 @@ public sealed class ParticleRenderer : IDisposable
         public float Symmetric() => Rand() * 2f - 1f;
     }
 
+    /// <summary>
+    /// The M2's Z-up to the render pipeline's Y-up. Identical to what
+    /// ParseVertices does to every vertex; kept here so the emission geometry
+    /// can be written in the terms the FILE uses and converted once.
+    /// </summary>
+    private static Vector3 Swap(Vector3 v) => new(v.X, v.Z, -v.Y);
+
     private struct Particle
     {
         public Vector3 Position;
@@ -279,10 +286,15 @@ public sealed class ParticleRenderer : IDisposable
         float sweep = e.HorizontalRange > 0f ? e.HorizontalRange : MathF.Tau;
         float phi = sweep * pool.Symmetric();
 
-        var dirLocal = new Vector3(
+        // Built in the M2's own Z-up terms - cone about +Z, spawn plane XY -
+        // and then swapped into the Y-up space the placement matrix expects,
+        // the same `(x, y, z) -> (x, z, -y)` the vertices and the emitter
+        // position get. Building it directly in Y-up would work too; doing it
+        // in one place, one way, is what keeps it checkable.
+        var dirLocal = Swap(new Vector3(
             MathF.Sin(theta) * MathF.Cos(phi),
             MathF.Sin(theta) * MathF.Sin(phi),
-            MathF.Cos(theta));
+            MathF.Cos(theta)));
 
         // THE BONE SPIN, and it is what makes this a portal rather than a haze.
         // The emitter rides a bone whose only animation is a full revolution
@@ -290,7 +302,7 @@ public sealed class ParticleRenderer : IDisposable
         // every orientation and throws the particles out into a disc. Applied
         // BEFORE the placement transform, because it is in model space.
         var spin = e.SampleBoneRotation(_time);
-        var spawnLocal = Vector3.Transform(new Vector3(lx, ly, 0f), spin);
+        var spawnLocal = Vector3.Transform(Swap(new Vector3(lx, ly, 0f)), spin);
         dirLocal = Vector3.Transform(dirLocal, spin);
 
         // Direction only - the placement's rotation must apply, its translation

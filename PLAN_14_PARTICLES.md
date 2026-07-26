@@ -349,3 +349,45 @@ scale **1269/1024 = 1.239**. Yaw only, so the model is turned rather than tipped
 and the emitter sits `2.737 x 1.239 = 3.39` yards above the placement point. The
 scale now reaches the sprite size and the speed as well as the spawn rectangle
 (§9.1), so the whole effect grows together.
+
+
+## 12. It was a coordinate space, not the maths (2026-07-26)
+
+The bone spin changed nothing on screen. *"Still bottom left."* The reason is
+one line in `ParseVertices`:
+
+```csharp
+PosX = px,  PosY = pz,  PosZ = -py;
+```
+
+**Every M2 the doodad pipeline sees is Y-up.** `BuildPlacement` yaws about **Y**
+and then applies `PlacementToWorld`, and its own comment says *"an M2's render
+vertices are already in placement space"* — which is true precisely because
+`ParseVertices` swapped them. Bone pivots get the same swap. Bone rotations get
+the same swap.
+
+**The emitter position did not.** It was read raw, in the M2's own Z-up space, so
+InstancePortal's `2.737` — up the disc's axis — became `2.737` **sideways** once
+the heading was applied. The portal appeared low and off to one side, with
+nothing logged and nothing to distinguish it from a maths error in the emitter.
+It cost two rounds and a plausible wrong answer (the bone spin, which is real and
+was also missing, but was not this).
+
+The tell was there all along and §11 recorded it without noticing: **the
+emitter's raw position equals its bone's raw pivot exactly**, `(0, 0, 2.737)`.
+M2Reader already swaps that pivot. Two readers of the same number in two
+different spaces.
+
+Now swapped at parse: the position, the bone rotation keys, and — via one
+`Swap()` helper in the renderer — the emission cone and the spawn rectangle, so
+the geometry is still *written* in the terms the file uses and converted exactly
+once.
+
+**The lesson is not "check the axes".** It is that this project has one axis
+convention per pipeline and a new consumer joins an existing one. The question
+to ask of any new M2 field is not "what does it mean" but **"which of this
+file's readers is already reading a neighbouring field, and in what space did it
+leave it?"**
+
+The console dump now prints the emitter position and whether a bone spin was
+found, because the previous run could not answer either.

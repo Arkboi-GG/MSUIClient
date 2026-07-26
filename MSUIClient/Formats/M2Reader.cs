@@ -438,7 +438,25 @@ public class M2ParticleEmitter
     public uint ParticleId { get; set; }
     public uint Flags { get; set; }
 
-    /// <summary>Emitter origin in the owning bone's space.</summary>
+    /// <summary>
+    /// Emitter origin, **converted to the same Y-up space as the render
+    /// vertices** - `(x, y, z) -> (x, z, -y)`, exactly what ParseVertices and
+    /// the bone pivots do.
+    ///
+    /// THIS CONVERSION IS NOT OPTIONAL AND ITS ABSENCE IS INVISIBLE. The
+    /// doodad pipeline's BuildPlacement yaws about Y and then applies
+    /// PlacementToWorld, because "an M2's render vertices are already in
+    /// placement space" - and they are, because ParseVertices swapped them.
+    /// Reading the emitter position raw leaves it in the M2's own Z-up space,
+    /// so InstancePortal's 2.737 "up the disc's axis" became 2.737 SIDEWAYS
+    /// after the heading, and the portal appeared low and off to one side with
+    /// nothing logged. It looked like a maths bug in the emitter for two
+    /// rounds; it was a coordinate space.
+    ///
+    /// Measured: the emitter's raw position equals its bone's raw pivot exactly
+    /// (0, 0, 2.737), and M2Reader already swaps that pivot. Not swapping here
+    /// meant the two disagreed about where the same point is.
+    /// </summary>
     public float PosX, PosY, PosZ;
 
     /// <summary>Index into the model's bone list. The emitter rides this bone.</summary>
@@ -542,7 +560,11 @@ public class M2ParticleEmitter
     /// <summary>Timestamps of the emitter bone's rotation keys, absolute ms.</summary>
     public uint[] BoneRotationTimes { get; set; } = [];
 
-    /// <summary>Rotation keys as raw (x, y, z, w). Vanilla stores 4 FLOATS, not packed int16.</summary>
+    /// <summary>
+    /// Rotation keys, swapped into the render vertices' Y-up space the same way
+    /// M2Reader swaps bone rotations: `(x, y, z, w) -> (x, z, -y, w)`. Vanilla
+    /// stores four FLOATS per key, not packed int16.
+    /// </summary>
     public Vector4[] BoneRotationKeys { get; set; } = [];
 
     /// <summary>Sequence bounds in ms. InstancePortal's runs 3333..6667, not 0..3334.</summary>
@@ -1382,9 +1404,11 @@ public class M2Reader
             {
                 ParticleId = ReadUInt32(data, o + 0),
                 Flags = ReadUInt32(data, o + 4),
+                // Z-up -> Y-up, the same swap ParseVertices applies. See the
+                // field's summary for what happens without it.
                 PosX = BitConverter.ToSingle(data, o + 8),
-                PosY = BitConverter.ToSingle(data, o + 12),
-                PosZ = BitConverter.ToSingle(data, o + 16),
+                PosY = BitConverter.ToSingle(data, o + 16),
+                PosZ = -BitConverter.ToSingle(data, o + 12),
                 Bone = ReadUInt16(data, o + 20),
                 Texture = ReadUInt16(data, o + 22),
                 BlendingType = data[o + 40],
@@ -1492,10 +1516,13 @@ public class M2Reader
             int k = first + i;
             times[i] = ReadUInt32(data, (int)ofsTimes + k * 4);
             int ko = (int)ofsKeys + k * 16;
+            // Axis swap mirrors the position: (x, y, z, w) -> (x, z, -y, w).
+            // A spin left in the M2's own space turns the emission plane about
+            // an axis that does not exist downstream.
             keys[i] = new Vector4(
                 BitConverter.ToSingle(data, ko),
-                BitConverter.ToSingle(data, ko + 4),
                 BitConverter.ToSingle(data, ko + 8),
+                -BitConverter.ToSingle(data, ko + 4),
                 BitConverter.ToSingle(data, ko + 12));
         }
 
