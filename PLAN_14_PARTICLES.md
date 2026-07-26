@@ -491,3 +491,60 @@ the reflex did not fire here.
 what the data IS and WoWee answers what a client DOES with it.** The rule this
 session earned: reach for the reference implementation the moment the question
 stops being about bytes and starts being about behaviour.
+
+
+## 14. WoWee punts on this exact effect — and I over-applied it for one commit
+
+The direction fix was a large step: sharp blue arcs, flat, circular, correctly
+placed. But they are **too coherent** — hard ribbons where the real client draws
+a soft haze. Reading further into WoWee explains why, and carries a warning.
+
+### 14.1 WoWee does not emulate the instance portal at all
+
+`src/rendering/m2_renderer_particles.cpp` opens its spawn loop with:
+
+```cpp
+if (gpu.isInstancePortal) return;      // line 85, and again at 252, 374, 524
+```
+
+**No particles are spawned, updated or drawn for this model.** In their place,
+`m2_renderer_render.cpp` substitutes two hand-authored sprites:
+
+```cpp
+GlowSprite core;
+core.color = glm::vec4(0.35f, 0.55f, 1.0f, 1.25f);   // blue
+core.size  = instance.scale * 7.0f;
+GlowSprite halo = core;
+halo.color.a *= 0.35f;
+halo.size    *= 2.4f;
+```
+
+A blue core at seven times scale plus a soft halo at 35% alpha. `m2_model_classifier.cpp`
+matches it by **filename** — `has(n, "instanceportal")`.
+
+That is a stylised approximation, and a reasonable one. But it means **WoWee is
+authoritative for the generic emitter formula and silent on this model.**
+
+### 14.2 The mistake that cost a commit
+
+§13.3 also adopted "WoWee never uses `emissionAreaLength/Width`" and moved every
+spawn to the emitter point. **That inference is void**: the code it came from
+never executes for a portal. Its omission is untested for this case, and
+harmless for the others only because every other emitter's area is 0.007..0.5,
+where a point spawn and an area spawn look the same.
+
+The portal's area is **4.167** and the waterfall's is **18.0**. Born at one point
+with a sweeping direction, particles trace a single thin coherent ribbon — the
+sharp arcs. Born across the authored rectangle, the same sweep smears into a
+soft sheet.
+
+The area spawn is restored, carried by the bone spin so the plane turns with the
+direction rather than staying flat while the direction rotates through it.
+
+**The correction to §13.4's lesson:** reaching for the reference implementation
+was right, and it produced the one fact three rounds of theory had missed. But
+a reference is only evidence for the code paths it actually runs. *"WoWee does
+not do X"* is a claim about WoWee's behaviour, not about the format — and here
+the whole branch was disabled behind a filename check I had not read yet.
+**Check that the code you are citing executes for the case you are citing it
+for.**

@@ -322,17 +322,35 @@ public sealed class ParticleRenderer : IDisposable
         var spin = e.SampleBoneRotation(_time);
         dirLocal = Vector3.Transform(dirLocal, spin);
 
-        // WoWee spawns every particle AT the emitter point and does not use
-        // emissionAreaLength/Width at all. Followed here, because it is the
-        // reference that demonstrably looks right: spreading births over a
-        // 4.17-yard rectangle is what turned a crisp disc into a fuzzy ball.
-        // The fields stay parsed and shown - if waterfalls (area 18.0) later
-        // look too thin, this is the line to revisit, with that as the evidence
-        // rather than a preference.
+        // ── SPAWN ACROSS THE EMISSION AREA ───────────────────────────────────
+        //
+        // WoWee spawns every particle at the emitter point and never reads
+        // emissionAreaLength/Width. I followed that for one commit and it was a
+        // mistake: **WoWee's particle path never runs for this model at all.**
+        // `m2_renderer_particles.cpp` opens its spawn loop with
+        // `if (gpu.isInstancePortal) return;` and substitutes two hand-authored
+        // glow sprites in the renderer instead. Its omission of the area is
+        // therefore not evidence about portals - it is untested code for this
+        // case, and harmless for the rest only because every other emitter's
+        // area is 0.007..0.5 where the difference does not show.
+        //
+        // The portal's area is 4.167 and the waterfall's is 18.0. Born at a
+        // single point with a direction that sweeps, particles trace one thin
+        // coherent ribbon - the sharp arcs. Born across the authored rectangle,
+        // the same sweep smears into a soft sheet, which is what the real client
+        // draws.
+        //
+        // The rectangle is carried by the bone spin too, so the plane turns with
+        // the direction rather than staying flat while the direction rotates
+        // through it.
+        float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
+        float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
+        var spawnLocal = Vector3.Transform(Swap(new Vector3(lx, ly, 0f)), spin);
+
         var rotation = pool.Transform;
         rotation.M41 = rotation.M42 = rotation.M43 = 0f;
 
-        var offsetWorld = Vector3.Zero;
+        var offsetWorld = Vector3.Transform(spawnLocal, rotation);
         var dirWorld = Vector3.Normalize(Vector3.TransformNormal(dirLocal, rotation));
 
         // The placement's scale reaches the spawn rectangle for free, because
