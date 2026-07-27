@@ -1,3 +1,4 @@
+using System.Threading;
 using MSUIClient.Formats.Mpq;
 
 namespace MSUIClient.Formats;
@@ -8,7 +9,7 @@ namespace MSUIClient.Formats;
 ///
 /// WHY THIS EXISTS
 ///   AdtTerrainReader.ReadFileFromMpqs was written for a web app where a read
-///   happens now and then, so it does this per call:
+///   happens now and then, so it did this per call:
 ///
 ///       foreach (var mpq in GetMpqLoadOrder(dataPath))
 ///           using var archive = MpqArchive.Open(mpq);   // header + hash + block
@@ -22,29 +23,42 @@ namespace MSUIClient.Formats;
 ///
 /// HOW IT HOOKS IN
 ///   AdtTerrainReader already has a `StormLibExtractor` delegate it tries
-///   before the reopen loop — a hook SuperUI used for StormLib. Pointing that
-///   at this mount routes every existing call site through it with no changes
-///   to AdtTerrainReader at all: ReadFileFromMpqs, ReadBlpPixels and
-///   ReadFromMpq all benefit at once.
+///   before the reopen loop. Pointing that at this mount routes every existing
+///   call site through it with no changes to AdtTerrainReader at all:
+///   ReadFileFromMpqs, ReadBlpPixels and ReadFromMpq all benefit at once.
 ///
 ///   Load order is preserved exactly: patches first in reverse-alphabetical
 ///   order so patch-3 beats patch-2 beats patch, then base archives with
 ///   terrain.MPQ and model.MPQ first. Getting that order wrong means reading
 ///   pre-patch versions of files, which would be a subtle and horrible bug.
 ///
-/// THREADING. Archive reads share file handles and internal buffers, so the
-/// extraction portion is serialized by a private lock. Returned byte arrays
-/// are independent; parsing and BLP decoding can run concurrently on workers.
+/// THREADING (2026-07-26 — this is the change that unblocks parallel streaming)
+///   MpqArchive.ReadFile is FULLY concurrent-safe: it reads only immutable
+///   fields (hash/block tables, the file handle), allocates every working buffer
+///   locally per call, and uses positioned RandomAccess I/O with no shared file
+///   cursor (see MpqArchive.cs's own THREAD SAFETY note). The old global read
+///   lock here was therefore over-conservative — it serialized every archive
+///   extraction, so eight worker threads decoding a zone's models and textures
+///   all funnelled through one lock and streamed in one file at a time (the ~30 s
+///   of doodads popping in after a zone load). Reads now run in PARALLEL under a
+///   shared read-lock; only Dispose takes the write lock (so a shutdown can't
+///   free a handle mid-read). Returned byte arrays are independent; parsing and
+///   BLP decoding continue to run concurrently on the workers.
 /// </summary>
 public sealed class MpqMount : IDisposable
 {
     private readonly List<(string Name, MpqArchive Archive)> _archives = [];
-    private readonly object _readLock = new();
+
+    // Reads take the read lock (concurrent); Dispose takes the write lock.
+    private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
+
+    // Interlocked because reads now run on many threads at once.
+    private int _reads, _hits, _misses;
 
     public int ArchiveCount => _archives.Count;
-    public int Reads { get; private set; }
-    public int Hits { get; private set; }
-    public int Misses { get; private set; }
+    public int Reads => _reads;
+    public int Hits => _hits;
+    public int Misses => _misses;
 
     public MpqMount(string clientDataPath)
     {
@@ -64,29 +78,27 @@ public sealed class MpqMount : IDisposable
             }
         }
 
-        Console.WriteLine($"[mpq] mounted {_archives.Count} archive(s), held open");
+        Console.WriteLine($"[mpq] mounted {_archives.Count} archive(s), held open (parallel reads)");
     }
 
     /// <summary>
     /// Read a file by its internal MPQ path, or null if no archive has it.
     /// Signature matches AdtTerrainReader.StormLibExtractor deliberately.
+    /// Safe to call concurrently from the worker pool.
     /// </summary>
     public byte[]? ReadFile(string internalPath)
     {
-        // MpqArchive instances share file handles and scratch state. Worker
-        // preparation may call this concurrently with terrain finalization;
-        // serialize only archive extraction, then let parsing and BLP decoding
-        // proceed in parallel after the returned byte[] is detached.
-        lock (_readLock)
+        _lock.EnterReadLock();
+        try
         {
-            Reads++;
+            Interlocked.Increment(ref _reads);
 
             foreach (var (_, archive) in _archives)
             {
                 try
                 {
                     var data = archive.ReadFile(internalPath);
-                    if (data is not null) { Hits++; return data; }
+                    if (data is not null) { Interlocked.Increment(ref _hits); return data; }
                 }
                 catch
                 {
@@ -94,8 +106,12 @@ public sealed class MpqMount : IDisposable
                 }
             }
 
-            Misses++;
+            Interlocked.Increment(ref _misses);
             return null;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
         }
     }
 
@@ -140,10 +156,16 @@ public sealed class MpqMount : IDisposable
 
     public void Dispose()
     {
-        lock (_readLock)
+        _lock.EnterWriteLock();
+        try
         {
             foreach (var (_, archive) in _archives) archive.Dispose();
             _archives.Clear();
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+            _lock.Dispose();
         }
     }
 }

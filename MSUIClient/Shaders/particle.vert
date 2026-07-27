@@ -10,7 +10,7 @@
 // is large and float32 loses precision at ten thousand yards, which shows up as
 // sprites jittering against the geometry they sit on.
 
-layout(location = 0) in vec2 aCorner;      // unit quad, -0.5 .. 0.5
+layout(location = 0) in vec2 aCorner;      // quad corners, -1 .. 1 (vertex at centre +/- aSize)
 layout(location = 1) in vec3 aCentre;      // world position
 layout(location = 2) in float aSize;       // yards
 layout(location = 3) in vec4 aColour;
@@ -28,7 +28,7 @@ void main()
     vec3 rel = aCentre - uCameraOrigin;
     vec3 offset = (uRight * aCorner.x + uUp * aCorner.y) * aSize;
 
-    vUv = aCorner + vec2(0.5);
+    vUv = aCorner * 0.5 + vec2(0.5);
     vColour = aColour;
 
     gl_Position = uViewProjection * vec4(rel + offset, 1.0);

@@ -286,7 +286,13 @@ public sealed class DoodadRenderer : IDisposable
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _preloadQueue = new();
     private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
-    private ModelPreloadJob? _preloadJob;
+    // A POOL of in-flight prepare jobs. Was a single _preloadJob, which prepared
+    // exactly ONE model at a time - the ~0.10 s x N serial stall on zone load and
+    // .tele (245 Stormwind doodads = ~25 s of one-at-a-time streaming). The
+    // AssetWorkerPool caps real concurrency; keeping several jobs in flight
+    // saturates it so many models decode in parallel.
+    private readonly List<ModelPreloadJob> _preloadJobs = new();
+    private const int MaxConcurrentPreloads = 12;
 
     private Shader _shader = null!;
 
@@ -355,7 +361,7 @@ public sealed class DoodadRenderer : IDisposable
         }
     }
     public int TextureCount => _textures.Count(t => t.Value is not null);
-    public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
+    public int PendingPreloads => _preloadQueue.Count + _preloadJobs.Count;
     public int TotalTriangles { get; private set; }
     public int CollisionModels { get; private set; }
     public int DrawnLastFrame { get; private set; }
@@ -552,11 +558,21 @@ public sealed class DoodadRenderer : IDisposable
                 // A doodad straddling a tile edge is listed in both ADTs. Do
                 // not reserve the key until its model is resident: demand
                 // streaming must be able to retry this placement next refresh.
-                string key = $"{d.ModelPath}|{d.PosX:F2}|{d.PosY:F2}|{d.PosZ:F2}";
+                // Key on the WORLD position and an extension-less, lower-cased path so
+                // this collapses with the WMO-embedded key below - the same doodad present
+                // in BOTH the terrain (.mdx) and a WMO doodad set (.m2) is otherwise drawn
+                // twice (the instance portal). See NormalizeModelKey.
+                string key = $"{NormalizeModelKey(d.ModelPath)}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
                 if (_placed.Contains(key)) continue;
 
                 var model = ResolveModel(d.ModelPath);
                 if (model is null) continue;
+                if (ExistingEmitterPlacementNear(model, transform))
+                {
+                    _placed.Add(key);
+                    Console.WriteLine($"[doodad] deduped near-coincident effect: {d.ModelPath}");
+                    continue;
+                }
                 _placed.Add(key);
 
                 var (min, max) = TransformedBounds(model, transform);
@@ -648,7 +664,7 @@ public sealed class DoodadRenderer : IDisposable
             if (string.IsNullOrWhiteSpace(path)) continue;
             string key = ModelCacheKey(path);
             if (_models.ContainsKey(key) ||
-                _preloadJob?.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase) == true ||
+                _preloadJobs.Any(j => j.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase)) ||
                 !_preloadQueued.Add(key)) continue;
             _preloadQueue.Enqueue(path);
         }
@@ -661,38 +677,52 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public bool WarmNextPreload(bool waitForWorker = false)
     {
-        while (_preloadJob is null && _preloadQueue.Count > 0)
+        // Keep the worker pool saturated: start prepares until MaxConcurrentPreloads
+        // are in flight. THIS is the parallelism - PrepareModel (MPQ read + M2 parse
+        // + BLP decode) now runs on the pool for many models at once instead of one.
+        while (_preloadJobs.Count < MaxConcurrentPreloads && _preloadQueue.Count > 0)
         {
             string path = _preloadQueue.Dequeue();
             string key = ModelCacheKey(path);
             _preloadQueued.Remove(key);
             if (_models.ContainsKey(key)) continue;
-            _preloadJob = new ModelPreloadJob
+            if (_preloadJobs.Any(j => j.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase))) continue;
+            _preloadJobs.Add(new ModelPreloadJob
             {
                 Path = path,
                 CacheKey = key,
                 Worker = _workers.Run(() => PrepareModel(path)),
-            };
+            });
         }
 
-        if (_preloadJob is null) return false;
-        var job = _preloadJob;
-        if (waitForWorker && !job.Worker.IsCompleted)
-            try { job.Worker.GetAwaiter().GetResult(); } catch { }
-        if (!job.Worker.IsCompleted) return true;
+        if (_preloadJobs.Count == 0) return false;
 
-        var stepTimer = System.Diagnostics.Stopwatch.StartNew();
-        if (FinalizePreload(job, waitForWorker))
+        // Advance every job whose CPU prepare is done. FinalizePreload enqueues the
+        // GPU upload (cheap - keeps the upload thread fed) and, once the upload lands,
+        // builds + caches the model. The GL build is the only main-thread cost, a few
+        // ms per model; upload throughput bounds the rest.
+        for (int i = _preloadJobs.Count - 1; i >= 0; i--)
         {
-            _preloadJob = null;
-            if (job.Timer.Elapsed.TotalSeconds >= 0.05)
-                Console.WriteLine($"[doodad-preload] {Path.GetFileName(job.Path)} prepared in " +
-                                  $"{job.Timer.Elapsed.TotalSeconds:F2}s, {_preloadQueue.Count} queued");
+            var job = _preloadJobs[i];
+            if (waitForWorker && !job.Worker.IsCompleted)
+                try { job.Worker.GetAwaiter().GetResult(); } catch { }
+            if (!job.Worker.IsCompleted) continue; // still preparing on a worker thread
+
+            var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+            if (FinalizePreload(job, waitForWorker))
+            {
+                _preloadJobs.RemoveAt(i);
+                if (job.Timer.Elapsed.TotalSeconds >= 0.05)
+                    Console.WriteLine($"[doodad-preload] {Path.GetFileName(job.Path)} prepared in " +
+                                      $"{job.Timer.Elapsed.TotalSeconds:F2}s, " +
+                                      $"{_preloadQueue.Count + _preloadJobs.Count} in flight");
+            }
+            if (stepTimer.Elapsed.TotalMilliseconds >= 8)
+                Console.WriteLine($"[stream-budget] doodad finalize {Path.GetFileName(job.Path)} " +
+                                  $"took {stepTimer.Elapsed.TotalMilliseconds:F0}ms");
         }
-        if (stepTimer.Elapsed.TotalMilliseconds >= 8)
-            Console.WriteLine($"[stream-budget] doodad finalize {Path.GetFileName(job.Path)} " +
-                              $"took {stepTimer.Elapsed.TotalMilliseconds:F0}ms");
-        return true;
+
+        return _preloadQueue.Count > 0 || _preloadJobs.Count > 0;
     }
 
     public void DrainPreloads()
@@ -793,13 +823,67 @@ public sealed class DoodadRenderer : IDisposable
     /// much daylight to use instead. Null keeps the exterior default, which is
     /// what an unlit-by-the-building placement wants.
     /// </param>
+    /// <summary>Dedup-key path part: extension-less and lower-cased, so an MDDF
+    /// ".mdx" placement and a WMO-embedded ".m2" placement of the SAME model share
+    /// a key. Without it the two placement paths never dedup and a doodad present in
+    /// both sources (the instance portal) is placed - and drawn - twice.</summary>
+    private static string NormalizeModelKey(string path)
+    {
+        int dot = path.LastIndexOf('.');
+        return (dot > 0 ? path[..dot] : path).ToLowerInvariant();
+    }
+
+    /// <summary>Console dump of every placement whose path contains <paramref name="filter"/>,
+    /// with its world position - to catch a double-placed doodad like the portal.</summary>
+    public void DumpEmitterPlacements(string filter)
+    {
+        int total = 0;
+        Console.WriteLine($"[place-dump] placements matching '{filter}':");
+        foreach (var (_, instances) in _byModel)
+            foreach (var inst in instances)
+            {
+                if (filter.Length > 0 &&
+                    inst.Path.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var t = inst.Transform;
+                Console.WriteLine($"[place-dump]   {inst.Path}  @ ({t.M41:F2}, {t.M42:F2}, {t.M43:F2})");
+                total++;
+            }
+        Console.WriteLine($"[place-dump] {total} placement(s)");
+    }
+
+    /// <summary>Two same-model placements within this radius (yards) of each other
+    /// are treated as one - but ONLY for emitter-carrying models (portals/effects),
+    /// so tightly-clustered props (rocks, crates) are never merged. The instance
+    /// portal is authored in BOTH the terrain and the entrance WMO ~1.4 yd apart.</summary>
+    private const float EmitterDedupRadius = 2.5f;
+
+    private bool ExistingEmitterPlacementNear(Model model, Matrix4x4 transform)
+    {
+        if (model.Emitters.Count == 0) return false;
+        if (!_byModel.TryGetValue(model, out var list)) return false;
+        var p = new Vector3(transform.M41, transform.M42, transform.M43);
+        foreach (var inst in list)
+        {
+            var q = new Vector3(inst.Transform.M41, inst.Transform.M42, inst.Transform.M43);
+            if (Vector3.DistanceSquared(p, q) < EmitterDedupRadius * EmitterDedupRadius)
+                return true;
+        }
+        return false;
+    }
+
     public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null)
     {
-        string key = $"wmo|{modelPath}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
+        string key = $"{NormalizeModelKey(modelPath)}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
         if (_placed.Contains(key)) return true;
 
         var model = ResolveModel(modelPath);
         if (model is null) return false;
+        if (ExistingEmitterPlacementNear(model, transform))
+        {
+            _placed.Add(key);
+            Console.WriteLine($"[doodad] deduped near-coincident effect: {modelPath}");
+            return true;
+        }
         _placed.Add(key);
 
         var (min, max) = TransformedBounds(model, transform);
@@ -925,10 +1009,12 @@ public sealed class DoodadRenderer : IDisposable
         if (DemandStreaming)
             return null;
 
-        if (_preloadJob?.CacheKey.Equals(cacheKey, StringComparison.OrdinalIgnoreCase) == true)
+        var inflight = _preloadJobs.FirstOrDefault(
+            j => j.CacheKey.Equals(cacheKey, StringComparison.OrdinalIgnoreCase));
+        if (inflight is not null)
         {
-            while (!FinalizePreloadBlocking(_preloadJob)) { }
-            _preloadJob = null;
+            while (!FinalizePreloadBlocking(inflight)) { }
+            _preloadJobs.Remove(inflight);
             return _models.GetValueOrDefault(cacheKey);
         }
 
@@ -1710,19 +1796,22 @@ public sealed class DoodadRenderer : IDisposable
 
     public void Dispose()
     {
-        try { _preloadJob?.Worker.GetAwaiter().GetResult(); }
-        catch { /* Shutdown must continue even if a background decode failed. */ }
-        try
+        foreach (var job in _preloadJobs)
         {
-            if (_preloadJob?.Upload is { } upload)
+            try { job.Worker.GetAwaiter().GetResult(); }
+            catch { /* Shutdown must continue even if a background decode failed. */ }
+            try
             {
-                var orphan = upload.GetAwaiter().GetResult();
-                foreach (var texture in orphan.Textures.Values) texture?.Dispose();
-                if (orphan.Vbo != 0) _gl.DeleteBuffer(orphan.Vbo);
-                if (orphan.Ebo != 0) _gl.DeleteBuffer(orphan.Ebo);
+                if (job.Upload is { } upload)
+                {
+                    var orphan = upload.GetAwaiter().GetResult();
+                    foreach (var texture in orphan.Textures.Values) texture?.Dispose();
+                    if (orphan.Vbo != 0) _gl.DeleteBuffer(orphan.Vbo);
+                    if (orphan.Ebo != 0) _gl.DeleteBuffer(orphan.Ebo);
+                }
             }
+            catch { /* The upload worker may already be unwinding. */ }
         }
-        catch { /* The upload worker may already be unwinding. */ }
         foreach (var model in _models.Values) model?.Dispose();
         foreach (var texture in _textures.Values) texture?.Dispose();
         _models.Clear();
@@ -1731,7 +1820,7 @@ public sealed class DoodadRenderer : IDisposable
         _cullBounds.Clear();
         _preloadQueue.Clear();
         _preloadQueued.Clear();
-        _preloadJob = null;
+        _preloadJobs.Clear();
         _shader?.Dispose();
     }
 }

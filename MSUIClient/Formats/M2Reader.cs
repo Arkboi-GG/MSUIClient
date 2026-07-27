@@ -433,6 +433,8 @@ public struct AnimationRange
 /// wrong - a zero that means "not read" is indistinguishable from a zero that
 /// means zero, and that is how a parsing bug becomes a look bug.
 /// </summary>
+public enum ParticleShape { Plane, Sphere, Spline }
+
 public class M2ParticleEmitter
 {
     public uint ParticleId { get; set; }
@@ -468,8 +470,18 @@ public class M2ParticleEmitter
     /// <summary>0 opaque, 1 alpha-key, 2 alpha, 3 no-alpha-add, 4 ADD, 5 mod, 6 mod2x.</summary>
     public byte BlendingType { get; set; }
 
-    /// <summary>0 plane, 1 sphere, 2 spline, 3 bone.</summary>
+    /// <summary>Raw byte at +0x29 - the PADDING byte before the real u16 emitterType at
+    /// +0x2a, so it is unreliable; use <see cref="Shape"/> for the kernel.</summary>
     public byte EmitterType { get; set; }
+
+    /// <summary>
+    /// Emission SHAPE (benilla-formats/particles.rs:642, :735): the file emitterType is a
+    /// u16 at +0x2a. 2 = Sphere, 3 = Spline, else Plane. THIS picks the kernel. The
+    /// InstancePortal is a SPHERE - born on a ring at radius ~areaLength and pulled radially
+    /// INWARD (the outer-ring-coming-in swirl). Reading it as a plane (born near the centre)
+    /// is why the portal emanated OUTWARD from the middle.
+    /// </summary>
+    public ParticleShape Shape { get; set; }
 
     public byte ParticleType { get; set; }
     public byte HeadOrTail { get; set; }
@@ -509,15 +521,23 @@ public class M2ParticleEmitter
     public float EmissionAreaLength { get; set; }
     public float EmissionAreaWidth { get; set; }
     /// <summary>
-    /// The tenth track. Labelled `zSource` here originally; WoWee's vanilla
-    /// loader calls it **deceleration**, and the wiki's `drag` - "speed is
-    /// multiplied by exp(-drag * t)" - is the same slot under a third name.
-    ///
-    /// Worth knowing because it was the prime suspect for "too much in the
-    /// centre": drag would bunch particles at the far end of their path. **It is
-    /// 0.000 on both InstancePortal emitters**, so it is not the lever.
+    /// The tenth emission track (+0x130): **zSource** - a pull toward a point
+    /// (0,0,zSource) above/below the emitter, 0 = unused. benilla parity
+    /// (benilla-formats/particles.rs:827, track @ +0x130). This is NOT drag -
+    /// drag is a separate plain f32 at +0x194 (<see cref="Drag"/>). MSUI called
+    /// this "Deceleration" for one draft, which conflated the two. 0.000 on both
+    /// InstancePortal emitters.
     /// </summary>
-    public float Deceleration { get; set; }
+    public float ZSource { get; set; }
+
+    /// <summary>
+    /// Velocity **drag** - a plain f32 at file +0x194 (NOT a track), applied each
+    /// frame as `vel -= min(dt*drag, 1)*vel` (benilla-formats/particles.rs:828,
+    /// clamped-linear, sim.rs). 0.000 on both InstancePortal emitters; nonzero on
+    /// props like CandelabraTallWall01 (drag 10) that author a fast zero-gravity
+    /// jet and rely on drag to contain it.
+    /// </summary>
+    public float Drag { get; set; }
 
     // ── The ramp block at +332, derived 2026-07-26 (PLAN_14 §3.4) ────────────
     //
@@ -620,6 +640,11 @@ public class M2ParticleEmitter
         if (t <= mid) { a = 0; b = 1; f = t / mid; }
         else { a = 1; b = 2; f = (t - mid) / (1f - mid); }
 
+        // benilla's endpoint inset (benilla-formats/particles.rs:196): keep the ramp
+        // off its exact 0/1 endpoints so the first/last key never fully owns a frame,
+        // applied to the within-segment fraction.
+        f = f * 0.99f + 0.005f;
+
         scale = ScaleKeys[a] + (ScaleKeys[b] - ScaleKeys[a]) * f;
 
         var ca = Bgra(ColorKeys[a]);
@@ -651,9 +676,9 @@ public class M2ParticleEmitter
         4 => "ADD", 5 => "mod", 6 => "mod2x", _ => $"?{BlendingType}",
     };
 
-    public string TypeName => EmitterType switch
+    public string TypeName => Shape switch
     {
-        0 => "plane", 1 => "sphere", 2 => "spline", 3 => "bone", _ => $"?{EmitterType}",
+        ParticleShape.Sphere => "sphere", ParticleShape.Spline => "spline", _ => "plane",
     };
 }
 
@@ -1422,6 +1447,14 @@ public class M2Reader
                 Texture = ReadUInt16(data, o + 22),
                 BlendingType = data[o + 40],
                 EmitterType = data[o + 41],
+                // Real emitter type is the u16 at +0x2a (benilla-formats/particles.rs:642,735);
+                // +0x29 is padding. 2 = Sphere, 3 = Spline, else Plane - THIS picks the kernel.
+                Shape = ReadUInt16(data, o + 0x2a) switch
+                {
+                    2 => ParticleShape.Sphere,
+                    3 => ParticleShape.Spline,
+                    _ => ParticleShape.Plane,
+                },
                 ParticleType = data[o + 44],
                 HeadOrTail = data[o + 45],
                 TextureRows = ReadUInt16(data, o + 48),
@@ -1464,7 +1497,9 @@ public class M2Reader
             e.EmissionRate = values[6];
             e.EmissionAreaLength = values[7];
             e.EmissionAreaWidth = values[8];
-            e.Deceleration = values[9];
+            e.ZSource = values[9];                          // +0x130 track
+            e.Drag = o + 0x194 + 4 <= data.Length            // +0x194 plain f32
+                ? BitConverter.ToSingle(data, o + 0x194) : 0f;
 
             ReadEmitterBoneSpin(data, e, boneCount, boneOffset, seqCount, seqOffset);
             model.ParticleEmitters.Add(e);

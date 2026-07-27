@@ -167,6 +167,30 @@ public sealed class ClientConfig
         /// rather than a fight with the platform.
         /// </summary>
         public bool Painterly { get; set; } = false;
+
+        /// <summary>
+        /// FFXGlow whole-scene bloom (Engine/FfxGlow.cs) - the reference client's
+        /// full-screen glow. Composited ADDITIVELY, so the base scene (exterior
+        /// lighting, fog and colour) is untouched and only highlight bloom is added
+        /// on top. The portal 'glaze' is this pass blooming the additive particle
+        /// sprites.
+        /// </summary>
+        public bool Glow { get; set; } = true;
+
+        /// <summary>
+        /// Per-zone glow weight (benilla LightParams.glow: default 0.5, about 0.647
+        /// in Elwynn). Multiplies blur^2. Lower it to soften the whole-scene bloom
+        /// on the exterior; 0 disables the pass. Only the square-law highlight bloom
+        /// is affected, never the base image.
+        /// </summary>
+        public float GlowGain { get; set; } = 0.5f;
+
+        /// <summary>
+        /// Global multiplier on every particle emitter's spawn RATE (thickness of
+        /// the particle layer). 1.0 = authored. Lower it to thin a too-dense effect
+        /// like the portal into a translucent film; higher packs more in.
+        /// </summary>
+        public float ParticleDensity { get; set; } = 1.09f;
     }
 
     /// <summary>

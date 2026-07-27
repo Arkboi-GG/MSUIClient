@@ -43,6 +43,8 @@ namespace MSUIClient.World.Particles;
 /// animation of the emitter origin, spline and sphere emitter types, tails,
 /// and ribbons. A flame will glow but not lick.
 /// </summary>
+public enum ParticleSpaceMode { FromFlag, ForceModel, ForceWorld }
+
 public sealed class ParticleRenderer : IDisposable
 {
     private readonly GL _gl;
@@ -50,6 +52,32 @@ public sealed class ParticleRenderer : IDisposable
 
     private Shader? _shader;
     private uint _vao, _quadVbo, _instanceVbo;
+    private Shader? _surfaceShader;
+    private uint _surfaceVao;
+    private readonly HashSet<(int, int, int)> _surfaceSeen = new();
+
+    /// <summary>Draw the flat translucent "looking glass" film across an instance
+    /// portal's opening - the 1.12 portal SURFACE, a separate flat plane from the
+    /// swirling emitters. False = particles only.</summary>
+    public bool PortalSurface { get; set; } = true;
+
+    /// <summary>Peak opacity of that film (alpha-blended frost). Tunable.</summary>
+    public float PortalSurfaceAlpha { get; set; } = 0.16f;
+
+    /// <summary>Film radius as a multiple of the emitter ring radius (>1 reaches
+    /// past the ring toward the archway edge).</summary>
+    public float PortalSurfaceSize { get; set; } = 1.2f;
+
+    /// <summary>Uniform scale of the whole portal disc (spawn ring, convergence,
+    /// sprites AND the surface film) about its fixed centre. >1 pushes the dense
+    /// outer ring outward - the knob to test whether vanilla hides it behind the
+    /// archway walls, leaving a sparse open core in view. Model-space only.</summary>
+    public float PortalScale { get; set; } = 1f;
+
+    /// <summary>Debug isolation: -1 draws all emitters; 0/1/... draws only that emitter
+    /// index per model. Tells the portal's two emitters apart and spots a double-placed
+    /// portal (solo ONE and still see two rings = the portal is placed twice).</summary>
+    public int SoloEmitter { get; set; } = -1;
     private int _instanceCapacity;
 
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
@@ -63,6 +91,25 @@ public sealed class ParticleRenderer : IDisposable
 
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
     public float DensityScale { get; set; } = 1.09f;
+
+    /// <summary>
+    /// How a particle's motion is composed (benilla parity - see BENILLA_VS_MSUI_PORTAL.md).
+    ///   FromFlag   - model space when the emitter's file flag 0x10 is set (the
+    ///                InstancePortal case), world space otherwise. What benilla does.
+    ///   ForceModel / ForceWorld - override, for A/B against the old look.
+    ///
+    /// MODEL SPACE is the fix for the "flat wrong" portal: a particle stores raw
+    /// LOCAL coordinates and is RE-PROJECTED through the live spinning bone every
+    /// frame at draw, instead of the spin being baked in once at birth. The swirl -
+    /// inward spiral, empty centre, overlapping arms - emerges from that, so in
+    /// model space ReverseConverging / SpawnArms / CentreHoleYards / SpinRateScale
+    /// are all ignored.
+    /// </summary>
+    public ParticleSpaceMode SpaceMode { get; set; } = ParticleSpaceMode.FromFlag;
+
+    /// <summary>Model-space bone-spin rate multiplier. 1.0 = the authored rate (benilla
+    /// plays it at 1x; the old 1.86 was a world-space compensation). Tuning knob only.</summary>
+    public float ModelSpinScale { get; set; } = 1.0f;
 
     /// <summary>
     /// Play a converging emitter's motion BACKWARDS: the particle starts where
@@ -178,6 +225,10 @@ public sealed class ParticleRenderer : IDisposable
             Path.Combine(shaderDir, "particle.vert"),
             Path.Combine(shaderDir, "particle.frag"));
         BuildBuffers();
+
+        // The flat portal-surface film (self-contained, inline GLSL like SkyRenderer).
+        _surfaceShader = Shader.FromSource(_gl, "portal_surface", SurfaceVert, SurfaceFrag);
+        _surfaceVao = _gl.GenVertexArray();
     }
 
     // ── Pools ────────────────────────────────────────────────────────────────
@@ -203,8 +254,14 @@ public sealed class ParticleRenderer : IDisposable
         /// <summary>Uniform scale of the placement, applied to speed and sprite size.</summary>
         public float Scale = 1f;
 
-        /// <summary>World position of the emitter this frame, for the centre-hole fade.</summary>
+        /// <summary>World position of the emitter this frame (= the bone pivot in world space).</summary>
         public Vector3 Origin;
+
+        /// <summary>Model space (flag 0x10) vs world space. Refreshed each frame from the emitter.</summary>
+        public bool ModelSpace;
+
+        /// <summary>Emitter index within its model, for the solo/isolation debug.</summary>
+        public int EmitterIndex;
 
         /// <summary>Round-robin cursor over the spawn slots. See SpawnArms.</summary>
         public int NextArm;
@@ -225,6 +282,21 @@ public sealed class ParticleRenderer : IDisposable
     /// can be written in the terms the FILE uses and converted once.
     /// </summary>
     private static Vector3 Swap(Vector3 v) => new(v.X, v.Z, -v.Y);
+
+    /// <summary>+90 degrees about the emitter's local +Z, in the M2's Z-up frame:
+    /// (x, y, z) -> (-y, x, z). benilla prepends this to EVERY emitter's kernel output
+    /// (particles.rs:357) - it stands the emission ring perpendicular to the rotor's
+    /// local-X spin so the disc faces out instead of tumbling edge-on.</summary>
+    private static Vector3 Rot90Z(Vector3 v) => new(-v.Y, v.X, v.Z);
+
+    /// <summary>Whether this emitter is simulated in model space (re-projected through the
+    /// live bone each frame) vs world space (spin baked at birth).</summary>
+    private bool IsModelSpace(M2ParticleEmitter e) => SpaceMode switch
+    {
+        ParticleSpaceMode.ForceModel => true,
+        ParticleSpaceMode.ForceWorld => false,
+        _ => (e.Flags & 0x10) != 0,
+    };
 
     private struct Particle
     {
@@ -300,6 +372,8 @@ public sealed class ParticleRenderer : IDisposable
             pool.Transform = transform;
             pool.Emitter = emitter;
             pool.TexturePath = texPath;
+            pool.ModelSpace = IsModelSpace(emitter);
+            pool.EmitterIndex = index;
             pool.Scale = MathF.Sqrt(
                 transform.M11 * transform.M11 +
                 transform.M12 * transform.M12 +
@@ -337,8 +411,31 @@ public sealed class ParticleRenderer : IDisposable
             var p = list[i];
             p.Age += dt;
             if (p.Age >= p.Life) { list.RemoveAt(i); continue; }
-            p.Velocity.Z -= e.Gravity * dt;
-            p.Position += p.Velocity * dt;
+            if (pool.ModelSpace)
+            {
+                // benilla integrate order (sim.rs:56-71), dt clamped to 0.1
+                // (sim.rs:226): position advances FIRST on the pre-decay velocity,
+                // THEN gravity as a closed-form half-step on local up (+Y = WoW +Z),
+                // THEN drag as a CLAMPED-LINEAR decay. Portal has gravity=drag=0, so
+                // this is pos += vel*dt for the portal; it matters for other emitters.
+                float sdt = MathF.Min(dt, 0.1f);
+                p.Position += p.Velocity * sdt;
+                if (e.Gravity != 0f)
+                {
+                    p.Position.Y -= 0.5f * e.Gravity * sdt * sdt;
+                    p.Velocity.Y -= e.Gravity * sdt;
+                }
+                if (e.Drag != 0f)
+                {
+                    float fdrag = MathF.Min(sdt * e.Drag, 1f);
+                    p.Velocity -= fdrag * p.Velocity;
+                }
+            }
+            else
+            {
+                p.Velocity.Z -= e.Gravity * dt;
+                p.Position += p.Velocity * dt;
+            }
             list[i] = p;
         }
 
@@ -367,6 +464,84 @@ public sealed class ParticleRenderer : IDisposable
     private Particle Spawn(Pool pool, Vector3 origin)
     {
         var e = pool.Emitter;
+
+        // ── MODEL SPACE (flag 0x10, the InstancePortal case) ─────
+        //
+        // Store the particle in the emitter's LOCAL frame (relative to the bone
+        // pivot), UN-spun. The live bone rotation is applied every frame at draw
+        // (see Fill), so the particle spirals as the frame it lives in turns - that
+        // IS the swirl. benilla parity: emit_local's plane kernel + the R(+Z,90)
+        // prepend, stored raw (particles.rs:314-357, sim.rs:610-622 else branch).
+        if (pool.ModelSpace)
+        {
+            // ── EMISSION KERNEL (benilla emit_local, particles.rs:314-347) ────
+            // The portal is a SPHERE emitter: born on a RING of radius ~areaLength,
+            // moving radially INWARD (negative speed) - the "outer ring, high density,
+            // coming in". A PLANE emitter is born in a flat rectangle near the centre.
+            // MSUI used to force plane, which is why the portal emanated from the middle.
+            Vector3 posZ, dirZ;
+            if (e.Shape == ParticleShape.Sphere)
+            {
+                // areaLength/areaWidth are the min/max radius for a sphere emitter.
+                float r = e.EmissionAreaLength
+                        + pool.Rand() * MathF.Max(0f, e.EmissionAreaWidth - e.EmissionAreaLength);
+                float lat = pool.Symmetric() * e.VerticalRange;   // latitude
+                float lon = pool.Symmetric() * e.HorizontalRange; // longitude
+                float clat = MathF.Cos(lat), slat = MathF.Sin(lat);
+                float clon = MathF.Cos(lon), slon = MathF.Sin(lon);
+                var shell = new Vector3(clat * clon, clat * slon, slat);  // unit
+                posZ = r * shell;                                         // birth on the shell (the ring)
+                if (e.ZSource != 0f)
+                {
+                    dirZ = posZ - new Vector3(0f, 0f, e.ZSource);
+                    dirZ = dirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(dirZ) : Vector3.UnitZ;
+                }
+                else if ((e.Flags & 0x100) != 0)
+                {
+                    dirZ = Vector3.UnitZ;                                  // sphere_up (flag 0x100)
+                }
+                else
+                {
+                    dirZ = shell;                                         // radial (x negative speed => inward)
+                }
+            }
+            else
+            {
+                // Plane (spline falls back to plane): born across the area rectangle,
+                // direction a symmetric spherical cone about +Z.
+                posZ = new Vector3(
+                    e.EmissionAreaLength * 0.5f * pool.Symmetric(),
+                    e.EmissionAreaWidth  * 0.5f * pool.Symmetric(),
+                    0f);
+                if (e.ZSource != 0f)
+                {
+                    dirZ = posZ - new Vector3(0f, 0f, e.ZSource);
+                    dirZ = dirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(dirZ) : Vector3.UnitZ;
+                }
+                else
+                {
+                    float theta = pool.Symmetric() * e.VerticalRange;
+                    float phi   = pool.Symmetric() * e.HorizontalRange;
+                    float st = MathF.Sin(theta), ct = MathF.Cos(theta);
+                    float sp = MathF.Sin(phi),   cp = MathF.Cos(phi);
+                    dirZ = new Vector3(st * cp, st * sp, ct);
+                }
+            }
+
+            // R(+Z,90) prepend in Z-up, then swap to the Y-up local frame.
+            var localPos = Swap(Rot90Z(posZ));
+            var localDir = Swap(Rot90Z(dirZ));
+
+            float mspeed = e.EmissionSpeed * (1f + e.SpeedVariation * pool.Symmetric()) * pool.Scale;
+
+            return new Particle
+            {
+                Position = localPos,           // LOCAL (relative to pivot), re-projected at draw
+                Velocity = localDir * mspeed,  // negative speed => inward; no time-reversal needed
+                Age = 0f,
+                Life = e.Lifespan,
+            };
+        }
 
         // ── DIRECTION: the format spec, not an approximation of it ───────────
         //
@@ -519,12 +694,17 @@ public sealed class ParticleRenderer : IDisposable
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
 
+        // The flat portal-surface film, drawn BEFORE the sprites so they sit over
+        // it (interior geometry -> frost film -> additive particles).
+        if (PortalSurface) DrawPortalSurfaces(camera);
+
         // Group by texture AND blend mode: one draw per combination, and the
         // blend state changes between groups.
         var groups = new Dictionary<(string Tex, byte Blend), List<Pool>>();
         foreach (var pool in _pools.Values)
         {
             if (pool.Particles.Count == 0) continue;
+            if (SoloEmitter >= 0 && pool.EmitterIndex != SoloEmitter) continue;
             var key = (pool.TexturePath, pool.Emitter.BlendingType);
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = [];
             list.Add(pool);
@@ -600,6 +780,37 @@ public sealed class ParticleRenderer : IDisposable
     private void Fill(Pool pool)
     {
         var e = pool.Emitter;
+
+        // MODEL SPACE: re-project every particle through the LIVE bone THIS frame.
+        // This is the fix. `p.Position` is a local offset from the bone pivot; the
+        // current bone rotation is applied to it, then the doodad placement, so the
+        // particle rides the spin as the disc turns (benilla quads.rs:151-155).
+        if (pool.ModelSpace)
+        {
+            var boneRot = e.SampleBoneRotation(_time * ModelSpinScale);
+            var rot = pool.Transform;
+            rot.M41 = rot.M42 = rot.M43 = 0f;   // rotation+scale only; the pivot is pool.Origin
+
+            foreach (var p in pool.Particles)
+            {
+                float t = p.Life > 0f ? p.Age / p.Life : 1f;
+                e.SampleRamp(t, out var rgba, out float scale);
+                if (scale <= 0f || rgba.W <= 0.002f) continue;
+
+                var spun = Vector3.Transform(p.Position * PortalScale, boneRot); // rotate about the pivot
+                var centre = pool.Origin + Vector3.Transform(spun, rot);         // pivot + doodad transform
+
+                _scratch.Add(new GpuParticle
+                {
+                    Centre = centre,
+                    Size = scale * pool.Scale * PortalScale,
+                    Colour = rgba,
+                });
+            }
+            return;
+        }
+
+        // WORLD SPACE (legacy): the spin was baked at birth; positions are world.
         foreach (var p in pool.Particles)
         {
             float t = p.Life > 0f ? p.Age / p.Life : 1f;
@@ -626,6 +837,117 @@ public sealed class ParticleRenderer : IDisposable
             });
         }
     }
+
+    /// <summary>
+    /// Draw the flat translucent "looking glass" film across each instance
+    /// portal's opening - the 1.12 portal SURFACE, a separate flat plane on the
+    /// disc, NOT the swirling emitters (a converging ring never covers the opening
+    /// evenly). The InstancePortal model has no render mesh, so the real client
+    /// draws this surface itself; this recreates it.
+    ///
+    /// One film per portal placement. A portal is a MODEL-SPACE SPHERE emitter (its
+    /// signature); its two emitters share the disc plane, so dedupe by rounded world
+    /// origin. The disc lies in the emitter's local Y-Z plane (normal = local X), so
+    /// the in-plane basis is the placement's transformed local Y and Z; the centre is
+    /// the bone-pivot world position (pool.Origin).
+    /// </summary>
+    private void DrawPortalSurfaces(Camera camera)
+    {
+        if (_surfaceShader is null) return;
+
+        _surfaceSeen.Clear();
+        bool began = false;
+
+        foreach (var pool in _pools.Values)
+        {
+            if (!pool.ModelSpace || pool.Emitter.Shape != ParticleShape.Sphere) continue;
+            if (SoloEmitter >= 0 && pool.EmitterIndex != SoloEmitter) continue;
+            if (pool.Particles.Count == 0) continue;
+
+            var key = ((int)MathF.Round(pool.Origin.X * 4f),
+                       (int)MathF.Round(pool.Origin.Y * 4f),
+                       (int)MathF.Round(pool.Origin.Z * 4f));
+            if (!_surfaceSeen.Add(key)) continue;
+
+            if (!began)
+            {
+                began = true;
+                _surfaceShader.Use();
+                _surfaceShader.Set("uViewProjection", camera.RelativeViewProjection);
+                _surfaceShader.Set("uCameraOrigin", camera.Position);
+                _surfaceShader.Set("uTime", (float)_time);
+                _surfaceShader.Set("uTint", new Vector3(0.60f, 0.80f, 1.0f));
+                _gl.Enable(EnableCap.Blend);
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                _gl.Enable(EnableCap.DepthTest);
+                _gl.DepthMask(false);
+                _gl.Disable(EnableCap.CullFace);
+                _gl.BindVertexArray(_surfaceVao);
+            }
+
+            var rot = pool.Transform;
+            rot.M41 = rot.M42 = rot.M43 = 0f;
+            var u = Vector3.TransformNormal(Vector3.UnitY, rot);
+            var v = Vector3.TransformNormal(Vector3.UnitZ, rot);
+            u = u.LengthSquared() > 1e-8f ? Vector3.Normalize(u) : Vector3.UnitY;
+            v = v.LengthSquared() > 1e-8f ? Vector3.Normalize(v) : Vector3.UnitZ;
+
+            float half = MathF.Max(0.1f, pool.Emitter.EmissionAreaLength)
+                       * pool.Scale * MathF.Max(0.1f, PortalSurfaceSize) * PortalScale;
+
+            _surfaceShader.Set("uCenter", pool.Origin);
+            _surfaceShader.Set("uRight", u * half);
+            _surfaceShader.Set("uUp", v * half);
+            _surfaceShader.Set("uAlpha", PortalSurfaceAlpha);
+            _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+        }
+
+        if (began)
+        {
+            _gl.BindVertexArray(0);
+            _gl.DepthMask(true);
+            _gl.Enable(EnableCap.CullFace);
+            _gl.Disable(EnableCap.Blend);
+        }
+    }
+
+    // The portal-surface film: a flat quad on the disc plane, camera-relative like
+    // the sprites. Corners from gl_VertexID (triangle strip 0..3).
+    private const string SurfaceVert = @"#version 330 core
+uniform mat4 uViewProjection;
+uniform vec3 uCameraOrigin;
+uniform vec3 uCenter;
+uniform vec3 uRight;
+uniform vec3 uUp;
+out vec2 vUv;
+void main()
+{
+    vec2 c = vec2((gl_VertexID & 1) == 0 ? -1.0 : 1.0,
+                  (gl_VertexID & 2) == 0 ? -1.0 : 1.0);
+    vUv = c;
+    vec3 world = uCenter + uRight * c.x + uUp * c.y;
+    gl_Position = uViewProjection * vec4(world - uCameraOrigin, 1.0);
+}";
+
+    // Soft round frost with a gentle drifting ripple (the looking-glass shimmer),
+    // alpha-blended so it lightly frosts the interior seen through it.
+    private const string SurfaceFrag = @"#version 330 core
+in vec2 vUv;
+uniform float uTime;
+uniform float uAlpha;
+uniform vec3 uTint;
+out vec4 FragColor;
+void main()
+{
+    float r = length(vUv);
+    float edge = smoothstep(1.05, 0.60, r);
+    float ripple = 0.80
+        + 0.10 * sin(vUv.x * 6.0 + uTime * 0.7)
+        + 0.10 * sin((vUv.x + vUv.y) * 5.0 - uTime * 0.5);
+    float a = uAlpha * edge * ripple;
+    if (a <= 0.002) discard;
+    FragColor = vec4(uTint * ripple, a);
+}";
 
     private void SetBlend(byte blend)
     {
@@ -661,16 +983,13 @@ public sealed class ParticleRenderer : IDisposable
             var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, path);
             if (decoded is { } d)
             {
-                // ReadBlpPixels hands back BGRA; the sampler wants RGBA.
-                var rgba = new byte[d.bgra.Length];
-                for (int i = 0; i + 3 < d.bgra.Length; i += 4)
-                {
-                    rgba[i] = d.bgra[i + 2];
-                    rgba[i + 1] = d.bgra[i + 1];
-                    rgba[i + 2] = d.bgra[i];
-                    rgba[i + 3] = d.bgra[i + 3];
-                }
-                tex = Texture.FromRgbaNoMips(_gl, rgba, d.width, d.height);
+                // MIPMAPPED + trilinear + clamped. A converging portal particle
+                // shrinks to a few pixels (the glowball emitter's authored size is
+                // 0.04), and sampling a full-size sprite with NO mips aliases it into
+                // hard chips - the "bundled squares" instead of a smooth soft dot,
+                // and harsh faint specks near the centre read as a filled core. From2D
+                // uploads BGRA directly, so the manual channel swap is gone.
+                tex = Texture.From2D(_gl, d.bgra, d.width, d.height, mipmaps: true, repeat: false);
             }
             else
             {
@@ -692,7 +1011,12 @@ public sealed class ParticleRenderer : IDisposable
     {
         // A unit quad as a triangle strip, expanded to face the camera in the
         // vertex shader. Four vertices, drawn instanced.
-        float[] quad = { -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
+        // Corners at +/-1 (NOT +/-0.5): a vertex sits at centre +/- aSize so the
+        // sprite edge spans 2*aSize - aSize is the half-extent, matching the real
+        // 1.12 client / benilla (quads.rs:156, byte-verified). At +/-0.5 every
+        // sprite was HALF-width / quarter-area, which is why the portal never
+        // accumulated into a bright cloud. UV remap is in particle.vert.
+        float[] quad = { -1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f };
 
         _vao = _gl.GenVertexArray();
         _gl.BindVertexArray(_vao);
@@ -763,6 +1087,8 @@ public sealed class ParticleRenderer : IDisposable
         if (_vao != 0) _gl.DeleteVertexArray(_vao);
         if (_quadVbo != 0) _gl.DeleteBuffer(_quadVbo);
         if (_instanceVbo != 0) _gl.DeleteBuffer(_instanceVbo);
+        _surfaceShader?.Dispose();
+        if (_surfaceVao != 0) _gl.DeleteVertexArray(_surfaceVao);
         _shader?.Dispose();
     }
 

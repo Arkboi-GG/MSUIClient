@@ -181,6 +181,7 @@ public sealed partial class GameLoop : IDisposable
     /// </summary>
     private double _foliageScatterMilliseconds;
     private ParticleRenderer? _particles;
+    private FfxGlow? _glow;
     private double _particleSimulateMilliseconds;
     private double _particleDrawMilliseconds;
 
@@ -341,24 +342,14 @@ public sealed partial class GameLoop : IDisposable
     public void Load(GL gl)
     {
         var startup = Stopwatch.StartNew();
-        var phase = Stopwatch.StartNew();
-
-        void PhaseComplete(string name)
-        {
-            Console.WriteLine($"[startup] {name,-25} {phase.Elapsed.TotalSeconds,6:F2}s " +
-                              $"(total {startup.Elapsed.TotalSeconds,6:F2}s)");
-            phase.Restart();
-        }
 
         _window.Camera.Target = new Vector3(_config.Start.X, _config.Start.Y, _config.Start.Z);
         _window.Camera.Yaw = _config.Start.Orientation;
 
-        // Mount the archives once and point AdtTerrainReader's extractor hook
-        // at them. Without this every file read reopens up to fifteen MPQs,
-        // which is where startup was going.
+        // Mount the archives once and point AdtTerrainReader's extractor hook at
+        // them. Without this every file read reopens up to fifteen MPQs.
         _mpq = new MpqMount(_config.ClientDataPath);
         AdtTerrainReader.StormLibExtractor = _mpq.ReadFile;
-        PhaseComplete("MPQ mount");
 
         _uploads = _window.CreateGpuUploadWorker();
         _assetWorkers = new AssetWorkerPool();
@@ -378,63 +369,35 @@ public sealed partial class GameLoop : IDisposable
         _adts = new AdtCache(_config.ClientDataPath, _config.Start.MapName);
         if (_config.DevTools) _vantages = VantageStore.Load(_config.RepoRoot);
         InitHitchRecorder();
-        PhaseComplete("render setup");
 
-        _terrain.LoadAround(_config.Start.X, _config.Start.Y, _config.Start.TileRadius, _adts);
         _residentCentre = TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
-        if (_config.Start.DrainPreloadsAtStartup)
-        {
-            _terrain.QueuePreload(
-                TerrainRenderer.TileRing(
-                    _residentCentre.Value.col, _residentCentre.Value.row,
-                    _config.Start.TileRadius + 1),
-                _adts);
-        }
 
-        // Self-check against the value the server independently agreed with.
-        _terrain.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
-        PhaseComplete("terrain");
-
-        // Buildings BEFORE collision now: when collision comes from client
-        // geometry, the buildings are its source.
+        // Every renderer below is created EMPTY here (cheap: shader compile + GL
+        // objects) and filled incrementally by the world loader (Program.Loading.cs)
+        // across the following frames, behind the loading screen. The multi-second
+        // work - terrain tiles, building models, the collision BVH - is NO LONGER
+        // done in this callback, so the render loop starts and presents the loading
+        // curtain immediately instead of freezing on a frozen window.
         try
         {
             _wmo = new WmoRenderer(gl, _config, _uploads, _assetWorkers);
             _wmo.LoadShaders(shaderDir);
-            _wmo.LoadForTiles(_terrain.LoadedTiles, _adts);
-
-            // Pay the first outer-ring cost behind startup, not while walking.
-            // Later rings are queued one model at a time while still at least
-            // one full tile beyond the resident terrain block.
-            if (_config.Start.DrainPreloadsAtStartup)
-            {
-                var preloadRing = TerrainRenderer.TileRing(
-                    _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
-                _wmo.QueuePreloadForTiles(preloadRing, _adts);
-                _wmo.DrainPreloads();
-            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[wmo] FAILED - {ex.Message}");
             _wmo = null;
         }
-        PhaseComplete("buildings");
 
         // Curated visibility overrides are core: loaded and honoured regardless of
         // DevTools, so a shipped build gets the hand-authored fixes.
         _overrides = VisibilityOverrides.Load(_config.RepoRoot);
         if (_wmo is not null) _wmo.Overrides = _overrides;
 
-        // Open-world liquid (lakes/rivers/ocean). Built for resident tiles,
-        // rebuilt on tile transitions like buildings.
         _liquid = new LiquidRenderer(gl);
         _liquid.LoadShaders(shaderDir);
         _liquid.LoadLiquidTextures(_config.ClientDataPath);
-        _liquid.LoadForTiles(_terrain.LoadedTiles, _adts);
 
-        // Ground-effect foliage: grass/flowers scattered on the terrain near the
-        // camera, driven by the GroundEffect DBCs.
         _sky = new SkyRenderer(gl);
         _sky.LoadShaders(shaderDir);
 
@@ -442,11 +405,10 @@ public sealed partial class GameLoop : IDisposable
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
 
-        // M2 particle emitters (PLAN_14 stage 2). 18% of models carry them, and
-        // for the instance portal they ARE the model.
         try
         {
             _particles = new ParticleRenderer(gl, _config);
+            _particles.DensityScale = _config.Render.ParticleDensity;
             _particles.LoadShaders(shaderDir);
         }
         catch (Exception ex)
@@ -455,15 +417,24 @@ public sealed partial class GameLoop : IDisposable
             _particles = null;
         }
 
-        // Exterior lighting's authored data (PLAN_09). This IS applied - see
-        // UpdateExteriorLighting, which runs every frame in every build. The
-        // comment here used to say "nothing applies it yet", which stopped being
-        // true when PLAN_09 landed and then helped hide the DevTools gate that
-        // was quietly un-applying it again.
-        //
-        // Loading it early means the [dbc] shape lines land next to foliage's,
-        // where a schema mismatch is obvious at startup rather than inferred
-        // later from a strange sunset.
+        // FFXGlow whole-scene bloom (Engine/FfxGlow.cs). Faithful benilla glow,
+        // composited additively so the exterior base lighting is untouched - only
+        // highlight bloom is added. render.glowGain is the per-zone weight;
+        // render.glow = false disables the pass entirely.
+        try
+        {
+            _glow = _config.Render.Glow
+                ? new FfxGlow(gl) { Gain = _config.Render.GlowGain }
+                : null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[glow] FAILED - {ex.Message}");
+            _glow = null;
+        }
+
+        // Exterior lighting's authored data (PLAN_09). Applied every frame by
+        // UpdateExteriorLighting once loading is done.
         InitLightProbe();
 
         if (_config.Render.Doodads)
@@ -474,45 +445,11 @@ public sealed partial class GameLoop : IDisposable
                 {
                     DrawDistance = _config.Render.DoodadDistance,
                     CollisionBasisIndex = _config.Render.DoodadCollisionBasis,
-                    DemandStreaming = !_config.Start.DrainPreloadsAtStartup,
+                    // Always demand-stream now: the loader queues the near models
+                    // and they arrive through the normal streaming path, faded in.
+                    DemandStreaming = true,
                 };
                 _doodads.LoadShaders(shaderDir);
-
-                Vector2 centre = new(_config.Start.X, _config.Start.Y);
-                float visibleRadius = ObjectResidencyRadius;
-
-                if (_config.Start.DrainPreloadsAtStartup)
-                {
-                    var preloadRing = TerrainRenderer.TileRing(
-                        _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
-                    _doodads.QueuePreloadForTiles(preloadRing, _adts);
-                    if (_wmo is not null)
-                        _doodads.QueuePreloadModels(
-                            _wmo.EnumerateDoodads().Select(d => d.ModelPath));
-                }
-                else
-                {
-                    // Queue only models close enough to become visible soon.
-                    // Do not drain: terrain/buildings can present the world
-                    // while these arrive through the normal streaming path.
-                    visibleRadius = DoodadDemandRadius;
-                    _doodads.QueuePreloadForTiles(
-                        _terrain.LoadedTiles, _adts, centre, visibleRadius);
-                    if (_wmo is not null)
-                    {
-                        var nearbyInteriors = _wmo
-                            .EnumerateDoodads(centre, visibleRadius)
-                            .Select(d => d.ModelPath)
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .ToArray();
-                        _doodads.QueuePreloadModels(nearbyInteriors);
-                    }
-                }
-
-                if (_config.Start.DrainPreloadsAtStartup)
-                    _doodads.DrainPreloads();
-
-                PopulateDoodads(_residentCentre.Value, reportDiagnostics: true);
             }
             catch (Exception ex)
             {
@@ -520,47 +457,22 @@ public sealed partial class GameLoop : IDisposable
                 _doodads = null;
             }
         }
-        PhaseComplete(_config.Start.DrainPreloadsAtStartup
-            ? "doodads (all)"
-            : "doodads (queued)");
 
-        // Keep the outer preload ADTs in RAM too. This is deliberate: the user
-        // prefers a larger working set over boundary stalls.
-        var initialRing = TerrainRenderer.TileRing(
-            _residentCentre.Value.col, _residentCentre.Value.row, WmoPreloadRadius);
-        _adts.Retain(initialRing);
-        Console.WriteLine($"[adt] {_adts.Parses} parse(s), {_adts.Hits} reuse(s) - " +
-                          $"retaining {_adts.HeldTiles} resident tile(s)");
         _mpq?.Report();
 
-        LoadCollision();
-        PhaseComplete("collision world");
-
-        // Map.dbc, every WDT, AreaTrigger.dbc and the teleport table. Loaded
-        // here rather than on first use because UpdatePortals runs every frame
-        // in every build and must not depend on a DevTools panel having been
-        // opened - and because a lazy load would stall a frame mid-play instead
-        // of a startup phase that is already being timed.
-        EnsureInstanceData();
-        PhaseComplete("maps + portals");
-
+        // The controller exists now so Update/Render run and the loader can drive
+        // the build across frames. Collision is null until the loader's off-thread
+        // BVH lands; the ground snap happens in the loader once terrain is resident.
         _controller = new CharacterController(_terrain, _config.Movement)
         {
-            Collision = _collision,
+            Collision = null,
             Yaw = _config.Start.Orientation,
         };
-
-        // Spawn on the ground rather than at the config Z, which is the server's
-        // spawn height and can differ from the sampled surface by a few cm.
-        float? ground = _terrain.SampleHeight(_config.Start.X, _config.Start.Y);
-        _controller.Teleport(_config.Start.X, _config.Start.Y, ground ?? _config.Start.Z);
-
+        _controller.Teleport(_config.Start.X, _config.Start.Y, _config.Start.Z);
         _window.Camera.Target = _controller.Position;
-        PhaseComplete("controller + spawn");
 
-        // The character model. After the controller, because it renders what
-        // the controller decides; try/caught like the buildings, because a
-        // missing model must not cost us a walkable world.
+        // The character model. Independent of the world build, so it stays in the
+        // fast shell setup.
         try
         {
             _character = new CharacterRenderer(gl, _config);
@@ -573,9 +485,6 @@ public sealed partial class GameLoop : IDisposable
             }
             else
             {
-                // Tier 1 warrior. The body-atlas pieces should appear; the helm,
-                // pauldrons, sword and shield are separate M2 models and will
-                // log as needing the attachment path, which is not built yet.
                 _character.Equipment = CharacterEquipment.BattlegearOfMight();
                 _character.ApplyEquipment();
             }
@@ -585,49 +494,29 @@ public sealed partial class GameLoop : IDisposable
             Console.WriteLine($"[character] FAILED - {ex.Message}");
             _character = null;
         }
-        PhaseComplete("character + equipment");
 
-        if (_collision is not null)
+        try
         {
-            try
-            {
-                _collisionDebug = new CollisionDebugRenderer(gl);
-                _collisionDebug.LoadShaders(shaderDir);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[collision] debug renderer FAILED - {ex.Message}");
-                _collisionDebug = null;
-            }
+            _collisionDebug = new CollisionDebugRenderer(gl);
+            _collisionDebug.LoadShaders(shaderDir);
         }
-        PhaseComplete("debug setup (deferred)");
-
-        CompareWmoToCollision();
-        PhaseComplete("alignment checks");
-
-        if (!_config.Start.DrainPreloadsAtStartup && _residentCentre is { } initialCentre)
+        catch (Exception ex)
         {
-            var loaded = _terrain.LoadedTiles.ToHashSet();
-            foreach (var tile in TerrainRenderer.TileRing(
-                         initialCentre.col, initialCentre.row, WmoPreloadRadius)
-                     .Where(tile => !loaded.Contains(tile))
-                     .OrderBy(tile =>
-                         Math.Abs(tile.col - initialCentre.col) +
-                         Math.Abs(tile.row - initialCentre.row)))
-                _backgroundDiscovery.Enqueue(tile);
+            Console.WriteLine($"[collision] debug renderer FAILED - {ex.Message}");
+            _collisionDebug = null;
         }
 
         // The settings modal's skin needs GL and the MPQ mount, so it is built
-        // last; applying the saved settings needs every renderer to exist, so it
-        // happens here rather than in the constructor.
+        // last; applying the saved settings needs every renderer to exist.
         InitSettings(gl);
-        PhaseComplete("settings + UI skin");
 
-        Console.WriteLine($"[game] ready in {startup.Elapsed.TotalSeconds:F2}s - " +
-                          $"startup preload {(_config.Start.DrainPreloadsAtStartup ? "blocking" : "background")}, " +
-                          $"WMO {_wmo?.PendingPreloads ?? 0} queued, " +
-                          $"M2 {_doodads?.PendingPreloads ?? 0} queued, " +
-                          $"{_backgroundDiscovery.Count} outer tile(s) undiscovered");
+        Console.WriteLine($"[startup] shell ready in {startup.Elapsed.TotalSeconds:F2}s - " +
+                          "streaming the world in behind the loading screen");
+
+        // Hand off to the budgeted, per-frame world loader (Program.Loading.cs).
+        // It queues the terrain/WMO streaming, then StepWorldLoad advances it a
+        // bounded slice per frame while DrawLoadingScreen covers it.
+        BeginWorldLoad(gl);
     }
 
     private void PopulateDoodads((int col, int row) centreTile, bool reportDiagnostics)
@@ -1138,6 +1027,10 @@ public sealed partial class GameLoop : IDisposable
 
         long updateStarted = Stopwatch.GetTimestamp();
         if (_controller is null) return;
+
+        // Benilla-style: while the loading curtain is up, drive the budgeted
+        // world build and skip gameplay (movement/residency) for this frame.
+        if (_worldLoading) { StepWorldLoad(dt); return; }
 
         // Adopting ready terrain creates VAOs and installs height grids on this
         // thread; five tiles can land in one frame.
@@ -1726,6 +1619,15 @@ public sealed partial class GameLoop : IDisposable
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Debug);
         _gpuProfiler?.EndFrame();
         _debugRenderMilliseconds = Stopwatch.GetElapsedTime(debugStarted).TotalMilliseconds;
+
+        // FFXGlow whole-scene bloom over the finished world + particles, before the
+        // curtain and HUD so neither blooms (benilla composites its UI over an
+        // already-glowed world). Additive glow-only: the base scene is untouched.
+        _glow?.Apply();
+
+        // The loading curtain over the still-streaming world. Drawn last so it
+        // covers everything beneath it; fades out when the world is ready.
+        if (_loadScreen is not null) DrawLoadingScreen();
 
         _renderSpanMilliseconds = Stopwatch.GetElapsedTime(renderSpanStarted).TotalMilliseconds;
 
@@ -2684,6 +2586,7 @@ public sealed partial class GameLoop : IDisposable
         _wmo?.Dispose();
         _terrain?.Dispose();
         _sky?.Dispose();
+        _glow?.Dispose();
         _uploads?.Dispose();
         _assetWorkers?.Dispose();
 

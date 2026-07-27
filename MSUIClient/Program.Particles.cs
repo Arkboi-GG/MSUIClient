@@ -27,7 +27,7 @@ public sealed partial class GameLoop
 
     private void DrawParticlesPanel()
     {
-        if (!ImGui.CollapsingHeader("Particles (PLAN_14)")) return;
+        if (!ImGui.CollapsingHeader("Particles (PLAN_14)", ImGuiTreeNodeFlags.DefaultOpen)) return;
 
         if (_particles is not null)
         {
@@ -44,6 +44,46 @@ public sealed partial class GameLoop
             ImGui.SetNextItemWidth(160f);
             if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
                 _particles.DensityScale = density;
+
+            // FFXGlow (whole-scene bloom) - the glaze. Owned by the game loop.
+            if (_glow is not null)
+            {
+                bool glowOn = _glow.Enabled;
+                if (ImGui.Checkbox("Glow (FFXGlow bloom)", ref glowOn)) _glow.Enabled = glowOn;
+                float gain = _glow.Gain;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Glow gain", ref gain, 0f, 1f, "%.2f"))
+                    _glow.Gain = gain;
+                ImGui.TextDisabled("   whole-scene; lower for dark interiors (~0.25)");
+            }
+
+            // Portal "looking glass" surface film - a flat plane, not the sprites.
+            bool surf = _particles.PortalSurface;
+            if (ImGui.Checkbox("Portal surface film", ref surf)) _particles.PortalSurface = surf;
+
+            float surfA = _particles.PortalSurfaceAlpha;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  surface opacity", ref surfA, 0f, 0.6f, "%.3f"))
+                _particles.PortalSurfaceAlpha = surfA;
+
+            float surfSize = _particles.PortalSurfaceSize;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  surface reach x", ref surfSize, 0.5f, 2.5f, "%.2f"))
+                _particles.PortalSurfaceSize = surfSize;
+
+            float portalScale = _particles.PortalScale;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Portal circle size x", ref portalScale, 0.25f, 4f, "%.2f"))
+                _particles.PortalScale = portalScale;
+            ImGui.TextDisabled("   scales the whole disc about its centre");
+
+            int solo = _particles.SoloEmitter;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderInt("Solo emitter (-1=all)", ref solo, -1, 3))
+                _particles.SoloEmitter = solo;
+            ImGui.TextDisabled("   0/1 = one emitter; if one still shows 2 rings, portal is placed twice");
+            if (ImGui.Button("Dump portal placements to console"))
+                _doodads?.DumpEmitterPlacements("Portal");
 
             float spin = _particles.SpinRateScale;
             ImGui.SetNextItemWidth(160f);
@@ -151,7 +191,7 @@ public sealed partial class GameLoop
         ImGui.Text($"     lifespan {e.Lifespan:F3}s   rate {e.EmissionRate:F0}/s   " +
                    $"-> ~{e.SteadyStatePopulation:F0} live sprite(s)");
         ImGui.Text($"     range v {e.VerticalRange:F3} h {e.HorizontalRange:F3} rad   " +
-                   $"area {e.EmissionAreaLength:F2} x {e.EmissionAreaWidth:F2}   decel {e.Deceleration:F2}");
+                   $"area {e.EmissionAreaLength:F2} x {e.EmissionAreaWidth:F2}   zsrc {e.ZSource:F2} drag {e.Drag:F2}");
         ImGui.Text($"     ramp mid {e.MidPoint:F2}   scale {e.ScaleKeys[0]:F3} -> " +
                    $"{e.ScaleKeys[1]:F3} -> {e.ScaleKeys[2]:F3}");
 
