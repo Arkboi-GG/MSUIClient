@@ -295,6 +295,9 @@ public sealed class WmoRenderer : IDisposable
 
         /// <summary>Which MODS doodad set this placement asked for.</summary>
         public int DoodadSet;
+
+        /// <summary>Appear-fade spawn time in seconds; 0 = opaque/no fade.</summary>
+        public float AppearStart;
     }
 
     /// <summary>Per-frame inputs the group classifier needs, gathered once per instance.</summary>
@@ -305,13 +308,28 @@ public sealed class WmoRenderer : IDisposable
         public readonly float EffectiveDrawDistance;
         public readonly Matrix4x4 ViewProjection;
 
+        /// <summary>PLAN_10: interior groups reachable through portals from the
+        /// camera's cell this frame, in FILE-index space. Null when portal culling
+        /// is off or could not seed for this instance - the interior heuristic then
+        /// runs unchanged (D6).</summary>
+        public readonly HashSet<int>? ReachableGroups;
+
+        /// <summary>PLAN_10 D1: the camera is standing in a real cell of THIS WMO
+        /// (CameraGroup belongs to this instance). A precise "have I crossed inside"
+        /// signal - null on the bridge/terrain, set once through the gate - used to
+        /// drop the distance shell at the doorway instead of at a yard mark.</summary>
+        public readonly bool CameraInCell;
+
         public FrameCullContext(Vector3 cameraPosition, bool cameraInside,
-            float effectiveDrawDistance, Matrix4x4 viewProjection)
+            float effectiveDrawDistance, Matrix4x4 viewProjection,
+            HashSet<int>? reachableGroups = null, bool cameraInCell = false)
         {
             CameraPosition = cameraPosition;
             CameraInside = cameraInside;
             EffectiveDrawDistance = effectiveDrawDistance;
             ViewProjection = viewProjection;
+            ReachableGroups = reachableGroups;
+            CameraInCell = cameraInCell;
         }
     }
 
@@ -383,6 +401,37 @@ public sealed class WmoRenderer : IDisposable
     public bool FrustumCulling { get; set; } = true;
     public bool UseDistanceLodShells { get; set; } = true;
 
+    // ── appear fade (benilla model_fade.rs) ─────────────────────────────────────
+
+    /// <summary>Ease a streamed-in building in over <see cref="AppearFadeSeconds"/>
+    /// (alpha = t^3) instead of popping. Off restores the original hard pop-in.</summary>
+    public bool AppearFade { get; set; }
+
+    /// <summary>Appear-fade ramp length in seconds (benilla APPEAR_FADE_SECS = 2).</summary>
+    public float AppearFadeSeconds { get; set; } = 2f;
+
+    /// <summary>World clock in seconds, pushed each frame by GameLoop.</summary>
+    public float NowSeconds { get; set; }
+
+    /// <summary>True once the loading curtain has lifted; while false the initial
+    /// buildings are stamped opaque so the curtain covers the first reveal.</summary>
+    public bool WorldShown { get; set; }
+
+    /// <summary>Spawn time per placement KEY, surviving ResetPlacements, so a tile
+    /// crossing's rebuild does not re-fade resident buildings. See the doodad
+    /// renderer for the full rationale.</summary>
+    private readonly Dictionary<string, float> _appearStartByKey = new(StringComparer.Ordinal);
+    private const int AppearKeyCap = 65536;
+
+    private float ResolveAppearStart(string key)
+    {
+        if (!AppearFade) return 0f;
+        if (_appearStartByKey.TryGetValue(key, out float start)) return start;
+        start = WorldShown ? NowSeconds : 0f;
+        if (_appearStartByKey.Count < AppearKeyCap) _appearStartByKey[key] = start;
+        return start;
+    }
+
     /// <summary>
     /// Yards of slack on the per-group "is the camera inside this WMO" test that
     /// drives the distance-impostor swap (the Stormwind cathedral / grand-entrance
@@ -401,6 +450,19 @@ public sealed class WmoRenderer : IDisposable
     /// while the camera is OUTSIDE it. HUD-tunable. Was the hard-coded 120.</summary>
     public float InteriorCullDistance { get; set; } = 120f;
 
+    /// <summary>
+    /// PLAN_10 D7 - portal-traversal interior visibility (benilla wmo_portal).
+    /// When on and the camera is inside this WMO, an interior group draws only if
+    /// it is reachable through on-screen doorways from the camera's cell - which
+    /// hides Stormwind's exterior roof (and every other unreachable interior) from
+    /// within. Off (default) keeps the 120-yd <see cref="InteriorCullDistance"/>
+    /// heuristic. It NEVER removes an exterior group or a distance-LOD shell
+    /// (D4/D5), only interior groups, and falls back to the heuristic whenever it
+    /// cannot seed or reaches nothing (D6). Default off so a visibility regression
+    /// can't ship silently; flip it on in the WMO panel to A/B it.
+    /// </summary>
+    public bool UsePortalCulling { get; set; } = true;
+
     // ════════════════════════════════════════════════════════════════════════
     // PLAN_10 D1 — which group is the camera in?
     //
@@ -416,7 +478,7 @@ public sealed class WmoRenderer : IDisposable
     /// <summary>Where the camera is, in WMO terms. Null means outdoors.</summary>
     public readonly record struct CameraCell(
         string InstancePath, int GroupIndex, string GroupName,
-        bool IsInterior, float Volume, int PortalCount);
+        bool IsInterior, float Volume, int PortalCount, bool IsExterior = false);
 
     /// <summary>
     /// The most specific group containing the camera, or null when outdoors.
@@ -480,12 +542,179 @@ public sealed class WmoRenderer : IDisposable
 
                 bestVolume = volume;
                 best = new CameraCell(instance.Path, g.GroupIndex, g.GroupName,
-                                      g.IsInterior, volume, g.PortalCount);
+                                      g.IsInterior, volume, g.PortalCount, (g.GroupFlags & 0x08u) != 0);
             }
         }
 
         CameraGroup = best;
         CameraGroupCandidates = candidates;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // PLAN_10 D2 — portal traversal (benilla wmo_portal/mod.rs).
+    //
+    // Flood the portal graph from the camera's cell, clipping the view frustum at
+    // each doorway. A group is reachable if some chain of on-screen doorways leads
+    // to it. Interiors not reached are culled - which is what hides the roof from
+    // inside. Runs only for the one instance the camera is inside, only when the
+    // toggle is on; everything else keeps the existing heuristic (D6).
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Interior groups the last portal flood reached (diagnostic).</summary>
+    public int PortalReachedLastFrame { get; private set; }
+
+    private const int PortalDepthCap = 64;       // benilla DEPTH_CAP
+    private const int PortalMaxIters = 1 << 16;  // benilla MAX_ITERS
+    private const float PortalRectEps = 0.001f;  // benilla RECT_EPS
+    private const float PortalWClampBand = 0.001f;
+    private const float PortalWClampSub = 1.0e-5f;
+
+    /// <summary>
+    /// The set of group FILE indices reachable from <paramref name="seedGroupIndex"/>
+    /// through portals whose doorway stays inside the running screen rect. Depth-
+    /// and iteration-capped; the shrinking rect kills cycles even without a visited
+    /// set (benilla relies on the same three guards).
+    /// </summary>
+    private HashSet<int> ComputeReachableGroups(
+        Instance instance, IReadOnlyList<int> seedGroupIndices, Vector3 cameraPosition, Matrix4x4 relVp)
+    {
+        var reachable = new HashSet<int>();
+        var model = instance.Model;
+
+        // Model.Groups is NOT file-index-aligned (empty / antiportal groups are
+        // dropped at load); MOPR refs and CameraGroup speak file indices.
+        var byFile = new Dictionary<int, GroupMesh>(model.Groups.Count);
+        foreach (var g in model.Groups) byFile[g.GroupIndex] = g;
+
+        if (!Matrix4x4.Invert(instance.Transform, out var inv)) return reachable;
+        var eyeLocal = Vector3.Transform(cameraPosition, inv);
+
+        // (group, came-from, rect x0,y0,x1,y1, depth). Full screen = [-1,-1,1,1].
+        // Multiple seeds (benilla mod.rs:355-372): one when the camera is inside a
+        // cell, or every EXTERIOR group full-screen when the camera is outside.
+        var stack = new Stack<(int g, int came, float x0, float y0, float x1, float y1, int depth)>();
+        foreach (int seed in seedGroupIndices)
+            if (byFile.ContainsKey(seed))
+                stack.Push((seed, -1, -1f, -1f, 1f, 1f, 0));
+        if (stack.Count == 0) return reachable;   // nothing seedable -> D6 fallback
+
+        int iters = 0;
+        while (stack.Count > 0)
+        {
+            var (g, came, rx0, ry0, rx1, ry1, depth) = stack.Pop();
+            if (++iters > PortalMaxIters) break;
+            reachable.Add(g);
+            if (depth >= PortalDepthCap) continue;
+            if (!byFile.TryGetValue(g, out var gm)) continue;   // no mesh -> dead end
+
+            int start = gm.PortalStart;
+            int end = Math.Min(gm.PortalStart + gm.PortalCount, model.PortalRefs.Count);
+            for (int i = start; i < end; i++)
+            {
+                if (i < 0) break;
+                var r = model.PortalRefs[i];
+                int nb = r.GroupIndex;
+                if (nb == 0xFFFF || nb == came) continue;              // sentinel / entry portal
+                if (r.PortalIndex < 0 || r.PortalIndex >= model.Portals.Count) continue;
+                var p = model.Portals[r.PortalIndex];
+
+                // D3 front-side test: signed distance of the eye (LOCAL space) to
+                // the portal plane, oriented by Side. Enter only from the front.
+                float d = p.NormalX * eyeLocal.X + p.NormalY * eyeLocal.Y
+                          + p.NormalZ * eyeLocal.Z + p.PlaneDistance;
+                if (r.Side < 0) d = -d;
+                if (d < 0f) continue;
+
+                if (!PortalScreenRect(model, p, instance.Transform, cameraPosition, relVp,
+                        out float px0, out float py0, out float px1, out float py1))
+                    continue;   // doorway fully off-screen / behind
+
+                float ix0 = MathF.Max(rx0, px0), iy0 = MathF.Max(ry0, py0);
+                float ix1 = MathF.Min(rx1, px1), iy1 = MathF.Min(ry1, py1);
+                if (ix1 - ix0 < PortalRectEps || iy1 - iy0 < PortalRectEps) continue;  // collapsed
+
+                stack.Push((nb, g, ix0, iy0, ix1, iy1, depth + 1));
+            }
+        }
+
+        // Deferred exterior (benilla wmo_portal/mod.rs:453-459): if the flood
+        // reached ANY pure-EXTERIOR (0x08) group, the whole exterior shell is
+        // visible - you can see the sky/skyline through that doorway, so every
+        // outer-wall/tower/roof group draws. If it reached NONE (deep inside, no
+        // line to the outdoors) the exterior groups stay unreached and get culled -
+        // which is exactly how the trade-district roof and outer shell disappear
+        // once you are inside. (Outdoors this is a no-op: the seed already pushed
+        // every 0x08 group, so one is always reached.)
+        bool reachedExterior = false;
+        foreach (int gi in reachable)
+            if (byFile.TryGetValue(gi, out var xg) && (xg.GroupFlags & 0x08u) != 0) { reachedExterior = true; break; }
+        if (reachedExterior)
+            foreach (var g in model.Groups)
+                if ((g.GroupFlags & 0x08u) != 0) reachable.Add(g.GroupIndex);
+
+        return reachable;
+    }
+
+    /// <summary>
+    /// Project a portal polygon to an NDC bounding rect, Sutherland-Hodgman-clipped
+    /// against the four side planes of the frustum (no near plane, so a straddling
+    /// doorway opens wide instead of collapsing - benilla's w-clamp does the same).
+    /// Camera-relative + RelativeViewProjection, matching Camera.BoxInFrustum's
+    /// row-vector convention. Returns false when fewer than three vertices survive.
+    /// </summary>
+    private static bool PortalScreenRect(
+        Model model, WmoPortal p, Matrix4x4 instanceTransform, Vector3 cameraPosition, Matrix4x4 relVp,
+        out float minX, out float minY, out float maxX, out float maxY)
+    {
+        minX = minY = maxX = maxY = 0f;
+        int s = p.StartVertex, n = p.VertexCount;
+        if (n < 3 || s < 0 || s + n > model.PortalVertices.Count) return false;
+
+        // f >= 0 keeps the vertex. k: 0 = w+x, 1 = w-x, 2 = w+y, 3 = w-y.
+        static float Plane(Vector4 v, int k) => k switch
+        {
+            0 => v.W + v.X,
+            1 => v.W - v.X,
+            2 => v.W + v.Y,
+            _ => v.W - v.Y,
+        };
+
+        var cur = new List<Vector4>(n + 4);
+        for (int i = 0; i < n; i++)
+        {
+            var vv = model.PortalVertices[s + i];
+            var world = Vector3.Transform(new Vector3(vv.x, vv.y, vv.z), instanceTransform);
+            cur.Add(Vector4.Transform(new Vector4(world - cameraPosition, 1f), relVp));
+        }
+
+        for (int k = 0; k < 4; k++)
+        {
+            var next = new List<Vector4>(cur.Count + 1);
+            for (int i = 0; i < cur.Count; i++)
+            {
+                Vector4 a = cur[i], b = cur[(i + 1) % cur.Count];
+                float fa = Plane(a, k), fb = Plane(b, k);
+                if (fa >= 0f) next.Add(a);
+                if ((fa >= 0f) != (fb >= 0f))
+                {
+                    float t = fa / (fa - fb);
+                    next.Add(a + (b - a) * t);
+                }
+            }
+            cur = next;
+            if (cur.Count < 3) return false;
+        }
+
+        minX = minY = float.MaxValue;
+        maxX = maxY = float.MinValue;
+        foreach (var c in cur)
+        {
+            float w = MathF.Abs(c.W) < PortalWClampBand ? PortalWClampSub : c.W;
+            float x = c.X / w, y = c.Y / w;
+            if (x < minX) minX = x; if (x > maxX) maxX = x;
+            if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+        return true;
     }
 
     /// <summary>
@@ -692,6 +921,19 @@ public sealed class WmoRenderer : IDisposable
     /// </summary>
     public float VertexColorScale { get; set; } = 2.0f;
 
+    /// <summary>Brightness multiplier on baked MOCV interior lighting (Deadmines
+    /// etc). >1 lifts the too-dark interior seen through a portal; exterior
+    /// (daylight/no-MOCV) geometry is on a different path and is untouched.</summary>
+    public float InteriorBrightness { get; set; } = 1.0f;
+
+    /// <summary>Beyond-portal fill light, driven per frame by GameLoop from the
+    /// nearest instance portal. Position is world-absolute (the renderer
+    /// subtracts the camera itself); colour is premultiplied by intensity;
+    /// radius 0 leaves the light off so exterior lighting is untouched.</summary>
+    public Vector3 PortalLightWorldPos { get; set; }
+    public Vector3 PortalLightColor { get; set; }
+    public float PortalLightRadius { get; set; }
+
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
     public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
     public float SunIntensity { get; set; } = 1.15f;
@@ -768,6 +1010,8 @@ public sealed class WmoRenderer : IDisposable
                 Origin = Vector3.Transform(new Vector3(w.PosX, w.PosY, w.PosZ), PlacementToWorld),
                 Path = w.ModelPath,
                 DoodadSet = w.DoodadSet,
+                AppearStart = ResolveAppearStart(
+                    $"{w.ModelPath}|{w.PosX:F2}|{w.PosY:F2}|{w.PosZ:F2}"),
             });
 
             VerifyPlacement(w, min, max);
@@ -1152,15 +1396,46 @@ public sealed class WmoRenderer : IDisposable
             if (UseDistanceLodShells && group.IsDistanceLod)
             {
                 var groupCentre = (groupMin + groupMax) * 0.5f;
-                if (ctx.CameraInside ||
-                    Vector3.DistanceSquared(ctx.CameraPosition, groupCentre) < ShellNearGuard * ShellNearGuard)
-                    return WmoReasonCode.ShellNearSuppressed;
+                bool suppress;
+                if (UsePortalCulling)
+                    // Portal culling gives a precise "have I crossed inside" signal,
+                    // so the silhouette (e.g. the cathedral) holds across the whole
+                    // approach/bridge and drops the instant you step into a cell -
+                    // instead of vanishing at the ShellNearGuard yard mark out on the
+                    // bridge. The yard guard is intentionally NOT applied here.
+                    suppress = ctx.CameraInCell;
+                else
+                    // Culling off: byte-identical to the tuned behaviour (CameraInside
+                    // OR within ShellNearGuard yards of the shell centre).
+                    suppress = ctx.CameraInside ||
+                        Vector3.DistanceSquared(ctx.CameraPosition, groupCentre) < ShellNearGuard * ShellNearGuard;
+                if (suppress) return WmoReasonCode.ShellNearSuppressed;
                 shell = true;
             }
-            else if (group.IsInterior)
+            else
             {
-                if (!ctx.CameraInside && groupDistance > InteriorCullDistance)
+                // benilla's visible[] gates EVERY group - true interiors (0x2000),
+                // the 0x40 "exterior-lit" street/roof cells that make up most of a
+                // city WMO, AND pure-EXTERIOR (0x08) shell groups. Exterior groups
+                // are kept drawing by the outdoor seed (when outside) or the
+                // deferred-exterior pass (inside, when a doorway to the sky is in
+                // view); with neither, they cull - which is what finally hides the
+                // trade-district roof once you are inside. Distance-LOD shells were
+                // already handled above and never reach here (D5 skyline intact).
+                if (ctx.ReachableGroups is not null)
+                {
+                    // PLAN_10 D2: the flood is authoritative. Reached => draw,
+                    // unreached => cull. Retires the 120-yd rule entirely.
+                    if (!ctx.ReachableGroups.Contains(group.GroupIndex))
+                        return WmoReasonCode.InteriorCull;
+                }
+                else if (group.IsInterior && !ctx.CameraInside && groupDistance > InteriorCullDistance)
+                {
+                    // D6 legacy heuristic (only when the flood couldn't seed): kept
+                    // interior-only, so with portal culling off/unseedable nothing
+                    // changes - exterior groups still always draw.
                     return WmoReasonCode.InteriorCull;
+                }
             }
 
             if (groupDistance > ctx.EffectiveDrawDistance)
@@ -2344,6 +2619,7 @@ public sealed class WmoRenderer : IDisposable
         TrianglesLastFrame = 0;
         _frameLargestWmoGroupCount = 0;
         OccludedGroupsLastFrame = 0;
+        PortalReachedLastFrame = 0;
         if (!Enabled || _shader is null || _instances.Count == 0)
         {
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -2364,9 +2640,14 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
         _shader.Set("uVertexColorScale", VertexColorScale);
+        _shader.Set("uInteriorBrightness", InteriorBrightness);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;
+        _shader.Set("uPortalLightPos",
+            PortalLightRadius > 0f ? PortalLightWorldPos - cameraPosition : Vector3.Zero);
+        _shader.Set("uPortalLightColor", PortalLightColor);
+        _shader.Set("uPortalLightRadius", PortalLightRadius);
         float effectiveDrawDistance = MathF.Min(DrawDistance, VisibilityDistance);
         bool cullingOn = true;
 
@@ -2385,16 +2666,71 @@ public sealed class WmoRenderer : IDisposable
             _shader.Set("uModel", modelTransform);
             _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
 
+            // Appear fade: scale this building's output alpha while it eases in.
+            // uAppearAlpha is ALWAYS set (a GL uniform defaults to 0, which would
+            // make every building invisible) - 1.0 is the resident/steady value.
+            float appearAlpha = 1f;
+            if (AppearFade && instance.AppearStart > 0f)
+            {
+                float t = Math.Clamp(
+                    (NowSeconds - instance.AppearStart) / MathF.Max(AppearFadeSeconds, 0.0001f), 0f, 1f);
+                appearAlpha = t * t * t;
+            }
+            _shader.Set("uAppearAlpha", appearAlpha);
+            bool instanceFading = AppearFade && appearAlpha < 0.999f;
+            if (instanceFading && appearAlpha <= 0f) continue;   // spawn frame: invisible, no depth
+
             // A city is one WMO instance containing many spatial groups. The
             // impostor swap and interior visibility both key off whether the
             // camera is inside one of this WMO's real cells (CameraInsideInstance),
             // which is Blizzard's approach-LOD model: shells show from outside,
             // detailed geometry from within.
             bool cameraInside = CameraInsideInstance(instance, cameraPosition);
+            // Precise "have I crossed into the CITY INTERIOR of THIS building"
+            // (PLAN_10 D1). Excludes pure-EXTERIOR cells: the Stormwind entrance keep
+            // 'thief01' is a 0x08 group with a 10M-yd^3 box that swallows the whole
+            // gate, so being in it is "at the gate", not "inside". Only a real
+            // interior (0x2000) or exterior-lit street (0x40) cell counts as inside,
+            // so the cathedral silhouette holds until you actually reach the streets.
+            bool cameraInCell = CameraGroup is { } camCell
+                && camCell.InstancePath == instance.Path && !camCell.IsExterior;
+
+            // PLAN_10 D1/D2 (benilla wmo_portal/mod.rs:355-372): flood the portal
+            // graph and let ClassifyGroup draw non-exterior groups only when reached.
+            //   - camera INSIDE a real cell of this building -> seed from that cell.
+            //   - camera OUTSIDE (or in another building) -> seed from every EXTERIOR
+            //     (0x08) group of THIS building, full-screen, and flood through the
+            //     doorways into the interiors. This is what hides Stormwind's roof
+            //     from the gate approach; the exterior shell/towers (0x08) always
+            //     draw, so the skyline is never lost (D5).
+            // D6: no portals, or the flood reaches nothing -> null -> heuristic runs.
+            HashSet<int>? reachable = null;
+            if (UsePortalCulling
+                && instance.Model.Portals.Count > 0
+                && instance.Model.PortalRefs.Count > 0)
+            {
+                if (CameraGroup is { } cg && cg.InstancePath == instance.Path)
+                {
+                    reachable = ComputeReachableGroups(
+                        instance, new[] { cg.GroupIndex }, cameraPosition, viewProjection);
+                }
+                else
+                {
+                    var extSeeds = new List<int>();
+                    foreach (var g in instance.Model.Groups)
+                        if ((g.GroupFlags & 0x08u) != 0) extSeeds.Add(g.GroupIndex);  // pure EXTERIOR
+                    if (extSeeds.Count > 0)
+                        reachable = ComputeReachableGroups(
+                            instance, extSeeds, cameraPosition, viewProjection);
+                }
+                if (reachable is { Count: 0 }) reachable = null;
+                PortalReachedLastFrame = reachable?.Count ?? 0;
+            }
 
             var visibleGroups = new List<GroupMesh>();
             int shellsDrawn = 0, shellsHidden = 0;
-            var cull = new FrameCullContext(cameraPosition, cameraInside, effectiveDrawDistance, viewProjection);
+            var cull = new FrameCullContext(
+                cameraPosition, cameraInside, effectiveDrawDistance, viewProjection, reachable, cameraInCell);
             foreach (var group in instance.Model.Groups)
             {
                 var (groupMin, groupMax) = TransformedBounds(group, instance.Transform);
@@ -2468,6 +2804,13 @@ public sealed class WmoRenderer : IDisposable
                     _gl.Enable(EnableCap.Blend);
                     _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
                 }
+                else if (instanceFading)
+                {
+                    // Fade the opaque groups too, but keep depth-write ON (benilla
+                    // wow_model.wgsl) so the building still occludes correctly.
+                    _gl.Enable(EnableCap.Blend);
+                    _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                }
 
                 foreach (var group in visibleGroups)
                 {
@@ -2514,6 +2857,10 @@ public sealed class WmoRenderer : IDisposable
                 {
                     _gl.Disable(EnableCap.Blend);
                     _gl.DepthMask(true);
+                }
+                else if (instanceFading)
+                {
+                    _gl.Disable(EnableCap.Blend);
                 }
             }
         }
@@ -2575,6 +2922,38 @@ public sealed class WmoRenderer : IDisposable
     /// rotation+translation, so distances are preserved) and tested against that
     /// group's retained triangles. A per-group local AABB prunes the misses.
     /// </summary>
+    /// <summary>
+    /// World-space triangles of ONE group, for the dev "highlight picked group"
+    /// overlay - so the exact geometry under discussion is unambiguous. Uses the
+    /// retained pick mesh (local space) transformed by the instance; absolute world
+    /// space, matching RenderHighlight's camera.ViewProjection. instancePath is the
+    /// full path (GroupHit.Root).
+    /// </summary>
+    public List<Vector3> GroupWorldTriangles(string instancePath, int groupIndex)
+    {
+        var tris = new List<Vector3>();
+        foreach (var instance in _instances)
+        {
+            if (!string.Equals(instance.Path, instancePath, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var g in instance.Model.Groups)
+            {
+                if (g.GroupIndex != groupIndex) continue;
+                var pos = g.PickPositions;
+                var idx = g.PickIndices;
+                for (int i = 0; i + 2 < idx.Length; i += 3)
+                {
+                    int a = idx[i], b = idx[i + 1], c = idx[i + 2];
+                    if (a < 0 || b < 0 || c < 0 || a >= pos.Length || b >= pos.Length || c >= pos.Length) continue;
+                    tris.Add(Vector3.Transform(pos[a], instance.Transform));
+                    tris.Add(Vector3.Transform(pos[b], instance.Transform));
+                    tris.Add(Vector3.Transform(pos[c], instance.Transform));
+                }
+                return tris;
+            }
+        }
+        return tris;
+    }
+
     public List<GroupHit> PickGroups(Camera camera, Vector3 rayOrigin, Vector3 rayDir, int max = 14)
     {
         var cameraPosition = camera.Position;
@@ -2591,7 +2970,8 @@ public sealed class WmoRenderer : IDisposable
 
             var cull = new FrameCullContext(
                 cameraPosition, CameraInsideInstance(instance, cameraPosition),
-                effectiveDrawDistance, viewProjection);
+                effectiveDrawDistance, viewProjection, null,
+                CameraGroup is { } pc && pc.InstancePath == instance.Path && !pc.IsExterior);
 
             foreach (var g in instance.Model.Groups)
             {

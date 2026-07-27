@@ -516,7 +516,12 @@ public sealed partial class GameLoop : IDisposable
         // Hand off to the budgeted, per-frame world loader (Program.Loading.cs).
         // It queues the terrain/WMO streaming, then StepWorldLoad advances it a
         // bounded slice per frame while DrawLoadingScreen covers it.
-        BeginWorldLoad(gl);
+        // Phase 2: create the network client, then start the world load ONLY when offline.
+        // Networked mode stays stateless (no world, no character) until SMSG_LOGIN_VERIFY_WORLD
+        // assigns a spawn point; PumpNet then sets _config.Start and calls BeginWorldLoad.
+        InitNet(gl);
+        if (!_config.Server.Enabled)
+            BeginWorldLoad(gl);
     }
 
     private void PopulateDoodads((int col, int row) centreTile, bool reportDiagnostics)
@@ -1028,9 +1033,18 @@ public sealed partial class GameLoop : IDisposable
         long updateStarted = Stopwatch.GetTimestamp();
         if (_controller is null) return;
 
+        // Advance the appear-fade clock every frame - during the loading build and
+        // after - so streamed-in doodads/buildings ease in instead of popping.
+        UpdateAppearFadeClock(dt);
+
         // Benilla-style: while the loading curtain is up, drive the budgeted
         // world build and skip gameplay (movement/residency) for this frame.
         if (_worldLoading) { StepWorldLoad(dt); return; }
+
+        PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
+
+        // Networked: stay stateless (no world/character) until login assigns a spawn point.
+        if (_config.Server.Enabled && !_worldLoadStarted) return;
 
         // Adopting ready terrain creates VAOs and installs height grids on this
         // thread; five tiles can land in one frame.
@@ -1498,6 +1512,8 @@ public sealed partial class GameLoop : IDisposable
         if (_terrain is not null) _terrain.Render(_window.Camera);
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Terrain);
 
+        UpdatePortalFillLight();
+
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Wmo);
         if (_wmo is not null) _wmo.OcclusionWorld = _collision;
         _wmo?.Render(_window.Camera);
@@ -1550,6 +1566,10 @@ public sealed partial class GameLoop : IDisposable
             _character.Render(_window.Camera, BuildUnitState());
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
+
+        // Streamed creatures/NPCs (networked). Opaque M2s like the player, so they
+        // belong here in the opaque pass, before transparent water/particles blend.
+        DrawCreatures();
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him
@@ -1623,6 +1643,7 @@ public sealed partial class GameLoop : IDisposable
         // FFXGlow whole-scene bloom over the finished world + particles, before the
         // curtain and HUD so neither blooms (benilla composites its UI over an
         // already-glowed world). Additive glow-only: the base scene is untouched.
+        DrawGlueScene(); // Phase 2 login glue scene (UI_MainMenu), networked + pre-world only
         _glow?.Apply();
 
         // The loading curtain over the still-streaming world. Drawn last so it
@@ -1752,6 +1773,8 @@ public sealed partial class GameLoop : IDisposable
         // call after the DevTools check would reproduce exactly the seam
         // violation the handbook already records against UpdateLightProbe.
         DrawSettingsModal();
+
+        NetHud(); // Phase 2 network status window (draws only when server.enabled)
 
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
@@ -2070,6 +2093,12 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  occluded groups: {_wmo.OccludedGroupsLastFrame}" +
                            $"{(_wmo.OcclusionCulling ? "" : "  (occlusion off)")}");
 
+                float interiorBright = _wmo.InteriorBrightness;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Interior brightness", ref interiorBright, 0.5f, 3f, "%.2f"))
+                    _wmo.InteriorBrightness = interiorBright;
+                ImGui.TextDisabled("   brightens MOCV-lit interiors (Deadmines etc.); exterior untouched");
+
                 bool visTrace = _wmo.VisTrace;
                 if (ImGui.Checkbox("Console visibility trace", ref visTrace))
                     _wmo.VisTrace = visTrace;
@@ -2168,6 +2197,24 @@ public sealed partial class GameLoop : IDisposable
                     ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f),
                         "  TOO MANY BONES - animation disabled, see the console");
                 ImGui.Text($"  {_character.VisiblePieces}/{_character.PieceCount} geoset(s) drawn");
+
+                // Head-texture status (the "gear texture on the head" bug). Green = the scalp is
+                // covered by a hair geoset; red = the bald base body shows through.
+                if (_character.ScalpCovered)
+                    ImGui.TextColored(new Vector4(0.5f, 0.95f, 0.55f, 1f), $"  head: {_character.HairResolution}");
+                else
+                    ImGui.TextColored(new Vector4(1f, 0.4f, 0.35f, 1f), $"  HEAD ISSUE: {_character.HairResolution}");
+                if (ImGui.TreeNode("Head / hair geosets"))
+                {
+                    foreach (var hline in _character.HeadDiag) ImGui.TextUnformatted("  " + hline);
+                    ImGui.TreePop();
+                }
+                if (ImGui.Button("Capture diagnostics -> file")) _character.SaveDiagnostics();
+                if (_character.LastDiagnosticPath is not null)
+                {
+                    ImGui.TextColored(new Vector4(0.6f, 0.9f, 1f, 1f), "  saved - send me this file:");
+                    ImGui.TextDisabled("  " + _character.LastDiagnosticPath);
+                }
 
                 if (_character.UnboundSlots > 0)
                     ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, 1f),
@@ -2572,6 +2619,10 @@ public sealed partial class GameLoop : IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _net?.Dispose();
+        _glue?.Dispose();
+        _creatures?.Dispose();
+
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }
         catch { /* Shutdown must continue after a failed background build. */ }
         _gpuProfiler?.Dispose();
@@ -2585,6 +2636,7 @@ public sealed partial class GameLoop : IDisposable
         _foliage?.Dispose();
         _wmo?.Dispose();
         _terrain?.Dispose();
+        DisposeLoadingArt();
         _sky?.Dispose();
         _glow?.Dispose();
         _uploads?.Dispose();

@@ -1092,6 +1092,13 @@ public sealed class MapRow
 
     public MapInstanceType InstanceType { get; init; }
 
+    /// <summary>
+    /// LoadingScreenID (Map.dbc field 38) - an FK into LoadingScreens.dbc that
+    /// selects this map's full-screen load art. 0 = no screen (dev/test maps).
+    /// Verified against build 5875: Azeroth(0) -> 4, Kalimdor(1) -> 3.
+    /// </summary>
+    public int LoadingScreenId { get; init; }
+
     public bool IsInstance => InstanceType != MapInstanceType.World;
 
     public override string ToString() => $"{Id} {Name} ({Directory})";
@@ -1107,6 +1114,13 @@ public sealed class MapTable
     private const int FieldDirectory = 1;
     private const int FieldInstanceType = 2;
     private const int FieldNameEnUs = 4;
+
+    /// <summary>
+    /// LoadingScreenID FK (build 5875: field 38, an id into LoadingScreens.dbc).
+    /// Read only when the file actually has this many fields, so a truncated or
+    /// unexpected DBC degrades to "no art" rather than reading past the record.
+    /// </summary>
+    private const int FieldLoadingScreen = 38;
 
     private readonly Dictionary<int, MapRow> _byId = [];
     private readonly List<MapRow> _all = [];
@@ -1150,6 +1164,8 @@ public sealed class MapTable
                 Directory = dir,
                 Name = dbc.GetString(r, FieldNameEnUs),
                 InstanceType = type <= 3 ? (MapInstanceType)type : MapInstanceType.World,
+                LoadingScreenId = dbc.FieldCount > FieldLoadingScreen
+                    ? dbc.GetInt(r, FieldLoadingScreen) : 0,
             };
 
             table._all.Add(row);
@@ -1158,6 +1174,59 @@ public sealed class MapTable
 
         Console.WriteLine($"[dbc] Map: {dbc.RecordCount} record(s), {dbc.FieldCount} field(s), " +
             $"{dbc.RecordSize} bytes; {table._all.Count} map(s) with a directory");
+        return table;
+    }
+}
+
+/// <summary>
+/// LoadingScreens.dbc - resolves a LoadingScreenID (Map.dbc field 38) to the
+/// map's full-screen load-art BLP path.
+///
+/// Verified against build 5875 (benilla-formats/loading_screen.rs): 3 fields
+/// (ID, Name string, FileName string), 12-byte records; field 0 = id, field 2 =
+/// the BLP path (e.g. Interface\Glues\LoadingScreens\LoadScreenEasternKingdom.blp).
+/// Continent art is shared - id 4 = Eastern Kingdoms, id 3 = Kalimdor - and the
+/// other rows are per-instance. Row order is NOT id order, so the id->path map
+/// is built by scanning field 0 rather than indexing by record.
+///
+/// NO GL - Formats/ rule. The caller decodes the BLP and uploads the texture.
+/// </summary>
+public sealed class LoadingScreenTable
+{
+    public const string MpqPath = @"DBFilesClient\LoadingScreens.dbc";
+
+    private const int FieldId = 0;
+    private const int FieldFileName = 2;
+
+    private readonly Dictionary<int, string> _byId = [];
+
+    /// <summary>The load-art BLP path for a LoadingScreenID, or null if absent.</summary>
+    public string? PathFor(int id) => _byId.TryGetValue(id, out var p) ? p : null;
+
+    public int Count => _byId.Count;
+
+    public static LoadingScreenTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount <= FieldFileName)
+        {
+            Console.WriteLine($"[dbc] LoadingScreens: {dbc.FieldCount} field(s), expected more " +
+                              $"than {FieldFileName}. NOT LOADED.");
+            return null;
+        }
+
+        var table = new LoadingScreenTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            string path = dbc.GetString(r, FieldFileName);
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            table._byId[dbc.GetInt(r, FieldId)] = path;
+        }
+
+        Console.WriteLine($"[dbc] LoadingScreens: {dbc.RecordCount} record(s); " +
+                          $"{table._byId.Count} screen(s) catalogued");
         return table;
     }
 }

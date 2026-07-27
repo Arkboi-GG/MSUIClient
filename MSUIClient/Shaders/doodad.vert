@@ -40,6 +40,12 @@ layout (location = 6) in vec4 aInstanceRow3;
 // existed. That default is load-bearing: terrain doodads never set it.
 layout (location = 7) in vec4 aInstanceLight;
 
+// Per-instance appear-fade START time, in the same seconds as uNow. <= 0 means
+// "no fade / already resident" (the GL default for a disabled attribute is 0,
+// which is exactly opaque). Set to the spawn time for a model streamed in while
+// the world is visible, so it eases in instead of popping. See model_fade.rs.
+layout (location = 8) in float aAppearStart;
+
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
@@ -47,11 +53,14 @@ uniform int  uUseInstancing;
 
 // Same payload as aInstanceLight, for the non-instanced draw path.
 uniform vec4 uInstanceLight;
+// Same payload as aAppearStart, for the non-instanced draw path.
+uniform float uAppearStart;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUV;
 out vec4 vLight;
+out float vAppearStart;
 
 void main()
 {
@@ -72,6 +81,7 @@ void main()
 
     vUV = aUV;
     vLight = uUseInstancing == 1 ? aInstanceLight : uInstanceLight;
+    vAppearStart = uUseInstancing == 1 ? aAppearStart : uAppearStart;
 
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world

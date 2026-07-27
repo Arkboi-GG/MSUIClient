@@ -25,6 +25,58 @@ public sealed partial class GameLoop
     private string _particleFilter = "";
     private bool _particlesOnlyAnimated;
 
+    /// <summary>
+    /// Beyond-portal fill light. Real 1.12 shows a lit room through an instance
+    /// portal; our interiors read as pitch black. Each frame we find the nearest
+    /// instance portal, drop a soft point light a little way PAST it (into the
+    /// room, along the camera->portal ray), and hand that world-space light to
+    /// the WMO and doodad renderers. When no portal is near, radius goes to 0 and
+    /// the light is off - exterior lighting is never touched. Knobs on the panel.
+    /// </summary>
+    private void UpdatePortalFillLight()
+    {
+        if (_particles is null) return;
+
+        // Pre-declared so it is definitely assigned even when the && short-circuits
+        // before TryGetNearestPortal runs (CS0165). Behaviour is unchanged: centre
+        // is only read below when havePortal is true, i.e. after the call ran.
+        Vector3 centre = default;
+        bool havePortal =
+            _particles.PortalLight &&
+            _particles.PortalLightIntensity > 0f &&
+            _particles.PortalLightRadius > 0f &&
+            _particles.TryGetNearestPortal(
+                _window.Camera.Position, 150f, out centre);
+
+        if (!havePortal)
+        {
+            if (_wmo is not null) _wmo.PortalLightRadius = 0f;
+            if (_doodads is not null) _doodads.PortalLightRadius = 0f;
+            return;
+        }
+
+        var eye = _window.Camera.Position;
+        var toPortal = centre - eye;
+        var dir = toPortal.LengthSquared() > 1e-4f
+            ? Vector3.Normalize(toPortal)
+            : _window.Camera.Forward;
+        var lightPos = centre + dir * _particles.PortalLightOffset;
+        var colour = _particles.PortalLightRgb();
+
+        if (_wmo is not null)
+        {
+            _wmo.PortalLightWorldPos = lightPos;
+            _wmo.PortalLightColor = colour;
+            _wmo.PortalLightRadius = _particles.PortalLightRadius;
+        }
+        if (_doodads is not null)
+        {
+            _doodads.PortalLightWorldPos = lightPos;
+            _doodads.PortalLightColor = colour;
+            _doodads.PortalLightRadius = _particles.PortalLightRadius;
+        }
+    }
+
     private void DrawParticlesPanel()
     {
         if (!ImGui.CollapsingHeader("Particles (PLAN_14)", ImGuiTreeNodeFlags.DefaultOpen)) return;
@@ -44,6 +96,31 @@ public sealed partial class GameLoop
             ImGui.SetNextItemWidth(160f);
             if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
                 _particles.DensityScale = density;
+
+            float spriteSize = _particles.SpriteSizeScale;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Sprite size x", ref spriteSize, 0.2f, 3f, "%.2f"))
+                _particles.SpriteSizeScale = spriteSize;
+            ImGui.TextDisabled("   shrink to separate the converging specks (less overlap = less 'cloud')");
+
+            float sharp = _particles.SpriteSharpness;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Sprite sharpness (mip bias)", ref sharp, -4f, 2f, "%.2f"))
+                _particles.SpriteSharpness = sharp;
+            ImGui.TextDisabled("   negative = crisper specks; 0 = soft trilinear (vapour). Portal only.");
+
+            float pHue = _particles.ParticleHueShift;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Particle hue shift", ref pHue, -0.5f, 0.5f, "%.3f"))
+                _particles.ParticleHueShift = pHue;
+            float pSat = _particles.ParticleSaturation;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Particle saturation", ref pSat, 0f, 2f, "%.2f"))
+                _particles.ParticleSaturation = pSat;
+            float pVal = _particles.ParticleValue;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Particle brightness", ref pVal, 0f, 2f, "%.2f"))
+                _particles.ParticleValue = pVal;
 
             // FFXGlow (whole-scene bloom) - the glaze. Owned by the game loop.
             if (_glow is not null)
@@ -71,6 +148,24 @@ public sealed partial class GameLoop
             if (ImGui.SliderFloat("  surface reach x", ref surfSize, 0.5f, 2.5f, "%.2f"))
                 _particles.PortalSurfaceSize = surfSize;
 
+            float surfHue = _particles.PortalSurfaceHue;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  film hue (0.58 blue -> 0.42 green)", ref surfHue, 0f, 1f, "%.3f"))
+                _particles.PortalSurfaceHue = surfHue;
+            float surfSat = _particles.PortalSurfaceSat;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  film saturation", ref surfSat, 0f, 1f, "%.2f"))
+                _particles.PortalSurfaceSat = surfSat;
+            float surfVal = _particles.PortalSurfaceVal;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  film brightness", ref surfVal, 0f, 2f, "%.2f"))
+                _particles.PortalSurfaceVal = surfVal;
+
+            float centreHole = _particles.PortalCentreHole;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("Portal see-through centre (yd)", ref centreHole, 0f, 6f, "%.2f"))
+                _particles.PortalCentreHole = centreHole;
+
             float portalScale = _particles.PortalScale;
             ImGui.SetNextItemWidth(160f);
             if (ImGui.SliderFloat("Portal circle size x", ref portalScale, 0.25f, 4f, "%.2f"))
@@ -85,12 +180,49 @@ public sealed partial class GameLoop
             if (ImGui.Button("Dump portal placements to console"))
                 _doodads?.DumpEmitterPlacements("Portal");
 
-            float spin = _particles.SpinRateScale;
+            float spin = _particles.ModelSpinScale;
             ImGui.SetNextItemWidth(160f);
-            if (ImGui.SliderFloat("Spin rate x", ref spin, 0.25f, 12f, "%.2f"))
-                _particles.SpinRateScale = spin;
-            ImGui.TextDisabled($"   arm sweep over one particle life: " +
-                               $"{113f * spin:F0} deg  (needs >180 for the two arms to meet)");
+            if (ImGui.SliderFloat("Spin rate x", ref spin, 0.1f, 6f, "%.2f"))
+                _particles.ModelSpinScale = spin;
+            ImGui.TextDisabled("   model-space portal spin (1.0 = authored). The legacy world-space" +
+                               " SpinRateScale did nothing here - this now drives the actual spin.");
+
+            // Beyond-portal fill light - lifts the too-dark instance interior seen
+            // through the portal WITHOUT touching exterior/daylight lighting.
+            ImGui.Separator();
+            bool plOn = _particles.PortalLight;
+            if (ImGui.Checkbox("Beyond-portal fill light", ref plOn))
+                _particles.PortalLight = plOn;
+
+            float plInt = _particles.PortalLightIntensity;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  fill intensity", ref plInt, 0f, 3f, "%.2f"))
+                _particles.PortalLightIntensity = plInt;
+
+            float plRad = _particles.PortalLightRadius;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  fill radius (yd)", ref plRad, 2f, 120f, "%.0f"))
+                _particles.PortalLightRadius = plRad;
+
+            float plOff = _particles.PortalLightOffset;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  reach past portal (yd)", ref plOff, -20f, 60f, "%.0f"))
+                _particles.PortalLightOffset = plOff;
+
+            float plHue = _particles.PortalLightHue;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  light hue", ref plHue, 0f, 1f, "%.3f"))
+                _particles.PortalLightHue = plHue;
+            float plSat = _particles.PortalLightSat;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  light saturation", ref plSat, 0f, 1f, "%.2f"))
+                _particles.PortalLightSat = plSat;
+            float plVal = _particles.PortalLightVal;
+            ImGui.SetNextItemWidth(160f);
+            if (ImGui.SliderFloat("  light brightness", ref plVal, 0f, 2f, "%.2f"))
+                _particles.PortalLightVal = plVal;
+            ImGui.TextDisabled("   active only near instance portals; exterior lighting untouched");
+            ImGui.Separator();
 
             int arms = _particles.SpawnArms;
             ImGui.SetNextItemWidth(160f);

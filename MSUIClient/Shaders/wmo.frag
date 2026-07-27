@@ -40,6 +40,22 @@ uniform int   uBatchType;
 // The classic render path's overbright factor. Blizzard halves MOCV at load
 // and doubles it at draw, so the authored range is [0, 2], not [0, 1].
 uniform float uVertexColorScale;
+uniform float uInteriorBrightness; // scales baked MOCV interior light only
+
+// Beyond-portal fill light. A soft point light dropped just past an instance
+// portal so the room seen through the doorway is not pitch black. Radius 0
+// disables it (set every frame no portal is near), and it is never applied to
+// exterior (daylight) batches, so outdoor lighting stays exactly as it was.
+uniform vec3  uPortalLightPos;    // camera-relative, same space as vWorldPos
+uniform vec3  uPortalLightColor;  // colour premultiplied by intensity
+uniform float uPortalLightRadius; // yards; 0 = off
+
+// Per-instance appear fade (benilla model_fade.rs), computed on the CPU and set
+// once per building. 1.0 = fully resident (the default and the steady state);
+// less than 1 while a just-streamed building eases in. Multiplies the OUTPUT
+// alpha only - lighting is untouched. The renderer enables blending for the
+// instance only while this is below 1, so opaque buildings are unaffected.
+uniform float uAppearAlpha;
 
 out vec4 FragColor;
 
@@ -76,7 +92,7 @@ void main()
     // vertex sits to a portal, which is what fades a doorway from baked light
     // to daylight; on interior batches the CPU fixup has already collapsed it
     // to 0 (baked only) or 255 (also take the sun, for exterior-lit groups).
-    vec3 baked = vColor.rgb * uVertexColorScale;
+    vec3 baked = vColor.rgb * uVertexColorScale * uInteriorBrightness;
     vec3 lighting;
     if (uBatchType == 1)
         lighting = mix(baked, light, vColor.a);
@@ -85,6 +101,16 @@ void main()
     else
         lighting = light;
 
+    // Beyond-portal fill light (see the uniform block). Added into the
+    // pre-albedo light term so it brightens the textured surface the way baked
+    // light does. Gated off exterior batches (type 3) so daylight is untouched.
+    if (uPortalLightRadius > 0.0 && uBatchType != 3)
+    {
+        float pd = distance(uPortalLightPos, vWorldPos);
+        float atten = clamp(1.0 - pd / uPortalLightRadius, 0.0, 1.0);
+        lighting += uPortalLightColor * (atten * atten);
+    }
+
     vec3 lit = albedo.rgb * lighting;
 
     float dist = distance(uCameraPos, vWorldPos);
@@ -92,5 +118,7 @@ void main()
 
     // Opaque and alpha-key batches draw with blending disabled, so retaining
     // texture alpha is harmless there and required by MOMT blend modes 2+.
-    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a);
+    // uAppearAlpha (default 1) scales the whole building down only while it eases
+    // in; at 1.0 this is byte-for-byte the original output.
+    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a * uAppearAlpha);
 }

@@ -62,17 +62,39 @@ public sealed class ParticleRenderer : IDisposable
     public bool PortalSurface { get; set; } = true;
 
     /// <summary>Peak opacity of that film (alpha-blended frost). Tunable.</summary>
-    public float PortalSurfaceAlpha { get; set; } = 0.16f;
+    public float PortalSurfaceAlpha { get; set; } = 0.106f;
 
     /// <summary>Film radius as a multiple of the emitter ring radius (>1 reaches
     /// past the ring toward the archway edge).</summary>
     public float PortalSurfaceSize { get; set; } = 1.2f;
 
+    /// <summary>Hue of the surface film (0..1 around the wheel). ~0.583 is the authored
+    /// blue; lower toward ~0.40-0.45 pushes it green.</summary>
+    public float PortalSurfaceHue { get; set; } = 0.424f;
+
+    /// <summary>Surface film colour saturation and brightness (with the hue above).</summary>
+    public float PortalSurfaceSat { get; set; } = 1.0f;
+    public float PortalSurfaceVal { get; set; } = 1.06f;
+
     /// <summary>Uniform scale of the whole portal disc (spawn ring, convergence,
     /// sprites AND the surface film) about its fixed centre. >1 pushes the dense
     /// outer ring outward - the knob to test whether vanilla hides it behind the
     /// archway walls, leaving a sparse open core in view. Model-space only.</summary>
-    public float PortalScale { get; set; } = 1f;
+    public float PortalScale { get; set; } = 1.01f;
+
+    /// <summary>Per-sprite size multiplier for the PORTAL (model-space) sprites only,
+    /// on top of the authored scale ramp. Below 1 shrinks each speck so the converging
+    /// sprites stop overlapping into a solid cloud and read as distinct specks.</summary>
+    public float SpriteSizeScale { get; set; } = 1.77f;
+
+    /// <summary>Mip LOD bias for portal sprites (handed to the frag shader). 0 = full
+    /// trilinear (soft; blurs a shrinking speck into vapour); negative sharpens toward
+    /// the base level so specks stay crisp. Portal-scoped; other effects keep 0.</summary>
+    public float SpriteSharpness { get; set; } = -4.0f;
+
+    /// <summary>Radius (yards) of the see-through centre: portal particles inside this
+    /// fade out so you look through the glass to the interior. 0 = off.</summary>
+    public float PortalCentreHole { get; set; } = 4.33f;
 
     /// <summary>Debug isolation: -1 draws all emitters; 0/1/... draws only that emitter
     /// index per model. Tells the portal's two emitters apart and spots a double-placed
@@ -90,7 +112,14 @@ public sealed class ParticleRenderer : IDisposable
     public float SimulationDistance { get; set; } = 120f;
 
     /// <summary>Global multiplier on every emitter's rate. 0 stops new spawns.</summary>
-    public float DensityScale { get; set; } = 1.09f;
+    public float DensityScale { get; set; } = 0.89f;
+
+    /// <summary>Portal particle colour tuning (MODEL-space emitters only, so it does
+    /// not touch torches etc). Hue shift around the wheel, plus saturation and
+    /// brightness multipliers on the authored colour - to push toward ocean blue.</summary>
+    public float ParticleHueShift { get; set; } = 0f;
+    public float ParticleSaturation { get; set; } = 1.15f;
+    public float ParticleValue { get; set; } = 1f;
 
     /// <summary>
     /// How a particle's motion is composed (benilla parity - see BENILLA_VS_MSUI_PORTAL.md).
@@ -109,7 +138,19 @@ public sealed class ParticleRenderer : IDisposable
 
     /// <summary>Model-space bone-spin rate multiplier. 1.0 = the authored rate (benilla
     /// plays it at 1x; the old 1.86 was a world-space compensation). Tuning knob only.</summary>
-    public float ModelSpinScale { get; set; } = 1.0f;
+    public float ModelSpinScale { get; set; } = 0.86f;
+
+    // Beyond-portal fill light. Tunable values only; GameLoop reads them each
+    // frame, finds the nearest portal via TryGetNearestPortal, and pushes a
+    // world-space light onto the WMO and doodad renderers. Kept here so every
+    // portal knob lives on one instrument.
+    public bool  PortalLight { get; set; } = true;
+    public float PortalLightIntensity { get; set; } = 0.85f;
+    public float PortalLightRadius { get; set; } = 34f;
+    public float PortalLightOffset { get; set; } = 10f;
+    public float PortalLightHue { get; set; } = 0.09f;
+    public float PortalLightSat { get; set; } = 0.16f;
+    public float PortalLightVal { get; set; } = 0.67f;
 
     /// <summary>
     /// Play a converging emitter's motion BACKWARDS: the particle starts where
@@ -761,6 +802,11 @@ public sealed class ParticleRenderer : IDisposable
             _gl.ActiveTexture(TextureUnit.Texture0);
             _gl.BindTexture(TextureTarget.Texture2D, tex.Handle);
 
+            // Portal (model-space) sprites take the sharpness knob; other effects
+            // keep full trilinear mips (bias 0) so nothing else changes.
+            _shader.Set("uMipBias",
+                pools.Count > 0 && pools[0].ModelSpace ? SpriteSharpness : 0f);
+
             UploadInstances();
             _gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)_scratch.Count);
             DrawnLastFrame += _scratch.Count;
@@ -795,6 +841,13 @@ public sealed class ParticleRenderer : IDisposable
             {
                 float t = p.Life > 0f ? p.Age / p.Life : 1f;
                 e.SampleRamp(t, out var rgba, out float scale);
+                if (ParticleHueShift != 0f || ParticleSaturation != 1f || ParticleValue != 1f)
+                    rgba = AdjustColor(rgba, ParticleHueShift, ParticleSaturation, ParticleValue);
+                if (PortalCentreHole > 0f)
+                {
+                    float rc = p.Position.Length() * PortalScale;
+                    if (rc < PortalCentreHole) rgba.W *= rc / PortalCentreHole;
+                }
                 if (scale <= 0f || rgba.W <= 0.002f) continue;
 
                 var spun = Vector3.Transform(p.Position * PortalScale, boneRot); // rotate about the pivot
@@ -803,7 +856,7 @@ public sealed class ParticleRenderer : IDisposable
                 _scratch.Add(new GpuParticle
                 {
                     Centre = centre,
-                    Size = scale * pool.Scale * PortalScale,
+                    Size = scale * pool.Scale * PortalScale * SpriteSizeScale,
                     Colour = rgba,
                 });
             }
@@ -876,7 +929,7 @@ public sealed class ParticleRenderer : IDisposable
                 _surfaceShader.Set("uViewProjection", camera.RelativeViewProjection);
                 _surfaceShader.Set("uCameraOrigin", camera.Position);
                 _surfaceShader.Set("uTime", (float)_time);
-                _surfaceShader.Set("uTint", new Vector3(0.60f, 0.80f, 1.0f));
+                _surfaceShader.Set("uTint", HsvToRgb(PortalSurfaceHue, PortalSurfaceSat, PortalSurfaceVal));
                 _gl.Enable(EnableCap.Blend);
                 _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
                 _gl.Enable(EnableCap.DepthTest);
@@ -909,6 +962,47 @@ public sealed class ParticleRenderer : IDisposable
             _gl.Enable(EnableCap.CullFace);
             _gl.Disable(EnableCap.Blend);
         }
+    }
+
+    /// <summary>Shift hue and scale saturation/brightness of an RGBA colour, alpha kept.</summary>
+    private static Vector4 AdjustColor(Vector4 c, float hueShift, float satMul, float valMul)
+    {
+        float r = c.X, g = c.Y, b = c.Z;
+        float max = MathF.Max(r, MathF.Max(g, b));
+        float min = MathF.Min(r, MathF.Min(g, b));
+        float v = max, d = max - min;
+        float s = max <= 0f ? 0f : d / max;
+        float h = 0f;
+        if (d > 1e-6f)
+        {
+            if (max == r) h = ((g - b) / d) % 6f;
+            else if (max == g) h = (b - r) / d + 2f;
+            else h = (r - g) / d + 4f;
+            h /= 6f;
+            if (h < 0f) h += 1f;
+        }
+        h += hueShift; h -= MathF.Floor(h);
+        s = Math.Clamp(s * satMul, 0f, 1f);
+        v = MathF.Max(0f, v * valMul);
+        return new Vector4(HsvToRgb(h, s, v), c.W);
+    }
+
+    private static Vector3 HsvToRgb(float h, float s, float v)
+    {
+        h = (h - MathF.Floor(h)) * 6f;
+        float c = v * s;
+        float x = c * (1f - MathF.Abs(h % 2f - 1f));
+        float m = v - c;
+        Vector3 rgb = (int)h switch
+        {
+            0 => new Vector3(c, x, 0f),
+            1 => new Vector3(x, c, 0f),
+            2 => new Vector3(0f, c, x),
+            3 => new Vector3(0f, x, c),
+            4 => new Vector3(x, 0f, c),
+            _ => new Vector3(c, 0f, x),
+        };
+        return new Vector3(rgb.X + m, rgb.Y + m, rgb.Z + m);
     }
 
     // The portal-surface film: a flat quad on the disc plane, camera-relative like
@@ -948,6 +1042,29 @@ void main()
     if (a <= 0.002) discard;
     FragColor = vec4(uTint * ripple, a);
 }";
+
+    /// <summary>Fill-light colour (HSV knobs premultiplied by intensity), for
+    /// GameLoop to hand to the world renderers.</summary>
+    public Vector3 PortalLightRgb() =>
+        HsvToRgb(PortalLightHue, PortalLightSat, PortalLightVal) * PortalLightIntensity;
+
+    /// <summary>World centre of the nearest instance portal (a model-space SPHERE
+    /// pool origin) to the camera, for the beyond-portal fill light. False if none
+    /// within <paramref name="maxDistance"/>.</summary>
+    public bool TryGetNearestPortal(Vector3 camera, float maxDistance, out Vector3 centre)
+    {
+        centre = default;
+        float best = maxDistance * maxDistance;
+        bool found = false;
+        foreach (var pool in _pools.Values)
+        {
+            if (!pool.ModelSpace || pool.Emitter.Shape != ParticleShape.Sphere) continue;
+            float d = Vector3.DistanceSquared(pool.Origin, camera);
+            if (d > best) continue;
+            best = d; centre = pool.Origin; found = true;
+        }
+        return found;
+    }
 
     private void SetBlend(byte blend)
     {

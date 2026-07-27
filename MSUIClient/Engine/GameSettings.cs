@@ -31,8 +31,9 @@ namespace MSUIClient.Engine;
 /// </summary>
 public sealed class GameSettings
 {
-    /// <summary>Bumped when a rename or a units change needs migration handling.</summary>
-    public int Version { get; set; } = 1;
+    /// <summary>Bumped when a rename or a units change needs migration handling.
+    /// v2: portal culling (PLAN_10) became the shipped default.</summary>
+    public int Version { get; set; } = 2;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -121,6 +122,18 @@ public sealed class GameSettings
         public float ShellNearGuard { get; set; } = 196f;
         public bool OcclusionCulling { get; set; }
         public float OcclusionMinDistance { get; set; } = 40f;
+
+        // PLAN_10 portal-traversal interior visibility (hides Stormwind's roof from
+        // inside, holds the cathedral silhouette across the approach). ON by default
+        // now that it is verified in-game - this is the expected 1.12 behaviour. The
+        // WMO panel toggle stays for A/B; set false here to boot with it off.
+        public bool WmoPortalCulling { get; set; } = true;
+
+        // Per-object appear fade (benilla model_fade.rs): streamed-in doodads and
+        // buildings ease in over AppearFadeSeconds instead of popping. On by
+        // default; set false to restore the original hard pop-in.
+        public bool AppearFade { get; set; } = true;
+        public float AppearFadeSeconds { get; set; } = 2f;
     }
 
     /// <summary>
@@ -565,6 +578,7 @@ public sealed class SettingsStore
                     // the file: a hand-edited percentage should take effect, and a
                     // curve change in a new build should reach an old file.
                     parsed.Settings.ResolveComposites();
+                    Migrate(parsed.Settings);
 
                     Console.WriteLine($"[settings] {path}  " +
                                       $"preset '{parsed.Settings.ActivePreset}', " +
@@ -585,6 +599,24 @@ public sealed class SettingsStore
         var fresh = GameSettings.Defaults();
         fresh.ResolveComposites();
         return new SettingsStore(path, fresh, new List<SettingsPreset>(), true);
+    }
+
+    /// <summary>
+    /// One-time forward migrations keyed on <see cref="GameSettings.Version"/>, so a
+    /// new shipped default reaches an existing settings.json instead of being pinned
+    /// to a stale value. Each step is idempotent and bumps the version; the user's
+    /// later choices (saved at the new version) are then respected.
+    /// </summary>
+    private static void Migrate(GameSettings s)
+    {
+        // v1 -> v2: WMO portal culling (PLAN_10) became the shipped default - it is
+        // the expected 1.12 behaviour (hides Stormwind's roof from inside, holds the
+        // cathedral silhouette on approach). Force it on once for pre-v2 files.
+        if (s.Version < 2)
+        {
+            s.Detail.WmoPortalCulling = true;
+            s.Version = 2;
+        }
     }
 
     /// <summary>Replace the live settings object (used by Cancel and by preset load).</summary>

@@ -2,7 +2,11 @@ using System.Diagnostics;
 using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Formats;
 using MSUIClient.World;
+// Silk.NET.OpenGL also defines a Texture type; disambiguate to ours, the same
+// way TerrainTextures/DoodadRenderer/WmoRenderer do.
+using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient;
 
@@ -35,12 +39,30 @@ public sealed partial class GameLoop
     private bool _worldLoading;
     private float _loadProgress;
     private float _loadCurtainAlpha = 1f;
+
+    /// <summary>Monotonic world clock in seconds, pushed to the renderers each
+    /// frame to drive the appear fade (benilla model_fade.rs).</summary>
+    private float _worldTime;
+
+    /// <summary>False until the loading curtain first lifts. Gates the appear fade
+    /// so the initial world is opaque behind the curtain and only objects streamed
+    /// in later ease in - benilla arms its fades on the same signal.</summary>
+    private bool _worldShown;
     private int _wmoWarmTotal = 1;
     private int _doodadWarmTotal = 1;
     private (int col, int row) _loadCentre;
     private WorldLoadPhase _loadPhase = WorldLoadPhase.Done;
     private readonly Stopwatch _loadClock = new();
     private readonly Stopwatch _loadPhaseClock = new();
+
+    /// <summary>
+    /// Decoded loading-screen backdrops keyed by BLP path, so re-entering a
+    /// continent doesn't re-decode. Owned here (disposed with the game),
+    /// referenced by the transient LoadingScreen through the GL handle only.
+    /// benilla caches identically (loading_screen.rs art_cache).
+    /// </summary>
+    private readonly Dictionary<string, Texture> _loadingArtCache =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Main-thread ms spent draining a warm queue per frame while the curtain is up.</summary>
     private const float LoadWarmBudgetMs = 12f;
@@ -80,6 +102,8 @@ public sealed partial class GameLoop
         _residentCentre = _loadCentre;
 
         _loadScreen = new LoadingScreen(gl);
+        if (_config.Render.LoadingScreenArt)
+            TryLoadLoadingArt(gl, _config.Start.Map);
         _worldLoading = true;
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
@@ -114,6 +138,71 @@ public sealed partial class GameLoop
     private bool PhaseTimedOut => _loadPhaseClock.Elapsed.TotalSeconds > LoadPhaseWatchdogSeconds;
 
     private void BumpProgress(float p) => _loadProgress = MathF.Max(_loadProgress, p);
+
+    /// <summary>
+    /// Advance the world clock and push it, plus the "world shown" gate, to the
+    /// renderers that fade streamed-in geometry. Called at the top of Update so it
+    /// runs during the loading build (placements stamped opaque) and afterwards
+    /// (new placements stamped NOW and eased in). AppearFade / AppearFadeSeconds
+    /// themselves come from the settings apply path, not here.
+    /// </summary>
+    private void UpdateAppearFadeClock(float dt)
+    {
+        _worldTime += dt;
+        if (_doodads is not null) { _doodads.NowSeconds = _worldTime; _doodads.WorldShown = _worldShown; }
+        if (_wmo is not null) { _wmo.NowSeconds = _worldTime; _wmo.WorldShown = _worldShown; }
+    }
+
+    /// <summary>
+    /// Resolve and set the map's real WoW loading-screen art on the curtain, via
+    /// the verified Map.dbc(field 38) -> LoadingScreens.dbc(field 2) -> BLP chain
+    /// (benilla loading_screen.rs / benilla-formats). Best-effort: any miss (no
+    /// MPQ, no FK for this map, missing BLP, decode failure) simply leaves the
+    /// plain dark curtain, so this can never block or fail a load.
+    ///
+    /// Map.dbc is read directly here rather than via EnsureInstanceData, which
+    /// runs in the Finish phase (too late) and also loads every WDT. The two
+    /// small DBC reads are cheap and the MPQ caches them.
+    /// </summary>
+    private void TryLoadLoadingArt(GL gl, int mapId)
+    {
+        if (_mpq is null || _loadScreen is null) return;
+        try
+        {
+            var mapBytes = _mpq.ReadFile(MapTable.MpqPath);
+            if (mapBytes is null) return;
+            int screenId = MapTable.Parse(mapBytes)?.Get(mapId)?.LoadingScreenId ?? 0;
+            if (screenId == 0) return;   // dev/test map, or the field is absent
+
+            var screenBytes = _mpq.ReadFile(LoadingScreenTable.MpqPath);
+            if (screenBytes is null) return;
+            string? path = LoadingScreenTable.Parse(screenBytes)?.PathFor(screenId);
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            if (!_loadingArtCache.TryGetValue(path, out var tex))
+            {
+                var blp = _mpq.ReadFile(path);
+                if (blp is null) return;
+                var bgra = BlpDecoder.GetPixels(blp, 0, out int w, out int h);
+                tex = Texture.From2D(gl, bgra, w, h, mipmaps: false, repeat: false);
+                _loadingArtCache[path] = tex;
+                Console.WriteLine($"[load] loading-screen art {path} ({w}x{h}) for map {mapId}");
+            }
+            _loadScreen.SetBackground(tex.Handle);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[load] loading-screen art unavailable (map {mapId}): {e.Message}");
+        }
+    }
+
+    /// <summary>Dispose the cached loading-screen textures. Called from GameLoop teardown
+    /// while the GL context is still current.</summary>
+    private void DisposeLoadingArt()
+    {
+        foreach (var t in _loadingArtCache.Values) t.Dispose();
+        _loadingArtCache.Clear();
+    }
 
     /// <summary>
     /// One frame of the world build. Pumped from Update while WorldLoading. Each
@@ -252,7 +341,13 @@ public sealed partial class GameLoop
                 EnsureInstanceData();
 
                 float? ground = _terrain?.SampleHeight(_config.Start.X, _config.Start.Y);
-                _controller?.Teleport(_config.Start.X, _config.Start.Y, ground ?? _config.Start.Z);
+                // Networked spawns are server-authoritative: the server placed us on the
+                // Stormwind WMO floor (Z well above the terrain skirt under the city).
+                // Re-sampling terrain here would drop us below the city and we would have
+                // to fly back up. Trust the server Z when networked; the controller's own
+                // ground resolution settles onto the WMO floor (collision is built by now).
+                _controller?.Teleport(_config.Start.X, _config.Start.Y,
+                    _config.Server.Enabled && _worldLoadStarted ? _config.Start.Z : (ground ?? _config.Start.Z));
                 if (_controller is not null) _window.Camera.Target = _controller.Position;
 
                 _terrain?.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
@@ -276,6 +371,11 @@ public sealed partial class GameLoop
                     $"WMO {_wmo?.PendingPreloads ?? 0} / M2 {_doodads?.PendingPreloads ?? 0} outer-ring still streaming");
 
                 BumpProgress(1f);
+                // The world is now on screen: arm the appear fade so anything
+                // streamed in from here on eases in instead of popping. The near
+                // world placed behind the curtain stays opaque (stamped while
+                // _worldShown was false), and the curtain's own fade covers it.
+                _worldShown = true;
                 SetLoadPhase(WorldLoadPhase.Fade);
                 break;
             }

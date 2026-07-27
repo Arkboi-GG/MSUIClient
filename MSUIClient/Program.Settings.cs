@@ -1433,6 +1433,9 @@ public sealed partial class GameLoop
             _wmo.OcclusionMinDistance = s.Detail.OcclusionMinDistance;
             _wmo.UseVertexColors = s.Lighting.WmoVertexColors;
             _wmo.VertexColorScale = s.Lighting.InteriorBrightness;
+            _wmo.UsePortalCulling = s.Detail.WmoPortalCulling;
+            _wmo.AppearFade = s.Detail.AppearFade;
+            _wmo.AppearFadeSeconds = s.Detail.AppearFadeSeconds;
 
             if (reclassify) _wmo.ReclassifyShells();
             _config.Render.WmoDistance = s.View.BuildingDistance;
@@ -1452,6 +1455,8 @@ public sealed partial class GameLoop
             _doodads.VertexColorScale = s.Lighting.LinkInteriorBrightness
                 ? s.Lighting.InteriorBrightness
                 : s.Lighting.DoodadInteriorBrightness;
+            _doodads.AppearFade = s.Detail.AppearFade;
+            _doodads.AppearFadeSeconds = s.Detail.AppearFadeSeconds;
 
             _config.Render.DoodadDistance = s.Detail.DoodadDistance;
 
