@@ -353,9 +353,22 @@ public class M2AnimTrack<T> where T : struct
         if (TryGetRangeSlice(sequenceIndex, startTimestampMs, endTimestampMs,
                              out int rangeStart, out int rangeEnd))
         {
-            uint firstTime = Timestamps[rangeStart];
-            for (int i = rangeStart; i < rangeEnd; i++)
-                yield return (Timestamps[i] - firstTime, Keys[i]);
+            // AnimationRange.End is INCLUSIVE — it is the index of the sequence's
+            // LAST keyframe. For a looping clip that final key sits at the band
+            // end and holds the loop-closing pose (equal to the key at the band
+            // start). Iterating [start, end) dropped it, so every clip ran a
+            // keyframe short of its own duration: the pose held its penultimate
+            // frame for the tail (up to ~200 ms) then SNAPPED back to the start —
+            // the "animation resets instead of looping" bug. Iterate INCLUSIVE and
+            // rebase to the band start so the clip runs 0..duration. A key whose
+            // timestamp falls outside the band is a whole-track sentinel reaching
+            // into another sequence — skip it (matches benilla's in_band filter).
+            for (int i = rangeStart; i <= rangeEnd; i++)
+            {
+                uint t = Timestamps[i];
+                if (t < startTimestampMs || t > endTimestampMs) continue;
+                yield return (t - startTimestampMs, Keys[i]);
+            }
             yield break;
         }
 
@@ -376,17 +389,21 @@ public class M2AnimTrack<T> where T : struct
         if (sequenceIndex < 0 || sequenceIndex >= Ranges.Count) return false;
 
         var range = Ranges[sequenceIndex];
-        if (range.Start >= range.End || range.End > Timestamps.Count || range.End > Keys.Count)
+        // AnimationRange.End is an INCLUSIVE key index, so it must be a valid slot
+        // in both arrays; End == Start is a legal single-key range.
+        if (range.End < range.Start ||
+            range.End >= (uint)Timestamps.Count || range.End >= (uint)Keys.Count)
             return false;
 
         start = (int)range.Start;
         end = (int)range.End;
 
         // Some vanilla character files repeat a whole-track sentinel range for
-        // every animation. Reject it when its timestamps do not fit this
-        // sequence and let the header-window fallback select the real keys.
+        // every animation. Reject it when its bracket keys do not fit this
+        // sequence's window and let the header-window fallback select the real
+        // keys. Both endpoints are inclusive: Timestamps[start] and Timestamps[end].
         uint first = Timestamps[start];
-        uint last = Timestamps[end - 1];
+        uint last = Timestamps[end];
         if (first < startTimestampMs || first > endTimestampMs ||
             last < startTimestampMs || last > endTimestampMs)
         {
@@ -568,6 +585,22 @@ public class M2ParticleEmitter
     /// <summary>Start / middle / end size in yards. Portal: 0.278 -> 0.972 -> 0.028.</summary>
     public float[] ScaleKeys { get; set; } = new float[3];
 
+    // ── Head-quad flipbook cell ramp (benilla-formats/particles.rs:770-798) ───
+    //
+    // The flame's sprite-sheet cell is driven PER PARTICLE by the particle's own
+    // age, not a global clock: each particle walks the FlameLick 4x4 sheet over
+    // its life. Two segments split at MidPoint, each an authored (begin,end) cell
+    // pair with a per-segment repeat count. Byte offsets confirmed against benilla:
+    // seg A (begin +0x168, end +0x16a), seg B (begin +0x16e, end +0x170); the
+    // repeat count is wedged between the pairs at +0x16c / +0x172. A 1x1 sheet has
+    // no flipbook and these stay 0 (SampleHeadCell short-circuits to cell 0).
+
+    /// <summary>Per-segment head-cell (begin, end) atlas indices — [0] = seg A, [1] = seg B.</summary>
+    public ushort[] HeadCellBegin { get; set; } = new ushort[2];
+    public ushort[] HeadCellEnd { get; set; } = new ushort[2];
+    /// <summary>Per-segment flipbook repeat count (+0x16c / +0x172); 1 = one pass over the segment.</summary>
+    public float[] HeadCellRepeat { get; set; } = new float[2] { 1f, 1f };
+
     // ── The emitter's bone spin (PLAN_14 §11) ────────────────────────────────
     //
     // THIS IS THE SWIRL. InstancePortal's two emitter bones carry an 18-key
@@ -658,6 +691,57 @@ public class M2ParticleEmitter
                (packed & 0xFF) / 255f,
                ((packed >> 24) & 0xFF) / 255f);
 
+    /// <summary>
+    /// The head-quad flipbook cell INDEX at life fraction t (0..1), driven by the particle's own
+    /// age — benilla's OverLife::sample + CellRamp::sample (benilla-formats/particles.rs:97-218).
+    /// Returns 0 for a non-flipbook (1x1) sheet. Two segments split at MidPoint; each segment
+    /// fraction gets the same endpoint inset as <see cref="SampleRamp"/>, then the CellRamp maps
+    /// it to floor(base + span*ct) &amp; 0xFF (forward arm base=begin,span=end-begin+1; reverse arm
+    /// base=begin+1,span=end-begin-1). The per-segment repeat count cycles the FLIPBOOK ONLY.
+    /// </summary>
+    public int SampleHeadCell(float t)
+    {
+        int cells = Math.Max(1, (int)TextureRows) * Math.Max(1, (int)TextureCols);
+        if (cells <= 1) return 0;
+        t = Math.Clamp(t, 0f, 1f);
+        float mid = Math.Clamp(MidPoint, 1e-3f, 1f);
+        int seg;
+        float st;
+        if (t <= mid) { seg = 0; st = t / mid; }
+        else { seg = 1; st = (t - mid) / MathF.Max(1f - mid, 1e-3f); }
+        st = Math.Clamp(st, 0f, 1f) * 0.99f + 0.005f;              // endpoint inset (as SampleRamp)
+        float rep = HeadCellRepeat[seg];
+        float ct = rep != 1f ? st * rep - MathF.Floor(st * rep) : st;   // repeat wrap: fract(t*rep)
+        return CellSample(HeadCellBegin[seg], HeadCellEnd[seg], ct);
+    }
+
+    // benilla CellRamp::new + ::sample: index = floor(base + span*t) & 0xFF (mod-256 column wrap).
+    private static int CellSample(ushort begin, ushort end, float ct)
+    {
+        int b = begin, e = end, baseC, span;
+        if (e >= b) { baseC = b; span = e - b + 1; }
+        else { baseC = b + 1; span = e - b - 1; }
+        return (int)MathF.Floor(baseC + span * ct) & 0xFF;
+    }
+
+    /// <summary>
+    /// The head cell as a UV sub-rectangle (u0, v0, du, dv) for the sprite sheet — (0,0,1,1) for a
+    /// non-flipbook (1x1) emitter, so the model-space swirls stay byte-identical. Atlas walk mirrors
+    /// benilla quads.rs:111-128 exactly: col = idx % cols (the column wraps; cols is a power of two
+    /// on every real sheet), row = (idx / cols) % rows (benilla lets the row run off and relies on
+    /// repeat addressing to land back on row 0 — the modulo reproduces that net result in-atlas).
+    /// </summary>
+    public Vector4 SampleHeadCellRect(float t)
+    {
+        int cols = Math.Max(1, (int)TextureCols);
+        int rows = Math.Max(1, (int)TextureRows);
+        if (cols * rows <= 1) return new Vector4(0f, 0f, 1f, 1f);
+        int idx = SampleHeadCell(t);
+        int cx = idx % cols;
+        int cy = (idx / cols) % rows;
+        return new Vector4(cx / (float)cols, cy / (float)rows, 1f / cols, 1f / rows);
+    }
+
     public bool AnyTrackAnimated
     {
         get
@@ -672,13 +756,21 @@ public class M2ParticleEmitter
 
     public string BlendName => BlendingType switch
     {
-        0 => "opaque", 1 => "alpha-key", 2 => "alpha", 3 => "no-alpha-add",
-        4 => "ADD", 5 => "mod", 6 => "mod2x", _ => $"?{BlendingType}",
+        0 => "opaque",
+        1 => "alpha-key",
+        2 => "alpha",
+        3 => "no-alpha-add",
+        4 => "ADD",
+        5 => "mod",
+        6 => "mod2x",
+        _ => $"?{BlendingType}",
     };
 
     public string TypeName => Shape switch
     {
-        ParticleShape.Sphere => "sphere", ParticleShape.Spline => "spline", _ => "plane",
+        ParticleShape.Sphere => "sphere",
+        ParticleShape.Spline => "spline",
+        _ => "plane",
     };
 }
 
@@ -1467,6 +1559,18 @@ public class M2Reader
                 e.ColorKeys[k] = ReadUInt32(data, o + 336 + k * 4);
                 e.ScaleKeys[k] = BitConverter.ToSingle(data, o + 348 + k * 4);
             }
+
+            // Head-quad flipbook cell ramps (benilla-formats/particles.rs:787-796). The ten u16s
+            // at +0x168..+0x17b are {headA, headB, tailA, tailB} with a per-segment repeat count
+            // WEDGED after each head pair: head A (begin +0x168, end +0x16a), repeat[0] +0x16c,
+            // head B (begin +0x16e, end +0x170), repeat[1] +0x172. Read faithfully (a u16 -> float
+            // repeat, no coercion): real flame emitters author 1 = one pass across the sheet.
+            e.HeadCellBegin[0] = ReadUInt16(data, o + 0x168);
+            e.HeadCellEnd[0] = ReadUInt16(data, o + 0x16A);
+            e.HeadCellRepeat[0] = ReadUInt16(data, o + 0x16C);
+            e.HeadCellBegin[1] = ReadUInt16(data, o + 0x16E);
+            e.HeadCellEnd[1] = ReadUInt16(data, o + 0x170);
+            e.HeadCellRepeat[1] = ReadUInt16(data, o + 0x172);
 
             // The ten tracks. Static evaluation only, exactly like
             // TransparencyStaticAlphas: one key is a constant and is read, more

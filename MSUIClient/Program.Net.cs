@@ -54,7 +54,7 @@ public sealed partial class GameLoop
         if (_character is not null) _character.Enabled = false;
 
         // The login-screen glue scene (UI_MainMenu burning gate). Best-effort; draws only if it loads.
-        try { if (_mpq is not null) _glue = new GlueScene(gl, _mpq); }
+        try { if (_mpq is not null) _glue = new GlueScene(gl, _mpq, _config); }
         catch (Exception ex) { Console.WriteLine($"[glue] init failed: {ex.Message}"); }
 
         // The networked creature/NPC renderer. Loads the creature DBCs; draws

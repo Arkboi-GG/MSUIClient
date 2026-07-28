@@ -144,7 +144,7 @@ public sealed class ParticleRenderer : IDisposable
     // frame, finds the nearest portal via TryGetNearestPortal, and pushes a
     // world-space light onto the WMO and doodad renderers. Kept here so every
     // portal knob lives on one instrument.
-    public bool  PortalLight { get; set; } = true;
+    public bool PortalLight { get; set; } = true;
     public float PortalLightIntensity { get; set; } = 0.85f;
     public float PortalLightRadius { get; set; } = 34f;
     public float PortalLightOffset { get; set; } = 10f;
@@ -304,8 +304,6 @@ public sealed class ParticleRenderer : IDisposable
         /// <summary>Emitter index within its model, for the solo/isolation debug.</summary>
         public int EmitterIndex;
 
-        /// <summary>Round-robin cursor over the spawn slots. See SpawnArms.</summary>
-        public int NextArm;
 
         /// <summary>xorshift, so each pool is independent and nothing shares Random.</summary>
         public float Rand()
@@ -352,6 +350,10 @@ public sealed class ParticleRenderer : IDisposable
         public Vector3 Centre;
         public float Size;
         public Vector4 Colour;
+        // Sprite-sheet cell (offset.xy, scale.xy); (0,0,1,1) = whole texture. Chosen PER PARTICLE
+        // by its own age (Fill -> M2ParticleEmitter.SampleHeadCellRect), so the flame flipbook is
+        // no longer a single global-clock cell for the whole draw group (that was the flicker).
+        public Vector4 CellRect;
     }
 
     // ── Frame ────────────────────────────────────────────────────────────────
@@ -552,7 +554,7 @@ public sealed class ParticleRenderer : IDisposable
                 // direction a symmetric spherical cone about +Z.
                 posZ = new Vector3(
                     e.EmissionAreaLength * 0.5f * pool.Symmetric(),
-                    e.EmissionAreaWidth  * 0.5f * pool.Symmetric(),
+                    e.EmissionAreaWidth * 0.5f * pool.Symmetric(),
                     0f);
                 if (e.ZSource != 0f)
                 {
@@ -562,9 +564,9 @@ public sealed class ParticleRenderer : IDisposable
                 else
                 {
                     float theta = pool.Symmetric() * e.VerticalRange;
-                    float phi   = pool.Symmetric() * e.HorizontalRange;
+                    float phi = pool.Symmetric() * e.HorizontalRange;
                     float st = MathF.Sin(theta), ct = MathF.Cos(theta);
-                    float sp = MathF.Sin(phi),   cp = MathF.Cos(phi);
+                    float sp = MathF.Sin(phi), cp = MathF.Cos(phi);
                     dirZ = new Vector3(st * cp, st * sp, ct);
                 }
             }
@@ -584,132 +586,104 @@ public sealed class ParticleRenderer : IDisposable
             };
         }
 
-        // ── DIRECTION: the format spec, not an approximation of it ───────────
+        // ── WORLD SPACE (benilla "anchored" birth, sim.rs:601-622) ───────────
         //
-        // wowdev.wiki/M2, verbatim, for a PLANE generator:
+        // The SAME emission kernel as the model-space branch above (benilla
+        // emit_local, particles.rs:314-347): born across the area rectangle with a
+        // NARROW spherical cone about the emitter's local +Z - polar
+        // theta = S11*verticalRange off straight-up, azimuth phi = S11*horizontalRange
+        // around it. The ONLY difference from model space is the transform: the
+        // emitter/bone placement is baked in at birth and the particle stored in
+        // world space (model space re-projects through the live bone each frame).
         //
-        //   verticalRange   "the maximum POLAR angle of the initial velocity;
-        //                    0 makes the velocity straight up (+z)"
-        //   horizontalRange "the maximum AZIMUTH angle of the initial velocity;
-        //                    0 makes the velocity have NO SIDEWAYS (y-axis)
-        //                    component"
-        //   emissionAreaLength / Width  "the width of the plane in the x-axis /
-        //                    y-axis"
-        //
-        // So they are ordinary spherical angles about +z, and every model this
-        // renderer has worn was wrong about them in a different way:
-        //
-        //   * the first cone sampled azimuth over the FULL circle regardless of
-        //     horizontalRange, which at vRange = pi is an isotropic sphere - the
-        //     volumetric plume;
-        //   * WoWee adds both ranges as componentwise jitter and normalises,
-        //     which is a cheap approximation, not the spec. It is why following
-        //     it got close and never right.
-        //
-        // The decisive clause is the second one. InstancePortal's horizontalRange
-        // is ZERO, so its velocity has NO y component at all: the direction is
-        // confined to the model's XZ plane. It is a FLAT FAN, and the bone's
-        // full revolution sweeps that fan. Nothing here is 3D.
-        //
-        // Both angles are sampled symmetrically about the axis - "drifting away
-        // vertically... they can do it horizontally too" describes a spread
-        // either side, and a one-sided [0, range] sample would throw every
-        // particle to the same side of the emitter.
-        float lx = e.EmissionAreaLength * 0.5f * pool.Symmetric();
-        float ly = e.EmissionAreaWidth * 0.5f * pool.Symmetric();
-
-        // WoWee's formula, kept - and MEASURED to be the right shape, which the
-        // spec-literal reading was not. See PLAN_14 §19: after the axis swap and
-        // the bone spin, this produces directions whose component along the ring
-        // mesh's NORMAL is exactly 0.000 across 4000 samples. Every particle
-        // stays in the plane of the disc the model is built from. The polar/
-        // azimuth reading put a mean 0.636 out-of-plane component in, which is
-        // strictly worse and is why it looked like nothing changed.
-        var dirRaw = new Vector3(
-            pool.Symmetric() * e.HorizontalRange,
-            pool.Symmetric() * e.HorizontalRange,
-            1f + pool.Symmetric() * e.VerticalRange);
-
-        float lenSq = dirRaw.LengthSquared();
-        dirRaw = lenSq > 1e-6f ? dirRaw * (1f / MathF.Sqrt(lenSq)) : new Vector3(0f, 0f, 1f);
-
-        // Swapped once into the Y-up space the placement matrix expects, the
-        // same `(x, y, z) -> (x, z, -y)` the vertices and the emitter position
-        // get.
-        var dirLocal = Swap(dirRaw);
-
-        // THE BONE SPIN. WoWee multiplies the direction by the bone matrix, and
-        // for InstancePortal that bone turns a full revolution every 3.33 s - so
-        // a direction fixed along one axis sweeps a complete circle, and the
-        // particles trace a flat rotating disc. Direction and spin together are
-        // what make the shape; neither does it alone.
-        var spin = e.SampleBoneRotation(_time * SpinRateScale);
-
-        // Put this particle on the next slot of the clock face. Round-robin
-        // rather than random: it is what keeps the streams evenly separated and
-        // staggered instead of clumping. The axis is the bone's own rotation
-        // axis, which for InstancePortal is local X.
-        float phase = 0f;
-        if (SpawnArms > 0)
+        // WHY THE FLAME USED TO SPRAY EVERY WAY. The old path read horizontalRange
+        // as a raw +/-range JITTER added straight onto X and Y:
+        //     dir = (S11*hRange, S11*hRange, 1 + S11*vRange)
+        // For the InstancePortal (hRange 0) that collapses to +/-Z, and the bone
+        // sweep drew the disc - so it measured right on the one model it was tuned
+        // against. But a brazier authors hRange = 2*pi: the +/-6.28 on X and Y swamp
+        // the 1.0 on Z, normalise to almost pure horizontal, and the flame fires in
+        // every direction at once - the "omnidirectional, not rising" bug. benilla
+        // never does this; horizontalRange is an AZIMUTH ANGLE, so 2*pi just means
+        // "any way around" while verticalRange holds the cone a few degrees off
+        // straight up. The cone then rides the emitter's up axis and the fire climbs
+        // from the top of the brazier. The portal is now a model-space emitter and
+        // never reaches this branch, so nothing it needs is lost - and gone with the
+        // jitter are the 24-slot clock face and the fast direction spin, both portal
+        // choreography with no place in a flame.
+        Vector3 wposZ, wdirZ;
+        if (e.Shape == ParticleShape.Sphere)
         {
-            phase = MathF.Tau * (pool.NextArm % SpawnArms) / SpawnArms;
-            pool.NextArm++;
-            if (SpawnPhaseJitter > 0f)
-                phase += MathF.Tau / SpawnArms * SpawnPhaseJitter * pool.Symmetric() * 0.5f;
+            // areaLength/areaWidth are min/max radius for a sphere emitter.
+            float r = e.EmissionAreaLength
+                    + pool.Rand() * MathF.Max(0f, e.EmissionAreaWidth - e.EmissionAreaLength);
+            float lat = pool.Symmetric() * e.VerticalRange;
+            float lon = pool.Symmetric() * e.HorizontalRange;
+            float clat = MathF.Cos(lat), slat = MathF.Sin(lat);
+            float clon = MathF.Cos(lon), slon = MathF.Sin(lon);
+            var shell = new Vector3(clat * clon, clat * slon, slat);
+            wposZ = r * shell;
+            if (e.ZSource != 0f)
+            {
+                wdirZ = wposZ - new Vector3(0f, 0f, e.ZSource);
+                wdirZ = wdirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(wdirZ) : Vector3.UnitZ;
+            }
+            else if ((e.Flags & 0x100) != 0) wdirZ = Vector3.UnitZ;   // sphere_up
+            else wdirZ = shell;                                       // radial
         }
-        else if (SpawnPhaseJitter > 0f)
+        else
         {
-            phase = MathF.Tau * SpawnPhaseJitter * pool.Symmetric();
+            // Plane (spline falls back to plane): born across the area rectangle,
+            // direction a symmetric spherical cone about +Z.
+            wposZ = new Vector3(
+                e.EmissionAreaLength * 0.5f * pool.Symmetric(),
+                e.EmissionAreaWidth * 0.5f * pool.Symmetric(),
+                0f);
+            if (e.ZSource != 0f)
+            {
+                wdirZ = wposZ - new Vector3(0f, 0f, e.ZSource);
+                wdirZ = wdirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(wdirZ) : Vector3.UnitZ;
+            }
+            else
+            {
+                float theta = pool.Symmetric() * e.VerticalRange;
+                float phi = pool.Symmetric() * e.HorizontalRange;
+                float st = MathF.Sin(theta), ct = MathF.Cos(theta);
+                float sp = MathF.Sin(phi), cp = MathF.Cos(phi);
+                wdirZ = new Vector3(st * cp, st * sp, ct);
+            }
         }
 
-        if (phase != 0f)
-            spin = Quaternion.Concatenate(
-                spin, Quaternion.CreateFromAxisAngle(Vector3.UnitX, phase));
-        dirLocal = Vector3.Transform(dirLocal, spin);
+        // R(+Z,90) prepend, then Swap into the Y-up frame the placement matrix
+        // expects - identical to the model-space path and emit_local's rot90 tail.
+        var wlocalPos = Swap(Rot90Z(wposZ));
+        var wlocalDir = Swap(Rot90Z(wdirZ));
 
-        // ── SPAWN ACROSS THE EMISSION AREA ───────────────────────────────────
-        //
-        // WoWee spawns every particle at the emitter point and never reads
-        // emissionAreaLength/Width. I followed that for one commit and it was a
-        // mistake: **WoWee's particle path never runs for this model at all.**
-        // `m2_renderer_particles.cpp` opens its spawn loop with
-        // `if (gpu.isInstancePortal) return;` and substitutes two hand-authored
-        // glow sprites in the renderer instead. Its omission of the area is
-        // therefore not evidence about portals - it is untested code for this
-        // case, and harmless for the rest only because every other emitter's
-        // area is 0.007..0.5 where the difference does not show.
-        //
-        // The portal's area is 4.167 and the waterfall's is 18.0. Born at a
-        // single point with a direction that sweeps, particles trace one thin
-        // coherent ribbon - the sharp arcs. Born across the authored rectangle,
-        // the same sweep smears into a soft sheet, which is what the real client
-        // draws.
-        //
-        // The rectangle is carried by the bone spin too, so the plane turns with
-        // the direction rather than staying flat while the direction rotates
-        // through it - and for a converging emitter that turn is what makes the
-        // inward path a SPIRAL rather than a straight fall to the centre.
-        var spawnLocal = Vector3.Transform(Swap(new Vector3(lx, ly, 0f)), spin);
+        // Bake the emitter bone's orientation at birth (benilla's placement.rotation
+        // carries the bone). A static brazier bone is Identity, so local +Z stays
+        // world up and the cone rises straight from the brazier; an animated emitter
+        // bone rides its live pose. No SpinRateScale here - that was the portal sweep.
+        var boneRot = e.SampleBoneRotation(_time);
+        wlocalPos = Vector3.Transform(wlocalPos, boneRot);
+        wlocalDir = Vector3.Transform(wlocalDir, boneRot);
 
+        // Then the placement's rotation + scale (its translation is the emitter
+        // origin, added below): benilla's placement.rotation * (scale * dir).
         var rotation = pool.Transform;
         rotation.M41 = rotation.M42 = rotation.M43 = 0f;
 
-        var offsetWorld = Vector3.Transform(spawnLocal, rotation);
-        var dirWorld = Vector3.Normalize(Vector3.TransformNormal(dirLocal, rotation));
+        var offsetWorld = Vector3.Transform(wlocalPos, rotation);
+        var dirWorld = Vector3.TransformNormal(wlocalDir, rotation);
+        dirWorld = dirWorld.LengthSquared() > 1e-12f ? Vector3.Normalize(dirWorld) : Vector3.UnitY;
 
-        // The placement's scale reaches the spawn rectangle for free, because
-        // the matrix carries it - but Normalize drops it from the direction and
-        // nothing carried it into the sprite size. A doodad placed at scale 2
-        // would get a correctly doubled emission area, half-size sprites and
-        // unscaled speed: three different worlds in one effect.
         float speed = e.EmissionSpeed * (1f + e.SpeedVariation * pool.Symmetric()) * pool.Scale;
 
-        var velocity = dirWorld * speed;      // NEGATIVE speed pulls inward. H4.
+        var velocity = dirWorld * speed;
         var position = origin + offsetWorld;
 
-        // TIME REVERSAL. Start where this particle would have ENDED and travel
-        // back. Applied only to converging emitters - the ones the author gave a
-        // negative speed - so torches, campfires and waterfalls are untouched.
+        // TIME REVERSAL. Start where the particle would have ENDED and travel back -
+        // converging (negative-speed) emitters only, so a waterfall spirals inward
+        // while fire, fountaining outward at positive speed, is untouched.
         if (ReverseConverging && e.EmissionSpeed < 0f)
         {
             position += velocity * e.Lifespan;
@@ -728,6 +702,18 @@ public sealed class ParticleRenderer : IDisposable
     // ── Draw ─────────────────────────────────────────────────────────────────
 
     public unsafe void Render(Camera camera)
+        => RenderInternal(camera.RelativeViewProjection, camera.Position, camera.Forward,
+                          Vector3.UnitZ, camera.FlatRight, camera);
+
+    // Off-camera path (the login glue scene): draw the live pools through an arbitrary
+    // view. worldUp orients the billboard basis (Y-up for the glue scene); fallbackRight
+    // covers the degenerate look-along-up case. No portal-surface film (a world-only effect).
+    public unsafe void Render(Matrix4x4 relativeViewProjection, Vector3 eye, Vector3 forward,
+                              Vector3 worldUp, Vector3 fallbackRight)
+        => RenderInternal(relativeViewProjection, eye, forward, worldUp, fallbackRight, null);
+
+    private unsafe void RenderInternal(Matrix4x4 relativeViewProjection, Vector3 eye, Vector3 forward,
+                                       Vector3 worldUp, Vector3 fallbackRight, Camera? portalCamera)
     {
         DrawnLastFrame = 0;
         DrawMilliseconds = 0.0;
@@ -737,7 +723,7 @@ public sealed class ParticleRenderer : IDisposable
 
         // The flat portal-surface film, drawn BEFORE the sprites so they sit over
         // it (interior geometry -> frost film -> additive particles).
-        if (PortalSurface) DrawPortalSurfaces(camera);
+        if (PortalSurface && portalCamera is not null) DrawPortalSurfaces(portalCamera);
 
         // Group by texture AND blend mode: one draw per combination, and the
         // blend state changes between groups.
@@ -754,15 +740,14 @@ public sealed class ParticleRenderer : IDisposable
 
 
         _shader.Use();
-        _shader.Set("uViewProjection", camera.RelativeViewProjection);
-        _shader.Set("uCameraOrigin", camera.Position);
+        _shader.Set("uViewProjection", relativeViewProjection);
+        _shader.Set("uCameraOrigin", eye);
         // Screen-facing basis. Cross(forward, worldUp) degenerates when the
         // camera looks straight down - which is exactly how you look at a portal
         // on the ground - so fall back to the camera's flat right vector, which
         // is always defined.
-        var forward = camera.Forward;
-        var right = Vector3.Cross(forward, Vector3.UnitZ);
-        right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : camera.FlatRight;
+        var right = Vector3.Cross(forward, worldUp);
+        right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : fallbackRight;
         var up = Vector3.Normalize(Vector3.Cross(right, forward));
 
         _shader.Set("uRight", right);
@@ -806,6 +791,19 @@ public sealed class ParticleRenderer : IDisposable
             // keep full trilinear mips (bias 0) so nothing else changes.
             _shader.Set("uMipBias",
                 pools.Count > 0 && pools[0].ModelSpace ? SpriteSharpness : 0f);
+
+            // Sprite-sheet flipbook (e.g. FlameLick's 4x4 flame sheet): the cell is now chosen
+            // PER PARTICLE by its own age in Fill (GpuParticle.CellRect via SampleHeadCellRect)
+            // and uploaded per instance as aCellRect — NOT one global-clock cell for the whole
+            // draw group, which flipped every sprite in lockstep 24x/s and read as flicker. A
+            // rows==cols==1 emitter uploads (0,0,1,1), so the model-space swirls stay byte-identical.
+            // Here we only still detect a flipbook group to bias its mips toward the sharp base
+            // level (a sub-cell minified through the whole sheet washes out to vapour).
+            var fem = pools.Count > 0 ? pools[0].Emitter : null;
+            int fcols = fem is not null ? Math.Max(1, (int)fem.TextureCols) : 1;
+            int frows = fem is not null ? Math.Max(1, (int)fem.TextureRows) : 1;
+            if (frows * fcols > 1)
+                _shader.Set("uMipBias", -4f);
 
             UploadInstances();
             _gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)_scratch.Count);
@@ -858,6 +856,7 @@ public sealed class ParticleRenderer : IDisposable
                     Centre = centre,
                     Size = scale * pool.Scale * PortalScale * SpriteSizeScale,
                     Colour = rgba,
+                    CellRect = e.SampleHeadCellRect(t),   // (0,0,1,1) for the 1x1 swirls: unchanged
                 });
             }
             return;
@@ -887,6 +886,7 @@ public sealed class ParticleRenderer : IDisposable
                 Centre = p.Position,
                 Size = scale * pool.Scale,
                 Colour = rgba,
+                CellRect = e.SampleHeadCellRect(t),   // per-particle flame cell; (0,0,1,1) if 1x1
             });
         }
     }
@@ -1149,7 +1149,7 @@ void main()
         _instanceVbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
 
-        const uint stride = 8 * sizeof(float);          // centre(3) size(1) colour(4)
+        const uint stride = 12 * sizeof(float);         // centre(3) size(1) colour(4) cellRect(4)
         _gl.EnableVertexAttribArray(1);
         _gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
         _gl.VertexAttribDivisor(1, 1);
@@ -1162,21 +1162,30 @@ void main()
         _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, stride, (void*)(4 * sizeof(float)));
         _gl.VertexAttribDivisor(3, 1);
 
+        // Per-particle flipbook cell rect (offset.xy, scale.xy) — location 4, one per instance.
+        // Non-flipbook pools upload (0,0,1,1), so the model-space swirls sample the whole texture
+        // exactly as before. This is the buffer the flame flipbook now rides, per particle.
+        _gl.EnableVertexAttribArray(4);
+        _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, stride, (void*)(8 * sizeof(float)));
+        _gl.VertexAttribDivisor(4, 1);
+
         _gl.BindVertexArray(0);
     }
 
     private unsafe void UploadInstances()
     {
         int count = _scratch.Count;
-        var data = new float[count * 8];
+        var data = new float[count * 12];
         for (int i = 0; i < count; i++)
         {
             var g = _scratch[i];
-            int o = i * 8;
+            int o = i * 12;
             data[o] = g.Centre.X; data[o + 1] = g.Centre.Y; data[o + 2] = g.Centre.Z;
             data[o + 3] = g.Size;
             data[o + 4] = g.Colour.X; data[o + 5] = g.Colour.Y;
             data[o + 6] = g.Colour.Z; data[o + 7] = g.Colour.W;
+            data[o + 8] = g.CellRect.X; data[o + 9] = g.CellRect.Y;
+            data[o + 10] = g.CellRect.Z; data[o + 11] = g.CellRect.W;
         }
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _instanceVbo);
