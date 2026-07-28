@@ -18,6 +18,7 @@ public sealed partial class GameLoop
 {
     private bool _showPortalPolygons;
     private bool _portalDebugOnlyCameraWmo = true;
+    private bool _highlightPickedGroup;
 
     /// <summary>
     /// Draw the portal quads, reusing the collision debug renderer's
@@ -30,10 +31,22 @@ public sealed partial class GameLoop
     /// </summary>
     private void DrawPortalDebug()
     {
-        if (!_showPortalPolygons || _wmo is null || _collisionDebug is null) return;
+        if (_wmo is null || _collisionDebug is null) return;
 
-        var tris = _wmo.PortalDebugTriangles(_portalDebugOnlyCameraWmo);
-        if (tris.Count >= 3) _collisionDebug.RenderHighlight(_window.Camera, tris);
+        if (_showPortalPolygons)
+        {
+            var tris = _wmo.PortalDebugTriangles(_portalDebugOnlyCameraWmo);
+            if (tris.Count >= 3) _collisionDebug.RenderHighlight(_window.Camera, tris);
+        }
+
+        // Solid highlight of the last picked group (drawn through walls) so there
+        // is zero ambiguity about which geometry we are calling "the roof".
+        if (_highlightPickedGroup && _lastPick.Count > 0)
+        {
+            var h = _lastPick[0];
+            var gt = _wmo.GroupWorldTriangles(h.Root, h.GroupIndex);
+            if (gt.Count >= 3) _collisionDebug.RenderHighlight(_window.Camera, gt);
+        }
     }
 
     private void DrawPortalPanel()
@@ -45,6 +58,20 @@ public sealed partial class GameLoop
             ImGui.TextDisabled("no WMO renderer");
             return;
         }
+
+        // PLAN_10 D7 - the traversal on/off switch. THIS is the control that hides
+        // Stormwind's roof (and every unreachable interior) from inside. Live A/B,
+        // and mirrored into settings so it survives a save. Default off: flip it on,
+        // walk into the city, and confirm the roof is gone with no missing walls.
+        bool portalCull = _wmo.UsePortalCulling;
+        if (ImGui.Checkbox("Portal culling (hide unreachable interiors)", ref portalCull))
+        {
+            _wmo.UsePortalCulling = portalCull;
+            Settings.Detail.WmoPortalCulling = portalCull;
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled($"reached {_wmo.PortalReachedLastFrame} interior group(s)");
+        ImGui.Separator();
 
         var cell = _wmo.CameraGroup;
         if (cell is { } c)
@@ -80,6 +107,19 @@ public sealed partial class GameLoop
         ImGui.TextDisabled("  doorways should stand IN the door openings. One lying in a");
         ImGui.TextDisabled("  floor or floating in a wall means the transform or vertex");
         ImGui.TextDisabled("  range is wrong - and no traversal built on it can be right.");
+
+        ImGui.Separator();
+        bool hi = _highlightPickedGroup;
+        if (ImGui.Checkbox("Highlight picked group (solid, through walls)", ref hi))
+            _highlightPickedGroup = hi;
+        ImGui.TextDisabled("  MIDDLE-CLICK the geometry in question; it glows so there is no");
+        ImGui.TextDisabled("  doubt which group + flags we are talking about.");
+        if (_lastPick.Count > 0)
+        {
+            var h = _lastPick[0];
+            ImGui.Text($"  picked: [{h.GroupIndex}] '{h.Name}'  0x{h.Flags:X8}  " +
+                       $"{(h.Interior ? "INT" : "ext")}{(h.Shell ? " LOD" : "")}  -> {h.Reason}");
+        }
 
         if (ImGui.Button("Dump portal graph")) _wmo.DumpPortalGraph();
 

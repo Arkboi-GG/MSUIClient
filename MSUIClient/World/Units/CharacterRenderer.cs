@@ -216,6 +216,13 @@ public sealed class CharacterRenderer : IDisposable
     /// <summary>Category and variant of every geoset currently drawn.</summary>
     public List<(int Category, int Variant)> ActiveGeosets { get; private set; } = [];
 
+    // Head-texture diagnostics (surfaced live in the HUD + a Capture-to-file button).
+    public string HairResolution { get; private set; } = "";
+    public bool ScalpCovered { get; private set; }
+    private readonly List<string> _headDiag = new();
+    public IReadOnlyList<string> HeadDiag => _headDiag;
+    public string? LastDiagnosticPath { get; private set; }
+
     /// <summary>
     /// Hide the hairstyle without hiding the body.
     ///
@@ -441,6 +448,7 @@ public sealed class CharacterRenderer : IDisposable
         }
 
         _m2 = m2;
+        ResetModelState();   // re-Load safe: drop the previous model before the appending builders run
 
         Console.WriteLine(
             $"[character] {ModelPath}: {m2.Vertices.Count:N0} verts, {m2.Indices.Count / 3:N0} tris, " +
@@ -882,6 +890,22 @@ public sealed class CharacterRenderer : IDisposable
                 slot.Source = usedSkinPath;
             }
 
+            // A hair (type 6) slot with no CharSections row must NOT be left to sample
+            // a stale/dressed atlas (armour bleeds onto the head). Fall back to the race
+            // convention hair BLP, like benilla (Character\<Race>\Hair00_00.blp).
+            if (slot.Fill == SlotFill.Unbound && reference.Type == 6)
+            {
+                foreach (string candidate in HairFallbackCandidates())
+                {
+                    slot.Texture = MakeTexture(candidate, out float cutoff);
+                    if (slot.Texture is null) continue;
+                    slot.AlphaCutoff = cutoff;
+                    slot.Fill = SlotFill.Bound;
+                    slot.Source = candidate;
+                    break;
+                }
+            }
+
             if (slot.Fill == SlotFill.Unbound) UnboundSlots++;
 
             _slots.Add(slot);
@@ -897,6 +921,14 @@ public sealed class CharacterRenderer : IDisposable
 
         // 1x1 BGRA magenta. Deliberately impossible to overlook.
         _magenta = Texture.From2D(_gl, [255, 0, 255, 255], 1, 1);
+    }
+
+    /// <summary>benilla's hair fallback when CharSections names no hair BLP: the race convention file.</summary>
+    private IEnumerable<string> HairFallbackCandidates()
+    {
+        yield return $"Character\\{Race}\\Hair00_00.blp";
+        yield return $"Character\\{Race}\\{Gender}\\Hair00_00.blp";
+        yield return $"Character\\{Race}\\{Gender}\\{Race}{Gender}Hair00_00.blp";
     }
 
     /// <summary>
@@ -1365,7 +1397,8 @@ public sealed class CharacterRenderer : IDisposable
             ? mappedHair
             : hairVariants.Contains(fallbackHair)
                 ? fallbackHair
-                : hairVariants.Contains(1) ? 1 : -1;
+                : hairVariants.Contains(1) ? 1
+                    : hairVariants.Count > 0 ? hairVariants.Min() : -1;
 
         var selected = new Dictionary<int, int>(NakedDefaults);
         Equipment.ApplyGeosets(selected);
@@ -1413,6 +1446,26 @@ public sealed class CharacterRenderer : IDisposable
 
         ReportOverlaps();
 
+        // Head/hair/ear diagnostic - surfaced LIVE in the HUD + a Capture-to-file button,
+        // so "is the head right?" is a colour you read, not console lines you scrape.
+        _headDiag.Clear();
+        ScalpCovered = hair >= 0 && hair == mappedHair && !HideHair;   // green only on a real DBC-matched hair
+        HairResolution = hair >= 0
+            ? $"hair style {HairStyleId}/{HairColorId} -> geoset variant {hair} " +
+              (hair == mappedHair ? "(DBC match)" : "(fallback - may not cover the scalp)")
+            : "NO hair geoset selected -> the bald base-body scalp shows the dressed atlas";
+        foreach (var hp in _pieces.Where(p => p.Visible && (p.Category == 0 || p.Category == 7)))
+        {
+            var hs = hp.SlotIndex >= 0 ? _slots[hp.SlotIndex] : null;
+            string htype = hs is null ? "?" : hs.Type.ToString();
+            string hfill = hs is null ? "none" : hs.Fill.ToString();
+            bool baseBody = hp.Category == 0 && hp.Variant == 0;
+            string line = $"geo{hp.GeosetId} cat{hp.Category} var{hp.Variant} slot=type{htype} fill={hfill} src='{hs?.Source}'"
+                        + (baseBody ? "  <- BASE BODY (its head samples the dressed atlas)" : "");
+            _headDiag.Add(line);
+            Console.WriteLine($"[character] HEAD {line}");
+        }
+
         VisiblePieces = _pieces.Count(p => p.Visible);
 
         // Published for the HUD. Overlapping geometry is what z-fighting IS,
@@ -1437,6 +1490,65 @@ public sealed class CharacterRenderer : IDisposable
                          (hair == mappedHair ? ", DBC)" : ", fallback)")
                        : " (no hair geoset found)") +
             $": {string.Join(" ", byCategory)}");
+    }
+
+    /// <summary>Write a full character diagnostic report to a file next to the client; returns the path.</summary>
+    public string SaveDiagnostics()
+    {
+        var lines = new List<string>
+        {
+            "MSUI character diagnostics",
+            $"race={Race} gender={Gender} skin={SkinId} face={FaceId} hair={HairStyleId}/{HairColorId} facial={FacialHairId}",
+            $"model={ModelPath}",
+            $"body skin={SkinTexturePath}",
+            $"hair: {HairResolution}",
+            $"scalp covered by a hair geoset: {ScalpCovered}",
+            $"visible geosets: {VisiblePieces}/{PieceCount}",
+            "-- texture slots --",
+        };
+        for (int i = 0; i < _slots.Count; i++)
+            lines.Add($"slot {i}: type={_slots[i].Type} fill={_slots[i].Fill} src='{_slots[i].Source}'");
+        lines.Add("-- head/hair/ear geosets (what shows on the head) --");
+        lines.AddRange(_headDiag);
+        lines.Add("-- geometry/UV probe (visible submeshes; V<0.50=arm, 0.50-0.625=hand, >0.625=face/head) --");
+        if (_m2 is not null)
+        {
+            var seenSub = new HashSet<int>();
+            foreach (var pc in _pieces.Where(x => x.Visible))
+            {
+                if (!seenSub.Add(pc.SubmeshIndex)) continue;
+                if (pc.SubmeshIndex < 0 || pc.SubmeshIndex >= _m2.Submeshes.Count) continue;
+                var sm = _m2.Submeshes[pc.SubmeshIndex];
+                int end = Math.Min(sm.IndexStart + sm.IndexCount, _m2.Indices.Count);
+                float minY = 1e9f, maxY = -1e9f;
+                for (int ii = sm.IndexStart; ii < end; ii++)
+                {
+                    int vi = _m2.Indices[ii];
+                    if (vi < 0 || vi >= _m2.Vertices.Count) continue;
+                    float y = _m2.Vertices[vi].PosY;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+                float crown = minY + 0.85f * (maxY - minY);
+                float minV = 1e9f, maxV = -1e9f, cMinV = 1e9f, cMaxV = -1e9f;
+                for (int ii = sm.IndexStart; ii < end; ii++)
+                {
+                    int vi = _m2.Indices[ii];
+                    if (vi < 0 || vi >= _m2.Vertices.Count) continue;
+                    var v = _m2.Vertices[vi];
+                    if (v.TexV < minV) minV = v.TexV;
+                    if (v.TexV > maxV) maxV = v.TexV;
+                    if (v.PosY >= crown) { if (v.TexV < cMinV) cMinV = v.TexV; if (v.TexV > cMaxV) cMaxV = v.TexV; }
+                }
+                lines.Add($"  geo{sm.Id} sub{pc.SubmeshIndex}: Y {minY:F2}..{maxY:F2}  V {minV:F2}..{maxV:F2}  crownV {cMinV:F2}..{cMaxV:F2}");
+            }
+        }
+        string path = Path.Combine(AppContext.BaseDirectory, "msui-character-diag.txt");
+        try { File.WriteAllText(path, string.Join(Environment.NewLine, lines)); }
+        catch (Exception e) { Console.WriteLine($"[character] diag write failed: {e.Message}"); }
+        LastDiagnosticPath = path;
+        Console.WriteLine($"[character] diagnostics written: {path}");
+        return path;
     }
 
     // ── animation ────────────────────────────────────────────────────────────
@@ -1781,10 +1893,11 @@ public sealed class CharacterRenderer : IDisposable
             var slot = piece.SlotIndex >= 0 ? _slots[piece.SlotIndex] : null;
 
             Texture? drawTexture = slot?.Texture;
-            if (slot?.Fill == SlotFill.BodySkin &&
-                ((piece.Category == 0 && piece.Variant > 0) || piece.Category == 7))
+            bool isHeadPiece = (piece.Category == 0 && piece.Variant > 0) || piece.Category == 7;
+            if (isHeadPiece && slot is not null &&
+                (slot.Fill == SlotFill.BodySkin || slot.Type == 1) && _bareSkin is not null)
             {
-                drawTexture = _bareSkin;
+                drawTexture = _bareSkin;   // hair/scalp/ears never sample the dressed (geared) atlas
             }
 
             bool unbound = slot is null || slot.Fill == SlotFill.Unbound || drawTexture is null;
@@ -1866,6 +1979,39 @@ public sealed class CharacterRenderer : IDisposable
 
     /// <summary>Global ceiling on the per-slot cutoff. Drag to zero to prove alpha is the culprit.</summary>
     public float AlphaCutoff { get; set; } = 0.35f;
+
+    /// <summary>
+    /// Drop every per-model GPU/texture/geoset resource so a re-Load (e.g. swapping the
+    /// startup test body to the logged-in character) does NOT stack the previous model.
+    /// BuildPieces, BuildTextureSlots and BuildGpuBuffers all APPEND, so re-loading without
+    /// this doubled the geometry - every hairstyle at once, warped limbs. No-op on first load.
+    /// </summary>
+    private void ResetModelState()
+    {
+        if (_vao != 0) { _gl.DeleteVertexArray(_vao); _vao = 0; }
+        if (_vbo != 0) { _gl.DeleteBuffer(_vbo); _vbo = 0; }
+        if (_ebo != 0) { _gl.DeleteBuffer(_ebo); _ebo = 0; }
+
+        foreach (var texture in _slots.Select(s => s.Texture)
+                     .Where(t => t is not null &&
+                                 !ReferenceEquals(t, _bareSkin) &&
+                                 !ReferenceEquals(t, _dressedSkin))
+                     .Distinct())
+            texture!.Dispose();
+
+        _bareSkin?.Dispose(); _bareSkin = null;
+        _dressedSkin?.Dispose(); _dressedSkin = null;
+        _magenta?.Dispose(); _magenta = null;
+
+        _slots.Clear();
+        _pieces.Clear();
+        _headDiag.Clear();
+        _bodySlotIndex = -1;
+        _baseSkin = null;
+        _animator = null;
+        _clip = null;
+        BoneOverflow = false;
+    }
 
     public void Dispose()
     {

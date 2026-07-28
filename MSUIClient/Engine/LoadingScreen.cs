@@ -21,7 +21,13 @@ public sealed class LoadingScreen : IDisposable
 {
     private readonly GL _gl;
     private readonly Shader _shader;
+    private readonly Shader _texShader;
     private readonly uint _vao;
+
+    // The map's real WoW loading-screen art (Map.dbc -> LoadingScreens.dbc -> BLP),
+    // uploaded and owned by GameLoop and handed in via SetBackground. 0 = none, in
+    // which case the plain dark curtain below is drawn (the original behaviour).
+    private uint _bgTex;
 
     // The client's sky/fog accent (matches DoodadRenderer's FogColor 0.56/0.71/0.85),
     // so the bar reads as part of the same world it is loading.
@@ -33,11 +39,19 @@ public sealed class LoadingScreen : IDisposable
     {
         _gl = gl;
         _shader = Shader.FromSource(gl, "loading_screen", VertexSource, FragmentSource);
+        _texShader = Shader.FromSource(gl, "loading_screen_bg", TexVertexSource, TexFragmentSource);
 
         // Core profile still needs a bound VAO for any draw, even one that reads
         // nothing but gl_VertexID.
         _vao = _gl.GenVertexArray();
     }
+
+    /// <summary>
+    /// Set the full-screen backdrop art (a GL texture handle owned by the caller,
+    /// typically decoded from the map's LoadingScreens.dbc BLP). Pass 0 to clear
+    /// it and fall back to the plain dark curtain.
+    /// </summary>
+    public void SetBackground(uint texHandle) => _bgTex = texHandle;
 
     /// <summary>
     /// Draw the curtain. <paramref name="progress"/> is 0..1 for the bar fill;
@@ -56,13 +70,29 @@ public sealed class LoadingScreen : IDisposable
         _gl.Enable(EnableCap.Blend);
         _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
 
-        _shader.Use();
         _gl.BindVertexArray(_vao);
 
-        // Full-screen background.
-        Rect(-1f, -1f, 1f, 1f, Background, alpha);
+        // Full-screen background: the map's real WoW loading-screen art when it
+        // resolved (stretched to fill the window, as the reference client does),
+        // otherwise the plain dark curtain. The curtain alpha drives both so the
+        // fade-out reveals the world either way.
+        if (_bgTex != 0)
+        {
+            _texShader.Use();
+            _gl.ActiveTexture(TextureUnit.Texture0);
+            _gl.BindTexture(TextureTarget.Texture2D, _bgTex);
+            _texShader.Set("uTex", 0);
+            _texShader.Set("uAlpha", alpha);
+            _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+        }
+        else
+        {
+            _shader.Use();
+            Rect(-1f, -1f, 1f, 1f, Background, alpha);
+        }
 
-        // Progress bar, centred, lower third.
+        // Progress bar, centred, lower third. Always the flat-colour shader.
+        _shader.Use();
         const float x0 = -0.40f, x1 = 0.40f, y0 = -0.625f, y1 = -0.585f;
         Rect(x0, y0, x1, y1, Track, alpha);
         float fillX1 = x0 + (x1 - x0) * progress;
@@ -86,6 +116,7 @@ public sealed class LoadingScreen : IDisposable
     {
         if (_vao != 0) _gl.DeleteVertexArray(_vao);
         _shader.Dispose();
+        _texShader.Dispose();
     }
 
     private const string VertexSource = @"#version 330 core
@@ -104,4 +135,26 @@ void main()
 uniform vec4 uColor;
 out vec4 frag;
 void main() { frag = uColor; }";
+
+    // Textured fullscreen quad for the backdrop art. Same empty-VAO / gl_VertexID
+    // trick as above; V is flipped because a BLP stores its top row first while a
+    // GL quad with y=-1 at the bottom would otherwise show the art upside down.
+    private const string TexVertexSource = @"#version 330 core
+out vec2 vUv;
+const vec2 kQuad[6] = vec2[6](
+    vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
+    vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0));
+void main()
+{
+    vec2 c = kQuad[gl_VertexID];
+    vUv = vec2(c.x, 1.0 - c.y);
+    gl_Position = vec4(c * 2.0 - 1.0, 0.0, 1.0);
+}";
+
+    private const string TexFragmentSource = @"#version 330 core
+in vec2 vUv;
+uniform sampler2D uTex;
+uniform float uAlpha;
+out vec4 frag;
+void main() { frag = vec4(texture(uTex, vUv).rgb, uAlpha); }";
 }

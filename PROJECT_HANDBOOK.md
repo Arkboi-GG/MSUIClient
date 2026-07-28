@@ -614,7 +614,7 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
 | `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion (**lighting is split out into the two lighting docs; portals will be their own doc**) | Planned extraction from §3.24–3.35 |
-| `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance | Planned extraction from §3.4–3.19 |
+| `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance; geoset visibility; humanoid NPCs + beasts | **Written (Draft 1)** — 2026-07-27. Extracts §3.4–3.19 and adds the geoset-visibility engine, the humanoid-NPC/beast split, live diagnostics, and the **Load re-entrancy** fix (§2) that stopped the logged-in character rendering twice |
 | `SYSTEM_COLLISION.md` | Client-geometry collision, BVH, sweep/slide/step-up | Planned extraction |
 | ~~`SYSTEM_ATMOSPHERE.md`~~ | Time-of-day light, fog, sky, visibility coupling | **Cancelled — delivered as `SYSTEM_EXTERIOR_LIGHTING.md`.** Do not create a second atmosphere doc; §3.28's *visibility/draw-count* half still belongs in this handbook |
 

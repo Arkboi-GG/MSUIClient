@@ -22,7 +22,7 @@ namespace MSUIClient;
 ///   launched. Absolute paths pass through untouched, which is what a
 ///   distributed build would use.
 /// </summary>
-public sealed class ClientConfig
+public sealed partial class ClientConfig
 {
     /// <summary>
     /// WoW 1.12.1 Data directory containing the .MPQ archives.
@@ -175,7 +175,7 @@ public sealed class ClientConfig
         /// on top. The portal 'glaze' is this pass blooming the additive particle
         /// sprites.
         /// </summary>
-        public bool Glow { get; set; } = true;
+        public bool Glow { get; set; } = false;
 
         /// <summary>
         /// Per-zone glow weight (benilla LightParams.glow: default 0.5, about 0.647
@@ -190,7 +190,16 @@ public sealed class ClientConfig
         /// the particle layer). 1.0 = authored. Lower it to thin a too-dense effect
         /// like the portal into a translucent film; higher packs more in.
         /// </summary>
-        public float ParticleDensity { get; set; } = 1.09f;
+        public float ParticleDensity { get; set; } = 0.89f;
+
+        /// <summary>
+        /// Draw the map's real WoW loading-screen art on the loading curtain
+        /// (Map.dbc field 38 -> LoadingScreens.dbc -> BLP). On by default; it
+        /// always falls back to the plain dark curtain if the art can't be
+        /// resolved or decoded, so this is a kill switch, not a requirement.
+        /// Kept out of the in-game menu on purpose - it is a wiring-level choice.
+        /// </summary>
+        public bool LoadingScreenArt { get; set; } = true;
     }
 
     /// <summary>

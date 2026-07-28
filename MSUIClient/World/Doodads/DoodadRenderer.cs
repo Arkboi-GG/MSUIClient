@@ -212,18 +212,24 @@ public sealed class DoodadRenderer : IDisposable
         /// behaves identically to having no interior lighting at all.
         /// </summary>
         public Vector4 Light = new(0f, 0f, 0f, 1f);
+
+        /// <summary>Appear-fade spawn time in seconds; 0 = opaque/no fade. Set from
+        /// the persistent per-key stamp so a re-placement on a tile crossing does
+        /// not re-fade. See <see cref="ResolveAppearStart"/>.</summary>
+        public float AppearStart;
     }
 
     /// <summary>
-    /// What actually goes in the instance VBO: the placement matrix followed by
-    /// the baked light. Sequential layout of 20 floats with no padding, which
-    /// is what the stride arithmetic in BuildModel assumes.
+    /// What actually goes in the instance VBO: the placement matrix, the baked
+    /// light, then the appear-fade start. Sequential layout of 21 floats with no
+    /// padding, which is what the stride arithmetic in BuildModel assumes.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct InstanceData
     {
         public Matrix4x4 Transform;
         public Vector4 Light;
+        public float AppearStart;
     }
 
     private readonly GL _gl;
@@ -491,12 +497,62 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public float VertexColorScale { get; set; } = 2.0f;
 
+    /// <summary>Beyond-portal fill light, driven per frame by GameLoop (see
+    /// WmoRenderer). Position is world-absolute; colour premultiplied by
+    /// intensity; radius 0 disables it so exterior props are untouched.</summary>
+    public Vector3 PortalLightWorldPos { get; set; }
+    public Vector3 PortalLightColor { get; set; }
+    public float PortalLightRadius { get; set; }
+
     /// <summary>
     /// Whether props inside buildings use their baked MODD.color instead of the
     /// outdoor sun. Off restores the pre-interior-lighting look exactly, which
     /// is what makes this a useful A/B toggle rather than a debug leftover.
     /// </summary>
     public bool InteriorLighting { get; set; } = true;
+
+    // ── appear fade (benilla model_fade.rs) ─────────────────────────────────────
+
+    /// <summary>Ease streamed-in doodads in over <see cref="AppearFadeSeconds"/>
+    /// (alpha = t^3) instead of popping. Off restores the original hard pop-in.</summary>
+    public bool AppearFade { get; set; }
+
+    /// <summary>Appear-fade ramp length in seconds (benilla APPEAR_FADE_SECS = 2).</summary>
+    public float AppearFadeSeconds { get; set; } = 2f;
+
+    /// <summary>World clock in seconds, pushed each frame by GameLoop. Drives both
+    /// the shader fade and the spawn-time stamp below.</summary>
+    public float NowSeconds { get; set; }
+
+    /// <summary>True once the loading curtain has lifted. While false (initial
+    /// build behind the curtain) every placement is stamped opaque, so the
+    /// curtain's own fade covers the first reveal and only models streamed in
+    /// later ease in - benilla arms its appear fades on the same "world shown"
+    /// signal (model_fade.rs arm_appear_fade / progress.focus_resident).</summary>
+    public bool WorldShown { get; set; }
+
+    /// <summary>
+    /// Spawn time per placement KEY, surviving ResetPlacements. A tile crossing
+    /// rebuilds every resident placement from scratch (Program.cs UpdateWorldResidency),
+    /// so without a persistent stamp the whole visible world would re-fade on every
+    /// crossing. A key already here reuses its (zero, or long-past) start and stays
+    /// opaque; a genuinely new key seen after the world is shown is stamped NOW and
+    /// eases in. Capped so a long roam can't grow it without bound.
+    /// </summary>
+    private readonly Dictionary<string, float> _appearStartByKey = new(StringComparer.Ordinal);
+    private const int AppearKeyCap = 262144;
+
+    /// <summary>Resolve (and remember) the appear-fade start for a placement key.
+    /// 0 means "opaque, no fade". Only ever fades a genuinely new placement that
+    /// first appears after the world is on screen.</summary>
+    private float ResolveAppearStart(string key)
+    {
+        if (!AppearFade) return 0f;
+        if (_appearStartByKey.TryGetValue(key, out float start)) return start;
+        start = WorldShown ? NowSeconds : 0f;
+        if (_appearStartByKey.Count < AppearKeyCap) _appearStartByKey[key] = start;
+        return start;
+    }
 
     public DoodadRenderer(
         GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
@@ -589,6 +645,7 @@ public sealed class DoodadRenderer : IDisposable
                     WorldMin = min,
                     WorldMax = max,
                     Path = d.ModelPath,
+                    AppearStart = ResolveAppearStart(key),
                 });
                 CullBoundsFor(model).Add(new CullBounds(min, max));
 
@@ -871,6 +928,29 @@ public sealed class DoodadRenderer : IDisposable
         return false;
     }
 
+    /// <summary>Remove an existing near-coincident placement of this emitter model
+    /// so a later WMO-embedded copy supersedes a terrain one (the portal is authored
+    /// in both, and the WMO copy is the more centred/intended one). Keeps _cullBounds
+    /// parallel to _byModel and the counters correct.</summary>
+    private bool RemoveNearEmitterPlacement(Model model, Matrix4x4 transform)
+    {
+        if (model.Emitters.Count == 0) return false;
+        if (!_byModel.TryGetValue(model, out var list)) return false;
+        var p = new Vector3(transform.M41, transform.M42, transform.M43);
+        for (int i = 0; i < list.Count; i++)
+        {
+            var q = new Vector3(list[i].Transform.M41, list[i].Transform.M42, list[i].Transform.M43);
+            if (Vector3.DistanceSquared(p, q) >= EmitterDedupRadius * EmitterDedupRadius) continue;
+            if (list[i].Light.W < 0.5f) InteriorLitCount--;
+            InstanceCount--;
+            TotalTriangles -= model.TriangleCount;
+            list.RemoveAt(i);
+            if (_cullBounds.TryGetValue(model, out var cb) && i < cb.Count) cb.RemoveAt(i);
+            return true;
+        }
+        return false;
+    }
+
     public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null)
     {
         string key = $"{NormalizeModelKey(modelPath)}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
@@ -878,12 +958,10 @@ public sealed class DoodadRenderer : IDisposable
 
         var model = ResolveModel(modelPath);
         if (model is null) return false;
-        if (ExistingEmitterPlacementNear(model, transform))
-        {
-            _placed.Add(key);
-            Console.WriteLine($"[doodad] deduped near-coincident effect: {modelPath}");
-            return true;
-        }
+        // A WMO-embedded effect (the entrance portal) supersedes a near terrain copy -
+        // it is the more centred, intended placement. Remove the terrain one, then add.
+        if (RemoveNearEmitterPlacement(model, transform))
+            Console.WriteLine($"[doodad] WMO effect supersedes a near terrain copy: {modelPath}");
         _placed.Add(key);
 
         var (min, max) = TransformedBounds(model, transform);
@@ -901,6 +979,7 @@ public sealed class DoodadRenderer : IDisposable
             WorldMax = max,
             Path = modelPath,
             Light = light ?? new Vector4(0f, 0f, 0f, 1f),
+            AppearStart = ResolveAppearStart(key),
         });
         CullBoundsFor(model).Add(new CullBounds(min, max));
 
@@ -1219,9 +1298,10 @@ public sealed class DoodadRenderer : IDisposable
         uint instanceVbo = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
 
-        // 16 floats of placement matrix followed by 4 of baked light: one
-        // InstanceData. Locations 3..6 are the matrix rows, 7 the light.
-        const uint instanceStride = 20 * sizeof(float);
+        // 16 floats of placement matrix, then 4 of baked light, then 1 appear-fade
+        // start: one InstanceData. Locations 3..6 are the matrix rows, 7 the light,
+        // 8 the appear-fade start.
+        const uint instanceStride = 21 * sizeof(float);
         for (uint row = 0; row < 4; row++)
         {
             uint location = 3 + row;
@@ -1235,6 +1315,11 @@ public sealed class DoodadRenderer : IDisposable
         _gl.VertexAttribPointer(7, 4, VertexAttribPointerType.Float, false,
             instanceStride, (void*)(16 * sizeof(float)));
         _gl.VertexAttribDivisor(7, 1);
+
+        _gl.EnableVertexAttribArray(8);
+        _gl.VertexAttribPointer(8, 1, VertexAttribPointerType.Float, false,
+            instanceStride, (void*)(20 * sizeof(float)));
+        _gl.VertexAttribDivisor(8, 1);
 
         _gl.BindVertexArray(0);
 
@@ -1499,9 +1584,16 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
         _shader.Set("uVertexColorScale", VertexColorScale);
+        _shader.Set("uAppearFadeEnabled", AppearFade ? 1 : 0);
+        _shader.Set("uNow", NowSeconds);
+        _shader.Set("uAppearFadeSecs", MathF.Max(AppearFadeSeconds, 0.0001f));
 
         var viewProjection = camera.RelativeViewProjection;
         var eye = camera.Position;
+        _shader.Set("uPortalLightPos",
+            PortalLightRadius > 0f ? PortalLightWorldPos - eye : Vector3.Zero);
+        _shader.Set("uPortalLightColor", PortalLightColor);
+        _shader.Set("uPortalLightRadius", PortalLightRadius);
         float effectiveDrawDistance = MathF.Min(DrawDistance, VisibilityDistance);
         float maxDistanceSq = effectiveDrawDistance * effectiveDrawDistance;
         bool cullingOn = true;
@@ -1514,6 +1606,16 @@ public sealed class DoodadRenderer : IDisposable
             MaybeLogCull(effectiveDrawDistance);
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             return;
+        }
+
+        // Appear fade needs straight-alpha blending while a doodad eases in; at
+        // alpha 1 (every steady doodad) it composites identically to opaque, so
+        // this is a no-op for the resident world. Depth-write stays on (benilla
+        // wow_model.wgsl). Restored after the loop.
+        if (AppearFade)
+        {
+            _gl.Enable(EnableCap.Blend);
+            _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         }
 
         foreach (var (model, instances) in _byModel)
@@ -1546,6 +1648,7 @@ public sealed class DoodadRenderer : IDisposable
                 _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
                 _shader.Set("uInstanceLight",
                     InteriorLighting ? instance.Light : ExteriorLight);
+                _shader.Set("uAppearStart", instance.AppearStart);
 
                 foreach (var batch in model.Batches)
                 {
@@ -1584,6 +1687,7 @@ public sealed class DoodadRenderer : IDisposable
             }
         }
 
+        if (AppearFade) _gl.Disable(EnableCap.Blend);
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
         MaybeLogCull(effectiveDrawDistance);
@@ -1657,6 +1761,15 @@ public sealed class DoodadRenderer : IDisposable
         int cullInstances = 0;
         _drawnThisFrame.Clear();
 
+        // Appear fade needs straight-alpha blending while a doodad eases in; at
+        // alpha 1 (every steady doodad) it is a no-op, so the resident world
+        // composites exactly as before. Depth-write stays on. Restored below.
+        if (AppearFade)
+        {
+            _gl.Enable(EnableCap.Blend);
+            _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        }
+
         foreach (var (model, instances) in _byModel)
         {
             long cullStarted = Stopwatch.GetTimestamp();
@@ -1692,6 +1805,7 @@ public sealed class DoodadRenderer : IDisposable
                     {
                         Transform = transform,
                         Light = InteriorLighting ? instance.Light : ExteriorLight,
+                        AppearStart = instance.AppearStart,
                     });
                 }
             }
@@ -1716,6 +1830,7 @@ public sealed class DoodadRenderer : IDisposable
                     {
                         Transform = transform,
                         Light = InteriorLighting ? instance.Light : ExteriorLight,
+                        AppearStart = instance.AppearStart,
                     });
                 }
             }
@@ -1778,6 +1893,8 @@ public sealed class DoodadRenderer : IDisposable
             drawTicks += Stopwatch.GetTimestamp() - drawStarted;
             DrawnLastFrame += _visibleInstances.Count;
         }
+
+        if (AppearFade) _gl.Disable(EnableCap.Blend);
 
         double perTick = 1000.0 / Stopwatch.Frequency;
         CullMilliseconds = cullTicks * perTick;

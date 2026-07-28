@@ -14,9 +14,21 @@ in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUV;
 in vec4 vLight;
+in float vAppearStart;
 
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
+
+// Per-object appear fade (benilla model_fade.rs). Only the OUTPUT ALPHA is
+// touched - never the lighting - so this is purely a reveal, not a colour
+// change. Enabled sets the whole feature; uNow is the world clock in seconds;
+// uAppearFadeSecs is the ramp length (2.0 in benilla). A fragment fades in as
+// alpha = t^3 over uAppearFadeSecs from vAppearStart. vAppearStart <= 0 means
+// "already resident" -> fully opaque, which is every instance except one just
+// streamed in while the world was on screen.
+uniform int   uAppearFadeEnabled;
+uniform float uNow;
+uniform float uAppearFadeSecs;
 
 // Alpha below which a fragment is thrown away. Set PER BATCH, because it must
 // be zero for any texture that has no alpha channel: a BLP without alpha can
@@ -45,6 +57,13 @@ uniform float uVertexColorScale;
 // this a lantern inside a dark room goes out, which is the one thing a lantern
 // must not do.
 uniform int   uUnlit;
+
+// Beyond-portal fill light (see wmo.frag). Weighted by (1 - vLight.a) so it
+// lands on interior-baked props and fades out on daylight-dominant ones;
+// radius 0 disables it whenever no instance portal is near.
+uniform vec3  uPortalLightPos;    // camera-relative, same space as vWorldPos
+uniform vec3  uPortalLightColor;  // colour premultiplied by intensity
+uniform float uPortalLightRadius; // yards; 0 = off
 
 out vec4 FragColor;
 
@@ -80,6 +99,15 @@ void main()
     vec3 baked = vLight.rgb * uVertexColorScale;
     vec3 lighting = mix(baked, light, vLight.a);
 
+    // Beyond-portal fill (see the uniform block). Scaled by (1 - vLight.a) so
+    // it favours interior-baked props and leaves daylight-lit ones untouched.
+    if (uPortalLightRadius > 0.0)
+    {
+        float pd = distance(uPortalLightPos, vWorldPos);
+        float atten = clamp(1.0 - pd / uPortalLightRadius, 0.0, 1.0);
+        lighting += uPortalLightColor * (atten * atten) * (1.0 - vLight.a);
+    }
+
     if (uUnlit == 1) lighting = vec3(1.0);
 
     vec3 lit = albedo.rgb * lighting;
@@ -87,5 +115,22 @@ void main()
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
 
-    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a);
+    // Appear fade: cutout stays keyed on the texture alpha (the discard above),
+    // so the silhouette is stable; the surviving fragments fade together as
+    // alpha = t^3. Non-fading instances (vAppearStart <= 0) resolve to alpha 1,
+    // i.e. exactly the original opaque output.
+    float outAlpha = albedo.a;
+    if (uAppearFadeEnabled == 1)
+    {
+        float fade = 1.0;
+        if (vAppearStart > 0.0)
+        {
+            float t = clamp((uNow - vAppearStart) / max(uAppearFadeSecs, 0.0001), 0.0, 1.0);
+            fade = t * t * t;
+        }
+        if (fade <= 0.0) discard;   // invisible AND writes no depth
+        outAlpha = fade;
+    }
+
+    FragColor = vec4(mix(lit, uFogColor, fog), outAlpha);
 }

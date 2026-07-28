@@ -14,6 +14,11 @@ layout(location = 0) in vec2 aCorner;      // quad corners, -1 .. 1 (vertex at c
 layout(location = 1) in vec3 aCentre;      // world position
 layout(location = 2) in float aSize;       // yards
 layout(location = 3) in vec4 aColour;
+layout(location = 4) in vec4 aCellRect;    // PER-PARTICLE sprite-sheet cell (offset.xy, scale.xy);
+                                           // (0,0,1,1) = whole texture. The flame flipbook now
+                                           // rides this per instance (was the uCellRect uniform),
+                                           // so each sprite shows its own age's cell, not one
+                                           // global-clock cell shared by the whole draw group.
 
 uniform mat4 uViewProjection;
 uniform vec3 uCameraOrigin;
@@ -28,7 +33,7 @@ void main()
     vec3 rel = aCentre - uCameraOrigin;
     vec3 offset = (uRight * aCorner.x + uUp * aCorner.y) * aSize;
 
-    vUv = aCorner * 0.5 + vec2(0.5);
+    vUv = aCellRect.xy + (aCorner * 0.5 + vec2(0.5)) * aCellRect.zw;
     vColour = aColour;
 
     gl_Position = uViewProjection * vec4(rel + offset, 1.0);
