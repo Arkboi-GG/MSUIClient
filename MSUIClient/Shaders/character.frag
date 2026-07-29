@@ -37,6 +37,7 @@ uniform vec3  uSunColor;
 uniform float uSunIntensity;
 uniform vec3  uAmbientColor;
 uniform float uAmbientIntensity;
+uniform float uShadowWrap;      // 0 = hard Lambert terminator; up to 1 = light wraps around (soft shadow)
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -57,7 +58,11 @@ void main()
     // fixed directional light change as the camera moves around the model.
     if (!gl_FrontFacing) normal = -normal;
 
-    float lambert = max(dot(normal, uSunDirection), 0.0);
+    // Wrap lighting softens the terminator: uShadowWrap 0 keeps a hard Lambert edge; higher values
+    // let the key wrap past 90 degrees so the shadow side lifts and the boundary blurs. Booth tuning
+    // only - the in-world character sets 0 (uShadowWrap default), so its shading is unchanged.
+    float ndl = dot(normal, uSunDirection);
+    float lambert = clamp((ndl + uShadowWrap) / (1.0 + uShadowWrap), 0.0, 1.0);
     vec3 light = uAmbientColor * uAmbientIntensity
         + uSunColor * lambert * uSunIntensity;
     vec3 lit = albedo.rgb * light;

@@ -102,6 +102,14 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Raised inside the ImGui frame — draw HUD windows here.</summary>
     public event Action? OnGui;
 
+    /// <summary>Raised after the HUD is built but BEFORE the ImGui draw pass - a seam for extra GL
+    /// passes (the additive glue overlay) that must composite UNDER the HUD.</summary>
+    public event Action? OnOverlay;
+
+    /// <summary>Raised AFTER the ImGui draw pass - the additive glue overlay's "on top" mode, drawn
+    /// over the HUD (max brightness, no panel dimming; washes text a touch).</summary>
+    public event Action? OnOverlayTop;
+
     /// <summary>
     /// Raised while the render context is still current. GPU owners must
     /// release queries, buffers, textures and programs here rather than after
@@ -243,6 +251,16 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Pixel height to rasterise <see cref="UiFontPath"/> at. See UiFont.SizeFor.</summary>
     public int UiFontSize { get; set; } = 13;
 
+    /// <summary>
+    /// How many times larger than its display size the TTF atlas is rasterised. The glue screen
+    /// draws this font much larger than the in-game UI (labels 17*s, the typed line 18*s, the red
+    /// button captions up to ~29 px), so a 12 px atlas was being up-scaled and blurred. Rasterising
+    /// N times larger and setting FontGlobalScale = 1/N keeps the in-game text its intended size
+    /// but sourced from a hi-res atlas, so every larger glue size is DOWN-scaled - which is crisp.
+    /// 1 = off.
+    /// </summary>
+    private const float FontSupersample = 3f;
+
     public ClientWindow(ClientConfig config) => _config = config;
 
     public GpuUploadWorker CreateGpuUploadWorker()
@@ -285,9 +303,16 @@ public sealed class ClientWindow : IDisposable
         // the only moment it can be supplied - and a bitmap font that is
         // obviously not the game's is the loudest thing wrong with an in-game
         // menu, louder than the frame art. See Engine/UI/UiFont.cs.
+        // SUPERSAMPLED atlas (see FontSupersample). ImGui rasterises the face once and scales that
+        // bitmap to whatever size text is drawn at; the glue screen draws it 2-3x larger than the
+        // in-game UI, so a 12 px atlas up-scaled and blurred. Rasterise UiFontSize * FontSupersample
+        // and hand FontGlobalScale back to 1/FontSupersample below, so it is crisp at every size.
         ImGuiFontConfig? font = null;
         if (!string.IsNullOrEmpty(UiFontPath) && File.Exists(UiFontPath))
-            font = new ImGuiFontConfig(UiFontPath, Math.Clamp(UiFontSize, 8, 64));
+        {
+            int rasterPx = Math.Clamp((int)Math.Round(UiFontSize * (double)FontSupersample), 16, 72);
+            font = new ImGuiFontConfig(UiFontPath, rasterPx);
+        }
 
         _imgui = new ImGuiController(_gl, _window, _input, font);
 
@@ -304,6 +329,10 @@ public sealed class ClientWindow : IDisposable
         // and break every size that was chosen to match a 21-pixel button.
         var scale = Math.Clamp(_config.Window.UiScale, 0.5f, 4f);
         bool realFont = font is not null;
+
+        // Undo the supersample for ImGui's own widgets (the in-game UI) so they keep their intended
+        // size; the glue draw-list text sets its size per call and keeps the full atlas resolution.
+        if (realFont) ImGui.GetIO().FontGlobalScale = 1f / FontSupersample;
 
         if (Math.Abs(scale - 1f) > 0.01f)
         {
@@ -560,7 +589,13 @@ public sealed class ClientWindow : IDisposable
         long imguiRenderStarted = Stopwatch.GetTimestamp();
         HudMilliseconds = Stopwatch.GetElapsedTime(hudStarted, imguiRenderStarted).TotalMilliseconds;
 
+        // The additive glue overlay (char-select row highlight, alphaMode=ADD) composites on the
+        // framebuffer BEFORE the ImGui draw pass, so it sits under the translucent roster panel and
+        // the row text. A dedicated GL pass, never an ImGui draw callback (that crashed the loop).
+        OnOverlay?.Invoke();
+
         _imgui.Render();
+        OnOverlayTop?.Invoke();
         _renderEndStamp = Stopwatch.GetTimestamp();
 
         ImguiRenderMilliseconds =

@@ -8,17 +8,27 @@ using MSUIClient.World.Particles;
 namespace MSUIClient.Engine;
 
 // The 1.12 login-screen glue scene: Interface\Glues\Models\UI_MainMenu\UI_MainMenu.m2
-// (AccountLogin.xml's ModelFFX — the burning gate), rendered fullscreen through the
+// (AccountLogin.xml's ModelFFX - the burning gate), rendered fullscreen through the
 // model's own authored camera, exactly like benilla's glue booth (benilla/src/portrait/
 // glue_booth.rs + login/mod.rs).
+//
+// GENERALIZED (2026-07-28) for character select: the same machinery renders ANY UI_* glue
+// scene, not just UI_MainMenu. The per-race character-select backgrounds (UI_Human, UI_Orc,
+// UI_Dwarf, ...) are the same kind of asset - mesh + authored camera 0 + fog + light rig +
+// animated colour tracks + brazier/ember emitters - so only the model PATH and the fog policy
+// vary. The login keeps its exact behaviour: the parameterless-tail constructor still loads
+// UI_MainMenu with fog ON. The char-select booth (Engine/GlueBooth.cs) passes a per-race model
+// with fog OFF (benilla renders the Race scene UNFOGGED at char-select; MainMenu is always
+// fogged). Fog-off is a single uniform (uFogEnabled = 0) so the shared shader stays identical
+// for the login (uFogEnabled = 1 is byte-for-byte the old behaviour).
 //
 // COMES ALIVE, IS LIT, AND BURNS. UI_MainMenu.m2 carries (measured from the real file via
 // tools/mpqpy): 4 M2Colour records, 3 texture transforms, 18 global sequences, 57 bones,
 // 28 particle emitters, 4 lights, one 40 s sequence 0.
-//   1. WRONG COLOURS — the warm tint lives entirely in an M2Colour RGB track (colour[2] =
+//   1. WRONG COLOURS - the warm tint lives entirely in an M2Colour RGB track (colour[2] =
 //      ~(0.80, 0.18, 0.18) animated on global sequence 2, a 1.67 s pulse). A grey glow card
 //      is warmed ONLY by that track; ignoring it renders the embers grey. We multiply it in.
-//   2. NO ANIMATION — the 3 texture transforms scroll the cloud/sky layers, the colour pulse
+//   2. NO ANIMATION - the 3 texture transforms scroll the cloud/sky layers, the colour pulse
 //      breathes the embers, and the 28 PARTICLE EMITTERS are the brazier fires. Sampled /
 //      simulated off a live clock.
 //   3. FLAT / TOO BRIGHT - the mesh was drawn UNLIT. The real gate is lit by the model's own
@@ -36,17 +46,17 @@ namespace MSUIClient.Engine;
 // stays vivid. The corners clear to a dark night-sky tone (the sky dome doesn't reach the
 // screen corners at wide aspect ratios).
 //
-// STILL TO LAYER ON TOP (next): the full WoW glue-art 2D chrome (WowSkin: logo, gold FRIZQT
-// boxes/buttons) and, if wanted, sequence-0 bone animation (waving banners).
-//
 // Best-effort: any failure leaves _ok false and the scene simply doesn't draw.
 
 public sealed class GlueScene : IDisposable
 {
-    private const string ModelPath = @"Interface\Glues\Models\UI_MainMenu\UI_MainMenu.m2";
-    private const string ModelPathMdx = @"Interface\Glues\Models\UI_MainMenu\UI_MainMenu.mdx";
+    // The login default. UI_MainMenu is the burning gate; other UI_* scenes come in via the
+    // model-path constructor (character select's per-race backgrounds).
+    private const string DefaultModelPath = @"Interface\Glues\Models\UI_MainMenu\UI_MainMenu.m2";
 
-    // benilla glue_booth.rs: MainMenu fog = colour (0.25, 0.06, 0.015), far 1200.
+    // benilla glue_booth.rs: MainMenu fog = colour (0.25, 0.06, 0.015), far 1200. These stay the
+    // login's fog; when fog is DISABLED (char-select Race scenes) the shader zeroes the fog factor
+    // and these values are simply never reached.
     private static readonly Vector3 FogColor = new(0.25f, 0.06f, 0.015f);
     private const float FogNear = 30f;
     private const float FogFar = 1200f;
@@ -63,6 +73,13 @@ public sealed class GlueScene : IDisposable
 
     private readonly GL _gl;
     private readonly ClientConfig _config;
+
+    // Which model this scene loads, and whether the fog factor is applied. Set by the constructor;
+    // the login uses (UI_MainMenu, fog on), a char-select Race booth uses (UI_<Race>, fog off).
+    private readonly string _modelPath;
+    private readonly string _modelPathMdx;
+    private readonly bool _fogEnabled;
+
     private Shader? _shader;
     private ParticleRenderer? _particles;
     private uint _vao, _vbo, _ebo;
@@ -92,6 +109,45 @@ public sealed class GlueScene : IDisposable
 
     public bool Ok { get; private set; }
 
+    // ── Read-only scene rig, exposed so a character can be posed and lit inside this booth
+    //    (Engine/GlueBooth.cs, char-select phase 2). The eye/target/fov are the model's authored
+    //    camera 0, already converted to the glTF Y-up space the mesh lives in; the ambient is the
+    //    scene's accumulated authored ambient. These are read-only snapshots; the scene owns them.
+    public Vector3 Eye => _eye;
+    public Vector3 Target => _target;
+    public float FovDiag => _fovDiag;
+    public float NearPlane => _near;
+    public float FarPlane => _far;
+    public Vector3 Ambient => _ambient;
+
+    // The scene's dominant DIRECTIONAL light, as a horizontal (Y-up, y=0) unit to-light direction -
+    // i.e. the authored "sun" for this UI_<Race> scene. The char-select booth aims its supplemental
+    // floor fill along THIS so the whole scene is lit from the same side as the real sun (which is
+    // what the OG does), instead of an arbitrary guessed azimuth. Fallback if the scene has no
+    // directional light.
+    private Vector3 _primaryLightDir = new(-0.6f, 0f, 0.6f);
+    public Vector3 PrimaryLightDir => _primaryLightDir;
+
+    // The stage spot: attachment 0 of the scene model (the point the character stands on at
+    // char-select, benilla framing.rs attachment_point(.,.,0)). Absolute glTF Y-up model-space
+    // position (M2Attachment.Position is already model space). Null if the scene has no attachment 0.
+    private Vector3? _stageSpot;
+    public Vector3? StageSpot => _stageSpot;
+
+    // A per-instance multiply on the LIT (non-emissive) geometry only, so a caller can brighten/warm
+    // the scene without touching the emissive sky/glows. Default (1,1,1) = no change, so the login is
+    // byte-identical; the char-select booth drives it (BoothTune) to match the OG warmth while the
+    // faithful per-race light-rig fix is pending.
+    public Vector3 SceneTint { get; set; } = Vector3.One;
+
+    // A supplemental fill light (booth only). The per-race UI_<Race> scenes carry only GRAZING
+    // directional lights and NO brazier point lights, so up-facing surfaces (the floor/pathway) get
+    // nothing but flat ambient and read wrong. This adds one extra SH lobe to light them. Default
+    // colour (0,0,0) = no contribution, so the login (which has its own brazier point lights) is
+    // byte-identical; the booth aims it warm from above (BoothTune) to match the OG ground.
+    public Vector3 SceneFillDir { get; set; } = new(0f, 1f, 0f);
+    public Vector3 SceneFillColor { get; set; } = Vector3.Zero;
+
     private struct Batch
     {
         public int IndexStart, IndexCount;
@@ -100,6 +156,7 @@ public sealed class GlueScene : IDisposable
         public int ColorIndex;
         public int TexAnim;
         public bool Unlit;
+        public bool TwoSided;
     }
 
     private struct Light
@@ -121,28 +178,42 @@ public sealed class GlueScene : IDisposable
         public float[] Scalar = Array.Empty<float>();
     }
 
+    /// <summary>The login glue scene: UI_MainMenu with fog ON. Unchanged behaviour.</summary>
     public GlueScene(GL gl, MpqMount mpq, ClientConfig config)
+        : this(gl, mpq, config, DefaultModelPath, fogEnabled: true) { }
+
+    /// <summary>
+    /// A glue scene for an arbitrary UI_* model. modelPath is the .m2 (the .mdx sibling is tried
+    /// as a fallback, exactly as the login does). fogEnabled = false renders the scene UNFOGGED
+    /// (char-select Race backgrounds); the light rig, colour tracks, camera and particles are
+    /// identical to the login's.
+    /// </summary>
+    public GlueScene(GL gl, MpqMount mpq, ClientConfig config, string modelPath, bool fogEnabled)
     {
         _gl = gl;
         _config = config;
+        _modelPath = string.IsNullOrWhiteSpace(modelPath) ? DefaultModelPath : modelPath;
+        _modelPathMdx = Path.ChangeExtension(_modelPath, ".mdx");
+        _fogEnabled = fogEnabled;
         try { Build(mpq); Ok = _batches.Count > 0; }
         catch (Exception e) { Console.WriteLine($"[glue] scene unavailable: {e.Message}"); Ok = false; }
         if (Ok)
         {
-            Console.WriteLine($"[glue] UI_MainMenu loaded: {_batches.Count} batch(es), " +
+            Console.WriteLine($"[glue] {Path.GetFileNameWithoutExtension(_modelPath)} loaded: {_batches.Count} batch(es), " +
                               $"{_colors.Length} colour + {_texAnims.Length} uv track(s), " +
-                              $"{_lights.Length} light(s), {_emitters.Count} emitter(s), fov {_fovDiag:F2}");
+                              $"{_lights.Length} light(s), {_emitters.Count} emitter(s), fov {_fovDiag:F2}, " +
+                              $"fog {(_fogEnabled ? "on" : "off")}");
             TryInitParticles();
         }
     }
 
     private unsafe void Build(MpqMount mpq)
     {
-        byte[]? bytes = mpq.ReadFile(ModelPath) ?? mpq.ReadFile(ModelPathMdx);
-        if (bytes is null) { Console.WriteLine("[glue] UI_MainMenu.m2 not found in the MPQs"); return; }
+        byte[]? bytes = mpq.ReadFile(_modelPath) ?? mpq.ReadFile(_modelPathMdx);
+        if (bytes is null) { Console.WriteLine($"[glue] {_modelPath} not found in the MPQs"); return; }
 
-        M2Model model = M2Reader.Parse(bytes);
-        if (!model.IsValid) { Console.WriteLine("[glue] UI_MainMenu.m2 parsed but has no geometry"); return; }
+        M2Model? model = M2Reader.Parse(bytes);
+        if (model is null || !model.IsValid) { Console.WriteLine($"[glue] {_modelPath} parsed but has no geometry"); return; }
 
         // Interleave [pos.xyz, normal.xyz, uv.xy]. Verts + normals are glTF Y-up (M2Reader converts).
         var verts = new float[model.Vertices.Count * 8];
@@ -179,12 +250,12 @@ public sealed class GlueScene : IDisposable
         ParseLights(bytes);
 
         // Fire particle emitters (the braziers). Texture = model.Textures[emitter.Texture]
-        // (direct index, NOT via TextureLookup — M2Reader documents this). Transform is identity.
+        // (direct index, NOT via TextureLookup - M2Reader documents this). Transform is identity.
         for (int i = 0; i < model.ParticleEmitters.Count; i++)
         {
             var em = model.ParticleEmitters[i];
             string tex = em.Texture < model.Textures.Count ? model.Textures[em.Texture].Filename : "";
-            _emitters.Add(("glue-mainmenu", Matrix4x4.Identity, em, i, tex));
+            _emitters.Add(("glue-scene", Matrix4x4.Identity, em, i, tex));
         }
 
         foreach (var b in model.Batches)
@@ -201,6 +272,11 @@ public sealed class GlueScene : IDisposable
             int mat = b.MaterialIndex;
             int blend = mat < model.RenderFlags.Count ? model.RenderFlags[mat].BlendingMode : 0;
             bool unlit = mat < model.RenderFlags.Count && model.RenderFlags[mat].Unlit;
+            // Render-flag bit 0x04. Exactly ONE of UI_MainMenu's 22 materials sets it (rf19, the
+            // ELWYNNGRASS card); every other batch - all the stone, and every backdrop sheet -
+            // is single-sided and the reference back-face culls it. Kept per batch anyway: the
+            // char-select Race scenes lean on two-sided foliage far more. See Render().
+            bool twoSided = mat < model.RenderFlags.Count && model.RenderFlags[mat].TwoSided;
 
             int colorIdx = b.ColorIndex >= 0 && b.ColorIndex < _colors.Length ? b.ColorIndex : -1;
 
@@ -215,6 +291,12 @@ public sealed class GlueScene : IDisposable
                 texAnim = b.TextureTransformIndex;
             }
 
+            // Diagnostic: surface the translucent / animated batches (the water, glass, glows) so a
+            // "screwed-up" foreground can be identified by its blend/anim/texture without guessing.
+            if (blend >= 2 || texAnim >= 0 || unlit)
+                Console.WriteLine($"[glue]   batch sm{b.SubmeshIndex} blend{blend} " +
+                                  $"{(unlit ? "unlit " : "lit   ")}texAnim{texAnim} tex '{texPath}'");
+
             _batches.Add(new Batch
             {
                 IndexStart = sm.IndexStart,
@@ -224,6 +306,7 @@ public sealed class GlueScene : IDisposable
                 ColorIndex = colorIdx,
                 TexAnim = texAnim,
                 Unlit = unlit,
+                TwoSided = twoSided,
             });
         }
 
@@ -237,6 +320,11 @@ public sealed class GlueScene : IDisposable
         {
             FrameFromBounds(model);
         }
+
+        // The stage spot for a booth character: attachment 0 (benilla seats the char-select body on
+        // attachment 0 in every UI_* scene). M2Attachment.Position is already absolute model-space Y-up.
+        foreach (var a in model.Attachments)
+            if (a.Id == 0) { _stageSpot = a.Position; break; }
     }
 
     private void TryInitParticles()
@@ -305,7 +393,7 @@ public sealed class GlueScene : IDisposable
     }
 
     /// <summary>The M2 light rig (header count@0x11C / ofs@0x120, stride 0xD4). Per light:
-    /// type u16@0, bone i16@2, position C3@4, then M2Tracks — ambient colour@0x10, ambient
+    /// type u16@0, bone i16@2, position C3@4, then M2Tracks - ambient colour@0x10, ambient
     /// intensity@0x2c, diffuse colour@0x48, diffuse intensity@0x64, atten start@0x80 / end@0x9c
     /// (first key of each). Ambient accumulates; diffuse lights become point (spatial +
     /// attenuated) or directional (to-light = normalized position) contributions.</summary>
@@ -321,6 +409,7 @@ public sealed class GlueScene : IDisposable
             long rec = lo + (long)i * STRIDE;
             if (rec + STRIDE > b.Length) break;
             int type = b[rec] | b[rec + 1] << 8;
+            int lightBone = (short)(b[rec + 2] | b[rec + 3] << 8);
             Vector3 posRaw = new(F(b, rec + 4), F(b, rec + 8), F(b, rec + 12));
             Vector3 ambColor = TrackVec3(b, rec + 0x10, Vector3.One);
             float ambI = TrackFloat(b, rec + 0x2c, 0f);
@@ -332,9 +421,19 @@ public sealed class GlueScene : IDisposable
             ambient += ambColor * ambI;
             if (difI > 1e-4f)
             {
-                Vector3 pd = ToYUp(posRaw);
+                Vector3 pd;
                 if (type == 0)
+                {
+                    // DIRECTIONAL: the to-light direction is the light BONE's model-space +Z axis
+                    // (benilla-formats bone_z_axis; benilla_glue_booth.rs:250 folds THIS, and calls the
+                    // def position a "decoy"). Position is only the point-light location. WoW Z-up -> Y-up.
+                    pd = ToYUp(BoneZAxis(b, lightBone));
                     pd = pd.LengthSquared() > 1e-6f ? Vector3.Normalize(pd) : Vector3.UnitY;
+                }
+                else
+                {
+                    pd = ToYUp(posRaw);   // POINT: the light position
+                }
                 lights.Add(new Light
                 {
                     Type = type,
@@ -347,8 +446,31 @@ public sealed class GlueScene : IDisposable
         }
         _ambient = Vector3.Max(ambient, AmbientFloor);
         _lights = lights.ToArray();
+
+        // The scene's sun = the brightest DIRECTIONAL light's horizontal to-light direction. The booth
+        // fill rides this so the fill comes from the same side as the authored sun (per race).
+        float bestLum = -1f;
+        foreach (var L in _lights)
+        {
+            if (L.Type != 0) continue;   // directional only
+            var h = new Vector3(L.PosDir.X, 0f, L.PosDir.Z);
+            if (h.LengthSquared() < 1e-4f) continue;
+            float lum = L.Color.X * 0.3f + L.Color.Y * 0.59f + L.Color.Z * 0.11f;
+            if (lum > bestLum) { bestLum = lum; _primaryLightDir = Vector3.Normalize(h); }
+        }
+
         Console.WriteLine($"[glue] light rig: ambient ({_ambient.X:F2},{_ambient.Y:F2},{_ambient.Z:F2}), " +
-                          $"{_lights.Length} diffuse light(s)");
+                          $"{_lights.Length} diffuse light(s), sun dir ({_primaryLightDir.X:F2},{_primaryLightDir.Y:F2},{_primaryLightDir.Z:F2})");
+        // Per-light detail so a too-dark/too-cool scene can be diagnosed against benilla's rig without
+        // guessing (the faithful fix may need directional to-light = the light bone's +Z axis, not its
+        // position, which is what this dump will show is off for a given UI_<Race>).
+        for (int i = 0; i < _lights.Length; i++)
+        {
+            var L = _lights[i];
+            Console.WriteLine($"[glue]   light {i}: {(L.Type == 1 ? "point" : "dir  ")} " +
+                              $"color ({L.Color.X:F2},{L.Color.Y:F2},{L.Color.Z:F2}) " +
+                              $"posdir ({L.PosDir.X:F2},{L.PosDir.Y:F2},{L.PosDir.Z:F2})");
+        }
     }
 
     private static Vector3 TrackVec3(byte[] b, long trackOfs, Vector3 fallback)
@@ -495,7 +617,25 @@ public sealed class GlueScene : IDisposable
         _gl.ClearColor(SkyFill.X, SkyFill.Y, SkyFill.Z, 1f);
         _gl.Clear((uint)(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit));
         _gl.Enable(EnableCap.DepthTest);
-        _gl.Disable(EnableCap.CullFace);
+        // BACK-FACE CULLING, per material. This used to be a blanket Disable with the note "the
+        // gate has no back-face cull" - it does. Only render flag bit 0x04 is two-sided, and on
+        // UI_MainMenu that is the ELWYNNGRASS card alone; every piece of stone is single-sided.
+        //
+        // Drawing the single-sided stone two-sided is not a harmless extra: the gate is an open
+        // shell, not a closed solid, so a back face is not always hidden behind a front face. The
+        // lintel's far edge showed the BACK of the arch's upper slabs as two flat grey panels
+        // hanging below the stone - in screen area where the OG draws plain SKY, so nothing was
+        // in front to depth-reject them, and they read as unblended patches.
+        //
+        // The winding convention is the one ClientWindow sets globally (CullFace Back +
+        // FrontFace CCW) and every other M2 path here relies on. Verified for THIS mesh against
+        // the authored camera: cross(P1-P0, P2-P0) agrees in sign with the authored vertex
+        // normals on 99-100% of every submesh, so the front face is the normal side. And measured
+        // from that camera, the backdrop this scene cannot afford to lose - sky dome, Aerie Peak
+        // card, eyes, gradient, all three cloud sheets, grass - is 100% FRONT-facing, while the
+        // solids run 13-58% back-facing. Culling can only take the second group.
+        _gl.Enable(EnableCap.CullFace);
+        bool cullingOn = true;
         _gl.Enable(EnableCap.Blend);
 
         _shader!.Use();
@@ -505,6 +645,10 @@ public sealed class GlueScene : IDisposable
         _shader.Set("uFogNear", FogNear);
         _shader.Set("uFogFar", FogFar);
         _shader.Set("uFogStrength", OpaqueFogStrength);
+        _shader.Set("uFogEnabled", _fogEnabled ? 1 : 0);
+        _shader.Set("uSceneTint", SceneTint);
+        _shader.Set("uFillDir", SceneFillDir);
+        _shader.Set("uFillColor", SceneFillColor);
         _shader.Set("uTex", 0);
 
         _shader.Set("uAmbient", _ambient);
@@ -519,50 +663,75 @@ public sealed class GlueScene : IDisposable
         }
 
         _gl.BindVertexArray(_vao);
-        foreach (var b in _batches)
+        // Two passes, matching benilla / the standard transparency rule (model_render.rs:177-189 -
+        // Opaque/AlphaTest ride the opaque pass, Blend/Mod/Mod2x/Add ride the transparent pass, which
+        // Bevy draws second). MSUIClient used to draw batches in raw FILE order, so UI_Human's
+        // alpha-blended STREET (early, no depth write) drew before the OPAQUE caustic water + buildings
+        // (later), which then painted OVER it - the "screwed-up street". Pass 0 lays down every opaque/
+        // alpha-key batch WITH depth write; pass 1 composites the blended/additive batches over them.
+        for (int pass = 0; pass < 2; pass++)
         {
-            bool additive = b.Blend is 3 or 4;
-            bool alphaKey = b.Blend == 1;
-            if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
-            else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
-            else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-
-            Vector3 tint = Vector3.One;
-            float ca = 1f;
-            if (b.ColorIndex >= 0)
+            bool transparentPass = pass == 1;
+            foreach (var b in _batches)
             {
-                tint = SampleVec3(_colors[b.ColorIndex].Rgb, Vector3.One);
-                ca = Math.Clamp(SampleScalar(_colors[b.ColorIndex].Alpha, 1f), 0f, 1f);
-            }
-            Vector2 uv = Vector2.Zero;
-            if (b.TexAnim >= 0)
-            {
-                Vector3 tr = SampleVec3(_texAnims[b.TexAnim], Vector3.Zero);
-                uv = new Vector2(tr.X, tr.Y);
-            }
+                bool additive = b.Blend is 3 or 4;
+                bool blended = b.Blend >= 2;          // 2 = alpha, 3/4 = additive - the transparent pass
+                if (blended != transparentPass) continue;
 
-            _shader.Set("uColor", tint);
-            _shader.Set("uColorAlpha", ca);
-            _shader.Set("uUvOffset", uv);
-            _shader.Set("uAdditive", additive ? 1 : 0);
-            _shader.Set("uEmissive", additive || b.Unlit ? 1 : 0);
-            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.0f);
+                if (b.TwoSided == cullingOn)
+                {
+                    cullingOn = !b.TwoSided;
+                    if (cullingOn) _gl.Enable(EnableCap.CullFace);
+                    else _gl.Disable(EnableCap.CullFace);
+                }
 
-            b.Tex?.Bind(0);
-            DrawElements(b.IndexStart, b.IndexCount);
+                bool alphaKey = b.Blend == 1;
+                if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
+                else if (blended) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
+                else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
+
+                Vector3 tint = Vector3.One;
+                float ca = 1f;
+                if (b.ColorIndex >= 0)
+                {
+                    tint = SampleVec3(_colors[b.ColorIndex].Rgb, Vector3.One);
+                    ca = Math.Clamp(SampleScalar(_colors[b.ColorIndex].Alpha, 1f), 0f, 1f);
+                }
+                Vector2 uv = Vector2.Zero;
+                if (b.TexAnim >= 0)
+                {
+                    Vector3 tr = SampleVec3(_texAnims[b.TexAnim], Vector3.Zero);
+                    uv = new Vector2(tr.X, tr.Y);
+                }
+
+                _shader.Set("uColor", tint);
+                _shader.Set("uColorAlpha", ca);
+                _shader.Set("uUvOffset", uv);
+                _shader.Set("uAdditive", additive ? 1 : 0);
+                _shader.Set("uEmissive", additive || b.Unlit ? 1 : 0);
+                _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.0f);
+
+                b.Tex?.Bind(0);
+                DrawElements(b.IndexStart, b.IndexCount);
+            }
         }
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
+        // Leave culling ON: that is the global default ClientWindow sets, and GlueBooth's
+        // character pass documents that it expects to start from it.
+        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
 
         // The brazier fires. Same Y-up camera as the mesh, but ParticleRenderer wants a
         // camera-RELATIVE view-projection (sprite centres are uploaded absolute; the shader
-        // subtracts uCameraOrigin) — so eye-subtracted view here. worldUp = Y (glue space).
+        // subtracts uCameraOrigin) - so eye-subtracted view here. worldUp = Y (glue space).
         if (_particles is not null)
         {
             Vector3 forward = Vector3.Normalize(_target - _eye);
             Vector3 right = Vector3.Cross(forward, Vector3.UnitY);
             right = right.LengthSquared() > 1e-6f ? Vector3.Normalize(right) : Vector3.UnitX;
             Matrix4x4 relVp = Matrix4x4.CreateLookAt(Vector3.Zero, _target - _eye, Vector3.UnitY) * proj;
+            _particles.SpriteSizeScaleAll = MSUIClient.Engine.UI.GlueTune.ParticleSize;
+            _particles.BrazierSizeScaleAll = MSUIClient.Engine.UI.GlueTune.BrazierSize;
             _particles.Simulate(Math.Clamp(dt, 0f, 0.1f), _eye, _emitters);
             _particles.Render(relVp, _eye, forward, Vector3.UnitY, right);
         }
@@ -600,6 +769,59 @@ public sealed class GlueScene : IDisposable
     // Raw WoW model space (Z-up) -> the same glTF Y-up space M2Reader put the verts in: (x,y,z)->(x,z,-y).
     private static Vector3 ToYUp(Vector3 v) => new(v.X, v.Z, -v.Y);
 
+    // ── Light-bone +Z axis (benilla-formats records.rs bone_z_axis) ─────────────────────────────
+    // A directional light's to-light direction is its bone's model-space +Z axis at the track origin:
+    // the FIRST rotation key of each bone composed up the parent chain (global = root o ... o local),
+    // applied to (0,0,1). Rotationless chains yield (0,0,1) = up (vanilla's rest skeleton is pure
+    // translations). Bone table count@0x34 / ofs@0x38, stride 0x6c; per bone: flags u32@4 (bit 0x04 =
+    // keep the model root's orientation, stop inheriting), parent u16@8, rotation M2Track @0x28.
+    private static Vector3 BoneZAxis(byte[] b, int bone)
+    {
+        if (!U32(b, 0x34, out uint count) || count == 0 || count > 4096 || !U32(b, 0x38, out uint ofs))
+            return new Vector3(0f, 0f, 1f);
+        const int STRIDE = 0x6c;
+        var chain = new List<Vector4>();
+        int idx = bone;
+        for (int guard = 0; guard <= count; guard++)
+        {
+            if (idx < 0 || idx >= count) break;
+            long rec = ofs + (long)idx * STRIDE;
+            if (rec + STRIDE > b.Length) break;
+            if (TrackFirstQuat(b, rec + 0x28, out Vector4 q)) chain.Add(q);
+            U32(b, rec + 4, out uint flags);
+            if ((flags & 0x4) != 0) break;                    // keeps the model root's orientation
+            idx = (short)(b[rec + 8] | b[rec + 9] << 8);       // parent (i16)
+        }
+        Vector4 acc = new(0f, 0f, 0f, 1f);
+        for (int i = chain.Count - 1; i >= 0; i--)             // root-first: global = root o ... o local
+            acc = QuatMul(acc, chain[i]);
+        return QuatRotateZ(acc);
+    }
+
+    // First value of a vanilla 28-byte M2Track whose values are [x,y,z,w] f32 quaternions (v256 bone
+    // rotation key shape). count@0x14 / ofs@0x18 into the track.
+    private static bool TrackFirstQuat(byte[] b, long track, out Vector4 q)
+    {
+        q = default;
+        if (!U32(b, track + 0x14, out uint nval) || nval == 0 || !U32(b, track + 0x18, out uint vofs)) return false;
+        if (vofs + 16 > b.Length) return false;
+        q = new Vector4(F(b, vofs), F(b, vofs + 4), F(b, vofs + 8), F(b, vofs + 12));
+        return true;
+    }
+
+    // Hamilton product a*b of two [x,y,z,w] quaternions.
+    private static Vector4 QuatMul(Vector4 a, Vector4 c) => new(
+        a.W * c.X + a.X * c.W + a.Y * c.Z - a.Z * c.Y,
+        a.W * c.Y - a.X * c.Z + a.Y * c.W + a.Z * c.X,
+        a.W * c.Z + a.X * c.Y - a.Y * c.X + a.Z * c.W,
+        a.W * c.W - a.X * c.X - a.Y * c.Y - a.Z * c.Z);
+
+    // q * (0,0,1) * q^-1 - the +Z axis rotated by q, closed form.
+    private static Vector3 QuatRotateZ(Vector4 q) => new(
+        2f * (q.X * q.Z + q.W * q.Y),
+        2f * (q.Y * q.Z - q.W * q.X),
+        1f - 2f * (q.X * q.X + q.Y * q.Y));
+
     private static Vector3 BasePlusKey(byte[] b, long baseOfs, long trackOfs)
     {
         Vector3 basePos = new(F(b, baseOfs), F(b, baseOfs + 4), F(b, baseOfs + 8));
@@ -623,7 +845,7 @@ public sealed class GlueScene : IDisposable
         _fovDiag = 0.9f;
         _near = MathF.Max(0.1f, r * 0.01f);
         _far = r * 6f;
-        Console.WriteLine("[glue] no authored camera; framing UI_MainMenu from bounds");
+        Console.WriteLine($"[glue] no authored camera; framing {Path.GetFileNameWithoutExtension(_modelPath)} from bounds");
     }
 
     private static bool U32(byte[] b, long o, out uint v)
@@ -659,16 +881,50 @@ layout(location=1) in vec3 aNormal;
 layout(location=2) in vec2 aUv;
 uniform mat4 uMVP;
 uniform vec3 uEye;
+uniform int uLightCount;
+uniform int uLightType[4];
+uniform vec3 uLightPos[4];
+uniform vec3 uLightColor[4];
 out vec3 vModelPos;
 out vec3 vNormal;
 out vec2 vUv;
 out float vDist;
+out vec3 vPointLit;
 void main(){
     gl_Position = uMVP * vec4(aPos, 1.0);
     vModelPos = aPos;
     vNormal = aNormal;
     vUv = aUv;
     vDist = length(uEye - aPos);
+
+    // POINT lights are a PER-VERTEX term, interpolated - not a per-pixel one. The reference is
+    // fixed-function GL T&L: it evaluates ambient + sun + the <=3 nearest point lights ONCE PER
+    // VERTEX and interpolates the result (benilla wow_model.wgsl computes point_light_sum in its
+    // VERTEX stage for exactly this reason; the clamp note in lighting/global_light.rs spells out
+    // that what the eye reads as saturation is the per-vertex clamp, never the commit).
+    //
+    // Evaluating it per FRAGMENT instead - which is what this shader used to do - is not a
+    // refinement, it is a different picture. UI_MainMenu's light 0 is a warm point light at
+    // (-3.12, 0.43, 0.87) with diffuse (0.84,0.50,0.19) x intensity 2.0, sitting one to two
+    // yards off the statues' faces. Per fragment, the 1/(0.7d + 0.03d^2) falloff and the
+    // max(N.L,0) terminator resolve at pixel resolution and paint hard-edged dark bands across
+    // the robes and shoulders that the OG's Gouraud gradient never shows. Per vertex, the same
+    // rig reads as the smooth wash it does in 1.12.
+    vec3 N = normalize(aNormal);
+    vec3 V = normalize(uEye - aPos);
+    if (dot(N, V) < 0.0) N = -N;               // two-sided, as the fragment stage does
+    vec3 pl = vec3(0.0);
+    for (int i = 0; i < uLightCount && i < 4; i++) {
+        if (uLightType[i] != 1) continue;
+        vec3 d = uLightPos[i] - aPos;
+        float dist = length(d);
+        vec3 L = dist > 1e-4 ? d / dist : vec3(0.0, 1.0, 0.0);
+        // The engine's fixed falloff, NO authored-radius clamp: uLightAtten carries the authored
+        // radii and the reference never reads them (benilla glue_booth.rs SCENE_POINT_RANGE).
+        float atten = 1.0 / (0.7 * dist + 0.03 * dist * dist);
+        pl += uLightColor[i] * (max(dot(N, L), 0.0) * atten);
+    }
+    vPointLit = pl;
 }";
 
     private const string FragSrc = @"#version 330 core
@@ -676,11 +932,16 @@ in vec3 vModelPos;
 in vec3 vNormal;
 in vec2 vUv;
 in float vDist;
+in vec3 vPointLit;
 uniform sampler2D uTex;
 uniform vec3 uFogColor;
 uniform float uFogNear;
 uniform float uFogFar;
 uniform float uFogStrength;
+uniform int uFogEnabled;
+uniform vec3 uSceneTint;
+uniform vec3 uFillDir;
+uniform vec3 uFillColor;
 uniform vec3 uEye;
 uniform vec3 uColor;
 uniform float uColorAlpha;
@@ -701,6 +962,7 @@ void main(){
     vec3 rgb = t.rgb * uColor;
     float a = t.a * uColorAlpha;
     float fog = clamp((vDist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
+    if (uFogEnabled == 0) fog = 0.0;   // char-select Race scenes render UNFOGGED (benilla)
 
     if (uEmissive == 1) {
         if (uAdditive == 1) { frag = vec4(rgb * (1.0 - fog), a); return; }
@@ -710,20 +972,13 @@ void main(){
 
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uEye - vModelPos);
-    if (dot(N, V) < 0.0) N = -N;               // two-sided: the gate has no back-face cull
-    vec3 lit = uAmbient;                        // Sigma authored ambient tracks (light[*] ambient)
+    if (dot(N, V) < 0.0) N = -N;               // for the genuinely two-sided batches (flag 0x04)
+    // The POINT term arrives INTERPOLATED from the vertex stage (see VertSrc): that is where
+    // the reference evaluates it, and evaluating it per pixel is what put hard-edged shadow
+    // bands on the gate statues.
+    vec3 lit = uAmbient + vPointLit;            // Sigma authored ambient tracks (light[*] ambient)
     for (int i = 0; i < uLightCount && i < 4; i++) {
-        if (uLightType[i] == 1) {
-            // Dynamic POINT light (benilla wow_model.wgsl point_light_sum): fixed engine falloff
-            // 1/(0.7d + 0.03d^2), diffuse-only max(N.L,0), NO authored-radius clamp (uLightAtten
-            // is the authored radii, dead code in the reference). This is what carries the warm
-            // brazier across the whole gate instead of dying at ~6.5yd.
-            vec3 d = uLightPos[i] - vModelPos;
-            float dist = length(d);
-            vec3 L = dist > 1e-4 ? d / dist : vec3(0.0, 1.0, 0.0);
-            float atten = 1.0 / (0.7 * dist + 0.03 * dist * dist);
-            lit += uLightColor[i] * (max(dot(N, L), 0.0) * atten);
-        } else {
+        if (uLightType[i] != 1) {
             // DIRECTIONAL light folded into an order-2 SH probe (benilla lighting/sh.rs): a single
             // lobe evaluated at a normal is EXACTLY E(mu) = C*(4/17)*(0.375 + 2mu + 1.875mu^2),
             // mu = N.u. Softer than max(N.L,0): no hard terminator (side-on 0.088C, back 0.059C,
@@ -734,10 +989,20 @@ void main(){
             lit += uLightColor[i] * ((4.0 / 17.0) * (0.375 + 2.0 * mu + 1.875 * mu * mu));
         }
     }
+    // Supplemental fill (booth only; login uFillColor = 0 -> no contribution): one extra SH lobe that
+    // lights up-facing surfaces (the floor/pathway) the per-race grazing rig leaves flat. Applied to
+    // every LIT surface - the alpha-blended cobblestone STREET (blend 2) needs it as much as the opaque
+    // stone; the unlit caustic water/sky/clouds take the EMISSIVE path above and never reach here, so
+    // the boost cannot blow them out. uFillDir is always valid so normalize() never divides by zero.
+    {
+        vec3 fu = normalize(uFillDir);
+        float fmu = dot(N, fu);
+        lit += uFillColor * ((4.0 / 17.0) * (0.375 + 2.0 * fmu + 1.875 * fmu * fmu));
+    }
     // FFP combine (benilla wow_model.wgsl:640): the light SUM saturates to [0,1] FIRST, THEN the
     // texture modulates it, so a surface never exceeds its own fully-lit texture (a brazier at
     // point-blank drives stone to tex*1, not past it into blown gold). Gamma space throughout.
     vec3 primary = clamp(lit, 0.0, 1.0);
-    frag = vec4(mix(rgb * primary, uFogColor, fog * uFogStrength), a);
+    frag = vec4(mix(rgb * primary * uSceneTint, uFogColor, fog * uFogStrength), a);
 }";
 }

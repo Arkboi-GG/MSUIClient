@@ -124,7 +124,7 @@ public sealed class M2Animator
     /// answer: a locomotion cycle always loops, and the only genuine one-shots
     /// in the set we bake are the two ends of a jump.
     /// </summary>
-    private static readonly HashSet<int> OneShotAnimations = [37, 39];
+    private static readonly HashSet<int> OneShotAnimations = [37, 39, 187];
 
     public sealed class Clip
     {
@@ -133,6 +133,16 @@ public sealed class M2Animator
         public float DurationSeconds;
         public float MoveSpeed;
         public bool Looping;
+
+        /// <summary>
+        /// Seconds to cross-fade INTO this clip, straight off the M2 sequence's
+        /// blendTime field. Zero means the file asks for a hard cut.
+        ///
+        /// The caller decides what to do with a zero - see
+        /// CharacterRenderer.BlendSecondsFor, which floors locomotion
+        /// transitions rather than letting a leg cycle snap to frame one.
+        /// </summary>
+        public float BlendSeconds;
 
         /// <summary>Raw sequence flags, logged so we learn what they mean rather than assume.</summary>
         public uint SourceFlags;
@@ -492,6 +502,7 @@ public sealed class M2Animator
             DurationSeconds = seq.DurationMs / 1000f,
             MoveSpeed = seq.MoveSpeed,
             Looping = !OneShotAnimations.Contains(animationId),
+            BlendSeconds = seq.BlendTimeMs / 1000f,
             SourceFlags = seq.Flags,
             Bones = new BoneChannels[_boneCount],
         };
@@ -576,18 +587,48 @@ public sealed class M2Animator
     /// problem.
     /// </summary>
     public void Evaluate(Clip? clip, float timeSeconds, float globalTimeSeconds, Matrix4x4[] skin)
+        => Evaluate(clip, timeSeconds, null, 0f, 0f, globalTimeSeconds, skin);
+
+    /// <summary>
+    /// The same, cross-fading OUT of <paramref name="previous"/>.
+    ///
+    /// WHY THIS EXISTS AT ALL. Playback used to be a reference compare, a swap
+    /// and `_clipTime = 0`: a hard cut with the leg cycle yanked back to its
+    /// first frame. Every stand-to-run, every direction change and every
+    /// landing popped, and no single one of them was wrong enough to point at -
+    /// which is exactly why it read as "something about the movement is off"
+    /// rather than as a bug with a name.
+    ///
+    /// The blend happens in TRS, not in matrices. Lerping two matrices shears
+    /// the pose through the halfway point; lerping the translation, slerping the
+    /// rotation and lerping the scale is the same thing three.js's AnimationMixer
+    /// and every other mixer does, and it is the only version that stays rigid.
+    ///
+    /// <paramref name="previousWeight"/> is how much of the OUTGOING clip
+    /// survives: 1 at the instant of the change, 0 when the fade is done.
+    ///
+    /// Global sequences are sampled ONCE, after the blend. They keep their own
+    /// clock across clip changes by definition, so fading between two copies of
+    /// the same global track would be meaningless work.
+    /// </summary>
+    public void Evaluate(Clip? clip, float timeSeconds,
+                         Clip? previous, float previousTimeSeconds, float previousWeight,
+                         float globalTimeSeconds, Matrix4x4[] skin)
     {
         if (skin.Length < _boneCount)
             throw new ArgumentException($"skin array holds {skin.Length}, need {_boneCount}", nameof(skin));
 
-        float t = 0f;
-        if (clip is not null && clip.DurationSeconds > 0f)
-        {
-            t = clip.Looping
-                ? timeSeconds % clip.DurationSeconds
-                : Math.Clamp(timeSeconds, 0f, clip.DurationSeconds);
-            if (t < 0f) t += clip.DurationSeconds;
-        }
+        float t = ClipTime(clip, timeSeconds);
+        float tPrevious = ClipTime(previous, previousTimeSeconds);
+
+        float weight = previous is null ? 0f : Math.Clamp(previousWeight, 0f, 1f);
+        if (float.IsNaN(weight)) weight = 0f;
+        bool blending = previous is not null && weight > 0.001f;
+
+        // Global tracks are clip-independent, so they are sampled whenever
+        // ANYTHING is playing - including a frame where the outgoing clip is all
+        // that is left.
+        bool sampleGlobals = clip is not null || previous is not null;
 
         // A rotation appended AFTER a bone's global transform is applied in
         // MODEL space, about the model's own vertical axis through the origin
@@ -605,23 +646,20 @@ public sealed class M2Animator
 
         foreach (int i in _order)
         {
-            var translation = _restTranslation[i];
-            var rotation = Quaternion.Identity;
-            var scale = Vector3.One;
+            SampleLocal(clip, t, i, out var translation, out var rotation, out var scale);
 
-            if (clip is not null)
+            if (blending)
             {
-                var c = clip.Bones[i];
+                SampleLocal(previous, tPrevious, i,
+                            out var outTranslation, out var outRotation, out var outScale);
 
-                if (c.TranslationTimes.Length > 0)
-                    translation += SampleVector3(c.TranslationTimes, c.TranslationKeys, t);
+                translation = Vector3.Lerp(translation, outTranslation, weight);
+                rotation = Quaternion.Slerp(rotation, outRotation, weight);
+                scale = Vector3.Lerp(scale, outScale, weight);
+            }
 
-                if (c.RotationTimes.Length > 0)
-                    rotation = SampleQuaternion(c.RotationTimes, c.RotationKeys, t);
-
-                if (c.ScaleTimes.Length > 0)
-                    scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
-
+            if (sampleGlobals)
+            {
                 // Global tracks do not belong to Stand, Walk, Run, or any
                 // other clip. They keep their own clock across clip changes.
                 // HumanMale bone 75 uses a global scale track to shrink the
@@ -662,6 +700,46 @@ public sealed class M2Animator
 
         for (int i = 0; i < _boneCount; i++)
             skin[i] = Matrix4x4.CreateTranslation(-_pivot[i]) * _global[i];
+    }
+
+    /// <summary>Wrap a looping clip's clock, clamp a one-shot's. Zero with no clip.</summary>
+    private static float ClipTime(Clip? clip, float timeSeconds)
+    {
+        if (clip is null || clip.DurationSeconds <= 0f) return 0f;
+
+        float t = clip.Looping
+            ? timeSeconds % clip.DurationSeconds
+            : Math.Clamp(timeSeconds, 0f, clip.DurationSeconds);
+
+        return t < 0f ? t + clip.DurationSeconds : t;
+    }
+
+    /// <summary>
+    /// One bone's animated local TRS at a clip time, rest pose included.
+    ///
+    /// The rest translation is folded in here rather than at the call site so
+    /// that blending two of these is correct without a special case: both carry
+    /// the same rest term, and lerping them leaves it untouched.
+    /// </summary>
+    private void SampleLocal(Clip? clip, float t, int bone,
+                             out Vector3 translation, out Quaternion rotation, out Vector3 scale)
+    {
+        translation = _restTranslation[bone];
+        rotation = Quaternion.Identity;
+        scale = Vector3.One;
+
+        if (clip is null) return;
+
+        var c = clip.Bones[bone];
+
+        if (c.TranslationTimes.Length > 0)
+            translation += SampleVector3(c.TranslationTimes, c.TranslationKeys, t);
+
+        if (c.RotationTimes.Length > 0)
+            rotation = SampleQuaternion(c.RotationTimes, c.RotationKeys, t);
+
+        if (c.ScaleTimes.Length > 0)
+            scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
     }
 
     /// <summary>
@@ -903,6 +981,7 @@ public sealed class M2Animator
         92 => "RunRight",
         93 => "RunLeft",
         69 => "EmoteDance",
+        187 => "JumpLandRun",
         _ => $"Anim{id}",
     };
 }

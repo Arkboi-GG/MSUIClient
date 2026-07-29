@@ -1,4 +1,4 @@
-using Silk.NET.OpenGL;
+﻿using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using Texture = MSUIClient.Engine.Texture; 
@@ -7,7 +7,7 @@ namespace MSUIClient.World;
 
 /// <summary>
 /// The texture side of one ADT tile: the tileset as a GL array texture, plus a
-/// packed alpha atlas holding every chunk's blend masks.
+/// second array texture holding every chunk's blend masks, one layer each.
 ///
 /// HOW VANILLA TERRAIN TEXTURING WORKS
 ///   Each ADT lists up to ~16 texture paths in MTEX. Each of its 256 MCNK
@@ -17,9 +17,26 @@ namespace MSUIClient.World;
 ///
 /// HOW WE RENDER IT
 ///   All MTEX textures go into one GL_TEXTURE_2D_ARRAY, so a whole tile binds
-///   once. Every chunk's three alpha masks pack into a single 1024x1024 RGBA
-///   atlas (16x16 chunks x 64x64 texels): R = layer 1, G = layer 2, B = layer 3.
-///   Each vertex carries its chunk's four array indices. One draw call per tile.
+///   once. Every chunk's three alpha masks go into a SECOND array texture, one
+///   64x64 RGBA layer per chunk: R = layer 1, G = layer 2, B = layer 3. Each
+///   vertex carries its chunk's four tileset indices and its own alpha layer.
+///
+/// THE ALPHA MASKS USED TO BE AN ATLAS, AND THAT WAS THE SEAM
+///   They were packed edge to edge into one 1024x1024 image and sampled with a
+///   tile-wide UV. A chunk boundary then lands exactly on an integer texel
+///   coordinate, so the bilinear tap there is a literal 50/50 blend of two
+///   DIFFERENT chunks' blend weights — applied to this chunk's four texture
+///   indices, which are usually a different set of ground textures entirely.
+///   One alpha texel is 533.33/16/64 = 0.52 yd, so that is roughly a yard of
+///   wrong-texture smear along every chunk edge in the world.
+///
+///   No sampler state fixes it: inside an atlas the neighbours really are
+///   adjacent, so CLAMP_TO_EDGE only clamps at the atlas border. A half-texel
+///   inset in the shader works, and was the first fix, but it is a workaround
+///   for a layout that should not have been an atlas. Array layers cannot
+///   address each other at all, which makes the problem structurally impossible
+///   rather than avoided — and it costs nothing: same 4 MB, one bind either way.
+///   This is what benilla does (benilla-assets/src/terrain.rs:145-147).
 ///
 /// ALPHA ORIENTATION IS UNVERIFIED
 ///   AdtTerrainReader normalises every MCAL encoding to a 64x64 stride-64
@@ -35,7 +52,14 @@ public sealed class TerrainTextures : IDisposable
     {
         public List<byte[]> Pixels = [];
         public List<string> Names = [];
-        public byte[] AlphaAtlas = [];
+
+        /// <summary>
+        /// Every chunk's 64x64 RGBA mask, back to back, layer index = chunk
+        /// index (cy * 16 + cx). One contiguous buffer so the upload is a single
+        /// TexImage3D rather than 256 sub-image calls.
+        /// </summary>
+        public byte[] AlphaLayers = [];
+
         public int[][] ChunkLayers = [];
         public int Width;
         public int Height;
@@ -43,16 +67,21 @@ public sealed class TerrainTextures : IDisposable
 
     public const int AlphaSize = 64;
     public const int ChunksPerSide = 16;
-    public const int AtlasSize = ChunksPerSide * AlphaSize;   // 1024
+
+    /// <summary>Alpha array layers: one per chunk.</summary>
+    public const int ChunkCount = ChunksPerSide * ChunksPerSide;   // 256
+
+    /// <summary>Bytes in one chunk's RGBA mask.</summary>
+    private const int AlphaLayerBytes = AlphaSize * AlphaSize * 4;
 
     /// <summary>Flip the within-chunk alpha axes. See the class remarks.</summary>
     public static bool TransposeAlpha { get; set; }
 
     private Texture? _tileset;
-    private Texture? _alphaAtlas;
+    private Texture? _alphaArray;
 
     public int TextureCount => _tileset?.Layers ?? 0;
-    public bool Ready => _tileset is not null && _alphaAtlas is not null;
+    public bool Ready => _tileset is not null && _alphaArray is not null;
     public IReadOnlyList<string> TextureNames { get; private set; } = [];
 
     /// <summary>
@@ -103,9 +132,9 @@ public sealed class TerrainTextures : IDisposable
             kept.Add(names[i]);
         }
 
-        // ── alpha atlas + per-chunk layer indices ────────────────────────────
-        var atlas = new byte[AtlasSize * AtlasSize * 4];
-        var layers = new int[ChunksPerSide * ChunksPerSide][];
+        // ── alpha array + per-chunk layer indices ────────────────────────────
+        var alphaLayers = new byte[ChunkCount * AlphaLayerBytes];
+        var layers = new int[ChunkCount][];
 
         for (int i = 0; i < layers.Length; i++) layers[i] = [-1, -1, -1, -1];
 
@@ -132,18 +161,20 @@ public sealed class TerrainTextures : IDisposable
                     var alpha = chunk.Layers[li].AlphaMap;
                     if (alpha is null || alpha.Length < AlphaSize * AlphaSize) continue;
 
+                    // This chunk's own layer. Within it, U runs along the tile's
+                    // Y/west axis and V along the X/north axis — the same
+                    // mapping TerrainTile uses for its UVs.
+                    int layerBase = chunkIndex * AlphaLayerBytes;
+
                     for (int py = 0; py < AlphaSize; py++)
                     for (int px = 0; px < AlphaSize; px++)
                     {
                         byte value = alpha[py * AlphaSize + px];
 
-                        // Atlas X follows the tile's Y/west axis (chunk IndexX),
-                        // atlas Y follows the X/north axis (chunk IndexY) — the
-                        // same mapping TerrainTile uses for its UVs.
-                        int ax = cx * AlphaSize + (TransposeAlpha ? py : px);
-                        int ay = cy * AlphaSize + (TransposeAlpha ? px : py);
+                        int ax = TransposeAlpha ? py : px;
+                        int ay = TransposeAlpha ? px : py;
 
-                        atlas[(ay * AtlasSize + ax) * 4 + (li - 1)] = value;
+                        alphaLayers[layerBase + (ay * AlphaSize + ax) * 4 + (li - 1)] = value;
                     }
                 }
             }
@@ -153,7 +184,7 @@ public sealed class TerrainTextures : IDisposable
         {
             Pixels = pixels,
             Names = kept,
-            AlphaAtlas = atlas,
+            AlphaLayers = alphaLayers,
             ChunkLayers = layers,
             Width = expectedW,
             Height = expectedH,
@@ -172,21 +203,21 @@ public sealed class TerrainTextures : IDisposable
             result._tileset = Texture.Array2D(
                 gl, prepared.Pixels, prepared.Width, prepared.Height, ownerGl: ownerGl);
 
-        result._alphaAtlas = Texture.FromRgbaNoMips(
-            gl, prepared.AlphaAtlas, AtlasSize, AtlasSize, ownerGl);
+        result._alphaArray = Texture.ArrayRgbaNoMips(
+            gl, prepared.AlphaLayers, AlphaSize, AlphaSize, ChunkCount, ownerGl);
         return result;
     }
 
-    /// <summary>Bind tileset to unit 0 and alpha atlas to unit 1.</summary>
+    /// <summary>Bind tileset to unit 0 and the alpha array to unit 1.</summary>
     public void Bind()
     {
         _tileset?.Bind(0);
-        _alphaAtlas?.Bind(1);
+        _alphaArray?.Bind(1);
     }
 
     public void Dispose()
     {
         _tileset?.Dispose();
-        _alphaAtlas?.Dispose();
+        _alphaArray?.Dispose();
     }
 }

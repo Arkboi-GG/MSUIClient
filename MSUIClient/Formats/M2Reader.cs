@@ -257,6 +257,17 @@ public class M2Sequence
     public float MoveSpeed { get; set; }
     public uint Flags { get; set; }
 
+    /// <summary>
+    /// Milliseconds the client cross-fades INTO this sequence from whatever was
+    /// playing before. Field +32 of AnimationSequenceM2.
+    ///
+    /// It was skipped for as long as playback was a hard cut, which made it dead
+    /// data. It is not: it is the per-clip blend duration the reference client
+    /// uses, so a run cycle eases into a stand instead of snapping to its first
+    /// frame. Zero is authored on clips that genuinely want no fade.
+    /// </summary>
+    public uint BlendTimeMs { get; set; }
+
     public uint DurationMs => EndTimestamp > StartTimestamp
         ? EndTimestamp - StartTimestamp
         : 0;
@@ -633,7 +644,165 @@ public class M2ParticleEmitter
     public uint SequenceStart { get; set; }
     public uint SequenceEnd { get; set; }
 
-    public bool HasBoneSpin => BoneRotationKeys.Length > 1 && SequenceEnd > SequenceStart;
+    /// <summary>Loop period in ms for <see cref="BoneRotationKeys"/>: its GLOBAL SEQUENCE's
+    /// duration, or 0 when the track rides the playing sequence instead.</summary>
+    public float BoneRotationLoopMs { get; set; }
+
+    public bool HasBoneSpin =>
+        BoneRotationKeys.Length > 1 && (BoneRotationLoopMs > 0f || SequenceEnd > SequenceStart);
+
+    // ── GLOBAL SEQUENCES: why a track's loop is not the sequence's loop ─────────────────────
+    //
+    // A track that declares a global sequence (gseq >= 0 at track+2) runs on ITS OWN clock, of
+    // the duration in the model's globalSequences table - independently of, and usually far
+    // shorter than, the animation sequence being played.
+    //
+    // Every animated bone on UI_MainMenu's login gate is exactly this case: bones 13/14/15/16
+    // (rotation) and 32..47 (translation) all declare global sequence 0, whose duration is
+    // 13333 ms, and their keys span 0..13333. Sequence 0 is 40000 ms. Looping those keys over
+    // the SEQUENCE span - which is what this file did - plays the real 13.3 s of motion, then
+    // clamps to the last key and parks everything for the remaining 26.7 s before snapping back.
+    //
+    // Parked is what the login screen showed: the drifting motes stop, and because their
+    // emitters author EmissionSpeed 0, every particle born during those 26.7 s lands on the
+    // same frozen point and stacks additively into a fat static blob. The animation was never
+    // missing - it just ran out and stayed out, which is precisely how Nico described it.
+
+    /// <summary>
+    /// Map wall-clock seconds onto a track's own timeline: its global sequence's period when it
+    /// has one, else the playing sequence's [start, end] window (timestamps there are ABSOLUTE
+    /// and need not start at zero - InstancePortal's sequence runs 3333..6667).
+    /// </summary>
+    private float TrackTime(double elapsedSeconds, float loopMs)
+    {
+        double ms = elapsedSeconds * 1000.0;
+        if (loopMs > 0f) return (float)(ms % loopMs);
+        double span = SequenceEnd - SequenceStart;
+        return span > 0.0 ? (float)(SequenceStart + ms % span) : 0f;
+    }
+
+    // ── The twinkle block (+0x180..+0x18c) ──────────────────────────────────
+    //
+    // benilla-formats/particles.rs:837-840. Missing from MSUI until 2026-07-29, which is
+    // why UI_MainMenu's two brazier GLOWS (emitters 25 and 27, twinkleScale min 0 / max 1)
+    // burned as steady discs instead of pulsing.
+
+    /// <summary>LUT walk rate: the noise index is floor(clamp(TwinkleSpeed*age, 0, 255)) + phase.</summary>
+    public float TwinkleSpeed { get; set; }
+
+    /// <summary>Draw GATE. While this is &lt; 1, a frame whose noise sample exceeds it emits NO
+    /// quad at all - the reference's hard scintillation (benilla quads.rs, byte-verified
+    /// 0x7b2adc). Placed content authors 1.0, so the gate is normally inert.</summary>
+    public float TwinklePercent { get; set; } = 1f;
+
+    public float TwinkleMin { get; set; } = 1f;
+    public float TwinkleMax { get; set; } = 1f;
+
+    /// <summary>
+    /// The gated twinkle SIZE multiplier for a noise sample in [0,1). Identity when the authored
+    /// range is degenerate - {0,0} and {1,1} alike burn steady (benilla ParticleEmitterDef::twinkle;
+    /// the old "base + rand" reading collapsed the kobold candle to zero).
+    /// </summary>
+    public float Twinkle(float noise)
+        => MathF.Abs(TwinkleMax - TwinkleMin) < 1e-6f
+            ? 1f
+            : noise * (TwinkleMax - TwinkleMin) + TwinkleMin;
+
+    // ── The emitter's BONE CHAIN ────────────────────────────────────────────
+    //
+    // The emitter's bone composes each particle's BIRTH (benilla particles.rs:10-11): an emitter
+    // riding an animated bone leaves a TRAIL, because the birth position moves while the particles
+    // already spawned stay where they were born. MSUI only ever sampled the emitter bone's
+    // ROTATION (BoneRotationKeys, and only on the model-space path), so a TRANSLATION-driven
+    // emitter never moved at all.
+    //
+    // That is not a corner case. UI_MainMenu's 16 GLOWBALL emitters (indices 1..16) author
+    // EmissionSpeed 0, gravity 0 and drag 0 - every bit of their motion is in bones 32..47, which
+    // carry 8 translation keys each under parents 13/14 (19 rotation keys each). With the bone
+    // ignored, each emitter piled its whole ~90-particle steady-state population (rate 30-45/s x
+    // 2 s life) onto ONE point; ninety additive sprites at alpha ~0.03 saturate, so the login
+    // screen grew 16 fat motionless flares where the OG has drifting motes.
+
+    /// <summary>
+    /// One joint of the emitter bone's chain, in the render vertices' Y-up space: the bind pivot
+    /// plus sequence 0's translation and rotation keys. Applied as the M2 bone law
+    /// `p' = pivot + T(t) + R(t)*(p - pivot)`, innermost joint first.
+    /// </summary>
+    public sealed class BoneNode
+    {
+        public Vector3 Pivot;
+        public uint[] TransTimes = [];
+        public Vector3[] TransKeys = [];
+        public uint[] RotTimes = [];
+        public Vector4[] RotKeys = [];
+
+        /// <summary>Loop period in ms, per track: the track's GLOBAL SEQUENCE duration when it
+        /// declares one, else 0 = "loop over the playing sequence's span". See
+        /// <see cref="M2ParticleEmitter.TrackTime"/> - getting this wrong is what parked the
+        /// login's motes.</summary>
+        public float TransLoopMs;
+        public float RotLoopMs;
+
+        /// <summary>Whether this joint carries real animation. A single key is a CONSTANT and is
+        /// still applied once the chain exists, but it does not on its own justify building one -
+        /// that would silently move every static emitter in the world.</summary>
+        public bool Animates => TransKeys.Length > 1 || RotKeys.Length > 1;
+    }
+
+    /// <summary>The emitter's own bone then its parents, innermost first. EMPTY when no joint on
+    /// the chain animates, so a static emitter keeps its previous behaviour exactly.</summary>
+    public BoneNode[] BoneChain { get; set; } = [];
+
+    public bool HasBoneMotion => BoneChain.Length > 0;
+
+    /// <summary>
+    /// The emitter's origin at a wall-clock time, walked up the animated bone chain and looping
+    /// sequence 0. Returns <paramref name="bindPosition"/> untouched when the chain is static.
+    /// </summary>
+    public Vector3 SampleBonePosition(double elapsedSeconds, Vector3 bindPosition)
+    {
+        if (!HasBoneMotion) return bindPosition;
+
+        // Each track gets its OWN clock: on this model the rotations and the translations happen
+        // to share global sequence 0, but nothing in the format says they must.
+        var p = bindPosition;
+        foreach (var node in BoneChain)
+        {
+            var q = SampleQuat(node.RotTimes, node.RotKeys,
+                               TrackTime(elapsedSeconds, node.RotLoopMs));
+            p = node.Pivot
+              + SampleVec(node.TransTimes, node.TransKeys,
+                          TrackTime(elapsedSeconds, node.TransLoopMs))
+              + Vector3.Transform(p - node.Pivot, q);
+        }
+        return p;
+    }
+
+    private static Vector3 SampleVec(uint[] times, Vector3[] keys, float t)
+    {
+        if (keys.Length == 0) return Vector3.Zero;
+        int last = keys.Length - 1;
+        if (last == 0 || t <= times[0]) return keys[0];
+        if (t >= times[last]) return keys[last];
+        int i = 0;
+        while (i < last && times[i + 1] < t) i++;
+        float span = times[i + 1] - times[i];
+        float f = span > 0f ? (t - times[i]) / span : 0f;
+        return keys[i] + (keys[i + 1] - keys[i]) * f;
+    }
+
+    private static Quaternion SampleQuat(uint[] times, Vector4[] keys, float t)
+    {
+        if (keys.Length == 0) return Quaternion.Identity;
+        int last = keys.Length - 1;
+        if (last == 0 || t <= times[0]) return Q(keys[0]);
+        if (t >= times[last]) return Q(keys[last]);
+        int i = 0;
+        while (i < last && times[i + 1] < t) i++;
+        float span = times[i + 1] - times[i];
+        float f = span > 0f ? (t - times[i]) / span : 0f;
+        return Quaternion.Slerp(Q(keys[i]), Q(keys[i + 1]), f);
+    }
 
     /// <summary>
     /// The emitter bone's rotation at a wall-clock time, looping the sequence.
@@ -643,8 +812,7 @@ public class M2ParticleEmitter
     {
         if (!HasBoneSpin) return Quaternion.Identity;
 
-        double span = SequenceEnd - SequenceStart;
-        double t = SequenceStart + (elapsedSeconds * 1000.0) % span;
+        float t = TrackTime(elapsedSeconds, BoneRotationLoopMs);
 
         var times = BoneRotationTimes;
         int last = times.Length - 1;
@@ -1023,7 +1191,7 @@ public class M2Reader
     //  +22   uint16 padding
     //  +24   uint32 minimumRepetitions (skipped)
     //  +28   uint32 maximumRepetitions (skipped)
-    //  +32   uint32 blendTime       (skipped)
+    //  +32   uint32 blendTime       (ms; the cross-fade duration into this clip)
     //  +36   M2Box  bounds          (24 bytes, skipped)
     //  +60   float  boundsRadius    (skipped)
     //  +64   int16  nextAnimationId (skipped — sequence chaining is TODO)
@@ -1045,6 +1213,7 @@ public class M2Reader
                 EndTimestamp = ReadUInt32(data, off + 8),
                 MoveSpeed = ReadFloat(data, off + 12),
                 Flags = ReadUInt32(data, off + 16),
+                BlendTimeMs = ReadUInt32(data, off + 32),
             });
         }
     }
@@ -1605,7 +1774,27 @@ public class M2Reader
             e.Drag = o + 0x194 + 4 <= data.Length            // +0x194 plain f32
                 ? BitConverter.ToSingle(data, o + 0x194) : 0f;
 
+            // The twinkle block. Guarded because the record tail is the part of the 0x1f8
+            // stride we derived rather than read from a spec; a short/garbled record must not
+            // take the whole model load down.
+            if (o + 0x190 <= data.Length)
+            {
+                float tsp = BitConverter.ToSingle(data, o + 0x180);
+                float tpc = BitConverter.ToSingle(data, o + 0x184);
+                float tmn = BitConverter.ToSingle(data, o + 0x188);
+                float tmx = BitConverter.ToSingle(data, o + 0x18C);
+                if (float.IsFinite(tsp) && float.IsFinite(tpc) &&
+                    float.IsFinite(tmn) && float.IsFinite(tmx))
+                {
+                    e.TwinkleSpeed = tsp;
+                    e.TwinklePercent = tpc;
+                    e.TwinkleMin = tmn;
+                    e.TwinkleMax = tmx;
+                }
+            }
+
             ReadEmitterBoneSpin(data, e, boneCount, boneOffset, seqCount, seqOffset);
+            ReadEmitterBoneChain(data, e, boneCount, boneOffset, seqCount, seqOffset);
             model.ParticleEmitters.Add(e);
         }
     }
@@ -1676,6 +1865,7 @@ public class M2Reader
 
         e.BoneRotationTimes = times;
         e.BoneRotationKeys = keys;
+        e.BoneRotationLoopMs = TrackLoopMs(data, track);
 
         // The sequence's own bounds, because the timestamps are ABSOLUTE and
         // need not start at zero: InstancePortal's sequence runs 3333..6667.
@@ -1692,4 +1882,165 @@ public class M2Reader
         }
     }
 
+    /// <summary>
+    /// Build the emitter's animated bone chain (own bone, then parents) for sequence 0. See
+    /// <see cref="M2ParticleEmitter.BoneChain"/> for why an emitter that never moves is not the
+    /// same thing as an emitter whose PARTICLES never move.
+    ///
+    /// Leaves BoneChain empty unless some joint genuinely animates, so every static emitter in
+    /// the world keeps its exact previous birth position.
+    /// </summary>
+    private static void ReadEmitterBoneChain(
+        byte[] data, M2ParticleEmitter e,
+        uint boneCount, uint boneOffset, uint seqCount, uint seqOffset)
+    {
+        if (boneCount == 0 || boneOffset == 0 || e.Bone >= boneCount) return;
+
+        // ReadEmitterBoneSpin only sets these when the emitter's OWN bone carries >= 2 rotation
+        // keys, and UI_MainMenu's drifting glow bones (32..47) are translation-only - without
+        // this the chain would be built and then never sampled (HasBoneMotion false).
+        if (e.SequenceEnd <= e.SequenceStart && seqCount >= 1 && seqOffset != 0 &&
+            seqOffset + SEQUENCE_STRIDE_VANILLA <= data.Length)
+        {
+            e.SequenceStart = ReadUInt32(data, (int)seqOffset + 4);
+            e.SequenceEnd = ReadUInt32(data, (int)seqOffset + 8);
+        }
+
+        var chain = new List<M2ParticleEmitter.BoneNode>();
+        int bone = e.Bone;
+        bool animates = false;
+
+        // Depth cap AND a visited set: a malformed parent index that points back down the chain
+        // would otherwise spin here forever inside model load.
+        var seen = new HashSet<int>();
+        for (int depth = 0; depth < 16 && bone >= 0 && bone < boneCount && seen.Add(bone); depth++)
+        {
+            long at = boneOffset + (long)bone * BONE_STRIDE;
+            if (at < 0 || at + BONE_STRIDE > data.Length) break;
+
+            var node = new M2ParticleEmitter.BoneNode
+            {
+                // Z-up -> Y-up, the same swap ParseVertices and the emitter position apply.
+                Pivot = new Vector3(
+                    ReadFloat(data, (int)at + 96),
+                    ReadFloat(data, (int)at + 104),
+                    -ReadFloat(data, (int)at + 100)),
+            };
+            ReadBoneVec3Track(data, at + 12, out node.TransTimes, out node.TransKeys);
+            ReadBoneQuatTrack(data, at + 40, out node.RotTimes, out node.RotKeys);
+            node.TransLoopMs = TrackLoopMs(data, at + 12);
+            node.RotLoopMs = TrackLoopMs(data, at + 40);
+
+            animates |= node.Animates;
+            chain.Add(node);
+            bone = (short)ReadUInt16(data, (int)at + 8);   // parent
+        }
+
+        e.BoneChain = animates ? chain.ToArray() : Array.Empty<M2ParticleEmitter.BoneNode>();
+    }
+
+    /// <summary>
+    /// Sequence 0's slice of a vanilla animation block: one flat timestamp list, one flat key
+    /// list, and a `ranges` array giving [first, last] per sequence. Same shape ReadEmitterBoneSpin
+    /// documents; factored out so the translation and rotation tracks share one bounds check.
+    /// </summary>
+    private static bool TrackSlice(byte[] data, long track, int keySize,
+                                   out int first, out int count, out uint ofsTimes, out uint ofsKeys)
+    {
+        first = 0; count = 0; ofsTimes = 0; ofsKeys = 0;
+        if (track < 0 || track + ANIM_BLOCK_STRIDE_VANILLA > data.Length) return false;
+
+        uint nRanges = ReadUInt32(data, (int)track + 4);
+        uint ofsRanges = ReadUInt32(data, (int)track + 8);
+        uint nTimes = ReadUInt32(data, (int)track + 12);
+        ofsTimes = ReadUInt32(data, (int)track + 16);
+        uint nKeys = ReadUInt32(data, (int)track + 20);
+        ofsKeys = ReadUInt32(data, (int)track + 24);
+
+        if (nKeys < 1 || nTimes < 1 || ofsKeys == 0 || ofsTimes == 0) return false;
+        // Sanity before the unsigned subtractions below, which would otherwise WRAP on a
+        // misparsed count and let a wild offset through.
+        if (nKeys > 1_000_000u || nTimes > 1_000_000u) return false;
+        if (ofsTimes > (uint)data.Length - nTimes * 4u) return false;
+        if (ofsKeys > (uint)data.Length - nKeys * (uint)keySize) return false;
+
+        int last = (int)Math.Min(nKeys, nTimes) - 1;
+        if (nRanges >= 1 && ofsRanges != 0 && ofsRanges + 8 <= data.Length)
+        {
+            first = (int)ReadUInt32(data, (int)ofsRanges);
+            last = (int)ReadUInt32(data, (int)ofsRanges + 4);
+        }
+        if (first < 0 || last < first) return false;
+        last = Math.Min(last, (int)Math.Min(nKeys, nTimes) - 1);
+        if (last < first) return false;
+
+        count = last - first + 1;
+        return true;
+    }
+
+    /// <summary>
+    /// A track's loop period in ms: the duration of the GLOBAL SEQUENCE it declares (gseq, an i16
+    /// at track+2), or 0 when it declares none and rides the playing sequence instead. The global
+    /// sequence table is count@0x14 / offset@0x18 - read off the header here rather than threaded
+    /// through every caller, because a track is meaningless without the model it came from.
+    ///
+    /// See M2ParticleEmitter.TrackTime for why this matters: UI_MainMenu's animated bones are all
+    /// on global sequence 0 (13333 ms) inside a 40000 ms sequence.
+    /// </summary>
+    private static float TrackLoopMs(byte[] data, long track)
+    {
+        if (track < 0 || track + 4 > data.Length) return 0f;
+        short gseq = (short)ReadUInt16(data, (int)track + 2);
+        if (gseq < 0) return 0f;
+
+        uint count = ReadUInt32(data, 0x14);
+        uint offset = ReadUInt32(data, 0x18);
+        if (count == 0 || offset == 0 || (uint)gseq >= count) return 0f;
+
+        long at = offset + (long)gseq * 4;
+        if (at < 0 || at + 4 > data.Length) return 0f;
+        uint duration = ReadUInt32(data, (int)at);
+        return duration > 0u ? duration : 0f;
+    }
+
+    private static void ReadBoneVec3Track(byte[] data, long track, out uint[] times, out Vector3[] keys)
+    {
+        times = []; keys = [];
+        if (!TrackSlice(data, track, 12, out int first, out int n, out uint ofsTimes, out uint ofsKeys))
+            return;
+
+        times = new uint[n];
+        keys = new Vector3[n];
+        for (int i = 0; i < n; i++)
+        {
+            int k = first + i;
+            times[i] = ReadUInt32(data, (int)ofsTimes + k * 4);
+            int ko = (int)ofsKeys + k * 12;
+            keys[i] = new Vector3(
+                BitConverter.ToSingle(data, ko),
+                BitConverter.ToSingle(data, ko + 8),
+                -BitConverter.ToSingle(data, ko + 4));
+        }
+    }
+
+    private static void ReadBoneQuatTrack(byte[] data, long track, out uint[] times, out Vector4[] keys)
+    {
+        times = []; keys = [];
+        if (!TrackSlice(data, track, 16, out int first, out int n, out uint ofsTimes, out uint ofsKeys))
+            return;
+
+        times = new uint[n];
+        keys = new Vector4[n];
+        for (int i = 0; i < n; i++)
+        {
+            int k = first + i;
+            times[i] = ReadUInt32(data, (int)ofsTimes + k * 4);
+            int ko = (int)ofsKeys + k * 16;
+            keys[i] = new Vector4(
+                BitConverter.ToSingle(data, ko),
+                BitConverter.ToSingle(data, ko + 8),
+                -BitConverter.ToSingle(data, ko + 4),
+                BitConverter.ToSingle(data, ko + 12));
+        }
+    }
 }

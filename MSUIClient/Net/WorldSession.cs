@@ -23,6 +23,12 @@ public sealed class WardenRequiredException()
 public sealed class WorldAuthException(byte result)
     : Exception($"world auth rejected: result 0x{result:X2}") { public byte Result { get; } = result; }
 
+/// <summary>A CMSG_CHAR_CREATE request (benilla-protocol CharCreateReq): identity + the five
+/// appearance dials the create screen picked. outfit_id is always 0 on the wire.</summary>
+public readonly record struct CharCreateParams(
+    string Name, byte Race, byte Class, byte Gender,
+    byte Skin, byte Face, byte HairStyle, byte HairColor, byte FacialHair);
+
 public sealed class WorldSession : IDisposable
 {
     private const byte AuthOk = 0x0C;
@@ -151,6 +157,59 @@ public sealed class WorldSession : IDisposable
             }
             if (o == (ushort)Op.SMSG_WARDEN_DATA) throw new WardenRequiredException();
         }
+    }
+
+    /// <summary>CMSG_CHAR_CREATE (benilla create_character): send the request, skip interleaved
+    /// packets, and return the SMSG_CHAR_CREATE result byte (0x2E = success).</summary>
+    public byte CreateCharacter(in CharCreateParams p)
+    {
+        SendPacket((ushort)Op.CMSG_CHAR_CREATE, BuildCharCreate(p));
+        while (true)
+        {
+            var (o, b) = ReceivePacket();
+            if (o == (ushort)Op.SMSG_CHAR_CREATE) return b.Length > 0 ? b[0] : (byte)0xFF;
+            if (o == (ushort)Op.SMSG_WARDEN_DATA) throw new WardenRequiredException();
+        }
+    }
+
+    /// <summary>
+    /// CMSG_CHAR_DELETE (guid, u64) -> the SMSG_CHAR_DELETE result byte. 0x39 = CHAR_DELETE_SUCCESS
+    /// (vmangos Packets/Character.cpp); anything else is a refusal the caller should surface.
+    /// Same shape as <see cref="CreateCharacter"/>: sent and awaited on the worker while parked at
+    /// character select, so the roster can be re-enumerated straight after.
+    /// </summary>
+    public byte DeleteCharacter(ulong guid)
+    {
+        var w = new PacketWriter(8);
+        w.WriteU64(guid);
+        SendPacket((ushort)Op.CMSG_CHAR_DELETE, w.ToArray());
+        while (true)
+        {
+            var (o, b) = ReceivePacket();
+            if (o == (ushort)Op.SMSG_CHAR_DELETE) return b.Length > 0 ? b[0] : (byte)0xFF;
+            if (o == (ushort)Op.SMSG_WARDEN_DATA) throw new WardenRequiredException();
+        }
+    }
+
+    // CMSG_CHAR_CREATE body (benilla-protocol messages/client.rs char_create, byte-exact vs vmangos
+    // Packets/Character.cpp): name (CString) + race, class, gender, skin, face, hairStyle, hairColor,
+    // facialHair, outfitId(0). The server reads and ignores outfitId, recomputing start gear.
+    private static byte[] BuildCharCreate(in CharCreateParams p)
+    {
+        byte[] name = Encoding.ASCII.GetBytes(p.Name ?? "");
+        var w = new PacketWriter(name.Length + 12);
+        w.WriteBytes(name);
+        w.WriteU8(0);                 // NUL terminator
+        w.WriteU8(p.Race);
+        w.WriteU8(p.Class);
+        w.WriteU8(p.Gender);
+        w.WriteU8(p.Skin);
+        w.WriteU8(p.Face);
+        w.WriteU8(p.HairStyle);
+        w.WriteU8(p.HairColor);
+        w.WriteU8(p.FacialHair);
+        w.WriteU8(0);                 // outfit_id (ignored by the server)
+        return w.ToArray();
     }
 
     public void PlayerLogin(ulong guid) => SendFullGuid(Op.CMSG_PLAYER_LOGIN, guid);

@@ -70,6 +70,8 @@ public static class Program
         window.OnUpdate += game.Update;
         window.OnRender += game.Render;
         window.OnGui += game.Gui;
+        window.OnOverlay += game.Overlay;
+        window.OnOverlayTop += game.OverlayTop;
         window.OnClosing += game.Dispose;
 
         try
@@ -230,8 +232,31 @@ public sealed partial class GameLoop : IDisposable
     /// </summary>
     private bool _showPlayerMarker;
 
-    /// <summary>Keyboard turn rate, radians per second. About 160 degrees a second.</summary>
-    private float _turnSpeed = 2.8f;
+    /// <summary>
+    /// Keyboard turn rate while standing, radians per second. 180 degrees a
+    /// second, which is the reference client's own rate.
+    ///
+    /// Overwritten from Controls.TurnSpeedDegrees the moment settings load, so
+    /// this initializer only ever matters before that; it used to say 2.8 (160
+    /// deg/s) and disagreeing with the setting it is about to be handed is a
+    /// trap worth not leaving lying around.
+    /// </summary>
+    private float _turnSpeed = MathF.PI;
+
+    /// <summary>
+    /// What the turn rate is multiplied by while the character is translating.
+    ///
+    /// Turning is slower on the move in the reference, and this is the constant.
+    /// Without it a running turn is about twenty per cent too fast, which reads
+    /// as the character being weightless in a way no single frame shows.
+    /// </summary>
+    private const float TurnRateMoving = 0.75f;
+
+    // Last frame's movement intent, handed to the animation layer. See
+    // CharacterRenderer.UnitState for why it is passed rather than measured.
+    private float _moveForward;
+    private float _moveStrafe;
+    private bool _steering;
 
     /// <summary>Whether the Tier 1 set is on. Toggling re-composites the atlas.</summary>
     private bool _dressed = true;
@@ -1193,20 +1218,37 @@ public sealed partial class GameLoop : IDisposable
         if (!typing && !mouseSteering) turn += _window.Axis(Key.A, Key.D);
         turn = Math.Clamp(turn, -1f, 1f);
 
-        if (turn != 0f) _window.Camera.Rotate(turn * _turnSpeed * dt, 0f);
-
         float strafe = typing ? 0f : _window.Axis(Key.E, Key.Q);
         if (!typing && mouseSteering) strafe += _window.Axis(Key.D, Key.A);
         strafe = Math.Clamp(strafe, -1f, 1f);
-
-        // Look up and down without the mouse. Rotate clamps pitch either way.
-        float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
-        if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
         float forward = typing ? 0f : Math.Clamp(
             _window.Axis(Key.W, Key.S) + _window.Axis(Key.Up, Key.Down), -1f, 1f);
+
+        // TURNING IS SLOWER WHILE YOU ARE MOVING, and that is not a detail. The
+        // reference turns at 180 deg/s planted and three quarters of that once
+        // you are translating, which is why running a tight circle in vanilla
+        // has a radius and running one here did not. The keyboard rate has to
+        // come after the movement axes are known, hence the ordering.
+        //
+        // Mouse steering is deliberately NOT rate-limited: it is a direct
+        // pointing device and the client does not throttle it either.
+        bool translating = MathF.Abs(forward) > 0.01f || MathF.Abs(strafe) > 0.01f;
+        float turnRate = _turnSpeed * (translating ? TurnRateMoving : 1f);
+
+        if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
+
+        // Look up and down without the mouse. Rotate clamps pitch either way.
+        float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
+        if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
+
+        // The animation layer is driven from intent, not from displacement, so
+        // it needs to know what was pressed and whether the aim is being steered.
+        _moveForward = forward;
+        _moveStrafe = strafe;
+        _steering = turn != 0f || mouseSteering;
 
         var input = new MovementInput
         {
@@ -1421,6 +1463,12 @@ public sealed partial class GameLoop : IDisposable
         FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
+
+        Forward = _moveForward,
+        Strafe = _moveStrafe,
+        Speed = _controller?.PlanarSpeed ?? 0f,
+        Steering = _steering,
+        HasIntent = _controller is not null,
     };
 
     /// <summary>
@@ -1644,6 +1692,7 @@ public sealed partial class GameLoop : IDisposable
         // curtain and HUD so neither blooms (benilla composites its UI over an
         // already-glowed world). Additive glow-only: the base scene is untouched.
         DrawGlueScene(); // Phase 2 login glue scene (UI_MainMenu), networked + pre-world only
+        DrawCharacterSelectScene(); // character-select per-race booth (UI_<Race>), CharacterSelect only
         _glow?.Apply();
 
         // The loading curtain over the still-streaming world. Drawn last so it
@@ -2227,7 +2276,27 @@ public sealed partial class GameLoop : IDisposable
                     $"  {_character.ClipName}  {_character.ClipTime:F2}/{_character.ClipDuration:F2}s " +
                     $"x{_character.ClipRate:F2} move {_character.ClipMoveSpeed:F2} " +
                     $"{(_character.ClipLooping ? "loop" : "ONCE")}");
-                ImGui.Text($"  ground speed {_character.GroundSpeed,5:F2} yd/s");
+                // COMMANDED against MEASURED. The gait and the leg-cycle rate
+                // are driven by the first; the second is what the world let us
+                // actually do. They diverge exactly where you would want them
+                // to - walking into a wall, sliding along one, climbing a step -
+                // and having both here is what makes that legible rather than a
+                // mystery about the animation.
+                ImGui.Text($"  speed {_character.GroundSpeed,5:F2} commanded" +
+                           $"  {_character.MeasuredSpeed,5:F2} measured  yd/s");
+
+                // Mid-fade the pose is a mix of two clips. Empty means settled.
+                if (_character.BlendFrom.Length > 0)
+                    ImGui.TextDisabled(
+                        $"  blending from {_character.BlendFrom} ({_character.BlendWeight:P0} left)");
+
+                // The drawn body against the aim. Standing still and turning,
+                // the offset should grow to -90 or +90 and HOLD there while you
+                // steer, then sweep back to zero the moment you stop. If it is
+                // pinned at zero, the body heading is not running.
+                ImGui.TextDisabled(
+                    $"  body {_character.BodyYawDegrees,4:F0} deg   " +
+                    $"offset from aim {_character.MoveYawDegrees,4:F0} deg");
 
                 bool drawCharacter = _character.Enabled;
                 if (ImGui.Checkbox("Draw character", ref drawCharacter)) _character.Enabled = drawCharacter;
@@ -2639,6 +2708,7 @@ public sealed partial class GameLoop : IDisposable
         DisposeLoadingArt();
         _sky?.Dispose();
         _glow?.Dispose();
+        _glueAdd?.Dispose();
         _uploads?.Dispose();
         _assetWorkers?.Dispose();
 

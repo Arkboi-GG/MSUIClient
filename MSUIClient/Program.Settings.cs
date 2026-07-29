@@ -55,6 +55,7 @@ public sealed partial class GameLoop
     public SettingsStore? SettingsFile { get; set; }
 
     private WowSkin? _skin;
+    private Engine.UI.GlueAdditive? _glueAdd;
 
     private bool _settingsOpen;
     private bool _settingsPopupRequested;
@@ -102,6 +103,10 @@ public sealed partial class GameLoop
         _skin = WowSkin.Load(gl, _mpq);
         _skin.Scale = Math.Clamp(_config.Window.UiScale, 0.5f, 4f);
         _skin.Textured = Settings.Display.TexturedFrame;
+        // True-additive overlay for the char-select highlight. Guarded: if the shader/GL setup fails,
+        // leave it null and the highlight silently falls back to the straight-alpha translucent draw.
+        try { _glueAdd = new Engine.UI.GlueAdditive(gl); }
+        catch (Exception ex) { _glueAdd = null; Console.WriteLine($"[glue-add] disabled: {ex.Message}"); }
 
         ApplySettings(Settings);
         Console.WriteLine("[settings] applied to the live renderers");

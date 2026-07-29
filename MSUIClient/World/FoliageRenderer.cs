@@ -92,6 +92,65 @@ public sealed class FoliageRenderer : IDisposable
     private readonly HashSet<string> _loggedMisses = new(StringComparer.OrdinalIgnoreCase);
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Frustum-cull individual grass instances at draw time. Off submits the
+    /// whole scatter disc, which is what this did before.
+    /// </summary>
+    public bool FrustumCulling { get; set; } = true;
+
+    /// <summary>
+    /// Half-extent of the per-instance cull box, in yards.
+    ///
+    /// Grass has no stored bounds and the vertex shader sways it, so this is a
+    /// deliberately generous constant rather than a real bound — cheap, and
+    /// erring outward only costs a few instances at the screen edge. Raise it
+    /// if grass ever pops at the edge of view while turning.
+    /// </summary>
+    public float CullRadius { get; set; } = 4f;
+
+    /// <summary>Grass instances that survived the frustum test this frame.</summary>
+    public int InstancesDrawnLastFrame { get; private set; }
+
+    /// <summary>Frustum planes for this frame, extracted once. Left, right, bottom, top, near, far.</summary>
+    private readonly Vector4[] _planes = new Vector4[6];
+
+    /// <summary>
+    /// Gribb-Hartmann plane extraction: each clip plane is a sum or difference
+    /// of two rows of the view-projection. Normalised so the plane test yields a
+    /// real signed distance and one radius works for every plane.
+    /// </summary>
+    private static void ExtractPlanes(Matrix4x4 m, Vector4[] planes)
+    {
+        planes[0] = new Vector4(m.M14 + m.M11, m.M24 + m.M21, m.M34 + m.M31, m.M44 + m.M41); // left
+        planes[1] = new Vector4(m.M14 - m.M11, m.M24 - m.M21, m.M34 - m.M31, m.M44 - m.M41); // right
+        planes[2] = new Vector4(m.M14 + m.M12, m.M24 + m.M22, m.M34 + m.M32, m.M44 + m.M42); // bottom
+        planes[3] = new Vector4(m.M14 - m.M12, m.M24 - m.M22, m.M34 - m.M32, m.M44 - m.M42); // top
+        planes[4] = new Vector4(m.M13, m.M23, m.M33, m.M43);                                 // near
+        planes[5] = new Vector4(m.M14 - m.M13, m.M24 - m.M23, m.M34 - m.M33, m.M44 - m.M43); // far
+
+        for (int i = 0; i < 6; i++)
+        {
+            var p = planes[i];
+            float length = MathF.Sqrt(p.X * p.X + p.Y * p.Y + p.Z * p.Z);
+            if (length > 1e-8f) planes[i] = p / length;
+        }
+    }
+
+    /// <summary>
+    /// Outside if the centre is further behind any single plane than its radius.
+    /// Conservative at the corners, which costs a few instances and no
+    /// correctness — a false positive draws, a false negative never happens.
+    /// </summary>
+    private static bool SphereInFrustum(Vector4[] planes, Vector3 centre, float radius)
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            var p = planes[i];
+            if (p.X * centre.X + p.Y * centre.Y + p.Z * centre.Z + p.W < -radius) return false;
+        }
+        return true;
+    }
     public int InstanceCount { get; private set; }
     public int ModelCount => _models.Count(m => m.Value is not null);
     public long TrianglesLastFrame { get; private set; }
@@ -768,6 +827,7 @@ public sealed class FoliageRenderer : IDisposable
     {
         TrianglesLastFrame = 0;
         DrawMilliseconds = 0;
+        InstancesDrawnLastFrame = 0;
         if (!Enabled || _shader is null || _instances.Count == 0) return;
 
         long drawStarted = Stopwatch.GetTimestamp();
@@ -799,17 +859,52 @@ public sealed class FoliageRenderer : IDisposable
         _gl.Disable(EnableCap.CullFace);
 
         var eye = camera.Position;
+        var viewProjection = camera.RelativeViewProjection;
+
+        // Extracted once per frame, then reused for every instance.
+        ExtractPlanes(viewProjection, _planes);
+
+        // The cull sphere has to bound the card at its CURRENT scale, or raising
+        // Scale makes grass wink out at the screen edge while turning. sqrt(3)
+        // converts the box half-extent the radius is expressed as into a sphere
+        // that contains it.
+        float radius = CullRadius * MathF.Max(Scale * (1f + MathF.Abs(ScaleJitter)), 1f) * 1.7320508f;
+
         foreach (var (model, list) in _instances)
         {
             if (list.Count == 0) continue;
 
+            // FRUSTUM-CULL THE INSTANCES, which this pass did not do.
+            //
+            // Scatter fills a full 360-degree disc around the camera and the draw
+            // loop submitted all of it. At a 59-degree field of view roughly a
+            // sixth of that disc is on screen, so five sixths of up to ~14,500
+            // instances were vertex-shaded and then clipped, every frame.
+            //
+            // The doodad renderer already culls per instance into its stream
+            // buffer; this is the same thing, one loop earlier. A grass card is
+            // small and its vertex shader sways it, so the test box is the
+            // instance origin grown by CullRadius rather than a real bound.
             _relBuffer.Clear();
             foreach (var m in list)
             {
                 var rm = m;
                 rm.M41 -= eye.X; rm.M42 -= eye.Y; rm.M43 -= eye.Z;
+
+                // Sphere against six extracted planes, NOT Camera.BoxInFrustum.
+                // That helper transforms all eight corners of a box, which is
+                // fine per building and ruinous per blade of grass: at this
+                // density it would be six figures of matrix-vector work per
+                // frame to save vertex shading on cards of a few triangles.
+                // Six dot products with an early out is the right size of test.
+                if (FrustumCulling && !SphereInFrustum(_planes, new Vector3(rm.M41, rm.M42, rm.M43), radius))
+                    continue;
+
                 _relBuffer.Add(rm);
             }
+
+            if (_relBuffer.Count == 0) continue;
+            InstancesDrawnLastFrame += _relBuffer.Count;
 
             _gl.BindVertexArray(model.Vao);
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.InstanceVbo);

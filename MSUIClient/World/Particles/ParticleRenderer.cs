@@ -87,6 +87,16 @@ public sealed class ParticleRenderer : IDisposable
     /// sprites stop overlapping into a solid cloud and read as distinct specks.</summary>
     public float SpriteSizeScale { get; set; } = 1.77f;
 
+    /// <summary>A global per-sprite size multiplier applied to EVERY sprite (both the model-space
+    /// portal path and the world-space path), on top of the authored ramp. The glue login drives
+    /// this from its tuning slider to grow or shrink the swirling embers. 1 = authored size.</summary>
+    public float SpriteSizeScaleAll { get; set; } = 1f;
+
+    /// <summary>The world-space (flame / brazier) counterpart of SpriteSizeScaleAll: a size
+    /// multiplier for the world-space sprites only - the glue's brazier FLAMES - kept independent
+    /// of the model-space swirls so the login can size the two groups separately. 1 = authored.</summary>
+    public float BrazierSizeScaleAll { get; set; } = 1f;
+
     /// <summary>Mip LOD bias for portal sprites (handed to the frag shader). 0 = full
     /// trilinear (soft; blurs a shrinking speck into vapour); negative sharpens toward
     /// the base level so specks stay crisp. Portal-scoped; other effects keep 0.</summary>
@@ -313,6 +323,14 @@ public sealed class ParticleRenderer : IDisposable
         }
 
         public float Symmetric() => Rand() * 2f - 1f;
+
+        /// <summary>A spawn-time random phase for the twinkle LUT. Without a per-particle
+        /// phase a whole flame flickers in lockstep.</summary>
+        public uint NextPhase()
+        {
+            Seed ^= Seed << 13; Seed ^= Seed >> 17; Seed ^= Seed << 5;
+            return Seed;
+        }
     }
 
     /// <summary>
@@ -327,6 +345,34 @@ public sealed class ParticleRenderer : IDisposable
     /// (particles.rs:357) - it stands the emission ring perpendicular to the rotor's
     /// local-X spin so the disc faces out instead of tumbling edge-on.</summary>
     private static Vector3 Rot90Z(Vector3 v) => new(-v.Y, v.X, v.Z);
+
+    // ── Twinkle ──────────────────────────────────────────────────────────────
+    //
+    // The 128-entry noise table the reference seeds with uniform-random f32 at startup
+    // (benilla quads.rs TWINKLE_LUT). We mirror the distribution with a fixed seed - the
+    // sequence is not observable, only its statistics are.
+    private static readonly float[] TwinkleLut = BuildTwinkleLut();
+
+    private static float[] BuildTwinkleLut()
+    {
+        var t = new float[128];
+        uint s = 0xC0FFEE11u;
+        for (int i = 0; i < t.Length; i++)
+        {
+            s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+            t[i] = (s & 0xFFFFFF) / 16777215f;
+        }
+        return t;
+    }
+
+    /// <summary>The twinkle noise sample for a particle: byte-verified index (0x7b2a86)
+    /// `(floor(clamp(twinkleSpeed * age, 0, 255)) + phase) &amp; 0x7f`.</summary>
+    private static float TwinkleNoise(float speed, float age, uint phase)
+    {
+        float w = speed * age;
+        uint i = float.IsFinite(w) ? (uint)Math.Clamp(w, 0f, 255f) : 0u;
+        return TwinkleLut[(int)((i + phase) & 0x7Fu)];
+    }
 
     /// <summary>Whether this emitter is simulated in model space (re-projected through the
     /// live bone each frame) vs world space (spin baked at birth).</summary>
@@ -343,6 +389,11 @@ public sealed class ParticleRenderer : IDisposable
         public Vector3 Velocity;
         public float Age;
         public float Life;
+
+        /// <summary>Spawn-time random, the twinkle LUT's index offset. The reference hashes the
+        /// pool-slot POINTER; a pool INDEX would not survive our RemoveAt compaction, so this is
+        /// carried per particle (benilla Particle::phase).</summary>
+        public uint Phase;
     }
 
     private struct GpuParticle
@@ -382,8 +433,17 @@ public sealed class ParticleRenderer : IDisposable
 
         foreach (var (path, transform, emitter, index, texPath) in emitters)
         {
+            // The emitter's BONE composes each particle's BIRTH (benilla particles.rs:10-11),
+            // so an emitter riding an animated bone leaves a TRAIL rather than dragging its
+            // cloud. Sampling only the bone's ROTATION - which is all this did - froze every
+            // TRANSLATION-driven emitter in place: UI_MainMenu's 16 GLOWBALL emitters author
+            // EmissionSpeed 0 and keep all their motion in bones 32..47, so the login screen
+            // grew 16 motionless flares (~90 additive sprites stacked on one point) where the
+            // OG has drifting motes. Static emitters return the bind position unchanged.
             var origin = Vector3.Transform(
-                new Vector3(emitter.PosX, emitter.PosY, emitter.PosZ), transform);
+                emitter.SampleBonePosition(
+                    _time, new Vector3(emitter.PosX, emitter.PosY, emitter.PosZ)),
+                transform);
             if (Vector3.DistanceSquared(origin, cameraPosition) > simSq) continue;
 
             // Rotation is in the key as well as position: two placements of the
@@ -583,6 +643,7 @@ public sealed class ParticleRenderer : IDisposable
                 Velocity = localDir * mspeed,  // negative speed => inward; no time-reversal needed
                 Age = 0f,
                 Life = e.Lifespan,
+                Phase = pool.NextPhase(),
             };
         }
 
@@ -696,6 +757,7 @@ public sealed class ParticleRenderer : IDisposable
             Velocity = velocity,
             Age = 0f,
             Life = e.Lifespan,
+            Phase = pool.NextPhase(),
         };
     }
 
@@ -846,6 +908,12 @@ public sealed class ParticleRenderer : IDisposable
                     float rc = p.Position.Length() * PortalScale;
                     if (rc < PortalCentreHole) rgba.W *= rc / PortalCentreHole;
                 }
+                float mnoise = TwinkleNoise(e.TwinkleSpeed, p.Age, p.Phase);
+                // The twinklePercent DRAW GATE (benilla quads.rs, byte-verified 0x7b2adc):
+                // below 1, a frame whose sample exceeds it emits no quad at all.
+                if (e.TwinklePercent < 1f && mnoise > e.TwinklePercent) continue;
+                scale *= e.Twinkle(mnoise);
+
                 if (scale <= 0f || rgba.W <= 0.002f) continue;
 
                 var spun = Vector3.Transform(p.Position * PortalScale, boneRot); // rotate about the pivot
@@ -854,7 +922,7 @@ public sealed class ParticleRenderer : IDisposable
                 _scratch.Add(new GpuParticle
                 {
                     Centre = centre,
-                    Size = scale * pool.Scale * PortalScale * SpriteSizeScale,
+                    Size = scale * pool.Scale * PortalScale * SpriteSizeScale * SpriteSizeScaleAll,
                     Colour = rgba,
                     CellRect = e.SampleHeadCellRect(t),   // (0,0,1,1) for the 1x1 swirls: unchanged
                 });
@@ -879,12 +947,19 @@ public sealed class ParticleRenderer : IDisposable
                 float r = Vector3.Distance(p.Position, pool.Origin);
                 if (r < CentreHoleYards) rgba.W *= r / CentreHoleYards;
             }
+            // Gated twinkle: the size ramp x the flicker, and the hard percent draw gate.
+            // UI_MainMenu's brazier glows (emitters 25 and 27) author min 0 / max 1, so without
+            // this they burn as a steady disc rather than pulsing.
+            float wnoise = TwinkleNoise(e.TwinkleSpeed, p.Age, p.Phase);
+            if (e.TwinklePercent < 1f && wnoise > e.TwinklePercent) continue;
+            scale *= e.Twinkle(wnoise);
+
             if (scale <= 0f || rgba.W <= 0.002f) continue;
 
             _scratch.Add(new GpuParticle
             {
                 Centre = p.Position,
-                Size = scale * pool.Scale,
+                Size = scale * pool.Scale * BrazierSizeScaleAll,
                 Colour = rgba,
                 CellRect = e.SampleHeadCellRect(t),   // per-particle flame cell; (0,0,1,1) if 1x1
             });

@@ -60,6 +60,14 @@ public sealed class WowSkin : IDisposable
     public static readonly Backdrop SliderTrack =
         new("slider.bg", "slider.border", 8f, 8f, 3f, 6f, 3f, 6f);
 
+    /// <summary>
+    /// The AccountLogin account/password edit boxes (AccountLogin.xml Backdrop): UI-Tooltip-Background
+    /// tiled inside a Glue-Tooltip-Border edge, edge/tile 16, BackgroundInsets 10/4/5/9. This is the
+    /// recessed frame the inputs share with the buttons' look - drawn, not a flat dark rectangle.
+    /// </summary>
+    public static readonly Backdrop GlueEditBox =
+        new("tooltip.bg", "glue.tt.border", 16f, 16f, 10f, 4f, 5f, 9f);
+
     // ── the texture set ──────────────────────────────────────────────────────
     //
     // Verified present in interface.MPQ's (listfile). The .blp matters.
@@ -93,6 +101,72 @@ public sealed class WowSkin : IDisposable
         ("slider.bg",      @"Interface\Buttons\UI-SliderBar-Background.blp",     true),
         ("slider.border",  @"Interface\Buttons\UI-SliderBar-Border.blp",         false),
         ("slider.knob",    @"Interface\Buttons\UI-SliderBar-Button-Horizontal.blp", false),
+
+        // The GLUE art set (the login/main-menu screen). Paths + texcoords transcribed from
+        // benilla's glue/art.rs, which read them out of GlueButtons.xml / AccountLogin.xml.
+        // The login checkbox reuses check.* (UI-CheckBox-*) and the realm modal reuses dialog.*
+        // (UI-DialogBox-*), both already loaded above - only the glue-specific art is new here.
+        ("glue.logo",      @"Interface\Glues\Common\Glues-WoW-Logo.blp",          false),
+        ("glue.btn.up",    @"Interface\Glues\Common\Glue-Panel-Button-Up.blp",    false),
+        ("glue.btn.down",  @"Interface\Glues\Common\Glue-Panel-Button-Down.blp",  false),
+        ("glue.btn.off",   @"Interface\Glues\Common\Glue-Panel-Button-Disabled.blp", false),
+        ("glue.btn.hi",    @"Interface\Glues\Common\Glue-Panel-Button-Highlight.blp", false),
+
+        // The DIAL SPINNER arrows - the yellow-on-stone 32x32 pair the char-create appearance rows
+        // use, NOT text "<" / ">". benilla glue/art.rs `fn arrow()` builds them from
+        // Interface\Glues\Common\Glue-{Left,Right}Arrow-Button-{Up,Down,Highlight}, and
+        // char_create/screen.rs dial_row places them 32x32 at the row's right. The Highlight sheet is
+        // an ADD-blend overlay in the reference, so it gets the same luma->alpha rebuild as
+        // glue.btn.hi (dark field -> transparent, bright rim -> tint) and can be drawn straight.
+        ("glue.arrow.l",    @"Interface\Glues\Common\Glue-LeftArrow-Button-Up.blp",         false),
+        ("glue.arrow.l.dn", @"Interface\Glues\Common\Glue-LeftArrow-Button-Down.blp",       false),
+        ("glue.arrow.l.hi", @"Interface\Glues\Common\Glue-LeftArrow-Button-Highlight.blp",  false),
+        ("glue.arrow.r",    @"Interface\Glues\Common\Glue-RightArrow-Button-Up.blp",        false),
+        ("glue.arrow.r.dn", @"Interface\Glues\Common\Glue-RightArrow-Button-Down.blp",      false),
+        ("glue.arrow.r.hi", @"Interface\Glues\Common\Glue-RightArrow-Button-Highlight.blp", false),
+
+        // The info panels' SCROLLBAR (benilla glue/art.rs `fn scroll_btn` + char_create/panels.rs).
+        // The buttons and the knob are 32x32 sheets whose CENTRE QUARTER is the 16x16 control -
+        // GlueScrollBarButton's texcoords, benilla SCROLL_BTN_TC 0.25..0.75. The two track pieces are
+        // decorative art behind the slider, shown only while the panel actually scrolls.
+        ("scroll.up",    @"Interface\Buttons\UI-ScrollBar-ScrollUpButton-Up.blp",     false),
+        ("scroll.up.dn", @"Interface\Buttons\UI-ScrollBar-ScrollUpButton-Down.blp",   false),
+        ("scroll.dn",    @"Interface\Buttons\UI-ScrollBar-ScrollDownButton-Up.blp",   false),
+        ("scroll.dn.dn", @"Interface\Buttons\UI-ScrollBar-ScrollDownButton-Down.blp", false),
+        ("scroll.knob",  @"Interface\Buttons\UI-ScrollBar-Knob.blp",                  false),
+
+        // The race/class/gender check-button highlight (benilla glue/widgets.rs icon_button):
+        // ButtonHilight-Square, lit on hover AND HELD while selected - the ref's LockHighlight. The
+        // 1.12 template's CheckedTexture is commented out in the shipped GlueXML, so this square IS
+        // the whole selected visual: there is no border of any colour around a picked race or class.
+        // Authored dark-field + bright-rim for ADD, so it takes the luma->alpha rebuild below.
+        ("btn.hilight.sq", @"Interface\Buttons\ButtonHilight-Square.blp", false),
+        ("cc.scrolltop", @"Interface\Glues\CharacterCreate\UI-CharacterCreate-ScrollBar-Top.blp", false),
+        ("cc.scrollbot", @"Interface\ClassTrainerFrame\UI-ClassTrainer-ScrollBar.blp",             false),
+        ("glue.blizz",     @"Interface\Glues\Mainmenu\Glues-BlizzardLogo.blp",    false),
+        // The account/password edit-box edge (AccountLogin.xml Backdrop edgeFile). 128x16, eight
+        // 16x16 cells - the same nine-slice layout as the other borders, so DrawBackdrop serves it.
+        ("glue.tt.border", @"Interface\Glues\Common\Glue-Tooltip-Border.blp",     false),
+        // The character-select roster row highlight (benilla glue/art.rs: Glue-CharacterSelect-
+        // Highlight, ADD blend). A yellow glow authored on black; luma->alpha below so an alpha draw
+        // only brightens, same path as glue.btn.hi. Shown for hover AND the selected (locked) row.
+        ("glue.select.hi", @"Interface\Glues\CharacterSelect\Glue-CharacterSelect-Highlight.blp", false),
+        // RAW copy (NO luma rebuild) for the TRUE additive overlay (GlueAdditive), drawn SrcAlpha/One
+        // so black adds nothing and only the bright rim adds light - exactly benilla's AddUiMaterial.
+        ("glue.select.hi.raw", @"Interface\Glues\CharacterSelect\Glue-CharacterSelect-Highlight.blp", false),
+
+        // The character-create icon sheets (benilla glue/art.rs; texcoords live in Program.CharCreate.cs).
+        ("cc.races",    @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Races.blp",    false),
+        ("cc.classes",  @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Classes.blp",  false),
+        ("cc.gender",   @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Gender.blp",   false),
+        ("cc.factions", @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Factions.blp", false),
+        ("cc.banners",  @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Banners.blp",  false),
+        ("cc.bg",         @"Interface\Glues\CharacterCreate\UI-CharacterCreate-Background.blp",  false),
+        ("cc.border",     @"Interface\Glues\CharacterCreate\UI-CharacterCreate-OuterBorder.blp", false),
+        ("cc.labelframe", @"Interface\Glues\CharacterCreate\CharacterCreate-LabelFrame.blp",     false),
+        ("cc.iconshadow", @"Interface\Glues\CharacterCreate\UI-CharacterCreate-IconShadow.blp",  false),
+        ("cc.rotate.up",  @"Interface\Glues\CharacterCreate\UI-RotationRight-Big-Up.blp",        false),
+        ("cc.rotate.down",@"Interface\Glues\CharacterCreate\UI-RotationRight-Big-Down.blp",      false),
     ];
 
     public sealed class Piece
@@ -125,11 +199,59 @@ public sealed class WowSkin : IDisposable
     private static readonly Vector2 ButtonUv1 = new(0f, 0f);
     private static readonly Vector2 ButtonUv2 = new(0.625f, 0.6875f);
 
+    /// <summary>
+    /// One DIAL SPINNER arrow button (benilla glue/widgets.rs `dial_arrow` + glue/art.rs `arrow`):
+    /// the `Glue-{Left,Right}Arrow-Button-Up` sprite, swapped for `-Down` while held and overlaid
+    /// with `-Highlight` on hover. Draws the WHOLE sheet into the given square, which is what the
+    /// reference does (the art is authored as a finished 32x32 button, not a sheet cell).
+    ///
+    /// Returns false and draws NOTHING when the art is missing - the caller falls back to its own
+    /// text button, so a stripped MPQ still leaves the dials usable.
+    /// </summary>
+    public bool GlueArrowButton(ImDrawListPtr dl, string id, bool left, Vector2 pos, Vector2 size,
+                                out bool clicked)
+    {
+        clicked = false;
+        string baseKey = left ? "glue.arrow.l" : "glue.arrow.r";
+        var up = Get(baseKey);
+        if (up is null) return false;
+
+        ImGui.SetCursorScreenPos(pos);
+        clicked = ImGui.InvisibleButton(id, size);
+        bool held = ImGui.IsItemActive();
+        bool hovered = ImGui.IsItemHovered();
+
+        var art = held ? (Get(baseKey + ".dn") ?? up) : up;
+        var drawPos = held ? pos + new Vector2(1f, 1f) * Scale : pos;   // the pushed offset, as GlueButton
+        dl.AddImage(Id(art), drawPos, drawPos + size, Vector2.Zero, Vector2.One, White);
+
+        if (hovered && !held && GlueTune.HoverGlow > 0.001f && Get(baseKey + ".hi") is Piece hi)
+            for (float g = GlueTune.HoverGlow; g > 0.001f; g -= 1f)
+                dl.AddImage(Id(hi), pos, pos + size, Vector2.Zero, Vector2.One,
+                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, MathF.Min(1f, g))));
+
+        return true;
+    }
+
     /// <summary>UI-Panel-Button-Up is 128x32; the used region is 80x22.</summary>
     public static readonly Vector2 ButtonArt = new(80f, 22f);
 
     /// <summary>GameMenuFrame's own button size.</summary>
     public static readonly Vector2 MenuButton = new(144f, 21f);
+
+    /// <summary>
+    /// The glue button art region (GlueButtons.xml TexCoords, via benilla glue/art.rs): Up / Down /
+    /// Disabled share [0, 0.578125] x [0, 0.75] of the sheet; the Highlight has its own sub-rect.
+    /// Drawn as one stretched quad across the button rect, exactly like the in-game PanelButton.
+    /// </summary>
+    // benilla BUTTON_TC: the sheet's top-left [0,0.578125] x [0,0.75] = [0,148] x [0,48] of 256x64.
+    // The outer ~4-6px of that region is a soft ~38%-alpha black GLOW ring - the button's baked-in
+    // 1.12 shadow. The whole region is drawn as authored (no crop, no de-halo) so that shadow lands
+    // on the scene the way the OG login does.
+    private static readonly Vector2 GlueButtonUv1 = new(0f, 0f);
+    private static readonly Vector2 GlueButtonUv2 = new(0.578125f, 0.75f);
+    private static readonly Vector2 GlueButtonHiUv1 = new(0f, 0f);
+    private static readonly Vector2 GlueButtonHiUv2 = new(0.625f, 0.6875f);
 
     // Edge-strip order, measured off the decoded texture.
     private const int EdgeLeft = 0, EdgeRight = 1, EdgeTop = 2, EdgeBottom = 3;
@@ -140,6 +262,15 @@ public sealed class WowSkin : IDisposable
     public static readonly Vector4 Fill      = new(0.055f, 0.043f, 0.031f, 0.94f);
     public static readonly Vector4 FillLight = new(0.098f, 0.082f, 0.062f, 0.94f);
     public static readonly Vector4 Gold      = new(1.000f, 0.820f, 0.000f, 1.00f);
+    // GlueFontNormal's gold (GlueFonts.xml: 1.0, 0.78, 0) - the login screen's label/caption colour.
+    public static readonly Vector4 GlueGold  = new(1.000f, 0.780f, 0.000f, 1.00f);
+    // AccountLogin's DEFAULT_TOOLTIP_COLOR (benilla login/screen.rs BOX_FILL / BOX_BORDER): the tint
+    // the edit-box backdrop is drawn with. UI-Tooltip-Background is a LIGHT sheet; at full White it
+    // reads whitish-grey over the bright login valley. Tinted near-black (0.09) for the recessed well
+    // and light-grey (0.8) for the border, it matches the OG's dark input field. This is a TINT
+    // (multiply on the texture), not a flat fill - the tile's own texture/rivets still show through.
+    public static readonly Vector4 GlueBoxFill   = new(0.090f, 0.090f, 0.090f, 1.00f);
+    public static readonly Vector4 GlueBoxBorder = new(0.800f, 0.800f, 0.800f, 1.00f);
     public static readonly Vector4 GoldDim   = new(0.478f, 0.400f, 0.251f, 1.00f);
     public static readonly Vector4 Parchment = new(1.000f, 0.824f, 0.000f, 1.00f);
     public static readonly Vector4 Normal    = new(1.000f, 1.000f, 1.000f, 1.00f);
@@ -147,6 +278,10 @@ public sealed class WowSkin : IDisposable
     public static readonly Vector4 Highlight = new(1.000f, 1.000f, 1.000f, 1.00f);
     public static readonly Vector4 Disabled  = new(0.500f, 0.500f, 0.500f, 1.00f);
     public static readonly Vector4 Shadow    = new(0.000f, 0.000f, 0.000f, 0.75f);
+    // The 1.12 MasterFont drop shadow: opaque black, offset (1,-1) UI px (down-right on screen).
+    // Every glue label/caption carries it - it is what gives gold-on-bright text its edge. Opaque,
+    // unlike the in-game Shadow above, because that is what the reference bakes onto the glue fonts.
+    public static readonly Vector4 GlueShadow = new(0.000f, 0.000f, 0.000f, 1.00f);
 
     private WowSkin() { }
 
@@ -173,6 +308,24 @@ public sealed class WowSkin : IDisposable
             try
             {
                 var bgra = BlpDecoder.GetPixels(blp, 0, out int w, out int h);
+
+                // The glue button sprites (up / down / off) are uploaded AS AUTHORED. The soft black
+                // glow ring baked around them IS the 1.12 button's shadow - it grounds the button on
+                // the scene (see the OG reference). Earlier this was de-haloed away to kill a supposed
+                // "black box", but that stripped the shadow, rendered the metal border transparent and
+                // washed the darker pressed pill out. So: no de-halo on the button faces.
+                // The HIGHLIGHT is the one exception: it is a black field + bright rim meant to be
+                // ADD-blended; drawn straight it would veil the pill with a dark shadow on hover, so
+                // its alpha is rebuilt from brightness (dark field -> transparent, bright rim -> tint).
+                if (key == "glue.btn.hi" || key == "glue.select.hi"
+                    || key == "glue.arrow.l.hi" || key == "glue.arrow.r.hi")
+                    HighlightAlphaFromLuma(bgra);
+                // The icon check-button square goes further: RGB is forced WHITE so the overlay can
+                // only ever LIGHTEN what is under it. See WhiteGlowFromLuma for why alpha alone was
+                // not enough.
+                else if (key == "btn.hilight.sq")
+                    WhiteGlowFromLuma(bgra);
+
                 piece.Texture = Texture.From2D(gl, bgra, w, h, mipmaps: false, repeat: repeat);
                 piece.Width = w;
                 piece.Height = h;
@@ -194,6 +347,53 @@ public sealed class WowSkin : IDisposable
         return skin;
     }
 
+    /// <summary>
+    /// Turn an ADDITIVE glow sheet into a straight-alpha overlay that only ever brightens.
+    ///
+    /// Glue-Panel-Button-Highlight is a black field with a bright rim, authored for ADD blending: the
+    /// black adds nothing, the rim adds light. ImGui's draw lists blend straight, so drawing it as-is
+    /// paints the black field as a ~50% dark veil over the pill - the "interior shadow on hover". This
+    /// rewrites each texel's alpha to its own brightness (max r,g,b): the black field goes fully
+    /// transparent (adds nothing, exactly like ADD would), and only the bright rim tints through, so
+    /// hover reads as a glow, never a darkening. RGB is left as-is. BGRA in place; channel order is
+    /// irrelevant to max().
+    /// </summary>
+    private static void HighlightAlphaFromLuma(byte[] bgra)
+    {
+        for (int i = 0; i + 3 < bgra.Length; i += 4)
+        {
+            float a = Math.Max(bgra[i], Math.Max(bgra[i + 1], bgra[i + 2])) / 255f;
+            // Gamma-push the alpha so the dark field goes fully transparent - the glow reads cleanly
+            // without a dark veil ("shadow creeping through"). (Straight-alpha stand-in for ADD.)
+            a *= a;
+            bgra[i + 3] = (byte)(a * 255f + 0.5f);
+        }
+    }
+
+    /// <summary>
+    /// Turn an ADDITIVE glow sheet into a pure LIGHT MASK: white RGB, alpha = the texel's own
+    /// brightness. Drawn with straight alpha this lerps whatever is underneath TOWARDS WHITE, so it
+    /// can only ever brighten - stack it and the highlight keeps climbing instead of saturating into
+    /// a coloured film.
+    ///
+    /// Why this and not <see cref="HighlightAlphaFromLuma"/>: that one rewrites alpha but KEEPS the
+    /// sheet's own RGB, which is right for a black-field/bright-rim sheet like Glue-Panel-Button-
+    /// Highlight. ButtonHilight-Square is not that - it is a soft, fairly DARK blue-grey square, so
+    /// alpha-only left a mid-alpha dark colour compositing over the icon and the "glow" read as an
+    /// inward shadow that got MURKIER the harder it was driven (Nico: "makes it almost darker, not
+    /// brighter"). Forcing RGB to white keeps the same shape - the rim still carries the most alpha -
+    /// while guaranteeing the direction of the effect. Tint at draw time to colour it.
+    /// </summary>
+    private static void WhiteGlowFromLuma(byte[] bgra)
+    {
+        for (int i = 0; i + 3 < bgra.Length; i += 4)
+        {
+            float a = Math.Max(bgra[i], Math.Max(bgra[i + 1], bgra[i + 2])) / 255f;
+            bgra[i] = 255; bgra[i + 1] = 255; bgra[i + 2] = 255;
+            bgra[i + 3] = (byte)(a * 255f + 0.5f);
+        }
+    }
+
     private Piece? Get(string key)
     {
         if (!Textured) return null;
@@ -204,6 +404,20 @@ public sealed class WowSkin : IDisposable
     private static uint White => ImGui.ColorConvertFloat4ToU32(Vector4.One);
     private static uint U32(Vector4 c) => ImGui.ColorConvertFloat4ToU32(c);
 
+    /// <summary>The 1.12 outlined glue font: a thin black border, emulated with 8 offset copies of the
+    /// glyph (ImGui's loaded font has no outline). Draw it BETWEEN the drop shadow and the main text.
+    /// Off when GlueTune.OutlinePx is 0. Applies to gold, white, and grey glue text alike.</summary>
+    public static void OutlineText(ImDrawListPtr dl, ImFontPtr font, float sizePx, Vector2 pos, string text)
+    {
+        if (GlueTune.OutlinePx <= 0.001f) return;
+        float ow = MathF.Max(1f, sizePx * GlueTune.OutlinePx);
+        uint black = ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 1f));
+        for (int oy = -1; oy <= 1; oy++)
+            for (int ox = -1; ox <= 1; ox++)
+                if (ox != 0 || oy != 0)
+                    dl.AddText(font, sizePx, pos + new Vector2(ox * ow, oy * ow), black, text);
+    }
+
     // ── backdrops ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -211,12 +425,69 @@ public sealed class WowSkin : IDisposable
     /// backdrop's insets, then the nine-sliced edge over the full rect.
     /// </summary>
     public void DrawBackdrop(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+        => DrawBackdrop(dl, min, max, style, Vector4.One, Vector4.One);
+
+    /// <summary>
+    /// The same backdrop, but with the fill and the edge each MULTIPLIED by a tint - the mechanism
+    /// AccountLogin uses to turn the light UI-Tooltip-Background sheet into a dark recessed field
+    /// (fill tinted near-black, border tinted light-grey). The texture's own detail still shows
+    /// through; this is a multiply, not a repaint. Untinted callers get the White,White overload.
+    /// </summary>
+    public void DrawBackdrop(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style,
+                             Vector4 fillTint, Vector4 edgeTint)
     {
-        DrawBackdropFill(dl, min, max, style);
-        DrawBackdropEdge(dl, min, max, style);
+        DrawBackdropFill(dl, min, max, style, U32(fillTint));
+        DrawBackdropEdge(dl, min, max, style, U32(edgeTint));
     }
 
-    private void DrawBackdropFill(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+    /// <summary>
+    /// The tinted backdrop with horizontal BANDS of the tiled FILL left out. The nine-sliced EDGE is
+    /// always drawn whole, so the frame border is never broken - only the translucent interior opens up.
+    ///
+    /// This is what lets the char-select row highlight sit BEHIND the row text without being dimmed:
+    /// the ADD glow is composited under the whole ImGui pass (so the text draws in front, benilla's
+    /// panel -&gt; glow -&gt; text order), and the band the glow occupies is simply not covered by the panel
+    /// fill. Every strip re-draws the SAME full-rect fill quad under a clip rect, so the tiling stays
+    /// aligned across the gaps - it is a mask, not a re-layout.
+    ///
+    /// <paramref name="fillHoleBands"/> holds screen-space (top, bottom) Y pairs; they are merged, so
+    /// overlapping cards (the selected row and a hovered row) collapse into one band.
+    /// </summary>
+    public void DrawBackdrop(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style,
+                             Vector4 fillTint, Vector4 edgeTint, IReadOnlyList<Vector2>? fillHoleBands)
+    {
+        uint fill = U32(fillTint);
+        if (fillHoleBands is null || fillHoleBands.Count == 0)
+            DrawBackdropFill(dl, min, max, style, fill);
+        else
+        {
+            var bands = new List<Vector2>(fillHoleBands);
+            bands.Sort(static (a, b) => a.X.CompareTo(b.X));
+            float y = min.Y;
+            foreach (var raw in bands)
+            {
+                float top = MathF.Max(raw.X, min.Y), bottom = MathF.Min(raw.Y, max.Y);
+                if (bottom <= top) continue;
+                if (top > y) FillStrip(dl, min, max, style, fill, y, top);
+                if (bottom > y) y = bottom;
+            }
+            if (y < max.Y) FillStrip(dl, min, max, style, fill, y, max.Y);
+        }
+        DrawBackdropEdge(dl, min, max, style, U32(edgeTint));
+    }
+
+    // One clipped copy of the full-rect fill. Same geometry + same UVs every call (the clip rect is the
+    // only difference), which is why the tiled background does not shift between strips.
+    private void FillStrip(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style, uint tint,
+                           float y0, float y1)
+    {
+        if (y1 <= y0) return;
+        dl.PushClipRect(new Vector2(min.X, y0), new Vector2(max.X, y1), true);
+        DrawBackdropFill(dl, min, max, style, tint);
+        dl.PopClipRect();
+    }
+
+    private void DrawBackdropFill(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style, uint tint)
     {
         var inner = new Vector2(min.X + style.InsetL * Scale, min.Y + style.InsetT * Scale);
         var outer = new Vector2(max.X - style.InsetR * Scale, max.Y - style.InsetB * Scale);
@@ -232,10 +503,45 @@ public sealed class WowSkin : IDisposable
         // tile="true" with TileSize: one texture repeat every TileSize UI pixels.
         float tile = MathF.Max(style.TileSize * Scale, 1f);
         var uv = new Vector2((outer.X - inner.X) / tile, (outer.Y - inner.Y) / tile);
-        dl.AddImage(Id(bg), inner, outer, Vector2.Zero, uv, White);
+        dl.AddImage(Id(bg), inner, outer, Vector2.Zero, uv, tint);
     }
 
-    private void DrawBackdropEdge(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+    /// <summary>
+    /// The geometry + UVs of a horizontal SLICE of this backdrop's tiled fill, so the exact same band of
+    /// panel art can be re-drawn OUTSIDE the ImGui pass (the GL overlay) and land pixel-identical.
+    ///
+    /// This is the other half of the fill-hole mechanism above: the char-select roster panel skips the
+    /// band behind the additive row highlight (so the ImGui pass cannot dim the ADD blend), and that band
+    /// is laid back down in the GL pass UNDER the glow instead. The panel therefore looks untouched -
+    /// only the layering moved. Returns false when there is no tiled sheet or the slice is empty.
+    /// </summary>
+    public bool BackdropFillSlice(Vector2 min, Vector2 max, in Backdrop style, float y0, float y1,
+                                  out uint texture, out Vector2 qMin, out Vector2 qMax,
+                                  out Vector2 uv0, out Vector2 uv1)
+    {
+        texture = 0; qMin = default; qMax = default; uv0 = default; uv1 = default;
+
+        var inner = new Vector2(min.X + style.InsetL * Scale, min.Y + style.InsetT * Scale);
+        var outer = new Vector2(max.X - style.InsetR * Scale, max.Y - style.InsetB * Scale);
+        if (outer.X <= inner.X || outer.Y <= inner.Y) return false;
+
+        var bg = Get(style.Bg);
+        if (bg is null) return false;
+
+        float top = MathF.Max(y0, inner.Y), bottom = MathF.Min(y1, outer.Y);
+        if (bottom <= top) return false;
+
+        // Same tiling as DrawBackdropFill - one repeat every TileSize UI pixels, measured from inner.
+        float tile = MathF.Max(style.TileSize * Scale, 1f);
+        texture = bg.Texture!.Handle;
+        qMin = new Vector2(inner.X, top);
+        qMax = new Vector2(outer.X, bottom);
+        uv0 = new Vector2(0f, (top - inner.Y) / tile);
+        uv1 = new Vector2((outer.X - inner.X) / tile, (bottom - inner.Y) / tile);
+        return true;
+    }
+
+    private void DrawBackdropEdge(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style, uint tint)
     {
         var border = Get(style.Edge);
         float e = MathF.Max(style.EdgeSize * Scale, 2f);
@@ -254,24 +560,24 @@ public sealed class WowSkin : IDisposable
 
         // Corners first: they are drawn at exactly EdgeSize and the edges run
         // between them. The bolt in the corner cell overhangs on purpose.
-        Corner(dl, id, CornerTL, min, new Vector2(min.X + e, min.Y + e));
-        Corner(dl, id, CornerTR, new Vector2(max.X - e, min.Y), new Vector2(max.X, min.Y + e));
-        Corner(dl, id, CornerBL, new Vector2(min.X, max.Y - e), new Vector2(min.X + e, max.Y));
-        Corner(dl, id, CornerBR, new Vector2(max.X - e, max.Y - e), max);
+        Corner(dl, id, CornerTL, min, new Vector2(min.X + e, min.Y + e), tint);
+        Corner(dl, id, CornerTR, new Vector2(max.X - e, min.Y), new Vector2(max.X, min.Y + e), tint);
+        Corner(dl, id, CornerBL, new Vector2(min.X, max.Y - e), new Vector2(min.X + e, max.Y), tint);
+        Corner(dl, id, CornerBR, new Vector2(max.X - e, max.Y - e), max, tint);
 
         float top = min.Y + e, bottom = max.Y - e;
         float left = min.X + e, right = max.X - e;
 
         if (bottom > top)
         {
-            VerticalEdge(dl, id, EdgeLeft, min.X, min.X + e, top, bottom, e);
-            VerticalEdge(dl, id, EdgeRight, max.X - e, max.X, top, bottom, e);
+            VerticalEdge(dl, id, EdgeLeft, min.X, min.X + e, top, bottom, e, tint);
+            VerticalEdge(dl, id, EdgeRight, max.X - e, max.X, top, bottom, e, tint);
         }
 
         if (right > left)
         {
-            HorizontalEdge(dl, id, EdgeTop, left, right, min.Y, min.Y + e, e);
-            HorizontalEdge(dl, id, EdgeBottom, left, right, max.Y - e, max.Y, e);
+            HorizontalEdge(dl, id, EdgeTop, left, right, min.Y, min.Y + e, e, tint);
+            HorizontalEdge(dl, id, EdgeBottom, left, right, max.Y - e, max.Y, e, tint);
         }
     }
 
@@ -281,10 +587,10 @@ public sealed class WowSkin : IDisposable
         u1 = (index + 1) / 8f;
     }
 
-    private static void Corner(ImDrawListPtr dl, IntPtr id, int slice, Vector2 a, Vector2 b)
+    private static void Corner(ImDrawListPtr dl, IntPtr id, int slice, Vector2 a, Vector2 b, uint tint)
     {
         Slice(slice, out float u0, out float u1);
-        dl.AddImage(id, a, b, new Vector2(u0, 0f), new Vector2(u1, 1f), White);
+        dl.AddImage(id, a, b, new Vector2(u0, 0f), new Vector2(u1, 1f), tint);
     }
 
     /// <summary>
@@ -312,7 +618,7 @@ public sealed class WowSkin : IDisposable
     ///   the same fraction - shortening one without the other stretches it.
     /// </summary>
     private static void VerticalEdge(
-        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge)
+        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge, uint tint)
     {
         Slice(slice, out float u0, out float u1);
         if (edge < 1f || y1 <= y0) return;
@@ -323,7 +629,7 @@ public sealed class WowSkin : IDisposable
             float yEnd = MathF.Min(y + edge, y1);
             float frac = (yEnd - y) / edge;
             dl.AddImage(id, new Vector2(x0, y), new Vector2(x1, yEnd),
-                new Vector2(u0, 0f), new Vector2(u1, frac), White);
+                new Vector2(u0, 0f), new Vector2(u1, frac), tint);
         }
     }
 
@@ -340,7 +646,7 @@ public sealed class WowSkin : IDisposable
     /// hence one quad per tile with v going 1 -> 1-frac.
     /// </summary>
     private static void HorizontalEdge(
-        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge)
+        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge, uint tint)
     {
         Slice(slice, out float u0, out float u1);
         if (edge < 1f || x1 <= x0) return;
@@ -355,7 +661,7 @@ public sealed class WowSkin : IDisposable
                 new Vector2(x, y0), new Vector2(xEnd, y0), new Vector2(xEnd, y1), new Vector2(x, y1),
                 new Vector2(u0, 1f), new Vector2(u0, 1f - frac),
                 new Vector2(u1, 1f - frac), new Vector2(u1, 1f),
-                White);
+                tint);
         }
     }
 
@@ -439,8 +745,129 @@ public sealed class WowSkin : IDisposable
         return pressed;
     }
 
-    /// <summary>UICheckButtonTemplate: 32x32 box, check mark over it at the same rect.</summary>
-    public bool CheckBox(string label, ref bool value, float boxSize = 26f)
+    // ── glue widgets (the login / main-menu screen) ──────────────────────────
+
+    /// <summary>
+    /// A GlueButtonTemplate - the red login/main-menu button. One stretched quad of the sheet's
+    /// top-left [0,0.578125]x[0,0.75] region (glue/art.rs BUTTON_TC), a gold FRIZQT caption, and the
+    /// additive Highlight overlay on hover. Placed at the current cursor screen pos, same contract
+    /// as PanelButton - the caller does ImGui.SetCursorScreenPos(pos) first. Falls back to the
+    /// in-game skinned button (then a plain ImGui button) if the glue art didn't load, so a missing
+    /// texture can never make login unreachable.
+    /// </summary>
+    public bool GlueButton(string label, Vector2 size, bool enabled = true, float captionPx = 0f)
+    {
+        var up = Get("glue.btn.up");
+        if (up is null) return PanelButton(label, size, enabled);
+
+        string caption = Caption(label);
+        var dl = ImGui.GetWindowDrawList();
+        var pos = ImGui.GetCursorScreenPos();
+
+        bool pressed = ImGui.InvisibleButton(label, size) && enabled;
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+
+        var art = !enabled ? (Get("glue.btn.off") ?? up)
+                : held ? (Get("glue.btn.down") ?? up)
+                : up;
+        // Pressed = the DOWN sprite (a darker-red pill - NOT black; the real 1.12 texture has no
+        // black), nudged down-right one UI px so it "drops" into the frame (WoW's pushed offset).
+        // The earlier black fill was wrong; the fix that makes the pressed pill show at all is the
+        // neutral-only de-halo above, which stopped eating the down sprite's dark red.
+        var drawPos = held ? pos + new Vector2(1f, 1f) * Scale : pos;
+        dl.AddImage(Id(art), drawPos, drawPos + size, GlueButtonUv1, GlueButtonUv2, White);
+
+        if (hovered && !held && GlueTune.HoverGlow > 0.001f && Get("glue.btn.hi") is Piece hi)
+        {
+            // Bleed the glow slightly past the button so it covers the edges (the highlight art stops
+            // short of the button's right otherwise) and reads as a glow. HoverGlow can exceed 1: alpha
+            // clamps at 1, so redraw for each whole unit to stack the brightening past a single pass.
+            var ex = new Vector2(size.X * 0.05f, size.Y * 0.06f);
+            for (float g = GlueTune.HoverGlow; g > 0.001f; g -= 1f)
+                dl.AddImage(Id(hi), pos - ex, pos + size + ex, GlueButtonHiUv1, GlueButtonHiUv2,
+                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, MathF.Min(1f, g))));
+        }
+
+        // The caption is sized to the button, not to the fixed ImGui font: FRIZQT on the real glue
+        // buttons nearly fills their height. capSize = 42% of button height, then shrunk to fit if a
+        // long label (MANAGE ACCOUNT) would otherwise run past ~86% of the width. The width is the
+        // base-font measurement scaled by capSize/baseFs (the same trick GlueText uses) - ImFontPtr
+        // has no CalcTextSizeA in this binding, and scaling the base measure is binding-independent.
+        var font = ImGui.GetFont();
+        float baseFs = ImGui.GetFontSize();
+        var baseSize = ImGui.CalcTextSize(caption);
+        // captionPx > 0 pins the caption to an EXPLICIT size instead of deriving it from the button
+        // height. Without it, resizing a button silently resized its text (Nico on Enter World: "I can
+        // only change the height and width and that auto sizes font"). The fit-to-width shrink below
+        // still applies either way, so an over-long label can never run off the pill.
+        float capSize = captionPx > 0.01f
+            ? MathF.Max(captionPx, 1f)
+            : MathF.Max(size.Y * GlueTune.CaptionSizeRatio, baseFs);
+        float maxW = size.X * 0.86f;
+        float widthAtCap = baseFs > 0f ? baseSize.X * (capSize / baseFs) : baseSize.X;
+        if (widthAtCap > maxW && widthAtCap > 0f)
+            capSize *= maxW / widthAtCap;
+        float capScale = baseFs > 0f ? capSize / baseFs : 1f;
+        var textSize = baseSize * capScale;
+
+        var textPos = pos + (size - textSize) * 0.5f;
+        // Optical centre: capitals sit in the upper em-box and descenders bias the visual mass down,
+        // so a plain box-centre reads as sitting slightly low on the pill. Lift it (tunable).
+        textPos.Y -= textSize.Y * GlueTune.CaptionLift;
+        if (held) textPos += new Vector2(1f, 1f) * Scale;
+
+        var colour = !enabled ? Disabled : hovered ? Highlight : GlueGold;
+        // The caption's OWN shadow, a SMOOTH offset proportional to the caption size (no rounding or
+        // 1px floor - those quantised the slider so its lower half all snapped to 1px and 0 could not
+        // turn the shadow off). The caption is large, so a sub-pixel offset reads fine; 0 = no shadow.
+        float capShadow = capSize * GlueTune.CaptionShadowRatio;
+        if (capShadow > 0.01f)
+            dl.AddText(font, capSize, textPos + new Vector2(capShadow, capShadow), U32(GlueTune.ShadowColor), caption);
+        OutlineText(dl, font, capSize, textPos, caption);
+        dl.AddText(font, capSize, textPos, U32(colour), caption);
+
+        return pressed;
+    }
+
+    /// <summary>Draw a loaded skin texture (by key) as one quad over [min,max]. No-op if absent.</summary>
+    public void GlueImage(ImDrawListPtr dl, string key, Vector2 min, Vector2 max)
+    {
+        if (Get(key) is Piece p)
+            dl.AddImage(Id(p), min, max, Vector2.Zero, Vector2.One, White);
+    }
+
+    /// <summary>Draw a loaded sheet over [min,max] with a colour/alpha tint (e.g. a warm, translucent
+    /// glow for the char-select row highlight so the backdrop shows through, like the OG ADD blend).</summary>
+    public void GlueImage(ImDrawListPtr dl, string key, Vector2 min, Vector2 max, Vector4 tint)
+    {
+        if (Get(key) is Piece p)
+            dl.AddImage(Id(p), min, max, Vector2.Zero, Vector2.One, U32(tint));
+    }
+
+    /// <summary>Draw a sub-rect (uv0..uv1) of a loaded sheet over [min,max]. Returns false if the
+    /// sheet is absent (so the caller can fall back to text). Used by the character-create icon grids.</summary>
+    public bool GlueImageUv(ImDrawListPtr dl, string key, Vector2 min, Vector2 max, Vector2 uv0, Vector2 uv1)
+    {
+        if (Get(key) is not Piece p) return false;
+        dl.AddImage(Id(p), min, max, uv0, uv1, White);
+        return true;
+    }
+
+    /// <summary>True if a skin piece is loaded (the login layout asks before it relies on art).</summary>
+    public bool Has(string key) => Get(key) is not null;
+
+    /// <summary>The GL texture handle for a loaded piece, or 0 if absent - lets a raw GL pass (the
+    /// additive glue overlay) bind glue art directly, outside the ImGui draw list.</summary>
+    public uint TextureHandle(string key) => Get(key) is Piece p && p.Texture is { } t ? t.Handle : 0u;
+
+    /// <summary>
+    /// UICheckButtonTemplate: 32x32 box, check mark over it at the same rect. When <paramref
+    /// name="labelPx"/> &gt; 0 the caption is drawn at that explicit pixel size (the glue login needs
+    /// a glue-sized label; the ambient ImGui font is tiny next to the s-scaled box); 0 keeps the
+    /// in-game behaviour of drawing at the current font size.
+    /// </summary>
+    public bool CheckBox(string label, ref bool value, float boxSize = 26f, float labelPx = 0f)
     {
         var box = Get("check.box");
         if (box is null) return ImGui.Checkbox(label, ref value);
@@ -450,7 +877,10 @@ public sealed class WowSkin : IDisposable
 
         var dl = ImGui.GetWindowDrawList();
         var pos = ImGui.GetCursorScreenPos();
-        var textSize = ImGui.CalcTextSize(caption);
+        var font = ImGui.GetFont();
+        float baseFs = ImGui.GetFontSize();
+        float lblScale = labelPx > 0f && baseFs > 0f ? labelPx / baseFs : 1f;
+        var textSize = ImGui.CalcTextSize(caption) * lblScale;
 
         var hit = new Vector2(s + 6f * Scale + textSize.X, MathF.Max(s, textSize.Y));
         bool pressed = ImGui.InvisibleButton(label, hit);
@@ -476,7 +906,20 @@ public sealed class WowSkin : IDisposable
         // is GameFontNormal, which is the yellow face. White is what the BUTTONS
         // use.
         var textPos = new Vector2(boxMax.X + 6f * Scale, pos.Y + (hit.Y - textSize.Y) * 0.5f);
-        dl.AddText(textPos, U32(hovered ? Highlight : Gold), caption);
+        // The 1.12 drop shadow (down-right): every glue label carries it, and the Remember-checkbox
+        // caption is a glue label like the rest. At an explicit label size the shadow scales with it.
+        var lblColour = hovered ? Highlight : Gold;
+        if (labelPx > 0f)
+        {
+            float lblShadow = MathF.Max(1f, MathF.Round(labelPx * GlueTune.ShadowOffsetRatio));
+            dl.AddText(font, labelPx, textPos + new Vector2(lblShadow, lblShadow), U32(GlueTune.ShadowColor), caption);
+            dl.AddText(font, labelPx, textPos, U32(lblColour), caption);
+        }
+        else
+        {
+            dl.AddText(textPos + new Vector2(1f, 1f) * Scale, U32(GlueTune.ShadowColor), caption);
+            dl.AddText(textPos, U32(lblColour), caption);
+        }
 
         return pressed;
     }
@@ -638,5 +1081,132 @@ public sealed class WowSkin : IDisposable
     {
         foreach (var p in _pieces) { p.Texture?.Dispose(); p.Texture = null; }
         FoundCount = 0;
+    }
+}
+
+/// <summary>
+/// Live-tunable knobs for the glue login screen, edited by the in-client tuning modal and read by
+/// the glue widgets (GlueButton, CheckBox) and the login layout every frame. Static because the
+/// login screen is a singleton and there is exactly one set of values on screen at a time; the
+/// defaults are the values these had when they were hard-coded, so nothing changes until a slider
+/// moves. Values that are "UI units" get multiplied by the login scale s (= height/768) at use.
+/// </summary>
+public static class GlueTune
+{
+    // Buttons (the red GlueButtons). Defaults are the values dialed in via the tuning modal.
+    public static float ButtonHeightMul  = 1.086f;  // multiplies every glue button's height
+    public static float CaptionSizeRatio = 0.389f;  // gold caption height as a fraction of button height
+    public static float CaptionLift      = 0.177f;  // upward optical nudge, as a fraction of caption height
+    public static float HoverGlow        = 0.775f;  // strength of the hover highlight (Nico baked; 0 = off, stacks past 1)
+
+    // The 1.12 drop shadow. Two ratios on purpose: the small labels bottom out at the 1px floor, so
+    // ShadowOffsetRatio can be pushed up for them without inflating anything; the red-button caption
+    // is large enough to clear that floor, so it gets its OWN (tighter) ratio - both stay proportional
+    // to their text, they just no longer share one knob (which is what made the button shadow bloat).
+    public static float ShadowAlpha        = 1.00f;  // 1 = opaque black (the reference); lower softens it
+    public static float ShadowOffsetRatio  = 0.08f;  // label / field / checkbox / version-text shadow ratio
+    public static float OutlinePx          = 0.038f; // black glyph OUTLINE thickness (fraction of font px); 0 = off
+    public static float CaptionShadowRatio = 0.05f;  // the red-button caption's own shadow ratio
+
+    // Edit fields.
+    public static float FieldLabelUnits = 17f;      // "Account Name" / "Account Password" label size
+    public static float TypedTextUnits  = 18f;      // the typed account/password line (benilla ARIALN 18)
+
+    // The Remember-Account-Name checkbox.
+    public static float CheckBoxUnits   = 24.8f;    // the box itself
+    public static float CheckLabelUnits = 13.1f;    // the caption beside it
+
+    // The 3D glue scene behind the chrome (the burning-gate model). Two independent size knobs: the
+    // model-space swirling embers, and the world-space brazier flames.
+    public static float ParticleSize    = 0.50f;    // ember / swirl size (model-space sprites)
+    public static float BrazierSize     = 1.00f;    // brazier flame size (world-space sprites)
+
+    // The char-select selected-row highlight tint (a warm, translucent glow over the brick like the OG
+    // ADD blend, vs a flat opaque yellow). RGBA; tuned from the char-select tuning modal.
+    public static Vector4 SelectHi = new(0.776f, 1.0f, 0.0f, 0.749f); // R198 G255 B0 A191 (Nico baked); additive tint, A = coverage
+    public static float SelectHiGain = 3.08f;  // ADDITIVE brightness: multiplies the added light (Nico baked; >1 brighter, too high washes)
+    public static float SelectHiContrast = 2.2f;// crispness: >1 drops the mid-tone fill (translucent interior) so the bright border pops
+    public static bool  SelectHiOnTop = false; // draw the glow OVER the HUD (covers the row TEXT) vs UNDER it (text in front)
+    // With the glow UNDER the HUD the row text is naturally in front (benilla order: panel -> glow -> text)
+    // but the translucent roster panel would dim the ADD card. This cuts the panel FILL away in a band
+    // behind each lit card - the nine-sliced EDGE still draws whole - so the glow reads at full strength.
+    public static bool  SelectHiPanelHole = true;
+    public static float RosterAlpha  = 0.8f;   // char-select right-panel opacity (Nico baked); the ADD glow is no longer dimmed by it, so this is purely how much cobblestone reads through
+    // Character-select chrome sizes (1024x768 units, scaled by s). These were hardcoded: Enter World
+    // 200x60 at 30 off the bottom, Change Realm 30 tall inset 12 at 32 down the roster panel.
+    public static float EnterWorldW = 187.3f, EnterWorldH = 60.6f, EnterWorldBottom = 30f;
+    /// <summary>Enter World's caption size in 1024x768 units. 0 = derive it from the button height
+    /// (the shared CaptionSizeRatio); anything else pins it, so resizing the pill leaves the text be.</summary>
+    public static float EnterWorldTextPx = 18.2f;
+    public static float ChangeRealmH = 39.8f, ChangeRealmTop = 32f, ChangeRealmInset = 60f;
+    public static float CreateCharH = 48.6f, CreateCharBottom = 12f, CreateCharInset = 27.7f;
+    /// <summary>Create New Character's caption size, same contract as EnterWorldTextPx: 0 = derive it
+    /// from the button height, anything else pins it so resizing the button leaves the text be.</summary>
+    public static float CreateCharTextPx = 14.3f;
+    // The logon progress GlueDialog (the riveted DialogFrame box shown while connecting).
+    public static float LogonBoxW = 380f, LogonBoxH = 150f, LogonBoxDY = 0f;
+    public static float LogonTitlePx = 18f, LogonStatusPx = 12f, LogonBtnW = 140f, LogonBtnH = 34f;
+    // The stylized model-rotate pair, centred UNDER Enter World (the 1.12 placement).
+    public static float RotateSize = 54.4f, RotateGap = -12.7f, RotateDX = 1.5f, RotateTop = -18.1f;
+    public static float SelectHiInsetX = 1.472f;// row-highlight card: horizontal inset from the frame edges
+    public static float SelectHiTop    = -9.3f;// row-highlight card: top offset from the row top
+    public static float SelectHiHeight = 76.9f;// row-highlight card: height
+
+    /// <summary>The shadow colour built from <see cref="ShadowAlpha"/> - opaque black by default.</summary>
+    public static Vector4 ShadowColor => new(0f, 0f, 0f, ShadowAlpha);
+
+    public static void Reset()
+    {
+        ButtonHeightMul = 1.086f; CaptionSizeRatio = 0.389f; CaptionLift = 0.177f; HoverGlow = 0.775f;
+        ShadowAlpha = 1.00f; ShadowOffsetRatio = 0.08f; OutlinePx = 0.038f; CaptionShadowRatio = 0.05f;
+        FieldLabelUnits = 17f; TypedTextUnits = 18f;
+        CheckBoxUnits = 24.8f; CheckLabelUnits = 13.1f;
+        ParticleSize = 0.50f; BrazierSize = 1.00f;
+        SelectHi = new(0.776f, 1.0f, 0.0f, 0.749f); SelectHiGain = 3.08f; SelectHiContrast = 2.2f; SelectHiOnTop = false; SelectHiPanelHole = true; RosterAlpha = 0.8f;
+        SelectHiInsetX = 1.472f; SelectHiTop = -9.3f; SelectHiHeight = 76.9f;
+        EnterWorldW = 187.3f; EnterWorldH = 60.6f; EnterWorldBottom = 30f; EnterWorldTextPx = 18.2f;
+        ChangeRealmH = 39.8f; ChangeRealmTop = 32f; ChangeRealmInset = 60f;
+        CreateCharH = 48.6f; CreateCharBottom = 12f; CreateCharInset = 27.7f; CreateCharTextPx = 14.3f;
+        LogonBoxW = 380f; LogonBoxH = 150f; LogonBoxDY = 0f;
+        LogonTitlePx = 18f; LogonStatusPx = 12f; LogonBtnW = 140f; LogonBtnH = 34f;
+        RotateSize = 54.4f; RotateGap = -12.7f; RotateDX = 1.5f; RotateTop = -18.1f;
+    }
+
+    /// <summary>Dump the current values to the console in a copy-pasteable form, so a dialed-in look
+    /// can be read off and baked back into the defaults.</summary>
+    public static void LogValues()
+    {
+        Console.WriteLine(
+            "[glue-tune] ButtonHeightMul=" + ButtonHeightMul.ToString("0.###") +
+            " CaptionSizeRatio=" + CaptionSizeRatio.ToString("0.###") +
+            " CaptionLift=" + CaptionLift.ToString("0.###") +
+            " HoverGlow=" + HoverGlow.ToString("0.###") +
+            " OutlinePx=" + OutlinePx.ToString("0.###") +
+            " ShadowAlpha=" + ShadowAlpha.ToString("0.###") +
+            " ShadowOffsetRatio=" + ShadowOffsetRatio.ToString("0.###") +
+            " CaptionShadowRatio=" + CaptionShadowRatio.ToString("0.###") +
+            " FieldLabelUnits=" + FieldLabelUnits.ToString("0.#") +
+            " TypedTextUnits=" + TypedTextUnits.ToString("0.#") +
+            " CheckBoxUnits=" + CheckBoxUnits.ToString("0.#") +
+            " CheckLabelUnits=" + CheckLabelUnits.ToString("0.#") +
+            " ParticleSize=" + ParticleSize.ToString("0.###") +
+            " BrazierSize=" + BrazierSize.ToString("0.###") +
+            " SelectHi=" + SelectHi.X.ToString("0.##") + "/" + SelectHi.Y.ToString("0.##") + "/" + SelectHi.Z.ToString("0.##") + "/" + SelectHi.W.ToString("0.##") +
+            " SelectHiGain=" + SelectHiGain.ToString("0.###") +
+            " SelectHiContrast=" + SelectHiContrast.ToString("0.###") +
+            " SelectHiOnTop=" + SelectHiOnTop +
+            " SelectHiPanelHole=" + SelectHiPanelHole +
+            " RosterAlpha=" + RosterAlpha.ToString("0.###") +
+            " SelectHiInsetX=" + SelectHiInsetX.ToString("0.###") +
+            " SelectHiTop=" + SelectHiTop.ToString("0.###") +
+            " SelectHiHeight=" + SelectHiHeight.ToString("0.###") +
+            " EnterWorld=" + EnterWorldW.ToString("0.#") + "x" + EnterWorldH.ToString("0.#") +
+            "@" + EnterWorldBottom.ToString("0.#") + " text" + EnterWorldTextPx.ToString("0.#") +
+            " ChangeRealm=h" + ChangeRealmH.ToString("0.#") + " top" + ChangeRealmTop.ToString("0.#") +
+            " inset" + ChangeRealmInset.ToString("0.#") +
+            " CreateChar=h" + CreateCharH.ToString("0.#") + " bottom" + CreateCharBottom.ToString("0.#") +
+            " inset" + CreateCharInset.ToString("0.#") + " text" + CreateCharTextPx.ToString("0.#") +
+            " Rotate=" + RotateSize.ToString("0.#") + " gap" + RotateGap.ToString("0.#") +
+            " dx" + RotateDX.ToString("0.#") + " top" + RotateTop.ToString("0.#"));
     }
 }

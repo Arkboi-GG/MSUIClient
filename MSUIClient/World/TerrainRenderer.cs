@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Diagnostics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
@@ -130,6 +130,15 @@ public sealed class TerrainRenderer : IDisposable
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
+
+    /// <summary>
+    /// Frustum-cull per MCNK inside a tile rather than only per tile.
+    ///
+    /// Off restores the single-draw-per-tile behaviour, which is the A/B: if
+    /// terrain ever shows a wedge missing at the screen edge, that is this, and
+    /// one click proves it.
+    /// </summary>
+    public bool ChunkCulling { get; set; } = true;
 
     public TerrainRenderer(
         GL gl, ClientConfig config, GpuUploadWorker uploads, AssetWorkerPool workers)
@@ -518,7 +527,10 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uCameraOrigin", camera.Position);
         _shader.Set("uCameraPos", Vector3.Zero);
-        _shader.Set("uSunDirection", SunDirection);
+        // Normalised HERE, not per pixel. The shader used to call normalize() on
+        // this every fragment — on a uniform, over a surface that covers most of
+        // the screen. wmo.frag and doodad.frag already did it this way.
+        _shader.Set("uSunDirection", SafeNormalize(SunDirection));
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
@@ -529,9 +541,9 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uDebugMode", DebugMode);
         _shader.Set("uTextureScale", TextureScale);
 
-        // Sampler bindings are fixed: unit 0 tileset array, unit 1 alpha atlas.
+        // Sampler bindings are fixed: unit 0 tileset array, unit 1 alpha array.
         _shader.Set("uTileset", 0);
-        _shader.Set("uAlphaAtlas", 1);
+        _shader.Set("uAlphaArray", 1);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;
@@ -544,10 +556,16 @@ public sealed class TerrainRenderer : IDisposable
             if (!Camera.BoxInFrustum(viewProjection,
                     tile.BoundsMin - cameraPosition,
                     tile.BoundsMax - cameraPosition)) continue;
-            tile.Draw();
+
+            // The tile-level test above is now only a cheap reject. The real
+            // culling is per MCNK inside Draw, because a 533-yard box with one
+            // corner on screen used to submit all ~32,700 of its triangles.
+            if (ChunkCulling) tile.Draw(viewProjection, cameraPosition);
+            else tile.Draw();
+
             drawn++;
-            DrawCallsLastFrame++;
-            TrianglesLastFrame += tile.TriangleCount;
+            DrawCallsLastFrame += tile.DrawCallsLastCall;
+            TrianglesLastFrame += tile.TrianglesDrawnLastCall;
         }
 
         DrawnLastFrame = drawn;
@@ -631,6 +649,17 @@ public sealed class TerrainRenderer : IDisposable
         _desired = [];
 
         Console.WriteLine($"[terrain] unloaded {released} tile(s)");
+    }
+
+    /// <summary>
+    /// Normalize, tolerating a zero vector. The sun direction is a knob and the
+    /// HUD can drive it to zero mid-drag; a NaN uniform would black the whole
+    /// terrain and read as a shader bug.
+    /// </summary>
+    private static Vector3 SafeNormalize(Vector3 v)
+    {
+        float lengthSq = v.LengthSquared();
+        return lengthSq < 1e-12f ? Vector3.UnitZ : v / MathF.Sqrt(lengthSq);
     }
 
     public void Dispose()

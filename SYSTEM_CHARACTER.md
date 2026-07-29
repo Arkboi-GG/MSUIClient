@@ -9,7 +9,9 @@ cross-cutting ground truth (§3.4 vertex conventions, §3.7 the model-to-world b
 working agreements) before touching any of it. You should not need the rest of the
 handbook.
 
-Version: Draft 1 — 2026-07-27 (first extraction; adds the geoset-visibility engine, the
+Version: Draft 2 — 2026-07-29 (adds §1.5's SCALP/hairline composite — the missing benilla
+overlay pair that made hair dissolve into the forehead — and the blank-hair-row substitute).
+Draft 1 — 2026-07-27 (first extraction; adds the geoset-visibility engine, the
 humanoid-NPC / beast split, live diagnostics, and the **Load re-entrancy** post-mortem in
 §2, which is why the logged-in character grew a second head of hair).
 
@@ -174,6 +176,48 @@ benilla's rects exactly** — verified this session; they were never the bug (§
 come from compositing the CharSections **Face** row — Texture1 lower face, Texture2 upper (the
 upper carries the eyes). Take each region from the DBC field the texture came from, **never**
 inferred from image dimensions — inferring paints the face across the eyes.
+
+**And neither are the EYEBROWS** (fixed 2026-07-28). The brows are the CharSections **FacialHair**
+section (type 2) composited onto the SAME two face tiles as the face, *on top of* it, in benilla's
+build order `skin → face → facial hair → hair` (`benilla-formats characters/sections.rs
+composite_body`): FacialHair Texture1 → lower face, Texture2 → **upper (the brow row)**. It is keyed
+by **hair colour, not skin** — which is why the brows tint to match the hair. `BuildTextureSlots`
+originally looked up the FacialHair row only to bind it as the type-7 mesh slot (beard geometry) and
+never added it to the skin-atlas overlay list, so a male composited eyes but no brows (the "no
+eyebrows" report — ours vs 1.12, Human Male). Fix: append the FacialHair Texture1/Texture2 to
+`overlays` after the Face entries; the alpha-aware `BlitOver` blends the brow strip over the eyes.
+Human FEMALE has no FacialHair section (customization.rs: only NightElf/Undead females do), so that
+path no-ops for them — their brows, if any, ride the Face row. Beard *geometry* (facial geosets
+1/2/3) is a separate concern, textured off the hair sheet (type 6), not touched by this.
+
+**AND NEITHER IS THE HAIRLINE** (fixed 2026-07-29 — Nico: *"the hair blends into the
+forehead"*, ours vs 1.12, Human male). benilla's head fan-out is `skin → face → facial hair →
+**hair**`, and that last pair is the CharSections **Hair** row's *other two columns*:
+`Texture2 = ScalpLower<style>_<colour>` → the **lower** face tile, `Texture3 =
+ScalpUpper<style>_<colour>` → the **upper** tile (`sections.rs composite_body`: SECTION_HAIR
+col 1 → TILE_G9, col 2 → TILE_G8). They paint the hairline and the scalp shading onto the head
+*itself*, under the hair mesh. This matters because a hair geoset has **two** submeshes — the
+hair sheet one (type 6) *and* a scalp one that samples the **body atlas** (visible in the
+capture: `geo19 … slot=type6` next to `geo19 … slot=type1`). With no scalp strips composited,
+that second submesh is bare forehead skin, the hair has no painted root line, and the mesh
+edge fades into the face. `BuildTextureSlots` read the Hair row only for `Texture1` (the mesh
+sheet) and never added columns 2/3 to `overlays`.
+
+> **Do not trust benilla's own comment here.** It claims the hair columns are empty for Human
+> male and that the overlay only matters for other races. That is **wrong on 1.12.1 data** —
+> verified by decoding `CharSections.dbc` straight out of `GameData/Data/dbc.MPQ`: Human male
+> hair variations 1–11 all carry `ScalpLowerHair0x_00` / `ScalpUpperHair0x_00`, and only the
+> blank variation 0 has none. The code comment records this so the overlay is not "optimised"
+> back out.
+
+**The blank hair row substitutes variation 1, not `Hair00_00`** (same fix). The client has no
+fallback *lookup*: its single type-6 binder reads `TextureName[0]` and an **empty name is a
+no-op that leaves the slot untouched**, with two of its three call sites passing variation
+**literal 1**. The fixpoint is "take the hairStyle row; when it is blank take **variation 1 at
+the same colour**" (benilla `hair_mesh_texture`). Human male variation 0 is the only fully
+blank row in the table and resolves to `Hair03_<colour>` — *not* the `Character\Human\Hair00_00`
+the old convention fallback picked, which is the **female** sheet at **colour 0**. The
+convention fallback is still there, but only for a race/sex with no Hair row at all.
 
 ### 1.6 Skinning & animation — the free inverse bind (handbook §3.5–3.11)
 
@@ -373,6 +417,9 @@ compositing, the M2 Y-up conversion and free-inverse-bind skinning, and the
   `Load` and is rebuilt via `Rebuild(Equipment)`; verify that path clears its own per-model
   state so a helm/shoulder cannot double the way the body did in §2. If it appends, it needs
   the same treatment.
+- **Verify the hairline fix on other races.** The scalp strips are now composited for everyone;
+  spot-check a Dwarf/NightElf/Undead male and a female of each, since their Hair rows author
+  different Scalp sheets and a few have none.
 - **Custom-MPQ gear is not loaded**, so a character shows base equipment, not the full
   transmog set — expected, not a bug (Nico: *"we dont load custom mpqs ergo why you dont see my
   full gear"*).

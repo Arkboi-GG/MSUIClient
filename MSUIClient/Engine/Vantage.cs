@@ -55,7 +55,17 @@ public sealed class Vantage
     public bool WmoEnabled { get; set; } = true;
     public bool WmoFrustumCulling { get; set; } = true;
     public bool UseDistanceLodShells { get; set; } = true;
-    public bool WmoForceTwoSided { get; set; } = true;
+    /// <summary>
+    /// Defaults OFF, matching the renderer and the settings default.
+    ///
+    /// WORTH KNOWING WHEN A VANTAGE LOOKS SLOW: vantages.json stores this per
+    /// saved vantage, and every vantage captured before the default changed has
+    /// it recorded as true. Loading one of those turns backface culling off for
+    /// the whole WMO pass again, so an old vantage will measure much worse than
+    /// live play at the same spot. Re-capture, or edit the field, before reading
+    /// anything into the difference.
+    /// </summary>
+    public bool WmoForceTwoSided { get; set; }
     public bool WmoOcclusionCulling { get; set; }
     public bool WmoVisTrace { get; set; }
     public bool WmoDumpGroups { get; set; }

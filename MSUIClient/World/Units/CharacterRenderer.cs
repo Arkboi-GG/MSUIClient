@@ -61,7 +61,7 @@ public sealed class CharacterRenderer : IDisposable
     /// <see cref="ChooseClip"/> - not every model has every animation.
     /// </summary>
     private static readonly int[] BakedAnimations =
-        [0, 4, 5, 11, 12, 13, 37, 38, 39, 40, 92, 93];
+        [0, 4, 5, 11, 12, 13, 37, 38, 39, 40, 92, 93, 187];
 
     /// <summary>
     /// Geoset variant shown per category when nothing is equipped. Ported from
@@ -93,12 +93,63 @@ public sealed class CharacterRenderer : IDisposable
     public struct UnitState
     {
         public Vector3 Position;
+
+        /// <summary>
+        /// The AIM: where the unit is pointed, what a movement packet carries.
+        /// The drawn body is a separate angle that chases this one - see
+        /// <see cref="DriveBodyHeading"/>.
+        /// </summary>
         public float Yaw;
+
         public bool Grounded;
         public float VerticalVelocity;
         public float FallTimeMs;
         public bool Walking;
         public bool Flying;
+
+        // ── intent ───────────────────────────────────────────────────────────
+        //
+        // WHY THE RENDERER IS TOLD WHAT WAS PRESSED. It used to work the
+        // direction and speed out by differencing Position and low-passing the
+        // result, which is a defensible idea and wrong in four ways at once:
+        // it lagged every start by about eighty milliseconds, it read a wall
+        // slide as a change of direction and played WalkBackwards while you
+        // held W, it could not see a turn in place at all because turning
+        // produces no displacement, and it fed the leg-cycle rate a raw
+        // per-frame delta that jittered with the frame time.
+        //
+        // None of those are fixable downstream, because by then the
+        // information is already gone. The reference client drives the
+        // animation layer from the movement flags and the commanded velocity,
+        // so this does too.
+
+        /// <summary>-1 back .. +1 forward, as pressed.</summary>
+        public float Forward;
+
+        /// <summary>-1 left .. +1 right, as pressed.</summary>
+        public float Strafe;
+
+        /// <summary>Commanded horizontal speed in yd/s. Zero when no key is held.</summary>
+        public float Speed;
+
+        /// <summary>
+        /// The aim is being steered this frame - turn keys or mouse-look.
+        ///
+        /// This is what freezes the standing body chase. While you are steering,
+        /// the body holds and the aim leads it; the sweep back onto the aim only
+        /// runs once you stop.
+        /// </summary>
+        public bool Steering;
+
+        /// <summary>
+        /// False means "nobody filled the fields above" - the glue booth, or any
+        /// caller that only has a position. Falls back to measuring displacement,
+        /// which is fine for a character standing on a pedestal.
+        /// </summary>
+        public bool HasIntent;
+
+        public readonly bool Moving =>
+            MathF.Abs(Forward) > 0.01f || MathF.Abs(Strafe) > 0.01f;
     }
 
     private enum SlotFill { Bound, BodySkin, Unbound }
@@ -196,16 +247,83 @@ public sealed class CharacterRenderer : IDisposable
     private float _globalTime;
     private float _clipRate = 1f;
 
+    // ── cross-fade ───────────────────────────────────────────────────────────
+    //
+    // The clip we are fading OUT of, its own clock, and how much of the fade is
+    // left. Two slots only: a change during a fade drops the older pose rather
+    // than growing a stack. That is the standard compromise and it is invisible
+    // outside of deliberately mashed direction changes.
+    private M2Animator.Clip? _previousClip;
+    private float _previousClipTime;
+    private float _previousClipRate = 1f;
+    private float _blendRemaining;
+    private float _blendDuration;
+
     private Vector3 _lastPosition;
     private bool _hasLastPosition;
+
+    /// <summary>Speed the gait is chosen from: commanded when we have intent, measured otherwise.</summary>
     private float _groundSpeed;
+
+    /// <summary>Speed the leg-cycle rate divides by. Same source, no smoothing.</summary>
     private float _instantGroundSpeed;
+
+    /// <summary>Displacement-derived speed, kept for the HUD so the two can be compared.</summary>
+    private float _measuredSpeed;
+
     private float _forwardness;
     private float _sideness;
+
+    /// <summary>The drawn body's heading OFFSET from the aim, radians. See <see cref="DriveBodyHeading"/>.</summary>
     private float _moveYaw;
+
+    /// <summary>The drawn body's ABSOLUTE heading, radians. The aim is <see cref="UnitState.Yaw"/>.</summary>
+    private float _bodyYaw;
+    private bool _hasBodyYaw;
+
+    /// <summary>How far the body turned this frame, signed. Drives the turn-in-place shuffle.</summary>
+    private float _bodyTurnStep;
+
+    // ── landing ──────────────────────────────────────────────────────────────
+    private M2Animator.Clip? _landClip;
+    private float _landForward, _landStrafe;
+    private bool _landWalking;
+    private bool _wasAirborne;
 
     /// <summary>Below this the character counts as standing still, in yards per second.</summary>
     private const float MoveThreshold = 0.3f;
+
+    /// <summary>
+    /// Rate the body eases toward its strafe offset, per second.
+    ///
+    /// Not a taste value: the reference client blends a quarter of the remaining
+    /// gap per frame at sixty frames a second, and -ln(0.75) * 60 = 17.26 is the
+    /// frame-rate-independent form of exactly that.
+    /// </summary>
+    private const float StrafeBlendRate = 17.26f;
+
+    /// <summary>
+    /// How much faster than the turn rate the body sweeps back onto the aim once
+    /// you stop steering. Eight is the client's own multiplier - about 63 ms to
+    /// close ninety degrees.
+    /// </summary>
+    private const float StationaryChaseRate = 8f;
+
+    /// <summary>
+    /// The body's turn rate, radians per second. Matches the aim's own standing
+    /// rate so the chase closes at a believable speed.
+    /// </summary>
+    private const float BodyTurnRate = MathF.PI;
+
+    /// <summary>
+    /// Locomotion clips, for the phase-preservation rule in
+    /// <see cref="SwitchClip"/>. Shift-walking out of a run must not restart the
+    /// leg cycle.
+    /// </summary>
+    private static readonly HashSet<int> LocomotionAnimations = [4, 5, 11, 12, 13, 92, 93];
+
+    /// <summary>Clips that mean "airborne", for the landing gate.</summary>
+    private static readonly HashSet<int> AirborneAnimations = [37, 38, 40];
 
     /// <summary>
     /// Categories forced off, for finding which geoset is doubling up. Drag
@@ -368,6 +486,33 @@ public sealed class CharacterRenderer : IDisposable
     }
 
     public float MoveYawDegrees => _moveYaw * 180f / MathF.PI;
+
+    /// <summary>
+    /// Cross-fade used when the M2 sequence authors a blendTime of zero, in
+    /// seconds. Also the floor for locomotion transitions.
+    ///
+    /// Vanilla's own values cluster around 150 ms. Set it to zero to get the old
+    /// hard-cut behaviour back in one click, which is the fastest way to confirm
+    /// that a pose problem is or is not the blend.
+    /// </summary>
+    public float DefaultBlendSeconds { get; set; } = 0.15f;
+
+    /// <summary>
+    /// How far the drawn body may lag the aim while standing, in degrees.
+    ///
+    /// This is the frozen chase, and it is the most recognisable thing about a
+    /// vanilla character standing still: turn the camera and the body does not
+    /// follow until the aim is ninety degrees ahead of it, then it holds exactly
+    /// that lag until you let go and it sweeps square again. Zero disables it and
+    /// welds the body to the aim, which is what this client did before.
+    /// </summary>
+    public float StandingChaseCeilingDegrees { get; set; } = 90f;
+
+    // Live animation diagnostics.
+    public float BodyYawDegrees => _bodyYaw * 180f / MathF.PI;
+    public string BlendFrom => _previousClip?.Name ?? "";
+    public float BlendWeight => BlendWeightNow();
+    public float MeasuredSpeed => _measuredSpeed;
 
     public string Race { get; private set; } = "Human";
     public string Gender { get; private set; } = "Male";
@@ -797,9 +942,70 @@ public sealed class CharacterRenderer : IDisposable
             var hairRow = _charSections.Find(raceId, sexId, CharSectionsTable.SectionHair, HairStyleId, HairColorId);
             if (hairRow is not null) hairPath = hairRow.Texture1;
 
-            var facialRow = _charSections.Find(raceId, sexId, CharSectionsTable.SectionFacialHair, FacialHairId, HairColorId);
-            if (facialRow is not null) facialHairPath = facialRow.Texture1;
+            // BLANK HAIR ROW -> VARIATION 1 AT THE SAME COLOUR (benilla sections.rs hair_mesh_texture).
+            // The client has no fallback LOOKUP: its single type-6 binder reads TextureName[0] and an
+            // EMPTY name is a NO-OP that leaves the slot untouched, and the three call sites run in
+            // build order skin -> hairStyle -> facialHair with two of them passing variation LITERAL 1.
+            // The fixpoint is "take the hairStyle row; when it is blank take variation 1 at the same
+            // colour". That literal 1 is load-bearing where a race authors several sheets per colour -
+            // Human MALE variation 0 is the only fully blank row and resolves to Hair03_<colour>, NOT
+            // to the Hair00_00 the old convention fallback below would have picked (that is the FEMALE
+            // sheet at colour 0 - wrong style and wrong colour).
+            if (hairPath.Length == 0)
+            {
+                var hairSubstitute = _charSections.Find(raceId, sexId, CharSectionsTable.SectionHair,
+                                                        HairSubstituteVariation, HairColorId);
+                if (hairSubstitute is not null && hairSubstitute.Texture1.Length > 0)
+                {
+                    hairPath = hairSubstitute.Texture1;
+                    Console.WriteLine($"[character] hair style {HairStyleId} names no sheet - benilla " +
+                                      $"substitute variation {HairSubstituteVariation} -> '{hairPath}'");
+                }
+            }
 
+            var facialRow = _charSections.Find(raceId, sexId, CharSectionsTable.SectionFacialHair, FacialHairId, HairColorId);
+            if (facialRow is not null)
+            {
+                facialHairPath = facialRow.Texture1;
+
+                // Composite the FACIAL-HAIR section onto the face tiles too, ON TOP of the face
+                // overlays (build order face -> facial hair, benilla sections.rs composite_body).
+                // This is where the EYEBROWS live: the section's UPPER strip (Texture2) is the brow
+                // row, keyed by HAIR colour (not skin - that is why the brows match the hair). The
+                // LOWER strip (Texture1) is the flat facial-hair underlay. Both blend over the eyes
+                // via the alpha-aware BlitOver rather than erasing them. Without this the eyes
+                // composite but the brows never paint - the "no eyebrows" bug. Added after the face
+                // block so the list order is face(lower,upper) -> facial(lower,upper).
+                if (facialRow.Texture1.Length > 0) overlays.Add((facialRow.Texture1, FaceRegion.Lower));
+                if (facialRow.Texture2.Length > 0) overlays.Add((facialRow.Texture2, FaceRegion.Upper));
+                Console.WriteLine($"[character] facial-hair lower '{facialRow.Texture1}' upper '{facialRow.Texture2}' (brows/underlay, hair-coloured)");
+            }
+
+            // THE HAIRLINE - the SCALP strips (fixed 2026-07-29). benilla composite_body's head fan-out
+            // is skin -> face -> facial hair -> HAIR, and that last pair is the CharSections HAIR row's
+            // OTHER two columns: Texture2 = ScalpLower<style>_<colour> -> the LOWER face tile, Texture3 =
+            // ScalpUpper<style>_<colour> -> the UPPER tile (benilla sections.rs: SECTION_HAIR col 1 ->
+            // TILE_G9, col 2 -> TILE_G8). They paint the hairline and the scalp shading onto the head
+            // itself, UNDER the hair mesh. Without them the hair geoset's scalp submesh - which samples
+            // the body atlas, not the hair sheet - is bare skin, so the hair has no painted root line and
+            // dissolves into the forehead. That was Nico's "the hair blends into the forehead" (ours vs
+            // 1.12, screenshot 2026-07-29).
+            //
+            // NOTE FOR THE NEXT READER: benilla's own comment on this claims the hair columns are empty
+            // for Human male and that the overlay is only there for other races. THAT IS WRONG on 1.12.1
+            // data - verified by decoding CharSections.dbc out of GameData/Data/dbc.MPQ: every Human male
+            // hair variation 1-11 carries ScalpLowerHair0x_00 / ScalpUpperHair0x_00, and only the blank
+            // variation 0 has none. Do not skip this overlay on the strength of that comment.
+            //
+            // Appended AFTER the facial-hair pair so the list order is face -> facial hair -> hair,
+            // exactly benilla's; within a tile the later entry blends over the earlier one.
+            if (hairRow is not null)
+            {
+                if (hairRow.Texture2.Length > 0) overlays.Add((hairRow.Texture2, FaceRegion.Lower));
+                if (hairRow.Texture3.Length > 0) overlays.Add((hairRow.Texture3, FaceRegion.Upper));
+                if (hairRow.Texture2.Length > 0 || hairRow.Texture3.Length > 0)
+                    Console.WriteLine($"[character] scalp lower '{hairRow.Texture2}' upper '{hairRow.Texture3}' (the hairline)");
+            }
         }
 
         // Fall back to the filename convention when the table is missing or the
@@ -890,9 +1096,11 @@ public sealed class CharacterRenderer : IDisposable
                 slot.Source = usedSkinPath;
             }
 
-            // A hair (type 6) slot with no CharSections row must NOT be left to sample
-            // a stale/dressed atlas (armour bleeds onto the head). Fall back to the race
-            // convention hair BLP, like benilla (Character\<Race>\Hair00_00.blp).
+            // LAST DITCH. A hair (type 6) slot with no CharSections row at all must NOT be left to
+            // sample a stale/dressed atlas (armour bleeds onto the head), so fall back to the race
+            // convention BLP. This is NOT what benilla does and it is not the blank-row path any
+            // more - a blank hairStyle row is handled properly above (variation 1 at the same
+            // colour). This only fires when the row is missing outright, e.g. a broken DBC.
             if (slot.Fill == SlotFill.Unbound && reference.Type == 6)
             {
                 foreach (string candidate in HairFallbackCandidates())
@@ -923,7 +1131,12 @@ public sealed class CharacterRenderer : IDisposable
         _magenta = Texture.From2D(_gl, [255, 0, 255, 255], 1, 1);
     }
 
-    /// <summary>benilla's hair fallback when CharSections names no hair BLP: the race convention file.</summary>
+    /// <summary>benilla's type-6 substitute variation: when a hairStyle row names no sheet, the client's
+    /// incremental apply leaves whatever variation 1 bound at the same colour (sections.rs
+    /// hair_mesh_texture / HAIR_SUBSTITUTE_VARIATION).</summary>
+    private const int HairSubstituteVariation = 1;
+
+    /// <summary>Last-ditch hair file when CharSections has no row for this race/sex at all.</summary>
     private IEnumerable<string> HairFallbackCandidates()
     {
         yield return $"Character\\{Race}\\Hair00_00.blp";
@@ -1558,54 +1771,158 @@ public sealed class CharacterRenderer : IDisposable
         if (_m2 is null || dt <= 0f) return;
 
         MeasureMotion(dt, state);
+        ResolveMotion(state);
 
-        var next = ChooseClip(state, out float rate, out float targetTwist);
+        bool airborne = !state.Grounded && !state.Flying;
+        LatchLanding(state, airborne);
+        _wasAirborne = airborne;
+
+        DriveBodyHeading(dt, state, airborne);
+
+        var next = ChooseClip(state, out float rate);
+
+        // ORDER MATTERS. SwitchClip snapshots _clipRate as the rate the OUTGOING
+        // clip should keep striding at while it fades. Assigning the new rate
+        // first would hand it the incoming clip's rate instead, and a run fading
+        // out into a stand would drop to walking cadence for the length of the
+        // fade - a small, slow, extremely hard to name wrongness.
+        SwitchClip(next);
         _clipRate = rate;
 
-        if (!ReferenceEquals(next, _clip))
-        {
-            _clip = next;
-            _clipTime = 0f;
-        }
-
-        // Ease the twist rather than snapping it, so the legs unwind when you
-        // stop instead of the character flicking straight.
-        if (ForceAngleDegrees != 0f)
-        {
-            _moveYaw = ForceAngleDegrees * MathF.PI / 180f;
-        }
-        else if (targetTwist == 0f && _groundSpeed < MoveThreshold)
-        {
-            // Stopped. Snap square rather than easing round, for the same
-            // reason the speed snaps: an eased return reads as the character
-            // still settling after you have let go.
-            _moveYaw = 0f;
-        }
-        else
-        {
-            float blend = 1f - MathF.Exp(-dt * 14f);
-            _moveYaw += (targetTwist - _moveYaw) * blend;
-            if (MathF.Abs(_moveYaw) < 0.002f) _moveYaw = 0f;
-        }
-
+        // Both clocks advance. The outgoing one keeps running at the rate it had
+        // when it was current, so a run cycle fading out keeps striding instead
+        // of freezing on the frame it was replaced.
         _clipTime += dt * _clipRate;
+        _previousClipTime += dt * _previousClipRate;
+
         _globalTime += dt;
+
+        if (_blendRemaining > 0f)
+        {
+            _blendRemaining -= dt;
+            if (_blendRemaining <= 0f)
+            {
+                _blendRemaining = 0f;
+                _previousClip = null;
+            }
+        }
 
         // Cheap insurance. A NaN here would freeze the pose and look exactly
         // like a state-machine bug, which is a diagnosis I would rather not
         // have to make twice.
         if (float.IsNaN(_clipTime) || float.IsInfinity(_clipTime)) _clipTime = 0f;
+        if (float.IsNaN(_previousClipTime) || float.IsInfinity(_previousClipTime))
+            _previousClipTime = 0f;
         if (float.IsNaN(_globalTime) || float.IsInfinity(_globalTime)) _globalTime = 0f;
     }
 
     /// <summary>
-    /// Ground speed and direction from ACTUAL displacement, not from input.
+    /// Move to a new clip, carrying the leg cycle's PHASE where that is the
+    /// honest thing to do, and starting a cross-fade either way.
     ///
-    /// CharacterController only stores a vertical Velocity - horizontal motion
-    /// is applied straight to Position - so there is no velocity vector to read.
-    /// Measuring displacement is also simply more honest: walk into a wall and
-    /// the slide slows you down, and the animation slows with it instead of
-    /// running on the spot.
+    /// Two rules, and they are separate:
+    ///
+    /// PHASE. Walk, Run and WalkBackwards are the same cycle at different
+    /// speeds. Shift-walking out of a run, or turning to back up, must continue
+    /// the stride rather than restart it - a reset there is the visible leg pop.
+    /// Between a locomotion clip and anything else the phase is meaningless, so
+    /// the new clip starts at zero and the fade covers the seam.
+    ///
+    /// FADE. Always, unless the file explicitly asks for a hard cut on something
+    /// that is not locomotion. See <see cref="BlendSecondsFor"/>.
+    /// </summary>
+    private void SwitchClip(M2Animator.Clip? next)
+    {
+        if (ReferenceEquals(next, _clip)) return;
+
+        var outgoing = _clip;
+        float outgoingTime = _clipTime;
+        float outgoingRate = _clipRate;
+
+        _clip = next;
+
+        bool carryPhase =
+            outgoing is not null && next is not null &&
+            outgoing.DurationSeconds > 0.0001f && next.DurationSeconds > 0.0001f &&
+            LocomotionAnimations.Contains(outgoing.AnimationId) &&
+            LocomotionAnimations.Contains(next.AnimationId);
+
+        if (carryPhase)
+        {
+            float phase = outgoingTime / outgoing!.DurationSeconds;
+            phase -= MathF.Floor(phase);
+            _clipTime = phase * next!.DurationSeconds;
+        }
+        else
+        {
+            _clipTime = 0f;
+        }
+
+        float blend = BlendSecondsFor(outgoing, next);
+        if (outgoing is null || blend <= 0f)
+        {
+            _previousClip = null;
+            _blendRemaining = 0f;
+            _blendDuration = 0f;
+            return;
+        }
+
+        _previousClip = outgoing;
+        _previousClipTime = outgoingTime;
+        _previousClipRate = outgoingRate;
+        _blendDuration = blend;
+        _blendRemaining = blend;
+    }
+
+    /// <summary>
+    /// How long to cross-fade into <paramref name="next"/>.
+    ///
+    /// The M2 sequence carries its own blendTime and that is the value the
+    /// reference client uses, so it wins wherever it is authored. Where it is
+    /// not - and plenty of vanilla sequences leave it at zero - the fallback
+    /// applies rather than the zero, because a hard cut IS the leg pop this
+    /// whole change exists to remove.
+    ///
+    /// Set <see cref="DefaultBlendSeconds"/> to zero to put the old hard-cut
+    /// behaviour back everywhere in one click. That is the A/B, and it is worth
+    /// having: if a pose ever looks soft or smeared, this is the first switch to
+    /// throw.
+    /// </summary>
+    private float BlendSecondsFor(M2Animator.Clip? outgoing, M2Animator.Clip? next)
+    {
+        if (outgoing is null || next is null) return 0f;
+
+        float authored = next.BlendSeconds;
+        if (float.IsNaN(authored) || authored < 0f) authored = 0f;
+
+        float seconds = authored > 0f ? authored : DefaultBlendSeconds;
+
+        // A fade longer than a short clip would never finish before the clip
+        // itself is replaced, which reads as a permanently soft pose.
+        return Math.Clamp(seconds, 0f, 0.4f);
+    }
+
+    /// <summary>Smoothstepped weight of the OUTGOING clip: 1 at the swap, 0 when done.</summary>
+    private float BlendWeightNow()
+    {
+        if (_previousClip is null || _blendDuration <= 0f || _blendRemaining <= 0f) return 0f;
+
+        float t = Math.Clamp(_blendRemaining / _blendDuration, 0f, 1f);
+
+        // Smoothstep rather than linear: a linear fade has a velocity
+        // discontinuity at both ends, and on a leg cycle that shows up as a
+        // small twitch entering and leaving the blend.
+        return t * t * (3f - 2f * t);
+    }
+
+    /// <summary>
+    /// Ground speed and direction, from what was PRESSED when we are told, and
+    /// from displacement when we are not.
+    ///
+    /// The measured path is kept for two reasons: the glue booth and anything
+    /// else that only hands over a position still needs to work, and having both
+    /// numbers on the HUD is what makes a disagreement between them legible
+    /// instead of a mystery.
     /// </summary>
     private void MeasureMotion(float dt, in UnitState state)
     {
@@ -1620,18 +1937,21 @@ public sealed class CharacterRenderer : IDisposable
         _lastPosition = state.Position;
 
         var flat = new Vector3(delta.X, delta.Y, 0f);
-        float raw = flat.Length() / dt;
-        _instantGroundSpeed = raw;
+        _measuredSpeed = flat.Length() / dt;
+
+        if (state.HasIntent) return;
+
+        _instantGroundSpeed = _measuredSpeed;
 
         // ASYMMETRIC ON PURPOSE. Smoothing exists so a single frame against a
         // doorframe does not flick the clip, but it also means releasing W
         // leaves the speed decaying for a tenth of a second and the run cycle
-        // keeps going after the character has stopped. That is the lag he can
-        // feel. Speeding UP is smoothed; a genuine stop is taken immediately.
+        // keeps going after the character has stopped. Speeding UP is smoothed;
+        // a genuine stop is taken immediately.
         float blend = 1f - MathF.Exp(-dt * 12f);
 
-        if (raw < MoveThreshold) _groundSpeed = raw;
-        else _groundSpeed += (raw - _groundSpeed) * blend;
+        if (_measuredSpeed < MoveThreshold) _groundSpeed = _measuredSpeed;
+        else _groundSpeed += (_measuredSpeed - _groundSpeed) * blend;
 
         if (flat.LengthSquared() > 1e-8f)
         {
@@ -1642,23 +1962,237 @@ public sealed class CharacterRenderer : IDisposable
             _forwardness += (Vector3.Dot(direction, facing) - _forwardness) * blend;
             _sideness += (Vector3.Dot(direction, right) - _sideness) * blend;
         }
-
     }
 
-    private M2Animator.Clip? ChooseClip(in UnitState state, out float rate, out float twist)
+    /// <summary>
+    /// Turn this frame's intent into the three numbers the gait selector wants.
+    /// No smoothing anywhere: the key is down or it is not.
+    ///
+    /// The direction terms are the input axes themselves. The controller builds
+    /// its wish vector as forward*Forward + right*Strafe with right = (sin, -cos),
+    /// so the dot products the measured path works so hard to recover are, in
+    /// closed form, exactly Forward and Strafe over their own length.
+    /// </summary>
+    private void ResolveMotion(in UnitState state)
+    {
+        if (!state.HasIntent) return;
+
+        if (!state.Moving)
+        {
+            _groundSpeed = 0f;
+            _instantGroundSpeed = 0f;
+            _forwardness = 0f;
+            _sideness = 0f;
+            return;
+        }
+
+        _groundSpeed = state.Speed;
+        _instantGroundSpeed = state.Speed;
+
+        float length = MathF.Sqrt(state.Forward * state.Forward + state.Strafe * state.Strafe);
+        if (length < 1e-6f)
+        {
+            _forwardness = 1f;
+            _sideness = 0f;
+            return;
+        }
+
+        _forwardness = state.Forward / length;
+        _sideness = state.Strafe / length;
+    }
+
+    /// <summary>
+    /// Advance the DRAWN BODY's heading, which is not the aim.
+    ///
+    /// This client had one heading and welded the model to it, so the character
+    /// pivoted rigidly in the idle pose whenever the camera turned and stood
+    /// square while strafing sideways. The reference carries two angles and
+    /// reconciles them per frame, and the four cases are all distinct:
+    ///
+    ///   STRAFING     the body turns to the aim +/- 90 degrees (pure) or +/- 45
+    ///                (diagonal, mirrored while backpedalling so the legs never
+    ///                cross), eased toward that OFFSET rather than toward an
+    ///                absolute angle - a left-to-right flip is an exact 180
+    ///                degree tie in absolute yaw and would pick a side at
+    ///                random, where in offset space it always swings round the
+    ///                front. The torso is pulled back by TorsoFollow, which is
+    ///                the counter-twist that keeps the head looking at the aim.
+    ///
+    ///   MOVING or
+    ///   AIRBORNE     snap to the aim. A backpedal keeps facing forward and
+    ///                plays WalkBackwards; it does not turn round.
+    ///
+    ///   STANDING     the frozen chase. While you are steering, the body simply
+    ///                holds and only the ninety-degree ceiling applies, so the
+    ///                aim and the head lead and the body follows at exactly that
+    ///                lag. Let go and it sweeps square at eight times the turn
+    ///                rate. The lag is a FREEZE, not a slow rate - which is why
+    ///                a slow-follow easing never looked right.
+    ///
+    /// The signed step it takes is what drives the turn-in-place shuffle, so the
+    /// feet move when the BODY does. A stationary mouse turn shuffles, and a body
+    /// held frozen under a leading head keeps its feet planted - both correct,
+    /// and neither expressible from the key state alone.
+    /// </summary>
+    private void DriveBodyHeading(float dt, in UnitState state, bool airborne)
+    {
+        _bodyTurnStep = 0f;
+
+        if (!_hasBodyYaw)
+        {
+            _bodyYaw = state.Yaw;
+            _hasBodyYaw = true;
+        }
+
+        // The test harness wins outright: hold the offset and drive nothing.
+        if (ForceAngleDegrees != 0f)
+        {
+            _moveYaw = ForceAngleDegrees * MathF.PI / 180f;
+            _bodyYaw = WrapPi(state.Yaw + _moveYaw);
+            return;
+        }
+
+        // No intent means no way to know whether the aim is being STEERED, and
+        // the standing chase is defined by exactly that. Rather than guess, weld
+        // the body to the aim - which is what the glue booth's turntable wants
+        // anyway: it spins the model by driving Yaw, and a body that lagged
+        // ninety degrees behind it while shuffling its feet would be nonsense.
+        if (!state.HasIntent)
+        {
+            _bodyYaw = state.Yaw;
+            _moveYaw = 0f;
+            return;
+        }
+
+        // TWO DIFFERENT GATES, and they are not the same set of modes.
+        //
+        // The strafe offset is wanted by everything except Clips - LowerBody
+        // exists precisely to put it on the hips, so gating it on "the whole
+        // model turns" would silently disable that mode's only feature. Clips
+        // picks a sideways animation instead and must not also rotate, or the
+        // two compound.
+        //
+        // The standing chase is narrower. It only makes sense where the offset
+        // reaches the MODEL HEADING: on the hips alone a ninety-degree lag would
+        // wring the legs off a standing torso, and in Clips nothing consumes it
+        // at all, so the feet would shuffle at a body that never turned.
+        float strafeOffset = Strafe == StrafeStyle.Clips ? 0f : StrafeBodyOffset(state);
+        bool bodyTurns = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody;
+
+        if (strafeOffset != 0f)
+        {
+            float current = WrapPi(_bodyYaw - state.Yaw);
+            float eased = current + WrapPi(strafeOffset - current) *
+                                    (1f - MathF.Exp(-dt * StrafeBlendRate));
+            _bodyYaw = WrapPi(state.Yaw + eased);
+        }
+        else if (bodyTurns && !state.Moving && !airborne)
+        {
+            float ceiling = MathF.Max(0f, StandingChaseCeilingDegrees) * MathF.PI / 180f;
+            float delta = WrapPi(state.Yaw - _bodyYaw);
+
+            float step = MathF.Max(MathF.Abs(delta) - ceiling, 0f);
+            if (!state.Steering) step += dt * BodyTurnRate * StationaryChaseRate;
+
+            _bodyTurnStep = MathF.CopySign(MathF.Min(step, MathF.Abs(delta)), delta);
+            _bodyYaw = WrapPi(_bodyYaw + _bodyTurnStep);
+        }
+        else
+        {
+            // Moving, airborne, or a mode that does not turn the model: the body
+            // SNAPS to the aim rather than easing onto it. That is the
+            // reference's own behaviour (its facing-snap list), and it is why
+            // releasing strafe while still running forward swings the model
+            // square in a single frame instead of settling into it. It reads
+            // abrupt written down and correct on screen; if it ever looks wrong,
+            // this assignment is the one line to ease, and it is the only one.
+            _bodyYaw = state.Yaw;
+        }
+
+        // Everything downstream - BuildTransform, the torso counter-twist, the
+        // hip twist - already works in terms of an offset from the aim, so the
+        // absolute body heading is published in exactly that form and none of it
+        // has to change.
+        _moveYaw = WrapPi(_bodyYaw - state.Yaw);
+        if (MathF.Abs(_moveYaw) < 0.002f) _moveYaw = 0f;
+    }
+
+    /// <summary>
+    /// Where the body points while strafing, as an offset from the aim.
+    ///
+    /// Ninety degrees for a pure strafe, forty-five when a forward or back key
+    /// is also held. The sign flips while backpedalling: the body is then
+    /// running the WalkBackwards cycle, so it must face the mirror of the travel
+    /// direction rather than the direction itself, or the legs cross.
+    /// </summary>
+    private static float StrafeBodyOffset(in UnitState state)
+    {
+        bool left = state.Strafe < -0.01f;
+        bool right = state.Strafe > 0.01f;
+        if (!left && !right) return 0f;
+
+        bool back = state.Forward < -0.01f;
+        bool alongAim = MathF.Abs(state.Forward) > 0.01f;
+
+        float magnitude = alongAim ? MathF.PI / 4f : MathF.PI / 2f;
+        return left != back ? magnitude : -magnitude;
+    }
+
+    /// <summary>Wrap to (-pi, pi], so easing toward a target always takes the short way.</summary>
+    private static float WrapPi(float radians)
+    {
+        const float tau = MathF.PI * 2f;
+        radians = ((radians % tau) + tau) % tau;
+        return radians > MathF.PI ? radians - tau : radians;
+    }
+
+    /// <summary>
+    /// Arm the landing clip on touchdown, and only on a landing that was
+    /// actually SEEN as airborne.
+    ///
+    /// The fall animation is debounced by FallAnimationDelayMs so that a
+    /// one-frame floor-query miss on a staircase does not flicker the clip. That
+    /// same blip must not produce a landing either - a JumpEnd fired every time
+    /// you walk down stairs is a worse artefact than the one the debounce
+    /// removed. So the gate is what was on screen, not what physics thought.
+    /// </summary>
+    private void LatchLanding(in UnitState state, bool airborne)
+    {
+        if (airborne || !_wasAirborne || _animator is null) return;
+        if (_clip is null || !AirborneAnimations.Contains(_clip.AnimationId)) return;
+
+        // Standing: JumpEnd. Running: the run-through landing, which keeps the
+        // stride. Walking or backing up: nothing at all, because the only
+        // authored landing that moves is a forward one and playing it backwards
+        // is worse than cutting straight to the gait.
+        _landClip = !state.Moving
+            ? _animator.FindFirst(39)
+            : state.Walking || state.Forward < -0.01f
+                ? null
+                : _animator.FindFirst(187);
+
+        _landForward = state.Forward;
+        _landStrafe = state.Strafe;
+        _landWalking = state.Walking;
+    }
+
+    private M2Animator.Clip? ChooseClip(in UnitState state, out float rate)
     {
         rate = 1f;
-        twist = 0f;
         if (_animator is null || BindPose || BoneOverflow) return null;
 
         if (state.Flying)
+        {
+            _landClip = null;
             return _animator.FindFirst(40, 38, 0);
+        }
 
         if (!state.Grounded && state.VerticalVelocity > 0.5f)
         {
             // A deliberate jump must react immediately. The controller's
             // positive launch velocity distinguishes it from a transient loss
             // of support while walking over stairs or a narrow prop.
+            _landClip = null;
             return _animator.FindFirst(38, 37, 40, 0);
         }
 
@@ -1668,15 +2202,69 @@ public sealed class CharacterRenderer : IDisposable
             // Physics has been airborne continuously for long enough that this
             // is a real fall, not a one-frame floor-query miss. Only animation
             // is delayed; gravity and collision have already been running.
+            _landClip = null;
             return _animator.FindFirst(40, 38, 0);
+        }
+
+        // ── landing ──────────────────────────────────────────────────────────
+        //
+        // The landing clip is NOT a bracket you have to sit through. Land and
+        // immediately press a direction and the run starts on that frame; land
+        // and release and you stand. Only an uninterrupted landing plays out,
+        // which is why the intent at touchdown is snapshotted and compared.
+        if (_landClip is not null)
+        {
+            bool intentChanged =
+                MathF.Abs(state.Forward - _landForward) > 0.01f ||
+                MathF.Abs(state.Strafe - _landStrafe) > 0.01f ||
+                state.Walking != _landWalking;
+
+            bool finished = ReferenceEquals(_clip, _landClip) &&
+                            _clipTime >= _landClip.DurationSeconds;
+
+            if (intentChanged || finished)
+            {
+                _landClip = null;
+            }
+            else
+            {
+                // The run-through landing is a locomotion clip and has to track
+                // the speed like one, or a landing at full run plays at walking
+                // cadence and the feet skate for its whole length. JumpEnd is a
+                // standing pose and keeps its authored timing.
+                return _landClip.AnimationId == 187
+                    ? LocomotionClip(_landClip, state.Walking, out rate)
+                    : _landClip;
+            }
         }
 
         // NO MOVEMENT-STOP GRACE WINDOW. WoWee's FSM holds the moving state
         // open past the last motion and I copied that; Nico's verdict was that
         // it feels awful and the sharp stop is better. The airborne debounce
         // above is separate: it filters unstable support without extending
-        // locomotion after input and actual displacement stop.
-        if (_groundSpeed < MoveThreshold) return _animator.FindFirst(0);
+        // locomotion after input stops.
+        bool standing = state.HasIntent ? !state.Moving : _groundSpeed < MoveThreshold;
+
+        if (standing)
+        {
+            // TURN IN PLACE. The shuffle rides the BODY's actual rotation, not
+            // the turn keys - which is the whole reason it is worth having.
+            // While the frozen chase holds the body under a leading aim the feet
+            // hold too, and a stationary MOUSE turn shuffles the moment the body
+            // steps, with no key involved either way.
+            if (_bodyTurnStep > 1e-5f)
+            {
+                var left = _animator.Find(11);
+                if (left is not null) return left;
+            }
+            else if (_bodyTurnStep < -1e-5f)
+            {
+                var right = _animator.Find(12);
+                if (right is not null) return right;
+            }
+
+            return _animator.FindFirst(0);
+        }
 
         // Angle between where the character is FACING and where he is actually
         // GOING. Zero is straight ahead, positive is toward his left.
@@ -1686,33 +2274,27 @@ public sealed class CharacterRenderer : IDisposable
         // (Yaw + phi) gives forwardness = cos(phi) and sideness = -sin(phi).
         float phi = MathF.Atan2(-_sideness, _forwardness);
 
-        float maxTwist = MaxTwistDegrees * MathF.PI / 180f;
-
         bool rotating = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody
                      || (Strafe == StrafeStyle.LowerBody && _animator.TwistBone >= 0);
 
         if (rotating)
         {
-            // Past this the character is going backwards, and turning to face
-            // that way would read as him deciding to run off rather than
-            // backing up. Swap to the backwards cycle and take the angle off
-            // what is LEFT after the half turn, so straight back is unrotated
-            // and back-and-left leans naturally.
+            // Backing up is a clip choice, not an angle. Any rearward component
+            // wins over the strafe, exactly as the reference's flag ladder has
+            // BACKWARD dominate STRAFE_LEFT/RIGHT - so back-and-left plays the
+            // backwards cycle and the body leans through its strafe offset
+            // rather than turning round to run off.
+            //
+            // The measured path has no key flags to read, so it keeps the old
+            // 110-degree test on the travel angle, which is the same boundary
+            // expressed in the only terms it has.
             const float backwards = 1.92f;   // about 110 degrees
 
-            float angle = MathF.Abs(phi) > backwards
-                ? phi - MathF.Sign(phi) * MathF.PI
-                : phi;
+            bool backing = state.HasIntent
+                ? state.Forward < -0.01f
+                : MathF.Abs(phi) > backwards;
 
-            // The clamp is a hip limit, so it only applies when the hips are
-            // doing the work. A whole body can face any direction it likes.
-            // Only the pure lower-body mode is hip-limited. In Split the legs
-            // come from the model heading, which has no such limit.
-            twist = Strafe == StrafeStyle.LowerBody
-                ? Math.Clamp(angle, -maxTwist, maxTwist)
-                : angle;
-
-            if (MathF.Abs(phi) > backwards)
+            if (backing)
                 return LocomotionClip(_animator.FindFirst(13, 4, 5, 0), state.Walking, out rate);
 
             return LocomotionClip(
@@ -1746,6 +2328,11 @@ public sealed class CharacterRenderer : IDisposable
     /// sequence. The old code divided by controller run/walk constants, which
     /// only works if every clip's stride was authored for exactly those values.
     /// ModelScale participates because scaling a model scales its stride.
+    ///
+    /// The numerator is the COMMANDED speed where we have it. It used to be the
+    /// raw per-frame displacement, which modulated the leg cycle with frame-time
+    /// jitter, with every ground snap, and with every yard of wall slide - a
+    /// low-grade wobble on the run that never resolved into anything nameable.
     /// </summary>
     private M2Animator.Clip? LocomotionClip(
         M2Animator.Clip? clip, bool walking, out float rate)
@@ -1797,8 +2384,16 @@ public sealed class CharacterRenderer : IDisposable
         int bones = _animator?.BoneCount ?? 0;
         if (_animator is not null)
         {
+            // The hip clamp is a joint limit, so it belongs where the hips
+            // actually do the work. In Split the legs come from the model
+            // heading, which has no such limit - and must not, or the standing
+            // chase would be capped at the wrong angle.
+            float maxTwist = MaxTwistDegrees * MathF.PI / 180f;
+
             _animator.LowerBodyYaw =
-                BindPose || Strafe != StrafeStyle.LowerBody ? 0f : _moveYaw;
+                BindPose || Strafe != StrafeStyle.LowerBody
+                    ? 0f
+                    : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
             // The torso keeps only part of what the body just turned, so its
             // delta is the REMAINDER, negative. TorsoFollow 1 leaves it with the
@@ -1807,7 +2402,16 @@ public sealed class CharacterRenderer : IDisposable
                 BindPose || Strafe != StrafeStyle.Split
                     ? 0f
                     : (Math.Clamp(TorsoFollow, 0f, 1f) - 1f) * _moveYaw;
-            _animator.Evaluate(BindPose ? null : _clip, _clipTime, _globalTime, _skin);
+            if (BindPose)
+            {
+                _animator.Evaluate(null, 0f, _globalTime, _skin);
+            }
+            else
+            {
+                _animator.Evaluate(_clip, _clipTime,
+                                   _previousClip, _previousClipTime, BlendWeightNow(),
+                                   _globalTime, _skin);
+            }
             M2Animator.Pack(_skin, Math.Min(bones, M2Animator.MaxBones), _packed);
         }
 
@@ -1825,6 +2429,7 @@ public sealed class CharacterRenderer : IDisposable
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
         _shader.Set("uAmbientIntensity", AmbientIntensity);
+        _shader.Set("uShadowWrap", ShadowSoftness);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
@@ -1876,6 +2481,7 @@ public sealed class CharacterRenderer : IDisposable
             _attached.SunIntensity = SunIntensity;
             _attached.AmbientColor = AmbientColor;
             _attached.AmbientIntensity = AmbientIntensity;
+            _attached.ShadowSoftness = ShadowSoftness;
             _attached.FogColor = FogColor;
             _attached.FogStart = FogStart;
             _attached.FogEnd = FogEnd;
@@ -1973,6 +2579,7 @@ public sealed class CharacterRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
+    public float ShadowSoftness { get; set; } = 0f;   // wrap-lighting: 0 = hard Lambert terminator .. 1 = soft (uShadowWrap). The in-world character keeps 0.
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
@@ -2009,7 +2616,23 @@ public sealed class CharacterRenderer : IDisposable
         _bodySlotIndex = -1;
         _baseSkin = null;
         _animator = null;
+
+        // Every clip reference has to go, not just the current one. A Clip holds
+        // a per-bone array sized to the animator that baked it, so a stale
+        // outgoing clip surviving a model swap would be sampled against the new
+        // skeleton's bone count - an index out of range at best, and a silently
+        // wrong pose at worst.
         _clip = null;
+        _previousClip = null;
+        _landClip = null;
+        _blendRemaining = 0f;
+        _blendDuration = 0f;
+        _clipTime = 0f;
+        _previousClipTime = 0f;
+        _hasBodyYaw = false;
+        _hasLastPosition = false;
+        _wasAirborne = false;
+
         BoneOverflow = false;
     }
 

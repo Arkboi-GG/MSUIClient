@@ -341,6 +341,26 @@ public sealed class WmoRenderer : IDisposable
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
+
+    // Per-frame scratch for the front-to-back draw order. Fields rather than
+    // locals so the draw loop allocates nothing: this runs every frame, and a
+    // per-frame List in a hot path is how a GC pause ends up looking like a
+    // rendering hitch.
+    private readonly List<(float Distance, Instance Instance)> _drawOrder = [];
+    private readonly List<(float Distance, GroupMesh Group)> _visibleGroups = [];
+
+    /// <summary>
+    /// One instance's contribution to the frame, after culling: the uniforms it
+    /// needs and the slice of <see cref="_flatGroups"/> it owns.
+    ///
+    /// Culling runs once, in instance order; the two draw passes then walk these
+    /// slices in opposite directions.
+    /// </summary>
+    private readonly record struct InstanceSlice(
+        Matrix4x4 Model, float AppearAlpha, bool Fading, int GroupStart, int GroupCount);
+
+    private readonly List<InstanceSlice> _instanceSlices = [];
+    private readonly List<GroupMesh> _flatGroups = [];
     private readonly HashSet<string> _placed = [];
     private readonly Queue<string> _preloadQueue = new();
 
@@ -891,8 +911,20 @@ public sealed class WmoRenderer : IDisposable
     /// building with missing walls rather than as a culling problem. Toggling
     /// this tells the two apart in one click: if the missing pieces reappear,
     /// it is winding, not lost geometry.
+    ///
+    /// DEFAULTED OFF, AND IT USED TO BE ON. As a diagnostic this is exactly
+    /// right; as a shipping default it was the most expensive line in the
+    /// client. The WMO pass is 72-86% of GPU time in a city, and with this on
+    /// every wall in it paid double triangle setup and double rasterised
+    /// fragments — on an integrated GPU with no hidden-surface removal, where
+    /// fill is the whole budget. No quality preset touched it either, which is
+    /// most of why dropping to Low never helped.
+    ///
+    /// If buildings now show missing walls, tick it back on: that answers the
+    /// winding question in one click, exactly as intended. The fix for a real
+    /// winding problem is per-batch, not a global.
     /// </summary>
-    public bool ForceTwoSided { get; set; } = true;
+    public bool ForceTwoSided { get; set; }
 
     /// <summary>Curated show/hide overrides consulted by ClassifyGroup before any
     /// heuristic. Null = none. The data ships and is honoured in release (PLAN_04).</summary>
@@ -2651,24 +2683,45 @@ public sealed class WmoRenderer : IDisposable
         float effectiveDrawDistance = MathF.Min(DrawDistance, VisibilityDistance);
         bool cullingOn = true;
 
-        foreach (var instance in _instances)
+        // ── FRONT TO BACK ────────────────────────────────────────────────────
+        //
+        // _instances is in placement order, which is to say arbitrary. Drawing a
+        // city that way means the far side of it shades every pixel and is then
+        // painted over by the near side — on hardware with no hidden-surface
+        // removal, that is the difference between one shaded fragment per pixel
+        // and five.
+        //
+        // Nearest first lets early-Z reject the rest for free. It costs one sort
+        // of a few dozen instances per frame, on a list that is reused so the
+        // sort allocates nothing.
+        _drawOrder.Clear();
+        foreach (var candidate in _instances)
         {
             if (FrustumCulling &&
                 !Camera.BoxInFrustum(viewProjection,
-                    instance.WorldMin - cameraPosition,
-                    instance.WorldMax - cameraPosition)) continue;
+                    candidate.WorldMin - cameraPosition,
+                    candidate.WorldMax - cameraPosition)) continue;
 
+            _drawOrder.Add((DistanceToBox(cameraPosition, candidate.WorldMin, candidate.WorldMax),
+                            candidate));
+        }
+        _drawOrder.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
+
+        _instanceSlices.Clear();
+        _flatGroups.Clear();
+
+        foreach (var (_, instance) in _drawOrder)
+        {
             var modelTransform = instance.Transform;
             modelTransform.M41 -= cameraPosition.X;
             modelTransform.M42 -= cameraPosition.Y;
             modelTransform.M43 -= cameraPosition.Z;
 
-            _shader.Set("uModel", modelTransform);
-            _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
-
             // Appear fade: scale this building's output alpha while it eases in.
-            // uAppearAlpha is ALWAYS set (a GL uniform defaults to 0, which would
-            // make every building invisible) - 1.0 is the resident/steady value.
+            // uAppearAlpha is ALWAYS set by the draw pass (a GL uniform defaults
+            // to 0, which would make every building invisible) - 1.0 is the
+            // resident/steady value. The uniforms are no longer set here because
+            // this loop only culls; the passes below set them per slice.
             float appearAlpha = 1f;
             if (AppearFade && instance.AppearStart > 0f)
             {
@@ -2676,7 +2729,6 @@ public sealed class WmoRenderer : IDisposable
                     (NowSeconds - instance.AppearStart) / MathF.Max(AppearFadeSeconds, 0.0001f), 0f, 1f);
                 appearAlpha = t * t * t;
             }
-            _shader.Set("uAppearAlpha", appearAlpha);
             bool instanceFading = AppearFade && appearAlpha < 0.999f;
             if (instanceFading && appearAlpha <= 0f) continue;   // spawn frame: invisible, no depth
 
@@ -2727,13 +2779,14 @@ public sealed class WmoRenderer : IDisposable
                 PortalReachedLastFrame = reachable?.Count ?? 0;
             }
 
-            var visibleGroups = new List<GroupMesh>();
+            _visibleGroups.Clear();
             int shellsDrawn = 0, shellsHidden = 0;
             var cull = new FrameCullContext(
                 cameraPosition, cameraInside, effectiveDrawDistance, viewProjection, reachable, cameraInCell);
             foreach (var group in instance.Model.Groups)
             {
                 var (groupMin, groupMax) = TransformedBounds(group, instance.Transform);
+                float groupDistance = DistanceToBox(cameraPosition, groupMin, groupMax);
 
                 // The decision lives in ClassifyGroup so the picker and dump report
                 // the exact reason this loop acts on. The per-reason counters below
@@ -2742,14 +2795,14 @@ public sealed class WmoRenderer : IDisposable
                 switch (ClassifyGroup(instance, group, groupMin, groupMax, in cull))
                 {
                     case WmoReasonCode.Drawn:
-                        visibleGroups.Add(group);
+                        _visibleGroups.Add((groupDistance, group));
                         break;
                     case WmoReasonCode.DrawnShellFar:
-                        visibleGroups.Add(group);
+                        _visibleGroups.Add((groupDistance, group));
                         shellsDrawn++;
                         break;
                     case WmoReasonCode.OverrideShow:
-                        visibleGroups.Add(group);
+                        _visibleGroups.Add((groupDistance, group));
                         break;
                     case WmoReasonCode.ShellNearSuppressed:
                         LodGroupsCulledLastFrame++;
@@ -2774,7 +2827,7 @@ public sealed class WmoRenderer : IDisposable
                 _frameLargestWmoGroupCount = instance.Model.Groups.Count;
                 LargestWmoGroupCount = instance.Model.Groups.Count;
                 LargestWmoName = Path.GetFileName(instance.Path);
-                LargestWmoGroupsDrawn = visibleGroups.Count;
+                LargestWmoGroupsDrawn = _visibleGroups.Count;
                 LastInsideCity = cameraInside;
                 ShellsDrawnLastFrame = shellsDrawn;
                 ShellsHiddenLastFrame = shellsHidden;
@@ -2785,40 +2838,121 @@ public sealed class WmoRenderer : IDisposable
                     Console.WriteLine(
                         $"[wmo-vis] {LargestWmoName} inside={cameraInside} " +
                         $"shellsDrawn={shellsDrawn} shellsHidden={shellsHidden} " +
-                        $"groupsDrawn={visibleGroups.Count}/{instance.Model.Groups.Count}");
+                        $"groupsDrawn={_visibleGroups.Count}/{instance.Model.Groups.Count}");
                 }
             }
 
-            if (visibleGroups.Count == 0)
+            if (_visibleGroups.Count == 0)
                 continue;
 
             DrawnLastFrame++;
-            VisibleGroupsLastFrame += visibleGroups.Count;
+            VisibleGroupsLastFrame += _visibleGroups.Count;
 
-            for (int pass = 0; pass < 2; pass++)
+            // Nearest group first, for the same early-Z reason as the instance
+            // sort — a cathedral's near wall should reject its own far wall. The
+            // transparent pass then walks this list BACKWARDS, because blending
+            // is only correct far-to-near. One sort, both orders.
+            //
+            // Note this reorders GROUPS, never batches within a group: coplanar
+            // decals still draw in their authored MOBA order, which is what that
+            // ordering is actually load-bearing for.
+            _visibleGroups.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
+
+            // Record, don't draw. Drawing here would nest the transparent pass
+            // inside the instance loop, which the near-to-far instance order
+            // makes actively wrong: a near building's banners (depth-write OFF)
+            // would be laid down before a far building's opaque walls, and the
+            // walls would then paint over them wherever the near building did
+            // not itself write depth — which is exactly where a banner hangs.
+            //
+            // So the whole world's opaque geometry goes down first, near to far,
+            // and the transparent geometry follows far to near. Two orders, one
+            // pass of culling.
+            int sliceStart = _flatGroups.Count;
+            for (int gi = 0; gi < _visibleGroups.Count; gi++)
+                _flatGroups.Add(_visibleGroups[gi].Group);
+
+            _instanceSlices.Add(new InstanceSlice(
+                modelTransform, appearAlpha, instanceFading, sliceStart, _visibleGroups.Count));
+        }
+
+        // ── the two draw passes ──────────────────────────────────────────────
+        for (int pass = 0; pass < 2; pass++)
+        {
+            bool transparentPass = pass == 1;
+
+            if (transparentPass)
             {
-                bool transparentPass = pass == 1;
-                if (transparentPass)
+                _gl.DepthMask(false);
+                _gl.Enable(EnableCap.Blend);
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+            }
+
+            bool fadeBlendOn = false;
+
+            for (int si = 0; si < _instanceSlices.Count; si++)
+            {
+                // Instances: near to far when opaque, far to near when blending.
+                var slice = transparentPass
+                    ? _instanceSlices[_instanceSlices.Count - 1 - si]
+                    : _instanceSlices[si];
+
+                if (slice.GroupCount == 0) continue;
+
+                // The opaque pass blends only for a building still easing in,
+                // with depth-write left ON so it still occludes (benilla
+                // wow_model.wgsl). Toggled per instance rather than per pass.
+                if (!transparentPass)
                 {
-                    _gl.DepthMask(false);
-                    _gl.Enable(EnableCap.Blend);
-                    _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-                }
-                else if (instanceFading)
-                {
-                    // Fade the opaque groups too, but keep depth-write ON (benilla
-                    // wow_model.wgsl) so the building still occludes correctly.
-                    _gl.Enable(EnableCap.Blend);
-                    _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                    if (slice.Fading && !fadeBlendOn)
+                    {
+                        _gl.Enable(EnableCap.Blend);
+                        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                        fadeBlendOn = true;
+                    }
+                    else if (!slice.Fading && fadeBlendOn)
+                    {
+                        _gl.Disable(EnableCap.Blend);
+                        fadeBlendOn = false;
+                    }
                 }
 
-                foreach (var group in visibleGroups)
+                // Set lazily, for the same reason the VAO bind is: plenty of
+                // buildings have no transparent batch at all, and this pass
+                // would otherwise upload three uniforms per instance to draw
+                // nothing from them.
+                bool sliceUniformsSet = false;
+
+                for (int gi = 0; gi < slice.GroupCount; gi++)
                 {
-                    _gl.BindVertexArray(group.Vao);
+                    // Groups: same rule as instances, one level down.
+                    var group = transparentPass
+                        ? _flatGroups[slice.GroupStart + slice.GroupCount - 1 - gi]
+                        : _flatGroups[slice.GroupStart + gi];
+
+                    // Bind lazily. Most groups have no transparent batches at all,
+                    // and binding a VAO to then draw nothing from it was N wasted
+                    // binds per frame on a city.
+                    bool bound = false;
 
                     foreach (var batch in group.Batches)
                     {
                         if (batch.Transparent != transparentPass) continue;
+
+                        if (!sliceUniformsSet)
+                        {
+                            _shader.Set("uModel", slice.Model);
+                            _shader.Set("uModelViewProjection", slice.Model * viewProjection);
+                            _shader.Set("uAppearAlpha", slice.AppearAlpha);
+                            sliceUniformsSet = true;
+                        }
+
+                        if (!bound)
+                        {
+                            _gl.BindVertexArray(group.Vao);
+                            bound = true;
+                        }
+
                         bool twoSided = batch.TwoSided || ForceTwoSided;
 
                         if (twoSided && cullingOn)
@@ -2852,16 +2986,16 @@ public sealed class WmoRenderer : IDisposable
                         TrianglesLastFrame += batch.IndexCount / 3;
                     }
                 }
+            }
 
-                if (transparentPass)
-                {
-                    _gl.Disable(EnableCap.Blend);
-                    _gl.DepthMask(true);
-                }
-                else if (instanceFading)
-                {
-                    _gl.Disable(EnableCap.Blend);
-                }
+            if (transparentPass)
+            {
+                _gl.Disable(EnableCap.Blend);
+                _gl.DepthMask(true);
+            }
+            else if (fadeBlendOn)
+            {
+                _gl.Disable(EnableCap.Blend);
             }
         }
 
