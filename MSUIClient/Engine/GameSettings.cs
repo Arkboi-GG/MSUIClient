@@ -39,6 +39,9 @@ public sealed class GameSettings
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
 
+    /// <summary>The last character highlighted on the character-select screen.</summary>
+    public ulong LastCharacterGuid { get; set; }
+
     public DisplaySettings Display { get; set; } = new();
     public ViewSettings View { get; set; } = new();
     public DetailSettings Detail { get; set; } = new();

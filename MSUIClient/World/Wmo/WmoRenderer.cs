@@ -141,6 +141,12 @@ public sealed class WmoRenderer : IDisposable
         public Vector3[] PickPositions = [];
         public int[] PickIndices = [];
 
+        // The exact walking-collision face set for this group (MOPY DETAIL
+        // excluded), retained for the camera's current-room down ray. AABBs are
+        // only a broad phase; using them as the room verdict makes overlapping
+        // door/stair cells select whichever box happens to be smallest.
+        public Vector3[] CollisionTriangles = [];
+
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
 
@@ -194,6 +200,11 @@ public sealed class WmoRenderer : IDisposable
         /// the "tint" the wiki calls it.
         /// </summary>
         public Vector4[] DoodadLight = [];
+
+        /// <summary>MODR ownership, index-parallel to <see cref="Doodads"/>.
+        /// A boundary prop may belong to more than one group and is visible when
+        /// any owning group is in the portal PVS.</summary>
+        public int[][] DoodadOwners = [];
 
         /// <summary>
         /// Collidable triangles in WMO local space, three vertices each.
@@ -287,6 +298,7 @@ public sealed class WmoRenderer : IDisposable
 
     private sealed class Instance
     {
+        public int Id;
         public Model Model = null!;
         public Matrix4x4 Transform;
         public Vector3 WorldMin, WorldMax;
@@ -341,6 +353,12 @@ public sealed class WmoRenderer : IDisposable
     private readonly Dictionary<string, Model?> _models = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
+    private int _nextInstanceId;
+
+    // Final-camera portal seeds and PVS, keyed by placed WMO identity rather
+    // than model path (the same root can be placed more than once).
+    private readonly Dictionary<int, int[]> _cameraSeeds = [];
+    private readonly Dictionary<int, HashSet<int>?> _portalVisible = [];
 
     // Per-frame scratch for the front-to-back draw order. Fields rather than
     // locals so the draw loop allocates nothing: this runs every frame, and a
@@ -510,64 +528,169 @@ public sealed class WmoRenderer : IDisposable
     public int CameraGroupCandidates { get; private set; }
 
     /// <summary>
-    /// Find the group the camera is standing in.
-    ///
-    /// TWO RULES, both learned from CameraInsideInstance's comment above:
-    ///
-    /// 1. DISTANCE-LOD SHELLS ARE NOT CELLS. A shell's box is huge and being
-    ///    inside it does not mean you are indoors - counting them made the
-    ///    whole-instance box swallow Stormwind's approach bridge. Skipped, and
-    ///    PLAN_10 D5 says the same thing for traversal.
-    ///
-    /// 2. SMALLEST VOLUME WINS. Group boxes NEST: a room sits inside a building
-    ///    shell which sits inside a district cell. All three contain the camera
-    ///    and only the smallest is the cell you are actually in. Picking the
-    ///    first match instead would return whichever the file happened to list
-    ///    first, which is stable, plausible, and wrong.
-    ///
-    /// No margin is applied, unlike CameraInsideInstance's InsideInstanceMargin:
-    /// that margin exists to keep the impostor suppressed slightly outside a
-    /// building, whereas this answers "which room", where a margin would make
-    /// two adjacent rooms both claim the doorway.
+    /// Find the group whose real walking-collision surface is directly below
+    /// the camera. Group boxes are broad-phase only: they overlap at rooms,
+    /// stairs and doorways and cannot authoritatively answer "which room".
+    /// Portal crossings can produce two seeds so both sides remain visible at
+    /// the transition; a nearer terrain surface wins and means outdoors.
     /// </summary>
-    public void UpdateCameraCell(Vector3 cameraWorld)
+    public void UpdateCameraCell(Vector3 cameraWorld, float? terrainWorldZ = null)
     {
         CameraCell? best = null;
-        float bestVolume = float.MaxValue;
+        float bestDrop = float.MaxValue;
         int candidates = 0;
+        _cameraSeeds.Clear();
 
         foreach (var instance in _instances)
         {
-            // Cheap reject on the world box before inverting a matrix.
-            if (cameraWorld.X < instance.WorldMin.X || cameraWorld.X > instance.WorldMax.X ||
-                cameraWorld.Y < instance.WorldMin.Y || cameraWorld.Y > instance.WorldMax.Y ||
-                cameraWorld.Z < instance.WorldMin.Z || cameraWorld.Z > instance.WorldMax.Z)
-                continue;
-
             if (!Matrix4x4.Invert(instance.Transform, out var inv)) continue;
-            var local = Vector3.Transform(cameraWorld, inv);
+            var eyeLocal = Vector3.Transform(cameraWorld, inv);
+            float? terrainLocalZ = terrainWorldZ is float tz
+                ? Vector3.Transform(new Vector3(cameraWorld.X, cameraWorld.Y, tz), inv).Z
+                : null;
 
-            foreach (var g in instance.Model.Groups)
-            {
-                if (g.IsDistanceLod) continue;               // rule 1
-                if (local.X < g.LocalMin.X || local.X > g.LocalMax.X ||
-                    local.Y < g.LocalMin.Y || local.Y > g.LocalMax.Y ||
-                    local.Z < g.LocalMin.Z || local.Z > g.LocalMax.Z)
-                    continue;
+            var seeds = FindCameraSeeds(instance.Model, eyeLocal, terrainLocalZ,
+                out float drop, out int columnCandidates);
+            candidates += columnCandidates;
+            if (seeds.Length == 0) continue;
 
-                candidates++;
-                var size = g.LocalMax - g.LocalMin;
-                float volume = MathF.Max(size.X, 0f) * MathF.Max(size.Y, 0f) * MathF.Max(size.Z, 0f);
-                if (volume >= bestVolume) continue;          // rule 2
+            _cameraSeeds[instance.Id] = seeds;
+            if (drop >= bestDrop) continue;
+            var group = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
+            if (group is null) continue;
 
-                bestVolume = volume;
-                best = new CameraCell(instance.Path, g.GroupIndex, g.GroupName,
-                                      g.IsInterior, volume, g.PortalCount, (g.GroupFlags & 0x08u) != 0);
-            }
+            bestDrop = drop;
+            var size = group.LocalMax - group.LocalMin;
+            float volume = MathF.Max(size.X, 0f) * MathF.Max(size.Y, 0f) * MathF.Max(size.Z, 0f);
+            best = new CameraCell(instance.Path, group.GroupIndex, group.GroupName,
+                group.IsInterior, volume, group.PortalCount, (group.GroupFlags & 0x08u) != 0);
         }
 
         CameraGroup = best;
         CameraGroupCandidates = candidates;
+    }
+
+    private const float CameraGroupMaxDrop = 1760f;
+    private const float PortalNearParallel = 1.0e-4f;
+    private const float PortalPlaneSnap = 0.1f;
+    private const float PortalNearestTieEps = 1.0e-4f;
+
+    private static int[] FindCameraSeeds(Model model, Vector3 eye, float? terrainZ,
+        out float drop, out int candidates)
+    {
+        drop = float.MaxValue;
+        candidates = 0;
+        float bestZ = float.NegativeInfinity;
+        GroupMesh? best = null;
+
+        foreach (var group in model.Groups)
+        {
+            if (group.IsDistanceLod ||
+                eye.X < group.LocalMin.X || eye.X > group.LocalMax.X ||
+                eye.Y < group.LocalMin.Y || eye.Y > group.LocalMax.Y ||
+                group.LocalMin.Z > eye.Z) continue;
+
+            candidates++;
+            var tris = group.CollisionTriangles;
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+            {
+                if (!TriangleZAt(tris[i], tris[i + 1], tris[i + 2], eye.X, eye.Y, out float z)) continue;
+                if (z <= eye.Z && z > bestZ) { bestZ = z; best = group; }
+            }
+        }
+
+        int? across = null;
+        foreach (var group in model.Groups)
+        {
+            if (group.IsDistanceLod ||
+                eye.X < group.LocalMin.X || eye.X > group.LocalMax.X ||
+                eye.Y < group.LocalMin.Y || eye.Y > group.LocalMax.Y ||
+                group.LocalMin.Z > eye.Z) continue;
+
+            int end = Math.Min(group.PortalStart + group.PortalCount, model.PortalRefs.Count);
+            for (int ri = Math.Max(0, group.PortalStart); ri < end; ri++)
+            {
+                var reference = model.PortalRefs[ri];
+                if (reference.GroupIndex == ushort.MaxValue ||
+                    reference.PortalIndex >= model.Portals.Count) continue;
+                var portal = model.Portals[reference.PortalIndex];
+                float nz = portal.NormalZ;
+                float signed = portal.NormalX * eye.X + portal.NormalY * eye.Y + nz * eye.Z + portal.PlaneDistance;
+                float z;
+                if (MathF.Abs(nz) < PortalNearParallel)
+                {
+                    if (MathF.Abs(signed) > PortalPlaneSnap) continue;
+                    z = eye.Z;
+                }
+                else
+                {
+                    z = -(portal.NormalX * eye.X + portal.NormalY * eye.Y + portal.PlaneDistance) / nz;
+                    if (z > eye.Z) continue;
+                }
+                if (z < bestZ - PortalNearestTieEps ||
+                    !PointInPortal(model, portal, new Vector3(eye.X, eye.Y, z))) continue;
+
+                int neighbour = reference.GroupIndex;
+                int chosen = ((signed >= 0f) == (reference.Side > 0)) ? group.GroupIndex : neighbour;
+                var chosenGroup = model.Groups.FirstOrDefault(g => g.GroupIndex == chosen);
+                if (chosenGroup is null) continue;
+                int other = chosen == group.GroupIndex ? neighbour : group.GroupIndex;
+                bestZ = z;
+                best = chosenGroup;
+                across = model.Groups.Any(g => g.GroupIndex == other) && other != chosen ? other : null;
+            }
+        }
+
+        if (best is null || eye.Z - bestZ > CameraGroupMaxDrop || (best.GroupFlags & 0x08u) != 0)
+            return [];
+        if (terrainZ is float tz && tz <= eye.Z && tz > bestZ) return [];
+
+        drop = eye.Z - bestZ;
+        return across is int otherGroup ? [best.GroupIndex, otherGroup] : [best.GroupIndex];
+    }
+
+    private static bool TriangleZAt(Vector3 a, Vector3 b, Vector3 c, float x, float y, out float z)
+    {
+        float v0x = b.X - a.X, v0y = b.Y - a.Y;
+        float v1x = c.X - a.X, v1y = c.Y - a.Y;
+        float v2x = x - a.X, v2y = y - a.Y;
+        float den = v0x * v1y - v1x * v0y;
+        if (MathF.Abs(den) < 1.0e-7f) { z = 0f; return false; }
+        float u = (v2x * v1y - v1x * v2y) / den;
+        float v = (v0x * v2y - v2x * v0y) / den;
+        if (u < -1.0e-5f || v < -1.0e-5f || u + v > 1.00001f) { z = 0f; return false; }
+        z = a.Z + u * (b.Z - a.Z) + v * (c.Z - a.Z);
+        return true;
+    }
+
+    private static bool PointInPortal(Model model, WmoPortal portal, Vector3 point)
+    {
+        int start = portal.StartVertex, count = portal.VertexCount;
+        if (count < 3 || start < 0 || start + count > model.PortalVertices.Count) return false;
+        var normal = new Vector3(portal.NormalX, portal.NormalY, portal.NormalZ);
+        int dropAxis = MathF.Abs(normal.X) >= MathF.Abs(normal.Y)
+            ? (MathF.Abs(normal.X) >= MathF.Abs(normal.Z) ? 0 : 2)
+            : (MathF.Abs(normal.Y) >= MathF.Abs(normal.Z) ? 1 : 2);
+        static (float U, float V) Project(Vector3 p, int axis) => axis switch
+        {
+            0 => (p.Y, p.Z),
+            1 => (p.X, p.Z),
+            _ => (p.X, p.Y),
+        };
+        var q = Project(point, dropAxis);
+        bool inside = false;
+        var prevRaw = model.PortalVertices[start + count - 1];
+        var prev = Project(new Vector3(prevRaw.x, prevRaw.y, prevRaw.z), dropAxis);
+        for (int i = 0; i < count; i++)
+        {
+            var raw = model.PortalVertices[start + i];
+            var cur = Project(new Vector3(raw.x, raw.y, raw.z), dropAxis);
+            if ((cur.V > q.V) != (prev.V > q.V) &&
+                q.U < (prev.U - cur.U) * (q.V - cur.V) / (prev.V - cur.V) + cur.U)
+                inside = !inside;
+            prev = cur;
+        }
+        return inside;
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -645,9 +768,24 @@ public sealed class WmoRenderer : IDisposable
                 if (r.Side < 0) d = -d;
                 if (d < 0f) continue;
 
-                if (!PortalScreenRect(model, p, instance.Transform, cameraPosition, relVp,
-                        out float px0, out float py0, out float px1, out float py1))
+                float rawPlaneDistance = p.NormalX * eyeLocal.X + p.NormalY * eyeLocal.Y
+                    + p.NormalZ * eyeLocal.Z + p.PlaneDistance;
+                bool eyeOnPortal = MathF.Abs(rawPlaneDistance) <= 0.01f && PointInPortal(model, p, eyeLocal);
+                float px0, py0, px1, py1;
+                if (eyeOnPortal)
+                {
+                    // WoW's doorway crossing special case: projection is
+                    // singular while the eye intersects the portal plane, so
+                    // use the full screen for this edge. Without this the room
+                    // ahead collapses out of the PVS for exactly one frame.
+                    px0 = py0 = -1f;
+                    px1 = py1 = 1f;
+                }
+                else if (!PortalScreenRect(model, p, instance.Transform, cameraPosition, relVp,
+                             out px0, out py0, out px1, out py1))
+                {
                     continue;   // doorway fully off-screen / behind
+                }
 
                 float ix0 = MathF.Max(rx0, px0), iy0 = MathF.Max(ry0, py0);
                 float ix1 = MathF.Min(rx1, px1), iy1 = MathF.Min(ry1, py1);
@@ -1035,6 +1173,7 @@ public sealed class WmoRenderer : IDisposable
 
             _instances.Add(new Instance
             {
+                Id = ++_nextInstanceId,
                 Model = model,
                 Transform = transform,
                 WorldMin = min,
@@ -1090,6 +1229,9 @@ public sealed class WmoRenderer : IDisposable
     {
         _instances.Clear();
         _placed.Clear();
+        _cameraSeeds.Clear();
+        _portalVisible.Clear();
+        CameraGroup = null;
         TotalTriangles = 0;
         BumpLiquidVersion();   // PLAN_15 D5: canals must not survive their building
     }
@@ -1830,7 +1972,10 @@ public sealed class WmoRenderer : IDisposable
                 BumpLiquidVersion();   // adoption is async — see LiquidVersion
             }
 
-            CollectCollision(group, job.Collision, ref job.Skipped);
+            var groupCollision = new List<Vector3>();
+            CollectCollision(group, groupCollision, ref job.Skipped);
+            mesh.CollisionTriangles = [.. groupCollision];
+            job.Collision.AddRange(groupCollision);
             return false;
         }
 
@@ -1876,6 +2021,7 @@ public sealed class WmoRenderer : IDisposable
         model.DoodadSets = ready.Root.DoodadSets;
         model.Doodads = ready.Root.Doodads;
         model.DoodadLight = BuildDoodadLighting(ready);
+        model.DoodadOwners = BuildDoodadOwners(ready);
 
         int lodShells = model.Groups.Count(g => g.IsDistanceLod);
         if (lodShells > 0)
@@ -2434,6 +2580,28 @@ public sealed class WmoRenderer : IDisposable
         return light;
     }
 
+    private static int[][] BuildDoodadOwners(PreparedWmo ready)
+    {
+        int count = ready.Root?.Doodads.Count ?? 0;
+        if (count == 0) return [];
+
+        var owners = new List<int>[count];
+        for (int groupIndex = 0; groupIndex < ready.Groups.Count; groupIndex++)
+        {
+            var group = ready.Groups[groupIndex];
+            if (group is null) continue;
+            foreach (ushort doodadIndex in group.DoodadRefs)
+            {
+                if (doodadIndex >= count) continue;
+                (owners[doodadIndex] ??= []).Add(groupIndex);
+            }
+        }
+
+        var result = new int[count][];
+        for (int i = 0; i < count; i++) result[i] = owners[i]?.Distinct().ToArray() ?? [];
+        return result;
+    }
+
     /// <summary>
     /// Every embedded doodad of every placed building, as a model path, a
     /// world transform and its baked light, ready to hand to the doodad
@@ -2443,8 +2611,20 @@ public sealed class WmoRenderer : IDisposable
     /// second set on top of it, which is how one tavern model furnishes
     /// differently in different towns.
     /// </summary>
-    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light)> EnumerateDoodads()
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light,
+        int WmoInstanceId, int[] OwnerGroups)> EnumerateDoodads()
         => EnumerateDoodads(Vector2.Zero, float.PositiveInfinity);
+
+    /// <summary>Whether an embedded prop's owning room is in this frame's PVS.
+    /// Missing/invalid portal state fails open, matching the WMO group fallback.</summary>
+    public bool IsDoodadPortalVisible(int wmoInstanceId, int[] ownerGroups)
+    {
+        if (!UsePortalCulling || ownerGroups.Length == 0) return true;
+        if (!_portalVisible.TryGetValue(wmoInstanceId, out var visible) || visible is null) return true;
+        foreach (int group in ownerGroups)
+            if (visible.Contains(group)) return true;
+        return false;
+    }
 
     // ── WMO liquid (PLAN_15_WMO_LIQUID.md) ──────────────────────────────────
 
@@ -2584,7 +2764,8 @@ public sealed class WmoRenderer : IDisposable
     /// filtering individual MODD transforms prevents that furniture from
     /// dominating startup.
     /// </summary>
-    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light)> EnumerateDoodads(
+    public IEnumerable<(string ModelPath, Matrix4x4 Transform, Vector4 Light,
+        int WmoInstanceId, int[] OwnerGroups)> EnumerateDoodads(
         Vector2 centre, float maxDistance)
     {
         float maxDistanceSq = maxDistance * maxDistance;
@@ -2623,7 +2804,10 @@ public sealed class WmoRenderer : IDisposable
                         ? model.DoodadLight[(int)index]
                         : ExteriorDoodadLight;
 
-                    yield return (d.ModelPath, transform, light);
+                    int[] owners = index < (uint)model.DoodadOwners.Length
+                        ? model.DoodadOwners[(int)index]
+                        : [];
+                    yield return (d.ModelPath, transform, light, instance.Id, owners);
                 }
             }
         }
@@ -2652,6 +2836,7 @@ public sealed class WmoRenderer : IDisposable
         _frameLargestWmoGroupCount = 0;
         OccludedGroupsLastFrame = 0;
         PortalReachedLastFrame = 0;
+        _portalVisible.Clear();
         if (!Enabled || _shader is null || _instances.Count == 0)
         {
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
@@ -2744,8 +2929,7 @@ public sealed class WmoRenderer : IDisposable
             // gate, so being in it is "at the gate", not "inside". Only a real
             // interior (0x2000) or exterior-lit street (0x40) cell counts as inside,
             // so the cathedral silhouette holds until you actually reach the streets.
-            bool cameraInCell = CameraGroup is { } camCell
-                && camCell.InstancePath == instance.Path && !camCell.IsExterior;
+            bool cameraInCell = _cameraSeeds.ContainsKey(instance.Id);
 
             // PLAN_10 D1/D2 (benilla wmo_portal/mod.rs:355-372): flood the portal
             // graph and let ClassifyGroup draw non-exterior groups only when reached.
@@ -2761,10 +2945,10 @@ public sealed class WmoRenderer : IDisposable
                 && instance.Model.Portals.Count > 0
                 && instance.Model.PortalRefs.Count > 0)
             {
-                if (CameraGroup is { } cg && cg.InstancePath == instance.Path)
+                if (_cameraSeeds.TryGetValue(instance.Id, out var cameraSeeds))
                 {
                     reachable = ComputeReachableGroups(
-                        instance, new[] { cg.GroupIndex }, cameraPosition, viewProjection);
+                        instance, cameraSeeds, cameraPosition, viewProjection);
                 }
                 else
                 {
@@ -2778,6 +2962,7 @@ public sealed class WmoRenderer : IDisposable
                 if (reachable is { Count: 0 }) reachable = null;
                 PortalReachedLastFrame = reachable?.Count ?? 0;
             }
+            _portalVisible[instance.Id] = reachable;
 
             _visibleGroups.Clear();
             int shellsDrawn = 0, shellsHidden = 0;

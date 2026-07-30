@@ -52,6 +52,13 @@ public class M2Model
     public List<M2Sequence> Sequences { get; set; } = new();
 
     /// <summary>
+    /// Camera selected by cameraLookup[0]. This is the model-authored camera
+    /// used by the vanilla unit-frame portrait bake, not an engine-derived
+    /// bounds camera.
+    /// </summary>
+    public M2PortraitCamera? PortraitCamera { get; set; }
+
+    /// <summary>
     /// Durations, in milliseconds, of animation loops that run independently
     /// of the selected Stand/Walk/Run sequence. Character models use these for
     /// blinks: separate eye polygons are scaled on and off by a global loop.
@@ -2044,3 +2051,11 @@ public class M2Reader
         }
     }
 }
+
+public readonly record struct M2PortraitCamera(
+    float FieldOfView,
+    float FarClip,
+    float NearClip,
+    Vector3 Position,
+    Vector3 Target,
+    float Roll);

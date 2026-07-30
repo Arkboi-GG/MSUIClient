@@ -63,6 +63,8 @@ public sealed partial class GameLoop
     /// </summary>
     private readonly Dictionary<string, Texture> _loadingArtCache =
         new(StringComparer.OrdinalIgnoreCase);
+    private Texture? _loadingBarBorder;
+    private Texture? _loadingBarFill;
 
     /// <summary>Main-thread ms spent draining a warm queue per frame while the curtain is up.</summary>
     private const float LoadWarmBudgetMs = 12f;
@@ -91,6 +93,21 @@ public sealed partial class GameLoop
     public bool WorldLoading => _worldLoading;
 
     /// <summary>
+    /// Put the exclusive loading art up at the Enter World click, before the server's
+    /// LOGIN_VERIFY_WORLD supplies the authoritative spawn and permits real loading to begin.
+    /// This curtain deliberately does not set _worldLoading: Update must keep pumping the socket.
+    /// </summary>
+    private void ArmEnterWorldCurtain(GL gl, int mapId)
+    {
+        _loadScreen?.Dispose();
+        _loadScreen = new LoadingScreen(gl);
+        if (_config.Render.LoadingScreenArt) TryLoadLoadingArt(gl, mapId);
+        TryLoadLoadingBarArt(gl);
+        _loadProgress = 0f;
+        _loadCurtainAlpha = 1f;
+    }
+
+    /// <summary>
     /// Arm the incremental load. Called at the end of Load once every renderer
     /// exists (empty) and the controller has been created. Returns immediately:
     /// the heavy build is driven by StepWorldLoad across the following frames.
@@ -101,9 +118,11 @@ public sealed partial class GameLoop
             ?? TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
         _residentCentre = _loadCentre;
 
+        _loadScreen?.Dispose();
         _loadScreen = new LoadingScreen(gl);
         if (_config.Render.LoadingScreenArt)
             TryLoadLoadingArt(gl, _config.Start.Map);
+        TryLoadLoadingBarArt(gl);
         _worldLoading = true;
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
@@ -196,12 +215,41 @@ public sealed partial class GameLoop
         }
     }
 
+    private void TryLoadLoadingBarArt(GL gl)
+    {
+        if (_mpq is null || _loadScreen is null) return;
+        try
+        {
+            _loadingBarBorder ??= LoadLoadingTexture(gl,
+                @"Interface\Glues\LoadingBar\Loading-BarBorder.blp");
+            _loadingBarFill ??= LoadLoadingTexture(gl,
+                @"Interface\Glues\LoadingBar\Loading-BarFill.blp");
+            _loadScreen.SetBarArt(_loadingBarBorder?.Handle ?? 0, _loadingBarFill?.Handle ?? 0);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[load] 1.12 loading-bar art unavailable: {e.Message}");
+        }
+    }
+
+    private Texture? LoadLoadingTexture(GL gl, string path)
+    {
+        byte[]? blp = _mpq?.ReadFile(path);
+        if (blp is null) return null;
+        byte[] bgra = BlpDecoder.GetPixels(blp, 0, out int width, out int height);
+        return Texture.From2D(gl, bgra, width, height, mipmaps: false, repeat: false);
+    }
+
     /// <summary>Dispose the cached loading-screen textures. Called from GameLoop teardown
     /// while the GL context is still current.</summary>
     private void DisposeLoadingArt()
     {
         foreach (var t in _loadingArtCache.Values) t.Dispose();
         _loadingArtCache.Clear();
+        _loadingBarBorder?.Dispose();
+        _loadingBarFill?.Dispose();
+        _loadingBarBorder = null;
+        _loadingBarFill = null;
     }
 
     /// <summary>

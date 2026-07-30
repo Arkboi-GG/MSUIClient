@@ -24,10 +24,15 @@ public sealed partial class GameLoop
 {
     private NetworkClient? _net;
     private readonly EntityStore _entities = new();   // game-thread-owned world model (from UPDATE_OBJECT)
+    private readonly CombatState _combat = new();
+    private readonly LocalMovementSender _movementSender = new();
     private GL? _gl;                                   // kept so we can start the world load after login
     private GlueScene? _glue;                          // the login-screen glue scene (UI_MainMenu)
     private GlueBooth? _booth;                         // the character-select per-race booth (UI_<Race>)
     private CreatureRenderer? _creatures;              // draws the streamed creatures/NPCs (UPDATE_OBJECT)
+    private SelectionRingRenderer? _selectionRing;
+    private SpellEffectSource? _spellEffects;
+    private SpellEffectMeshRenderer? _spellEffectMeshes;
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private long _netInbound;
     private int _netUpdatesLastFrame;
@@ -41,10 +46,12 @@ public sealed partial class GameLoop
 
     // Character-select selection.
     private int _selectedChar;
+    private bool _charSelectionRestored;
 
     // AreaTable.dbc (zone names for the roster rows), loaded once on first character-select draw.
     private AreaTableCatalog? _areas;
     private bool _areasLoaded;
+    private FactionTemplateCatalog? _factions;
 
     /// <summary>Create the network client (does not connect). Called at the end of Load(). Stores gl for the deferred world load.</summary>
     private void InitNet(GL gl)
@@ -72,8 +79,42 @@ public sealed partial class GameLoop
 
         // The networked creature/NPC renderer. Loads the creature DBCs; draws
         // every streamed Unit as its M2 once we are in world. Best-effort.
-        try { if (_mpq is not null) _creatures = new CreatureRenderer(gl, _mpq); }
+        try { if (_mpq is not null) _creatures = new CreatureRenderer(gl, _mpq, _config); }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
+        try { if (_mpq is not null) _selectionRing = new SelectionRingRenderer(gl, _mpq); }
+        catch (Exception ex) { Console.WriteLine($"[target] selection ring unavailable: {ex.Message}"); }
+
+        InitPortraits(gl);
+        InitGameplayUi(gl);
+        if (_mpq is not null)
+        {
+            _spellEffects = new SpellEffectSource(_mpq);
+            try
+            {
+                _spellEffectMeshes = new SpellEffectMeshRenderer(gl, _mpq);
+                string fxShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!File.Exists(Path.Combine(fxShaderDir, "attached.vert")))
+                    fxShaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
+                _spellEffectMeshes.LoadShaders(fxShaderDir);
+            }
+            catch (Exception ex)
+            {
+                _spellEffectMeshes?.Dispose(); _spellEffectMeshes = null;
+                Console.WriteLine($"[spell-fx] mesh renderer unavailable: {ex.Message}");
+            }
+        }
+        InitInventory();
+        InitCharacterPage();
+
+        try
+        {
+            byte[]? bytes = _mpq?.ReadFile(FactionTemplateCatalog.MpqPath);
+            _factions = bytes is null ? null : FactionTemplateCatalog.Parse(bytes);
+            Console.WriteLine(_factions is null
+                ? "[target] FactionTemplate.dbc unavailable - neutral fallback"
+                : $"[target] FactionTemplate.dbc loaded ({_factions.Count} rows)");
+        }
+        catch (Exception ex) { Console.WriteLine($"[target] faction init failed: {ex.Message}"); }
 
         try
         {
@@ -109,6 +150,12 @@ public sealed partial class GameLoop
         if (_net.TakeEnterWorld() is { } enter && _controller is not null)
         {
             _entities.Clear();
+            _combat.Clear();
+            _actions.Clear();
+            _movementSender.Reset(enter.Orientation);
+            ResetTargeting();
+            ResetCombatFeedback();
+            ResetLoot();
             _creaturesLogged = 0;
 
             // Commit to the server-authoritative spawn. BeginWorldLoad reads _config.Start for the
@@ -180,6 +227,120 @@ public sealed partial class GameLoop
                             if (mm is not null) _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
                         }
                         break;
+                    case Op.SMSG_ACTION_BUTTONS:
+                        _actions.ApplyButtons(body);
+                        break;
+                    case Op.SMSG_INITIAL_SPELLS:
+                        _actions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
+                        break;
+                    case Op.SMSG_LEARNED_SPELL:
+                        {
+                            var spellReader = new PacketReader(body);
+                            _actions.Learn(spellReader.ReadU16());
+                        }
+                        break;
+                    case Op.SMSG_SUPERCEDED_SPELL:
+                        {
+                            var spellReader = new PacketReader(body);
+                            _actions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
+                        }
+                        break;
+                    case Op.SMSG_ITEM_QUERY_SINGLE_RESPONSE:
+                        _items?.Apply(body);
+                        break;
+                    case Op.SMSG_NAME_QUERY_RESPONSE:
+                        {
+                            var r = new PacketReader(body);
+                            ulong guid = r.ReadU64();
+                            string name = r.ReadCString();
+                            if (name.Length > 0) _playerNames[guid] = name;
+                        }
+                        break;
+                    case Op.SMSG_CREATURE_QUERY_RESPONSE:
+                        {
+                            var r = new PacketReader(body);
+                            uint rawEntry = r.ReadU32();
+                            uint entry = rawEntry & 0x7fff_ffffu;
+                            if ((rawEntry & 0x8000_0000u) == 0)
+                            {
+                                string name = r.ReadCString();
+                                if (name.Length > 0) _creatureNames[entry] = name;
+                            }
+                        }
+                        break;
+                    case Op.SMSG_SPELL_START:
+                        ApplySpellStart(SpellPacketParser.ParseStart(body));
+                        break;
+                    case Op.SMSG_SPELL_GO:
+                        ApplySpellGo(SpellPacketParser.ParseGo(body));
+                        break;
+                    case Op.SMSG_CAST_RESULT:
+                        {
+                            var result = SpellPacketParser.ParseResult(body);
+                            if (result.Status == 2)
+                                ApplySpellFailure(_net.PlayerGuid, result.SpellId,
+                                    result.Reason is 0x23 or 0x24 ? "INTERRUPTED" : "FAILED");
+                        }
+                        break;
+                    case Op.SMSG_SPELL_FAILED_OTHER:
+                        {
+                            var r = new PacketReader(body);
+                            ApplySpellFailure(r.ReadU64(), r.ReadU32(), "INTERRUPTED");
+                        }
+                        break;
+                    case Op.SMSG_SPELL_DELAYED:
+                        {
+                            var r = new PacketReader(body); r.ReadU64(); DelayCastBar(r.ReadU32());
+                        }
+                        break;
+                    case Op.MSG_CHANNEL_START:
+                        {
+                            var r = new PacketReader(body); BeginChannel(r.ReadU32(), r.ReadU32());
+                        }
+                        break;
+                    case Op.MSG_CHANNEL_UPDATE:
+                        UpdateChannel(new PacketReader(body).ReadU32());
+                        break;
+                    case Op.SMSG_PLAY_SPELL_VISUAL:
+                        {
+                            var r = new PacketReader(body); ApplyPushedVisual(r.ReadU64(), r.ReadU32());
+                        }
+                        break;
+                    case Op.SMSG_CANCEL_AUTO_REPEAT:
+                        ApplyAutoRepeatCancelled();
+                        break;
+                    case Op.SMSG_LOOT_RESPONSE:
+                        ApplyLootResponse(body);
+                        break;
+                    case Op.SMSG_LOOT_REMOVED:
+                        ApplyLootRemoved(body);
+                        break;
+                    case Op.SMSG_LOOT_CLEAR_MONEY:
+                        ApplyLootClearMoney();
+                        break;
+                    case Op.SMSG_LOOT_RELEASE_RESPONSE:
+                        ApplyLootReleaseResponse(body);
+                        break;
+                    case Op.SMSG_LOOT_MONEY_NOTIFY:
+                        break; // the purse rides PLAYER_FIELD_COINAGE; nothing to do
+                    case Op.SMSG_ITEM_PUSH_RESULT:
+                        ApplyItemPushResult(body);
+                        break;
+                    case Op.SMSG_ATTACKSTART:
+                    case Op.SMSG_ATTACKSTOP:
+                    case Op.SMSG_ATTACKERSTATEUPDATE:
+                    case Op.SMSG_SPELLNONMELEEDAMAGELOG:
+                    case Op.SMSG_PERIODICAURALOG:
+                    case Op.SMSG_SPELLHEALLOG:
+                    case Op.SMSG_SPELLENERGIZELOG:
+                    case Op.SMSG_SPELLDAMAGESHIELD:
+                    case Op.SMSG_ENVIRONMENTALDAMAGELOG:
+                    case Op.SMSG_SPELLLOGMISS:
+                    case Op.SMSG_LOG_XPGAIN:
+                        CombatEvent combatEvent = _combat.Apply(
+                            CombatPacketParser.Parse((Op)opcode, body), _entities);
+                        ApplyCombatAnimation(combatEvent);
+                        break;
                 }
             }
             catch (Exception ex)
@@ -191,6 +352,9 @@ public sealed partial class GameLoop
 
         // Advance every in-progress creature spline so NPCs actually move between packets.
         _entities.TickSplines(MovementInfo.ClientUptimeMs());
+        if (_controller is not null)
+            _entities.FaceIdleTargets(dt, _net.PlayerGuid, _controller.Position);
+        DiscoverItemTemplates();
     }
 
     private void ApplyUpdates(List<ObjectUpdate> updates)
@@ -242,6 +406,7 @@ public sealed partial class GameLoop
         _character.Equipment = BuildEquipment(c);
         _character.Reload();          // rebuild texture slots + geosets, then composite the gear
         _character.Enabled = true;
+        _playerPortraitDirty = true;
 
         Console.WriteLine($"[character] player model: {race} {gender} " +
                           $"skin {c.Skin} face {c.Face} hair {c.HairStyle}/{c.HairColor} facial {c.FacialHair} " +
@@ -260,7 +425,7 @@ public sealed partial class GameLoop
             int inv = eq.InventoryType;
             if (inv == CharacterEquipment.Slot.Head && (c.Flags & HideHelm) != 0) continue;
             if (inv == CharacterEquipment.Slot.Cloak && (c.Flags & HideCloak) != 0) continue;
-            kit.Add($"slot{i}", eq.DisplayId, inv);
+            kit.Add($"slot{i}", eq.DisplayId, inv, i);
         }
         return kit;
     }
@@ -340,7 +505,7 @@ public sealed partial class GameLoop
         if (!_config.Server.Enabled || _net is null) return;
 
         NetState st = _net.State;
-        if (st == NetState.InWorld) { DrawInWorldPanel(); return; }
+        if (st == NetState.InWorld) { DrawCombatHud(); DrawInWorldPanel(); return; }
 
         // The login screen is full-bleed glue chrome and owns its own full-screen window; the
         // connecting / character-select dialogs stay as centered panels for now.
@@ -718,6 +883,16 @@ public sealed partial class GameLoop
         float s = MathF.Max(disp.Y / GlueCanvasH, 0.5f);
         var chars = _net!.Characters;
         if (chars.Count > 0 && _selectedChar >= chars.Count) _selectedChar = 0;
+        if (!_charSelectionRestored && chars.Count > 0)
+        {
+            _charSelectionRestored = true;
+            ulong remembered = Settings.LastCharacterGuid;
+            int rememberedIndex = -1;
+            if (remembered != 0)
+                for (int i = 0; i < chars.Count; i++)
+                    if (chars[i].Guid == remembered) { rememberedIndex = i; break; }
+            if (rememberedIndex >= 0) _selectedChar = rememberedIndex;
+        }
 
         // A just-created character: select its row once the refreshed roster arrives.
         if (_ccArmName is not null)
@@ -847,6 +1022,7 @@ public sealed partial class GameLoop
             if (ImGui.InvisibleButton($"##row{i}", new Vector2(rowW, rowH)))
             {
                 _selectedChar = i;
+                RememberCharacterSelection(c.Guid);
                 if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) enterGuid = c.Guid;
             }
             // Use the pre-panel snapshot, not ImGui.IsItemHovered / the live _selectedChar: the panel
@@ -1028,9 +1204,25 @@ public sealed partial class GameLoop
             _selectedChar = 0;
         }
 
-        if (enterGuid != 0) _net.SelectCharacter(enterGuid);
+        if (enterGuid != 0)
+        {
+            RememberCharacterSelection(enterGuid);
+            if (_gl is not null)
+            {
+                Character? entering = chars.FirstOrDefault(c => c.Guid == enterGuid);
+                ArmEnterWorldCurtain(_gl, entering is null ? _config.Start.Map : (int)entering.Map);
+            }
+            _net.SelectCharacter(enterGuid);
+        }
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
+    }
+
+    private void RememberCharacterSelection(ulong guid)
+    {
+        if (guid == 0 || Settings.LastCharacterGuid == guid) return;
+        Settings.LastCharacterGuid = guid;
+        SettingsFile?.Save();
     }
 
     /// <summary>ClientWindow.OnOverlay: flush the queued additive glue quads (char-select row
@@ -1132,6 +1324,18 @@ public sealed partial class GameLoop
         ImGui.TextUnformatted($"entities: {_entities.Count}  (creatures {_entities.CreatureCount}, players {_entities.PlayerCount})");
         ImGui.TextUnformatted($"packets in: {_netInbound}  (updates last frame {_netUpdatesLastFrame})");
         ImGui.TextUnformatted($"moving (splines): {_entities.MovingCount}");
+        ImGui.TextUnformatted($"movement out: {_movementSender.PacketsSent}  " +
+                              $"flags 0x{_movementSender.LastFlags:X}" +
+                              (_movementSender.LastOpcode is { } moveOp ? $"  last {moveOp}" : ""));
+        ImGui.TextUnformatted($"combat events: {_combat.ReceivedCount}  buffered {_combat.BufferedCount}  " +
+                              $"engaged {_combat.EngagedCount}");
+        ImGui.TextUnformatted($"target: hover 0x{_hoveredGuid:X}  selected 0x{_selectionGuid:X}  " +
+                              $"attack 0x{_attackTargetGuid:X}");
+        ImGui.TextUnformatted($"world combat text: {_worldCombatTextSpawned} spawned  " +
+                              $"{_floatingCombatText.Count} active  {_worldCombatTextDropped} dropped  " +
+                              $"center {_centerCombatText.Count}");
+        if (_combat.LastEvent is { } lastCombat)
+            ImGui.TextDisabled($"last combat: {lastCombat.GetType().Name}");
         if (_creatures is not null)
         {
             ImGui.TextUnformatted($"creatures drawn: {_creatures.DrawnLastFrame}" +
@@ -1143,6 +1347,11 @@ public sealed partial class GameLoop
             float cscale = _creatures.ScaleMultiplier;
             if (ImGui.SliderFloat("Creature scale x", ref cscale, 0.1f, 3f)) _creatures.ScaleMultiplier = cscale;
             ImGui.TextUnformatted($"animated: {_creatures.AnimatedLastFrame}");
+            ImGui.TextUnformatted($"combat anims: {_creatures.CombatActionsTriggered} triggered  " +
+                                  $"{_creatures.CombatActionsActive} active" +
+                                  (_character is null
+                                      ? ""
+                                      : $"  self {_character.CombatActionsTriggered} ({_character.CurrentAnimation})"));
             bool animC = _creatures.Animate;
             if (ImGui.Checkbox("Animate creatures", ref animC)) _creatures.Animate = animC;
             float adist = _creatures.AnimateDistance;

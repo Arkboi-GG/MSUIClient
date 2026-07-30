@@ -30,11 +30,20 @@ public sealed class CreatureRenderer : IDisposable
 {
     private readonly GL _gl;
     private readonly MpqMount _mpq;
+    private readonly ClientConfig _config;
+    private readonly string _attachmentShaderDir;
     private Shader? _shader;
     private CreatureModelResolver? _resolver;
     private ItemDisplayTable? _itemDisplay;
     private CharacterGeosets? _geosets;
     private readonly Dictionary<string, LoadedModel?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private sealed class UnitAttachments
+    {
+        public AttachedItemRenderer Renderer = null!;
+        public string Signature = "";
+    }
+    private readonly Dictionary<ulong, UnitAttachments> _unitAttachments = [];
+    private readonly Matrix4x4[] _bindSkin = Enumerable.Repeat(Matrix4x4.Identity, M2Animator.MaxBones).ToArray();
 
     public bool Enabled { get; set; } = true;
     public bool Ok { get; private set; }
@@ -43,12 +52,23 @@ public sealed class CreatureRenderer : IDisposable
     public float ScaleMultiplier { get; set; } = 1f;
     public int DrawnLastFrame { get; private set; }
     public int AnimatedLastFrame { get; private set; }
+    public long CombatActionsTriggered { get; private set; }
+    public int CombatActionsActive => _combatActions.Count;
+    public ulong HoveredGuid { get; set; }
+    public ulong SelectedGuid { get; set; }
 
     /// <summary>Master animation switch (off = static bind pose).</summary>
     public bool Animate { get; set; } = true;
 
     /// <summary>Beyond this range a creature draws its static bind pose (skinning you couldn't see anyway).</summary>
     public float AnimateDistance { get; set; } = 130f;
+
+    /// <summary>Rendered scale used by the CPU targeting proxy.</summary>
+    public float PickScale(WorldEntity entity)
+        => UnitRenderScale(entity.Scale, ScaleMultiplier);
+
+    public static float UnitRenderScale(float objectFieldScale, float tuningMultiplier = 1f)
+        => MathF.Max(0.01f, objectFieldScale) * tuningMultiplier;
 
     /// <summary>Filter humanoid-NPC geosets to the correct variants (off = draw every geoset, the old blob).</summary>
     public bool GeosetFilter { get; set; } = true;
@@ -57,7 +77,9 @@ public sealed class CreatureRenderer : IDisposable
     private static readonly Vector3 FogColor = new(0.56f, 0.71f, 0.85f);
     private const float FogStart = 350f, FogEnd = 900f;
 
-    private static readonly int[] CreatureAnims = { 0, 4, 5, 13, 41, 42 };
+    private static readonly int[] CreatureAnims =
+        { 0, 1, 4, 5, 6, 7, 9, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+          30, 41, 42, 85, 87, 88, 117 };
     private const float DefaultWalkSpeed = 2.5f;
     private const float MovingEpsilon = 0.1f;
 
@@ -75,27 +97,86 @@ public sealed class CreatureRenderer : IDisposable
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
 
     private readonly Dictionary<ulong, float> _animTime = new();
+    private readonly Dictionary<ulong, CombatAction> _combatActions = new();
+    private readonly Dictionary<ulong, int> _spellHolds = new();
+    private readonly HashSet<ulong> _knownAlive = new();
+    private readonly HashSet<ulong> _observedDead = new();
+    private readonly Dictionary<ulong, float> _deathTime = new();
     private readonly HashSet<ulong> _seen = new();
     private readonly List<ulong> _stale = new();
     private float _globalTime;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private double _lastSeconds;
 
+    private readonly record struct CombatAction(int AnimationId, float StartedAt, float ExpiresAt,
+        bool AuthoredExact = false);
+
+    public void TriggerCombatSwing(ulong guid, bool offHand)
+    {
+        _combatActions[guid] = new CombatAction(offHand ? 87 : 16, _globalTime, _globalTime + 3f);
+        CombatActionsTriggered++;
+    }
+
+    public void TriggerCombatReaction(ulong guid, uint victimState, bool landedHit)
+    {
+        int animationId = victimState switch
+        {
+            2 or 8 => 30, // dodge / deflect
+            3 => 20,      // unarmed parry fallback
+            5 => 24,      // shield block
+            _ when landedHit => 9, // CombatWound
+            _ => -1,
+        };
+        if (animationId >= 0)
+        {
+            _combatActions[guid] = new CombatAction(animationId, _globalTime, _globalTime + 3f);
+            CombatActionsTriggered++;
+        }
+    }
+
+    public void BeginSpellVisual(ulong guid, ushort? animationId)
+    {
+        if (animationId is { } id && id != 0) _spellHolds[guid] = id;
+        else _spellHolds.Remove(guid);
+        _animTime[guid] = 0f;
+    }
+
+    public void ReleaseSpellVisual(ulong guid, ushort? animationId)
+    {
+        _spellHolds.Remove(guid);
+        if (animationId is { } id && id != 0)
+        {
+            _combatActions[guid] = new CombatAction(id, _globalTime, _globalTime + 4f,
+                AuthoredExact: true);
+            CombatActionsTriggered++;
+        }
+    }
+
+    public void CancelSpellVisual(ulong guid) => _spellHolds.Remove(guid);
+
     private sealed class LoadedModel
     {
         public uint Vao, Vbo, Ebo;
         public readonly List<DrawBatch> Batches = new();
-        public float DbcScale = 1f;
         public M2Animator? Animator;
         public int BoneCount;
+        public float MinHeight;
+        public float MaxHeight;
+        public float HorizontalRadius;
+        public M2PortraitCamera? PortraitCamera;
+        public M2Model Source = null!;
         public HashSet<int>? VisibleGeosets;   // null = draw all (beasts, or filter disabled/failed)
     }
     private struct DrawBatch { public int Start, Count; public Texture? Tex; public int Blend; public int GeosetId; }
 
-    public CreatureRenderer(GL gl, MpqMount mpq)
+    public CreatureRenderer(GL gl, MpqMount mpq, ClientConfig config)
     {
         _gl = gl;
         _mpq = mpq;
+        _config = config;
+        _attachmentShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
+        if (!File.Exists(Path.Combine(_attachmentShaderDir, "attached.vert")))
+            _attachmentShaderDir = Path.Combine(config.RepoRoot, "MSUIClient", "Shaders");
         try
         {
             var diBytes = mpq.ReadFile(CreatureDisplayInfoTable.MpqPath);
@@ -150,6 +231,8 @@ public sealed class CreatureRenderer : IDisposable
         _shader.Use();
         _shader.Set("uViewProj", viewProj);
         _shader.Set("uSunDir", SunDir);
+        _shader.Set("uAmbientColor", new Vector3(.45f));
+        _shader.Set("uDiffuseColor", new Vector3(.55f));
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
@@ -173,8 +256,12 @@ public sealed class CreatureRenderer : IDisposable
             if (model is null) continue;
 
             _seen.Add(e.Guid);
+            TrackLifeState(e);
 
-            float scale = MathF.Max(0.01f, e.Scale) * model.DbcScale * ScaleMultiplier;
+            // UNIT_FIELD_SCALE_X is already the complete unit render scale. vmangos folds
+            // CreatureModelData × CreatureDisplayInfo into it; applying DbcScale again
+            // squares native sub-1 scales and makes wolves/critters tiny.
+            float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
             Matrix4x4 m = Matrix4x4.CreateScale(scale)
                 * Matrix4x4.CreateRotationY(heading)
@@ -182,14 +269,48 @@ public sealed class CreatureRenderer : IDisposable
                 * Matrix4x4.CreateTranslation(e.Position);
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
+            _shader.Set("uHighlight", e.Guid == HoveredGuid || e.Guid == SelectedGuid ? 64f / 255f : 0f);
 
             int boneCount = 0;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
-                Vector3.Distance(e.Position, camPos) <= AnimateDistance)
+                (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
-                M2Animator.Clip? clip = SelectClip(e, model.Animator, out float rate);
-                at += dt * rate;
+                M2Animator.Clip? clip;
+                float rate;
+                if (e.IsDead)
+                {
+                    clip = model.Animator.FindFirst(1, 6, 0);
+                    rate = 1f;
+                    float deathAt = _deathTime.GetValueOrDefault(e.Guid, float.PositiveInfinity);
+                    at = float.IsPositiveInfinity(deathAt)
+                        ? clip?.DurationSeconds ?? 0f
+                        : MathF.Min(deathAt + dt, clip?.DurationSeconds ?? deathAt + dt);
+                    _deathTime[e.Guid] = at;
+                }
+                else if (_combatActions.TryGetValue(e.Guid, out CombatAction action) &&
+                    ResolveCombatClip(model.Animator, action) is { } actionClip)
+                {
+                    clip = actionClip;
+                    rate = 1f;
+                    float actionTime = _globalTime - action.StartedAt;
+                    if (actionTime >= actionClip.DurationSeconds)
+                        _combatActions.Remove(e.Guid);
+                    at = actionTime;
+                }
+                else if (_spellHolds.TryGetValue(e.Guid, out int heldAnimation) &&
+                    model.Animator.FindOrBake(heldAnimation) is { } holdClip)
+                {
+                    clip = holdClip;
+                    rate = 1f;
+                    at += dt;
+                }
+                else
+                {
+                    _combatActions.Remove(e.Guid);
+                    clip = SelectClip(e, model.Animator, out rate);
+                    at += dt * rate;
+                }
                 if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
                 _animTime[e.Guid] = at;
 
@@ -220,6 +341,13 @@ public sealed class CreatureRenderer : IDisposable
                 DrawElements(b.Start, b.Count);
             }
             DrawnLastFrame++;
+
+            DrawVirtualWeapons(camera, e, model, m, boneCount > 0 ? _skin : _bindSkin);
+            // The attachment path has its own shader; restore ours before the
+            // next streamed unit uploads its model/bone uniforms.
+            _gl.Enable(EnableCap.Blend);
+            _gl.DepthMask(true);
+            _shader.Use();
         }
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
@@ -227,12 +355,194 @@ public sealed class CreatureRenderer : IDisposable
         PruneAnimState();
     }
 
+    private void DrawVirtualWeapons(Camera camera, WorldEntity entity, LoadedModel model,
+        Matrix4x4 transform, Matrix4x4[] skin)
+    {
+        uint d0 = entity.Fields.VirtualItemDisplay(0);
+        uint d1 = entity.Fields.VirtualItemDisplay(1);
+        uint d2 = entity.Fields.VirtualItemDisplay(2);
+        if ((d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0) return;
+
+        string signature = $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
+            $"{d1}:{entity.Fields.VirtualItemInfo(1)}:{entity.Fields.VirtualItemSheath(1)}|" +
+            $"{d2}:{entity.Fields.VirtualItemInfo(2)}:{entity.Fields.VirtualItemSheath(2)}";
+        if (!_unitAttachments.TryGetValue(entity.Guid, out UnitAttachments? state))
+        {
+            var renderer = new AttachedItemRenderer(_gl, _config);
+            renderer.LoadShaders(_attachmentShaderDir);
+            state = new UnitAttachments { Renderer = renderer };
+            _unitAttachments[entity.Guid] = state;
+        }
+        if (state.Signature != signature)
+        {
+            var equipment = new CharacterEquipment();
+            AddVirtualPiece(equipment, entity.Fields, 0, d0);
+            AddVirtualPiece(equipment, entity.Fields, 1, d1);
+            AddVirtualPiece(equipment, entity.Fields, 2, d2);
+            equipment.Resolve(_itemDisplay);
+            state.Renderer.Rebuild(equipment);
+            state.Signature = signature;
+        }
+        state.Renderer.SheathState = entity.Fields.SheathState;
+        state.Renderer.Render(camera, transform, model.Source, skin);
+    }
+
+    private static void AddVirtualPiece(CharacterEquipment equipment, ObjectFields fields,
+        int heldSlot, uint display)
+    {
+        if (display == 0) return;
+        var info = fields.VirtualItemInfo(heldSlot);
+        int inventory = info.InventoryType;
+        if (inventory == 0)
+            inventory = heldSlot switch
+            {
+                0 => CharacterEquipment.Slot.MainHand,
+                1 => CharacterEquipment.Slot.OffHand,
+                _ => 15,
+            };
+        equipment.Add($"virtual weapon {heldSlot}", display, inventory, 15 + heldSlot,
+            info.Class, info.Subclass, info.Material, fields.VirtualItemSheath(heldSlot));
+    }
+
+    public readonly record struct PortraitFraming(float EyeHeight, float Distance, float Height);
+
+    public bool TryGetAuthoredPortrait(WorldEntity entity, out M2PortraitCamera camera,
+        out Matrix4x4 modelTransform)
+    {
+        if (!TryGetModel(entity, out LoadedModel? model) || model?.PortraitCamera is not { } authored)
+        {
+            camera = default;
+            modelTransform = default;
+            return false;
+        }
+
+        float heading = entity.Orientation + HeadingOffsetDegrees * MathF.PI / 180f;
+        modelTransform = Matrix4x4.CreateScale(UnitRenderScale(entity.Scale, ScaleMultiplier))
+            * Matrix4x4.CreateRotationY(heading)
+            * Basis
+            * Matrix4x4.CreateTranslation(entity.Position);
+        camera = authored;
+        return true;
+    }
+
+    /// <summary>Loads the selected display if needed and derives a tight, model-space portrait camera.</summary>
+    public bool TryGetPortraitFraming(WorldEntity entity, out PortraitFraming framing)
+    {
+        framing = default;
+        if (!TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+
+        float scale = UnitRenderScale(entity.Scale, ScaleMultiplier);
+        float min = model.MinHeight * scale;
+        float max = model.MaxHeight * scale;
+        float height = MathF.Max(0.5f, max - min);
+        float eye = min + height * 0.92f;
+        float window = Math.Clamp(
+            MathF.Max(0.34f * height, 0.9f * model.HorizontalRadius * scale),
+            0.55f, 1.10f);
+        const float fovyDegrees = 0.5f * 180f / MathF.PI;
+        float distance = (window * 0.5f) /
+            MathF.Tan(fovyDegrees * 0.5f * MathF.PI / 180f);
+        framing = new PortraitFraming(eye, MathF.Max(0.8f, distance), height);
+        return true;
+    }
+
+    public float SelectionRadius(WorldEntity entity)
+    {
+        if (TryGetModel(entity, out LoadedModel? model) && model is not null)
+            return MathF.Max(0.35f, model.HorizontalRadius * UnitRenderScale(entity.Scale, ScaleMultiplier));
+        return 0.7f * UnitRenderScale(entity.Scale, ScaleMultiplier);
+    }
+
+    public bool TryGetOverheadHeight(WorldEntity entity, out float height)
+    {
+        height = 0f;
+        if (!TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+        float scale = UnitRenderScale(entity.Scale, ScaleMultiplier);
+        height = MathF.Max(0.3f, model.MaxHeight * scale);
+        return true;
+    }
+
+    /// <summary>
+    /// Draw exactly one creature for an offscreen portrait. This deliberately
+    /// does not advance, track, count, or prune world animation state.
+    /// </summary>
+    public bool RenderPortrait(Camera camera, WorldEntity entity)
+    {
+        if (_shader is null || !TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+
+        Vector3 camPos = camera.Position;
+        float heading = entity.Orientation + HeadingOffsetDegrees * MathF.PI / 180f;
+        Matrix4x4 transform = Matrix4x4.CreateScale(UnitRenderScale(entity.Scale, ScaleMultiplier))
+            * Matrix4x4.CreateRotationY(heading)
+            * Basis
+            * Matrix4x4.CreateTranslation(entity.Position);
+        transform.M41 -= camPos.X; transform.M42 -= camPos.Y; transform.M43 -= camPos.Z;
+
+        _gl.Enable(EnableCap.DepthTest);
+        _gl.Enable(EnableCap.Blend);
+        _shader.Use();
+        _shader.Set("uViewProj", camera.RelativeViewProjection);
+        _shader.Set("uModel", transform);
+        _shader.Set("uSunDir", Vector3.Normalize(new Vector3(.25f, -.45f, .85f)));
+        _shader.Set("uAmbientColor", new Vector3(.58f, .56f, .54f));
+        _shader.Set("uDiffuseColor", new Vector3(.85f, .82f, .78f));
+        _shader.Set("uFogColor", FogColor);
+        _shader.Set("uFogStart", 1000f);
+        _shader.Set("uFogEnd", 2000f);
+        _shader.Set("uTex", 0);
+        _shader.Set("uHighlight", 0f);
+
+        int boneCount = 0;
+        if (model.Animator is not null && model.BoneCount > 0)
+        {
+            // benilla portrait/booth.rs:48-66,203-216: a fresh Stand instance frozen at t=0.
+            M2Animator.Clip? clip = model.Animator.Find(0);
+            boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
+            model.Animator.Evaluate(clip, 0f, 0f, _skin);
+            M2Animator.Pack(_skin, boneCount, _packed);
+            _shader.SetVec4Array("uBones", _packed, boneCount * 3);
+        }
+        _shader.Set("uBoneCount", boneCount);
+
+        bool filter = GeosetFilter && model.VisibleGeosets is not null;
+        _gl.BindVertexArray(model.Vao);
+        foreach (var batch in model.Batches)
+        {
+            if (filter && !model.VisibleGeosets!.Contains(batch.GeosetId)) continue;
+            bool additive = batch.Blend is 3 or 4;
+            bool alphaKey = batch.Blend == 1;
+            if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
+            else if (batch.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
+            else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
+            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
+            batch.Tex?.Bind(0);
+            DrawElements(batch.Start, batch.Count);
+        }
+        _gl.BindVertexArray(0);
+        _gl.DepthMask(true);
+        return true;
+    }
+
+    private bool TryGetModel(WorldEntity entity, out LoadedModel? model)
+    {
+        model = null;
+        if (!Ok || !Enabled || _resolver is null || !entity.IsCreature || entity.DisplayId <= 0 ||
+            !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info)) return false;
+        string key = CacheKey(info);
+        if (!_cache.TryGetValue(key, out model))
+        {
+            model = LoadModel(info);
+            _cache[key] = model;
+        }
+        return model is not null;
+    }
+
     private static M2Animator.Clip? SelectClip(WorldEntity e, M2Animator animator, out float rate)
     {
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
         if (e.Spline is null || speed <= MovingEpsilon)
-            return animator.Find(0);
+            return e.Engaged ? animator.FindFirst(25, 26, 27, 28, 0) : animator.Find(0);
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = speed > 2f * walk
@@ -244,14 +554,57 @@ public sealed class CreatureRenderer : IDisposable
         return clip;
     }
 
+    private static M2Animator.Clip? ResolveCombatClip(M2Animator animator, in CombatAction action)
+    {
+        if (action.AuthoredExact) return animator.FindOrBake(action.AnimationId);
+        return action.AnimationId switch
+        {
+            16 => animator.FindFirst(16, 17, 18, 19, 85),
+            87 => animator.FindFirst(87, 88, 117, 16),
+            20 => animator.FindFirst(20, 21, 22, 23, 9, 0),
+            7 => animator.FindFirst(7, 0),
+            _ => animator.FindFirst(action.AnimationId, 9, 0),
+        };
+    }
+
+    private void TrackLifeState(WorldEntity entity)
+    {
+        if (entity.IsDead)
+        {
+            bool witnessedAlive = _knownAlive.Remove(entity.Guid);
+            if (_observedDead.Add(entity.Guid))
+                _deathTime[entity.Guid] = witnessedAlive ? 0f : float.PositiveInfinity;
+            _combatActions.Remove(entity.Guid);
+            return;
+        }
+
+        bool resurrected = _observedDead.Remove(entity.Guid);
+        _deathTime.Remove(entity.Guid);
+        _knownAlive.Add(entity.Guid);
+        if (resurrected)
+            _combatActions[entity.Guid] = new CombatAction(7, _globalTime, _globalTime + 3f);
+    }
+
     private static float InitialPhase(ulong guid) => (guid % 977) / 977f * 5f;
 
     private void PruneAnimState()
     {
-        if (_animTime.Count == 0) return;
         _stale.Clear();
         foreach (var k in _animTime.Keys) if (!_seen.Contains(k)) _stale.Add(k);
-        foreach (var k in _stale) _animTime.Remove(k);
+        foreach (var pair in _combatActions)
+            if (!_seen.Contains(pair.Key) || pair.Value.ExpiresAt <= _globalTime)
+                if (!_stale.Contains(pair.Key)) _stale.Add(pair.Key);
+        foreach (var k in _stale)
+        {
+            _animTime.Remove(k);
+            _combatActions.Remove(k);
+            _spellHolds.Remove(k);
+            _knownAlive.Remove(k);
+            _observedDead.Remove(k);
+            _deathTime.Remove(k);
+            if (_unitAttachments.Remove(k, out UnitAttachments? attachments))
+                attachments.Renderer.Dispose();
+        }
     }
 
     private static string CacheKey(in CreatureModelInfo info) =>
@@ -285,7 +638,7 @@ public sealed class CreatureRenderer : IDisposable
             M2Model? m2 = M2Reader.Parse(bytes);
             if (m2 is null || !m2.IsValid) return null;
 
-            var lm = new LoadedModel { DbcScale = info.Scale };
+            var lm = new LoadedModel { PortraitCamera = m2.PortraitCamera, Source = m2 };
 
             var animator = M2Animator.Build(m2, CreatureAnims);
             if (animator is not null && animator.BoneCount <= M2Animator.MaxBones)
@@ -308,6 +661,8 @@ public sealed class CreatureRenderer : IDisposable
             }
 
             var verts = new float[m2.Vertices.Count * FloatsPerVertex];
+            float minHeight = float.PositiveInfinity, maxHeight = float.NegativeInfinity;
+            float horizontalRadius = 0f;
             for (int i = 0; i < m2.Vertices.Count; i++)
             {
                 var v = m2.Vertices[i]; int o = i * FloatsPerVertex;
@@ -328,7 +683,16 @@ public sealed class CreatureRenderer : IDisposable
                     verts[o + 12] = ClampBone(v.BoneIndex0); verts[o + 13] = ClampBone(v.BoneIndex1);
                     verts[o + 14] = ClampBone(v.BoneIndex2); verts[o + 15] = ClampBone(v.BoneIndex3);
                 }
+
+                Vector3 worldBasis = Vector3.Transform(new Vector3(v.PosX, v.PosY, v.PosZ), Basis);
+                minHeight = MathF.Min(minHeight, worldBasis.Z);
+                maxHeight = MathF.Max(maxHeight, worldBasis.Z);
+                horizontalRadius = MathF.Max(horizontalRadius,
+                    MathF.Sqrt(worldBasis.X * worldBasis.X + worldBasis.Y * worldBasis.Y));
             }
+            lm.MinHeight = float.IsFinite(minHeight) ? minHeight : 0f;
+            lm.MaxHeight = float.IsFinite(maxHeight) ? maxHeight : 2f;
+            lm.HorizontalRadius = MathF.Max(0.25f, horizontalRadius);
             ushort[] idx = m2.Indices.ToArray();
 
             lm.Vao = _gl.GenVertexArray(); _gl.BindVertexArray(lm.Vao);
@@ -476,6 +840,8 @@ public sealed class CreatureRenderer : IDisposable
         _cache.Clear();
         foreach (var t in _texCache.Values) t?.Dispose();
         _texCache.Clear();
+        foreach (var attachments in _unitAttachments.Values) attachments.Renderer.Dispose();
+        _unitAttachments.Clear();
         _shader?.Dispose();
     }
 
@@ -533,12 +899,15 @@ uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform float uAlphaCut;
+uniform float uHighlight;
+uniform vec3 uAmbientColor;
+uniform vec3 uDiffuseColor;
 out vec4 frag;
 void main(){
     vec4 t = texture(uTex, vUv);
     if (t.a < uAlphaCut) discard;
     float ndl = max(dot(normalize(vNorm), normalize(uSunDir)), 0.0);
-    float light = 0.45 + 0.55 * ndl;
+    vec3 light = uAmbientColor + uDiffuseColor * ndl + vec3(uHighlight);
     float fog = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
     frag = vec4(mix(t.rgb * light, uFogColor, fog), t.a);
 }";

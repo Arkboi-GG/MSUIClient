@@ -15,6 +15,19 @@ these systems in MSUI without re-reading benilla from scratch. Each part traces 
 the system in code, states exactly what MSUI has today, and gives an ImGui-native port plan with
 the authentic 1.12 numbers.
 
+> **Implementation checkpoint — 2026-07-29.** The document below remains the detailed port spec,
+> but its historical “MSUI today” audits describe the tree before this implementation pass. The
+> current tree now contains real RTT portraits/paper-doll, Spell/SkillLine DBC catalogs, learned
+> spells and a genuine spellbook, persistent action slots, item queries, backpack/equipped-bag
+> windows and cross-container movement, live equipment synchronization, and the character/skills
+> panels. See `SYSTEM_GAMEPLAY_UI.md` for the concise shipped-state handoff and remaining gaps.
+
+> **Live correction — 2026-07-29.** “Contains” above means the implementations exist, not that they
+> are verified. Current live status: the integrated bottom bar is broadly acceptable but has
+> shadow/colour/alpha/see-through defects; portraits remain broken after black and partial-triangle
+> outputs; entering the visible world spuriously plays the local player's wound reaction; spell and
+> backpack behavior remain unverified. `SYSTEM_GAMEPLAY_UI.md` Draft 4 is authoritative for status.
+
 ---
 
 ## How this document was built, and how to trust it
@@ -79,15 +92,15 @@ against the staged files:
 |---|---|---|
 | 1.12 protocol (auth, SRP, header crypto, world session, char enum) | **Built** | `Net/{NetworkClient,WorldSession,RealmClient,Srp6Client,WorldHeaderCrypto}.cs` |
 | UPDATE_OBJECT codec + entity store | **Built** (units/GOs; **no item objects**) | `Net/{ObjectFields,UpdateObject,Entities}.cs` |
-| Descriptor field accessors | **Partial** — guid/type/entry/scale, health/maxhealth, level, faction, unit/npc flags, displayId, target, bytes0/2 only; **no** power, stat, skill, AP, resistance, item, inventory fields | `Net/ObjectFields.cs` |
-| Selection / attack opcodes | **Wired but unused** — `SetSelection`, `AttackSwing`, `AttackStop`, `CreatureQuery` exist; nothing calls them | `Net/WorldSession.cs` |
+| Descriptor field accessors | **Gameplay subset built** — unit health/power/combat plus item/container, inventory/bank, XP, skills, talent points, money and character stat/AP/damage/resistance blocks | `Net/ObjectFields.cs` |
+| Selection / attack opcodes | **First path built** — click selection calls `SetSelection`; right-click and engaged switches call `AttackSwing`/`AttackStop` | `Program.Targeting.cs`, `Net/WorldSession.cs` |
 | Movement + character controller | **Built** | `Player/CharacterController.cs`, `Net/MonsterMove.cs` |
 | Unit rendering (skinned player + creature M2, animation, equipment) | **Built & mature** | `World/Units/{CharacterRenderer,CreatureRenderer,M2Animator,CharacterEquipment,AttachedItemRenderer}.cs` |
 | M2 / BLP / WMO / DBC readers | **Built** (generic `DbcFile`; ItemDisplayInfo, CharSections, AreaTable, Light…) | `Formats/{M2Reader,BlpDecoder,DbcReader,CreatureDbc}.cs` |
 | ImGui HUD scaffold + glue screens + Blizzard skin helper + FRIZQT font | **Built** | `Program.Net.cs`, `Engine/{ClientWindow,GlueBooth,GlueScene}.cs`, `Engine/UI/WowSkin.cs` |
-| Render-to-texture (FBO) | **Missing** — `Texture.cs` uploads CPU bytes only; needed for portraits/paperdoll | — |
-| **The 9 gameplay systems in this doc** (target UI, combat feedback, spellbook/cast/casting-bar, action bars, bags/bank, character sheet, skills, talents, portraits, unit frames, tooltips, auras) | **Greenfield** | — |
-| Spell/Talent/SkillLine DBC readers | **Greenfield** (1.12 items are server-queried, NOT a client `Item.dbc`) | — |
+| Render-to-texture (FBO) | **Portrait path built** — reusable RGBA8/depth target; player + creature model bakes feed the live unit frames | `Engine/PortraitRenderTarget.cs`, `Program.Portraits.cs` |
+| **The gameplay systems in this doc** | **Playable first port built** — targeting/combat feedback, RTT portraits, spellbook/action bar, bags, paper-doll and skills; see the system handoff for explicit gaps | `SYSTEM_GAMEPLAY_UI.md` |
+| Spell/Talent/SkillLine DBC readers | **Spell + SkillLine built; Talent remains** (1.12 items are correctly server-queried, NOT read from a client `Item.dbc`) | `Formats/{SpellCatalog,SkillLineCatalog}.cs`, `Net/Items.cs` |
 
 The upshot: MSUI already has the hard parts a UI needs to *read from* (a live entity store, a
 skinned unit renderer, DBC/BLP access, an ImGui context, a wire session). What is missing is the
@@ -562,6 +575,16 @@ The character-sheet **portrait** (60×60, `CharacterFrame.xml:1222-1226`) is the
 
 ## B9. What MSUI has today
 
+> **Implementation checkpoint (2026-07-29).** `Engine/PortraitRenderTarget.cs` now owns a 256² RGBA8
+> colour attachment plus Depth24 renderbuffer and restores the caller's framebuffer and viewport after a
+> bake. `Program.Portraits.cs` caches a fully dressed player bake and one selected-creature bake, supplies
+> stable studio light with fog disabled, flips the GL texture for ImGui, and circle-clips it inside the
+> real `UI-TargetingFrame` PlayerFrame/TargetFrame geometry. `M2Reader` now parses the vanilla 0x7c camera
+> records and selects `cameraLookup[0]`; both character and creature booths use the authored position,
+> target, roll, near/far planes and `0.6·fov` square projection. Transformed model bounds remain only as
+> the camera-less fallback. Portrait rendering does not advance, count, or prune world animation state.
+> A head-bone fallback and live realm visual comparison remain fidelity follow-ups.
+
 MSUI is well-positioned — it already renders skinned unit M2s and drives a booth camera:
 - **`GlueBooth`** renders a per-race scene fullscreen + a **dressed character standing in it**
   (`MSUIClient/MSUIClient/Engine/GlueBooth.cs:329-426`). It owns its **own `CharacterRenderer` + `Camera`**
@@ -578,12 +601,10 @@ MSUI is well-positioned — it already renders skinned unit M2s and drives a boo
   target/position/fov/aspect.
 - **`Texture`** uploads BLP→GL and exposes a GL `Handle` usable as an ImGui `ImTextureID` (`Engine/Texture.cs:21`).
 
-**The one missing piece: there is no FBO / render-to-texture path.** `Texture.cs` only uploads CPU byte
-buffers (`From2D`/`Array2D`/`FromRgbaNoMips`, `:60-140`) — **no `GenFramebuffer`/color-attachment support**;
-the only "Framebuffer" references in the tree are MSAA sample count + window size in `ClientWindow.cs` (no
-offscreen target). `GlueBooth` renders straight to the **default framebuffer** over the backdrop
-(`GlueBooth.cs:337`, `:417-425` share the scene depth buffer), never to a texture. So a portrait ≈ **the
-GlueBooth character render, but into an FBO, then `ImGui.Image` the FBO colour texture**.
+The FBO gap described by the original audit is now closed for portraits: the new render target owns the
+colour/depth attachments and the player/creature booth path supplies its texture to ImGui. `Texture.cs`
+correctly remains the CPU-uploaded asset texture abstraction; offscreen ownership is isolated in
+`PortraitRenderTarget` instead of overloading it. Paperdoll-sized targets can reuse the same helper later.
 
 ## B10. Port plan for MSUI
 
@@ -603,8 +624,8 @@ GlueBooth character render, but into an FBO, then `ImGui.Image` the FBO colour t
    `FieldOfViewDegrees = 0.6·fov_record` at aspect 1.0, since the booth renders a **square** target —
    `framing.rs:24-60`, `:44-48`). Fallback for a camera-less model: aim at the **head bone (KeyBone 6)** or
    helm attach (id 11), three-quarter yaw, distance sized by height (`framing.rs:139-208`). Note MSUI's
-   `M2Reader` is not in the staged tree — a portrait-camera parse must be added there `[brief]`; until then use
-   the head-bone fallback, which `CharacterRenderer`'s skeleton already exposes.
+   This path is implemented in `M2Reader`, `CharacterRenderer`, `CreatureRenderer`, and
+   `Program.Portraits`; camera-less models currently use the bounds fallback until the head-bone fallback lands.
 4. **Lighting**: reuse the `GlueBooth`/`CharacterRenderer` light knobs (`SunDirection`, `AmbientIntensity`,
    `SunIntensity`, `GlueBooth.cs:390-404`) — a fixed neutral front-lit studio key from the camera side matches
    benilla's `studio_light_rows` (`light.rs:160-179`). Force fog OFF in the booth.
@@ -660,11 +681,9 @@ sheet is that render into an FBO shown in an ImGui child region, plus the equipm
 
 ## Open uncertainties
 
-1. **MSUI staging is partial.** `Engine/UI/WowSkin.cs`, `UiFont`, `Engine/GlueScene.cs`, and
-   `Formats/M2Reader.cs` are **not in the staged tree** — the brief describes them and they are referenced in
-   staged code (e.g. `WowSkin.*` at `Program.Net.cs:804`), but their exact APIs (WowSkin's method signatures,
-   whether `M2Reader` already parses `cameraLookup`) could not be verified from source. The port plan assumes
-   `M2Reader` needs a portrait-camera parse added (the head-bone fallback works without it).
+1. **Camera-less models.** The authored `cameraLookup[0]` path is implemented and is the primary portrait
+   route. Models without that lookup currently fall back to transformed vertex bounds; a KeyBone 6 / helm
+   attachment fallback remains the next fidelity step.
 2. **benilla `kinds.rs` and `script/tooltip.rs` not staged.** The widget kind-state structs (`StatusBarState`,
    `TooltipState`, the `TOOLTIP_PAD/LINE_GAP/WRAP_WIDTH` constants exported at `widget/mod.rs:178-179`) and the
    tooltip line-append/auto-size engine were characterised from their call sites and the XML instance, not the
@@ -833,7 +852,7 @@ sends `SetSelection{guid:0}` (+ `AttackStop` if engaged), no-op when nothing is 
 body = a **raw full 8-byte GUID** (`messages::full_guid`), little-endian u64; `guid == 0`
 clears. **MSUI already implements this exactly**: `WorldSession.SetSelection(ulong) =>
 SendFullGuid(Op.CMSG_SET_SELECTION, guid)` (`MSUIClient/MSUIClient/Net/WorldSession.cs:201`,
-`233-238`) — nothing calls it yet.
+`233-238`); `Program.Targeting.CommitSelection` now calls it after the immediate local commit.
 
 ### How UNIT_TARGET relates (server's view ≠ your selection)
 `CMSG_SET_SELECTION` makes the **server** record your pick in **your** `UNIT_FIELD_TARGET` and
@@ -889,9 +908,10 @@ units** fall back to `RING_FALLBACK_RADIUS = 0.7` (`ring.rs:65,397`). When mount
 and extra scale column come from the mount model (`ring.rs:394-398`).
 
 For MSUI: parse the Stand-sequence (`animationLookup[0]`) CAaBox from the M2 (MSUI already reads
-M2s in `CreatureRenderer.LoadModel`), compute `ring_footprint`, multiply by `entity.Scale` (and
-the model's DBC scale, which MSUI already applies as `model.DbcScale`,
-`CreatureRenderer.cs:177`). If Stand bounds are inconvenient at first, ship the 0.7 fallback for
+M2s in `CreatureRenderer.LoadModel`), compute `ring_footprint`, and multiply by `entity.Scale`.
+Do **not** multiply the DBC display/model scale again: vmangos has already folded it into
+`OBJECT_FIELD_SCALE_X`; applying it twice squares native sub-1 scales (the tiny-wolf bug fixed
+2026-07-29). If Stand bounds are inconvenient at first, ship the 0.7 fallback for
 everything and refine — the ring is forgiving.
 
 ### Colour by reaction (the ring's own selector, shared with names)
@@ -998,31 +1018,31 @@ billboard (like the ring quad) is the higher-fidelity alternative if you want wa
 
 ## 6. What MSUI has today (precisely)
 
-- **Wire ready, unused.** `WorldSession.SetSelection(ulong)`, `AttackSwing(ulong)`,
-  `AttackStop()`, `CreatureQuery(entry, guid)`, `NameQuery(guid)` all exist and are correct
-  (`WorldSession.cs:201-203,220-229`). **Nothing calls `SetSelection`** — there is no selection
-  producer.
-- **Descriptor ready, unused for targeting.** `ObjectFields.Target` (UNIT_TARGET=16, GUID),
+- **Wire and first producer built.** `WorldSession.SetSelection(ulong)`, `AttackSwing(ulong)`,
+  `AttackStop()`, `CreatureQuery(entry, guid)`, `NameQuery(guid)` exist; `Program.Targeting.cs`
+  now drives the first three from clean world clicks and engaged target switches.
+- **Descriptor ready and consumed by targeting.** `ObjectFields.Target` (UNIT_TARGET=16, GUID),
   `FactionTemplate` (35), `UnitFlags` (46), `NpcFlags` (147), `DynamicFlags` (143), `DisplayId`
   (131), `Health/MaxHealth/Level`, `IsDead`, `HealthFraction`, `Scale` are all decoded and merged
-  correctly (`ObjectFields.cs:88-109`, `Entities.cs:29-34`). No `Selection`, no `Hovered`.
+  correctly (`ObjectFields.cs:88-109`, `Entities.cs:29-34`). Local selection/hover live in
+  `Program.Targeting.cs`; `ObjectFields.Target` still represents a unit's server descriptor target.
 - **World model ready.** `EntityStore` is game-thread-owned, keyed by GUID, with `Units`,
   `NearestUnits(from, max)`, per-entity `Position` (raw WoW space), `Orientation`, `Scale`,
   `DisplayId` (`Entities.cs:40-138`).
-- **Camera ready, no unproject.** `Camera` exposes `View`, `Projection`, `ViewProjection`,
+- **Camera unprojection built.** `Camera` exposes `View`, `Projection`, `ViewProjection`,
   `RelativeViewProjection`, `Position`, `Forward`, and a clip-space `BoxInFrustum`
-  (`Engine/Camera.cs:219-290`) — but **no screen→world ray** helper yet. Native WoW coords
+  (`Engine/Camera.cs:219-325`) plus `ScreenPointToRay` and `TryWorldToScreen`. Native WoW coords
   throughout (X north, Y west, Z up), no conversion layer (`Camera.cs:5-25`).
-- **Input ready, no click-vs-drag.** `ClientWindow` polls `MouseLeftDown/RightDown/MiddleDown`,
+- **Input click-vs-drag built.** `ClientWindow` polls `MouseLeftDown/RightDown/MiddleDown`,
   exposes `MousePosition`, `FramebufferSize`, `MouseCaptured`, and gates on
-  `ImGui.GetIO().WantCaptureMouse` (`ClientWindow.cs:199-212,497-525`). **But both left and right
-  MouseDown immediately `BeginLook` (camera capture)** (`ClientWindow.cs:356-360`) — there is **no
-  "clean click" concept**; every press is currently a camera drag. The self player is
-  `_controller.Position` / `_net.PlayerGuid` (`Program.Net.cs:123,865`).
+  `ImGui.GetIO().WantCaptureMouse`. A 4-pixel travel threshold separates clean releases from
+  camera drags, and a two-button chord invalidates both click candidates. The self player is
+  `_controller.Position` / `_net.PlayerGuid`.
 - **Rendering ready.** `CreatureRenderer.Render(camera, entities)` draws each creature's M2 at
   `e.Position/Orientation/Scale`, camera-relative (`CreatureRenderer.cs:132-228`), called from the
-  world pass (`Program.Net.cs:318-322`). **No selection ring, no nameplate, no hover, no cursor
-  swap.** `GuidInfo.IsPlayer/IsCreatureOrPet` exist for classification (`Net/GuidInfo.cs:19-22`).
+  world pass (`Program.Net.cs:318-322`). Selection/hover and a minimal fixed target health frame
+  are built; ring geometry, nameplates and cursor swapping remain. `GuidInfo.IsPlayer/IsCreatureOrPet`
+  exist for classification (`Net/GuidInfo.cs:19-22`).
 
 ---
 
@@ -1121,8 +1141,8 @@ per-frame snapshot fed from `selection.target`'s store —
   the unit-frame chrome (portrait, aura rows, tooltips) this section defers.
 - **Auras/tooltips** section: the target frame's buff/debuff rows and the mouseover unit tooltip
   are out of scope here.
-- **Combat** (future): the stop→select→re-swing commit, the combat flash, and TAB auto-acquire all
-  depend on an "am I auto-attacking" (`Engaged`) bracket MSUI doesn't have yet.
+- **Combat**: the first stop→select→re-swing commit now consumes the server-echoed `Engaged`
+  bracket. Combat flash, TAB auto-acquire, reputation overrides and full unit-frame chrome remain.
 
 ### Uncertainties
 - The exact `dx/dy` extent convention inside `M2Bounds::ring_footprint` (half-extent vs full width)
@@ -1134,6 +1154,26 @@ per-frame snapshot fed from `selection.target`'s store —
   MSUI's own `ObjectFields`, not read from a staged benilla `mod.rs` (that file isn't in this
   subset); the accessor semantics (2-dword GUID, non-zero filter) are confirmed at
   `fields/unit.rs:21-25`.
+
+### Implementation checkpoint (2026-07-29)
+
+The first playable targeting slice is implemented in `Program.Targeting.cs`:
+
+- a 4-pixel click-vs-drag arbiter preserves both camera-drag modes and rejects two-button chords;
+- screen pixels unproject through the rendered camera; nearest vertical creature cylinders provide
+  the CPU proxy, with a strict-nearer static-world hit rejecting targets behind walls;
+- clean left-click selects (empty clears), clean right-click selects and attacks (empty preserves);
+- selection commits locally before `CMSG_SET_SELECTION`; an engaged switch sends
+  `CMSG_ATTACKSTOP → CMSG_SET_SELECTION → CMSG_ATTACKSWING`;
+- `FactionTemplate.dbc` supplies the byte-ordered comparator. Attackability uses player→target,
+  while target-frame colour uses target→player; the five pinned flag disqualifiers are applied;
+- death/stream-out clears selection, and `SMSG_ATTACKSTART/STOP` reconciles the speculative local
+  attack latch through `CombatState.AttackRevision`;
+- a minimal reaction-coloured target health frame makes selection immediately visible.
+
+Still deferred: posed-mesh silhouette picking/ring geometry, reputation overrides, PvP/duel/group
+logic, sticky-hover refinement, greeting/interaction actions, TAB targeting, and the final
+FrameXML-style target unit frame.
 
 # Part 4 — Combat: attack state, the combat log, floating combat text & feedback
 
@@ -1161,8 +1201,8 @@ builders: `WorldSession.AttackSwing(ulong guid)` writes the full 8-byte guid,
 `WorldSession.AttackStop()` sends an empty body
 (`MSUIClient/MSUIClient/Net/WorldSession.cs:202-203`), with opcodes
 `CMSG_ATTACKSWING=0x0141`, `CMSG_ATTACKSTOP=0x0142`
-(`MSUIClient/MSUIClient/Net/Opcodes.cs:68-69`). They are currently unused (nothing
-calls them).
+(`MSUIClient/MSUIClient/Net/Opcodes.cs:68-69`). `Program.Targeting.cs` now calls them for
+right-click initiation and the stop→select→re-swing target-switch sequence.
 
 **SMSG_ATTACKSTART / STOP (server → client), the engagement bracket.** benilla's
 handlers are tiny and their whole job is a marker component, not damage:
@@ -1176,8 +1216,9 @@ handlers are tiny and their whole job is a marker component, not damage:
   (flush any pending swing text, no sounds) (`combat.rs:29-43`). Death/stun arrive
   as this same packet.
 
-Wire (from the protocol test): `SMSG_ATTACKSTART` = attacker u64 + victim
-PackedGUID (`tests/spells.rs:150-159`); `SMSG_ATTACKSTOP` = attacker PackedGUID +
+Wire (re-verified against the current protocol source and golden test):
+`SMSG_ATTACKSTART` = attacker u64 + victim u64 (`messages/attack.rs`,
+`tests/spells.rs:150-159`); `SMSG_ATTACKSTOP` = attacker PackedGUID +
 victim PackedGUID + u32 (`tests/spells.rs:160-169`). Opcodes
 `SMSG_ATTACKSTART=0x0143`, `SMSG_ATTACKSTOP=0x0144` (already in
 `Opcodes.cs:70-71`).
@@ -1525,33 +1566,46 @@ benilla `fields/mod.rs:50,52`; see Appendix B) must be added for player resource
 
 ## 6. What MSUI has today (combat)
 
+> **Implementation checkpoint, 2026-07-29.** The wire/state part of §7a is now
+> built in `Net/CombatPackets.cs` and `Net/CombatState.cs`: all listed attack and
+> combat-log opcodes decode into typed events, full-block synthesis runs before
+> consumers, engagement is mirrored onto streamed entities, and the event queue
+> is bounded. Power/max-power accessors are also present. Target selection, attack input,
+> first melee animations, world/center combat text, player/target bars and hit flashes have since
+> landed; final portrait chrome and broader combat UI remain.
+> `tools/combat-wire-check` runs representative Benilla golden bodies through
+> the C# parser and verifies the movement jump-tail round trip.
+
 - **Outbound**: `WorldSession.AttackSwing(guid)` / `AttackStop()` / `SetSelection(guid)`
-  exist and are wired through `NetworkClient` (`WorldSession.cs:201-203`,
-  `NetworkClient.cs:171`). **Currently unused** — nothing calls AttackSwing/Stop, and
-  there is no stored "current target" guid on the game thread (only the char-select
-  `_selectedChar`).
+  are wired through `NetworkClient` and consumed by `Program.Targeting.cs`, which owns the
+  game-thread selection and speculative attack-target latches.
 - **Opcodes present**: `CMSG_ATTACKSWING 0x0141`, `CMSG_ATTACKSTOP 0x0142`,
   `SMSG_ATTACKSTART 0x0143`, `SMSG_ATTACKSTOP 0x0144`, `SMSG_ATTACKERSTATEUPDATE
   0x014A`, `SMSG_AI_REACTION 0x013C`, `CMSG_SET_SELECTION 0x013D`, plus spell
-  `SMSG_SPELL_START/GO` (`Opcodes.cs:66-77`). **Missing**: every combat-log opcode
-  (SPELLNONMELEEDAMAGELOG, PERIODICAURALOG, SPELLHEALLOG, SPELLENERGIZELOG,
-  SPELLDAMAGESHIELD, ENVIRONMENTALDAMAGELOG, SPELLLOGMISS, LOG_XPGAIN).
-- **Inbound dispatch**: `PumpNet` drains `NetworkClient` and switches on opcode, but
-  only handles UPDATE_OBJECT / COMPRESSED_UPDATE_OBJECT / DESTROY_OBJECT /
-  MONSTER_MOVE (`MSUIClient/MSUIClient/Program.Net.cs:147-178`). **0x14A and the
-  combat-log opcodes fall through (no-op).**
+  `SMSG_SPELL_START/GO` and the complete combat-log family (`Opcodes.cs`).
+- **Inbound dispatch**: `PumpNet` sends 0x14A and the combat-log family through
+  `CombatPacketParser` into `CombatState`; melee swings also feed the first attacker/victim
+  animation consumer in `Program.CombatAnimations.cs`.
 - **Health/power**: `EntityStore` holds health/maxhealth via `ObjectFields`
   (UNIT_HEALTH=22, UNIT_MAXHEALTH=28), with `HealthFraction` and `IsDead` helpers
   (`ObjectFields.cs:92-93,106-109`; `Entities.cs:31-32`). Deltas merge correctly.
-  **No power fields, no attack-power/damage/attack-time fields.**
-- **Rendering/anim**: `CreatureRenderer.SelectClip` picks Stand(0)/Walk(4)/Run(5)
-  from spline speed via `M2Animator.FindFirst` (`CreatureRenderer.cs:230-247`).
-  `M2Animator` bakes arbitrary AnimationData.dbc ids (`Build`, `Find`, `FindFirst`,
-  `Evaluate`; `M2Animator.cs:279,467,470,578`) and knows one-shot vs looping
-  (`OneShotAnimations = {37,39}`, `:127`). **Death (id 1) is bakeable but never
-  selected; no swing/attack/flinch clip is ever driven.**
-- **No combat UI at all**: no floating/center combat text, no combat-log window, no
-  over-unit health bars, no player resource bars, no UNIT_COMBAT portrait flash.
+  Active power/max-power accessors are built; attack-power/damage/attack-time
+  fields remain absent.
+- **Rendering/anim**: locomotion still picks Stand/Walk/Run from spline speed. The first combat
+  consumer now restarts non-looping Attack 16–19/85/87/88/117 clips on the packet's attacker and
+  CombatWound 9 or defensive 20–24/30 on its victim. Both the local `CharacterRenderer` and
+  streamed `CreatureRenderer` participate; `SMSG_ATTACKSTART/STOP` also selects the standing
+  Ready 25–28 loop while engaged. Weapon subclass data is not streamed yet, so the local
+  picker currently distinguishes empty/1H/2H inventory slots rather than every subclass.
+- **Creature lifecycle**: idle creatures now turn locally toward `UNIT_FIELD_TARGET` (or the
+  ATTACKSTART victim fallback) by the short arc at 8 rad/s. A health delta to zero clears the
+  spline immediately, Death 1 overrides every gait and clamps on its final corpse frame; a unit
+  first streamed dead starts already settled, and a dead→alive edge plays Rise 7.
+- **First combat HUD**: locally owned outgoing melee/spell damage floats over its victim with
+  number/word precedence, crit sizing, canonical white/gold colors, fade/rise, and a four-per-unit
+  cap. Player and target frames show descriptor-driven health/power and flash on ungated incoming
+  feedback. Incoming/self damage, heals and power gains also use the first center-scroll/crit-park
+  implementation. A combat-log window, final portraits and general nameplates remain.
 - **Projection available**: `camera.RelativeViewProjection` is the world→screen
   matrix already used by the renderers (`CreatureRenderer.cs:144`) — reuse it for
   over-unit anchors (defer to the Foundations world→screen helper).
@@ -1560,7 +1614,7 @@ benilla `fields/mod.rs:50,52`; see Appendix B) must be added for player resource
 
 ## 7. Port plan for MSUI (ImGui-native), ordered
 
-**(a) Parse the packets into a `CombatEvent` queue in PumpNet.**
+**(a) Parse the packets into a `CombatEvent` queue in PumpNet — BUILT 2026-07-29.**
 Add the missing opcodes to `Op` (values from `opcode.rs`), then add cases to the
 `PumpNet` switch (`Program.Net.cs:152`). Parse each into a small struct mirroring
 `combat_log.rs`; the exact byte layouts are in §2/§3. Watch the guid encoding split
@@ -1575,7 +1629,7 @@ block/absorb/resist/miss) drained by the HUD each frame. Classify **source** for
 color: is attacker == my guid, or a unit whose `UNIT_SUMMONEDBY`/`CREATEDBY` == my
 guid (pet) — else suppress the floating number (but still allow health-bar / log).
 
-**(b) Drive M2 clips on attacker & victim.**
+**(b) Drive M2 clips on attacker & victim — FIRST PASS BUILT 2026-07-29.**
 Give `WorldEntity` a transient "action clip" overlay `{ animId, startTime, oneShot }`
 that `SelectClip` consults before the locomotion pick
 (`CreatureRenderer.cs:230-247`): if an action clip is active and unfinished, play it
@@ -1598,7 +1652,11 @@ number/blood/impact-sound to the clip's **impact keyframe** (`combat.rs:66-71`).
 Without keyframe tags, approximate: play the swing, and pop the floating number ~40-50%
 into the swing clip (see §8).
 
-**(c) Floating combat text system (ImGui, system A).**
+MSUI's lifecycle follow-up is built: witnessed death plays Death from time zero and holds its final
+frame; a corpse first seen dead seeks straight to the settled pose; resurrection queues Rise. Dead
+units also lose their active spline before the animation selector runs.
+
+**(c) Floating combat text system (ImGui, system A) — FIRST PASS BUILT 2026-07-29.**
 Each frame: drain the `CombatEvent` queue into a `List<FloatingText>`; for each,
 snapshot the victim's overhead world point (unit position + a head-height offset,
 benilla lifts **z − 1/3**, `mod.rs:207-231`), project with
@@ -1613,10 +1671,11 @@ hard drop**. Colors (B/K law): my melee **white `0xFFFFFFFF`**, my spell **gold
 `0xFFFFDE00`**, pet melee **orange `0xFFFF8400`**; crit does not recolor; **no school
 color**. Gate A: never over the player's own head; other units' damage draws nothing.
 Words for dodge/parry/block/evade/immune/deflect/miss/absorb/resist (`law.rs:97-107`).
-*Optionally* also build system (B) center-scroll (over your own character, red
-damage, green heals, the CombatText.xml constants) — but (A) is the higher-value port.
+System (B) center-scroll now has a first pass: incoming/self damage is red, heals green, power blue;
+normal rows rise and fade on the 1.9/1.3-second law, while crit rows grow/shrink and park. The final
+FrameXML font/placement tuning and low-health/mana warnings remain.
 
-**(d) Health bar over units + player resource bars.**
+**(d) Health bar over units + player resource bars — PLAYER/TARGET FIRST PASS BUILT 2026-07-29.**
 Over-unit: project each unit's overhead point, draw an ImGui filled rect using
 `WorldEntity.HealthFraction` (`Entities.cs:31`, already available) with the
 reaction color (defer coloring to the target-frame/Foundations section). Player
@@ -1690,10 +1749,9 @@ floating text): shows everyone's actions, matching the `UNIT_COMBAT`/chat scope.
 
 ## Cross-section deps & uncertainties
 
-- **Target frame / selection** (own section): MSUI has `SetSelection` + a
-  `CMSG_SET_SELECTION` opcode but no stored current-target guid on the game thread.
-  The over-unit health bar's "your target" emphasis, and wiring AttackSwing to a
-  selected target, both need that selection state.
+- **Target frame / selection** (own section): the current-target guid, first reaction-coloured
+  health frame, and AttackSwing wiring are built. Ring geometry, over-unit target emphasis and
+  final unit-frame chrome remain.
 - **World→screen projection** (Foundations): all of §7c/§7d anchoring relies on the
   shared projection helper; `camera.RelativeViewProjection` (`CreatureRenderer.cs:144`)
   is the matrix. The benilla overhead-anchor (`z − 1/3`, head-height attach) is in
@@ -4130,3 +4188,50 @@ benilla/vmangos file before shipping the detail.
 *End of document. Generated 2026-07-29 from benilla `C:\Users\nico\Desktop\benilla-main` (read-only
 reference) for the MSUIClient port. Every part is `file:line`-cited to benilla and MSUI source as it
 stood at generation time.*
+
+## Implementation update — sheath, casting and spell visuals (2026-07-29)
+
+The first runtime slice is now in-tree:
+
+- `UNIT_BYTES_2` and `UNIT_VIRTUAL_ITEM_*` drive player/NPC held-vs-stowed attachments. Attachment
+  ids are hands 1/2, wrist 0, back 26/27, shield-back 28, lower-back 30/31 and hips 32/33. Ranged
+  is visible only in sheath state 2. Manual `Z` changes use animation 89 or hip-sheath 90 and delay
+  the model relocation until the ceremony midpoint.
+- The outbound cast target guid is packed. START/GO/result/failure/delay/channel/visual packets feed
+  cast holds, release/reaction clips, Blizzard's casting bar, cooldown start, and staged effects.
+  Escape/movement send the reference cancel opcodes. Auto-repeat (`AttributesEx2 & 0x20`) and
+  on-next-swing (`Attributes & 0x404`) are explicitly outside the ordinary pending-cast gate.
+- `SpellVisual`, `SpellVisualKit`, and `SpellVisualEffectName` are live catalogs. Effect M2s
+  contribute mesh batches and particle emitters; missile speed controls travel duration and impact
+  waits for arrival. DBC `.mdx`/`.mdl` paths normalize to archive `.m2` paths.
+- Public aura arrays are decoded at bases 47/95/101/113. Occupancy requires `flags & 0x0e`; stacks
+  are the transmitted byte plus one. Selected-unit identity comes from name/creature queries.
+
+Validation boundary: this establishes the data, wire and render chain. A live realm pass must still
+tune effect scale/orientation and identify effects whose visible geometry depends on ribbon emitters
+rather than the now-animated effect mesh plus particles.
+
+## Implementation update — wound-on-entry, portraits, action-bar states, looting (2026-07-30)
+
+Full session detail in `PORT_SESSION_2026-07-30.md`; SYSTEM_GAMEPLAY_UI.md is at Draft 5. Summary:
+
+- **World-entry flinch root-caused**: `ApplySpellImpact` synthesized a wound whenever an impact kit
+  had no authored anim; the server's LOGINEFFECT (836) hit that path at every login. Now faithful to
+  the reference: kit anim only, wound family 8/9/10 only, nothing otherwise.
+- **Portraits**: live bakes are pre-masked to the inscribed circle (`ApplyCircularMask`) because the
+  ring chrome's corners are transparent and hide nothing; booth clear parity (0.055, 0.045, 0.04);
+  degenerate authored cameras fall back to bounds framing; undead stand-in token is "Scourge".
+- **Action bar**: the reference three-way usability tint (oom blue icon+ring / unusable grey icon),
+  SpellRange.dbc + combat-reach out-of-range hotkey red, pushed/hover/checked textures, the 0.4 s
+  attack flash, equipped green ADD border, item stack counts, right-justified shadowed hotkeys, and
+  the carried-payload grid-ring swap.
+- **Looting (new)**: the complete solo corpse flow — opcodes 264/349-355/357-358, both
+  SMSG_LOOT_RESPONSE shapes, wire-slot-stable rows, transition-to-empty auto-release, guid-matched
+  release clears, the authored LootFrame with pagination and coin row, kneel at CMSG_LOOT, Escape /
+  walk-away / despawn release, 1.12 refusal strings, and the "You receive loot" line off
+  SMSG_ITEM_PUSH_RESULT. Descriptor additions: UNIT_DYNAMIC_FLAGS lootable bit, COMBATREACH,
+  BOUNDINGRADIUS, BASE_MANA.
+
+Validation boundary: authored and adversarially reviewed WITHOUT a compiler or live realm (no .NET
+SDK reachable from the sandbox). `dotnet build` is the first gate; SYSTEM_GAMEPLAY_UI.md's live
+checklist (items 1, 2, 3, 3b) is the sign-off.

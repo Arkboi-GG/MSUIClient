@@ -220,6 +220,43 @@ public sealed class WorldSession : IDisposable
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);
+    public void SetSheathed(byte state)
+    {
+        var w = new PacketWriter(4); w.WriteU32(state);
+        SendPacket((ushort)Op.CMSG_SETSHEATHED, w.AsSpan());
+    }
+
+    public void CastSpell(uint spellId, ulong targetGuid)
+    {
+        var w = new PacketWriter(targetGuid == 0 ? 6 : 14);
+        w.WriteU32(spellId);
+        w.WriteU16(targetGuid == 0 ? (ushort)0 : (ushort)0x0002); // TARGET_FLAG_SELF / UNIT
+        if (targetGuid != 0) w.WritePackedGuid(targetGuid);
+        SendPacket((ushort)Op.CMSG_CAST_SPELL, w.AsSpan());
+    }
+
+    public void CancelCast(uint spellId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(spellId);
+        SendPacket((ushort)Op.CMSG_CANCEL_CAST, w.AsSpan());
+    }
+
+    public void CancelChannelling(uint spellId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(spellId);
+        SendPacket((ushort)Op.CMSG_CANCEL_CHANNELLING, w.AsSpan());
+    }
+
+    public void CancelAutoRepeat()
+        => SendPacket((ushort)Op.CMSG_CANCEL_AUTO_REPEAT_SPELL, ReadOnlySpan<byte>.Empty);
+
+    public void SetActionButton(byte wireSlot, uint packed)
+    {
+        var w = new PacketWriter(5);
+        w.WriteU8(wireSlot);
+        w.WriteU32(packed);
+        SendPacket((ushort)Op.CMSG_SET_ACTION_BUTTON, w.AsSpan());
+    }
 
     public void SendMovement(Op moveOp, MovementInfo info)
     {
@@ -245,6 +282,59 @@ public sealed class WorldSession : IDisposable
         w.WriteU32(entry);
         w.WriteU64(guid);
         SendPacket((ushort)Op.CMSG_CREATURE_QUERY, w.AsSpan());
+    }
+
+    public void ItemQuery(uint entry, ulong guid)
+    {
+        var w = new PacketWriter(12);
+        w.WriteU32(entry); w.WriteU64(guid);
+        SendPacket((ushort)Op.CMSG_ITEM_QUERY_SINGLE, w.AsSpan());
+    }
+
+    public void UseItem(byte bag, byte slot, byte spellSlot)
+    {
+        var w = new PacketWriter(5);
+        w.WriteU8(bag); w.WriteU8(slot); w.WriteU8(spellSlot); w.WriteU16(0);
+        SendPacket((ushort)Op.CMSG_USE_ITEM, w.AsSpan());
+    }
+
+    public void AutoEquipItem(byte bag, byte slot)
+    {
+        var w = new PacketWriter(2); w.WriteU8(bag); w.WriteU8(slot);
+        SendPacket((ushort)Op.CMSG_AUTOEQUIP_ITEM, w.AsSpan());
+    }
+
+    public void SwapInventoryItems(byte sourceSlot, byte destinationSlot)
+    {
+        var w = new PacketWriter(2); w.WriteU8(sourceSlot); w.WriteU8(destinationSlot);
+        SendPacket((ushort)Op.CMSG_SWAP_INV_ITEM, w.AsSpan());
+    }
+
+    public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot)
+    {
+        var w = new PacketWriter(4);
+        w.WriteU8(destinationBag); w.WriteU8(destinationSlot);
+        w.WriteU8(sourceBag); w.WriteU8(sourceSlot);
+        SendPacket((ushort)Op.CMSG_SWAP_ITEM, w.AsSpan());
+    }
+
+    /// <summary>CMSG_LOOT — request a corpse's loot window. Body = the full 8-byte guid
+    /// (vmangos Server/Packets/Loot.cpp:8-11; GameObjects use CMSG_GAMEOBJ_USE instead).</summary>
+    public void Loot(ulong guid) => SendFullGuid(Op.CMSG_LOOT, guid);
+
+    /// <summary>CMSG_LOOT_MONEY — take the whole coin pile. Empty body.</summary>
+    public void LootMoney() => SendPacket((ushort)Op.CMSG_LOOT_MONEY, ReadOnlySpan<byte>.Empty);
+
+    /// <summary>CMSG_LOOT_RELEASE — close the loot session on the server. Full guid body.</summary>
+    public void LootRelease(ulong guid) => SendFullGuid(Op.CMSG_LOOT_RELEASE, guid);
+
+    /// <summary>CMSG_AUTOSTORE_LOOT_ITEM — one u8: the 0-based WIRE loot slot; the server
+    /// places the item into the first free bag slot (no destination on the wire).</summary>
+    public void AutostoreLootItem(byte lootSlot)
+    {
+        var w = new PacketWriter(1);
+        w.WriteU8(lootSlot);
+        SendPacket((ushort)Op.CMSG_AUTOSTORE_LOOT_ITEM, w.AsSpan());
     }
 
     public void WorldportAck() => SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);

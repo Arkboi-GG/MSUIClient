@@ -236,6 +236,11 @@ public sealed class DoodadRenderer : IDisposable
         /// the persistent per-key stamp so a re-placement on a tile crossing does
         /// not re-fade. See <see cref="ResolveAppearStart"/>.</summary>
         public float AppearStart;
+
+        // Set only for MODD furniture. Terrain doodads remain unowned and are
+        // never portal-culled.
+        public int WmoInstanceId;
+        public int[] OwnerGroups = [];
     }
 
     /// <summary>
@@ -529,6 +534,10 @@ public sealed class DoodadRenderer : IDisposable
     /// is what makes this a useful A/B toggle rather than a debug leftover.
     /// </summary>
     public bool InteriorLighting { get; set; } = true;
+
+    /// <summary>Single portal-visibility authority supplied by WmoRenderer.
+    /// Null keeps every doodad visible.</summary>
+    public Func<int, int[], bool>? PortalVisibility { get; set; }
 
     // ── appear fade (benilla model_fade.rs) ─────────────────────────────────────
 
@@ -970,7 +979,8 @@ public sealed class DoodadRenderer : IDisposable
         return false;
     }
 
-    public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null)
+    public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null,
+        int wmoInstanceId = 0, int[]? ownerGroups = null)
     {
         string key = $"{NormalizeModelKey(modelPath)}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
         if (_placed.Contains(key)) return true;
@@ -999,6 +1009,8 @@ public sealed class DoodadRenderer : IDisposable
             Path = modelPath,
             Light = light ?? new Vector4(0f, 0f, 0f, 1f),
             AppearStart = ResolveAppearStart(key),
+            WmoInstanceId = wmoInstanceId,
+            OwnerGroups = ownerGroups ?? [],
         });
         CullBoundsFor(model).Add(new CullBounds(min, max));
 
@@ -1651,6 +1663,9 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
+                if (instance.WmoInstanceId != 0 &&
+                    PortalVisibility is not null &&
+                    !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                 // Distance first: it is a subtraction, the frustum test is six
                 // dot products, and most doodads fail on distance.
                 var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
@@ -1826,6 +1841,9 @@ public sealed class DoodadRenderer : IDisposable
                             b.Max - eye)) { FrustumCulledLastFrame++; continue; }
 
                     var instance = instances[i];
+                    if (instance.WmoInstanceId != 0 &&
+                        PortalVisibility is not null &&
+                        !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var transform = instance.Transform;
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
@@ -1844,6 +1862,9 @@ public sealed class DoodadRenderer : IDisposable
                 // baseline. Deleting it would make the toggle a lie.
                 foreach (var instance in instances)
                 {
+                    if (instance.WmoInstanceId != 0 &&
+                        PortalVisibility is not null &&
+                        !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
                     if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
                     if (FrustumCulling &&

@@ -9,6 +9,8 @@ using ImGuiNET;
 
 namespace MSUIClient.Engine;
 
+public readonly record struct WorldMouseClick(MouseButton Button, Vector2 Position);
+
 /// <summary>
 /// Window, GL context, main loop, input and the debug HUD.
 ///
@@ -215,6 +217,33 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Cursor position in window pixels (top-left origin).</summary>
     public Vector2 MousePosition => _mouse?.Position ?? default;
 
+    private struct WorldPress
+    {
+        public bool Active;
+        public Vector2 Position;
+        public float Travel;
+    }
+
+    private WorldPress _leftWorldPress;
+    private WorldPress _rightWorldPress;
+    private readonly Queue<WorldMouseClick> _worldClicks = new();
+    private const float WorldClickDragPixels = 4f;
+
+    /// <summary>Take one clean left/right release that did not become a camera drag.</summary>
+    public bool TryDequeueWorldClick(out WorldMouseClick click)
+    {
+        if (_worldClicks.TryDequeue(out click)) return true;
+        click = default;
+        return false;
+    }
+
+    public void ClearWorldClicks()
+    {
+        _worldClicks.Clear();
+        _leftWorldPress = default;
+        _rightWorldPress = default;
+    }
+
     /// <summary>Window size in pixels, for unprojecting the cursor into a ray.</summary>
     public Vector2 FramebufferSize
         => _window is null ? Vector2.One : new Vector2(_window.Size.X, _window.Size.Y);
@@ -364,12 +393,20 @@ public sealed class ClientWindow : IDisposable
             mouse.MouseDown += (m, btn) =>
             {
                 if (ImGui.GetIO().WantCaptureMouse) return;
-                if (btn is MouseButton.Right or MouseButton.Left) BeginLook(m);
+                if (btn is MouseButton.Right or MouseButton.Left)
+                {
+                    BeginWorldPress(btn, m.Position);
+                    BeginLook(m);
+                }
             };
 
             mouse.MouseUp += (m, btn) =>
             {
-                if (btn is MouseButton.Right or MouseButton.Left) EndLook(m);
+                if (btn is MouseButton.Right or MouseButton.Left)
+                {
+                    EndWorldPress(btn);
+                    EndLook(m);
+                }
             };
 
             mouse.MouseMove += (_, pos) =>
@@ -388,6 +425,10 @@ public sealed class ClientWindow : IDisposable
 
                 if (MathF.Abs(delta.X) > MaxDeltaPixels || MathF.Abs(delta.Y) > MaxDeltaPixels) return;
                 if (delta.X == 0f && delta.Y == 0f) return;
+
+                float travel = delta.Length();
+                if (_leftWorldPress.Active) _leftWorldPress.Travel += travel;
+                if (_rightWorldPress.Active) _rightWorldPress.Travel += travel;
 
                 LastMouseDelta = delta;
                 MouseLookEvents++;
@@ -443,6 +484,34 @@ public sealed class ClientWindow : IDisposable
         startup.Restart();
         OnLoad?.Invoke(_gl);
         Console.WriteLine($"[startup] game load callback     {startup.Elapsed.TotalSeconds,6:F2}s");
+    }
+
+    private void BeginWorldPress(MouseButton button, Vector2 position)
+    {
+        ref WorldPress press = ref (button == MouseButton.Left
+            ? ref _leftWorldPress
+            : ref _rightWorldPress);
+        press = new WorldPress { Active = true, Position = position };
+
+        // A two-button chord is camera control, never two coincident clicks.
+        ref WorldPress other = ref (button == MouseButton.Left
+            ? ref _rightWorldPress
+            : ref _leftWorldPress);
+        if (other.Active)
+        {
+            press.Travel = WorldClickDragPixels + 1f;
+            other.Travel = WorldClickDragPixels + 1f;
+        }
+    }
+
+    private void EndWorldPress(MouseButton button)
+    {
+        ref WorldPress press = ref (button == MouseButton.Left
+            ? ref _leftWorldPress
+            : ref _rightWorldPress);
+        if (press.Active && press.Travel <= WorldClickDragPixels)
+            _worldClicks.Enqueue(new WorldMouseClick(button, press.Position));
+        press = default;
     }
 
     // ── mouse capture ────────────────────────────────────────────────────────

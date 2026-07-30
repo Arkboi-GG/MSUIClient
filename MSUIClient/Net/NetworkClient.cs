@@ -52,11 +52,14 @@ public sealed class NetworkClient : IDisposable
     private WorldSession? _session;
     private volatile bool _running;
     private uint _pingSeq;
+    private readonly ConcurrentDictionary<uint, uint> _pingSentAt = new();
+    private int _latencyMs;
 
     // Game-loop-visible state (all reads are cheap snapshots).
     public volatile NetState State = NetState.Idle;
     private volatile string _status = "offline";
     public string Status => _status;
+    public int LatencyMs => Volatile.Read(ref _latencyMs);
 
     public ulong PlayerGuid { get; private set; }
     public string PlayerName { get; private set; } = "";
@@ -195,6 +198,8 @@ public sealed class NetworkClient : IDisposable
         _pingTimer = null;
         try { _session?.Dispose(); } catch { }
         _session = null;
+        _pingSentAt.Clear();
+        Volatile.Write(ref _latencyMs, 0);
 
         while (_inbound.TryDequeue(out _)) { }
         Characters = Array.Empty<Character>();
@@ -240,8 +245,23 @@ public sealed class NetworkClient : IDisposable
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
     public void AttackSwing(ulong guid) { try { _session?.AttackSwing(guid); } catch { } }
     public void AttackStop() { try { _session?.AttackStop(); } catch { } }
+    public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
+    public void CastSpell(uint spellId, ulong targetGuid) { try { _session?.CastSpell(spellId, targetGuid); } catch { } }
+    public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
+    public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
+    public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }
+    public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }
+    public void ItemQuery(uint entry, ulong guid) { try { _session?.ItemQuery(entry, guid); } catch { } }
+    public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
+    public void AutoEquipItem(byte bag, byte slot) { try { _session?.AutoEquipItem(bag, slot); } catch { } }
+    public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }
+    public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) { try { _session?.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot); } catch { } }
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
+    public void Loot(ulong guid) { try { _session?.Loot(guid); } catch { } }
+    public void LootMoney() { try { _session?.LootMoney(); } catch { } }
+    public void LootRelease(ulong guid) { try { _session?.LootRelease(guid); } catch { } }
+    public void AutostoreLootItem(byte lootSlot) { try { _session?.AutostoreLootItem(lootSlot); } catch { } }
 
     // --- worker ---------------------------------------------------------------------------------
 
@@ -391,6 +411,20 @@ public sealed class NetworkClient : IDisposable
                         _status = $"changing to map {info.Map}";
                         break;
                     }
+                case Op.SMSG_PONG:
+                    {
+                        if (body.Length >= 4)
+                        {
+                            uint sequence = new PacketReader(body).ReadU32();
+                            if (_pingSentAt.TryRemove(sequence, out uint sentAt))
+                            {
+                                int sample = (int)Math.Min(unchecked(MovementInfo.ClientUptimeMs() - sentAt), 60_000u);
+                                int previous = Volatile.Read(ref _latencyMs);
+                                Volatile.Write(ref _latencyMs, previous <= 0 ? sample : (previous * 3 + sample) / 4);
+                            }
+                        }
+                        break;
+                    }
             }
             _inbound.Enqueue((opcode, body));
 
@@ -403,8 +437,14 @@ public sealed class NetworkClient : IDisposable
     {
         _pingTimer ??= new Timer(_ =>
         {
-            try { _session?.Ping(unchecked(_pingSeq++), 0); } catch { /* disconnect handled by read loop */ }
-        }, null, 30_000, 30_000);
+            try
+            {
+                uint sequence = unchecked(_pingSeq++);
+                _pingSentAt[sequence] = MovementInfo.ClientUptimeMs();
+                _session?.Ping(sequence, (uint)Math.Max(0, LatencyMs));
+            }
+            catch { /* disconnect handled by read loop */ }
+        }, null, 0, 10_000);
     }
 
     private void SetEnter(EnterWorldInfo info)
@@ -450,6 +490,7 @@ public sealed class NetworkClient : IDisposable
         _pick.Set();                  // wake a worker parked at character select so it can exit
         try { _pingTimer?.Dispose(); } catch { }
         _pingTimer = null;
+        _pingSentAt.Clear();
         try { _session?.Dispose(); } catch { } // unblocks the read loop with an IOException
         _session = null;
         try { _worker?.Join(1000); } catch { }

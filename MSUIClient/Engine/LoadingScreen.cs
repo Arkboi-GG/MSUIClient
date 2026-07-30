@@ -4,8 +4,8 @@ using Silk.NET.OpenGL;
 namespace MSUIClient.Engine;
 
 /// <summary>
-/// A self-contained full-screen loading curtain: a dark background plus a
-/// progress bar, drawn LAST in the frame so it covers the partially-streamed
+/// A self-contained full-screen loading curtain: the map backdrop plus the
+/// original build-5875 two-texture progress bar, drawn LAST so it covers the partially-streamed
 /// world beneath it. No external assets and no shader files - the tiny quad
 /// shader is inlined, and the quad is generated from gl_VertexID against an
 /// empty VAO (SkyRenderer does the same for its fullscreen triangle).
@@ -28,12 +28,10 @@ public sealed class LoadingScreen : IDisposable
     // uploaded and owned by GameLoop and handed in via SetBackground. 0 = none, in
     // which case the plain dark curtain below is drawn (the original behaviour).
     private uint _bgTex;
+    private uint _barBorderTex;
+    private uint _barFillTex;
 
-    // The client's sky/fog accent (matches DoodadRenderer's FogColor 0.56/0.71/0.85),
-    // so the bar reads as part of the same world it is loading.
-    private static readonly Vector3 Accent = new(0.55f, 0.70f, 0.85f);
     private static readonly Vector3 Background = new(0.035f, 0.045f, 0.065f);
-    private static readonly Vector3 Track = new(0.12f, 0.13f, 0.17f);
 
     public LoadingScreen(GL gl)
     {
@@ -53,6 +51,13 @@ public sealed class LoadingScreen : IDisposable
     /// </summary>
     public void SetBackground(uint texHandle) => _bgTex = texHandle;
 
+    /// <summary>Set the only two loading-bar layers drawn by the 1.12 client.</summary>
+    public void SetBarArt(uint border, uint fill)
+    {
+        _barBorderTex = border;
+        _barFillTex = fill;
+    }
+
     /// <summary>
     /// Draw the curtain. <paramref name="progress"/> is 0..1 for the bar fill;
     /// <paramref name="alpha"/> is the whole curtain's opacity, driven from 1
@@ -60,7 +65,7 @@ public sealed class LoadingScreen : IDisposable
     /// than snapping in (benilla fades every streamed object over 2 s; a curtain
     /// fade is the cheap, self-contained approximation).
     /// </summary>
-    public void Render(float progress, float alpha)
+    public unsafe void Render(float progress, float alpha)
     {
         progress = Math.Clamp(progress, 0f, 1f);
         alpha = Math.Clamp(alpha, 0f, 1f);
@@ -72,31 +77,35 @@ public sealed class LoadingScreen : IDisposable
 
         _gl.BindVertexArray(_vao);
 
-        // Full-screen background: the map's real WoW loading-screen art when it
-        // resolved (stretched to fill the window, as the reference client does),
-        // otherwise the plain dark curtain. The curtain alpha drives both so the
-        // fade-out reveals the world either way.
+        // Loading art is authored in a 4:3 canvas. Fit that canvas inside the
+        // viewport and let the black curtain form the reference pillar/letterbox.
+        int* viewport = stackalloc int[4];
+        _gl.GetInteger(GLEnum.Viewport, viewport);
+        float viewportAspect = viewport[3] > 0 ? viewport[2] / (float)viewport[3] : 4f / 3f;
+        const float canvasAspect = 4f / 3f;
+        float extentX = viewportAspect >= canvasAspect ? canvasAspect / viewportAspect : 1f;
+        float extentY = viewportAspect >= canvasAspect ? 1f : viewportAspect / canvasAspect;
+
+        _shader.Use();
+        Rect(-1f, -1f, 1f, 1f, Vector3.Zero, alpha);
         if (_bgTex != 0)
-        {
-            _texShader.Use();
-            _gl.ActiveTexture(TextureUnit.Texture0);
-            _gl.BindTexture(TextureTarget.Texture2D, _bgTex);
-            _texShader.Set("uTex", 0);
-            _texShader.Set("uAlpha", alpha);
-            _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
-        }
+            TextureRect(_bgTex, -extentX, -extentY, extentX, extentY, alpha);
         else
         {
             _shader.Use();
-            Rect(-1f, -1f, 1f, 1f, Background, alpha);
+            Rect(-extentX, -extentY, extentX, extentY, Background, alpha);
         }
 
-        // Progress bar, centred, lower third. Always the flat-colour shader.
-        _shader.Use();
-        const float x0 = -0.40f, x1 = 0.40f, y0 = -0.625f, y1 = -0.585f;
-        Rect(x0, y0, x1, y1, Track, alpha);
-        float fillX1 = x0 + (x1 - x0) * progress;
-        if (fillX1 > x0) Rect(x0, y0, fillX1, y1, Accent, alpha);
+        // Byte-verified build-5875 fractions, relative to the 4:3 canvas and
+        // measured from its bottom edge. Vanilla draws fill first, border last.
+        if (_barFillTex != 0 && progress > 0f)
+            TextureRect(_barFillTex,
+                CanvasX(0.2375f, extentX), CanvasY(0.0625f, extentY),
+                CanvasX(0.2375f + 0.525f * progress, extentX), CanvasY(0.0875f, extentY), alpha);
+        if (_barBorderTex != 0)
+            TextureRect(_barBorderTex,
+                CanvasX(0.20f, extentX), CanvasY(0.05f, extentY),
+                CanvasX(0.80f, extentX), CanvasY(0.10f, extentY), alpha);
 
         _gl.BindVertexArray(0);
 
@@ -109,6 +118,20 @@ public sealed class LoadingScreen : IDisposable
     {
         _shader.Set("uRect", new Vector4(x0, y0, x1, y1));
         _shader.Set("uColor", new Vector4(rgb.X, rgb.Y, rgb.Z, alpha));
+        _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+    }
+
+    private static float CanvasX(float fraction, float extent) => -extent + 2f * extent * fraction;
+    private static float CanvasY(float fraction, float extent) => -extent + 2f * extent * fraction;
+
+    private void TextureRect(uint texture, float x0, float y0, float x1, float y1, float alpha)
+    {
+        _texShader.Use();
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, texture);
+        _texShader.Set("uTex", 0);
+        _texShader.Set("uAlpha", alpha);
+        _texShader.Set("uRect", new Vector4(x0, y0, x1, y1));
         _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
     }
 
@@ -139,8 +162,9 @@ void main() { frag = uColor; }";
     // Textured fullscreen quad for the backdrop art. Same empty-VAO / gl_VertexID
     // trick as above; V is flipped because a BLP stores its top row first while a
     // GL quad with y=-1 at the bottom would otherwise show the art upside down.
-    private const string TexVertexSource = @"#version 330 core
+private const string TexVertexSource = @"#version 330 core
 out vec2 vUv;
+uniform vec4 uRect;
 const vec2 kQuad[6] = vec2[6](
     vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
     vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0));
@@ -148,7 +172,7 @@ void main()
 {
     vec2 c = kQuad[gl_VertexID];
     vUv = vec2(c.x, 1.0 - c.y);
-    gl_Position = vec4(c * 2.0 - 1.0, 0.0, 1.0);
+    gl_Position = vec4(mix(uRect.xy, uRect.zw, c), 0.0, 1.0);
 }";
 
     private const string TexFragmentSource = @"#version 330 core
@@ -156,5 +180,9 @@ in vec2 vUv;
 uniform sampler2D uTex;
 uniform float uAlpha;
 out vec4 frag;
-void main() { frag = vec4(texture(uTex, vUv).rgb, uAlpha); }";
+void main()
+{
+    vec4 sampleColor = texture(uTex, vUv);
+    frag = vec4(sampleColor.rgb, sampleColor.a * uAlpha);
+}";
 }

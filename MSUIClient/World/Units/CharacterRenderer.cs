@@ -61,7 +61,8 @@ public sealed class CharacterRenderer : IDisposable
     /// <see cref="ChooseClip"/> - not every model has every animation.
     /// </summary>
     private static readonly int[] BakedAnimations =
-        [0, 4, 5, 11, 12, 13, 37, 38, 39, 40, 92, 93, 187];
+        [0, 4, 5, 9, 11, 12, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30,
+         37, 38, 39, 40, 85, 87, 88, 92, 93, 117, 187];
 
     /// <summary>
     /// Geoset variant shown per category when nothing is equipped. Ported from
@@ -106,6 +107,7 @@ public sealed class CharacterRenderer : IDisposable
         public float FallTimeMs;
         public bool Walking;
         public bool Flying;
+        public bool Engaged;
 
         // ── intent ───────────────────────────────────────────────────────────
         //
@@ -246,6 +248,10 @@ public sealed class CharacterRenderer : IDisposable
     private float _clipTime;
     private float _globalTime;
     private float _clipRate = 1f;
+    private M2Animator.Clip? _combatAction;
+    private M2Animator.Clip? _spellHold;
+    public long CombatActionsTriggered { get; private set; }
+    public string CurrentAnimation => _clip?.Name ?? "none";
 
     // ── cross-fade ───────────────────────────────────────────────────────────
     //
@@ -371,6 +377,9 @@ public sealed class CharacterRenderer : IDisposable
     /// <summary>Bind pose, no animation. First thing to try if the model looks folded.</summary>
     public bool BindPose { get; set; }
 
+    /// <summary>Fresh Stand animation frozen at time zero, used by the portrait booth.</summary>
+    public bool FrozenStandPose { get; set; }
+
     /// <summary>
     /// Set when the model has more bones than the shader can hold. Animation is
     /// then refused outright rather than run on a truncated skeleton.
@@ -393,6 +402,26 @@ public sealed class CharacterRenderer : IDisposable
     public float HeadingOffsetDegrees { get; set; } = 90f;
 
     public float ModelScale { get; set; } = 1f;
+    public byte SheathState { get; set; }
+    private float _bindPoseHeight = 1.8f;
+
+    /// <summary>Standing model height at scale 1, derived once from bind-pose geometry.</summary>
+    public float BindPoseHeight() => _bindPoseHeight;
+
+    public bool TryGetAuthoredPortrait(in UnitState state, out M2PortraitCamera camera,
+        out Matrix4x4 modelTransform)
+    {
+        if (_m2?.PortraitCamera is not { } authored)
+        {
+            camera = default;
+            modelTransform = default;
+            return false;
+        }
+
+        camera = authored;
+        modelTransform = BuildTransform(state);
+        return true;
+    }
 
     /// <summary>Vertical nudge, in yards. The M2 origin should already be at the feet.</summary>
     public float ZOffset { get; set; }
@@ -593,6 +622,18 @@ public sealed class CharacterRenderer : IDisposable
         }
 
         _m2 = m2;
+        float minHeight = float.PositiveInfinity;
+        float maxHeight = float.NegativeInfinity;
+        foreach (M2Vertex vertex in m2.Vertices)
+        {
+            float worldZ = Vector3.Transform(
+                new Vector3(vertex.PosX, vertex.PosY, vertex.PosZ), ModelToWorld).Z;
+            minHeight = MathF.Min(minHeight, worldZ);
+            maxHeight = MathF.Max(maxHeight, worldZ);
+        }
+        _bindPoseHeight = float.IsFinite(minHeight) && float.IsFinite(maxHeight)
+            ? MathF.Max(0.3f, maxHeight - MathF.Min(0f, minHeight))
+            : 1.8f;
         ResetModelState();   // re-Load safe: drop the previous model before the appending builders run
 
         Console.WriteLine(
@@ -1779,6 +1820,10 @@ public sealed class CharacterRenderer : IDisposable
 
         DriveBodyHeading(dt, state, airborne);
 
+        if (_combatAction is not null && ReferenceEquals(_clip, _combatAction) &&
+            _clipTime >= _combatAction.DurationSeconds)
+            _combatAction = null;
+
         var next = ChooseClip(state, out float rate);
 
         // ORDER MATTERS. SwitchClip snapshots _clipRate as the rate the OUTGOING
@@ -1814,6 +1859,84 @@ public sealed class CharacterRenderer : IDisposable
         if (float.IsNaN(_previousClipTime) || float.IsInfinity(_previousClipTime))
             _previousClipTime = 0f;
         if (float.IsNaN(_globalTime) || float.IsInfinity(_globalTime)) _globalTime = 0f;
+    }
+
+    /// <summary>Restart the packet-driven melee one-shot on the local player.</summary>
+    public void TriggerCombatSwing(bool offHand)
+    {
+        if (_animator is null) return;
+        bool twoHand = Equipment.Pieces.Any(p => p.InventoryType == CharacterEquipment.Slot.TwoHand);
+        bool mainWeapon = Equipment.Pieces.Any(p => p.InventoryType is
+            CharacterEquipment.Slot.Weapon or CharacterEquipment.Slot.MainHand);
+        bool offWeapon = Equipment.Pieces.Any(p => p.InventoryType == CharacterEquipment.Slot.OffHand);
+        _combatAction = offHand
+            ? _animator.FindFirst(offWeapon ? 87 : 117, 87, 117, 16)
+            : _animator.FindFirst(twoHand ? 18 : mainWeapon ? 17 : 16, 16, 17, 18, 19, 85);
+        CombatActionsTriggered++;
+        RestartCombatAction();
+    }
+
+    public void TriggerCombatReaction(uint victimState, bool landedHit)
+    {
+        if (_animator is null) return;
+        _combatAction = victimState switch
+        {
+            2 or 8 => _animator.FindFirst(30, 9),
+            3 => _animator.FindFirst(20, 21, 22, 23, 9),
+            5 => _animator.FindFirst(24, 9),
+            _ when landedHit => _animator.FindFirst(9),
+            _ => null,
+        };
+        if (_combatAction is not null) CombatActionsTriggered++;
+        RestartCombatAction();
+    }
+
+    public void BeginSpellVisual(ushort? animationId)
+    {
+        if (_animator is null || animationId is not { } id || id == 0) { _spellHold = null; return; }
+        _spellHold = _animator.FindOrBake(id);
+        if (_spellHold is not null) RestartCombatActionFor(_spellHold);
+    }
+
+    public void ReleaseSpellVisual(ushort? animationId)
+    {
+        _spellHold = null;
+        if (_animator is null || animationId is not { } id || id == 0) return;
+        _combatAction = _animator.FindOrBake(id);
+        if (_combatAction is not null)
+        {
+            CombatActionsTriggered++;
+            RestartCombatAction();
+        }
+    }
+
+    public void CancelSpellVisual() => _spellHold = null;
+
+    public float TriggerOneShot(int animationId)
+    {
+        if (_animator is null) return 0f;
+        _combatAction = _animator.FindFirst(animationId, 0);
+        if (_combatAction is null) return 0f;
+        CombatActionsTriggered++;
+        RestartCombatAction();
+        return _combatAction.DurationSeconds;
+    }
+
+    private void RestartCombatActionFor(M2Animator.Clip clip)
+    {
+        _clip = null;
+        _clipTime = 0f;
+        _previousClip = null;
+        _blendRemaining = 0f;
+    }
+
+    private void RestartCombatAction()
+    {
+        if (_combatAction is null) return;
+        _clip = null;
+        _clipTime = 0f;
+        _previousClip = null;
+        _blendRemaining = 0f;
     }
 
     /// <summary>
@@ -2180,6 +2303,8 @@ public sealed class CharacterRenderer : IDisposable
     {
         rate = 1f;
         if (_animator is null || BindPose || BoneOverflow) return null;
+        if (_combatAction is not null) return _combatAction;
+        if (_spellHold is not null) return _spellHold;
 
         if (state.Flying)
         {
@@ -2261,6 +2386,15 @@ public sealed class CharacterRenderer : IDisposable
             {
                 var right = _animator.Find(12);
                 if (right is not null) return right;
+            }
+
+            if (state.Engaged)
+            {
+                bool twoHand = Equipment.Pieces.Any(p => p.InventoryType == CharacterEquipment.Slot.TwoHand);
+                bool armed = Equipment.Pieces.Any(p => p.InventoryType is
+                    CharacterEquipment.Slot.Weapon or CharacterEquipment.Slot.MainHand);
+                int ready = twoHand ? 27 : armed ? 26 : 25;
+                return _animator.FindFirst(ready, 25, 0);
             }
 
             return _animator.FindFirst(0);
@@ -2366,7 +2500,7 @@ public sealed class CharacterRenderer : IDisposable
         // Split turns the whole model too - the torso is then pulled back part
         // of the way by its own yaw, which is where the 90-against-60 comes from.
         bool bodyTurns = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody;
-        float bodyYaw = bodyTurns && !BindPose ? _moveYaw : 0f;
+        float bodyYaw = bodyTurns && !BindPose && !FrozenStandPose ? _moveYaw : 0f;
 
         float heading = state.Yaw + HeadingOffsetDegrees * MathF.PI / 180f + bodyYaw;
         var position = state.Position + new Vector3(0f, 0f, ZOffset);
@@ -2391,7 +2525,7 @@ public sealed class CharacterRenderer : IDisposable
             float maxTwist = MaxTwistDegrees * MathF.PI / 180f;
 
             _animator.LowerBodyYaw =
-                BindPose || Strafe != StrafeStyle.LowerBody
+                BindPose || FrozenStandPose || Strafe != StrafeStyle.LowerBody
                     ? 0f
                     : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
@@ -2399,12 +2533,16 @@ public sealed class CharacterRenderer : IDisposable
             // delta is the REMAINDER, negative. TorsoFollow 1 leaves it with the
             // body (WholeBody); 0 holds it facing forward (LowerBody).
             _animator.TorsoYaw =
-                BindPose || Strafe != StrafeStyle.Split
+                BindPose || FrozenStandPose || Strafe != StrafeStyle.Split
                     ? 0f
                     : (Math.Clamp(TorsoFollow, 0f, 1f) - 1f) * _moveYaw;
             if (BindPose)
             {
                 _animator.Evaluate(null, 0f, _globalTime, _skin);
+            }
+            else if (FrozenStandPose)
+            {
+                _animator.Evaluate(_animator.Find(0), 0f, 0f, _skin);
             }
             else
             {
@@ -2485,6 +2623,7 @@ public sealed class CharacterRenderer : IDisposable
             _attached.FogColor = FogColor;
             _attached.FogStart = FogStart;
             _attached.FogEnd = FogEnd;
+            _attached.SheathState = SheathState;
         }
         _attached?.Render(camera, modelTransform, _m2, _skin);
     }

@@ -1,6 +1,7 @@
 # SYSTEM_WMO_PORTALS — portal-traversal interior/exterior visibility
 
-Written 2026-07-27. This is the "what shipped" doc for **PLAN_10** (portal visibility),
+Written 2026-07-27; updated 2026-07-29 after the indoor-boundary correction.
+This is the "what shipped" doc for **PLAN_10** (portal visibility),
 extracted per the one-system-one-doc rule now that traversal is built, on by default,
 and verified in-game. It ports benilla's `wmo_portal/` PVS. Read PLAN_10 for the *why*
 and the design decisions (D1–D7); this doc is the *what* and the ground truth.
@@ -15,6 +16,10 @@ migration). The dev **Portals** panel keeps the A/B toggle. Three visible wins:
 3. **The skyline is never lost** — towers, outer walls and approach silhouettes draw
    exactly as before; only geometry you genuinely cannot see is culled.
 
+The July 29 regression test also passes: at the same indoor doorway/stair boundary,
+the enclosing WMO and its embedded furniture remain visible together. Moving across
+the boundary no longer produces a one-frame empty shell with floating MODR props.
+
 The frame-pacing you may see at the gate (`present ~28 ms`, thread `<1 M/ms`) is the
 pre-existing swap/pacing bug (SYSTEM_STREAMING §5A), **not** this system: WMO render is
 ~0.7 ms of the frame with culling on.
@@ -27,7 +32,8 @@ pre-existing swap/pacing bug (SYSTEM_STREAMING §5A), **not** this system: WMO r
   - `ComputeReachableGroups(...)` — the flood (BFS through portals, frustum-clipped).
   - `PortalScreenRect(...)` — projects a doorway to an NDC rect (Sutherland–Hodgman).
   - `ClassifyGroup(...)` — the single visibility decision; consults the reachable set.
-  - `UpdateCameraCell(...)` — PLAN_10 D1, the camera's containing cell (`CameraGroup`).
+  - `UpdateCameraCell(...)` — the collision-face down-ray, terrain race and
+    two-root doorway seed (`CameraGroup`). It runs after final camera collision.
   - `FrameCullContext` — carries `ReachableGroups` + `CameraInCell` into ClassifyGroup.
   - `GroupWorldTriangles(...)` — geometry for the dev highlight overlay.
   - `UsePortalCulling` (default `true`), `PortalReachedLastFrame` (diagnostic).
@@ -37,6 +43,8 @@ pre-existing swap/pacing bug (SYSTEM_STREAMING §5A), **not** this system: WMO r
   migration that flips it on for pre-existing `settings.json`.
 - `Formats/WmoReader.cs` — MOPV/MOPT/MOPR + per-group `PortalStart/PortalCount` (parsed
   since the reader was written; this is the first consumer).
+- `World/Doodads/DoodadRenderer.cs` — applies the owning MODR group's PVS bit to
+  embedded furniture, so a culled room cannot leave floating props behind.
 
 Nothing here touches lighting, particles, or the teleport ("instance") portals.
 
@@ -76,10 +84,17 @@ as inside.** Only a `0x40`/`0x2000` cell does. See `CameraInCell` below.
 
 ## The algorithm
 
-### 1. Seed (`Render`, per instance)
+### 1. Seed (`UpdateCameraCell`, per instance)
 
-- **Camera in a cell of THIS building** (`CameraGroup.InstancePath == instance.Path`):
-  seed the flood from that one group, full-screen. (Includes standing in `thief01`.)
+- Cast downward from the final, collision-resolved camera against each group's
+  retained walking-collision faces (MOPY DETAIL excluded). Group AABBs are only
+  the broad phase; they are not the room verdict because rooms/doors/stairs overlap.
+- Race that WMO hit against terrain under the same camera column. Strictly nearer
+  terrain means outdoors; a tie keeps the WMO.
+- A portal crossing can return **two full-screen roots**: the group under the eye
+  and the group across the portal. This prevents the destination room disappearing
+  while the camera straddles a doorway.
+- An EXTERIOR (`0x08`) winning surface means outdoors; it does not claim an interior.
 - **Camera outside** (or in a different building): **outdoor seed** — push *every*
   `0x08` EXTERIOR group of this building, each full-screen, and flood through their
   doorways into the interiors. This is what culls the roof from the gate approach while
@@ -113,9 +128,11 @@ if (d < 0f) continue;        // enter only from the FRONT (threshold exactly 0)
 
 Each doorway's polygon is transformed local → world → camera-relative → clip
 (`RelativeViewProjection`, matching `Camera.BoxInFrustum`'s row-vector convention), then
-Sutherland–Hodgman-clipped against the **four side planes only** (`w+x, w-x, w+y, w-y`)
-— **no near plane**, so a doorway you're standing in explodes to full-screen instead of
-collapsing. A `w`-clamp (`|w| < 0.001 → +1e-5`) keeps a straddling vertex sane. The
+Sutherland–Hodgman-clipped against the **four side planes only** (`w+x, w-x, w+y, w-y`).
+When the eye is within `0.01` yd of the portal plane and inside its polygon, that
+edge is explicitly assigned the full-screen rect (the vanilla crossing special case),
+so projection cannot collapse the destination room for one frame. A `w`-clamp
+(`|w| < 0.001 → +1e-5`) keeps a straddling vertex sane. The
 survivors' perspective-divided NDC min/max is the doorway's screen rect. The child rect
 is `intersect(currentRect, doorwayRect)`; if either extent `< RECT_EPS (0.001)` the
 branch dies — **that collapse is the cull.**
@@ -203,7 +220,7 @@ and drops the moment you reach a `0x40` street. Culling **off** keeps the tuned
   Fine today; cache on `Model` if a dense city ever shows it.
 - **`CameraInside` (CameraInsideInstance) is still fragile** (§3.35) and is only used now
   for the culling-off shell path and the interior heuristic; the culling-on path uses the
-  more precise `CameraGroup`/`CameraInCell`.
+  collision-ray `CameraGroup`/`CameraInCell`.
 
 ## Reconciliation
 

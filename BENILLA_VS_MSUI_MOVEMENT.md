@@ -2,6 +2,13 @@
 
 Scope: the local (controlled) player only. Compared:
 
+> **Implementation update, 2026-07-29.** The original comparison found a complete
+> outbound-wire gap. MSUI now claims the active mover and sends ground locomotion
+> axis transitions, turn transitions, jump/fall-land, changed facing at frame
+> cadence, and 500 ms moving heartbeats from `Net/LocalMovementSender.cs`.
+> Server speed changes/acks, swim and transport state remain open; the animation
+> and physics comparisons below are otherwise unchanged.
+
 | Concern | MSUI | Benilla |
 |---|---|---|
 | Physics | `Player/CharacterController.cs` | `player/mover.rs`, `player/state.rs` |

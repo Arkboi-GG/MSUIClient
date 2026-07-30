@@ -5,6 +5,7 @@ using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using MSUIClient.Player;
 using MSUIClient.World;
 using MSUIClient.World.Collision;
@@ -426,7 +427,7 @@ public sealed partial class GameLoop : IDisposable
         _sky = new SkyRenderer(gl);
         _sky.LoadShaders(shaderDir);
 
-        _foliage = new FoliageRenderer(gl, _config);
+        _foliage = new FoliageRenderer(gl, _config, _uploads, _assetWorkers);
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
 
@@ -474,6 +475,8 @@ public sealed partial class GameLoop : IDisposable
                     // and they arrive through the normal streaming path, faded in.
                     DemandStreaming = true,
                 };
+                if (_wmo is not null)
+                    _doodads.PortalVisibility = _wmo.IsDoodadPortalVisible;
                 _doodads.LoadShaders(shaderDir);
             }
             catch (Exception ex)
@@ -572,10 +575,11 @@ public sealed partial class GameLoop : IDisposable
 
         var interiors = Stopwatch.StartNew();
         int requested = 0, placed = 0;
-        foreach (var (path, transform, light) in _wmo.EnumerateDoodads(centre, radius))
+        foreach (var (path, transform, light, wmoInstanceId, ownerGroups) in
+                 _wmo.EnumerateDoodads(centre, radius))
         {
             requested++;
-            if (_doodads.AddPlaced(path, transform, light)) placed++;
+            if (_doodads.AddPlaced(path, transform, light, wmoInstanceId, ownerGroups)) placed++;
         }
         _interiorPlacementMilliseconds = interiors.Elapsed.TotalMilliseconds;
         _placementsRequested = requested;
@@ -1143,11 +1147,6 @@ public sealed partial class GameLoop : IDisposable
         // than Render so the render pass stays free of work that is not drawing.
         UpdateExteriorLighting();
 
-        // Which WMO group the camera stands in (PLAN_10 D1). Read-only for now:
-        // the HUD shows it, nothing culls on it yet. Cheap - a world-box reject
-        // per instance before any matrix is inverted.
-        _wmo?.UpdateCameraCell(_window.Camera.Position);
-
         // Escape. It used to close the client outright; it now opens the game
         // menu, and quitting is a button inside it. See Program.Settings.cs.
         UpdateSettingsInput();
@@ -1157,6 +1156,11 @@ public sealed partial class GameLoop : IDisposable
         // player - and equally while the settings modal is up, or you walk into a
         // lake while dragging a slider.
         bool typing = ImGui.GetIO().WantCaptureKeyboard || _settingsOpen;
+        UpdateActionBarInput(typing);
+        UpdateInventoryInput(typing);
+        UpdateCharacterPageInput(typing);
+        UpdateSpellbookInput(typing);
+        UpdateSheathInput(typing);
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);
@@ -1167,8 +1171,10 @@ public sealed partial class GameLoop : IDisposable
         }
         _flyKeyDown = flyKey;
 
-        // C toggles the collision wireframe. Edge-triggered.
-        bool collisionKey = _window.IsDown(Key.C);
+        // Ctrl+C keeps the developer collision toggle; plain C belongs to the
+        // real character sheet, matching the 1.12 default binding.
+        bool collisionKey = _window.IsDown(Key.C) &&
+                            (_window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight));
         if (collisionKey && !_collisionKeyDown && _collisionDebug is not null && _config.DevTools && !typing)
         {
             SetCollisionDebugEnabled(!_collisionDebug.Enabled);
@@ -1261,8 +1267,28 @@ public sealed partial class GameLoop : IDisposable
             Boost = shift && _controller.Flying,
         };
 
+        UpdateCastMovementInput(translating || input.Jump);
+
+        bool movementWasGrounded = _controller.Grounded;
+        float movementPreviousFallMs = _controller.FallTimeMs;
         long phaseStarted = Stopwatch.GetTimestamp();
         _controller.Update(dt, input);
+        if (_net is { IsInWorld: true })
+        {
+            bool movementJumped = movementWasGrounded && !_controller.Grounded &&
+                                  input.Jump && _controller.Velocity.Z > 0f;
+            bool movementLanded = !movementWasGrounded && _controller.Grounded;
+            bool movementStartedFalling = movementWasGrounded && !_controller.Grounded && !movementJumped;
+            float fallMs = movementLanded
+                ? movementPreviousFallMs + dt * 1000f
+                : _controller.FallTimeMs;
+            _movementSender.Update(
+                _net, _controller, input, turn,
+                movementJumped, movementLanded, movementStartedFalling,
+                (uint)Math.Clamp(MathF.Round(fallMs), 0f, uint.MaxValue),
+                _config.Movement.JumpVelocity,
+                MovementInfo.ClientUptimeMs() / 1000.0);
+        }
         _movementMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         phaseStarted = Stopwatch.GetTimestamp();
@@ -1288,11 +1314,14 @@ public sealed partial class GameLoop : IDisposable
         QueueVisibleDoodadDemand(dt);
         _doodadDemandMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
 
-        // NOTE the budget only gates the SECOND warm call. A single
-        // WarmNextPreload finalizes a whole model on this thread, so one heavy
-        // model blows straight through it - which is precisely what WoWee's
-        // resumable advanceFinalization cursor prevents (PLAN_08 D2).
+        // NOTE the budget only gates the SECOND WMO/doodad warm call. Those
+        // legacy finalizers can still exceed it; foliage warming below is
+        // deliberately non-blocking and does not consume that second slot.
         subStarted = Stopwatch.GetTimestamp();
+        // Foliage warming is strictly non-blocking: this call starts CPU jobs or
+        // adopts already-fenced shared-context uploads. It must run every frame
+        // so a model discovered by last frame's scatter can make progress.
+        _foliage?.WarmNextPreload();
         if (_preloadWmoFirst) _wmo?.WarmNextPreload();
         else _doodads?.WarmNextPreload();
         if (preloadBudget.Elapsed.TotalMilliseconds < 6)
@@ -1327,6 +1356,17 @@ public sealed partial class GameLoop : IDisposable
         phaseStarted = Stopwatch.GetTimestamp();
         ResolveCameraCollision(dt);
         _cameraCollisionMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
+
+        // Portal membership must use the exact camera that this frame renders,
+        // after player movement, target following and camera collision. The old
+        // placement above movement made every doorway transition one frame stale.
+        var portalEye = _window.Camera.Position;
+        _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+
+        // Target picking uses the final camera and final collision world for this frame.
+        UpdateTargeting();
+        UpdateCombatFeedback(dt);
+        UpdateSpellPresentation();
 
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
@@ -1463,6 +1503,7 @@ public sealed partial class GameLoop : IDisposable
         FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
+        Engaged = _net is not null && _combat.IsEngaged(_net.PlayerGuid),
 
         Forward = _moveForward,
         Strafe = _moveStrafe,
@@ -1598,8 +1639,13 @@ public sealed partial class GameLoop : IDisposable
         if (_particles is not null && _doodads is not null)
         {
             var eye = _window.Camera.Position;
-            _particles.Simulate(dt, eye,
-                _doodads.EmitterInstances(eye, _particles.SimulationDistance));
+            IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                int EmitterIndex, string TexturePath)> emitters =
+                _doodads.EmitterInstances(eye, _particles.SimulationDistance);
+            if (_spellEffects is not null)
+                emitters = emitters.Concat(_spellEffects.EmitterInstances(
+                    MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
+            _particles.Simulate(dt, eye, emitters);
             _particles.Render(_window.Camera);
             _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
             _particleDrawMilliseconds = _particles.DrawMilliseconds;
@@ -1618,6 +1664,10 @@ public sealed partial class GameLoop : IDisposable
         // Streamed creatures/NPCs (networked). Opaque M2s like the player, so they
         // belong here in the opaque pass, before transparent water/particles blend.
         DrawCreatures();
+        DrawSelectionRing();
+        if (_spellEffects is not null && _spellEffectMeshes is not null)
+            _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
+                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him
@@ -1816,6 +1866,11 @@ public sealed partial class GameLoop : IDisposable
 
     public void Gui()
     {
+        // The native loading curtain is an exclusive screen. ImGui is composited
+        // after the world pass, so allowing it to run here would paint gameplay
+        // bars, auras, unit frames and developer windows over the loading art.
+        if (_worldLoading || _loadScreen is not null) return;
+
         // THE SETTINGS MODAL IS DRAWN FIRST, AND DELIBERATELY ABOVE THE RETURN
         // BELOW. It is the PLAYER's surface - the Escape menu - so it must exist
         // in a shipping build where all the developer tooling is off. Moving this
@@ -2690,7 +2745,10 @@ public sealed partial class GameLoop : IDisposable
 
         _net?.Dispose();
         _glue?.Dispose();
+        DisposeGameplayUi();
+        DisposePortraits();
         _creatures?.Dispose();
+        _selectionRing?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }
         catch { /* Shutdown must continue after a failed background build. */ }
@@ -2716,6 +2774,7 @@ public sealed partial class GameLoop : IDisposable
         // extractor is detached and its shared archive handles are closed.
         AdtTerrainReader.StormLibExtractor = null;
         _particles?.Dispose();
+        _spellEffectMeshes?.Dispose();
         _mpq?.Dispose();
     }
 }

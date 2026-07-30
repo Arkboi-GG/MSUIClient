@@ -121,10 +121,11 @@ public sealed class M2Animator
     /// Whether a vanilla sequence repeats is actually governed by the repetition
     /// fields at +24 and +28, which M2Reader skips. Rather than parse them for
     /// two animations, the flags are logged per clip and the list below is the
-    /// answer: a locomotion cycle always loops, and the only genuine one-shots
-    /// in the set we bake are the two ends of a jump.
+    /// answer: locomotion and Ready cycles loop; jump brackets, melee actions,
+    /// wounds and defensive reactions play once.
     /// </summary>
-    private static readonly HashSet<int> OneShotAnimations = [37, 39, 187];
+    private static readonly HashSet<int> OneShotAnimations =
+        [1, 7, 9, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 37, 39, 85, 87, 88, 117, 187];
 
     public sealed class Clip
     {
@@ -475,6 +476,15 @@ public sealed class M2Animator
     }
 
     public Clip? Find(int animationId) => _clips.TryGetValue(animationId, out var c) ? c : null;
+
+    /// <summary>Resolve an authored animation on first use and retain the baked clip.</summary>
+    public Clip? FindOrBake(int animationId)
+    {
+        if (_clips.TryGetValue(animationId, out Clip? cached)) return cached;
+        Clip? clip = Bake(animationId);
+        if (clip is not null) _clips[animationId] = clip;
+        return clip;
+    }
 
     /// <summary>First clip in the list that this model actually has.</summary>
     public Clip? FindFirst(params int[] animationIds)
@@ -967,11 +977,24 @@ public sealed class M2Animator
     public static string AnimationName(int id) => id switch
     {
         0 => "Stand",
+        1 => "Death",
         4 => "Walk",
         5 => "Run",
+        6 => "Dead",
+        7 => "Rise",
+        9 => "CombatWound",
         11 => "ShuffleLeft",
         12 => "ShuffleRight",
         13 => "WalkBackwards",
+        16 => "AttackUnarmed",
+        17 => "Attack1H",
+        18 => "Attack2H",
+        19 => "Attack2HL",
+        25 => "ReadyUnarmed",
+        26 => "Ready1H",
+        27 => "Ready2H",
+        28 => "Ready2HL",
+        30 => "Dodge",
         37 => "JumpStart",
         38 => "Jump",
         39 => "JumpEnd",

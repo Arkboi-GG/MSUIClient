@@ -66,6 +66,35 @@ public sealed class FoliageRenderer : IDisposable
         }
     }
 
+    private sealed class ModelPreloadJob
+    {
+        public required string Path;
+        public required Task<PreparedModel> Worker;
+        public PreparedModel? Ready;
+        public Task<UploadedModel>? Upload;
+    }
+
+    private sealed class PreparedModel
+    {
+        public M2Model? Parsed;
+        public bool Missing;
+        public List<PreparedTexture> Textures = [];
+    }
+
+    private sealed class PreparedTexture
+    {
+        public required string Path;
+        public byte[]? Bgra;
+        public int Width;
+        public int Height;
+    }
+
+    private sealed class UploadedModel
+    {
+        public uint Vbo, Ebo;
+        public Dictionary<string, Texture?> Textures = new(StringComparer.OrdinalIgnoreCase);
+    }
+
     // Model-space (M2 is Y-up) -> WoW world (Z-up). Inverse of the M2 reader's
     // WoW->Y-up conversion: (x, y, z) -> (x, -z, y).
     private static readonly Matrix4x4 YUpToZUp = new(
@@ -76,6 +105,8 @@ public sealed class FoliageRenderer : IDisposable
 
     private readonly GL _gl;
     private readonly ClientConfig _config;
+    private readonly GpuUploadWorker _uploads;
+    private readonly AssetWorkerPool _workers;
     private Shader? _shader;
 
     private readonly Dictionary<string, GrassModel?> _models = new(StringComparer.OrdinalIgnoreCase);
@@ -90,6 +121,11 @@ public sealed class FoliageRenderer : IDisposable
     private bool _hasScattered;
     private int _missing;
     private readonly HashSet<string> _loggedMisses = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _preloadQueue = new();
+    private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ModelPreloadJob> _preloadJobs = [];
+    private const int MaxConcurrentPreloads = 6;
+    public int DeferredModels { get; private set; }
 
     public bool Enabled { get; set; } = true;
 
@@ -399,10 +435,13 @@ public sealed class FoliageRenderer : IDisposable
         };
     }
 
-    public FoliageRenderer(GL gl, ClientConfig config)
+    public FoliageRenderer(GL gl, ClientConfig config,
+        GpuUploadWorker uploads, AssetWorkerPool workers)
     {
         _gl = gl;
         _config = config;
+        _uploads = uploads;
+        _workers = workers;
         for (int i = 0; i < KindCount; i++) { _kindEnabled[i] = true; _kindDensity[i] = 1f; }
     }
 
@@ -457,6 +496,7 @@ public sealed class FoliageRenderer : IDisposable
         ScatterCells = 0;
         ScatterCandidates = 0;
         DeferredTiles = 0;
+        DeferredModels = 0;
 
         int total = 0;
         float radiusSq = Radius * Radius;
@@ -591,7 +631,7 @@ public sealed class FoliageRenderer : IDisposable
                         float keep = _kindDensity[(int)kind];
                         if (keep <= 0f || (keep < 1f && keepRoll > keep)) continue;
 
-                        var gm = ResolveModel(modelPath);
+                        var gm = ResolveModelOrQueue(modelPath);
                         if (gm is null) continue;
 
                         float? h = terrain.SampleHeight(px, py);
@@ -622,7 +662,7 @@ public sealed class FoliageRenderer : IDisposable
         // throttle would otherwise hold that hole until the camera moved
         // another RescatterDistance. Clearing the flag makes the next frame
         // retry - the cost of one extra scatter, versus a visible bald patch.
-        if (DeferredTiles > 0) _hasScattered = false;
+        if (DeferredTiles > 0 || DeferredModels > 0) _hasScattered = false;
 
         ScatterMilliseconds = Stopwatch.GetElapsedTime(scatterStarted).TotalMilliseconds;
         ScatterMillisecondsThisFrame = ScatterMilliseconds;
@@ -631,7 +671,9 @@ public sealed class FoliageRenderer : IDisposable
             $"model(s); {ModelCount} model(s) loaded, {_missing} missing");
         Console.WriteLine($"[foliage]   {ScatterMilliseconds:F1} ms over {ScatterCells} cell(s), " +
             $"{ScatterCandidates} candidate(s) rolled, {total} kept" +
-            (DeferredTiles > 0 ? $"  ({DeferredTiles} tile(s) deferred, retrying next frame)" : ""));
+            (DeferredTiles > 0 || DeferredModels > 0
+                ? $"  ({DeferredTiles} tile(s), {DeferredModels} model reference(s) deferred)"
+                : ""));
     }
 
     private static int DominantLayer(AdtTerrainReader.McnkChunk chunk, int cx, int cy)
@@ -666,45 +708,151 @@ public sealed class FoliageRenderer : IDisposable
         return doodads[^1].Model;
     }
 
-    private GrassModel? ResolveModel(string path)
+    private GrassModel? ResolveModelOrQueue(string path)
     {
         if (_models.TryGetValue(path, out var cached)) return cached;
+        DeferredModels++;
+        if (_preloadJobs.Any(j => j.Path.Equals(path, StringComparison.OrdinalIgnoreCase))) return null;
+        if (_preloadQueued.Add(path)) _preloadQueue.Enqueue(path);
+        return null;
+    }
 
-        byte[]? bytes = null;
-        foreach (var cand in Candidates(path))
+    /// <summary>Advance foliage asset preparation without ever waiting. MPQ
+    /// extraction, M2 parsing and BLP decoding run on workers; shared-context GL
+    /// upload runs on the upload thread. Scatter only observes the ready cache.</summary>
+    public bool WarmNextPreload()
+    {
+        while (_preloadJobs.Count < MaxConcurrentPreloads && _preloadQueue.Count > 0)
         {
-            bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, cand);
+            string path = _preloadQueue.Dequeue();
+            _preloadQueued.Remove(path);
+            if (_models.ContainsKey(path) ||
+                _preloadJobs.Any(j => j.Path.Equals(path, StringComparison.OrdinalIgnoreCase))) continue;
+            _preloadJobs.Add(new ModelPreloadJob
+            {
+                Path = path,
+                Worker = _workers.Run(() => PrepareModel(path)),
+            });
+        }
+
+        for (int i = _preloadJobs.Count - 1; i >= 0; i--)
+        {
+            var job = _preloadJobs[i];
+            if (!job.Worker.IsCompleted) continue;
+            if (!FinalizePreload(job)) continue;
+            _preloadJobs.RemoveAt(i);
+            _hasScattered = false;
+        }
+        return _preloadQueue.Count > 0 || _preloadJobs.Count > 0;
+    }
+
+    private PreparedModel PrepareModel(string path)
+    {
+        byte[]? bytes = null;
+        foreach (var candidate in Candidates(path))
+        {
+            bytes = AdtTerrainReader.ReadFileFromMpqs(_config.ClientDataPath, candidate);
             if (bytes is not null) break;
         }
+        if (bytes is null) return new PreparedModel { Missing = true };
 
-        GrassModel? gm = null;
-        string reason = "";
-        if (bytes is null)
+        var parsed = M2Reader.Parse(bytes);
+        if (parsed is null || !parsed.IsValid) return new PreparedModel();
+        var prepared = new PreparedModel { Parsed = parsed };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in parsed.Textures)
         {
-            reason = "file not found in MPQs";
-        }
-        else
-        {
-            var m2 = M2Reader.Parse(bytes);
-            if (m2 is null) reason = "M2Reader.Parse returned null (bad magic / version)";
-            else if (!m2.IsValid) reason = $"M2 invalid (verts {m2.Vertices.Count}, idx {m2.Indices.Count})";
-            else
+            string texturePath = source.Filename;
+            if (string.IsNullOrWhiteSpace(texturePath) || !seen.Add(texturePath)) continue;
+            var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, texturePath);
+            if (decoded is null)
             {
-                gm = BuildModel(m2);
-                if (gm is null)
-                    reason = $"no drawable batch (batches {m2.Batches.Count}, submeshes {m2.Submeshes.Count}, " +
-                             $"texRefs {m2.Textures.Count}, texLookup {m2.TextureLookup.Count})";
+                prepared.Textures.Add(new PreparedTexture { Path = texturePath });
+                continue;
             }
+            var (bgra, width, height) = decoded.Value;
+            prepared.Textures.Add(new PreparedTexture
+            {
+                Path = texturePath, Bgra = bgra, Width = width, Height = height,
+            });
+        }
+        return prepared;
+    }
+
+    private bool FinalizePreload(ModelPreloadJob job)
+    {
+        try { job.Ready ??= job.Worker.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            CacheFailure(job.Path, ex.Message);
+            return true;
+        }
+        var ready = job.Ready;
+        if (ready.Missing) { CacheFailure(job.Path, "file not found in MPQs"); return true; }
+        if (ready.Parsed is null) { CacheFailure(job.Path, "M2 parse failed"); return true; }
+
+        if (job.Upload is null)
+        {
+            var textures = ready.Textures.Where(t => !_textures.ContainsKey(t.Path)).ToList();
+            job.Upload = _uploads.Enqueue(Path.GetFileName(job.Path), gl =>
+                UploadPreparedModel(gl, ready.Parsed, textures));
+        }
+        if (!job.Upload.IsCompleted) return false;
+
+        UploadedModel uploaded;
+        try { uploaded = job.Upload.GetAwaiter().GetResult(); }
+        catch (Exception ex)
+        {
+            CacheFailure(job.Path, ex.Message);
+            return true;
+        }
+        foreach (var (path, texture) in uploaded.Textures)
+        {
+            if (!_textures.ContainsKey(path)) _textures[path] = texture;
+            else texture?.Dispose();
         }
 
-        _models[path] = gm;
-        if (gm is null)
+        var model = BuildModel(ready.Parsed, uploaded);
+        _models[job.Path] = model;
+        if (model is null) CacheFailure(job.Path, "no drawable batch", overwrite: false);
+        return true;
+    }
+
+    private void CacheFailure(string path, string reason, bool overwrite = true)
+    {
+        if (overwrite || !_models.ContainsKey(path)) _models[path] = null;
+        _missing++;
+        if (_loggedMisses.Add(path)) Console.WriteLine($"[foliage] model FAILED ('{path}'): {reason}");
+    }
+
+    private unsafe UploadedModel UploadPreparedModel(
+        GL gl, M2Model m2, IReadOnlyList<PreparedTexture> textures)
+    {
+        var uploaded = new UploadedModel();
+        foreach (var texture in textures)
+            uploaded.Textures[texture.Path] = texture.Bgra is null ? null
+                : Texture.From2D(gl, texture.Bgra, texture.Width, texture.Height, ownerGl: _gl);
+
+        int vcount = m2.Vertices.Count;
+        var verts = new float[vcount * FloatsPerVertex];
+        for (int i = 0; i < vcount; i++)
         {
-            _missing++;
-            if (_loggedMisses.Add(path))
-                Console.WriteLine($"[foliage] model FAILED ('{path}'): {reason}");
+            var v = m2.Vertices[i];
+            int o = i * FloatsPerVertex;
+            verts[o] = v.PosX; verts[o + 1] = v.PosY; verts[o + 2] = v.PosZ;
+            verts[o + 3] = v.NormX; verts[o + 4] = v.NormY; verts[o + 5] = v.NormZ;
+            verts[o + 6] = v.TexU; verts[o + 7] = v.TexV;
         }
-        return gm;
+        var idx = m2.Indices.ToArray();
+        uploaded.Vbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, uploaded.Vbo);
+        fixed (float* p = verts)
+            gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(verts.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+        uploaded.Ebo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, uploaded.Ebo);
+        fixed (ushort* p = idx)
+            gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(idx.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
+        return uploaded;
     }
 
     // GroundEffectDoodad stores BARE model filenames ("ElwGra01.mdl"), but the
@@ -740,37 +888,22 @@ public sealed class FoliageRenderer : IDisposable
         else if (path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
     }
 
-    private unsafe GrassModel? BuildModel(M2Model m2)
+    private unsafe GrassModel? BuildModel(M2Model m2, UploadedModel uploaded)
     {
         int vcount = m2.Vertices.Count;
         if (vcount == 0 || m2.Indices.Count < 3) return null;
 
-        var verts = new float[vcount * FloatsPerVertex];
-        for (int i = 0; i < vcount; i++)
-        {
-            var v = m2.Vertices[i];
-            int o = i * FloatsPerVertex;
-            verts[o + 0] = v.PosX; verts[o + 1] = v.PosY; verts[o + 2] = v.PosZ;
-            verts[o + 3] = v.NormX; verts[o + 4] = v.NormY; verts[o + 5] = v.NormZ;
-            verts[o + 6] = v.TexU; verts[o + 7] = v.TexV;
-        }
-        var idx = m2.Indices.ToArray();
-
-        var model = new GrassModel { TriangleCount = idx.Length / 3 };
+        var model = new GrassModel { TriangleCount = m2.Indices.Count / 3 };
         model.Attach(_gl);
 
         model.Vao = _gl.GenVertexArray();
         _gl.BindVertexArray(model.Vao);
 
-        model.Vbo = _gl.GenBuffer();
+        model.Vbo = uploaded.Vbo;
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.Vbo);
-        fixed (float* p = verts)
-            _gl.BufferData(BufferTargetARB.ArrayBuffer, (nuint)(verts.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
 
-        model.Ebo = _gl.GenBuffer();
+        model.Ebo = uploaded.Ebo;
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, model.Ebo);
-        fixed (ushort* p = idx)
-            _gl.BufferData(BufferTargetARB.ElementArrayBuffer, (nuint)(idx.Length * sizeof(ushort)), p, BufferUsageARB.StaticDraw);
 
         const uint stride = FloatsPerVertex * sizeof(float);
         _gl.EnableVertexAttribArray(0);
@@ -815,12 +948,7 @@ public sealed class FoliageRenderer : IDisposable
         string path = m2.Textures[real].Filename;
         if (string.IsNullOrEmpty(path)) return null;
 
-        if (_textures.TryGetValue(path, out var cached)) return cached;
-
-        var px = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, path);
-        Texture? tex = px is null ? null : Texture.From2D(_gl, px.Value.bgra, px.Value.width, px.Value.height);
-        _textures[path] = tex;
-        return tex;
+        return _textures.TryGetValue(path, out var cached) ? cached : null;
     }
 
     public unsafe void Render(Camera camera)
@@ -931,6 +1059,23 @@ public sealed class FoliageRenderer : IDisposable
 
     public void Dispose()
     {
+        // Finish jobs while both worker services and GL contexts still exist;
+        // Program disposes this renderer before either shared service.
+        foreach (var job in _preloadJobs)
+        {
+            try
+            {
+                job.Worker.GetAwaiter().GetResult();
+                bool done = FinalizePreload(job);
+                if (!done)
+                {
+                    job.Upload?.GetAwaiter().GetResult();
+                    FinalizePreload(job);
+                }
+            }
+            catch { /* Shutdown continues; caches below own only completed objects. */ }
+        }
+        _preloadJobs.Clear();
         foreach (var m in _models.Values) m?.Dispose();
         _models.Clear();
         foreach (var t in _textures.Values) t?.Dispose();

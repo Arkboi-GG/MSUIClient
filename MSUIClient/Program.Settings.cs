@@ -134,7 +134,12 @@ public sealed partial class GameLoop
     private void UpdateSettingsInput()
     {
         bool escape = _window.IsDown(Silk.NET.Input.Key.Escape);
-        if (escape && !_escapeKeyDown) _escapePressed = true;
+        if (escape && !_escapeKeyDown)
+        {
+            // 1.12 Escape order: stop casting first, then close open panels (the loot
+            // window), and only then open the game menu.
+            if (!TryCancelSpellOnEscape() && !TryCloseLootOnEscape()) _escapePressed = true;
+        }
         _escapeKeyDown = escape;
     }
 
