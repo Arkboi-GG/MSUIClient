@@ -8,13 +8,15 @@ public sealed partial class GameLoop
 {
     private readonly Dictionary<string, bool> _verdictChannelFilters =
         new(StringComparer.OrdinalIgnoreCase);
-    private IReadOnlyList<IVerdict>? _pausedVerdicts;
+    private IReadOnlyDictionary<string, IReadOnlyList<IVerdict>>? _pausedVerdicts;
     private IReadOnlyList<WirePacketDetail>? _pausedWire;
     private string _verdictTextFilter = "";
     private bool _verdictPaused;
+    private bool _verdictHideRoutineAnim = true;
     private int _verdictCopyLast = 20;
     private double _verdictCopiedUntil;
-    private readonly record struct VerdictPanelRow(double Time, string Channel, string Text);
+    private readonly record struct VerdictPanelRow(
+        double Time, string Channel, string Text, IVerdict? Verdict);
 
     private void DrawVerdictsPanel()
     {
@@ -46,7 +48,9 @@ public sealed partial class GameLoop
         if (ImGui.Button("Dump (F10)##verdicts")) ArmGameplayDump();
         if (!expanded) return;
 
-        IReadOnlyList<IVerdict> live = _verdicts.Snapshot();
+        IReadOnlyDictionary<string, IReadOnlyList<IVerdict>> live = VerdictRing.Channels
+            .ToDictionary(channel => channel, channel => _verdicts.Snapshot(channel),
+                StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<WirePacketDetail> liveWire = _wire.SnapshotDetailed();
         bool pause = _verdictPaused;
         if (ImGui.Checkbox("Pause##verdicts", ref pause))
@@ -56,14 +60,12 @@ public sealed partial class GameLoop
             _pausedWire = pause ? liveWire : null;
         }
 
-        IReadOnlyList<IVerdict> displayed = _pausedVerdicts ?? live;
+        IReadOnlyDictionary<string, IReadOnlyList<IVerdict>> displayed = _pausedVerdicts ?? live;
         IReadOnlyList<WirePacketDetail> displayedWire = _pausedWire ?? liveWire;
-        List<VerdictPanelRow> liveRows = MergeVerdictRows(live, liveWire);
-        List<VerdictPanelRow> displayedRows = MergeVerdictRows(displayed, displayedWire);
-        foreach (string channel in displayedRows.Select(row => row.Channel)
-                     .Append("wire")
-                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .OrderBy(v => v, StringComparer.OrdinalIgnoreCase))
+        List<VerdictPanelRow> liveRows = MergeVerdictRows(
+            live.Values.SelectMany(items => items), liveWire);
+        foreach (string channel in VerdictRing.Channels.Append("wire")
+                     .OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
         {
             if (!_verdictChannelFilters.TryGetValue(channel, out bool enabled)) enabled = true;
             ImGui.SameLine();
@@ -73,11 +75,22 @@ public sealed partial class GameLoop
                 _verdictChannelFilters[channel] = true;
         }
 
+        ImGui.SameLine();
+        ImGui.Checkbox("Hide routine anim (Exact/BakedOnDemand)##verdicts",
+            ref _verdictHideRoutineAnim);
+
         ImGui.SetNextItemWidth(210f);
         ImGui.InputText("Filter##verdicts", ref _verdictTextFilter, 128u);
 
-        List<string> visibleRows = displayedRows
-            .Where(row => !_verdictChannelFilters.TryGetValue(row.Channel, out bool enabled) || enabled)
+        IEnumerable<IVerdict> displayedVerdicts = displayed
+            .Where(pair => !_verdictChannelFilters.TryGetValue(pair.Key, out bool enabled) || enabled)
+            .SelectMany(pair => pair.Value);
+        IReadOnlyList<WirePacketDetail> visibleWire =
+            !_verdictChannelFilters.TryGetValue("wire", out bool wireEnabled) || wireEnabled
+                ? displayedWire : Array.Empty<WirePacketDetail>();
+        List<string> visibleRows = MergeVerdictRows(displayedVerdicts, visibleWire)
+            .Where(row => !_verdictHideRoutineAnim || row.Verdict is not AnimChoice
+                { Kind: AnimChoiceKind.Exact or AnimChoiceKind.BakedOnDemand })
             .Select(row => row.Text)
             .Where(text => string.IsNullOrEmpty(_verdictTextFilter) ||
                           text.Contains(_verdictTextFilter, StringComparison.OrdinalIgnoreCase))
@@ -117,12 +130,12 @@ public sealed partial class GameLoop
     }
 
     private List<VerdictPanelRow> MergeVerdictRows(
-        IReadOnlyList<IVerdict> verdicts, IReadOnlyList<WirePacketDetail> wire)
+        IEnumerable<IVerdict> verdicts, IReadOnlyList<WirePacketDetail> wire)
     {
         return verdicts.Select(verdict => new VerdictPanelRow(
-                verdict.Time, verdict.Channel, FormatVerdictRow(verdict)))
+                verdict.Time, verdict.Channel, FormatVerdictRow(verdict), verdict))
             .Concat(wire.Select(item => new VerdictPanelRow(
-                item.Packet.Time, "wire", FormatWireRow(item))))
+                item.Packet.Time, "wire", FormatWireRow(item), null)))
             .OrderBy(row => row.Time)
             .ToList();
     }

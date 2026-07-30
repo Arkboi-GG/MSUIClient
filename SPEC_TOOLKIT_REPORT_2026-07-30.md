@@ -555,6 +555,58 @@ The OpenGL framebuffer, clipboard, two-resolution layout comparison, repeated
 dump comparison, and `devTools:false` inertness require a live gameplay window
 and remain Nico's live verification boundary.
 
+## SPEC 01 Stage 1F — partitioned verdict history
+
+The live CHECKS_GAMEPLAY A/C finding was reproduced in the capture path. The
+animation callback's console warning was transition-latched, but `_verdicts.Add`
+ran before that latch, so identical per-frame `Exact`/`BakedOnDemand` choices
+still consumed the shared 256-row history. Panel filtering could only filter the
+surviving rows and could not recover evicted login-time portrait evidence.
+
+`VerdictRing` now owns independent channel rings with the specified capacities:
+portrait 64, cast 128, action 512, and anim 1024
+(`Engine/Verdicts.cs:134-205`). `Add` routes through `IVerdict.Channel`.
+`Snapshot(channel)` preserves each channel's oldest-to-newest retained history;
+`SnapshotAll()` merges all retained rows by verdict time, with insertion sequence
+as the stable tie-break. The F10 `verdicts` block uses `SnapshotAll()` and keeps
+its existing JSON shape (`Program.DevTools.GameplayDump.cs:112,242-248`). No
+verdict record changed.
+
+The Verdicts panel builds its display from the four independent snapshots
+(`Program.DevTools.Verdicts.cs:51-93`). Channel and text filters therefore operate
+on each channel's complete retained ring rather than a shared-ring remainder.
+**Hide routine anim (Exact/BakedOnDemand)** defaults on and suppresses those rows
+only while rendering/copying the visible view; capture and the F10 merged snapshot
+remain complete. Pause snapshots all four channel histories independently.
+
+Animation capture is now genuinely transition-latched. The key remains
+`(unit, track)` and the compared state is `(requested, played, kind)`; an unchanged
+state returns before constructing or adding an `AnimChoice`
+(`Program.AnimationVerdicts.cs:7-31`). A changed transition is captured once, and
+the existing fallback/missing/substituted console behavior is unchanged.
+
+The combat-wire gate now also floods the anim ring, proves the portrait row
+survives, verifies all four exact capacities, and verifies the 1,728-row merged
+snapshot is time ordered. Final gates:
+
+```text
+Build succeeded. 1 Warning(s), 0 Error(s) — only the pre-existing CA2014 warning.
+combat/movement/targeting/wire foundation checks passed
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+CHECKS B2 is re-specified: this client has no cooldown implementation yet, so the
+cooldown-refusal check becomes a pending-cast refusal. Recast a different spell
+mid-cast and expect `Sent=false reason=PendingCast`. The reason already exists at
+`Net/CastTargetLaw.cs:17`, and the existing guard already emits precisely that
+verdict at `Program.ActionBars.cs:114-118`; no gameplay-code change was required.
+
+Live acceptance remains: stand two minutes in a creature-heavy area, then verify
+the login-time portrait rows remain visible/copyable and CHECKS B/C cast/action
+rows are findable with routine animation hidden.
+
 ## Live checks for Nico
 
 1. Paste one `[portrait] player bake ...` line and confirm the HUD portrait matches

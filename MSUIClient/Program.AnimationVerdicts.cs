@@ -19,15 +19,16 @@ public sealed partial class GameLoop
             M2Animator.ResolutionKind.Substituted => AnimChoiceKind.Substituted,
             _ => AnimChoiceKind.Missing,
         };
-        var verdict = new AnimChoice(
-            NowSeconds(), unit, track, resolution.RequestedId, resolution.PlayedId, kind);
-        _verdicts.Add(verdict);
-
         var key = (unit, track);
         var state = (resolution.RequestedId, resolution.PlayedId, kind);
         bool changed = !_lastAnimChoices.TryGetValue(key, out var previous) || previous != state;
         _lastAnimChoices[key] = state;
-        if (changed && kind is AnimChoiceKind.Fallback or AnimChoiceKind.Missing or
+        if (!changed) return;
+
+        var verdict = new AnimChoice(
+            NowSeconds(), unit, track, resolution.RequestedId, resolution.PlayedId, kind);
+        _verdicts.Add(verdict);
+        if (kind is AnimChoiceKind.Fallback or AnimChoiceKind.Missing or
             AnimChoiceKind.Substituted)
             Console.WriteLine($"[verdict:anim] {verdict.ToLine()}");
     }

@@ -133,47 +133,79 @@ public readonly record struct ActionButtonVerdict(
 
 public sealed class VerdictRing
 {
-    private const int Capacity = 256;
-    private readonly IVerdict?[] _items = new IVerdict?[Capacity];
-    private int _start;
-    private int _count;
+    private readonly record struct Stored(long Sequence, IVerdict Verdict);
+
+    private sealed class ChannelRing(int capacity)
+    {
+        private readonly Stored?[] _items = new Stored?[capacity];
+        private int _start;
+        private int _count;
+
+        public void Add(Stored item)
+        {
+            int index = (_start + _count) % _items.Length;
+            if (_count == _items.Length)
+            {
+                _items[_start] = item;
+                _start = (_start + 1) % _items.Length;
+                return;
+            }
+
+            _items[index] = item;
+            _count++;
+        }
+
+        public Stored[] Snapshot()
+        {
+            var result = new Stored[_count];
+            for (int i = 0; i < _count; i++)
+                result[i] = _items[(_start + i) % _items.Length]!.Value;
+            return result;
+        }
+    }
+
+    public static IReadOnlyList<string> Channels { get; } =
+        ["portrait", "cast", "action", "anim"];
+
+    private readonly Dictionary<string, ChannelRing> _channels =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["portrait"] = new(64),
+            ["cast"] = new(128),
+            ["action"] = new(512),
+            ["anim"] = new(1024),
+        };
+    private long _nextSequence;
 
     public void Add(IVerdict verdict)
     {
         ArgumentNullException.ThrowIfNull(verdict);
 
-        int index = (_start + _count) % Capacity;
-        if (_count == Capacity)
-        {
-            _items[_start] = verdict;
-            _start = (_start + 1) % Capacity;
-            return;
-        }
-
-        _items[index] = verdict;
-        _count++;
+        if (!_channels.TryGetValue(verdict.Channel, out ChannelRing? channel))
+            throw new ArgumentException($"Unknown verdict channel '{verdict.Channel}'", nameof(verdict));
+        channel.Add(new Stored(_nextSequence++, verdict));
     }
 
-    public IReadOnlyList<IVerdict> Snapshot()
+    public IReadOnlyList<IVerdict> Snapshot(string channel)
     {
-        var result = new IVerdict[_count];
-        for (int i = 0; i < _count; i++)
-            result[i] = _items[(_start + i) % Capacity]!;
-        return result;
+        return _channels.TryGetValue(channel, out ChannelRing? ring)
+            ? ring.Snapshot().Select(item => item.Verdict).ToArray()
+            : Array.Empty<IVerdict>();
+    }
+
+    public IReadOnlyList<IVerdict> SnapshotAll()
+    {
+        return _channels.Values.SelectMany(ring => ring.Snapshot())
+            .OrderBy(item => item.Verdict.Time)
+            .ThenBy(item => item.Sequence)
+            .Select(item => item.Verdict)
+            .ToArray();
     }
 
     public IEnumerable<T> Recent<T>(int max) where T : IVerdict
     {
-        if (max <= 0 || _count == 0) return Array.Empty<T>();
-
-        var newestFirst = new List<T>(Math.Min(max, _count));
-        for (int offset = 0; offset < _count && newestFirst.Count < max; offset++)
-        {
-            int index = (_start + _count - 1 - offset + Capacity) % Capacity;
-            if (_items[index] is T verdict) newestFirst.Add(verdict);
-        }
-
-        newestFirst.Reverse();
-        return newestFirst;
+        return max <= 0
+            ? Array.Empty<T>()
+            : SnapshotAll().OfType<T>().TakeLast(max).ToArray();
     }
 }

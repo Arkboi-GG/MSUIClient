@@ -14,6 +14,14 @@ static SpellInfo TargetSpell(uint targets, uint implicitTarget) => new(
     Targets: targets, ImplicitTarget: implicitTarget, RecoveryMs: 0, CategoryRecoveryMs: 0,
     PowerType: 0, ManaCost: 0, ManaCostPercent: 0, StartRecoveryCategory: 0,
     StartRecoveryMs: 0, VisualId: 0, Speed: 0, Description: "", RangeIndex: 0);
+static PortraitVerdict Portrait(double time) => new(time, PortraitSubject.Player,
+    PortraitOutcome.Ready, PortraitCameraSource.Bounds, false, 1, 0, 255, 255, 255,
+    1, 0, 1, 1, 1, 45, .1f);
+static CastVerdict Cast(double time) => new(time, 1, CastTargetReason.PendingCast, 0, 0, false);
+static ActionButtonVerdict Action(double time) => new(time, 0, false, 1,
+    ButtonUsability.Usable, ButtonRange.NoCheck, false, false, false, false, false,
+    false, 0, 0, 0, 0, 0, 0, -1, 0);
+static AnimChoice Anim(double time) => new(time, "creature:1", 0, 0, 0, AnimChoiceKind.Exact);
 
 var start = (CombatAttackStarted)CombatPacketParser.Parse(
     Op.SMSG_ATTACKSTART,
@@ -82,6 +90,25 @@ Check(fireballTarget.Kind == CastTargetKind.Unit && fireballTarget.Guid == 2,
       "hostile spell binds attackable selection");
 Check(fireballTarget.Reason == CastTargetReason.SelectedUnit,
       "hostile selected-unit reason");
+Check(Enum.IsDefined(CastTargetReason.PendingCast), "pending-cast refusal reason exists");
+
+var verdicts = new VerdictRing();
+verdicts.Add(Portrait(0));
+for (int i = 0; i < 1100; i++) verdicts.Add(Anim(i + 1));
+Check(verdicts.Snapshot("portrait").Count == 1,
+      "chatty anim channel cannot evict portrait history");
+for (int i = 0; i < 70; i++) verdicts.Add(Portrait(2000 + i));
+for (int i = 0; i < 130; i++) verdicts.Add(Cast(3000 + i));
+for (int i = 0; i < 514; i++) verdicts.Add(Action(4000 + i));
+Check(verdicts.Snapshot("portrait").Count == 64 &&
+      verdicts.Snapshot("cast").Count == 128 &&
+      verdicts.Snapshot("action").Count == 512 &&
+      verdicts.Snapshot("anim").Count == 1024,
+      "per-channel verdict capacities");
+IReadOnlyList<IVerdict> allVerdicts = verdicts.SnapshotAll();
+Check(allVerdicts.Count == 1728 &&
+      allVerdicts.Zip(allVerdicts.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time),
+      "merged verdict snapshot count/time order");
 
 var camera = new Camera
 {

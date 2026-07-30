@@ -109,7 +109,7 @@ public sealed partial class GameLoop
         if (targetOverrideKey is not null && _portraitOverrides?.Find(targetOverrideKey) is null)
             targetOverrideKey = null;
 
-        IReadOnlyList<IVerdict> verdictSnapshot = _verdicts.Snapshot();
+        IReadOnlyList<IVerdict> verdictSnapshot = _verdicts.SnapshotAll();
         PortraitVerdict[] playerPortraits = verdictSnapshot.OfType<PortraitVerdict>()
             .Where(verdict => verdict.Subject == PortraitSubject.Player).ToArray();
         PortraitVerdict? playerPortrait = playerPortraits.Length == 0 ? null : playerPortraits[^1];
