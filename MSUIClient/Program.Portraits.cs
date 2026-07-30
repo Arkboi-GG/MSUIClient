@@ -27,6 +27,7 @@ public sealed partial class GameLoop
     private float _portraitRequestScale;
     private double _playerPortraitRetryAt;
     private double _targetPortraitRetryAt;
+    private readonly VerdictRing _verdicts = new();
 
     private void InitPortraits(GL gl)
     {
@@ -77,6 +78,7 @@ public sealed partial class GameLoop
                 ? AuthoredPortraitCamera(authored, portraitTransform)
                 : BoundsPortraitCamera(Vector3.Zero, state.Yaw, _character.BindPoseHeight());
             bool usedFallbackCamera = !authoredCamera;
+            bool authoredRetriedAsBounds = false;
 
             Vector3 sunDirection = _character.SunDirection;
             Vector3 sunColor = _character.SunColor;
@@ -106,7 +108,9 @@ public sealed partial class GameLoop
                         Vector3.Zero, state.Yaw, _character.BindPoseHeight());
                     _playerPortrait.Bake(() => _character.Render(fallback, state));
                     stats = _playerPortrait.Analyze();
+                    camera = fallback;
                     usedFallbackCamera = true;
+                    authoredRetriedAsBounds = true;
                 }
                 _playerPortraitUsable = stats.HasSubject;
                 // Reference presentation: the round portrait is an inscribed circle cut from the
@@ -115,6 +119,26 @@ public sealed partial class GameLoop
                 Console.WriteLine($"[portrait] player bake " +
                     $"{(_playerPortraitUsable ? "ready" : "BLANK")} ({stats}, " +
                     $"camera={(usedFallbackCamera ? "bounds" : "authored")}, pieces={_character.VisiblePieces})");
+                _verdicts.Add(new PortraitVerdict(
+                    NowSeconds(),
+                    PortraitSubject.Player,
+                    _playerPortraitUsable ? PortraitOutcome.Ready : PortraitOutcome.Blank,
+                    usedFallbackCamera ? PortraitCameraSource.Bounds : PortraitCameraSource.Authored,
+                    authoredRetriedAsBounds,
+                    stats.SubjectPixels,
+                    stats.MinRgb,
+                    stats.MaxRgb,
+                    stats.MinAlpha,
+                    stats.MaxAlpha,
+                    _character.VisiblePieces,
+                    0,
+                    _character.BindPoseHeight(),
+                    usedFallbackCamera ? camera.EyeHeight : 0f,
+                    usedFallbackCamera ? camera.Distance : 0f,
+                    camera.AuthoredVerticalFieldOfViewRadians is float authoredFovy
+                        ? authoredFovy * 180f / MathF.PI
+                        : camera.FieldOfViewDegrees,
+                    camera.NearPlane));
                 if (!_playerPortraitUsable && !_playerPortraitFailureDumped)
                 {
                     DumpFailedPortrait(_playerPortrait, "player");
@@ -202,6 +226,7 @@ public sealed partial class GameLoop
         Camera targetCamera = targetUsesAuthored
             ? AuthoredPortraitCamera(targetAuthored, targetPortraitTransform)
             : CreatureBoundsPortraitCamera(target, framing);
+        bool targetAuthoredRetriedAsBounds = false;
         bool drawn = false;
         _targetPortrait.Bake(() => drawn = _creatures.RenderPortrait(targetCamera, target));
         PortraitRenderTarget.ReadbackStats targetStats = _targetPortrait.Analyze();
@@ -210,8 +235,33 @@ public sealed partial class GameLoop
             Camera fallback = CreatureBoundsPortraitCamera(target, framing);
             _targetPortrait.Bake(() => drawn = _creatures.RenderPortrait(fallback, target));
             targetStats = _targetPortrait.Analyze();
+            targetCamera = fallback;
+            targetAuthoredRetriedAsBounds = targetUsesAuthored;
         }
         _targetPortraitUsable = drawn && targetStats.HasSubject;
+        bool targetUsedBounds = !targetUsesAuthored || targetAuthoredRetriedAsBounds;
+        _verdicts.Add(new PortraitVerdict(
+            NowSeconds(),
+            PortraitSubject.Target,
+            !drawn
+                ? PortraitOutcome.NotDrawn
+                : targetStats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank,
+            targetUsedBounds ? PortraitCameraSource.Bounds : PortraitCameraSource.Authored,
+            targetAuthoredRetriedAsBounds,
+            targetStats.SubjectPixels,
+            targetStats.MinRgb,
+            targetStats.MaxRgb,
+            targetStats.MinAlpha,
+            targetStats.MaxAlpha,
+            -1,
+            target.DisplayId,
+            framing.Height,
+            targetUsedBounds ? targetCamera.EyeHeight : 0f,
+            targetUsedBounds ? targetCamera.Distance : 0f,
+            targetCamera.AuthoredVerticalFieldOfViewRadians is float targetAuthoredFovy
+                ? targetAuthoredFovy * 180f / MathF.PI
+                : targetCamera.FieldOfViewDegrees,
+            targetCamera.NearPlane));
         if (_targetPortraitUsable)
         {
             _targetPortrait.ApplyCircularMask();
