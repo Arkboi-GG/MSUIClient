@@ -20,17 +20,65 @@ public sealed class ObjectFields
 
     public const ushort UNIT_TARGET = 16;            // guid
     public const ushort UNIT_HEALTH = 22;
+    public const ushort UNIT_POWER1 = 23;            // five slots, indexed by power type
     public const ushort UNIT_MAXHEALTH = 28;
+    public const ushort UNIT_MAXPOWER1 = 29;         // five slots, indexed by power type
     public const ushort UNIT_LEVEL = 34;
     public const ushort UNIT_FACTIONTEMPLATE = 35;
     public const ushort UNIT_BYTES_0 = 36;           // race/class/gender/powertype
+    public const ushort UNIT_VIRTUAL_ITEM_SLOT_DISPLAY = 37; // three display ids
+    public const ushort UNIT_VIRTUAL_ITEM_INFO = 40; // two dwords per held slot
     public const ushort UNIT_FLAGS = 46;
+    public const ushort UNIT_AURA = 47;              // 48 spell ids
+    public const ushort UNIT_AURAFLAGS = 95;         // 8 nibbles per dword
+    public const ushort UNIT_AURALEVELS = 101;       // 4 bytes per dword
+    public const ushort UNIT_AURAAPPLICATIONS = 113; // stack-minus-one bytes
+    public const ushort UNIT_BASEATTACKTIME = 126;
+    public const ushort UNIT_RANGEDATTACKTIME = 128;
+    public const ushort UNIT_BOUNDINGRADIUS = 129;   // f32, horizontal bounding radius (yd)
+    public const ushort UNIT_COMBATREACH = 130;      // f32, melee-reach term (default 1.5)
     public const ushort UNIT_DISPLAYID = 131;        // the rendered CreatureDisplayInfo id
     public const ushort UNIT_MOUNTDISPLAYID = 133;
+    public const ushort UNIT_MINDAMAGE = 134;
+    public const ushort UNIT_MAXDAMAGE = 135;
+    public const ushort UNIT_MINOFFHANDDAMAGE = 136;
+    public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
+    public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
     public const ushort UNIT_NPC_FLAGS = 147;
+    public const ushort UNIT_STAT0 = 150;
+    public const ushort UNIT_RESISTANCES = 155;
+    public const ushort UNIT_BYTES_2 = 164;           // byte0: sheath state 0/1/2
+    public const ushort UNIT_ATTACK_POWER = 165;
+    public const ushort UNIT_ATTACK_POWER_MODS = 166;
+    public const ushort UNIT_RANGED_ATTACK_POWER = 168;
+    public const ushort UNIT_RANGED_ATTACK_POWER_MODS = 169;
+    public const ushort UNIT_MINRANGEDDAMAGE = 171;
+    public const ushort UNIT_MAXRANGEDDAMAGE = 172;
 
     public const ushort GAMEOBJECT_DISPLAYID = 8;
+
+    public const ushort ITEM_STACK_COUNT = 14;
+    public const ushort ITEM_FLAGS = 21;
+    public const ushort ITEM_DURABILITY = 46;
+    public const ushort ITEM_MAXDURABILITY = 47;
+    public const ushort CONTAINER_NUM_SLOTS = 48;
+    public const ushort CONTAINER_SLOT_1 = 50;
+
+    public const ushort PLAYER_INV_SLOT_HEAD = 486;
+    public const ushort PLAYER_PACK_SLOT_1 = 532;
+    public const ushort PLAYER_BANK_SLOT_1 = 564;
+    public const ushort PLAYER_BANK_BAG_SLOT_1 = 612;
+    public const ushort PLAYER_XP = 716;
+    public const ushort PLAYER_NEXT_LEVEL_XP = 717;
+    public const ushort PLAYER_SKILL_INFO_1_1 = 718;
+    public const ushort PLAYER_CHARACTER_POINTS1 = 1102;
+    public const ushort PLAYER_CHARACTER_POINTS2 = 1103;
+    public const ushort PLAYER_COINAGE = 1176;
+    public const ushort PLAYER_POSSTAT0 = 1177;
+    public const ushort PLAYER_NEGSTAT0 = 1182;
+    public const ushort PLAYER_RESISTANCEBUFFMODSPOSITIVE = 1187;
+    public const ushort PLAYER_RESISTANCEBUFFMODSNEGATIVE = 1194;
 
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
@@ -97,6 +145,55 @@ public sealed class ObjectFields
     public uint NpcFlags => GetU32(UNIT_NPC_FLAGS) ?? 0;
     public ulong? Target => GetGuid(UNIT_TARGET) is { } g && g != 0 ? g : null;
 
+    public byte PowerType => Bytes0.PowerType;
+    public uint Power(byte powerType) => powerType <= 4 ? GetU32((ushort)(UNIT_POWER1 + powerType)) ?? 0 : 0;
+    public uint MaxPower(byte powerType) => powerType <= 4 ? GetU32((ushort)(UNIT_MAXPOWER1 + powerType)) ?? 0 : 0;
+    public uint ActivePower => Power(PowerType);
+    public uint ActiveMaxPower => MaxPower(PowerType);
+    public float PowerFraction => ActiveMaxPower > 0
+        ? Math.Clamp((float)ActivePower / ActiveMaxPower, 0f, 1f)
+        : 1f;
+    public bool InCombat => (UnitFlags & 0x0008_0000u) != 0;
+    public byte SheathState => (byte)(GetU32(UNIT_BYTES_2) ?? 0);
+
+    /// <summary>`UNIT_DYNAMIC_FLAGS` — per-viewer dynamic state. Absent counts as 0.</summary>
+    public uint DynamicFlags => GetU32(UNIT_DYNAMIC_FLAGS) ?? 0;
+    /// <summary>Bit 0x1 of UNIT_DYNAMIC_FLAGS — lootable BY ME (the server strips the bit
+    /// per viewer before it ships). Gates the right-click loot route.</summary>
+    public bool Lootable => (DynamicFlags & 0x1) != 0;
+    /// <summary>Melee reach term for the edge-to-edge range gate. Vanilla default 1.5 when absent.</summary>
+    public float CombatReach => GetF32(UNIT_COMBATREACH) ?? 1.5f;
+    public float BoundingRadius => GetF32(UNIT_BOUNDINGRADIUS) ?? 0f;
+    /// <summary>Base the percent-cost spells scale from; only present on our own descriptor.</summary>
+    public uint BaseMana => GetU32(UNIT_BASE_MANA) ?? 0;
+
+    public uint VirtualItemDisplay(int slot) => slot is >= 0 and < 3
+        ? GetU32((ushort)(UNIT_VIRTUAL_ITEM_SLOT_DISPLAY + slot)) ?? 0 : 0;
+    public (byte Class, byte Subclass, byte Material, byte InventoryType) VirtualItemInfo(int slot)
+    {
+        uint value = slot is >= 0 and < 3 ? GetU32((ushort)(UNIT_VIRTUAL_ITEM_INFO + slot * 2)) ?? 0 : 0;
+        return ((byte)value, (byte)(value >> 8), (byte)(value >> 16), (byte)(value >> 24));
+    }
+    public byte VirtualItemSheath(int slot) => slot is >= 0 and < 3
+        ? (byte)(GetU32((ushort)(UNIT_VIRTUAL_ITEM_INFO + slot * 2 + 1)) ?? 0) : (byte)0;
+
+    public IEnumerable<(byte Slot, uint SpellId, byte Flags, byte Level, byte Stacks)> Auras()
+    {
+        for (byte slot = 0; slot < 48; slot++)
+        {
+            uint flagWord = GetU32((ushort)(UNIT_AURAFLAGS + (slot >> 3))) ?? 0;
+            byte flags = (byte)((flagWord >> ((slot & 7) * 4)) & 0x0f);
+            if ((flags & 0x0e) == 0) continue;
+            uint spell = GetU32((ushort)(UNIT_AURA + slot)) ?? 0;
+            if (spell == 0) continue;
+            uint levelWord = GetU32((ushort)(UNIT_AURALEVELS + (slot >> 2))) ?? 0;
+            uint stackWord = GetU32((ushort)(UNIT_AURAAPPLICATIONS + (slot >> 2))) ?? 0;
+            int shift = (slot & 3) * 8;
+            yield return (slot, spell, flags, (byte)(levelWord >> shift),
+                (byte)Math.Min(255, ((stackWord >> shift) & 0xff) + 1));
+        }
+    }
+
     /// <summary>race, class, gender, powerType from UNIT_FIELD_BYTES_0 (players + humanoid NPCs).</summary>
     public (byte Race, byte Class, byte Gender, byte PowerType) Bytes0
     {
@@ -107,4 +204,40 @@ public sealed class ObjectFields
     public float HealthFraction => MaxHealth > 0 ? Math.Clamp((float)Health / MaxHealth, 0f, 1f) : 1f;
 
     public bool IsDead => MaxHealth > 0 && Health == 0;
+
+    public uint ItemStackCount => GetU32(ITEM_STACK_COUNT) ?? 1;
+    public uint ItemFlags => GetU32(ITEM_FLAGS) ?? 0;
+    public uint ItemDurability => GetU32(ITEM_DURABILITY) ?? 0;
+    public uint ItemMaxDurability => GetU32(ITEM_MAXDURABILITY) ?? 0;
+    public uint ContainerNumSlots => GetU32(CONTAINER_NUM_SLOTS) ?? 0;
+    public ulong ContainerSlot(int index) => index is >= 0 and < 36 ? GetGuid((ushort)(CONTAINER_SLOT_1 + index * 2)) ?? 0 : 0;
+    public ulong PlayerInventorySlot(int index) => index is >= 0 and < 23 ? GetGuid((ushort)(PLAYER_INV_SLOT_HEAD + index * 2)) ?? 0 : 0;
+    public ulong PlayerBackpackSlot(int index) => index is >= 0 and < 16 ? GetGuid((ushort)(PLAYER_PACK_SLOT_1 + index * 2)) ?? 0 : 0;
+    public ulong PlayerBankSlot(int index) => index is >= 0 and < 24 ? GetGuid((ushort)(PLAYER_BANK_SLOT_1 + index * 2)) ?? 0 : 0;
+    public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
+    public uint Experience => GetU32(PLAYER_XP) ?? 0;
+    public uint NextLevelExperience => GetU32(PLAYER_NEXT_LEVEL_XP) ?? 0;
+    public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
+    public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
+    public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
+    public int Stat(int index) => index is >= 0 and < 5 ? GetI32((ushort)(UNIT_STAT0 + index)) ?? 0 : 0;
+    public int StatPositive(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_POSSTAT0 + index)) ?? 0) : 0;
+    public int StatNegative(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_NEGSTAT0 + index)) ?? 0) : 0;
+    public int Resistance(int school) => school is >= 0 and < 7 ? GetI32((ushort)(UNIT_RESISTANCES + school)) ?? 0 : 0;
+    public int ResistancePositive(int school) => school is >= 0 and < 7 ? (int)MathF.Round(GetF32((ushort)(PLAYER_RESISTANCEBUFFMODSPOSITIVE + school)) ?? 0) : 0;
+    public int ResistanceNegative(int school) => school is >= 0 and < 7 ? (int)MathF.Round(GetF32((ushort)(PLAYER_RESISTANCEBUFFMODSNEGATIVE + school)) ?? 0) : 0;
+    public float MinDamage => GetF32(UNIT_MINDAMAGE) ?? 0;
+    public float MaxDamage => GetF32(UNIT_MAXDAMAGE) ?? 0;
+    public float MinOffhandDamage => GetF32(UNIT_MINOFFHANDDAMAGE) ?? 0;
+    public float MaxOffhandDamage => GetF32(UNIT_MAXOFFHANDDAMAGE) ?? 0;
+    public float MinRangedDamage => GetF32(UNIT_MINRANGEDDAMAGE) ?? 0;
+    public float MaxRangedDamage => GetF32(UNIT_MAXRANGEDDAMAGE) ?? 0;
+    public uint MainAttackTime => GetU32(UNIT_BASEATTACKTIME) ?? 0;
+    public uint OffhandAttackTime => GetU32((ushort)(UNIT_BASEATTACKTIME + 1)) ?? 0;
+    public uint RangedAttackTime => GetU32(UNIT_RANGEDATTACKTIME) ?? 0;
+    public int AttackPower => (GetI32(UNIT_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
+    public int RangedAttackPower => (GetI32(UNIT_RANGED_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_RANGED_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_RANGED_ATTACK_POWER_MODS);
+
+    private int PackedSignedLow(ushort index) => unchecked((short)(GetU32(index) ?? 0));
+    private int PackedSignedHigh(ushort index) => unchecked((short)((GetU32(index) ?? 0) >> 16));
 }

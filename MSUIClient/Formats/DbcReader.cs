@@ -147,6 +147,7 @@ public sealed class ItemDisplayRow
     public string ModelName2 = "";
     public string ModelTexture1 = "";
     public string ModelTexture2 = "";
+    public string InventoryIcon = "";
     public int[] GeosetGroup = new int[3];
     public uint HelmetGeosetVis1;
     public uint HelmetGeosetVis2;
@@ -381,6 +382,7 @@ public sealed class ItemDisplayTable
                 ModelName2 = dbc.GetString(r, 2),
                 ModelTexture1 = dbc.GetString(r, 3),
                 ModelTexture2 = dbc.GetString(r, 4),
+                InventoryIcon = dbc.GetString(r, 5),
                 GeosetGroup = [dbc.GetInt(r, 6), dbc.GetInt(r, 7), dbc.GetInt(r, 8)],
                 HelmetGeosetVis1 = dbc.GetUInt(r, 12),
                 HelmetGeosetVis2 = dbc.GetUInt(r, 13),

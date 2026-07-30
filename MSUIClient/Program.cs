@@ -5,6 +5,7 @@ using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using MSUIClient.Player;
 using MSUIClient.World;
 using MSUIClient.World.Collision;
@@ -70,6 +71,8 @@ public static class Program
         window.OnUpdate += game.Update;
         window.OnRender += game.Render;
         window.OnGui += game.Gui;
+        window.OnOverlay += game.Overlay;
+        window.OnOverlayTop += game.OverlayTop;
         window.OnClosing += game.Dispose;
 
         try
@@ -230,8 +233,31 @@ public sealed partial class GameLoop : IDisposable
     /// </summary>
     private bool _showPlayerMarker;
 
-    /// <summary>Keyboard turn rate, radians per second. About 160 degrees a second.</summary>
-    private float _turnSpeed = 2.8f;
+    /// <summary>
+    /// Keyboard turn rate while standing, radians per second. 180 degrees a
+    /// second, which is the reference client's own rate.
+    ///
+    /// Overwritten from Controls.TurnSpeedDegrees the moment settings load, so
+    /// this initializer only ever matters before that; it used to say 2.8 (160
+    /// deg/s) and disagreeing with the setting it is about to be handed is a
+    /// trap worth not leaving lying around.
+    /// </summary>
+    private float _turnSpeed = MathF.PI;
+
+    /// <summary>
+    /// What the turn rate is multiplied by while the character is translating.
+    ///
+    /// Turning is slower on the move in the reference, and this is the constant.
+    /// Without it a running turn is about twenty per cent too fast, which reads
+    /// as the character being weightless in a way no single frame shows.
+    /// </summary>
+    private const float TurnRateMoving = 0.75f;
+
+    // Last frame's movement intent, handed to the animation layer. See
+    // CharacterRenderer.UnitState for why it is passed rather than measured.
+    private float _moveForward;
+    private float _moveStrafe;
+    private bool _steering;
 
     /// <summary>Whether the Tier 1 set is on. Toggling re-composites the atlas.</summary>
     private bool _dressed = true;
@@ -401,7 +427,7 @@ public sealed partial class GameLoop : IDisposable
         _sky = new SkyRenderer(gl);
         _sky.LoadShaders(shaderDir);
 
-        _foliage = new FoliageRenderer(gl, _config);
+        _foliage = new FoliageRenderer(gl, _config, _uploads, _assetWorkers);
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
 
@@ -449,6 +475,8 @@ public sealed partial class GameLoop : IDisposable
                     // and they arrive through the normal streaming path, faded in.
                     DemandStreaming = true,
                 };
+                if (_wmo is not null)
+                    _doodads.PortalVisibility = _wmo.IsDoodadPortalVisible;
                 _doodads.LoadShaders(shaderDir);
             }
             catch (Exception ex)
@@ -547,10 +575,11 @@ public sealed partial class GameLoop : IDisposable
 
         var interiors = Stopwatch.StartNew();
         int requested = 0, placed = 0;
-        foreach (var (path, transform, light) in _wmo.EnumerateDoodads(centre, radius))
+        foreach (var (path, transform, light, wmoInstanceId, ownerGroups) in
+                 _wmo.EnumerateDoodads(centre, radius))
         {
             requested++;
-            if (_doodads.AddPlaced(path, transform, light)) placed++;
+            if (_doodads.AddPlaced(path, transform, light, wmoInstanceId, ownerGroups)) placed++;
         }
         _interiorPlacementMilliseconds = interiors.Elapsed.TotalMilliseconds;
         _placementsRequested = requested;
@@ -1118,11 +1147,6 @@ public sealed partial class GameLoop : IDisposable
         // than Render so the render pass stays free of work that is not drawing.
         UpdateExteriorLighting();
 
-        // Which WMO group the camera stands in (PLAN_10 D1). Read-only for now:
-        // the HUD shows it, nothing culls on it yet. Cheap - a world-box reject
-        // per instance before any matrix is inverted.
-        _wmo?.UpdateCameraCell(_window.Camera.Position);
-
         // Escape. It used to close the client outright; it now opens the game
         // menu, and quitting is a button inside it. See Program.Settings.cs.
         UpdateSettingsInput();
@@ -1132,6 +1156,11 @@ public sealed partial class GameLoop : IDisposable
         // player - and equally while the settings modal is up, or you walk into a
         // lake while dragging a slider.
         bool typing = ImGui.GetIO().WantCaptureKeyboard || _settingsOpen;
+        UpdateActionBarInput(typing);
+        UpdateInventoryInput(typing);
+        UpdateCharacterPageInput(typing);
+        UpdateSpellbookInput(typing);
+        UpdateSheathInput(typing);
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);
@@ -1142,8 +1171,10 @@ public sealed partial class GameLoop : IDisposable
         }
         _flyKeyDown = flyKey;
 
-        // C toggles the collision wireframe. Edge-triggered.
-        bool collisionKey = _window.IsDown(Key.C);
+        // Ctrl+C keeps the developer collision toggle; plain C belongs to the
+        // real character sheet, matching the 1.12 default binding.
+        bool collisionKey = _window.IsDown(Key.C) &&
+                            (_window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight));
         if (collisionKey && !_collisionKeyDown && _collisionDebug is not null && _config.DevTools && !typing)
         {
             SetCollisionDebugEnabled(!_collisionDebug.Enabled);
@@ -1193,20 +1224,37 @@ public sealed partial class GameLoop : IDisposable
         if (!typing && !mouseSteering) turn += _window.Axis(Key.A, Key.D);
         turn = Math.Clamp(turn, -1f, 1f);
 
-        if (turn != 0f) _window.Camera.Rotate(turn * _turnSpeed * dt, 0f);
-
         float strafe = typing ? 0f : _window.Axis(Key.E, Key.Q);
         if (!typing && mouseSteering) strafe += _window.Axis(Key.D, Key.A);
         strafe = Math.Clamp(strafe, -1f, 1f);
-
-        // Look up and down without the mouse. Rotate clamps pitch either way.
-        float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
-        if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
         float forward = typing ? 0f : Math.Clamp(
             _window.Axis(Key.W, Key.S) + _window.Axis(Key.Up, Key.Down), -1f, 1f);
+
+        // TURNING IS SLOWER WHILE YOU ARE MOVING, and that is not a detail. The
+        // reference turns at 180 deg/s planted and three quarters of that once
+        // you are translating, which is why running a tight circle in vanilla
+        // has a radius and running one here did not. The keyboard rate has to
+        // come after the movement axes are known, hence the ordering.
+        //
+        // Mouse steering is deliberately NOT rate-limited: it is a direct
+        // pointing device and the client does not throttle it either.
+        bool translating = MathF.Abs(forward) > 0.01f || MathF.Abs(strafe) > 0.01f;
+        float turnRate = _turnSpeed * (translating ? TurnRateMoving : 1f);
+
+        if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
+
+        // Look up and down without the mouse. Rotate clamps pitch either way.
+        float tilt = typing ? 0f : _window.Axis(Key.PageUp, Key.PageDown);
+        if (tilt != 0f) _window.Camera.Rotate(0f, tilt * _turnSpeed * 0.6f * dt);
+
+        // The animation layer is driven from intent, not from displacement, so
+        // it needs to know what was pressed and whether the aim is being steered.
+        _moveForward = forward;
+        _moveStrafe = strafe;
+        _steering = turn != 0f || mouseSteering;
 
         var input = new MovementInput
         {
@@ -1219,8 +1267,28 @@ public sealed partial class GameLoop : IDisposable
             Boost = shift && _controller.Flying,
         };
 
+        UpdateCastMovementInput(translating || input.Jump);
+
+        bool movementWasGrounded = _controller.Grounded;
+        float movementPreviousFallMs = _controller.FallTimeMs;
         long phaseStarted = Stopwatch.GetTimestamp();
         _controller.Update(dt, input);
+        if (_net is { IsInWorld: true })
+        {
+            bool movementJumped = movementWasGrounded && !_controller.Grounded &&
+                                  input.Jump && _controller.Velocity.Z > 0f;
+            bool movementLanded = !movementWasGrounded && _controller.Grounded;
+            bool movementStartedFalling = movementWasGrounded && !_controller.Grounded && !movementJumped;
+            float fallMs = movementLanded
+                ? movementPreviousFallMs + dt * 1000f
+                : _controller.FallTimeMs;
+            _movementSender.Update(
+                _net, _controller, input, turn,
+                movementJumped, movementLanded, movementStartedFalling,
+                (uint)Math.Clamp(MathF.Round(fallMs), 0f, uint.MaxValue),
+                _config.Movement.JumpVelocity,
+                MovementInfo.ClientUptimeMs() / 1000.0);
+        }
         _movementMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         phaseStarted = Stopwatch.GetTimestamp();
@@ -1246,11 +1314,14 @@ public sealed partial class GameLoop : IDisposable
         QueueVisibleDoodadDemand(dt);
         _doodadDemandMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
 
-        // NOTE the budget only gates the SECOND warm call. A single
-        // WarmNextPreload finalizes a whole model on this thread, so one heavy
-        // model blows straight through it - which is precisely what WoWee's
-        // resumable advanceFinalization cursor prevents (PLAN_08 D2).
+        // NOTE the budget only gates the SECOND WMO/doodad warm call. Those
+        // legacy finalizers can still exceed it; foliage warming below is
+        // deliberately non-blocking and does not consume that second slot.
         subStarted = Stopwatch.GetTimestamp();
+        // Foliage warming is strictly non-blocking: this call starts CPU jobs or
+        // adopts already-fenced shared-context uploads. It must run every frame
+        // so a model discovered by last frame's scatter can make progress.
+        _foliage?.WarmNextPreload();
         if (_preloadWmoFirst) _wmo?.WarmNextPreload();
         else _doodads?.WarmNextPreload();
         if (preloadBudget.Elapsed.TotalMilliseconds < 6)
@@ -1285,6 +1356,17 @@ public sealed partial class GameLoop : IDisposable
         phaseStarted = Stopwatch.GetTimestamp();
         ResolveCameraCollision(dt);
         _cameraCollisionMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
+
+        // Portal membership must use the exact camera that this frame renders,
+        // after player movement, target following and camera collision. The old
+        // placement above movement made every doorway transition one frame stale.
+        var portalEye = _window.Camera.Position;
+        _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
+
+        // Target picking uses the final camera and final collision world for this frame.
+        UpdateTargeting();
+        UpdateCombatFeedback(dt);
+        UpdateSpellPresentation();
 
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
@@ -1421,6 +1503,13 @@ public sealed partial class GameLoop : IDisposable
         FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
+        Engaged = _net is not null && _combat.IsEngaged(_net.PlayerGuid),
+
+        Forward = _moveForward,
+        Strafe = _moveStrafe,
+        Speed = _controller?.PlanarSpeed ?? 0f,
+        Steering = _steering,
+        HasIntent = _controller is not null,
     };
 
     /// <summary>
@@ -1550,8 +1639,13 @@ public sealed partial class GameLoop : IDisposable
         if (_particles is not null && _doodads is not null)
         {
             var eye = _window.Camera.Position;
-            _particles.Simulate(dt, eye,
-                _doodads.EmitterInstances(eye, _particles.SimulationDistance));
+            IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                int EmitterIndex, string TexturePath)> emitters =
+                _doodads.EmitterInstances(eye, _particles.SimulationDistance);
+            if (_spellEffects is not null)
+                emitters = emitters.Concat(_spellEffects.EmitterInstances(
+                    MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
+            _particles.Simulate(dt, eye, emitters);
             _particles.Render(_window.Camera);
             _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
             _particleDrawMilliseconds = _particles.DrawMilliseconds;
@@ -1570,6 +1664,10 @@ public sealed partial class GameLoop : IDisposable
         // Streamed creatures/NPCs (networked). Opaque M2s like the player, so they
         // belong here in the opaque pass, before transparent water/particles blend.
         DrawCreatures();
+        DrawSelectionRing();
+        if (_spellEffects is not null && _spellEffectMeshes is not null)
+            _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
+                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him
@@ -1644,6 +1742,7 @@ public sealed partial class GameLoop : IDisposable
         // curtain and HUD so neither blooms (benilla composites its UI over an
         // already-glowed world). Additive glow-only: the base scene is untouched.
         DrawGlueScene(); // Phase 2 login glue scene (UI_MainMenu), networked + pre-world only
+        DrawCharacterSelectScene(); // character-select per-race booth (UI_<Race>), CharacterSelect only
         _glow?.Apply();
 
         // The loading curtain over the still-streaming world. Drawn last so it
@@ -1767,6 +1866,11 @@ public sealed partial class GameLoop : IDisposable
 
     public void Gui()
     {
+        // The native loading curtain is an exclusive screen. ImGui is composited
+        // after the world pass, so allowing it to run here would paint gameplay
+        // bars, auras, unit frames and developer windows over the loading art.
+        if (_worldLoading || _loadScreen is not null) return;
+
         // THE SETTINGS MODAL IS DRAWN FIRST, AND DELIBERATELY ABOVE THE RETURN
         // BELOW. It is the PLAYER's surface - the Escape menu - so it must exist
         // in a shipping build where all the developer tooling is off. Moving this
@@ -2227,7 +2331,27 @@ public sealed partial class GameLoop : IDisposable
                     $"  {_character.ClipName}  {_character.ClipTime:F2}/{_character.ClipDuration:F2}s " +
                     $"x{_character.ClipRate:F2} move {_character.ClipMoveSpeed:F2} " +
                     $"{(_character.ClipLooping ? "loop" : "ONCE")}");
-                ImGui.Text($"  ground speed {_character.GroundSpeed,5:F2} yd/s");
+                // COMMANDED against MEASURED. The gait and the leg-cycle rate
+                // are driven by the first; the second is what the world let us
+                // actually do. They diverge exactly where you would want them
+                // to - walking into a wall, sliding along one, climbing a step -
+                // and having both here is what makes that legible rather than a
+                // mystery about the animation.
+                ImGui.Text($"  speed {_character.GroundSpeed,5:F2} commanded" +
+                           $"  {_character.MeasuredSpeed,5:F2} measured  yd/s");
+
+                // Mid-fade the pose is a mix of two clips. Empty means settled.
+                if (_character.BlendFrom.Length > 0)
+                    ImGui.TextDisabled(
+                        $"  blending from {_character.BlendFrom} ({_character.BlendWeight:P0} left)");
+
+                // The drawn body against the aim. Standing still and turning,
+                // the offset should grow to -90 or +90 and HOLD there while you
+                // steer, then sweep back to zero the moment you stop. If it is
+                // pinned at zero, the body heading is not running.
+                ImGui.TextDisabled(
+                    $"  body {_character.BodyYawDegrees,4:F0} deg   " +
+                    $"offset from aim {_character.MoveYawDegrees,4:F0} deg");
 
                 bool drawCharacter = _character.Enabled;
                 if (ImGui.Checkbox("Draw character", ref drawCharacter)) _character.Enabled = drawCharacter;
@@ -2621,7 +2745,10 @@ public sealed partial class GameLoop : IDisposable
 
         _net?.Dispose();
         _glue?.Dispose();
+        DisposeGameplayUi();
+        DisposePortraits();
         _creatures?.Dispose();
+        _selectionRing?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }
         catch { /* Shutdown must continue after a failed background build. */ }
@@ -2639,6 +2766,7 @@ public sealed partial class GameLoop : IDisposable
         DisposeLoadingArt();
         _sky?.Dispose();
         _glow?.Dispose();
+        _glueAdd?.Dispose();
         _uploads?.Dispose();
         _assetWorkers?.Dispose();
 
@@ -2646,6 +2774,7 @@ public sealed partial class GameLoop : IDisposable
         // extractor is detached and its shared archive handles are closed.
         AdtTerrainReader.StormLibExtractor = null;
         _particles?.Dispose();
+        _spellEffectMeshes?.Dispose();
         _mpq?.Dispose();
     }
 }

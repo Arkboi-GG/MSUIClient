@@ -286,8 +286,16 @@ public sealed partial class ClientConfig
         public float Radius { get; set; } = 0.4f;
         public float Height { get; set; } = 2.1f;
 
-        /// <summary>Ledges up to this tall are stepped onto rather than blocking.</summary>
-        public float StepHeight { get; set; } = 1.0f;
+        /// <summary>
+        /// Ledges up to this tall are stepped onto rather than blocking.
+        ///
+        /// A yard was too generous. Combined with the 55-degree slope gate below
+        /// it let the character walk up rocks, crates and terrain that the
+        /// reference makes you jump, which is a feel difference you notice
+        /// everywhere in the world without ever being able to point at one
+        /// obstacle and call it wrong. 0.7 is the reference's own step ceiling.
+        /// </summary>
+        public float StepHeight { get; set; } = 0.7f;
 
         /// <summary>
         /// When a previously grounded character moves onto a slightly lower
@@ -304,8 +312,15 @@ public sealed partial class ClientConfig
         /// </summary>
         public float FallAnimationDelayMs { get; set; } = 180f;
 
-        /// <summary>Slopes steeper than this cannot be stood on or climbed.</summary>
-        public float MaxSlopeDegrees { get; set; } = 55f;
+        /// <summary>
+        /// Slopes steeper than this cannot be stood on or climbed.
+        ///
+        /// Fifty, not fifty-five: cos(50 degrees) is the constant the reference's
+        /// own step-versus-fall election tests a surface normal against, so it is
+        /// the boundary between "this is a floor" and "this is a wall" that the
+        /// world's geometry was authored around.
+        /// </summary>
+        public float MaxSlopeDegrees { get; set; } = 50f;
 
         public float Gravity { get; set; } = 19.29110527f;
         public float JumpVelocity { get; set; } = 7.9558f;

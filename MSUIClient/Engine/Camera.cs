@@ -98,12 +98,21 @@ public sealed class Camera
 
     public float AspectRatio { get; set; } = 16f / 9f;
 
+    /// <summary>
+    /// Optional authored view used by model portrait cameras. Ordinary world
+    /// cameras leave these unset and continue through the orbit properties.
+    /// </summary>
+    public Vector3? AuthoredPosition { get; set; }
+    public Vector3? AuthoredTarget { get; set; }
+    public Vector3? AuthoredUp { get; set; }
+    public float? AuthoredVerticalFieldOfViewRadians { get; set; }
+
     /// <summary>Height above <see cref="Target"/> the camera actually looks at.</summary>
     public float EyeHeight = 2.2f;
 
     private const float PitchLimit = 1.45f;   // ~83 degrees, short of gimbal lock
 
-    public Vector3 EyeTarget => Target + new Vector3(0, 0, EyeHeight);
+    public Vector3 EyeTarget => AuthoredTarget ?? (Target + new Vector3(0, 0, EyeHeight));
 
     /// <summary>
     /// Unit vector from <see cref="EyeTarget"/> toward the camera, in WoW space.
@@ -125,7 +134,7 @@ public sealed class Camera
     }
 
     /// <summary>Camera position in WoW space, derived from yaw/pitch/distance.</summary>
-    public Vector3 Position => EyeTarget + OrbitDirection * EffectiveDistance;
+    public Vector3 Position => AuthoredPosition ?? (EyeTarget + OrbitDirection * EffectiveDistance);
 
     /// <summary>Unit vector the camera looks along, in WoW space.</summary>
     public Vector3 Forward
@@ -217,7 +226,7 @@ public sealed class Camera
     }
 
     public Matrix4x4 View
-        => Matrix4x4.CreateLookAt(Position, EyeTarget, Vector3.UnitZ);
+        => Matrix4x4.CreateLookAt(Position, EyeTarget, AuthoredUp ?? Vector3.UnitZ);
 
     /// <summary>
     /// View matrix for camera-relative rendering. Geometry using this matrix
@@ -226,11 +235,12 @@ public sealed class Camera
     /// loss at large map coordinates.
     /// </summary>
     public Matrix4x4 RelativeView
-        => Matrix4x4.CreateLookAt(Vector3.Zero, EyeTarget - Position, Vector3.UnitZ);
+        => Matrix4x4.CreateLookAt(Vector3.Zero, EyeTarget - Position, AuthoredUp ?? Vector3.UnitZ);
 
     public Matrix4x4 Projection
         => Matrix4x4.CreatePerspectiveFieldOfView(
-            FieldOfViewDegrees * MathF.PI / 180f, AspectRatio, NearPlane, FarPlane);
+            AuthoredVerticalFieldOfViewRadians ?? FieldOfViewDegrees * MathF.PI / 180f,
+            AspectRatio, NearPlane, FarPlane);
 
     /// <summary>
     /// Combined view-projection, in System.Numerics' row-vector convention
@@ -250,6 +260,41 @@ public sealed class Camera
     public Matrix4x4 ViewProjection => View * Projection;
 
     public Matrix4x4 RelativeViewProjection => RelativeView * Projection;
+
+    /// <summary>Unproject a top-left-origin window pixel into a WoW-world ray.</summary>
+    public (Vector3 Origin, Vector3 Direction)? ScreenPointToRay(Vector2 pixel, Vector2 size)
+    {
+        if (size.X <= 0f || size.Y <= 0f || !Matrix4x4.Invert(ViewProjection, out var inverse))
+            return null;
+
+        float x = 2f * pixel.X / size.X - 1f;
+        float y = 1f - 2f * pixel.Y / size.Y;
+
+        // System.Numerics' perspective matrix uses depth 0..1 on the CPU.
+        Vector4 near = Vector4.Transform(new Vector4(x, y, 0f, 1f), inverse);
+        Vector4 far = Vector4.Transform(new Vector4(x, y, 1f, 1f), inverse);
+        if (MathF.Abs(near.W) < 1e-6f || MathF.Abs(far.W) < 1e-6f) return null;
+        Vector3 nearWorld = new(near.X / near.W, near.Y / near.W, near.Z / near.W);
+        Vector3 farWorld = new(far.X / far.W, far.Y / far.W, far.Z / far.W);
+        Vector3 direction = farWorld - nearWorld;
+        if (direction.LengthSquared() < 1e-8f) return null;
+        return (Position, Vector3.Normalize(direction));
+    }
+
+    /// <summary>Project a WoW-world point to top-left-origin window pixels.</summary>
+    public bool TryWorldToScreen(Vector3 world, Vector2 size, out Vector2 pixel)
+    {
+        Vector4 clip = Vector4.Transform(new Vector4(world, 1f), ViewProjection);
+        if (clip.W <= 1e-5f)
+        {
+            pixel = default;
+            return false;
+        }
+        float x = clip.X / clip.W;
+        float y = clip.Y / clip.W;
+        pixel = new Vector2((x + 1f) * 0.5f * size.X, (1f - y) * 0.5f * size.Y);
+        return x is >= -1f and <= 1f && y is >= -1f and <= 1f;
+    }
 
     /// <summary>
     /// Conservative AABB test performed directly in homogeneous clip space.

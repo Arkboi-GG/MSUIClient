@@ -6,7 +6,9 @@ PROJECT_HANDBOOK.md §1.2). Read this plus the handbook's cross-cutting ground
 truth (§3.1 coordinates, §8.5 shader ASCII rule, §11 working agreements) before
 touching foliage. You should not need the rest of the handbook.
 
-Version: Draft 2 — 2026-07-26 (adds the LIQUID gate — grass was growing along the
+Version: Draft 3 — 2026-07-29 (moves cold MPQ/M2/BLP preparation and GL upload
+off the scatter/frame path; verified in-game on the reported hitch route).
+Draft 2 — 2026-07-26 added the LIQUID gate — grass was growing along the
 bed of the Elwynn river because this renderer had no idea liquid existed. See §6.)
 Previous: Draft 1 — 2026-07-24.
 
@@ -196,10 +198,17 @@ Each scatter also prints what it did:
 [foliage]   3.4 ms over 812 cell(s), 3210 candidate(s) rolled, 1006 kept
 ```
 
-`ScatterCells`, `ScatterCandidates` and `ScatterCount` are the rate story. **The
-cost driver here is frequency, not the cost of one scatter** — raising
-`RescatterDistance` is the cheapest lever if it ever matters, and §5 records the
-real fix.
+`ScatterCells`, `ScatterCandidates` and `ScatterCount` are the rate story once
+assets are resident. A July 29 trace exposed a different first-touch path: only
+36 cells / 108 candidates took 764.6 ms because `ResolveModel` synchronously read
+the MPQ, parsed M2, decoded BLP and created GL objects from inside `Scatter`.
+
+That path is now removed. A cache miss is counted as `DeferredModels`, queued to
+the shared asset workers, decoded off-thread, and uploaded through the dedicated
+shared GL context. `WarmNextPreload` publishes only completed uploads; `Scatter`
+never waits and retries after a model becomes resident. Thus an authored recipe
+crossing the foliage radius can briefly fill in over later frames, but cannot
+turn that coordinate into a multi-hundred-millisecond render hitch.
 
 ---
 
@@ -332,6 +341,6 @@ The Advanced panel prints how many cells were skipped.
   as PLAN_08 D3 for doodads and the same reason applies — re-deriving data you
   already have is the cost.
 
-  **Measure before building it.** With the split timers in place, read
-  `render.foliage.rescatterMs` on the frames it fires. If it is a millisecond or
-  two, the full rebuild is fine and this stays undone.
+  **Measure before building it.** With cold model/texture work removed, read
+  `render.foliage.rescatterMs` on the frames it fires. If it remains a millisecond
+  or two, the full rebuild is fine and this stays undone.

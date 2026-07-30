@@ -32,11 +32,15 @@ namespace MSUIClient.Engine;
 public sealed class GameSettings
 {
     /// <summary>Bumped when a rename or a units change needs migration handling.
-    /// v2: portal culling (PLAN_10) became the shipped default.</summary>
-    public int Version { get; set; } = 2;
+    /// v2: portal culling (PLAN_10) became the shipped default.
+    /// v3: ForceTwoSided went back to being a diagnostic, off by default.</summary>
+    public int Version { get; set; } = 3;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
+
+    /// <summary>The last character highlighted on the character-select screen.</summary>
+    public ulong LastCharacterGuid { get; set; }
 
     public DisplaySettings Display { get; set; } = new();
     public ViewSettings View { get; set; } = new();
@@ -114,7 +118,17 @@ public sealed class GameSettings
         public bool Buildings { get; set; } = true;
         public bool WmoFrustumCulling { get; set; } = true;
         public bool DistanceLodShells { get; set; } = true;
-        public bool ForceTwoSided { get; set; } = true;
+        /// <summary>
+        /// Draw every WMO batch two-sided. A DIAGNOSTIC, defaulted off.
+        ///
+        /// It shipped on, and it was the most expensive setting in the client:
+        /// backface culling disabled for the pass that is 72-86% of GPU time in
+        /// a city, so every wall paid double setup and double fill. No quality
+        /// preset overrode it either, which is much of why Low never helped.
+        /// Turn it on to tell "the geometry is missing" from "the winding is
+        /// inward" in one click — that is what it is for.
+        /// </summary>
+        public bool ForceTwoSided { get; set; }
         public float WmoAlphaCutoff { get; set; } = 0.35f;
         public int ImpostorMaxVertices { get; set; } = 2000;
         public float InsideMargin { get; set; }
@@ -616,6 +630,19 @@ public sealed class SettingsStore
         {
             s.Detail.WmoPortalCulling = true;
             s.Version = 2;
+        }
+
+        // v2 -> v3: ForceTwoSided goes back to being the diagnostic it was
+        // written as. It shipped ON, which disabled backface culling for the
+        // whole WMO pass - the pass that is most of the frame in a city, on a
+        // GPU with no hidden-surface removal. Settings.Detail wins over the
+        // renderer's own default (see ApplyDetail), so without this step an
+        // existing settings.json would pin the old value forever and the change
+        // would never reach anyone who has already run the client.
+        if (s.Version < 3)
+        {
+            s.Detail.ForceTwoSided = false;
+            s.Version = 3;
         }
     }
 

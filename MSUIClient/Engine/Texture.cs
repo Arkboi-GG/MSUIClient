@@ -114,9 +114,56 @@ public sealed class Texture : IDisposable
     }
 
     /// <summary>
-    /// Single-channel-per-layer alpha atlas, uploaded as RGBA8.
-    /// Clamped and unmipmapped: mipmapping a splat mask bleeds neighbouring
-    /// chunks into each other at distance, which shows up as seams.
+    /// 2D array texture from ONE contiguous RGBA buffer holding every layer back
+    /// to back, clamped and unmipmapped. The terrain alpha masks.
+    ///
+    /// WHY AN ARRAY AND NOT AN ATLAS. The masks used to be packed edge to edge
+    /// into one 1024x1024 image, which meant a bilinear tap on a chunk boundary
+    /// straddled two chunks and returned a 50/50 blend of two unrelated sets of
+    /// blend weights — about a yard of wrong-texture smear along every chunk
+    /// edge. No sampler state can fix that, because inside an atlas the
+    /// neighbours are genuinely adjacent. Array layers cannot bleed into each
+    /// other at all, so CLAMP_TO_EDGE now means what it says.
+    ///
+    /// RGBA order, not BGRA: these are three independent blend weights
+    /// (R = layer 1, G = layer 2, B = layer 3), not a colour, so there is no
+    /// channel convention to honour and the shader reads them in order.
+    ///
+    /// Unmipmapped on purpose. A mip chain would average across the chunk's own
+    /// edge into whatever the reduction picks up, and reintroduce at distance
+    /// exactly the bleeding the array layout removes up close.
+    /// </summary>
+    public static unsafe Texture ArrayRgbaNoMips(
+        GL gl, byte[] rgba, int width, int height, int layers, GL? ownerGl = null)
+    {
+        uint handle = gl.GenTexture();
+        gl.BindTexture(TextureTarget.Texture2DArray, handle);
+
+        fixed (byte* p = rgba)
+        {
+            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.Rgba8,
+                (uint)width, (uint)height, (uint)layers, 0,
+                PixelFormat.Rgba, PixelType.UnsignedByte, p);
+        }
+
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+
+        // A texture with no mip chain must say so, or it is INCOMPLETE and every
+        // sample returns opaque black. The min filter above already avoids that,
+        // but stating the level range costs nothing and survives someone later
+        // changing the filter.
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureBaseLevel, 0);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMaxLevel, 0);
+
+        gl.BindTexture(TextureTarget.Texture2DArray, 0);
+        return new Texture(ownerGl ?? gl, handle, TextureTarget.Texture2DArray, width, height, layers);
+    }
+
+    /// <summary>
+    /// Single 2D texture from raw RGBA bytes, clamped and unmipmapped.
     /// </summary>
     public static unsafe Texture FromRgbaNoMips(
         GL gl, byte[] rgba, int width, int height, GL? ownerGl = null)

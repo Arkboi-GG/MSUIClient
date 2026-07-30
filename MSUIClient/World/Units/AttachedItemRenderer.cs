@@ -48,6 +48,13 @@ public sealed class AttachedItemRenderer : IDisposable
     public const int AttachShoulderRight = 5;
     public const int AttachShoulderLeft = 6;
     public const int AttachHelm = 11;
+    public const int AttachBackRight = 26;
+    public const int AttachBackLeft = 27;
+    public const int AttachShieldBack = 28;
+    public const int AttachBackLowerMain = 30;
+    public const int AttachBackLowerOff = 31;
+    public const int AttachHipMain = 32;
+    public const int AttachHipOff = 33;
 
     /// <summary>Position(3) Normal(3) UV(2) - the doodad layout, since nothing here is skinned.</summary>
     private const int FloatsPerVertex = 8;
@@ -86,6 +93,9 @@ public sealed class AttachedItemRenderer : IDisposable
     {
         public ItemModel Model = null!;
         public int AttachmentId;
+        public int HeldSlot = -1;
+        public int InventoryType;
+        public byte ItemSheath;
         public string Label = "";
         public bool Visible = true;
     }
@@ -119,6 +129,7 @@ public sealed class AttachedItemRenderer : IDisposable
             if (mount.Label == label) mount.Visible = visible;
     }
     public int DrawnLastFrame { get; private set; }
+    public byte SheathState { get; set; }
 
     /// <summary>Matched to the character so a pauldron lights like the shoulder under it.</summary>
     public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
@@ -126,6 +137,7 @@ public sealed class AttachedItemRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
+    public float ShadowSoftness { get; set; } = 0f;   // matches CharacterRenderer wrap (uShadowWrap); shares character.frag
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
@@ -209,14 +221,17 @@ public sealed class AttachedItemRenderer : IDisposable
                 continue;
             }
 
+            int heldSlot = piece.EquipmentSlot switch { 15 => 0, 16 => 1, 17 => 2, _ => -1 };
             AddMount(piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
-                     AttachmentFor(piece.InventoryType), piece.Name);
+                     AttachmentFor(piece.InventoryType), piece.Name, heldSlot,
+                     piece.InventoryType, piece.Sheath);
         }
 
         Console.WriteLine($"[attach] {_mounts.Count} model(s) mounted");
     }
 
-    private void AddMount(string modelName, string textureName, string folder, int attachmentId, string label)
+    private void AddMount(string modelName, string textureName, string folder, int attachmentId, string label,
+        int heldSlot = -1, int inventoryType = 0, byte itemSheath = 0)
     {
         if (string.IsNullOrWhiteSpace(modelName)) return;
 
@@ -227,7 +242,11 @@ public sealed class AttachedItemRenderer : IDisposable
             return;
         }
 
-        _mounts.Add(new Mount { Model = model, AttachmentId = attachmentId, Label = label });
+        _mounts.Add(new Mount
+        {
+            Model = model, AttachmentId = attachmentId, Label = label,
+            HeldSlot = heldSlot, InventoryType = inventoryType, ItemSheath = itemSheath,
+        });
         Console.WriteLine($"[attach] {label}: {model.Path} on attachment {attachmentId}");
     }
 
@@ -463,6 +482,7 @@ public sealed class AttachedItemRenderer : IDisposable
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
         _shader.Set("uAmbientIntensity", AmbientIntensity);
+        _shader.Set("uShadowWrap", ShadowSoftness);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
@@ -483,7 +503,9 @@ public sealed class AttachedItemRenderer : IDisposable
             {
                 if (!mount.Visible) continue;
 
-                var attachment = FindAttachment(character, mount.AttachmentId);
+                int attachmentId = ResolveAttachment(mount);
+                if (attachmentId < 0) continue;
+                var attachment = FindAttachment(character, attachmentId);
                 if (attachment is null) continue;
 
                 int bone = (int)attachment.BoneIndex;
@@ -532,6 +554,32 @@ public sealed class AttachedItemRenderer : IDisposable
 
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+    }
+
+    private int ResolveAttachment(Mount mount)
+    {
+        if (mount.HeldSlot < 0) return mount.AttachmentId;
+
+        // Ranged slot: bows use the left hand, all other ranged families the
+        // right, and vanilla detaches the model entirely while it is stowed.
+        if (mount.HeldSlot == 2)
+            return SheathState == 2
+                ? mount.InventoryType == 15 ? AttachHandLeft : AttachHandRight
+                : -1;
+
+        if (SheathState == 1)
+            return mount.HeldSlot == 0 ? AttachHandRight
+                : mount.InventoryType == CharacterEquipment.Slot.Shield ? AttachLeftWrist
+                : AttachHandLeft;
+
+        return mount.ItemSheath switch
+        {
+            1 => mount.HeldSlot == 0 ? AttachBackRight : AttachBackLeft,
+            2 => mount.HeldSlot == 0 ? AttachBackLowerMain : AttachBackLowerOff,
+            3 => mount.HeldSlot == 0 ? AttachHipMain : AttachHipOff,
+            4 => AttachShieldBack,
+            _ => -1,
+        };
     }
 
     private void ApplyBlendMode(int mode)

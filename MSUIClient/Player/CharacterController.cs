@@ -91,6 +91,25 @@ public sealed class CharacterController
     public Vector3 Position;
     public Vector3 Velocity;
 
+    /// <summary>
+    /// This frame's COMMANDED horizontal velocity, in yards per second. Zero
+    /// when no direction key is held.
+    ///
+    /// Horizontal motion is applied straight to <see cref="Position"/>, so
+    /// <see cref="Velocity"/> only ever carries Z and there was nothing for the
+    /// animation layer to read - which is why it resorted to differencing the
+    /// position and smoothing the result, and inherited a frame of lag, a wall
+    /// slide that read as a change of direction, and a jittery leg-cycle rate.
+    ///
+    /// This is the intent, before collision: what the character is TRYING to do,
+    /// which is what selects a gait. What the world did about it is a separate
+    /// question and belongs to the position.
+    /// </summary>
+    public Vector3 HorizontalVelocity { get; private set; }
+
+    /// <summary>Magnitude of <see cref="HorizontalVelocity"/>, for convenience.</summary>
+    public float PlanarSpeed => HorizontalVelocity.Length();
+
     /// <summary>Radians CCW about +Z from +X. This IS the WoW orientation value.</summary>
     public float Yaw;
 
@@ -201,6 +220,7 @@ public sealed class CharacterController
     {
         Position = new Vector3(x, y, z);
         Velocity = Vector3.Zero;
+        HorizontalVelocity = Vector3.Zero;
         Grounded = false;
         FallTimeMs = 0;
         _warnedNoGround = false;
@@ -295,8 +315,12 @@ public sealed class CharacterController
 
         var wish = forward * input.Forward + right * input.Strafe;
         var move = Vector3.Zero;
+        HorizontalVelocity = Vector3.Zero;
         if (wish.LengthSquared() > 1e-6f)
-            move = Vector3.Normalize(wish) * speed * dt;
+        {
+            HorizontalVelocity = Vector3.Normalize(wish) * speed;
+            move = HorizontalVelocity * dt;
+        }
 
         bool wasGrounded = Grounded;
         bool jumped = input.Jump && Grounded;
@@ -332,8 +356,14 @@ public sealed class CharacterController
         float speed = _opts.FlySpeed * (input.Boost ? _opts.FlyBoost : 1f);
 
         var wish = forward * input.Forward + right * input.Strafe + Vector3.UnitZ * input.Up;
+
+        HorizontalVelocity = Vector3.Zero;
         if (wish.LengthSquared() > 1e-6f)
-            Position += Vector3.Normalize(wish) * speed * dt;
+        {
+            var velocity = Vector3.Normalize(wish) * speed;
+            HorizontalVelocity = new Vector3(velocity.X, velocity.Y, 0f);
+            Position += velocity * dt;
+        }
 
         Velocity = Vector3.Zero;
         Grounded = false;

@@ -1,6 +1,7 @@
 # System — Networking, Login, and the Live Entity Stream
 
-Status date: 2026-07-27. Author's honesty clause up front: **this subsystem connects
+Status date: 2026-07-29 (outbound movement + combat-wire foundation addendum).
+Author's honesty clause up front: **this subsystem connects
 to a live VMaNGOS realm and streams the world's entities, but almost everything a
 player would *see* is placeholder or visibly broken.** It is scaffolding that proves
 the pipe works end-to-end, not a finished multiplayer client. Read §1 and §12 before
@@ -25,7 +26,9 @@ Parity target is benilla + the retail 1.12 glue flow:
    other players as their real models, and **creatures/NPCs textured, animated, and
    moving** along the server's splines, with nameplates and health.
 4. Your movement **sent** to the server so you are a real participant, not a ghost
-   observer.
+   observer. **Implemented 2026-07-29** for ground locomotion, facing, jump/land,
+   and heartbeat state; forced-speed acknowledgements, swimming and transports
+   remain follow-up work.
 
 What exists today clears roughly step 0.5 of that. The gap is large and mostly in the
 *presentation* layer, not the wire layer.
@@ -48,8 +51,8 @@ What exists today clears roughly step 0.5 of that. The gap is large and mostly i
 | Your character in world | **placeholder** | draws the TEST body (Human male + Battlegear), NOT your logged-in character |
 | Other players in world | **not drawn** | skipped entirely (need composited character models) |
 | Spawn placement | **improved** | trusts the server Z so you no longer fall under Stormwind |
-| Player movement → server | **not sent** | you observe the world; the server never hears you move |
-| Combat / spells / health / nameplates | **not built** | opcodes defined, nothing handled or drawn |
+| Player movement → server | **first pass built** | start/stop forward/back, strafe, turn, jump/land, facing and 500 ms heartbeats carry the post-collision pose |
+| Combat / spells / health / nameplates | **wire foundation built** | attack/combat-log packets decode into a bounded typed event stream; presentation and target-driven attack input are next |
 | Creature movement (splines) | **not handled** | SMSG_MONSTER_MOVE ignored → creatures never walk |
 
 ---
@@ -204,14 +207,15 @@ at street level. (Offline mode still samples terrain, unchanged.)
 
 **Inbound opcodes actually handled:** `SMSG_UPDATE_OBJECT`,
 `SMSG_COMPRESSED_UPDATE_OBJECT`, `SMSG_DESTROY_OBJECT` (→ EntityStore);
-`SMSG_LOGIN_VERIFY_WORLD`, `SMSG_NEW_WORLD` (→ enter/worldport pose). Every other opcode
-in `Net/Opcodes.cs` is defined but **not processed**.
+`SMSG_LOGIN_VERIFY_WORLD`, `SMSG_NEW_WORLD` (→ enter/worldport pose),
+`SMSG_MONSTER_MOVE`, and the attack/combat-log family listed in
+`Net/CombatPackets.cs`.
 
-**Outbound actually sent:** `CMSG_AUTH_SESSION`, `CMSG_CHAR_ENUM`, `CMSG_PLAYER_LOGIN`,
-`CMSG_SET_ACTIVE_MOVER`, `CMSG_PING` (30 s keepalive), `CMSG_MOVE_WORLDPORT_ACK`.
-Plumbed but **never called**: `SendMovement`, `SetSelection`, `AttackSwing`,
-`AttackStop`, `CreatureQuery`, `NameQuery`. → the client is a pure **observer**; the
-server never hears you move, select, or attack.
+**Outbound actually sent:** session/login/mover/ping/worldport packets plus the
+ground `MSG_MOVE_*` transition stream. `LocalMovementSender` diffs each frame's
+input flags, sends matching axis starts/stops, jump/fall-land, exact changed
+facing, and a 500 ms heartbeat while moving. Clean world clicks now send selection;
+right-click and engaged target switches send the attack start/stop latch commands.
 
 **Coordinate + model transform (matches `CharacterRenderer`, the proven path):** M2
 verts load raw; `modelMatrix = Scale · RotationY(heading) · Basis · Translate(worldPos)`,
@@ -223,6 +227,28 @@ then subtract the camera eye from the translation row (camera-relative), and mul
 **Creature model chain:** `CreatureDisplayInfo.dbc` (display id → modelId, scale,
 texture[3]) → `CreatureModelData.dbc` (modelId → `.m2` path, scale) → the M2 in the MPQ.
 `Formats/CreatureDbc.cs` (`CreatureModelResolver.TryResolve`).
+
+**Unit render-scale law:** render units with `OBJECT_FIELD_SCALE_X` alone (plus the explicit HUD
+tuning multiplier). The server has already folded the two DBC scales above into that update field.
+Multiplying DBC scale again double-applies it; native sub-1 beasts become scale² and visibly tiny.
+This was the wolf/critters size bug fixed on 2026-07-29.
+
+**Idle combat facing:** vmangos `SetInFront` is server-side and does not emit a new movement packet.
+Each frame, a stationary living creature therefore turns locally toward `UNIT_FIELD_TARGET`, with
+the ATTACKSTART victim as a fallback, along the shortest wrapped arc at 8 rad/s. A live spline owns
+facing while moving and suppresses this idle correction.
+
+**Death/motion law:** health reaching zero clears the creature spline immediately. The renderer
+plays Death (AnimationData id 1) once and holds its final frame; a corpse first streamed dead starts
+already settled, while a dead→alive edge queues Rise (id 7). Combat-log damage is never used to
+derive death—the descriptor health delta remains authoritative.
+
+**Known world-entry presentation bug (2026-07-29):** when the loading curtain lifts, the local
+player currently plays a wound/hit reaction without a newly observed attack. The combat packet and
+animation code exists, but this behavior is not correct or verified. Audit queued combat events and
+establish descriptor/health baselines before presentation becomes eligible; also clear transient
+combat animation state at world-load start/end. Do not infer a real hit from the initial descriptor
+population, and do not solve this by merely delaying the visible animation.
 
 **Config (`ClientConfig.Net.cs` → `client-config.json`):** `Server.Enabled` (master
 opt-in), `Server.AutoConnect`, `Server.Account`, `Server.Password`, `Server.Realm`,
@@ -244,6 +270,12 @@ Netstack (`Net/`):
   + the world-host override + the character-select park.
 - `Character.cs` — roster entry (race/gender/appearance/equipment/pos).
 - `MovementInfo.cs` — the MSG_MOVE_* body + movement flags.
+- `LocalMovementSender.cs` — local flags → transition/facing/heartbeat send law.
+- `CombatPackets.cs` / `CombatState.cs` — typed combat wire + engagement/event seam.
+- `CombatFeedbackLaw.cs` — pure ownership, number/word and crit law for outgoing world text.
+- `Formats/FactionTemplate.cs` — faction-template catalog + directional reaction comparator.
+- `tools/combat-wire-check` — focused checks for representative combat packets, movement
+  jump-tail round trips, faction reaction precedence, and camera-ray alignment.
 - `UpdateObject.cs` / `ObjectFields.cs` / `GuidInfo.cs` — UPDATE_OBJECT decode, sparse
   UpdateFields, GUID high-part decode.
 - `Entities.cs` — `WorldEntity` + `EntityStore` (the client world model).
@@ -251,6 +283,10 @@ Netstack (`Net/`):
 Client glue + render:
 - `Program.Net.cs` — game-loop integration: `InitNet`, `PumpNet`, the login / connecting
   / character-select / in-world ImGui screens, `DrawGlueScene`, `DrawCreatures`.
+- `Program.Targeting.cs` — occluded unit picking, selection/attack commands, faction
+  attackability, and the first target frame.
+- `Program.CombatAnimations.cs` — routes each melee swing packet to attacker and victim one-shots.
+- `Program.CombatFeedback.cs` — floating world text, player health/power frame, and hit flashes.
 - `Engine/GlueScene.cs` — the UI_MainMenu login gate.
 - `World/Units/CreatureRenderer.cs` — the creature/NPC renderer (this doc's §7).
 - `ClientConfig.Net.cs` — the `Server` config block.
@@ -263,7 +299,10 @@ Client glue + render:
 `entities: N (creatures C, players P)`, `packets in: N`, `creatures drawn: N`
 (0 = renderer off or nothing resolving), a **Draw creatures** toggle, **Creature
 heading°** and **Creature scale×** live sliders, a Nearest-units list (distance, npc
-entry, display id, level, health%), and Disconnect. Use `creatures drawn` vs
+entry, display id, level, health%), outbound movement packet/flag/last-opcode
+counters, combat event/engagement counters, hover/selection/attack GUIDs, world-text
+spawn/active/drop counters, combat-animation trigger/active/current-clip diagnostics, and
+Disconnect. Use `creatures drawn` vs
 `creatures C` to see how many resolve at all.
 
 ---
@@ -278,27 +317,32 @@ In rough priority order for a believable in-world picture:
    composite its saved skin/hair/face + 19 equipment slots, instead of the test Human
    male. Then render other players the same way. (`CharacterRenderer` +
    `CharacterEquipment` already exist for the offline avatar — the wiring is the work.)
-3. **Creature animation + movement.** Drive the M2 idle/walk clips, and handle
-   `SMSG_MONSTER_MOVE` so creatures walk their server splines instead of standing frozen.
-4. **Send your movement.** Wire the controller to `NetworkClient.SendMovement` so the
-   server (and other players) see you move. Today you are invisible to them.
+3. **Creature animation breadth.** Idle/walk/run spline locomotion, idle target-facing,
+   melee swing/wound/defense, engaged Ready stance, Death hold and Rise are built. Exact
+   weapon-subclass picks, upper-body overlays, impact-keyframe timing and spell animation remain.
+4. ~~**Send your movement.**~~ **First pass built 2026-07-29.** Remaining movement
+   work is forced-speed change/ack, swimming, transports, and live multiplayer
+   verification of observer smoothing.
 5. **Real login screen.** Replace the ImGui box with the textured AccountLogin.xml glue
    layout (fonts, buttons, edit boxes) over the animated gate.
 6. **Real character select.** A 3D roster scene with create/delete, not a name list.
 7. **Glue polish.** Animated color/alpha tracks (warm sky), fire particle emitters,
    WoW logo/buttons on the gate.
-8. **Combat / spells / health / nameplates / chat / name-queries.** All server-driven,
-   all absent — opcodes are defined but nothing is handled or drawn.
+8. **Combat presentation, spells, nameplates and chat.** Combat wire, local selection,
+   right-click auto-attack initiation, reaction comparison, player/target health-power bars,
+   hit flashes, outgoing world combat text and first melee swing/reaction animation are built.
+   Final portrait chrome, combat log, casting, reputation/PvP reaction, TAB targeting,
+   nameplates and final unit frames remain.
 
-None of the above is close to done. The wire layer (§2, §6) is the only part safe to
-call working.
+The wire and first targeting/auto-attack command path are implemented and build-checked; live realm
+play remains the authority for interaction feel and server behaviour.
 
 ---
 
 ## 13. Build note
 
-The assistant sandbox has no .NET SDK, so **the Visual Studio build is the proof.** The
-first compile of `CreatureRenderer.cs` needed the repo's standard
+Both Debug and Release are verified with the repository's .NET SDK. The first compile of
+`CreatureRenderer.cs` needed the repo's standard
 `using Shader = MSUIClient.Engine.Shader;` / `using Texture = MSUIClient.Engine.Texture;`
 aliases (every renderer carries them, to disambiguate the Silk.NET types); they are in
 now. If a later change touches these files, expect the same CS0104 if the aliases are

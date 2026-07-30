@@ -29,9 +29,15 @@ public sealed class WorldEntity
     public int DisplayId => Fields.DisplayId;
     public uint Level => Fields.Level;
     public float HealthFraction => Fields.HealthFraction;
+    public float PowerFraction => Fields.PowerFraction;
     public bool IsDead => Fields.IsDead;
+    public bool InCombat => Fields.InCombat;
     public float Scale => Fields.Scale;
     public uint NpcFlags => Fields.NpcFlags;
+
+    /// <summary>Auto-attack engagement bracketed by SMSG_ATTACKSTART/STOP.</summary>
+    public bool Engaged { get; internal set; }
+    public ulong? CombatTarget { get; internal set; }
 
     /// <summary>True while a spline is actively moving this unit (drives future walk/run animation choice).</summary>
     public bool IsMoving => Spline is not null;
@@ -49,6 +55,20 @@ public sealed class EntityStore
     public int MovingCount => _entities.Values.Count(e => e.Spline is not null);
 
     public bool TryGet(ulong guid, out WorldEntity entity) => _entities.TryGetValue(guid, out entity!);
+
+    public void SetEngaged(ulong guid, bool engaged, ulong? victim = null)
+    {
+        if (_entities.TryGetValue(guid, out var entity))
+        {
+            entity.Engaged = engaged;
+            entity.CombatTarget = engaged ? victim : null;
+        }
+    }
+
+    public void StopMovement(ulong guid)
+    {
+        if (_entities.TryGetValue(guid, out var entity)) entity.Spline = null;
+    }
 
     public void Apply(ObjectUpdate u)
     {
@@ -70,13 +90,18 @@ public sealed class EntityStore
                     e.Orientation = u.Movement.Orientation;
                     e.Speeds = u.Movement.Speeds;
                 }
+                if (e.IsDead) e.Spline = null;
                 _entities[u.Guid] = e;   // a fresh create drops any prior spline with the old entity
                 break;
             }
             case UpdateKind.Values:
                 if (u.Fields is not null)
                 {
-                    if (_entities.TryGetValue(u.Guid, out var ent)) ent.Fields.Merge(u.Fields);
+                    if (_entities.TryGetValue(u.Guid, out var ent))
+                    {
+                        ent.Fields.Merge(u.Fields);
+                        if (ent.IsDead) ent.Spline = null;
+                    }
                     else _entities[u.Guid] = new WorldEntity { Guid = u.Guid, Fields = u.Fields, Entry = GuidInfo.Entry(u.Guid) ?? 0 };
                 }
                 break;
@@ -117,12 +142,49 @@ public sealed class EntityStore
     {
         foreach (var e in _entities.Values)
         {
+            if (e.IsDead) { e.Spline = null; continue; }
             if (e.Spline is null) continue;
             bool running = e.Spline.Sample(nowMs, out Vector3 pos, out float? facing);
             e.Position = pos;
             if (facing is { } f) e.Orientation = f;
             if (!running) e.Spline = null;   // finished — hold at the endpoint
         }
+    }
+
+    /// <summary>
+    /// Idle creatures locally square up on UNIT_FIELD_TARGET. vmangos SetInFront
+    /// is server-side only, so no MONSTER_MOVE is expected for this turn.
+    /// </summary>
+    public void FaceIdleTargets(float dt, ulong playerGuid, Vector3 playerPosition)
+    {
+        float maxStep = 8f * MathF.Max(0f, dt);
+        foreach (WorldEntity entity in _entities.Values)
+        {
+            if (!entity.IsCreature || entity.IsDead || entity.Spline is not null) continue;
+            ulong? targetGuid = entity.Fields.Target ?? entity.CombatTarget;
+            if (targetGuid is null) continue;
+
+            Vector3 targetPosition;
+            if (targetGuid.Value == playerGuid) targetPosition = playerPosition;
+            else if (_entities.TryGetValue(targetGuid.Value, out WorldEntity? target)) targetPosition = target.Position;
+            else continue;
+
+            float dx = targetPosition.X - entity.Position.X;
+            float dy = targetPosition.Y - entity.Position.Y;
+            if (dx * dx + dy * dy < 1e-4f) continue;
+            entity.Orientation = TurnToward(entity.Orientation, MathF.Atan2(dy, dx), maxStep);
+        }
+    }
+
+    public static float TurnToward(float current, float goal, float maxStep)
+    {
+        const float tau = MathF.PI * 2f;
+        float delta = ((goal - current) % tau + tau) % tau;
+        float direction = 1f;
+        if (delta > MathF.PI) { delta = tau - delta; direction = -1f; }
+        if (delta < 1e-4f) return ((current % tau) + tau) % tau;
+        float result = current + direction * MathF.Min(delta, MathF.Max(0f, maxStep));
+        return ((result % tau) + tau) % tau;
     }
 
     public void Remove(ulong guid) => _entities.Remove(guid);

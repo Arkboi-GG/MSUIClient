@@ -2,7 +2,25 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 26 — 2026-07-26
+Version: Draft 30 — 2026-07-29
+Supersedes: Draft 29 (live gameplay-UI checkpoint correction. The integrated bottom bar is mostly
+acceptable with compositing polish outstanding; portraits are still broken; world reveal triggers
+a false local wound reaction; spell and backpack behavior remain unverified. Compile/protocol/camera
+checks are no longer described as live sign-off. See `SYSTEM_GAMEPLAY_UI.md` Draft 4.)
+Supersedes: Draft 28 (the portrait correction: live unit portraits now use each M2's authored
+`cameraLookup[0]` camera and the original Blizzard PlayerFrame/TargetFrame art; selected units also
+use the reference texture highlight and `UnitSelectTexture` ground ring.)
+Supersedes: Draft 27 (the first gameplay-UI port. Real RTT portraits and paper-doll, server-backed
+spell/action state, the authored spellbook/action bar, backpack and equipped bags, cross-container
+item movement, live equipment synchronization, and the character/skills panels now build together.
+See `SYSTEM_GAMEPLAY_UI.md`; it names the still-open talent, bank, tooltip and cast-bar work.)
+Supersedes: Draft 26 (the July 29 correctness/performance pass. WMO portal
+seeding now uses retained collision faces after final camera collision, handles
+the on-plane doorway case with two roots, and applies each MODR owner's PVS bit
+to embedded furniture. Cold foliage MPQ reads, M2 parsing, BLP decoding and GL
+uploads now run through the asset workers/shared upload context instead of
+`Scatter`. Both reported in-game regressions were retested successfully. The two
+system docs remain the detailed ground truth.)
 Supersedes: Draft 25 (same day; a documentation-sync draft that made no new
 engineering claims. Draft 26 records the WMO-liquid session: **PLAN_15** shipped
 canals, fountains, indoor pools and lava channels, `SYSTEM_WATER.md` went to
@@ -325,9 +343,9 @@ has multiple samples.
 >   throttled driver measures the throttle. Re-measure uncapped before
 >   optimizing anything they point at — including §3.27's `terrain 13.2`, which
 >   is 1.9 uncapped.
-> - **PLAN_10 D1 is built and traversal is not.** `Program.Portals.cs`, the
->   camera-group readout and `DumpPortalGraph` exist; nothing culls by portals
->   yet and the 120-yard interior rule is still in place (§3.26).
+> - **Historical (superseded 2026-07-29):** PLAN_10 originally stopped at its
+>   instrument. Traversal, collision-face seeding and MODR ownership have since
+>   shipped; `SYSTEM_WMO_PORTALS.md` is the current truth.
 >
 > Read **SYSTEM_STREAMING.md** before touching streaming, residency or
 > performance, and **SYSTEM_EXTERIOR_LIGHTING.md** before touching anything
@@ -597,21 +615,22 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and (Draft 3) WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 3)** — 2026-07-26. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid; its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
 | `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
-| `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation | **Written** |
+| `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation, asynchronous cold-asset residency | **Written (Draft 3)** — 2026-07-29. Cold MPQ/M2/BLP/GL work no longer runs inside `Scatter`; the full resident-cell rebuild remains measured debt |
 | `SYSTEM_EXTERIOR_LIGHTING.md` | Sky, fog, ambient, sun from `Light.dbc` + `LightParams` + the two band tables; the light probe; the screen-space sky pass | **Written (Draft 1)** — 2026-07-25. **Supersedes §3.28's and §3.35's invented constants.** Numerically verified, photographically unverified |
 | `SYSTEM_STREAMING.md` | Moving residency ring, tile crossings, worker pools, GPU upload context, the hitch recorder, and the frame-time breakdown | **Written (Draft 1)** — extracted 2026-07-25, then extended through §5A with six measured runs. Carries the fixed defects AND the still-open pacing bug. **Read §5A before trusting any older number, including §3.27's** |
 | `SYSTEM_SETTINGS_UI.md` | The Escape menu: the Game Menu and Video Options frames, the `settings.json` model with presets and composites, and the Blizzard-art skin layer (`WowSkin`/`UiFont`) all three are drawn with | **Written (Draft 1)** — 2026-07-25. Carries the 1.12 frame geometry read out of the FrameXML that ships in `interface.MPQ`, and the five ImGui traps this cost. **§1.1's `.blp` rule and §2.3's clip-rect rule are the two that will bite the next UI** |
+| `SYSTEM_GAMEPLAY_UI.md` | Target/combat-facing gameplay chrome: portraits and paper-doll, spellbook/action slots, backpack/equipped bags, item movement, character stats/equipment and skills | **Written (Draft 4)** — 2026-07-29. Implementation exists, but live validation is incomplete: portraits remain broken, world reveal triggers a false wound reaction, bottom-bar compositing needs polish, and spell/backpack behavior is unverified. Its checkpoint table is authoritative. |
 | `SYSTEM_INSTANCES.md` | Instance maps and travel: `Map.dbc`, the WDT, `AreaTrigger.dbc` joined to VMaNGOS's `areatrigger_teleport`, the per-map clears, and the **instance** portals that trigger a trip | **Written (Draft 1)** — 2026-07-26. Its headline: **Deadmines is a TERRAIN map, not one WMO**, so the branch that matters is `UsesGlobalWmo` and never `instanceType`. Carries the tile-key trap and the async-collision race, both of which fail silently |
 | `SYSTEM_PARTICLES.md` | M2 particle emitters: the 504-byte struct derived from the bytes, the ramp block, the Y-up trap, the CPU simulator and billboard renderer, and the instance portal's look | **Written (Draft 1)** — 2026-07-26. Its headline: **the emitter stride is 504, not the 476 every reference quotes.** The format half is emulation-core and settled; **the portal's final look is six hand-dialled values and §6 is the debt register** |
 | `PLAN_07_HITCH_RECORDER.md` | The automatic frame-spike recorder: ring buffer, console tee, auto-vantage | **Built and proven** — caught the freeze on the first walk. Superset now in `SYSTEM_STREAMING.md` §1 |
 | `PLAN_08_INCREMENTAL_RESIDENCY.md` | Per-tile ownership, budgeted adoption, and WoWee's five mechanisms quoted from source | D1 done; **D2/D3 outstanding and still the structural answer to `resid`** (SYSTEM_STREAMING §5A.14); D4/D5 dropped with reasons |
 | `PLAN_09_EXTERIOR_LIGHTING.md` | The reasoning, test protocol and verified 1.12 schemas behind exterior lighting | **Built.** The system doc is the current truth; this plan keeps the schemas (§11) and the argument |
-| `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **D1 (the instrument) is BUILT** — `Program.Portals.cs`, camera-group readout, `DumpPortalGraph`. **Traversal is NOT built**; the 120-yard rule still stands (§3.26). §3/D4 were rewritten 2026-07-25 |
+| `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **BUILT and verified.** `SYSTEM_WMO_PORTALS.md` is current truth; the plan retains the derivation and decisions |
 | `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stages 1 and 2 BUILT AND VERIFIED** on 2026-07-26 — the panel reproduces all 44 rows, and Deadmines/Shadowfang/Scarlet Monastery/Razorfen Kraul travel in and back out. **`SYSTEM_INSTANCES.md` is now the current truth**; this plan keeps the 44-row reference table (§11) and the derivation. Stage 3 (global-WMO maps) specified, not built |
 | `PLAN_14_PARTICLES.md` | M2 particle emitters: the layout derived from the bytes, and what the dungeon portal actually is | **Stages 1 and 2 BUILT** — parse, panel, CPU simulator, billboard renderer; the Deadmines portal draws. **`SYSTEM_PARTICLES.md` is now the current truth**; this plan keeps the derivation record and, more usefully, **every wrong turn** — four direction models, the FBlock reconstruction that failed 0/200, and the reference-implementation citation that was void because the code never ran for this model |
 | `PLAN_15_WMO_LIQUID.md` | WMO liquid: the MLIQ coordinate convention, tile unit, flag encoding and liquid-type mapping, each derived from 235 real groups in `wmo.MPQ` | **BUILT** 2026-07-26. `SYSTEM_WATER.md` §7 is now the current truth; this plan keeps the **derivation record** — five scored candidate layouts, the 470/470 corner snap that fixed the tile unit, and the escape metric that is *monotonically biased* and ranked the wrong unit first. **§6 documents `tools/mpqpy/`, which is the reusable part** |
 | `FOUNDATION_PLAN.md` + `PLAN_01`–`PLAN_06` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. Its own §11 index is correct |
-| `SYSTEM_WMO_PORTALS.md` | Traversal algorithm and the `side`-bit convention as ground truth | Not written — PLAN_10 §8 makes extracting it part of that plan's definition of done. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
+| `SYSTEM_WMO_PORTALS.md` | Traversal, collision-face camera seeding, doorway crossing, MODR ownership and the `side`-bit convention | **Written and verified** — updated 2026-07-29. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
 | `SYSTEM_WMO.md` | WMO buildings: groups, visibility, impostors, occlusion (**lighting is split out into the two lighting docs; portals will be their own doc**) | Planned extraction from §3.24–3.35 |
 | `SYSTEM_CHARACTER.md` | M2 skinning, animation, gear, attachments, appearance; geoset visibility; humanoid NPCs + beasts | **Written (Draft 1)** — 2026-07-27. Extracts §3.4–3.19 and adds the geoset-visibility engine, the humanoid-NPC/beast split, live diagnostics, and the **Load re-entrancy** fix (§2) that stopped the logged-in character rendering twice |
@@ -1069,46 +1088,29 @@ interior/exterior classification was actually based on a string-table offset.
 Large city WMOs exposed this dramatically: distant Cathedral interior groups
 appeared above Stormwind's Trade District.
 
-> **Status correction, 2026-07-25.** MOPV/MOPT/MOPR **are parsed now**, and
-> PLAN_10 D1's instrument is built (`Program.Portals.cs`: which group the camera
-> is in, portal quads drawn through walls, `DumpPortalGraph` cross-checking
-> MOHD's `NPortals`). **What has not changed is the culling** — the 120-yard
-> rule below is still what runs. The wording "until those root chunks are
-> parsed" is therefore obsolete; the correct statement is *"until traversal
-> consumes them."* **PLAN_10_WMO_PORTALS.md is the live plan**, and its §10
-> lists exactly what in this section dies when traversal ships.
+> **Status correction, 2026-07-29.** Portal traversal is built, default-on and
+> verified. `SYSTEM_WMO_PORTALS.md` is the current ground truth; PLAN_10 retains
+> the derivation. The old 120-yard ordinary-interior approximation below has
+> been removed from the live path.
 
-Full indoor WMO visibility is portal traversal through MOPV/MOPT/MOPR. Until
-traversal consumes those root chunks, the renderer uses per-group frustum culling
-and draws ordinary interior groups only within 120 yards of their transformed
-AABB.
-Stormwind's approach silhouettes are a separate authored distance-LOD system
-handled by §3.34, not portal cells. Portal traversal should eventually replace
-the ordinary-interior heuristic; it should not replace the near/far shell swap.
+The renderer now floods MOPV/MOPT/MOPR connectivity from per-instance camera
+seeds. The final collision-resolved camera is cast down against retained WMO
+collision faces, terrain can win the same-column depth race, and a camera on a
+doorway plane seeds both adjacent groups. Portal projection clips the reachable
+screen rectangle. Embedded MODR doodads consult their owning groups' reached
+bits, so a hidden room cannot leave its furniture floating in an empty shell.
+Stormwind's authored near/far approach silhouettes remain the separate §3.34
+system and are not replaced by portal traversal.
 
 **Updated verdict, 2026-07-23:** the corrected MOGP offsets were necessary but
 not sufficient. The floating Cathedral was identified as an authored distance
 shell and is now handled by MOGN/MOGI classification plus the 196-yard swap in
-§3.34. The 120-yard AABB rule remains only a temporary approximation for other
-interior groups.
+§3.34. The temporary 120-yard AABB approximation mentioned by that investigation
+was retired when portal traversal shipped on 2026-07-29.
 
-The eventual portal implementation is sketched below. **PLAN_10 supersedes this
-sketch where the two differ** — in particular PLAN_10 D4 corrects step 2: a
-WMO's *own* exterior groups (Stormwind's streets are groups) do seed traversal,
-and only WMO-to-WMO traversal across the open world is out of scope.
-
-1. Parse root portal vertices (`MOPV`), portal descriptors (`MOPT`) and
-   portal-to-group relations (`MOPR`), preserving relation side/orientation.
-2. Determine the camera's current WMO group/cell when inside a WMO; when
-   outside, seed traversal from visible exterior groups.
-3. Traverse only portals facing/intersecting the camera view and clip the child
-   frustum through each portal polygon.
-4. Submit exterior groups normally and interior groups only when reached by
-   traversal. Keep per-group frustum and draw-distance tests as secondary
-   rejection, not as the visibility authority.
-5. Compare WoWee's WMO visibility path before inventing data layouts or portal
-   semantics. Do not add a Stormwind model-name exception or lower 120 yards
-   until the real traversal exists.
+For the precise seed tie-breaks, portal-plane epsilon, side convention, outdoor
+roots and fail-open behavior, read `SYSTEM_WMO_PORTALS.md`; do not duplicate
+those constants here.
 
 ### 3.27 Streaming performance — measured history and current state
 
@@ -1423,20 +1425,18 @@ roof still draws — correct), it tests *collision* geometry (excludes MOPY
 F_DETAIL, so thin railings do not occlude), and it costs raycasts per candidate
 group (`OcclusionMinDistance` bounds it; the toggle disables it).
 
-**What occlusion cannot do, and why.** The SW entrance keep (`thief01`,
-exterior) stays visible from an open courtyard because it is genuinely unblocked
-there — vanilla shows it too. The real client can hide exterior geometry you can
-technically see via portal/cell disconnection; WoWee deliberately disables portal
-culling outdoors because applying it causes direction-dependent popout. So
-neither occlusion nor a faithful WoWee port removes the courtyard keep. The only
-remaining lever is portal traversal run OUTDOORS, accepting popout — experimental,
-not built.
+**Occlusion and portal traversal answer different questions.** Occlusion rejects
+groups hidden behind nearer solid collision geometry. Portal traversal follows
+authored room connectivity and screen-space doorway rectangles. Outdoors, each
+WMO's own exterior groups seed its traversal; traversal does not connect separate
+WMO placements across the open world. `SYSTEM_WMO_PORTALS.md` owns the exact
+policy and known limits.
 
-**Portal chunks are parsed, unused.** `WmoReader` now reads MOPV (portal
+**Portal chunks are parsed and consumed.** `WmoReader` reads MOPV (portal
 vertices), MOPT (portal descriptors: startVertex, count, C4Plane) and MOPR
 (portal→group refs: portalIndex, groupIndex, side), plus per-group
-`PortalStart`/`PortalCount` from the MOGP header (+0x24/+0x26). Nothing consumes
-them yet; they are step 1 of any real traversal.
+`PortalStart`/`PortalCount` from the MOGP header (+0x24/+0x26). `WmoRenderer`
+uses them for its live reached-group flood.
 
 **The doodad pop-in was placement latency, not a cull.** Raising the doodad
 demand/draw distance fixed statues appearing only when close. The
@@ -1481,6 +1481,14 @@ proved the render cull was not the gate.
 - **The doodad cull is fixed:** 55.8 ms → 0.3 ms at the same crossing,
   41–46 ns/instance, inside the normal-arithmetic band. SYSTEM_STREAMING.md
   §5A.15 — *but see the unverified list for the attribution caveat*
+- **WMO doorway stability and ownership, 2026-07-29.** The reported indoor
+  boundary was retested successfully: collision-selected/two-root seeding keeps
+  the shell present, and MODR furniture disappears only with its owning groups.
+  `SYSTEM_WMO_PORTALS.md` is the reference.
+- **Cold foliage residency, 2026-07-29.** The reported hitch route was retested
+  after moving archive reads, parsing, decoding and GL upload out of `Scatter`;
+  the multi-hundred-millisecond coordinate hitch no longer reproduces.
+  `SYSTEM_FOLIAGE.md` §1.6–§1.7a is the reference.
 
 ### Not yet verified — expect bugs here
 
@@ -1491,10 +1499,6 @@ proved the render cull was not the gate.
 - **Geoset rules for chest, pants, tabard and shoulders** are pattern-matched, not verified.
 - **`TorsoFollow` 0.66** is Nico's read by eye, not their constant.
 - `BlpDecoder` alpha scaling (§3.19) and MOPY F_DETAIL filter
-- **WMO portal visibility is missing.** The chunks are parsed and PLAN_10 D1's
-  instrument is built, but nothing traverses; the 120-yard ordinary-interior cull
-  is still what runs (§3.26). The separate Cathedral distance-shell defect does
-  have the authored near/far behavior (§3.34).
 - **Authored exterior lighting only applies while DevTools is ON — found during
   the Draft 24 doc sync, 2026-07-25, and not yet fixed.** `UpdateLightProbe`
   (`Program.LightProbe.cs`) opens with `if (!_config.DevTools ||
@@ -1676,7 +1680,7 @@ Bones upload as **three vec4 rows per bone**, so skinning is three dot products 
 | **Water tuning window** | SYSTEM_WATER.md §4 |
 | **Light probe** — *"what the DBCs say"* | Which zone lights reach you and at what blend weight; all 18 colour bands with swatches; all 6 scalars; and a **`data` vs `applied` block with deltas that must all read 0.000** at strength 1.0. Plus a time pin, a raw key dump, `Score all conventions` and `Re-detect from here`. SYSTEM_EXTERIOR_LIGHTING.md §6 |
 | **Hitch recorder** | Automatic frame-spike capture: a ring of recent frames plus a written record with the per-phase split (`update`/`render`/`present`/`hud`/`imguiFlush`), the render split (terrain/wmo/doodad/foliage), the doodad split (cull/instanceUpload/drawSubmit + `firstTouchModels`), delayed GPU timings, GC pause and generation counts, upload counts, and `threadMCyclesPerMs`. Auto-saves a vantage at the spike. **`dominantPhase` names a bucket, not a cause** — SYSTEM_STREAMING.md §1 and §5A.3 |
-| **Portal panel** (PLAN_10) | Which group the camera is in (index, name, INT/ext, door count, volume, file), portal quads drawn depth-off so a doorway can be checked against its opening, and `DumpPortalGraph` — which cross-checks MOHD's `NPortals` against the parsed count. **Tooling only; it culls nothing** |
+| **Portal panel** (PLAN_10) | Which collision-selected group the final camera occupies (index, name, INT/ext, door count, file), portal quads drawn depth-off, reached-group count, the live culling toggle, and `DumpPortalGraph` — which cross-checks MOHD's `NPortals` against the parsed count. The panel observes and controls the shipped traversal; it is no longer tooling for a future implementation. |
 | **Instances panel** (PLAN_13) | Every `Map.dbc` row with its kind (`global WMO` / `terrain`), tile count, col/row range, centre tile and world origin, plus the global-WMO path, MODF placement and bounds. `Dump to console` prints the whole table for diffing against PLAN_13 §1. **Read-only — it loads nothing and moves nobody** |
 | **Particles panel** (PLAN_14) | Every loaded model with emitters: bone, texture, blend mode, emitter type, cell grid, and all ten tracks with their static values and key counts. Flags a NEGATIVE emission speed, which is what makes a portal pull inward. `Dump to console` prints the set for diffing against PLAN_14 §3.2. **Read-only — nothing is simulated or drawn** |
 
@@ -1800,11 +1804,10 @@ Written down because the same three moves have solved almost every hard bug in t
    SoA A/B at equal model count (§5A.15) and PLAN_08 D2's budgeted resumable
    adoption, which is the structural answer to the `resid` term that is now the
    largest remaining one (§5A.14).
-9. **WMO portal visibility — PLAN_10.** The chunks are parsed and D1's
-   instrument is built; traversal is not. This is the remaining lever for indoor
-   correctness and for the Stormwind courtyard keep. Note D4: a WMO's own
-   exterior groups *do* seed traversal; only WMO-to-WMO traversal across the
-   open world is out of scope, and §3.35 warns it trades popout.
+9. ~~**WMO portal visibility — PLAN_10.**~~ **Done and verified.** Traversal is
+   default-on; collision-face camera seeding, the two-root doorway case and MODR
+   owner visibility are documented in `SYSTEM_WMO_PORTALS.md`. WMO-to-WMO
+   traversal across the open world remains intentionally out of scope.
 10. **Finish exterior lighting's honest gaps** — skyboxes
     (`LightParams.lightSkyboxID` is read and applied nowhere), clouds (bands
     9–12), weather (only `ParamsClear` is ever read, so underwater lighting is a
@@ -1928,6 +1931,18 @@ Keep the old instruments. If flicker regresses, first inspect render flags,
 `PriorityPlane`, `MaterialLayer`, and whether a newly supported effect pass is
 coplanar with an opaque pass.
 
+### 9.1 Gameplay combat presentation (2026-07-29)
+
+The native gameplay path now includes server-authored sheathing, streamed NPC virtual weapons,
+START/GO/channel casting state, original CastingBar art, SpellVisual stage resolution, real spell
+effect M2 meshes plus particles, missile travel, live target names, and public aura icons. The
+implementation handoff and remaining boundary live in `SYSTEM_GAMEPLAY_UI.md`; the protocol and
+reference evidence remain in `PORT_GAMEPLAY_UI.md`.
+
+Live-status correction: these paths are implemented, not signed off. Portrait output remains broken;
+the integrated bottom bar is broadly usable with shadow/colour/alpha defects; world reveal causes a
+false local hit reaction; spell execution/visuals and backpack/bag behavior remain unverified.
+
 ---
 
 ## 10. What to ask Nico for
@@ -1949,7 +1964,6 @@ made twice, once on WMO rendering and once on the DBC layer.
 
 | Work | Ask for | Why |
 |---|---|---|
-| WMO portal visibility | WoWee WMO renderer/visibility code using MOPV, MOPT and MOPR | Replace the approximate 120-yard ordinary-interior heuristic with real cell traversal; distance shells remain §3.34's separate system |
 | WMO liquid (MLIQ) — **built, needs a look-check only** | A real-client capture of the Stormwind canal, and one of Ironforge's lava | The format half is settled from the bytes and does not need WoWee (SYSTEM_WATER.md §7.2). What is unverified is colour/opacity against the real client, and whether the stand-in depth reads badly at a canal edge |
 | Any emulation-core sign-off | A real 1.12 client screenshot from the named vantage, saved to `refs/<vantage>.png` | FOUNDATION_PLAN §2: emulation-core work is measured against the real client, not by eye. Four shipped systems currently lack this |
 | Streaming smoothness | A post-Draft-14 console log plus the exact moments Nico felt hitches | Separate upload contention, residency publication and steady-state rendering |

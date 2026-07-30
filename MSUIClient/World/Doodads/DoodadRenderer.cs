@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Silk.NET.OpenGL;
@@ -119,6 +119,25 @@ public sealed class DoodadRenderer : IDisposable
         /// hangs in, which is the one thing a lantern must never do.
         /// </summary>
         public bool Unlit;
+
+        /// <summary>
+        /// This batch needs the fragment shader's alpha-test discard: M2
+        /// blending mode 0 is opaque and does not.
+        ///
+        /// PARSED BUT NOT YET ACTED ON, deliberately. The obvious use — passing
+        /// a cutoff of 0 for opaque batches — buys nothing: a driver disables
+        /// early depth rejection on the STATIC presence of `discard` in the
+        /// shader, not on the uniform's value, and doodad.frag discards
+        /// unconditionally in two places. All that would change is that a mode-0
+        /// batch whose texture happens to carry a cutout alpha would start
+        /// rendering as a solid quad.
+        ///
+        /// The real win needs a second shader program with no discard in it,
+        /// selected per batch off this flag. That is a bigger change than it
+        /// looks (two programs, two uniform sets, a state sort) and belongs in
+        /// its own pass. The data is here and correct when someone does it.
+        /// </summary>
+        public bool AlphaTest;
     }
 
     private sealed class Model : IDisposable
@@ -217,6 +236,11 @@ public sealed class DoodadRenderer : IDisposable
         /// the persistent per-key stamp so a re-placement on a tile crossing does
         /// not re-fade. See <see cref="ResolveAppearStart"/>.</summary>
         public float AppearStart;
+
+        // Set only for MODD furniture. Terrain doodads remain unowned and are
+        // never portal-culled.
+        public int WmoInstanceId;
+        public int[] OwnerGroups = [];
     }
 
     /// <summary>
@@ -510,6 +534,10 @@ public sealed class DoodadRenderer : IDisposable
     /// is what makes this a useful A/B toggle rather than a debug leftover.
     /// </summary>
     public bool InteriorLighting { get; set; } = true;
+
+    /// <summary>Single portal-visibility authority supplied by WmoRenderer.
+    /// Null keeps every doodad visible.</summary>
+    public Func<int, int[], bool>? PortalVisibility { get; set; }
 
     // ── appear fade (benilla model_fade.rs) ─────────────────────────────────────
 
@@ -951,7 +979,8 @@ public sealed class DoodadRenderer : IDisposable
         return false;
     }
 
-    public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null)
+    public bool AddPlaced(string modelPath, Matrix4x4 transform, Vector4? light = null,
+        int wmoInstanceId = 0, int[]? ownerGroups = null)
     {
         string key = $"{NormalizeModelKey(modelPath)}|{transform.M41:F2}|{transform.M42:F2}|{transform.M43:F2}";
         if (_placed.Contains(key)) return true;
@@ -980,6 +1009,8 @@ public sealed class DoodadRenderer : IDisposable
             Path = modelPath,
             Light = light ?? new Vector4(0f, 0f, 0f, 1f),
             AppearStart = ResolveAppearStart(key),
+            WmoInstanceId = wmoInstanceId,
+            OwnerGroups = ownerGroups ?? [],
         });
         CullBoundsFor(model).Add(new CullBounds(min, max));
 
@@ -1418,6 +1449,13 @@ public sealed class DoodadRenderer : IDisposable
             bool unlit = batch.MaterialIndex < m2.RenderFlags.Count
                 && m2.RenderFlags[batch.MaterialIndex].Unlit;
 
+            // Vanilla M2 blending modes: 0 opaque, 1 alpha-key, 2 alpha,
+            // 3 additive, 4 mod, 5 mod2x. Only 0 is genuinely opaque. This pass
+            // does not blend, so everything above 0 keeps the cutoff it had —
+            // the change is that mode 0 now gets early-Z back.
+            bool alphaTest = batch.MaterialIndex >= m2.RenderFlags.Count
+                || m2.RenderFlags[batch.MaterialIndex].BlendingMode != 0;
+
             model.Batches.Add(new Batch
             {
                 IndexStart = submesh.IndexStart,
@@ -1427,6 +1465,7 @@ public sealed class DoodadRenderer : IDisposable
                 // faces. A missing leaf reads as a bug, a doubled one does not.
                 TwoSided = twoSided || texture is null,
                 Unlit = unlit,
+                AlphaTest = alphaTest,
             });
         }
 
@@ -1624,6 +1663,9 @@ public sealed class DoodadRenderer : IDisposable
 
             foreach (var instance in instances)
             {
+                if (instance.WmoInstanceId != 0 &&
+                    PortalVisibility is not null &&
+                    !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                 // Distance first: it is a subtraction, the frustum test is six
                 // dot products, and most doodads fail on distance.
                 var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
@@ -1761,14 +1803,16 @@ public sealed class DoodadRenderer : IDisposable
         int cullInstances = 0;
         _drawnThisFrame.Clear();
 
-        // Appear fade needs straight-alpha blending while a doodad eases in; at
-        // alpha 1 (every steady doodad) it is a no-op, so the resident world
-        // composites exactly as before. Depth-write stays on. Restored below.
-        if (AppearFade)
-        {
-            _gl.Enable(EnableCap.Blend);
-            _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-        }
+        // Appear fade needs straight-alpha blending while a doodad eases in.
+        //
+        // IT IS NOW ENABLED PER MODEL, NOT FOR THE WHOLE PASS. At alpha 1 the
+        // blend composites identically to opaque, so it was described as a
+        // no-op — but it is not free: every doodad fragment in the world paid a
+        // colour-buffer read-modify-write for a fade that, in the steady state,
+        // no doodad is doing. Blending is now switched on only for models that
+        // actually have an instance mid-fade, which in practice is a handful for
+        // two seconds after a tile streams in and none at all thereafter.
+        bool blendOn = false;
 
         foreach (var (model, instances) in _byModel)
         {
@@ -1797,6 +1841,9 @@ public sealed class DoodadRenderer : IDisposable
                             b.Max - eye)) { FrustumCulledLastFrame++; continue; }
 
                     var instance = instances[i];
+                    if (instance.WmoInstanceId != 0 &&
+                        PortalVisibility is not null &&
+                        !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var transform = instance.Transform;
                     transform.M41 -= eye.X;
                     transform.M42 -= eye.Y;
@@ -1815,6 +1862,9 @@ public sealed class DoodadRenderer : IDisposable
                 // baseline. Deleting it would make the toggle a lie.
                 foreach (var instance in instances)
                 {
+                    if (instance.WmoInstanceId != 0 &&
+                        PortalVisibility is not null &&
+                        !PortalVisibility(instance.WmoInstanceId, instance.OwnerGroups)) continue;
                     var centre = (instance.WorldMin + instance.WorldMax) * 0.5f;
                     if (Vector3.DistanceSquared(centre, eye) > maxDistanceSq) { DistanceCulledLastFrame++; continue; }
                     if (FrustumCulling &&
@@ -1855,6 +1905,35 @@ public sealed class DoodadRenderer : IDisposable
             uploadedModels++;
 
             long drawStarted = Stopwatch.GetTimestamp();
+
+            // Does anything we are about to draw actually need blending? Only
+            // the survivors are scanned, and only until the first fader.
+            bool wantBlend = false;
+            if (AppearFade)
+            {
+                float fadeSecs = MathF.Max(AppearFadeSeconds, 0.0001f);
+                foreach (var visible in _visibleInstances)
+                {
+                    if (visible.AppearStart > 0f && NowSeconds - visible.AppearStart < fadeSecs)
+                    {
+                        wantBlend = true;
+                        break;
+                    }
+                }
+            }
+
+            if (wantBlend && !blendOn)
+            {
+                _gl.Enable(EnableCap.Blend);
+                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                blendOn = true;
+            }
+            else if (!wantBlend && blendOn)
+            {
+                _gl.Disable(EnableCap.Blend);
+                blendOn = false;
+            }
+
             uint instanceCount = (uint)_visibleInstances.Count;
             foreach (var batch in model.Batches)
             {
@@ -1894,7 +1973,7 @@ public sealed class DoodadRenderer : IDisposable
             DrawnLastFrame += _visibleInstances.Count;
         }
 
-        if (AppearFade) _gl.Disable(EnableCap.Blend);
+        if (blendOn) _gl.Disable(EnableCap.Blend);
 
         double perTick = 1000.0 / Stopwatch.Frequency;
         CullMilliseconds = cullTicks * perTick;

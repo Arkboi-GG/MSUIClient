@@ -1,0 +1,202 @@
+using System.Numerics;
+using ImGuiNET;
+using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
+using MSUIClient.Net;
+
+namespace MSUIClient;
+
+public sealed partial class GameLoop
+{
+    /// <summary>The build-5875 PlayerFrame/TargetFrame geometry and authored texture.</summary>
+    private void DrawVanillaUnitFrame(WorldEntity unit, Vector2 authoredOrigin, bool playerFrame,
+        string name, FactionReaction reaction, uint portraitTexture, float combatFlash)
+    {
+        if (_gameplayArt is null) return;
+        float s = GameplayUiScale();
+        Vector2 p = authoredOrigin * s;
+        Vector2 size = new(232, 100);
+        Vector2 windowSize = playerFrame ? size : new Vector2(232, 118);
+        ImGui.SetNextWindowPos(p, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(windowSize * s, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+                                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+                                 ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoInputs;
+        if (!ImGui.Begin(playerFrame ? "##vanilla-player-frame" : "##vanilla-target-frame", flags))
+        { ImGui.End(); return; }
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+
+        float barX = playerFrame ? 106f : 7f;
+        Vector2 troughMin = p + new Vector2(barX, 22) * s;
+        dl.AddRectFilled(troughMin, troughMin + new Vector2(119, 41) * s, 0x80000000);
+
+        if (!playerFrame)
+        {
+            uint plate = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame-LevelBackground");
+            if (plate != 0)
+            {
+                uint tint = ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead);
+                dl.AddImage((nint)plate, troughMin, troughMin + new Vector2(119, 19) * s,
+                    Vector2.Zero, Vector2.One, tint);
+            }
+        }
+
+        float portraitX = playerFrame ? 42f : 126f;
+        Vector2 portraitMin = p + new Vector2(portraitX, 12) * s;
+        DrawUnitPortraitImage(dl, unit, portraitMin, 64f * s, portraitTexture, playerFrame);
+
+        DrawVanillaStatusBar(dl, p + new Vector2(barX, 41) * s, new Vector2(119, 12) * s,
+            unit.HealthFraction, new Vector4(0, 1, 0, 1));
+        if (unit.Fields.ActiveMaxPower > 0)
+            DrawVanillaStatusBar(dl, p + new Vector2(barX, 52) * s, new Vector2(119, 12) * s,
+                unit.PowerFraction, PowerColor(unit.Fields.PowerType));
+
+        uint frame = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame");
+        if (frame != 0)
+        {
+            Vector2 uv0 = playerFrame ? new Vector2(1f, 0) : new Vector2(0.09375f, 0);
+            Vector2 uv1 = playerFrame ? new Vector2(0.09375f, 0.78125f) : new Vector2(1f, 0.78125f);
+            dl.AddImage((nint)frame, p, p + size * s, uv0, uv1);
+        }
+
+        Vector2 nameCenter = p + new Vector2(playerFrame ? 166 : 66, 31) * s;
+        DrawUnitFrameText(dl, nameCenter, name, 10f * s, UiGoldU32());
+        Vector2 levelCenter = p + new Vector2(playerFrame ? 53 : 179, 66) * s;
+        if (unit.Level > 0)
+            DrawUnitFrameText(dl, levelCenter, unit.Level.ToString(), 10f * s,
+                playerFrame ? UiGoldU32() : ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead));
+        else if (!playerFrame)
+            DrawArt(dl, @"Interface\TargetingFrame\UI-TargetingFrame-Skull",
+                levelCenter - new Vector2(8) * s, new Vector2(16), s);
+
+        if (!playerFrame && unit.IsDead)
+            DrawUnitFrameText(dl, p + new Vector2(66, 47) * s, "DEAD", 10f * s, UiGoldU32());
+
+        if (combatFlash > 0)
+            dl.AddCircle(portraitMin + new Vector2(32) * s, 29f * s,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(1, 0.12f, 0.08f,
+                    Math.Clamp(combatFlash / 0.35f, 0, 1))), 48, 2f * s);
+        if (!playerFrame) DrawTargetAuras(dl, unit, p + new Vector2(8, 72) * s, s);
+        ImGui.End();
+    }
+
+    private static void DrawUnitFrameText(ImDrawListPtr dl, Vector2 center,
+        string text, float size, uint color)
+    {
+        ImFontPtr font = ImGui.GetFont();
+        Vector2 measured = ImGui.CalcTextSize(text) *
+            (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 pos = center - measured * 0.5f;
+        float shadow = MathF.Max(1f, MathF.Round(size * GlueTune.ShadowOffsetRatio));
+        dl.AddText(font, size, pos + new Vector2(shadow),
+            ImGui.ColorConvertFloat4ToU32(GlueTune.ShadowColor), text);
+        WowSkin.OutlineText(dl, font, size, pos, text);
+        dl.AddText(font, size, pos, color, text);
+    }
+
+    private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 start, float scale)
+    {
+        if (_gameplayArt is null || _spellCatalog is null) return;
+        int shown = 0;
+        foreach (var aura in unit.Fields.Auras())
+        {
+            if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
+            uint icon = _gameplayArt.Handle(spell.IconPath);
+            if (icon == 0) continue;
+            int col = shown % 8, row = shown / 8;
+            Vector2 min = start + new Vector2(col * 21, row * 21) * scale;
+            Vector2 max = min + new Vector2(18) * scale;
+            dl.AddImage((nint)icon, min, max);
+            uint border = aura.Slot < 32 ? 0xff40d0ffu : 0xff4040ffu;
+            dl.AddRect(min, max, border, 0, ImDrawFlags.None, MathF.Max(1, scale));
+            if (aura.Stacks > 1)
+                dl.AddText(max - new Vector2(7, 11) * scale, 0xffffffff, aura.Stacks.ToString());
+            if (++shown >= 16) break;
+        }
+    }
+
+    private void DrawPlayerAuraBar()
+    {
+        if (_net is null || _gameplayArt is null || _spellCatalog is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        float s = GameplayUiScale();
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
+        int shown = 0;
+        foreach (var aura in player.Fields.Auras())
+        {
+            if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
+            uint icon = _gameplayArt.Handle(spell.IconPath);
+            if (icon == 0) continue;
+            int col = shown % 12, row = shown / 12;
+            Vector2 max = new(display.X - (8 + col * 34) * s, (8 + row * 34) * s + 30 * s);
+            Vector2 min = max - new Vector2(30) * s;
+            dl.AddImage((nint)icon, min, max);
+            dl.AddRect(min, max, aura.Slot < 32 ? 0xff40d0ffu : 0xff4040ffu,
+                0, ImDrawFlags.None, MathF.Max(1, s));
+            if (aura.Stacks > 1)
+                dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
+            if (++shown >= 24) break;
+        }
+    }
+
+    private void DrawUnitPortraitImage(ImDrawListPtr dl, WorldEntity unit, Vector2 min, float size,
+        uint liveTexture, bool playerFrame)
+    {
+        uint texture = liveTexture;
+        Vector2 uv0 = new(0, 1), uv1 = new(1, 0);
+        if (texture == 0 && _gameplayArt is not null)
+        {
+            string fallback;
+            if (unit.IsPlayer)
+            {
+                var b = unit.Fields.Bytes0;
+                string sex = b.Gender == 1 ? "Female" : "Male";
+                // The streamed stand-in art uses the asset race token, which is "Scourge"
+                // for the undead (benilla portrait/mod.rs temporary_portrait race map).
+                string race = b.Race == 5 ? "Scourge" : RaceName(b.Race).Replace(" ", "");
+                fallback = $@"Interface\CharacterFrame\TemporaryPortrait-{sex}-{race}";
+            }
+            else fallback = @"Interface\CharacterFrame\TemporaryPortrait-Monster";
+            texture = _gameplayArt.Handle(fallback);
+            uv0 = Vector2.Zero;
+            uv1 = Vector2.One;
+        }
+        if (texture != 0)
+        {
+            // UI-TargetingFrame is the authored circular chrome and is drawn after this quad.
+            // Its corners are TRANSPARENT (a thin ring band), so the square bake cannot hide
+            // behind it: live portrait textures are pre-masked to the inscribed circle at bake
+            // time (PortraitRenderTarget.ApplyCircularMask), matching the reference client's
+            // shader-side circular cut. ImGui.NET's rounded-image path emitted only one textured
+            // fan triangle on this backend (the face-shaped wedge captured in-game), so it
+            // cannot serve as a stencil.
+            dl.AddImage((nint)texture, min, min + new Vector2(size), uv0, uv1);
+        }
+    }
+
+    private void DrawVanillaStatusBar(ImDrawListPtr dl, Vector2 min, Vector2 size,
+        float fraction, Vector4 color)
+    {
+        uint texture = _gameplayArt?.Handle(@"Interface\TargetingFrame\UI-StatusBar") ?? 0;
+        fraction = Math.Clamp(fraction, 0, 1);
+        if (texture == 0 || fraction <= 0) return;
+        Vector2 max = new(min.X + size.X * fraction, min.Y + size.Y);
+        dl.AddImage((nint)texture, min, max, Vector2.Zero, new Vector2(fraction, 1),
+            ImGui.ColorConvertFloat4ToU32(color));
+    }
+
+    private static uint ReactionColorU32(FactionReaction reaction, bool player, bool dead)
+    {
+        Vector4 color = dead && !player ? new Vector4(.498f, .498f, .498f, 1)
+            : player ? new Vector4(.376f, .376f, 1, 1)
+            : reaction switch
+            {
+                FactionReaction.Hostile => new Vector4(1, 0, 0, 1),
+                FactionReaction.Friendly => new Vector4(0, 1, 0, 1),
+                _ => new Vector4(1, 1, 0, 1),
+            };
+        return ImGui.ColorConvertFloat4ToU32(color);
+    }
+}

@@ -60,6 +60,18 @@ public sealed class LiquidRenderer : IDisposable
         public uint Vao, Vbo, Ebo;
         public int IndexCount;
         public List<SurfaceLayer> Surfaces = [];
+
+        /// <summary>
+        /// World-space bounds, for the frustum test the draw loop did not have.
+        ///
+        /// This renderer was the only one in the client submitting its entire
+        /// resident set every frame with no visibility test of any kind — an
+        /// ocean tile behind the camera still paid full vertex cost, and water
+        /// is double-sided blended fill with depth-write off, so it is the
+        /// most expensive thing per pixel we draw.
+        /// </summary>
+        public Vector3 BoundsMin = new(float.MaxValue, float.MaxValue, float.MaxValue);
+        public Vector3 BoundsMax = new(float.MinValue, float.MinValue, float.MinValue);
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
         public void Dispose()
@@ -381,6 +393,12 @@ public sealed class LiquidRenderer : IDisposable
     public float Time { get; set; }
 
     public int TileCount => _tiles.Count;
+
+    /// <summary>Liquid tiles that survived the frustum test this frame.</summary>
+    public int TilesDrawnLastFrame { get; private set; }
+
+    /// <summary>Frustum-cull liquid tiles. Off draws the whole resident set, as before.</summary>
+    public bool FrustumCulling { get; set; } = true;
     public int TrianglesLastFrame { get; private set; }
 
     public LiquidRenderer(GL gl) => _gl = gl;
@@ -687,6 +705,16 @@ public sealed class LiquidRenderer : IDisposable
         var ia = indices.ToArray();
 
         var mesh = new TileMesh { IndexCount = ia.Length, Surfaces = surfaces };
+
+        // Bounds from the packed vertex array rather than a second pass over the
+        // source data: whatever ended up in the buffer is what gets drawn.
+        for (int v = 0; v < va.Length; v += FloatsPerVertex)
+        {
+            var p = new Vector3(va[v], va[v + 1], va[v + 2]);
+            mesh.BoundsMin = Vector3.Min(mesh.BoundsMin, p);
+            mesh.BoundsMax = Vector3.Max(mesh.BoundsMax, p);
+        }
+
         mesh.Attach(_gl);
         mesh.Vao = _gl.GenVertexArray();
         _gl.BindVertexArray(mesh.Vao);
@@ -807,12 +835,25 @@ public sealed class LiquidRenderer : IDisposable
         _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         _gl.Disable(EnableCap.CullFace);
 
+        var viewProjection = camera.RelativeViewProjection;
+        var cameraPosition = camera.Position;
+        TilesDrawnLastFrame = 0;
+
         foreach (var mesh in _tiles.Values)
         {
+            // The one visibility test this pass never had. Water surfaces are
+            // near-planar, so their boxes are thin and the frustum rejects an
+            // off-screen lake outright.
+            if (FrustumCulling &&
+                !Camera.BoxInFrustum(viewProjection,
+                    mesh.BoundsMin - cameraPosition,
+                    mesh.BoundsMax - cameraPosition)) continue;
+
             _gl.BindVertexArray(mesh.Vao);
             _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount,
                 DrawElementsType.UnsignedInt, (void*)0);
             TrianglesLastFrame += mesh.IndexCount / 3;
+            TilesDrawnLastFrame++;
         }
 
         _gl.Enable(EnableCap.CullFace);

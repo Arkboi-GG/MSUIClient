@@ -8,6 +8,23 @@ C#/Silk.NET client). Nothing here is paraphrased memory — it is the current by
 Files analysed: 68 benilla source files (`crates/benilla*`), 46 MSUIClient files
 (`MSUIClient/…` + `SYSTEM_STREAMING.md`, `PLAN_07/08`, `PROJECT_HANDBOOK.md`).
 
+## Current implementation status — 2026-07-29
+
+The historical comparison below records the original blocking loader and is retained as the reason
+for the redesign. The current tree now has the incremental loader and native loading curtain in
+`Program.Loading.cs` / `Engine/LoadingScreen.cs`. The presentation contract is:
+
+- Loading owns the whole screen through the final curtain fade. The ImGui pass returns before drawing
+  gameplay unit frames, buffs, action/bag bars, open panels, settings, or developer windows.
+- The map backdrop still resolves through `Map.dbc -> LoadingScreens.dbc -> BLP`.
+- The backdrop is fitted to the reference 4:3 canvas with black pillar/letterboxing instead of being
+  stretched to the host aspect ratio.
+- The synthetic blue progress track has been removed. Build 5875 draws exactly two MPQ assets:
+  `Interface\Glues\LoadingBar\Loading-BarFill.blp`, followed by
+  `Interface\Glues\LoadingBar\Loading-BarBorder.blp`.
+- Their verified canvas rectangles are preserved: border `(left=.20, bottom=.05, width=.60,
+  height=.05)` and fill `(left=.2375, bottom=.0625, max width=.525, height=.025)`.
+
 ---
 
 ## 0. The one-sentence answer

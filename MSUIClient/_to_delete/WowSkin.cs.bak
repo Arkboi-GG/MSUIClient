@@ -1,0 +1,733 @@
+using System.Numerics;
+using ImGuiNET;
+using Silk.NET.OpenGL;
+using MSUIClient.Formats;
+
+namespace MSUIClient.Engine.UI;
+
+/// <summary>
+/// The 1.12 frame look, built from Blizzard's own art and Blizzard's own layout
+/// numbers.
+///
+/// NOTHING IN THIS FILE IS A GUESS ANY MORE
+///   The first version of this class guessed the texture paths and the edge-file
+///   layout, and got both close and neither right. Everything below was read out
+///   of interface.MPQ instead:
+///
+///   * `Interface\FrameXML\GameMenuFrame.xml`, `OptionsFrame.xml` and
+///     `BasicControls.xml` gave the backdrop definitions, the edge and tile
+///     sizes, the background insets, the frame sizes, the button size and the
+///     button tex-coords. Those files ship in the archive - the real UI is data,
+///     not a description of data, and it was sitting there the whole time.
+///   * The paths needed `.blp`. `MpqMount.ReadFile` takes a literal internal
+///     path and the archive stores the extension; FrameXML omits it because the
+///     engine appends it. That single missing suffix was 14/14 misses.
+///   * The edge layout was settled by DECODING `UI-DialogBox-Border.blp` and
+///     looking at it: 256x32, eight 32x32 cells in a horizontal strip, in the
+///     order LEFT, RIGHT, TOP, BOTTOM, TOPLEFT, TOPRIGHT, BOTTOMLEFT,
+///     BOTTOMRIGHT. The TOP and BOTTOM cells are stored STANDING UP - their bar
+///     runs down the left and right of the cell respectively - so they are drawn
+///     rotated a quarter turn CLOCKWISE, which puts the left column at the top
+///     and the right column at the bottom. The first version rotated the other
+///     way.
+///
+/// THE THREE BACKDROPS ARE BLIZZARD'S, VERBATIM
+///   Dialog, Tooltip and SliderTrack below are transcriptions of the three
+///   distinct `&lt;Backdrop&gt;` blocks in OptionsFrame.xml. Do not tune them by eye;
+///   if one looks wrong, the drawing code is wrong.
+/// </summary>
+public sealed class WowSkin : IDisposable
+{
+    // ── Blizzard's backdrops, transcribed ────────────────────────────────────
+
+    /// <summary>
+    /// A `&lt;Backdrop&gt;`: a tiled background inset inside a nine-sliced edge.
+    /// Sizes are in Blizzard's own UI pixels and get multiplied by <see cref="Scale"/>.
+    /// </summary>
+    public readonly record struct Backdrop(
+        string Bg, string Edge, float EdgeSize, float TileSize,
+        float InsetL, float InsetT, float InsetR, float InsetB);
+
+    /// <summary>GameMenuFrame / OptionsFrame. The heavy riveted metal frame.</summary>
+    public static readonly Backdrop Dialog =
+        new("dialog.bg", "dialog.border", 32f, 32f, 11f, 12f, 12f, 11f);
+
+    /// <summary>The inner group boxes - "Display", "World Appearance".</summary>
+    public static readonly Backdrop Tooltip =
+        new("tooltip.bg", "tooltip.border", 16f, 16f, 5f, 5f, 5f, 5f);
+
+    /// <summary>A slider's track.</summary>
+    public static readonly Backdrop SliderTrack =
+        new("slider.bg", "slider.border", 8f, 8f, 3f, 6f, 3f, 6f);
+
+    /// <summary>
+    /// The AccountLogin account/password edit boxes (AccountLogin.xml Backdrop): UI-Tooltip-Background
+    /// tiled inside a Glue-Tooltip-Border edge, edge/tile 16, BackgroundInsets 10/4/5/9. This is the
+    /// recessed frame the inputs share with the buttons' look - drawn, not a flat dark rectangle.
+    /// </summary>
+    public static readonly Backdrop GlueEditBox =
+        new("tooltip.bg", "glue.tt.border", 16f, 16f, 10f, 4f, 5f, 9f);
+
+    // ── the texture set ──────────────────────────────────────────────────────
+    //
+    // Verified present in interface.MPQ's (listfile). The .blp matters.
+
+    // Backgrounds repeat; EDGE files deliberately do not.
+    //
+    // The edges are drawn one quad per tile with v inside [0,1] (see
+    // VerticalEdge), so they never need the wrap mode - and CLAMP is actively
+    // better for them, because REPEAT lets linear filtering at v=0 blend in the
+    // texture's bottom row and put a seam across every rivet.
+    //
+    // The three background files are each a single flat colour (measured:
+    // UI-DialogBox-Background is RGBA 0,0,0,153 throughout), so their uv range of
+    // 0..n samples the same texel whatever the wrap mode does. Repeat is set for
+    // correctness, not because anything depends on it.
+    public static readonly (string Key, string Path, bool Repeat)[] Paths =
+    [
+        ("dialog.bg",      @"Interface\DialogFrame\UI-DialogBox-Background.blp", true),
+        ("dialog.border",  @"Interface\DialogFrame\UI-DialogBox-Border.blp",     false),
+        ("dialog.header",  @"Interface\DialogFrame\UI-DialogBox-Header.blp",     false),
+        ("tooltip.bg",     @"Interface\Tooltips\UI-Tooltip-Background.blp",      true),
+        ("tooltip.border", @"Interface\Tooltips\UI-Tooltip-Border.blp",          false),
+        ("button.up",      @"Interface\Buttons\UI-Panel-Button-Up.blp",          false),
+        ("button.down",    @"Interface\Buttons\UI-Panel-Button-Down.blp",        false),
+        ("button.hi",      @"Interface\Buttons\UI-Panel-Button-Highlight.blp",   false),
+        ("button.off",     @"Interface\Buttons\UI-Panel-Button-Disabled.blp",    false),
+        ("check.box",      @"Interface\Buttons\UI-CheckBox-Up.blp",              false),
+        ("check.down",     @"Interface\Buttons\UI-CheckBox-Down.blp",            false),
+        ("check.mark",     @"Interface\Buttons\UI-CheckBox-Check.blp",           false),
+        ("check.hi",       @"Interface\Buttons\UI-CheckBox-Highlight.blp",       false),
+        ("slider.bg",      @"Interface\Buttons\UI-SliderBar-Background.blp",     true),
+        ("slider.border",  @"Interface\Buttons\UI-SliderBar-Border.blp",         false),
+        ("slider.knob",    @"Interface\Buttons\UI-SliderBar-Button-Horizontal.blp", false),
+
+        // The GLUE art set (the login/main-menu screen). Paths + texcoords transcribed from
+        // benilla's glue/art.rs, which read them out of GlueButtons.xml / AccountLogin.xml.
+        // The login checkbox reuses check.* (UI-CheckBox-*) and the realm modal reuses dialog.*
+        // (UI-DialogBox-*), both already loaded above - only the glue-specific art is new here.
+        ("glue.logo",      @"Interface\Glues\Common\Glues-WoW-Logo.blp",          false),
+        ("glue.btn.up",    @"Interface\Glues\Common\Glue-Panel-Button-Up.blp",    false),
+        ("glue.btn.down",  @"Interface\Glues\Common\Glue-Panel-Button-Down.blp",  false),
+        ("glue.btn.off",   @"Interface\Glues\Common\Glue-Panel-Button-Disabled.blp", false),
+        ("glue.btn.hi",    @"Interface\Glues\Common\Glue-Panel-Button-Highlight.blp", false),
+        ("glue.blizz",     @"Interface\Glues\Mainmenu\Glues-BlizzardLogo.blp",    false),
+        // The account/password edit-box edge (AccountLogin.xml Backdrop edgeFile). 128x16, eight
+        // 16x16 cells - the same nine-slice layout as the other borders, so DrawBackdrop serves it.
+        ("glue.tt.border", @"Interface\Glues\Common\Glue-Tooltip-Border.blp",     false),
+    ];
+
+    public sealed class Piece
+    {
+        public string Key = "";
+        public string Path = "";
+        public Texture? Texture;
+        public int Width;
+        public int Height;
+        public string Note = "";
+        public bool Found => Texture is not null;
+    }
+
+    private readonly List<Piece> _pieces = [];
+    private readonly Dictionary<string, Piece> _byKey = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<Piece> Pieces => _pieces;
+    public int FoundCount { get; private set; }
+
+    /// <summary>
+    /// Off draws the plain styled panel and touches no texture. Kept because a
+    /// broken skin should never be able to make the settings unreachable.
+    /// </summary>
+    public bool Textured { get; set; } = true;
+
+    /// <summary>Blizzard UI pixels -> screen pixels. Tracks the interface scale.</summary>
+    public float Scale { get; set; } = 1f;
+
+    /// <summary>Blizzard's button art: 128x32 texture, art in the top-left 0.625 x 0.6875.</summary>
+    private static readonly Vector2 ButtonUv1 = new(0f, 0f);
+    private static readonly Vector2 ButtonUv2 = new(0.625f, 0.6875f);
+
+    /// <summary>UI-Panel-Button-Up is 128x32; the used region is 80x22.</summary>
+    public static readonly Vector2 ButtonArt = new(80f, 22f);
+
+    /// <summary>GameMenuFrame's own button size.</summary>
+    public static readonly Vector2 MenuButton = new(144f, 21f);
+
+    /// <summary>
+    /// The glue button art region (GlueButtons.xml TexCoords, via benilla glue/art.rs): Up / Down /
+    /// Disabled share [0, 0.578125] x [0, 0.75] of the sheet; the Highlight has its own sub-rect.
+    /// Drawn as one stretched quad across the button rect, exactly like the in-game PanelButton.
+    /// </summary>
+    // Cropped INSIDE the button art's pure-black anti-aliased ring: the outer ~4-6px of the 256x64
+    // sheet is rgb(0,0,0) at ~38% alpha, which straight-alpha blending turns into a dark HALO over
+    // the bright login valley (the "black box"). Showing cols 6..140 / rows 4..40 keeps the red
+    // pill + its grey bevel but drops the ring. (The real client premultiplies and never sees it.)
+    private static readonly Vector2 GlueButtonUv1 = new(0.0234375f, 0.0625f);
+    private static readonly Vector2 GlueButtonUv2 = new(0.546875f, 0.625f);
+    private static readonly Vector2 GlueButtonHiUv1 = new(0f, 0f);
+    private static readonly Vector2 GlueButtonHiUv2 = new(0.625f, 0.6875f);
+
+    // Edge-strip order, measured off the decoded texture.
+    private const int EdgeLeft = 0, EdgeRight = 1, EdgeTop = 2, EdgeBottom = 3;
+    private const int CornerTL = 4, CornerTR = 5, CornerBL = 6, CornerBR = 7;
+
+    // ── the procedural fallback palette ──────────────────────────────────────
+
+    public static readonly Vector4 Fill      = new(0.055f, 0.043f, 0.031f, 0.94f);
+    public static readonly Vector4 FillLight = new(0.098f, 0.082f, 0.062f, 0.94f);
+    public static readonly Vector4 Gold      = new(1.000f, 0.820f, 0.000f, 1.00f);
+    // GlueFontNormal's gold (GlueFonts.xml: 1.0, 0.78, 0) - the login screen's label/caption colour.
+    public static readonly Vector4 GlueGold  = new(1.000f, 0.780f, 0.000f, 1.00f);
+    public static readonly Vector4 GoldDim   = new(0.478f, 0.400f, 0.251f, 1.00f);
+    public static readonly Vector4 Parchment = new(1.000f, 0.824f, 0.000f, 1.00f);
+    public static readonly Vector4 Normal    = new(1.000f, 1.000f, 1.000f, 1.00f);
+    public static readonly Vector4 Muted     = new(0.612f, 0.573f, 0.494f, 1.00f);
+    public static readonly Vector4 Highlight = new(1.000f, 1.000f, 1.000f, 1.00f);
+    public static readonly Vector4 Disabled  = new(0.500f, 0.500f, 0.500f, 1.00f);
+    public static readonly Vector4 Shadow    = new(0.000f, 0.000f, 0.000f, 0.75f);
+
+    private WowSkin() { }
+
+    // ── load ─────────────────────────────────────────────────────────────────
+
+    public static WowSkin Load(GL gl, MpqMount? mpq)
+    {
+        var skin = new WowSkin();
+
+        foreach (var (key, path, repeat) in Paths)
+        {
+            var piece = new Piece { Key = key, Path = path };
+            skin._pieces.Add(piece);
+            skin._byKey[key] = piece;
+
+            if (mpq is null) { piece.Note = "no MPQ mount"; continue; }
+
+            byte[]? blp;
+            try { blp = mpq.ReadFile(path); }
+            catch (Exception ex) { piece.Note = ex.Message; continue; }
+
+            if (blp is null) { piece.Note = "not in any archive"; continue; }
+
+            try
+            {
+                var bgra = BlpDecoder.GetPixels(blp, 0, out int w, out int h);
+                piece.Texture = Texture.From2D(gl, bgra, w, h, mipmaps: false, repeat: repeat);
+                piece.Width = w;
+                piece.Height = h;
+                skin.FoundCount++;
+            }
+            catch (Exception ex)
+            {
+                piece.Note = $"decode failed: {ex.Message}";
+            }
+        }
+
+        Console.WriteLine($"[ui-skin] {skin.FoundCount}/{skin._pieces.Count} resolved from the MPQs");
+        foreach (var p in skin._pieces)
+            if (!p.Found) Console.WriteLine($"[ui-skin]   MISSING {p.Path}  ({p.Note})");
+
+        if (skin.FoundCount == 0)
+            Console.WriteLine("[ui-skin] nothing resolved - drawing the procedural frame instead.");
+
+        return skin;
+    }
+
+    private Piece? Get(string key)
+    {
+        if (!Textured) return null;
+        return _byKey.TryGetValue(key, out var p) && p.Found ? p : null;
+    }
+
+    private static IntPtr Id(Piece p) => (IntPtr)p.Texture!.Handle;
+    private static uint White => ImGui.ColorConvertFloat4ToU32(Vector4.One);
+    private static uint U32(Vector4 c) => ImGui.ColorConvertFloat4ToU32(c);
+
+    // ── backdrops ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Blizzard's `&lt;Backdrop&gt;`, drawn: the tiled background inset by the
+    /// backdrop's insets, then the nine-sliced edge over the full rect.
+    /// </summary>
+    public void DrawBackdrop(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+    {
+        DrawBackdropFill(dl, min, max, style);
+        DrawBackdropEdge(dl, min, max, style);
+    }
+
+    private void DrawBackdropFill(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+    {
+        var inner = new Vector2(min.X + style.InsetL * Scale, min.Y + style.InsetT * Scale);
+        var outer = new Vector2(max.X - style.InsetR * Scale, max.Y - style.InsetB * Scale);
+        if (outer.X <= inner.X || outer.Y <= inner.Y) return;
+
+        var bg = Get(style.Bg);
+        if (bg is null)
+        {
+            dl.AddRectFilled(inner, outer, U32(Fill));
+            return;
+        }
+
+        // tile="true" with TileSize: one texture repeat every TileSize UI pixels.
+        float tile = MathF.Max(style.TileSize * Scale, 1f);
+        var uv = new Vector2((outer.X - inner.X) / tile, (outer.Y - inner.Y) / tile);
+        dl.AddImage(Id(bg), inner, outer, Vector2.Zero, uv, White);
+    }
+
+    private void DrawBackdropEdge(ImDrawListPtr dl, Vector2 min, Vector2 max, in Backdrop style)
+    {
+        var border = Get(style.Edge);
+        float e = MathF.Max(style.EdgeSize * Scale, 2f);
+
+        if (border is null)
+        {
+            uint gold = U32(GoldDim);
+            var one = new Vector2(1f, 1f);
+            dl.AddRect(min, max, gold);
+            dl.AddRect(min + one, max - one, gold);
+            dl.AddRect(min + one * 2f, max - one * 2f, U32(Shadow));
+            return;
+        }
+
+        IntPtr id = Id(border);
+
+        // Corners first: they are drawn at exactly EdgeSize and the edges run
+        // between them. The bolt in the corner cell overhangs on purpose.
+        Corner(dl, id, CornerTL, min, new Vector2(min.X + e, min.Y + e));
+        Corner(dl, id, CornerTR, new Vector2(max.X - e, min.Y), new Vector2(max.X, min.Y + e));
+        Corner(dl, id, CornerBL, new Vector2(min.X, max.Y - e), new Vector2(min.X + e, max.Y));
+        Corner(dl, id, CornerBR, new Vector2(max.X - e, max.Y - e), max);
+
+        float top = min.Y + e, bottom = max.Y - e;
+        float left = min.X + e, right = max.X - e;
+
+        if (bottom > top)
+        {
+            VerticalEdge(dl, id, EdgeLeft, min.X, min.X + e, top, bottom, e);
+            VerticalEdge(dl, id, EdgeRight, max.X - e, max.X, top, bottom, e);
+        }
+
+        if (right > left)
+        {
+            HorizontalEdge(dl, id, EdgeTop, left, right, min.Y, min.Y + e, e);
+            HorizontalEdge(dl, id, EdgeBottom, left, right, max.Y - e, max.Y, e);
+        }
+    }
+
+    private static void Slice(int index, out float u0, out float u1)
+    {
+        u0 = index / 8f;
+        u1 = (index + 1) / 8f;
+    }
+
+    private static void Corner(ImDrawListPtr dl, IntPtr id, int slice, Vector2 a, Vector2 b)
+    {
+        Slice(slice, out float u0, out float u1);
+        dl.AddImage(id, a, b, new Vector2(u0, 0f), new Vector2(u1, 1f), White);
+    }
+
+    /// <summary>
+    /// The maximum number of tiles one edge will emit. A guard, not a budget: a
+    /// frame edge needs 5-20 and a slider track about 55. If something ever asks
+    /// for thousands, the size arithmetic is wrong and silently drawing them
+    /// would hide it.
+    /// </summary>
+    private const int MaxTilesPerEdge = 256;
+
+    /// <summary>
+    /// Drawn the way it is stored - standing up, repeated down its length.
+    ///
+    /// ONE QUAD PER TILE, NOT ONE QUAD WITH A UV RANGE OF 0..n.
+    ///   The obvious implementation is a single AddImage whose v runs past 1 and
+    ///   lets GL_REPEAT do the tiling. That is what run 3 did, and it drew a thin
+    ///   smear instead of a riveted bar: the wrap mode set at texture creation was
+    ///   not what the sampler actually used by the time ImGui issued the draw.
+    ///   Rather than chase whose sampler state wins, this keeps v inside [0,1] on
+    ///   every quad, which cannot be wrong under any wrap mode. Twenty extra quads
+    ///   for a frame edge is nothing; being at the mercy of global sampler state
+    ///   for the whole look of the UI is not.
+    ///
+    ///   The last tile is usually partial, so its rect AND its v are both cut to
+    ///   the same fraction - shortening one without the other stretches it.
+    /// </summary>
+    private static void VerticalEdge(
+        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge)
+    {
+        Slice(slice, out float u0, out float u1);
+        if (edge < 1f || y1 <= y0) return;
+
+        int tiles = 0;
+        for (float y = y0; y < y1 && tiles < MaxTilesPerEdge; y += edge, tiles++)
+        {
+            float yEnd = MathF.Min(y + edge, y1);
+            float frac = (yEnd - y) / edge;
+            dl.AddImage(id, new Vector2(x0, y), new Vector2(x1, yEnd),
+                new Vector2(u0, 0f), new Vector2(u1, frac), White);
+        }
+    }
+
+    /// <summary>
+    /// The same strip laid on its side by a quarter turn CLOCKWISE.
+    ///
+    /// Measured, not assumed: the TOP cell's bar runs down the LEFT of its cell
+    /// and has to end up along the TOP of the strip; the BOTTOM cell's runs down
+    /// the RIGHT and has to end up along the BOTTOM. One rotation satisfies both,
+    /// which is the check that it is the right one.
+    ///
+    /// So display-Y maps to texture-U (the top of the strip is u0), and display-X
+    /// maps to texture-V running backwards - which is also the axis it repeats on,
+    /// hence one quad per tile with v going 1 -> 1-frac.
+    /// </summary>
+    private static void HorizontalEdge(
+        ImDrawListPtr dl, IntPtr id, int slice, float x0, float x1, float y0, float y1, float edge)
+    {
+        Slice(slice, out float u0, out float u1);
+        if (edge < 1f || x1 <= x0) return;
+
+        int tiles = 0;
+        for (float x = x0; x < x1 && tiles < MaxTilesPerEdge; x += edge, tiles++)
+        {
+            float xEnd = MathF.Min(x + edge, x1);
+            float frac = (xEnd - x) / edge;
+
+            dl.AddImageQuad(id,
+                new Vector2(x, y0), new Vector2(xEnd, y0), new Vector2(xEnd, y1), new Vector2(x, y1),
+                new Vector2(u0, 1f), new Vector2(u0, 1f - frac),
+                new Vector2(u1, 1f - frac), new Vector2(u1, 1f),
+                White);
+        }
+    }
+
+    // ── the header plaque ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// `UI-DialogBox-Header`, 256x64, anchored to the frame's TOP and hanging 12
+    /// UI pixels ABOVE it, with the caption 14 pixels down from the plaque's top.
+    /// Those three numbers are GameMenuFrame.xml's, not taste.
+    /// </summary>
+    public void HeaderPlaque(ImDrawListPtr dl, Vector2 frameMin, float frameWidth, string caption)
+    {
+        float w = 256f * Scale, h = 64f * Scale;
+        float cx = frameMin.X + frameWidth * 0.5f;
+        var min = new Vector2(cx - w * 0.5f, frameMin.Y - 12f * Scale);
+        var max = min + new Vector2(w, h);
+
+        var art = Get("dialog.header");
+        if (art is not null)
+            dl.AddImage(Id(art), min, max, Vector2.Zero, Vector2.One, White);
+
+        var size = ImGui.CalcTextSize(caption);
+        var pos = new Vector2(cx - size.X * 0.5f, min.Y + 14f * Scale);
+        dl.AddText(pos + new Vector2(1f, 1f), U32(Shadow), caption);
+        dl.AddText(pos, U32(Gold), caption);
+    }
+
+    // ── widgets ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A UIPanelButton. Blizzard draws it as one stretched quad of the top-left
+    /// 0.625 x 0.6875 of a 128x32 texture - there is no nine-slice on a button,
+    /// which is why they all look slightly squashed at odd widths in the real
+    /// client too.
+    /// </summary>
+    public bool PanelButton(string label, Vector2 size, bool enabled = true)
+    {
+        string caption = Caption(label);
+
+        var up = Get("button.up");
+        if (up is null)
+        {
+            if (!enabled)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Text, Disabled);
+                ImGui.Button(label, size);
+                ImGui.PopStyleColor();
+                return false;
+            }
+            return ImGui.Button(label, size);
+        }
+
+        var dl = ImGui.GetWindowDrawList();
+        var pos = ImGui.GetCursorScreenPos();
+
+        bool pressed = ImGui.InvisibleButton(label, size) && enabled;
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+
+        var art = !enabled ? (Get("button.off") ?? up)
+                : held ? (Get("button.down") ?? up)
+                : up;
+
+        dl.AddImage(Id(art), pos, pos + size, ButtonUv1, ButtonUv2, White);
+
+        // The highlight is an ADD-blended overlay in FrameXML. Draw lists have no
+        // per-quad blend mode, so it goes on at partial alpha - close enough, and
+        // the alternative is a second draw-list flush per button.
+        if (hovered && !held && Get("button.hi") is Piece hi)
+            dl.AddImage(Id(hi), pos, pos + size, ButtonUv1, ButtonUv2,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.55f)));
+
+        var textSize = ImGui.CalcTextSize(caption);
+        var textPos = pos + (size - textSize) * 0.5f;
+        if (held) textPos += new Vector2(1f, 1f) * Scale;
+
+        var colour = !enabled ? Disabled : hovered ? Highlight : Normal;
+        dl.AddText(textPos + new Vector2(1f, 1f), U32(Shadow), caption);
+        dl.AddText(textPos, U32(colour), caption);
+
+        return pressed;
+    }
+
+    // ── glue widgets (the login / main-menu screen) ──────────────────────────
+
+    /// <summary>
+    /// A GlueButtonTemplate - the red login/main-menu button. One stretched quad of the sheet's
+    /// top-left [0,0.578125]x[0,0.75] region (glue/art.rs BUTTON_TC), a gold FRIZQT caption, and the
+    /// additive Highlight overlay on hover. Placed at the current cursor screen pos, same contract
+    /// as PanelButton - the caller does ImGui.SetCursorScreenPos(pos) first. Falls back to the
+    /// in-game skinned button (then a plain ImGui button) if the glue art didn't load, so a missing
+    /// texture can never make login unreachable.
+    /// </summary>
+    public bool GlueButton(string label, Vector2 size, bool enabled = true)
+    {
+        var up = Get("glue.btn.up");
+        if (up is null) return PanelButton(label, size, enabled);
+
+        string caption = Caption(label);
+        var dl = ImGui.GetWindowDrawList();
+        var pos = ImGui.GetCursorScreenPos();
+
+        bool pressed = ImGui.InvisibleButton(label, size) && enabled;
+        bool held = enabled && ImGui.IsItemActive();
+        bool hovered = enabled && ImGui.IsItemHovered();
+
+        var art = !enabled ? (Get("glue.btn.off") ?? up)
+                : held ? (Get("glue.btn.down") ?? up)
+                : up;
+        dl.AddImage(Id(art), pos, pos + size, GlueButtonUv1, GlueButtonUv2, White);
+
+        if (hovered && !held && Get("glue.btn.hi") is Piece hi)
+            dl.AddImage(Id(hi), pos, pos + size, GlueButtonHiUv1, GlueButtonHiUv2,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.55f)));
+
+        var textSize = ImGui.CalcTextSize(caption);
+        var textPos = pos + (size - textSize) * 0.5f;
+        if (held) textPos += new Vector2(1f, 1f) * Scale;
+
+        var colour = !enabled ? Disabled : hovered ? Highlight : GlueGold;
+        dl.AddText(textPos + new Vector2(1f, 1f), U32(Shadow), caption);
+        dl.AddText(textPos, U32(colour), caption);
+
+        return pressed;
+    }
+
+    /// <summary>Draw a loaded skin texture (by key) as one quad over [min,max]. No-op if absent.</summary>
+    public void GlueImage(ImDrawListPtr dl, string key, Vector2 min, Vector2 max)
+    {
+        if (Get(key) is Piece p)
+            dl.AddImage(Id(p), min, max, Vector2.Zero, Vector2.One, White);
+    }
+
+    /// <summary>True if a skin piece is loaded (the login layout asks before it relies on art).</summary>
+    public bool Has(string key) => Get(key) is not null;
+
+    /// <summary>UICheckButtonTemplate: 32x32 box, check mark over it at the same rect.</summary>
+    public bool CheckBox(string label, ref bool value, float boxSize = 26f)
+    {
+        var box = Get("check.box");
+        if (box is null) return ImGui.Checkbox(label, ref value);
+
+        string caption = Caption(label);
+        float s = boxSize * Scale;
+
+        var dl = ImGui.GetWindowDrawList();
+        var pos = ImGui.GetCursorScreenPos();
+        var textSize = ImGui.CalcTextSize(caption);
+
+        var hit = new Vector2(s + 6f * Scale + textSize.X, MathF.Max(s, textSize.Y));
+        bool pressed = ImGui.InvisibleButton(label, hit);
+        bool hovered = ImGui.IsItemHovered();
+        bool held = ImGui.IsItemActive();
+
+        if (pressed) value = !value;
+
+        var boxMin = new Vector2(pos.X, pos.Y + (hit.Y - s) * 0.5f);
+        var boxMax = boxMin + new Vector2(s, s);
+
+        var art = held ? (Get("check.down") ?? box) : box;
+        dl.AddImage(Id(art), boxMin, boxMax, Vector2.Zero, Vector2.One, White);
+
+        if (hovered && Get("check.hi") is Piece hi)
+            dl.AddImage(Id(hi), boxMin, boxMax, Vector2.Zero, Vector2.One,
+                ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.5f)));
+
+        if (value && Get("check.mark") is Piece mark)
+            dl.AddImage(Id(mark), boxMin, boxMax, Vector2.Zero, Vector2.One, White);
+
+        // Gold, not white: every checkbox label in the real Video Options frame
+        // is GameFontNormal, which is the yellow face. White is what the BUTTONS
+        // use.
+        var textPos = new Vector2(boxMax.X + 6f * Scale, pos.Y + (hit.Y - textSize.Y) * 0.5f);
+        dl.AddText(textPos, U32(hovered ? Highlight : Gold), caption);
+
+        return pressed;
+    }
+
+    /// <summary>
+    /// A 1.12 options slider: caption above, value on the right, the SliderTrack
+    /// backdrop as the groove and `UI-SliderBar-Button-Horizontal` as the knob.
+    /// </summary>
+    public bool SliderFloat(
+        string id, string caption, ref float value, float lo, float hi,
+        string valueText, float width, float trackHeight = 17f, float knobSize = 32f)
+    {
+        var knobArt = Get("slider.knob");
+        if (knobArt is null)
+        {
+            ImGui.SetNextItemWidth(width);
+            return ImGui.SliderFloat(caption + "##" + id, ref value, lo, hi, valueText);
+        }
+
+        var dl = ImGui.GetWindowDrawList();
+        float th = trackHeight * Scale;
+        float knob = knobSize * Scale;
+        float rowH = ImGui.GetTextLineHeight();
+
+        // Caption row: name on the left, current value on the right.
+        var top = ImGui.GetCursorScreenPos();
+        dl.AddText(top, U32(Gold), caption);
+        var vs = ImGui.CalcTextSize(valueText);
+        dl.AddText(new Vector2(top.X + width - vs.X, top.Y), U32(Normal), valueText);
+        ImGui.Dummy(new Vector2(width, rowH));
+
+        // Track row. The hit area is knob-tall so the knob is easy to grab.
+        var pos = ImGui.GetCursorScreenPos();
+        var hit = new Vector2(width, knob);
+        ImGui.InvisibleButton("##slider" + id, hit);
+        bool active = ImGui.IsItemActive();
+
+        float range = hi - lo;
+        float t = range > 1e-6f ? Math.Clamp((value - lo) / range, 0f, 1f) : 0f;
+
+        bool changed = false;
+        if (active)
+        {
+            float usable = MathF.Max(width - knob, 1f);
+            float mouseX = ImGui.GetIO().MousePos.X - pos.X - knob * 0.5f;
+            float nt = Math.Clamp(mouseX / usable, 0f, 1f);
+            float nv = lo + nt * range;
+            if (MathF.Abs(nv - value) > 1e-6f) { value = nv; t = nt; changed = true; }
+        }
+
+        float mid = pos.Y + knob * 0.5f;
+        var trackMin = new Vector2(pos.X + knob * 0.5f, mid - th * 0.5f);
+        var trackMax = new Vector2(pos.X + width - knob * 0.5f, mid + th * 0.5f);
+        if (trackMax.X > trackMin.X) DrawBackdrop(dl, trackMin, trackMax, SliderTrack);
+
+        float cx = trackMin.X + (trackMax.X - trackMin.X) * t;
+        var knobMin = new Vector2(cx - knob * 0.5f, mid - knob * 0.5f);
+        dl.AddImage(Id(knobArt), knobMin, knobMin + new Vector2(knob, knob),
+            Vector2.Zero, Vector2.One, White);
+
+        return changed;
+    }
+
+    private static string Caption(string label)
+    {
+        int i = label.IndexOf("##", StringComparison.Ordinal);
+        return i >= 0 ? label[..i] : label;
+    }
+
+    // ── ImGui style ──────────────────────────────────────────────────────────
+
+    private int _colorsPushed;
+    private int _varsPushed;
+
+    /// <summary>
+    /// Colours and metrics for the ImGui widgets this class does not draw itself
+    /// (trees, combos, scrollbars, text fields), so they sit inside a Blizzard
+    /// frame without looking pasted in.
+    /// </summary>
+    public void PushStyle()
+    {
+        _colorsPushed = 0;
+        _varsPushed = 0;
+
+        void Col(ImGuiCol which, Vector4 c) { ImGui.PushStyleColor(which, c); _colorsPushed++; }
+        void Var(ImGuiStyleVar which, float v) { ImGui.PushStyleVar(which, v); _varsPushed++; }
+        void Var2(ImGuiStyleVar which, Vector2 v) { ImGui.PushStyleVar(which, v); _varsPushed++; }
+
+        // The frame paints its own background, so ImGui's must not show through.
+        Col(ImGuiCol.WindowBg, new Vector4(0f, 0f, 0f, 0f));
+        Col(ImGuiCol.ChildBg, new Vector4(0f, 0f, 0f, 0f));
+        // Stays OPAQUE on purpose - combo dropdowns and tooltips need it. The
+        // settings frame pushes a transparent PopupBg around its own Begin, so
+        // the world shows through the frame; see DrawSettingsModal.
+        Col(ImGuiCol.PopupBg, new Vector4(Fill.X, Fill.Y, Fill.Z, 0.98f));
+        Col(ImGuiCol.Border, GoldDim);
+        Col(ImGuiCol.BorderShadow, new Vector4(0f, 0f, 0f, 0f));
+
+        // NO DIM. UI-DialogBox-Background is flat black at 60% alpha - the
+        // "stone" you see inside a real 1.12 dialog is THE WORLD, darkened by
+        // that one texture and nothing else. ImGui's modal dim on top of it took
+        // the panel to 78% black, which reads as solid, and killed the single
+        // most characteristic thing about the frame.
+        Col(ImGuiCol.ModalWindowDimBg, new Vector4(0f, 0f, 0f, 0f));
+
+        Col(ImGuiCol.Text, Normal);
+        Col(ImGuiCol.TextDisabled, Muted);
+
+        Col(ImGuiCol.FrameBg, new Vector4(0.02f, 0.02f, 0.02f, 0.85f));
+        Col(ImGuiCol.FrameBgHovered, new Vector4(0.16f, 0.13f, 0.08f, 0.90f));
+        Col(ImGuiCol.FrameBgActive, new Vector4(0.24f, 0.19f, 0.11f, 0.95f));
+
+        Col(ImGuiCol.Header, new Vector4(0.20f, 0.16f, 0.09f, 0.75f));
+        Col(ImGuiCol.HeaderHovered, new Vector4(0.31f, 0.25f, 0.14f, 0.85f));
+        Col(ImGuiCol.HeaderActive, new Vector4(0.39f, 0.32f, 0.18f, 0.95f));
+
+        Col(ImGuiCol.Button, new Vector4(0.16f, 0.13f, 0.08f, 0.90f));
+        Col(ImGuiCol.ButtonHovered, new Vector4(0.28f, 0.23f, 0.13f, 0.95f));
+        Col(ImGuiCol.ButtonActive, new Vector4(0.39f, 0.32f, 0.18f, 1f));
+
+        Col(ImGuiCol.SliderGrab, GoldDim);
+        Col(ImGuiCol.SliderGrabActive, Gold);
+        Col(ImGuiCol.CheckMark, Gold);
+
+        Col(ImGuiCol.ScrollbarBg, new Vector4(0f, 0f, 0f, 0.35f));
+        Col(ImGuiCol.ScrollbarGrab, GoldDim);
+        Col(ImGuiCol.ScrollbarGrabHovered, Gold);
+        Col(ImGuiCol.ScrollbarGrabActive, Gold);
+
+        Col(ImGuiCol.Separator, GoldDim);
+        Col(ImGuiCol.SeparatorHovered, Gold);
+        Col(ImGuiCol.SeparatorActive, Gold);
+
+        // Vanilla's panels are square. Rounding is the loudest tell that a frame
+        // was not drawn by Blizzard, so every radius goes to zero.
+        Var(ImGuiStyleVar.WindowRounding, 0f);
+        Var(ImGuiStyleVar.ChildRounding, 0f);
+        Var(ImGuiStyleVar.FrameRounding, 0f);
+        Var(ImGuiStyleVar.PopupRounding, 0f);
+        Var(ImGuiStyleVar.ScrollbarRounding, 0f);
+        Var(ImGuiStyleVar.GrabRounding, 0f);
+        Var(ImGuiStyleVar.TabRounding, 0f);
+        Var(ImGuiStyleVar.WindowBorderSize, 0f);
+        Var(ImGuiStyleVar.FrameBorderSize, 0f);
+        Var(ImGuiStyleVar.ScrollbarSize, 11f * Scale);
+
+        Var2(ImGuiStyleVar.FramePadding, new Vector2(6f, 4f) * Scale);
+        Var2(ImGuiStyleVar.ItemSpacing, new Vector2(8f, 6f) * Scale);
+        Var2(ImGuiStyleVar.WindowPadding, new Vector2(24f, 24f) * Scale);
+    }
+
+    public void PopStyle()
+    {
+        if (_varsPushed > 0) { ImGui.PopStyleVar(_varsPushed); _varsPushed = 0; }
+        if (_colorsPushed > 0) { ImGui.PopStyleColor(_colorsPushed); _colorsPushed = 0; }
+    }
+
+    public void Dispose()
+    {
+        foreach (var p in _pieces) { p.Texture?.Dispose(); p.Texture = null; }
+        FoundCount = 0;
+    }
+}

@@ -52,15 +52,22 @@ public sealed class NetworkClient : IDisposable
     private WorldSession? _session;
     private volatile bool _running;
     private uint _pingSeq;
+    private readonly ConcurrentDictionary<uint, uint> _pingSentAt = new();
+    private int _latencyMs;
 
     // Game-loop-visible state (all reads are cheap snapshots).
     public volatile NetState State = NetState.Idle;
     private volatile string _status = "offline";
     public string Status => _status;
+    public int LatencyMs => Volatile.Read(ref _latencyMs);
 
     public ulong PlayerGuid { get; private set; }
     public string PlayerName { get; private set; } = "";
     public Character? Player { get; private set; }
+
+    /// <summary>The human realm NAME from the realmlist (e.g. "Barrens Local (PVP)"), set once a realm is
+    /// picked at logon. Empty before the first connection. The glue chrome shows this instead of host:port.</summary>
+    public string RealmName { get; private set; } = "";
 
     /// <summary>The account roster, published when we reach CharacterSelect. Read by the select screen.</summary>
     public IReadOnlyList<Character> Characters { get; private set; } = Array.Empty<Character>();
@@ -68,6 +75,16 @@ public sealed class NetworkClient : IDisposable
     // Character-select park: the worker waits on _pick until the app calls SelectCharacter.
     private readonly ManualResetEventSlim _pick = new(false);
     private ulong _pickGuid;
+
+    // Park action: the app either enters the world with a pick, or fires a character CREATE while
+    // still parked at select (benilla carries both over the same pick channel).
+    private enum ParkReq { None, Enter, Create, Delete }
+    private volatile ParkReq _parkReq = ParkReq.None;
+    private readonly object _createLock = new();
+    private CharCreateParams _pendingCreate;
+    private int _createResult = -1;   // -1 = none pending; else the SMSG_CHAR_CREATE result byte
+    private ulong _pendingDelete;
+    private int _deleteResult = -1;   // -1 = none pending; else the SMSG_CHAR_DELETE result byte
 
     private EnterWorldInfo? _pendingEnter;
     private readonly object _enterLock = new();
@@ -97,15 +114,107 @@ public sealed class NetworkClient : IDisposable
     public void SelectCharacter(ulong guid)
     {
         _pickGuid = guid;
+        _parkReq = ParkReq.Enter;
         _pick.Set();
     }
 
+    /// <summary>Create a character while parked at select (benilla CharRequest::Create over the pick
+    /// channel). The worker sends CMSG_CHAR_CREATE, waits for the result, and on success re-enums the
+    /// roster; the app polls the result via <see cref="TryTakeCreateResult"/>.</summary>
+    public void CreateCharacter(in CharCreateParams p)
+    {
+        lock (_createLock) { _pendingCreate = p; _createResult = -1; }
+        _parkReq = ParkReq.Create;
+        _pick.Set();
+    }
+
+    /// <summary>Delete a character while parked at select. Same channel as the create: the worker
+    /// sends CMSG_CHAR_DELETE, waits for the result and re-enumerates the roster on success, so the
+    /// row disappears without a reconnect. The app polls via <see cref="TryTakeDeleteResult"/>.</summary>
+    public void DeleteCharacter(ulong guid)
+    {
+        lock (_createLock) { _pendingDelete = guid; _deleteResult = -1; }
+        _parkReq = ParkReq.Delete;
+        _pick.Set();
+    }
+
+    /// <summary>Take the last SMSG_CHAR_DELETE result once (game-thread poll). False if none pending.</summary>
+    public bool TryTakeDeleteResult(out byte code)
+    {
+        lock (_createLock)
+        {
+            if (_deleteResult < 0) { code = 0; return false; }
+            code = (byte)_deleteResult;
+            _deleteResult = -1;
+            return true;
+        }
+    }
+
+    /// <summary>Take the last SMSG_CHAR_CREATE result once (game-thread poll). False if none pending.</summary>
+    public bool TryTakeCreateResult(out byte code)
+    {
+        lock (_createLock)
+        {
+            if (_createResult < 0) { code = 0; return false; }
+            code = (byte)_createResult;
+            _createResult = -1;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Start a connection attempt. Safe to call again after a failed one.
+    ///
+    /// THE RETRY BUG (fixed 2026-07-29). This used to be `if (_running) return;`. A bad password makes
+    /// RealmClient.Logon throw AuthRejectException(0x04); the worker catches it, calls Fail() and
+    /// EXITS - but nothing ever cleared `_running`, so every later Login() hit that guard and silently
+    /// did nothing. The login screen stayed up, the button did nothing, and there was no way to try
+    /// again short of restarting the client (Nico: "if I type in the wrong password I don't get to try
+    /// again ... the login just stops doing anything"). The flag was tracking "a worker was started",
+    /// not "a worker is running", so gate on the THREAD instead - and wipe the previous attempt's
+    /// state so a retry starts clean rather than on a half-open session.
+    /// </summary>
     public void Start()
     {
-        if (_running) return;
+        if (_worker is { IsAlive: true }) return;
+
+        if (_worker is not null)
+        {
+            try { _worker.Join(250); } catch { }
+            _worker = null;
+        }
+        ResetForNewAttempt();
+
         _running = true;
         _worker = new Thread(Run) { IsBackground = true, Name = "MSUI-Net" };
         _worker.Start();
+    }
+
+    /// <summary>Drop everything the previous attempt left behind, so a retry cannot inherit a stale
+    /// roster, a half-open socket, a queued packet or a pending character pick.</summary>
+    private void ResetForNewAttempt()
+    {
+        try { _pingTimer?.Dispose(); } catch { }
+        _pingTimer = null;
+        try { _session?.Dispose(); } catch { }
+        _session = null;
+        _pingSentAt.Clear();
+        Volatile.Write(ref _latencyMs, 0);
+
+        while (_inbound.TryDequeue(out _)) { }
+        Characters = Array.Empty<Character>();
+        Player = null;
+        PlayerGuid = 0;
+        PlayerName = "";
+        RealmName = "";
+        _pickGuid = 0;
+        _parkReq = ParkReq.None;
+        _pick.Reset();
+        lock (_createLock) { _createResult = -1; _deleteResult = -1; }
+        lock (_enterLock) _pendingEnter = null;
+
+        State = NetState.Idle;
+        _status = "connecting";
     }
 
     /// <summary>Drain inbound packets (call once per frame). Returns false when the queue is empty.</summary>
@@ -136,8 +245,23 @@ public sealed class NetworkClient : IDisposable
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
     public void AttackSwing(ulong guid) { try { _session?.AttackSwing(guid); } catch { } }
     public void AttackStop() { try { _session?.AttackStop(); } catch { } }
+    public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
+    public void CastSpell(uint spellId, ulong targetGuid) { try { _session?.CastSpell(spellId, targetGuid); } catch { } }
+    public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
+    public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
+    public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }
+    public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }
+    public void ItemQuery(uint entry, ulong guid) { try { _session?.ItemQuery(entry, guid); } catch { } }
+    public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
+    public void AutoEquipItem(byte bag, byte slot) { try { _session?.AutoEquipItem(bag, slot); } catch { } }
+    public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }
+    public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) { try { _session?.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot); } catch { } }
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
+    public void Loot(ulong guid) { try { _session?.Loot(guid); } catch { } }
+    public void LootMoney() { try { _session?.LootMoney(); } catch { } }
+    public void LootRelease(ulong guid) { try { _session?.LootRelease(guid); } catch { } }
+    public void AutostoreLootItem(byte lootSlot) { try { _session?.AutostoreLootItem(lootSlot); } catch { } }
 
     // --- worker ---------------------------------------------------------------------------------
 
@@ -152,6 +276,7 @@ public sealed class NetworkClient : IDisposable
 
             if (logon.Realms.Count == 0) { Fail("realm list is empty"); return; }
             RealmInfo realm = PickRealm(logon.Realms);
+            RealmName = realm.Name;                 // published for the glue chrome (name, not host:port)
             var (worldHost, worldPort) = HostPort(realm.Address, _cfg.WorldPortFallback);
             // Private servers usually run mangosd on the same box as realmd, and the realmlist DB
             // often advertises an internal / unreachable IP (yours advertised 10.30.37.30). Prefer the
@@ -180,12 +305,52 @@ public sealed class NetworkClient : IDisposable
 
             if (wanted == 0)
             {
-                SetState(NetState.CharacterSelect,
-                    chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
-                _pick.Reset();
-                _pick.Wait();                 // parked until the app calls SelectCharacter (or Stop)
-                if (!_running) return;
-                wanted = _pickGuid;
+                // Park at character select. The app may pick a character to enter the world, or fire a
+                // CREATE while still parked (benilla runs both over the pick channel). A create is
+                // serviced here on the worker: send CMSG_CHAR_CREATE, wait for the result, and on
+                // success re-enum so the new row appears - then stay parked for the next action.
+                while (true)
+                {
+                    SetState(NetState.CharacterSelect,
+                        chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
+                    _pick.Reset();
+                    _pick.Wait();                 // parked until SelectCharacter / CreateCharacter / Stop
+                    if (!_running) return;
+
+                    ParkReq req = _parkReq;
+                    _parkReq = ParkReq.None;
+                    if (req == ParkReq.Create)
+                    {
+                        CharCreateParams create;
+                        lock (_createLock) create = _pendingCreate;
+                        SetState(NetState.CharacterSelect, $"creating {create.Name}...");
+                        byte code = _session.CreateCharacter(create);
+                        if (code == 0x2E)                 // CHAR_CREATE_SUCCESS: refresh the roster first
+                        {
+                            chars = _session.CharEnum();
+                            Characters = chars;
+                        }
+                        lock (_createLock) _createResult = code;   // publish AFTER the roster is fresh
+                        continue;                         // stay parked for the next pick/create
+                    }
+                    if (req == ParkReq.Delete)
+                    {
+                        ulong doomed;
+                        lock (_createLock) doomed = _pendingDelete;
+                        SetState(NetState.CharacterSelect, "deleting character...");
+                        byte code = _session.DeleteCharacter(doomed);
+                        if (code == 0x39)                 // CHAR_DELETE_SUCCESS: refresh the roster
+                        {
+                            chars = _session.CharEnum();
+                            Characters = chars;
+                        }
+                        lock (_createLock) _deleteResult = code;
+                        continue;                         // stay parked
+                    }
+
+                    wanted = _pickGuid;
+                    if (wanted != 0) break;
+                }
             }
 
             Character? pick = chars.FirstOrDefault(c => c.Guid == wanted);
@@ -208,6 +373,14 @@ public sealed class NetworkClient : IDisposable
         catch (Exception)
         {
             // shutting down — swallow
+        }
+        finally
+        {
+            // The worker is DONE. Drop the flag here and nowhere else, so Start() can run a fresh
+            // attempt after a failure - the missing half of the retry bug documented on Start().
+            // Ordering is safe: the `when (_running)` filters above are evaluated before this runs,
+            // so a genuine error still reports through Fail() and a Stop() still reads as shutdown.
+            _running = false;
         }
     }
 
@@ -238,6 +411,20 @@ public sealed class NetworkClient : IDisposable
                         _status = $"changing to map {info.Map}";
                         break;
                     }
+                case Op.SMSG_PONG:
+                    {
+                        if (body.Length >= 4)
+                        {
+                            uint sequence = new PacketReader(body).ReadU32();
+                            if (_pingSentAt.TryRemove(sequence, out uint sentAt))
+                            {
+                                int sample = (int)Math.Min(unchecked(MovementInfo.ClientUptimeMs() - sentAt), 60_000u);
+                                int previous = Volatile.Read(ref _latencyMs);
+                                Volatile.Write(ref _latencyMs, previous <= 0 ? sample : (previous * 3 + sample) / 4);
+                            }
+                        }
+                        break;
+                    }
             }
             _inbound.Enqueue((opcode, body));
 
@@ -250,8 +437,14 @@ public sealed class NetworkClient : IDisposable
     {
         _pingTimer ??= new Timer(_ =>
         {
-            try { _session?.Ping(unchecked(_pingSeq++), 0); } catch { /* disconnect handled by read loop */ }
-        }, null, 30_000, 30_000);
+            try
+            {
+                uint sequence = unchecked(_pingSeq++);
+                _pingSentAt[sequence] = MovementInfo.ClientUptimeMs();
+                _session?.Ping(sequence, (uint)Math.Max(0, LatencyMs));
+            }
+            catch { /* disconnect handled by read loop */ }
+        }, null, 0, 10_000);
     }
 
     private void SetEnter(EnterWorldInfo info)
@@ -297,6 +490,7 @@ public sealed class NetworkClient : IDisposable
         _pick.Set();                  // wake a worker parked at character select so it can exit
         try { _pingTimer?.Dispose(); } catch { }
         _pingTimer = null;
+        _pingSentAt.Clear();
         try { _session?.Dispose(); } catch { } // unblocks the read loop with an IOException
         _session = null;
         try { _worker?.Join(1000); } catch { }

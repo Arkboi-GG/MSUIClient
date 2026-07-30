@@ -56,6 +56,11 @@ public sealed class CharacterEquipment
         public string Name = "";
         public uint DisplayId;
         public int InventoryType;
+        public int EquipmentSlot = -1;
+        public byte ItemClass;
+        public byte ItemSubclass;
+        public byte Material;
+        public byte Sheath;
         public ItemDisplayRow? Row;
 
         /// <summary>True once this piece has something the body model can show.</summary>
@@ -70,8 +75,14 @@ public sealed class CharacterEquipment
 
     public void Clear() => _pieces.Clear();
 
-    public void Add(string name, uint displayId, int inventoryType)
-        => _pieces.Add(new Piece { Name = name, DisplayId = displayId, InventoryType = inventoryType });
+    public void Add(string name, uint displayId, int inventoryType, int equipmentSlot = -1,
+        byte itemClass = 0, byte itemSubclass = 0, byte material = 0, byte sheath = 0)
+        => _pieces.Add(new Piece
+        {
+            Name = name, DisplayId = displayId, InventoryType = inventoryType,
+            EquipmentSlot = equipmentSlot, ItemClass = itemClass, ItemSubclass = itemSubclass,
+            Material = material, Sheath = sheath,
+        });
 
     /// <summary>
     /// Attach the DBC rows and say what each piece turned out to be. The log is
