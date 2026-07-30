@@ -1,4 +1,5 @@
 using System.Threading;
+using System.Collections.Concurrent;
 using MSUIClient.Formats.Mpq;
 
 namespace MSUIClient.Formats;
@@ -47,6 +48,8 @@ namespace MSUIClient.Formats;
 public sealed class MpqMount : IDisposable
 {
     private readonly List<(string Name, MpqArchive Archive)> _archives = [];
+    private readonly ConcurrentDictionary<string, byte> _negative =
+        new(StringComparer.OrdinalIgnoreCase);
 
     // Reads take the read lock (concurrent); Dispose takes the write lock.
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
@@ -93,6 +96,12 @@ public sealed class MpqMount : IDisposable
         {
             Interlocked.Increment(ref _reads);
 
+            if (_negative.ContainsKey(internalPath))
+            {
+                Interlocked.Increment(ref _misses);
+                return null;
+            }
+
             foreach (var (_, archive) in _archives)
             {
                 try
@@ -107,6 +116,7 @@ public sealed class MpqMount : IDisposable
             }
 
             Interlocked.Increment(ref _misses);
+            _negative.TryAdd(internalPath, 0);
             return null;
         }
         finally

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using ImGuiNET;
 using MSUIClient.Engine;
 using MSUIClient.World;
+using MSUIClient.World.Units;
 
 namespace MSUIClient;
 
@@ -35,6 +36,8 @@ public sealed partial class GameLoop
     /// loses time is worse than no instrument.
     /// </summary>
     private double _renderSpanMilliseconds;
+    private double _loadNetPumpMilliseconds;
+    private double _loadStepMilliseconds;
 
     // GC baselines, advanced once per frame in CurrentFramePhases. Counters, not
     // measurements: every value below is a delta against the previous frame.
@@ -176,6 +179,8 @@ public sealed partial class GameLoop
             GcPauseMs = dPauseMs,
 
             UpdateMs = _updateMilliseconds,
+            LoadNetPumpMs = _loadNetPumpMilliseconds,
+            LoadStepMs = _loadStepMilliseconds,
             MoveMs = _movementMilliseconds,
             PumpPreloadsMs = _pumpPreloadsMilliseconds,
             AcceptCollisionMs = _acceptCollisionMilliseconds,
@@ -205,6 +210,12 @@ public sealed partial class GameLoop
             FoliageDrawMs = _foliageDrawMilliseconds,
             LiquidRenderMs = _liquidRenderMilliseconds,
             CharacterRenderMs = _characterRenderMilliseconds,
+            CreatureRenderMs = _creatureRenderMilliseconds,
+            CreatureLoadMs = _creatures?.LoadMillisecondsThisFrame ?? 0,
+            CreatureLoadsThisFrame = _creatures?.LoadsThisFrame ?? 0,
+            CreatureCacheEntries = _creatures?.CacheEntries ?? 0,
+            SelectionRenderMs = _selectionRenderMilliseconds,
+            SpellEffectRenderMs = _spellEffectRenderMilliseconds,
             DebugRenderMs = _debugRenderMilliseconds,
 
             // The frame boundary that used to be invisible.
@@ -261,6 +272,9 @@ public sealed partial class GameLoop
         // Snapshot synchronously; the ring keeps moving while we serialize.
         var window = _hitch.SnapshotWindow();
         var events = _hitch.SnapshotEvents();
+        long lifecycleOrigin = _creatureLifecycle.WorldLoadStamp;
+        var creatureLifecycle = _creatureLifecycle.Snapshot(lifecycleOrigin, rolling: true);
+        var outgoingProtocol = _creatureLifecycle.SnapshotProtocol(lifecycleOrigin);
         long tripIndex = s.Index;
 
         // Auto-vantage: reproducible coords, which is the whole ask.
@@ -392,6 +406,12 @@ public sealed partial class GameLoop
                     },
                     liquidMs = s.LiquidRenderMs,
                     characterMs = s.CharacterRenderMs,
+                    creatureMs = s.CreatureRenderMs,
+                    creatureLoadMs = s.CreatureLoadMs,
+                    creatureLoadsThisFrame = s.CreatureLoadsThisFrame,
+                    creatureCacheEntries = s.CreatureCacheEntries,
+                    selectionMs = s.SelectionRenderMs,
+                    spellEffectMs = s.SpellEffectRenderMs,
                     debugMs = s.DebugRenderMs,
                 },
             },
@@ -412,6 +432,9 @@ public sealed partial class GameLoop
                 lastStreamSeconds = _lastStreamSeconds,
                 collisionBuildSeconds = _collisionBuildSeconds,
             },
+
+            creatureLifecycle,
+            outgoingProtocol,
 
             // Every tagged console line still in the ring, offset relative to the
             // stalled frame. Negative offsets are the run-up - usually where the
@@ -469,6 +492,10 @@ public sealed partial class GameLoop
                 residencyMs = f.ResidencyMs,
                 preloadMs = f.PreloadMs,
                 worldMs = f.WorldRenderMs,
+                creatureMs = f.CreatureRenderMs,
+                creatureLoadMs = f.CreatureLoadMs,
+                creatureLoadsThisFrame = f.CreatureLoadsThisFrame,
+                creatureCacheEntries = f.CreatureCacheEntries,
                 wmoQ = f.WmoQueued,
                 m2Q = f.M2Queued,
                 tiles = f.ResidentTiles,
@@ -509,6 +536,9 @@ public sealed partial class GameLoop
             $"{s.DoodadRenderMs:F1} + foliage {s.FoliageRenderMs:F1} " +
             $"[rescatter {s.FoliageScatterMs:F1} + draw {s.FoliageDrawMs:F1}]   " +
             $"| liquid {s.LiquidRenderMs:F1}  character {s.CharacterRenderMs:F1}  " +
+            $"creature {s.CreatureRenderMs:F1} [load {s.CreatureLoadMs:F1}, " +
+            $"{s.CreatureLoadsThisFrame} load(s), {s.CreatureCacheEntries} cached]  " +
+            $"selection {s.SelectionRenderMs:F1}  spellFx {s.SpellEffectRenderMs:F1}  " +
             $"debug {s.DebugRenderMs:F1}");
 
         // The doodad pass broken into its three unrelated jobs. cull is our
@@ -630,6 +660,13 @@ public sealed partial class GameLoop
             _hitch.PendingForcedStallMs = 800.0;
         ImGui.SameLine();
         if (ImGui.Button("Clear grace")) _hitch.SuppressFor(0.0);
+
+        if (ImGui.Button("Reload creature models"))
+        {
+            _creatures?.ClearPortraitCache();
+            _hitch.SuppressFor(0.0);
+            Console.WriteLine("[hitch] creature model cache cleared for I1 self-test");
+        }
 
         if (_hitch.History.Count == 0)
         {

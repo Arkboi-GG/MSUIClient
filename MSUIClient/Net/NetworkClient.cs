@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Numerics;
 using System.Threading;
 
@@ -46,7 +47,7 @@ public sealed class NetworkClient : IDisposable
 {
     private readonly NetSettings _cfg;
     private readonly WirePacketObserver? _wireObserver;
-    private readonly ConcurrentQueue<(ushort Opcode, byte[] Body)> _inbound = new();
+    private readonly ConcurrentQueue<(ushort Opcode, byte[] Body, long ReceivedStamp)> _inbound = new();
 
     private Thread? _worker;
     private Timer? _pingTimer;
@@ -220,10 +221,13 @@ public sealed class NetworkClient : IDisposable
     }
 
     /// <summary>Drain inbound packets (call once per frame). Returns false when the queue is empty.</summary>
-    public bool TryDequeue(out ushort opcode, out byte[] body)
+    public bool TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp)
     {
-        if (_inbound.TryDequeue(out var p)) { opcode = p.Opcode; body = p.Body; return true; }
-        opcode = 0; body = Array.Empty<byte>(); return false;
+        if (_inbound.TryDequeue(out var p))
+        {
+            opcode = p.Opcode; body = p.Body; receivedStamp = p.ReceivedStamp; return true;
+        }
+        opcode = 0; body = Array.Empty<byte>(); receivedStamp = 0; return false;
     }
 
     /// <summary>Non-null exactly once after entering or changing world — the pose the game loop teleports/loads to.</summary>
@@ -243,6 +247,8 @@ public sealed class NetworkClient : IDisposable
     {
         if (State == NetState.InWorld) { try { _session?.SendMovement(moveOp, info); } catch { /* dropped on disconnect */ } }
     }
+
+    public void CompleteCinematic() { try { _session?.CompleteCinematic(); } catch { } }
 
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
     public void AttackSwing(ulong guid) { try { _session?.AttackSwing(guid); } catch { } }
@@ -365,6 +371,7 @@ public sealed class NetworkClient : IDisposable
             // 4. enter world.
             SetState(NetState.EnteringWorld, $"entering world as {pick.Name} (L{pick.Level})");
             _session.PlayerLogin(pick.Guid);
+            _session.SetActiveMover(pick.Guid);
 
             // 5. stream. LOGIN_VERIFY_WORLD flips us to InWorld; everything else is queued for the app.
             ReadLoop();
@@ -401,7 +408,6 @@ public sealed class NetworkClient : IDisposable
                         var info = new EnterWorldInfo(r.ReadU32(), r.ReadVector3(), r.ReadF32());
                         SetEnter(info);
                         SetState(NetState.InWorld, $"in world: {PlayerName} - map {info.Map} at ({info.Position.X:F0}, {info.Position.Y:F0}, {info.Position.Z:F0})");
-                        session.SetActiveMover(PlayerGuid);   // become the confirmed mover
                         StartPing();
                         break;
                     }
@@ -429,7 +435,7 @@ public sealed class NetworkClient : IDisposable
                         break;
                     }
             }
-            _inbound.Enqueue((opcode, body));
+            _inbound.Enqueue((opcode, body, Stopwatch.GetTimestamp()));
 
             // Keep the queue from growing without bound if the app stops draining.
             while (_inbound.Count > 4096 && _inbound.TryDequeue(out _)) { }

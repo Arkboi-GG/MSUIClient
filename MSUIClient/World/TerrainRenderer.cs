@@ -61,6 +61,8 @@ public sealed class TerrainRenderer : IDisposable
     public const float GridSize = 533.33333f;
 
     public int TileCount => _tiles.Count;
+    public int PendingPreloads => _preloads.Count;
+    public Action<int, int>? PreloadDequeued { get; set; }
     public int DrawnLastFrame { get; private set; }
     public int DrawCallsLastFrame { get; private set; }
     public int TrianglesLastFrame { get; private set; }
@@ -180,43 +182,6 @@ public sealed class TerrainRenderer : IDisposable
         return result;
     }
 
-    /// <summary>Load a square block of tiles centred on a world position.</summary>
-    public void LoadAround(float worldX, float worldY, int radius, AdtCache adts)
-    {
-        var (centreCol, centreRow) = TileAt(worldX, worldY);
-        Console.WriteLine(
-            $"[terrain] loading around ({worldX:F1}, {worldY:F1}) -> " +
-            $"tile [{centreCol},{centreRow}], radius {radius}");
-
-        var started = DateTime.UtcNow;
-        int loaded = 0, missing = 0;
-
-        for (int dc = -radius; dc <= radius; dc++)
-        for (int dr = -radius; dr <= radius; dr++)
-        {
-            int col = centreCol + dc;
-            int row = centreRow + dr;
-            if (col is < 0 or > 63 || row is < 0 or > 63) continue;
-            if (_tiles.ContainsKey((col, row))) continue;
-
-            // One parse, two consumers: the GPU mesh and the CPU height grid.
-            var adt = adts.Get(col, row);
-
-            var tile = TerrainTile.Load(_gl, adt, _config.ClientDataPath, col, row);
-            if (tile is null) { missing++; continue; }
-
-            _tiles[(col, row)] = tile;
-            _heights[(col, row)] = BuildHeightGrid(adt);
-            SetHoles((col, row), BuildHoleGrid(adt));
-            loaded++;
-        }
-
-        var elapsed = DateTime.UtcNow - started;
-        Console.WriteLine(
-            $"[terrain] {loaded} tile(s) loaded, {missing} absent, " +
-            $"{TotalTriangles:N0} triangles, {elapsed.TotalSeconds:F1}s");
-    }
-
     /// <summary>
     /// Make the GPU/height residency exactly match a tile ring. Shared world
     /// assets live in the other renderers; terrain tiles themselves are cheap
@@ -298,8 +263,14 @@ public sealed class TerrainRenderer : IDisposable
     /// fix is to use it, not to add machinery.
     /// </summary>
     public void QueuePreload(
-        IEnumerable<(int col, int row)> tiles, AdtCache adts)
+        IEnumerable<(int col, int row)> tiles, AdtCache adts,
+        (int col, int row)? streamCentre = null)
     {
+        if (streamCentre is { } centre)
+            tiles = tiles
+                .OrderBy(t => Math.Max(Math.Abs(t.col - centre.col), Math.Abs(t.row - centre.row)))
+                .ThenBy(t => Math.Abs(t.col - centre.col) + Math.Abs(t.row - centre.row));
+
         foreach (var (col, row) in tiles)
         {
             var key = (col, row);
@@ -310,14 +281,17 @@ public sealed class TerrainRenderer : IDisposable
             // Registered synchronously so one tile is never queued twice. That
             // dictionary write is the only work this thread does here.
             _preloads[key] = PreparePreloadAsync(key, adts);
+            PreloadDequeued?.Invoke(col, row);
         }
     }
 
+    public bool PreloadReady((int col, int row) key)
+        => _tiles.ContainsKey(key) ||
+           _missingPreloads.Contains(key) ||
+           (_preloads.TryGetValue(key, out var task) && task.IsCompleted);
+
     public bool PreloadReady(IEnumerable<(int col, int row)> tiles)
-        => tiles.All(key =>
-            _tiles.ContainsKey(key) ||
-            _missingPreloads.Contains(key) ||
-            (_preloads.TryGetValue(key, out var task) && task.IsCompleted));
+        => tiles.All(PreloadReady);
 
     /// <summary>
     /// Parse, mesh and build both CPU grids for one tile on the worker pool,

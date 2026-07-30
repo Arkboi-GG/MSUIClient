@@ -34,6 +34,7 @@ public enum Op : ushort
     CMSG_LOGOUT_REQUEST          = 0x004B,
     SMSG_LOGOUT_RESPONSE         = 0x004C,
     SMSG_LOGOUT_COMPLETE         = 0x004D,
+    SMSG_TRIGGER_CINEMATIC       = 0x00FA,
     CMSG_COMPLETE_CINEMATIC      = 0x00FC,
     SMSG_TUTORIAL_FLAGS          = 0x00FD,
     CMSG_MOVE_WORLDPORT_ACK      = 0x00DC,

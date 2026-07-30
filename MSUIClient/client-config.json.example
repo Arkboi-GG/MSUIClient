@@ -6,8 +6,8 @@
   "realmdPort": 3724,
 
   "server": {
-    "enabled": false,
-    "autoConnect": true,
+    "enabled": true,
+    "autoConnect": false,
     "account": "",
     "password": "",
     "realm": null,
@@ -17,8 +17,8 @@
   },
 
   "window": {
-    "width": 1600,
-    "height": 900,
+    "width": 2560,
+    "height": 1440,
     "vSync": true,
     "title": "MSUI Client"
   },

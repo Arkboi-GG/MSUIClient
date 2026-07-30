@@ -59,7 +59,7 @@ public sealed class AttachedItemRenderer : IDisposable
     /// <summary>Position(3) Normal(3) UV(2) - the doodad layout, since nothing here is skinned.</summary>
     private const int FloatsPerVertex = 8;
 
-    private sealed class Batch
+    internal sealed class Batch
     {
         public uint IndexStart;
         public uint IndexCount;
@@ -70,7 +70,7 @@ public sealed class AttachedItemRenderer : IDisposable
         public bool Transparent => BlendMode >= 2 || NoZWrite;
     }
 
-    private sealed class ItemModel : IDisposable
+    internal sealed class ItemModel : IDisposable
     {
         public uint Vao, Vbo, Ebo;
         public List<Batch> Batches = [];
@@ -89,7 +89,7 @@ public sealed class AttachedItemRenderer : IDisposable
     }
 
     /// <summary>One mounted piece: a model, where it hangs, and what it is called.</summary>
-    private sealed class Mount
+    internal sealed class Mount
     {
         public ItemModel Model = null!;
         public int AttachmentId;
@@ -100,12 +100,34 @@ public sealed class AttachedItemRenderer : IDisposable
         public bool Visible = true;
     }
 
+    public sealed class MountSet
+    {
+        internal readonly List<Mount> Items = [];
+        public int Count => Items.Count;
+    }
+
+    private sealed class SharedResources
+    {
+        public required GL Gl;
+        public Shader? Shader;
+        public readonly Dictionary<string, ItemModel?> Models =
+            new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, Texture?> Textures =
+            new(StringComparer.OrdinalIgnoreCase);
+        public int Owners;
+    }
+
+    private static readonly object SharedGate = new();
+    private static SharedResources? s_shared;
+
     private readonly GL _gl;
     private readonly ClientConfig _config;
+    private readonly SharedResources _shared;
+    private bool _disposed;
 
-    private Shader _shader = null!;
-    private readonly Dictionary<string, ItemModel?> _models = [];
-    private readonly Dictionary<string, Texture?> _textures = [];
+    private Shader? Shader => _shared.Shader;
+    private Dictionary<string, ItemModel?> Models => _shared.Models;
+    private Dictionary<string, Texture?> Textures => _shared.Textures;
     private readonly List<Mount> _mounts = [];
 
     public bool Enabled { get; set; } = true;
@@ -158,6 +180,16 @@ public sealed class AttachedItemRenderer : IDisposable
     {
         _gl = gl;
         _config = config;
+        lock (SharedGate)
+        {
+            if (s_shared is null)
+                s_shared = new SharedResources { Gl = gl };
+            else if (!ReferenceEquals(s_shared.Gl, gl))
+                throw new InvalidOperationException(
+                    "attachment resources cannot span unrelated GL contexts");
+            _shared = s_shared;
+            _shared.Owners++;
+        }
     }
 
     /// <summary>
@@ -167,9 +199,12 @@ public sealed class AttachedItemRenderer : IDisposable
     /// </summary>
     public void LoadShaders(string shaderDir)
     {
-        _shader = Shader.FromFiles(_gl,
-            Path.Combine(shaderDir, "attached.vert"),
-            Path.Combine(shaderDir, "character.frag"));
+        lock (SharedGate)
+        {
+            _shared.Shader ??= MSUIClient.Engine.Shader.FromFiles(_gl,
+                Path.Combine(shaderDir, "attached.vert"),
+                Path.Combine(shaderDir, "character.frag"));
+        }
     }
 
     // ── building the mount list ──────────────────────────────────────────────
@@ -202,7 +237,22 @@ public sealed class AttachedItemRenderer : IDisposable
     public void Rebuild(CharacterEquipment equipment)
     {
         _mounts.Clear();
-        if (_shader is null) return;
+        if (Shader is null) return;
+
+        BuildMounts(equipment, _mounts);
+        Console.WriteLine($"[attach] {_mounts.Count} model(s) mounted");
+    }
+
+    public MountSet BuildMountSet(CharacterEquipment equipment)
+    {
+        var result = new MountSet();
+        if (Shader is not null) BuildMounts(equipment, result.Items);
+        Console.WriteLine($"[attach] {result.Count} model(s) mounted");
+        return result;
+    }
+
+    private void BuildMounts(CharacterEquipment equipment, List<Mount> mounts)
+    {
 
         foreach (var piece in equipment.Pieces)
         {
@@ -214,23 +264,22 @@ public sealed class AttachedItemRenderer : IDisposable
             {
                 // Shoulders are two files: ModelName1 is the left, ModelName2
                 // the right, and both are needed.
-                AddMount(piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
+                AddMount(mounts, piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
                          AttachShoulderLeft, piece.Name + " (L)");
-                AddMount(piece.Row.ModelName2, piece.Row.ModelTexture2, folder,
+                AddMount(mounts, piece.Row.ModelName2, piece.Row.ModelTexture2, folder,
                          AttachShoulderRight, piece.Name + " (R)");
                 continue;
             }
 
             int heldSlot = piece.EquipmentSlot switch { 15 => 0, 16 => 1, 17 => 2, _ => -1 };
-            AddMount(piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
+            AddMount(mounts, piece.Row.ModelName1, piece.Row.ModelTexture1, folder,
                      AttachmentFor(piece.InventoryType), piece.Name, heldSlot,
                      piece.InventoryType, piece.Sheath);
         }
-
-        Console.WriteLine($"[attach] {_mounts.Count} model(s) mounted");
     }
 
-    private void AddMount(string modelName, string textureName, string folder, int attachmentId, string label,
+    private void AddMount(List<Mount> mounts, string modelName, string textureName,
+        string folder, int attachmentId, string label,
         int heldSlot = -1, int inventoryType = 0, byte itemSheath = 0)
     {
         if (string.IsNullOrWhiteSpace(modelName)) return;
@@ -242,7 +291,7 @@ public sealed class AttachedItemRenderer : IDisposable
             return;
         }
 
-        _mounts.Add(new Mount
+        mounts.Add(new Mount
         {
             Model = model, AttachmentId = attachmentId, Label = label,
             HeldSlot = heldSlot, InventoryType = inventoryType, ItemSheath = itemSheath,
@@ -261,8 +310,9 @@ public sealed class AttachedItemRenderer : IDisposable
     /// </summary>
     private ItemModel? ResolveModel(string modelName, string textureName, string folder)
     {
-        string key = $"{folder}|{modelName}";
-        if (_models.TryGetValue(key, out var cached)) return cached;
+        string key = $"{folder}|{modelName}|{textureName}|" +
+            (folder == "Head" ? RaceGenderCode : "");
+        if (Models.TryGetValue(key, out var cached)) return cached;
 
         string stem = modelName.Replace('/', '\\').TrimStart('\\');
         int dot = stem.LastIndexOf('.');
@@ -296,20 +346,20 @@ public sealed class AttachedItemRenderer : IDisposable
         if (bytes is null)
         {
             Console.WriteLine($"[attach] not found, tried: {string.Join("  ", candidates)}");
-            _models[key] = null;
+            Models[key] = null;
             return null;
         }
 
         var m2 = M2Reader.Parse(bytes);
         if (m2 is null || !m2.IsValid)
         {
-            _models[key] = null;
+            Models[key] = null;
             return null;
         }
 
         var model = BuildModel(m2, textureName, folder);
         if (model is not null) model.Path = found;
-        _models[key] = model;
+        Models[key] = model;
         return model;
     }
 
@@ -444,10 +494,10 @@ public sealed class AttachedItemRenderer : IDisposable
 
     private Texture? ResolveTexturePath(string blpPath)
     {
-        if (_textures.TryGetValue(blpPath, out var cached)) return cached;
+        if (Textures.TryGetValue(blpPath, out var cached)) return cached;
 
         var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, blpPath);
-        if (decoded is null) { _textures[blpPath] = null; return null; }
+        if (decoded is null) { Textures[blpPath] = null; return null; }
 
         var (bgra, w, h) = decoded.Value;
 
@@ -458,7 +508,7 @@ public sealed class AttachedItemRenderer : IDisposable
             for (int i = 3; i < bgra.Length; i += 4) if (bgra[i] != 0) bgra[i] = 255;
 
         var texture = Texture.From2D(_gl, bgra, w, h);
-        _textures[blpPath] = texture;
+        Textures[blpPath] = texture;
         return texture;
     }
 
@@ -471,22 +521,32 @@ public sealed class AttachedItemRenderer : IDisposable
     /// </summary>
     public unsafe void Render(Camera camera, Matrix4x4 instance,
                               M2Model? character, Matrix4x4[] skin)
+        => RenderMounts(camera, instance, character, skin, _mounts, SheathState);
+
+    public unsafe void Render(Camera camera, Matrix4x4 instance,
+        M2Model? character, Matrix4x4[] skin, MountSet mounts, byte sheathState)
+        => RenderMounts(camera, instance, character, skin, mounts.Items, sheathState);
+
+    private unsafe void RenderMounts(Camera camera, Matrix4x4 instance,
+        M2Model? character, Matrix4x4[] skin, IReadOnlyList<Mount> mounts,
+        byte sheathState)
     {
         DrawnLastFrame = 0;
-        if (!Enabled || _shader is null || _mounts.Count == 0 || character is null) return;
+        Shader? shader = Shader;
+        if (!Enabled || shader is null || mounts.Count == 0 || character is null) return;
 
-        _shader.Use();
-        _shader.Set("uCameraPos", Vector3.Zero);
-        _shader.Set("uSunDirection", SunDirection);
-        _shader.Set("uSunColor", SunColor);
-        _shader.Set("uSunIntensity", SunIntensity);
-        _shader.Set("uAmbientColor", AmbientColor);
-        _shader.Set("uAmbientIntensity", AmbientIntensity);
-        _shader.Set("uShadowWrap", ShadowSoftness);
-        _shader.Set("uFogStart", FogStart);
-        _shader.Set("uFogEnd", FogEnd);
-        _shader.Set("uFogColor", FogColor);
-        _shader.Set("uTexture", 0);
+        shader.Use();
+        shader.Set("uCameraPos", Vector3.Zero);
+        shader.Set("uSunDirection", SunDirection);
+        shader.Set("uSunColor", SunColor);
+        shader.Set("uSunIntensity", SunIntensity);
+        shader.Set("uAmbientColor", AmbientColor);
+        shader.Set("uAmbientIntensity", AmbientIntensity);
+        shader.Set("uShadowWrap", ShadowSoftness);
+        shader.Set("uFogStart", FogStart);
+        shader.Set("uFogEnd", FogEnd);
+        shader.Set("uFogColor", FogColor);
+        shader.Set("uTexture", 0);
 
         bool cullingOn = true;
 
@@ -499,11 +559,11 @@ public sealed class AttachedItemRenderer : IDisposable
                 _gl.Enable(EnableCap.Blend);
             }
 
-            foreach (var mount in _mounts)
+            foreach (var mount in mounts)
             {
                 if (!mount.Visible) continue;
 
-                int attachmentId = ResolveAttachment(mount);
+                int attachmentId = ResolveAttachment(mount, sheathState);
                 if (attachmentId < 0) continue;
                 var attachment = FindAttachment(character, attachmentId);
                 if (attachment is null) continue;
@@ -512,8 +572,8 @@ public sealed class AttachedItemRenderer : IDisposable
                 var boneMatrix = bone >= 0 && bone < skin.Length ? skin[bone] : Matrix4x4.Identity;
 
                 var model = Matrix4x4.CreateTranslation(attachment.Position) * boneMatrix * instance;
-                _shader.Set("uModel", model);
-                _shader.Set("uModelViewProjection", model * camera.RelativeViewProjection);
+                shader.Set("uModel", model);
+                shader.Set("uModelViewProjection", model * camera.RelativeViewProjection);
 
                 _gl.BindVertexArray(mount.Model.Vao);
 
@@ -527,13 +587,13 @@ public sealed class AttachedItemRenderer : IDisposable
                     if (batch.Texture is not null)
                     {
                         batch.Texture.Bind(0);
-                        _shader.Set("uHasTexture", 1);
-                        _shader.Set("uAlphaCutoff", batch.BlendMode == 1 ? AlphaCutoff : 0f);
+                        shader.Set("uHasTexture", 1);
+                        shader.Set("uAlphaCutoff", batch.BlendMode == 1 ? AlphaCutoff : 0f);
                     }
                     else
                     {
-                        _shader.Set("uHasTexture", 0);
-                        _shader.Set("uAlphaCutoff", 0f);
+                        shader.Set("uHasTexture", 0);
+                        shader.Set("uAlphaCutoff", 0f);
                     }
 
                     if (transparentPass) ApplyBlendMode(batch.BlendMode);
@@ -556,18 +616,18 @@ public sealed class AttachedItemRenderer : IDisposable
         _gl.BindVertexArray(0);
     }
 
-    private int ResolveAttachment(Mount mount)
+    private static int ResolveAttachment(Mount mount, byte sheathState)
     {
         if (mount.HeldSlot < 0) return mount.AttachmentId;
 
         // Ranged slot: bows use the left hand, all other ranged families the
         // right, and vanilla detaches the model entirely while it is stowed.
         if (mount.HeldSlot == 2)
-            return SheathState == 2
+            return sheathState == 2
                 ? mount.InventoryType == 15 ? AttachHandLeft : AttachHandRight
                 : -1;
 
-        if (SheathState == 1)
+        if (sheathState == 1)
             return mount.HeldSlot == 0 ? AttachHandRight
                 : mount.InventoryType == CharacterEquipment.Slot.Shield ? AttachLeftWrist
                 : AttachHandLeft;
@@ -620,11 +680,20 @@ public sealed class AttachedItemRenderer : IDisposable
 
     public void Dispose()
     {
-        foreach (var model in _models.Values) model?.Dispose();
-        foreach (var texture in _textures.Values) texture?.Dispose();
-        _models.Clear();
-        _textures.Clear();
         _mounts.Clear();
-        _shader?.Dispose();
+        lock (SharedGate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _shared.Owners--;
+            if (_shared.Owners != 0) return;
+            foreach (var model in _shared.Models.Values) model?.Dispose();
+            foreach (var texture in _shared.Textures.Values) texture?.Dispose();
+            _shared.Models.Clear();
+            _shared.Textures.Clear();
+            _shared.Shader?.Dispose();
+            _shared.Shader = null;
+            if (ReferenceEquals(s_shared, _shared)) s_shared = null;
+        }
     }
 }

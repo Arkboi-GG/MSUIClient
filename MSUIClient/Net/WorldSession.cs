@@ -237,6 +237,10 @@ public sealed class WorldSession : IDisposable
     /// <summary>Declare the unit we control — vmangos drops all MSG_MOVE_* until this "confirmed mover" is set.</summary>
     public void SetActiveMover(ulong guid) => SendFullGuid(Op.CMSG_SET_ACTIVE_MOVER, guid);
 
+    /// <summary>Acknowledge SMSG_TRIGGER_CINEMATIC as an immediate ESC-style skip.</summary>
+    public void CompleteCinematic() =>
+        SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);
+
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);

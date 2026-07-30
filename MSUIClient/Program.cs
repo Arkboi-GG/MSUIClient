@@ -204,6 +204,9 @@ public sealed partial class GameLoop : IDisposable
 
     private double _liquidRenderMilliseconds;
     private double _characterRenderMilliseconds;
+    private double _creatureRenderMilliseconds;
+    private double _selectionRenderMilliseconds;
+    private double _spellEffectRenderMilliseconds;
     private double _debugRenderMilliseconds;
     private double _updateMilliseconds;
     private double _movementMilliseconds;
@@ -294,9 +297,6 @@ public sealed partial class GameLoop : IDisposable
     /// meaningful delta is the cheap way to stop paying that every few seconds.
     /// </summary>
     private int _doodadCollisionPending;
-
-    /// <summary>New placements needed before a rebuild is worth its cost.</summary>
-    private const int DoodadCollisionRebuildThreshold = 96;
 
     /// <summary>
     /// Rebuild anyway after this long, so a trickle of stragglers still becomes
@@ -504,6 +504,18 @@ public sealed partial class GameLoop : IDisposable
                 _doodads = null;
             }
         }
+
+        // PLAN_17 I2 queue taps. Delegates are installed once; each dequeue only
+        // writes into a fixed ten-entry trace while a load record is active.
+        _terrain.PreloadDequeued = NoteLoadTerrainDequeue;
+        if (_wmo is not null)
+            _wmo.PreloadDequeued = (path, distanceSq) =>
+                NoteLoadAssetDequeue("wmo", path, distanceSq);
+        if (_doodads is not null)
+            _doodads.PreloadDequeued = NoteLoadAssetDequeue;
+        if (_foliage is not null)
+            _foliage.PreloadDequeued = path =>
+                NoteLoadAssetDequeue("foliage", path, 0f);
 
         _mpq?.Report();
 
@@ -1073,7 +1085,10 @@ public sealed partial class GameLoop : IDisposable
         // where a frame's Update AND its Render both fall inside the period
         // being measured - see HitchRecorder.FrameBoundary for why the obvious
         // alternative silently blames the wrong frame.
-        if (_hitch.FrameBoundary(CurrentFramePhases())) WriteHitchRecord();
+        HitchRecorder.FramePhases completedPhases = CurrentFramePhases();
+        if (_hitch.FrameBoundary(completedPhases)) WriteHitchRecord();
+        NoteLoadFrame(_hitch.LastCompleted);
+        PollLoadTimelineCompletion();
 
         // Quitting is deferred out of the GUI pass and lands HERE, between
         // frames, before anything is touched. ClientWindow.Close tears the GL
@@ -1086,17 +1101,30 @@ public sealed partial class GameLoop : IDisposable
         if (ConsumeQuitRequest()) return;
 
         long updateStarted = Stopwatch.GetTimestamp();
+        _loadNetPumpMilliseconds = 0;
+        _loadStepMilliseconds = 0;
         if (_controller is null) return;
 
         // Advance the appear-fade clock every frame - during the loading build and
         // after - so streamed-in doodads/buildings ease in instead of popping.
         UpdateAppearFadeClock(dt);
 
-        // Benilla-style: while the loading curtain is up, drive the budgeted
-        // world build and skip gameplay (movement/residency) for this frame.
-        if (_worldLoading) { StepWorldLoad(dt); return; }
-
+        SnapshotLoadUnitsBeforePump();
+        long loadNetStarted = Stopwatch.GetTimestamp();
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
+        _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
+
+        // Keep the socket and movement heartbeat alive behind the curtain. The
+        // pump may itself enter BeginWorldLoad, so test the flag only afterward.
+        if (_worldLoading)
+        {
+            UpdateMovementSenderDuringLoad();
+            long loadStepStarted = Stopwatch.GetTimestamp();
+            StepWorldLoad(dt);
+            _loadStepMilliseconds = Stopwatch.GetElapsedTime(loadStepStarted).TotalMilliseconds;
+            _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
+            return;
+        }
 
         // Networked: stay stateless (no world/character) until login assigns a spawn point.
         if (_config.Server.Enabled && !_worldLoadStarted) return;
@@ -1404,6 +1432,19 @@ public sealed partial class GameLoop : IDisposable
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
 
+    private void UpdateMovementSenderDuringLoad()
+    {
+        if (_net is not { IsInWorld: true } net || _controller is null) return;
+
+        MovementInput idle = default;
+        _movementSender.Update(
+            net, _controller, idle, 0f,
+            jumped: false, landed: false, startedFalling: false,
+            (uint)Math.Clamp(MathF.Round(_controller.FallTimeMs), 0f, uint.MaxValue),
+            _config.Movement.JumpVelocity,
+            MovementInfo.ClientUptimeMs() / 1000.0);
+    }
+
     private void DiscoverNextBackgroundTile(float dt)
     {
         if (_terrain is null || _adts is null || _assetWorkers is null) return;
@@ -1618,6 +1659,29 @@ public sealed partial class GameLoop : IDisposable
     {
         long renderSpanStarted = Stopwatch.GetTimestamp();
 
+        // The loading art is fully exclusive until Fade begins. Do not spend
+        // frame time drawing a world that an alpha-1 curtain will discard. The
+        // first Fade frame renders the world while alpha is still 1, before the
+        // following update can lower it, preventing a black/half-scene reveal.
+        if (_worldLoading && _loadPhase != WorldLoadPhase.Fade)
+        {
+            _worldRenderMilliseconds = 0;
+            _foliageRenderMilliseconds = 0;
+            _foliageScatterMilliseconds = 0;
+            _foliageDrawMilliseconds = 0;
+            _particleSimulateMilliseconds = 0;
+            _particleDrawMilliseconds = 0;
+            _characterRenderMilliseconds = 0;
+            _creatureRenderMilliseconds = 0;
+            _selectionRenderMilliseconds = 0;
+            _spellEffectRenderMilliseconds = 0;
+            _liquidRenderMilliseconds = 0;
+            _debugRenderMilliseconds = 0;
+            DrawLoadingScreen();
+            _renderSpanMilliseconds = Stopwatch.GetElapsedTime(renderSpanStarted).TotalMilliseconds;
+            return;
+        }
+
         ApplyAtmosphere();
         _gpuProfiler?.BeginFrame();
 
@@ -1696,11 +1760,26 @@ public sealed partial class GameLoop : IDisposable
 
         // Streamed creatures/NPCs (networked). Opaque M2s like the player, so they
         // belong here in the opaque pass, before transparent water/particles blend.
-        DrawCreatures();
+        long creatureStarted = Stopwatch.GetTimestamp();
+        // Finish advances to Fade during Update, so this first Fade render still
+        // has an alpha-1 curtain. Do not stack the first synchronous creature
+        // adoption on the same frame as Finish and the world's first render;
+        // the following Fade update lowers alpha and its otherwise-idle frame
+        // carries the one-model curtained budget.
+        if (!_worldLoading || _loadCurtainAlpha < 1f) DrawCreatures();
+        else _creatures?.NoteKnownNotDrawn(_entities);
+        _creatureRenderMilliseconds = Stopwatch.GetElapsedTime(creatureStarted).TotalMilliseconds;
+        NoteLoadCreatureDraw(_creatures?.DrawnLastFrame ?? 0);
+
+        long selectionStarted = Stopwatch.GetTimestamp();
         DrawSelectionRing();
+        _selectionRenderMilliseconds = Stopwatch.GetElapsedTime(selectionStarted).TotalMilliseconds;
+
+        long spellEffectStarted = Stopwatch.GetTimestamp();
         if (_spellEffects is not null && _spellEffectMeshes is not null)
             _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
+        _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him

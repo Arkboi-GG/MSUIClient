@@ -191,7 +191,7 @@ public sealed class AdtCache
 
             string map = _mapName;
             int generation = _generation;
-            var worker = workers.Run(() =>
+            var worker = workers.RunCritical(() =>
                 AdtTerrainReader.ReadFromMpq(_clientDataPath, map, row, col));
             // PublishAsync runs synchronously up to its await. If the worker is
             // already finished it completes INLINE, and its finally removes this

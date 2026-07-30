@@ -87,6 +87,9 @@ public sealed class HitchRecorder
     /// <summary>The frame that most recently crossed the threshold.</summary>
     public FrameSample Tripped { get; private set; }
 
+    /// <summary>The frame most recently closed by <see cref="FrameBoundary"/>.</summary>
+    public FrameSample LastCompleted { get; private set; }
+
     /// <summary>Short summaries of every record written, newest last. For the HUD.</summary>
     public List<HitchSummary> History { get; } = new();
 
@@ -120,6 +123,8 @@ public sealed class HitchRecorder
             _pending.FrameMs = Stopwatch.GetElapsedTime(_frameStartStamp, now).TotalMilliseconds;
 
             _pending.UpdateMs = phases.UpdateMs;
+            _pending.LoadNetPumpMs = phases.LoadNetPumpMs;
+            _pending.LoadStepMs = phases.LoadStepMs;
             _pending.MoveMs = phases.MoveMs;
             _pending.PumpPreloadsMs = phases.PumpPreloadsMs;
             _pending.AcceptCollisionMs = phases.AcceptCollisionMs;
@@ -149,6 +154,12 @@ public sealed class HitchRecorder
             _pending.FoliageDrawMs = phases.FoliageDrawMs;
             _pending.LiquidRenderMs = phases.LiquidRenderMs;
             _pending.CharacterRenderMs = phases.CharacterRenderMs;
+            _pending.CreatureRenderMs = phases.CreatureRenderMs;
+            _pending.CreatureLoadMs = phases.CreatureLoadMs;
+            _pending.CreatureLoadsThisFrame = phases.CreatureLoadsThisFrame;
+            _pending.CreatureCacheEntries = phases.CreatureCacheEntries;
+            _pending.SelectionRenderMs = phases.SelectionRenderMs;
+            _pending.SpellEffectRenderMs = phases.SpellEffectRenderMs;
             _pending.DebugRenderMs = phases.DebugRenderMs;
 
             _pending.InputMs = phases.InputMs;
@@ -185,6 +196,7 @@ public sealed class HitchRecorder
             _pending.M2Queued = phases.M2Queued;
             _pending.DiscoveryTiles = phases.DiscoveryTiles;
 
+            LastCompleted = _pending;
             tripped = Commit(_pending, now);
         }
 
@@ -335,10 +347,12 @@ public sealed class HitchRecorder
     {
         public long Index;
 
-        /// <summary>True wall-clock period, render-entry to render-entry.</summary>
+        /// <summary>True wall-clock period, Update-entry to Update-entry.</summary>
         public double FrameMs;
 
         public double UpdateMs;
+        public double LoadNetPumpMs;
+        public double LoadStepMs;
         public double RenderMs;
 
         public double MoveMs;
@@ -375,6 +389,12 @@ public sealed class HitchRecorder
         public double FoliageDrawMs;
         public double LiquidRenderMs;
         public double CharacterRenderMs;
+        public double CreatureRenderMs;
+        public double CreatureLoadMs;
+        public int CreatureLoadsThisFrame;
+        public int CreatureCacheEntries;
+        public double SelectionRenderMs;
+        public double SpellEffectRenderMs;
         public double DebugRenderMs;
 
         // ── Inside the doodad pass (2026-07-25) ─────────────────────────────
@@ -568,7 +588,8 @@ public sealed class HitchRecorder
         /// </summary>
         public double UpdateUnaccountedMs => Math.Max(
             0.0,
-            UpdateMs - MoveMs - ResidencyMs - PreloadMs - UnitMs - CameraMs
+            UpdateMs - LoadNetPumpMs - LoadStepMs
+                     - MoveMs - ResidencyMs - PreloadMs - UnitMs - CameraMs
                      - PumpPreloadsMs - AcceptCollisionMs - DoodadCollisionSnapshotMs);
 
         /// <summary>Which measured phase held the most time. Names the suspect.</summary>
@@ -593,6 +614,8 @@ public sealed class HitchRecorder
             }
 
             Consider(ResidencyMs, "residency");
+            Consider(LoadNetPumpMs, "load-network-pump");
+            Consider(LoadStepMs, "load-phase-step");
             Consider(PumpPreloadsMs, "terrain-adopt");
             Consider(AcceptCollisionMs, "collision-accept");
             Consider(DoodadCollisionSnapshotMs, "doodad-collision-snapshot");
@@ -619,6 +642,10 @@ public sealed class HitchRecorder
             Consider(FoliageDrawMs, "foliage-draw");
             Consider(LiquidRenderMs, "liquid-render");
             Consider(CharacterRenderMs, "character-render");
+            Consider(CreatureLoadMs, "creature-model-load");
+            Consider(Math.Max(0.0, CreatureRenderMs - CreatureLoadMs), "creature-render");
+            Consider(SelectionRenderMs, "selection-render");
+            Consider(SpellEffectRenderMs, "spell-effect-render");
             Consider(DebugRenderMs, "debug-render");
 
             // "present-swap-driver" smuggled a conclusion into a bucket that
@@ -643,10 +670,13 @@ public sealed class HitchRecorder
     /// <summary>What GameLoop hands over at the end of each frame.</summary>
     public struct FramePhases
     {
-        public double UpdateMs, MoveMs, ResidencyMs, PreloadMs, UnitMs, CameraMs;
+        public double UpdateMs, LoadNetPumpMs, LoadStepMs;
+        public double MoveMs, ResidencyMs, PreloadMs, UnitMs, CameraMs;
         public double PumpPreloadsMs, AcceptCollisionMs, DoodadCollisionSnapshotMs;
         public double DiscoverMs, DoodadDemandMs, WarmMs;
         public double RenderMs, WorldRenderMs, CharacterRenderMs, DebugRenderMs;
+        public double CreatureRenderMs, CreatureLoadMs, SelectionRenderMs, SpellEffectRenderMs;
+        public int CreatureLoadsThisFrame, CreatureCacheEntries;
         public double FoliageRenderMs, LiquidRenderMs;
         public double FoliageScatterMs, FoliageDrawMs;
         public double TerrainRenderMs, WmoRenderMs, DoodadRenderMs;

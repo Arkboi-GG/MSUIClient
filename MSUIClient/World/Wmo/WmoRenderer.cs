@@ -380,7 +380,8 @@ public sealed class WmoRenderer : IDisposable
     private readonly List<InstanceSlice> _instanceSlices = [];
     private readonly List<GroupMesh> _flatGroups = [];
     private readonly HashSet<string> _placed = [];
-    private readonly Queue<string> _preloadQueue = new();
+    private readonly PriorityQueue<string, float> _preloadQueue = new();
+    private Vector2? _preloadStreamCentre;
 
     /// <summary>
     /// Preload-ring tiles whose ADT had not finished parsing when the ring was
@@ -390,9 +391,9 @@ public sealed class WmoRenderer : IDisposable
     private readonly HashSet<(int col, int row)> _deferredRingTiles = new();
     private AdtCache? _ringAdts;
     private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
-    private ModelLoadJob? _preloadJob;
-    private readonly Queue<string> _newDoodadModels = new();
-    private readonly HashSet<string> _announcedDoodadModels = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxConcurrentPreloads = 4;
+    private readonly List<ModelLoadJob> _preloadJobs = [];
+    private int _preloadFinalizeCursor;
 
     /// <summary>Textures whose decoded alpha channel is entirely zero.</summary>
     private readonly HashSet<string> _opaqueTextures = new(StringComparer.OrdinalIgnoreCase);
@@ -424,7 +425,9 @@ public sealed class WmoRenderer : IDisposable
         => _instances.Select(i => (i.Path, i.WorldMin, i.WorldMax, i.Origin));
     public int ModelCount => _models.Count(m => m.Value is not null);
     public int TextureCount => _textures.Count(t => t.Value is not null);
-    public int PendingPreloads => _preloadQueue.Count + (_preloadJob is null ? 0 : 1);
+    public int PendingPreloads =>
+        _deferredRingTiles.Count + _preloadQueue.Count + _preloadJobs.Count;
+    public Action<string, float>? PreloadDequeued { get; set; }
 
     /// <summary>Ring tiles still waiting on an ADT parse. Should trend to zero.</summary>
     public int DeferredRingTiles => _deferredRingTiles.Count;
@@ -1139,7 +1142,8 @@ public sealed class WmoRenderer : IDisposable
     /// buildings independent of terrain, and collapsing all the reads into one
     /// is a single obvious change once the shape settles.
     /// </summary>
-    public void LoadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    public void LoadForTiles(
+        IEnumerable<(int col, int row)> tiles, AdtCache adts, bool warmedOnly = false)
     {
         var started = DateTime.UtcNow;
         var pending = new List<(Model Model, AdtTerrainReader.WmoInstance Placement)>();
@@ -1157,10 +1161,16 @@ public sealed class WmoRenderer : IDisposable
                 // A building straddling a tile edge is listed in every ADT it
                 // touches. Identity is the model plus its exact position.
                 string key = $"{w.ModelPath}|{w.PosX:F2}|{w.PosY:F2}|{w.PosZ:F2}";
-                if (!_placed.Add(key)) continue;
+                if (_placed.Contains(key)) continue;
 
-                var model = ResolveModel(w.ModelPath);
+                // The cold-start placement pass must never turn an async warm
+                // miss into the blocking ResolveModel spin. Leave the placement
+                // eligible so the normal residency path can add it once warm.
+                var model = warmedOnly
+                    ? _models.GetValueOrDefault(w.ModelPath)
+                    : ResolveModel(w.ModelPath);
                 if (model is null) continue;
+                if (!_placed.Add(key)) continue;
 
                 pending.Add((model, w));
             }
@@ -1275,9 +1285,11 @@ public sealed class WmoRenderer : IDisposable
     /// Nothing warmed here is needed this frame: the buildings are two tiles
     /// away. Waiting for them was pure loss.
     /// </summary>
-    public void QueuePreloadForTiles(IEnumerable<(int col, int row)> tiles, AdtCache adts)
+    public void QueuePreloadForTiles(
+        IEnumerable<(int col, int row)> tiles, AdtCache adts, Vector2? streamCentre = null)
     {
         _ringAdts = adts;
+        _preloadStreamCentre = streamCentre;
         foreach (var key in tiles) TryQueueRingTile(key, adts);
     }
 
@@ -1307,10 +1319,14 @@ public sealed class WmoRenderer : IDisposable
             if (string.IsNullOrWhiteSpace(path) ||
                 path.StartsWith("Unknown_", StringComparison.Ordinal) ||
                 _models.ContainsKey(path) ||
-                _preloadJob?.RootPath.Equals(path, StringComparison.OrdinalIgnoreCase) == true ||
+                FindPreloadJob(path) is not null ||
                 !_preloadQueued.Add(path)) continue;
 
-            _preloadQueue.Enqueue(path);
+            var transform = BuildPlacement(w);
+            float distanceSq = _preloadStreamCentre is Vector2 centre
+                ? Vector2.DistanceSquared(new Vector2(transform.M41, transform.M42), centre)
+                : 0f;
+            _preloadQueue.Enqueue(path, distanceSq);
         }
     }
 
@@ -1334,56 +1350,69 @@ public sealed class WmoRenderer : IDisposable
         // this is already called once per frame by the streaming update.
         DrainDeferredRingTiles();
 
-        while (_preloadJob is null && _preloadQueue.Count > 0)
+        while (_preloadJobs.Count < MaxConcurrentPreloads && _preloadQueue.Count > 0)
         {
-            string path = _preloadQueue.Dequeue();
+            _preloadQueue.TryDequeue(out string? path, out float distanceSq);
+            if (path is null) continue;
             _preloadQueued.Remove(path);
+            PreloadDequeued?.Invoke(path, distanceSq);
             if (_models.ContainsKey(path)) continue;
-            _preloadJob = StartModelLoad(path);
+            var started = StartModelLoad(path);
+            if (started is not null) _preloadJobs.Add(started);
         }
 
-        if (_preloadJob is null) return false;
+        if (_preloadJobs.Count == 0) return false;
 
-        var job = _preloadJob;
-        if (waitForWorker && !job.Worker.IsCompleted)
-            try { job.Worker.GetAwaiter().GetResult(); } catch { }
-        if (!job.Worker.IsCompleted) return true;
-
-        var stepTimer = System.Diagnostics.Stopwatch.StartNew();
-        if (StepModelLoad(job, waitForWorker))
+        int jobIndex = FindReadyPreloadJob();
+        if (jobIndex < 0 && waitForWorker)
         {
-            _preloadJob = null;
+            jobIndex = _preloadFinalizeCursor % _preloadJobs.Count;
+            try { _preloadJobs[jobIndex].Worker.GetAwaiter().GetResult(); } catch { }
+        }
+        // No main-thread progress is possible yet. Returning true here makes a
+        // wall-clock DrainWarm loop busy-spin for its whole budget and competes
+        // with the worker it is waiting for.
+        if (jobIndex < 0) return false;
+
+        var job = _preloadJobs[jobIndex];
+        _preloadFinalizeCursor = (jobIndex + 1) % _preloadJobs.Count;
+        var stepTimer = System.Diagnostics.Stopwatch.StartNew();
+        bool completed = StepModelLoad(job, waitForWorker);
+        if (completed)
+        {
+            _preloadJobs.RemoveAt(jobIndex);
+            if (_preloadJobs.Count == 0) _preloadFinalizeCursor = 0;
+            else if (jobIndex < _preloadFinalizeCursor) _preloadFinalizeCursor--;
             Console.WriteLine($"[wmo-preload] {Path.GetFileName(job.RootPath)} prepared over " +
                               $"{job.Ready?.Root?.NGroups ?? 0} group(s), {job.Timer.Elapsed.TotalSeconds:F2}s, " +
-                              $"{_preloadQueue.Count} queued");
+                              $"{_preloadQueue.Count} queued, {_preloadJobs.Count} in flight");
         }
         if (stepTimer.Elapsed.TotalMilliseconds >= 8)
             Console.WriteLine($"[stream-budget] WMO finalize {Path.GetFileName(job.RootPath)} " +
                               $"took {stepTimer.Elapsed.TotalMilliseconds:F0}ms");
 
-        return true;
+        // An upload in flight is the same no-progress condition. Once it lands,
+        // each call builds one ready group and DrainWarm may continue to budget.
+        return completed || job.Upload is null || job.Upload.IsCompleted;
     }
 
-    /// <summary>Warm the initial preload ring while the loading screen is expected.</summary>
-    public void DrainPreloads()
+    private ModelLoadJob? FindPreloadJob(string rootPath)
     {
-        var timer = System.Diagnostics.Stopwatch.StartNew();
-        int steps = 0;
-        while (WarmNextPreload(waitForWorker: true)) steps++;
-        Console.WriteLine($"[wmo-preload] initial ring completed in {steps} staged step(s), " +
-                          $"{timer.Elapsed.TotalSeconds:F1}s");
+        foreach (var job in _preloadJobs)
+            if (job.RootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase)) return job;
+        return null;
     }
 
-    /// <summary>
-    /// Newly discovered embedded M2 assets from completed WMO roots. The
-    /// doodad renderer consumes these into its own outer-ring preload queue;
-    /// otherwise a city crossing first discovers thousands of furniture
-    /// placements and pays all their model/texture costs at the boundary.
-    /// </summary>
-    public IEnumerable<string> TakeNewDoodadModelPaths()
+    private int FindReadyPreloadJob()
     {
-        while (_newDoodadModels.Count > 0)
-            yield return _newDoodadModels.Dequeue();
+        for (int offset = 0; offset < _preloadJobs.Count; offset++)
+        {
+            int index = (_preloadFinalizeCursor + offset) % _preloadJobs.Count;
+            var job = _preloadJobs[index];
+            if (job.Worker.IsCompleted && (job.Upload is null || job.Upload.IsCompleted))
+                return index;
+        }
+        return -1;
     }
 
     // ── placement ────────────────────────────────────────────────────────────
@@ -1707,15 +1736,16 @@ public sealed class WmoRenderer : IDisposable
         // rather than starting a duplicate. With the outer-ring lead this path
         // should be rare, but correctness wins if the player moves unusually
         // quickly or teleports.
-        ModelLoadJob? job = _preloadJob?.RootPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase) == true
-            ? _preloadJob
-            : StartModelLoad(rootPath);
+        ModelLoadJob? job = FindPreloadJob(rootPath) ?? StartModelLoad(rootPath);
         if (job is null) return null;
 
         if (!job.Worker.IsCompleted)
             try { job.Worker.GetAwaiter().GetResult(); } catch { }
         while (!StepModelLoad(job, waitForUpload: true)) { }
-        if (ReferenceEquals(job, _preloadJob)) _preloadJob = null;
+        int preloadIndex = _preloadJobs.IndexOf(job);
+        if (preloadIndex >= 0) _preloadJobs.RemoveAt(preloadIndex);
+        if (_preloadJobs.Count == 0) _preloadFinalizeCursor = 0;
+        else _preloadFinalizeCursor %= _preloadJobs.Count;
         return _models.GetValueOrDefault(rootPath);
     }
 
@@ -3459,19 +3489,18 @@ public sealed class WmoRenderer : IDisposable
 
     public void Dispose()
     {
-        try { _preloadJob?.Worker.GetAwaiter().GetResult(); }
-        catch { /* Shutdown must continue even if a background decode failed. */ }
+        foreach (var job in _preloadJobs)
+            try { job.Worker.GetAwaiter().GetResult(); }
+            catch { /* Shutdown must continue even if a background decode failed. */ }
         foreach (var model in _models.Values) model?.Dispose();
         foreach (var texture in _textures.Values) texture?.Dispose();
         _models.Clear();
         _textures.Clear();
         _instances.Clear();
-        _preloadJob?.Model.Dispose();
-        _preloadJob = null;
+        foreach (var job in _preloadJobs) job.Model.Dispose();
+        _preloadJobs.Clear();
         _preloadQueue.Clear();
         _preloadQueued.Clear();
-        _newDoodadModels.Clear();
-        _announcedDoodadModels.Clear();
         _shader?.Dispose();
     }
 }

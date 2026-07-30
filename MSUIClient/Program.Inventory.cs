@@ -73,11 +73,34 @@ public sealed partial class GameLoop
             equipment.Add(item.Name, item.DisplayInfoId, (int)item.InventoryType, resolvedItem.Slot,
                 (byte)item.Class, (byte)item.Subclass, (byte)item.Material, (byte)item.Sheath);
         }
+        if (EquipmentVisuallyMatches(_character.Equipment, equipment))
+        {
+            // The character-select renderer already composited this exact
+            // outfit. Live item GUIDs arrive later and change the transport
+            // signature, not the visible model; rebuilding here allocated
+            // 120-145 MB and forced gen2 during Terrain.
+            _liveEquipmentSignature = signature;
+            return;
+        }
         _character.Equipment = equipment;
         _character.ApplyEquipment();
         _liveEquipmentSignature = signature;
         _playerPortraitDirty = true;
         _paperDollDirty = true;
+    }
+
+    private static bool EquipmentVisuallyMatches(CharacterEquipment current,
+        CharacterEquipment incoming)
+    {
+        if (current.Pieces.Count != incoming.Pieces.Count) return false;
+        foreach (CharacterEquipment.Piece piece in incoming.Pieces)
+        {
+            bool found = current.Pieces.Any(existing =>
+                existing.DisplayId == piece.DisplayId &&
+                existing.InventoryType == piece.InventoryType);
+            if (!found) return false;
+        }
+        return true;
     }
 
     private void DrawInventory()

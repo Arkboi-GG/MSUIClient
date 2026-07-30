@@ -87,6 +87,22 @@ public sealed class GlueBooth : IDisposable
     /// <summary>True once a race scene has loaded and has geometry to draw.</summary>
     public bool Ok => _scene is { Ok: true };
 
+    /// <summary>
+    /// Transfer the already-built selected avatar to the world renderer. The
+    /// caller owns the returned renderer; removing it from this cache prevents
+    /// Dispose from deleting its GL objects with the rest of the glue booth.
+    /// </summary>
+    public CharacterRenderer? TakeCharacter(ulong guid)
+    {
+        if (!_chars.Remove(guid, out CharacterRenderer? renderer)) return null;
+        if (_charGuid == guid)
+        {
+            _char = null;
+            _charGuid = 0;
+        }
+        return renderer;
+    }
+
     /// <summary>The live scene (its authored camera 0 + rig), for the phase-2b attachment lock. Null until a race is set.</summary>
     public GlueScene? Scene => _scene;
 

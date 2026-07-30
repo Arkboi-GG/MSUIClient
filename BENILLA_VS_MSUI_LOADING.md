@@ -14,6 +14,11 @@ The historical comparison below records the original blocking loader and is reta
 for the redesign. The current tree now has the incremental loader and native loading curtain in
 `Program.Loading.cs` / `Engine/LoadingScreen.cs`. The presentation contract is:
 
+> 2026-07-30 reconciliation: `PLAN_17_COLD_START.md` is the current measured loading authority.
+> It adds the load timeline, pumps the network behind the curtain, enforces the referenced warm
+> budget, skips the hidden world pass, and records the remaining live-sign-off debt. Historical
+> claims below about a dead initial budget or a gated pump no longer describe the current tree.
+
 - Loading owns the whole screen through the final curtain fade. The ImGui pass returns before drawing
   gameplay unit frames, buffs, action/bag bars, open panels, settings, or developer windows.
 - The map backdrop still resolves through `Map.dbc -> LoadingScreens.dbc -> BLP`.

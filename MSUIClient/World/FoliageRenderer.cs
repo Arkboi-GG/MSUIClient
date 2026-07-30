@@ -126,6 +126,8 @@ public sealed class FoliageRenderer : IDisposable
     private readonly List<ModelPreloadJob> _preloadJobs = [];
     private const int MaxConcurrentPreloads = 6;
     public int DeferredModels { get; private set; }
+    public int PendingPreloads => _preloadQueue.Count + _preloadJobs.Count;
+    public Action<string>? PreloadDequeued { get; set; }
 
     public bool Enabled { get; set; } = true;
 
@@ -726,6 +728,7 @@ public sealed class FoliageRenderer : IDisposable
         {
             string path = _preloadQueue.Dequeue();
             _preloadQueued.Remove(path);
+            PreloadDequeued?.Invoke(path);
             if (_models.ContainsKey(path) ||
                 _preloadJobs.Any(j => j.Path.Equals(path, StringComparison.OrdinalIgnoreCase))) continue;
             _preloadJobs.Add(new ModelPreloadJob
@@ -883,9 +886,13 @@ public sealed class FoliageRenderer : IDisposable
 
     private static IEnumerable<string> ExtVariants(string path)
     {
-        yield return path;
-        if (path.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
-        else if (path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)) yield return path[..^4] + ".m2";
+        if (path.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return path[..^4] + ".m2";
+            yield return path;
+        }
+        else yield return path;
     }
 
     private unsafe GrassModel? BuildModel(M2Model m2, UploadedModel uploaded)

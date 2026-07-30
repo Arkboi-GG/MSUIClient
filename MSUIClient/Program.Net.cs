@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using System.Text;
 using ImGuiNET;
 using Silk.NET.OpenGL;
@@ -22,10 +23,14 @@ namespace MSUIClient;
 // BeginWorldLoad run. Offline mode is unchanged.
 public sealed partial class GameLoop
 {
+    private const int NetDrainPacketBudget = 256;
+    private const double NetDrainTimeBudgetMs = 2.0;
+
     private NetworkClient? _net;
     private readonly WireRing _wire = new();
     private readonly WireLogRecorder _wireLog = new();
     private readonly EntityStore _entities = new();   // game-thread-owned world model (from UPDATE_OBJECT)
+    private readonly CreatureLifecycleTracker _creatureLifecycle = new();
     private readonly CombatState _combat = new();
     private readonly LocalMovementSender _movementSender = new();
     private GL? _gl;                                   // kept so we can start the world load after login
@@ -39,6 +44,10 @@ public sealed partial class GameLoop
     private long _netInbound;
     private int _netUpdatesLastFrame;
     private int _creaturesLogged;
+    private Task<List<ObjectUpdate>>? _pendingObjectParse;
+    private List<ObjectUpdate>? _pendingObjectUpdates;
+    private int _pendingObjectUpdateIndex;
+    private long _pendingObjectReceivedStamp;
 
     // Login-screen input buffers (password is never persisted anywhere).
     private readonly byte[] _acctBuf = new byte[64];
@@ -85,7 +94,8 @@ public sealed partial class GameLoop
         {
             if (_mpq is not null)
             {
-                _creatures = new CreatureRenderer(gl, _mpq, _config);
+                _creatures = new CreatureRenderer(
+                    gl, _mpq, _config, _creatureLifecycle, _assetWorkers, _uploads);
                 _creatures.AnimationResolved = CaptureAnimationChoice;
             }
         }
@@ -150,6 +160,11 @@ public sealed partial class GameLoop
     /// <summary>Pump the network client once per frame. Called near the top of Update(dt), before the world-load guard.</summary>
     private void PumpNet(float dt)
     {
+        // BeginWorldLoad can be entered from this method while handling the login
+        // result.  Packets later in that same pre-load drain are not evidence that
+        // the loading loop pumps the network, so only count a drain whose frame
+        // entered PumpNet with the curtain already active.
+        bool loadActiveAtPumpEntry = _worldLoading;
         _wireLog.Pump();
         if (_net is null) return;
 
@@ -167,6 +182,9 @@ public sealed partial class GameLoop
             ResetCombatFeedback();
             ResetLoot();
             _creaturesLogged = 0;
+            _pendingObjectParse = null;
+            _pendingObjectUpdates = null;
+            _pendingObjectUpdateIndex = 0;
 
             // Commit to the server-authoritative spawn. BeginWorldLoad reads _config.Start for the
             // load centre, and its Finish phase teleports us onto real ground there.
@@ -196,12 +214,23 @@ public sealed partial class GameLoop
                                   $"({enter.Position.X:F0}, {enter.Position.Y:F0}, {enter.Position.Z:F0}) - loading");
                 if (_gl is not null) BeginWorldLoad(_gl);
                 _worldLoadStarted = true;
+
+                bool reusedSelectedAvatar = false;
+                if (_net.Player is { } selected &&
+                    _booth?.TakeCharacter(selected.Guid) is { } selectedAvatar)
+                {
+                    selectedAvatar.CopyRuntimeTuningFrom(_character);
+                    _character?.Dispose();
+                    _character = selectedAvatar;
+                    reusedSelectedAvatar = true;
+                    Console.WriteLine("[character] adopted cached character-select avatar");
+                }
                 _glue?.Dispose(); _glue = null;   // login art no longer needed once in world
                 _booth?.Dispose(); _booth = null; // char-select booth no longer needed once in world
 
                 // Build the player avatar from the LOGGED-IN character (race/gender/skin/hair +
                 // the roster's 19 equipment display ids), instead of the offline test body.
-                ApplyServerCharacter();
+                ApplyServerCharacter(rebuild: !reusedSelectedAvatar);
             }
             else
             {
@@ -210,25 +239,70 @@ public sealed partial class GameLoop
             }
         }
 
-        // Drain + dispatch the inbound packet stream into the entity store.
+        // Drain + dispatch the inbound packet stream into the entity store. A
+        // login burst can contain thousands of object updates; cap both work
+        // units and elapsed time so the curtain and reveal frames stay bounded.
         int updates = 0;
-        while (_net.TryDequeue(out ushort opcode, out byte[] body))
+        int packetsDrained = 0;
+        long drainStarted = Stopwatch.GetTimestamp();
+
+        if (_pendingObjectParse is { } parse)
         {
+            if (!parse.IsCompleted) goto FinishNetPump;
+            try { _pendingObjectUpdates = parse.GetAwaiter().GetResult(); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[net] object-update parse error: {ex.Message}");
+                _pendingObjectUpdates = null;
+            }
+            _pendingObjectParse = null;
+            _pendingObjectUpdateIndex = 0;
+        }
+
+        if (_pendingObjectUpdates is { } pending)
+        {
+            while (_pendingObjectUpdateIndex < pending.Count &&
+                   Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs)
+                ApplyUpdate(pending[_pendingObjectUpdateIndex++], _pendingObjectReceivedStamp);
+            if (_pendingObjectUpdateIndex < pending.Count) goto FinishNetPump;
+            _pendingObjectUpdates = null;
+            _pendingObjectUpdateIndex = 0;
+            updates++;
+        }
+
+        bool parseStarted = false;
+        while (packetsDrained < NetDrainPacketBudget &&
+               Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs &&
+               _net.TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp))
+        {
+            packetsDrained++;
             _netInbound++;
+            NoteLoadPacketPumped(loadActiveAtPumpEntry);
             try
             {
                 switch ((Op)opcode)
                 {
                     case Op.SMSG_UPDATE_OBJECT:
-                        ApplyUpdates(UpdateObjectParser.Parse(body));
-                        updates++;
+                        _pendingObjectReceivedStamp = receivedStamp;
+                        _pendingObjectParse = Task.Run(() => UpdateObjectParser.Parse(body));
+                        parseStarted = true;
                         break;
                     case Op.SMSG_COMPRESSED_UPDATE_OBJECT:
-                        ApplyUpdates(UpdateObjectParser.ParseCompressed(body));
-                        updates++;
+                        _pendingObjectReceivedStamp = receivedStamp;
+                        _pendingObjectParse = Task.Run(() => UpdateObjectParser.ParseCompressed(body));
+                        parseStarted = true;
                         break;
                     case Op.SMSG_DESTROY_OBJECT:
                         _entities.Remove(new PacketReader(body).ReadU64());
+                        break;
+                    case Op.SMSG_TRIGGER_CINEMATIC:
+                        {
+                            uint cinematicId = body.Length >= 4
+                                ? new PacketReader(body).ReadU32()
+                                : 0;
+                            _net.CompleteCinematic();
+                            Console.WriteLine($"[net] cinematic {cinematicId} triggered - acked (skip)");
+                        }
                         break;
                     case Op.SMSG_MONSTER_MOVE:
                         {
@@ -357,7 +431,10 @@ public sealed partial class GameLoop
             {
                 Console.WriteLine($"[net] parse error on opcode 0x{opcode:X4}: {ex.Message}");
             }
+            if (parseStarted) break;
         }
+
+    FinishNetPump:
         _netUpdatesLastFrame = updates;
 
         // Advance every in-progress creature spline so NPCs actually move between packets.
@@ -376,21 +453,27 @@ public sealed partial class GameLoop
             : ReadOnlySpan<byte>.Empty;
         _wire.Add(packet, visiblePayload);
         _wireLog.Enqueue(packet, payload);
+        if (outgoing) _creatureLifecycle.NoteOutgoingPacket(opcode, payload.Length);
     }
 
-    private void ApplyUpdates(List<ObjectUpdate> updates)
+    private void ApplyUpdate(ObjectUpdate u, long receivedStamp)
     {
-        foreach (var u in updates)
+        if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
+            u.Type == ObjectTypeId.Unit)
+            _creatureLifecycle.NoteSpawnPacket(
+                u.Guid, u.Fields?.DisplayId ?? 0, receivedStamp);
+        if (u.Kind == UpdateKind.OutOfRange && u.Guids is not null)
+            foreach (ulong guid in u.Guids)
+                _creatureLifecycle.NoteReason(
+                    guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
+        _entities.Apply(u);
+        if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
+            u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)
         {
-            _entities.Apply(u);
-            if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
-                u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)
-            {
-                _creaturesLogged++;
-                var p = u.Movement?.Position ?? Vector3.Zero;
-                Console.WriteLine($"[net] creature entry {u.Fields?.Entry ?? GuidInfo.Entry(u.Guid) ?? 0} " +
-                                  $"display {u.Fields?.DisplayId ?? 0} L{u.Fields?.Level ?? 0} at ({p.X:F0}, {p.Y:F0}, {p.Z:F0})");
-            }
+            _creaturesLogged++;
+            var p = u.Movement?.Position ?? Vector3.Zero;
+            Console.WriteLine($"[net] creature entry {u.Fields?.Entry ?? GuidInfo.Entry(u.Guid) ?? 0} " +
+                              $"display {u.Fields?.DisplayId ?? 0} L{u.Fields?.Level ?? 0} at ({p.X:F0}, {p.Y:F0}, {p.Z:F0})");
         }
     }
 
@@ -401,7 +484,7 @@ public sealed partial class GameLoop
     /// to build the correct model at spawn (benilla's char-select preview builds the exact
     /// same composited model straight from the roster).
     /// </summary>
-    private void ApplyServerCharacter()
+    private void ApplyServerCharacter(bool rebuild = true)
     {
         if (_character is null) return;
         Character? c = _net?.Player;
@@ -409,6 +492,15 @@ public sealed partial class GameLoop
 
         string race = RaceFolder(c.Race);
         string gender = c.Gender == 1 ? "Female" : "Male";
+
+        if (!rebuild)
+        {
+            _character.Enabled = true;
+            _playerPortraitDirty = true;
+            Console.WriteLine($"[character] player model reused: {race} {gender} " +
+                              $"({c.Equipment.Count(e => e.DisplayId != 0)} equipped)");
+            return;
+        }
 
         // Re-load the base model only if the race/gender differs from what is loaded
         // (the offline test body is Human/Male; most logins will differ).
@@ -886,6 +978,31 @@ public sealed partial class GameLoop
 
     private bool _boothTuneOpen;
     private ulong _deleteConfirmGuid;   // non-zero while the delete confirmation is up
+    private string _deleteConfirmName = "";
+    private byte _deleteConfirmLevel;
+    private byte _deleteConfirmClass;
+    private readonly byte[] _deleteConfirmText = new byte[33];
+    private bool _deleteConfirmFocus;
+
+    private void OpenDeleteConfirm(Character character)
+    {
+        _deleteConfirmGuid = character.Guid;
+        _deleteConfirmName = character.Name;
+        _deleteConfirmLevel = character.Level;
+        _deleteConfirmClass = character.Class;
+        Array.Clear(_deleteConfirmText);
+        _deleteConfirmFocus = true;
+    }
+
+    private void CloseDeleteConfirm()
+    {
+        _deleteConfirmGuid = 0;
+        _deleteConfirmName = "";
+        _deleteConfirmLevel = 0;
+        _deleteConfirmClass = 0;
+        Array.Clear(_deleteConfirmText);
+        _deleteConfirmFocus = false;
+    }
 
     /// <summary>
     /// The 1.12 character-select 2D chrome, full-bleed over the 3D booth - the same skinned-ImGui
@@ -1151,7 +1268,7 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 30f * s - backSize.X - 8f * s - delSize.X, backTop));
         bool canDelete = chars.Count > 0 && _selectedChar >= 0 && _selectedChar < chars.Count;
         if ((_skin?.GlueButton("Delete Character", delSize, canDelete) ?? false) && canDelete)
-            _deleteConfirmGuid = chars[_selectedChar].Guid;
+            OpenDeleteConfirm(chars[_selectedChar]);
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 30f * s - backSize.X, backTop));
         if (_skin?.GlueButton("Back", backSize) ?? ImGui.Button("Back", backSize)) { _net.Stop(); Array.Clear(_passBuf); }
 
@@ -1173,11 +1290,14 @@ public sealed partial class GameLoop
         // is left, i.e. the booth itself. It also stops at the roster panel's left edge, so dragging on
         // the panel does nothing, same as the reference. Left-drag only; a plain click does nothing.
         float dragW = MathF.Max(frameMin.X, 1f);
-        ImGui.SetCursorScreenPos(Vector2.Zero);
-        ImGui.InvisibleButton("##booth-drag", new Vector2(dragW, MathF.Max(disp.Y, 1f)));
+        if (_deleteConfirmGuid == 0)
+        {
+            ImGui.SetCursorScreenPos(Vector2.Zero);
+            ImGui.InvisibleButton("##booth-drag", new Vector2(dragW, MathF.Max(disp.Y, 1f)));
+        }
         // Sign: drag RIGHT turns the model's front toward the viewer's right, i.e. you push the shoulder
         // you grabbed. Same convention as the `>` button, which decreases the yaw.
-        if (ImGui.IsItemActive() && io.MouseDelta.X != 0f)
+        if (_deleteConfirmGuid == 0 && ImGui.IsItemActive() && io.MouseDelta.X != 0f)
             BoothTune.CharYawDegrees += io.MouseDelta.X * BoothTune.DragRotateDegPerPx;
 
         // Keep the facing in [-180,180] so the tuning slider stays meaningful after a long spin
@@ -1191,30 +1311,53 @@ public sealed partial class GameLoop
         if (_deleteConfirmGuid != 0)
         {
             var doomed = chars.FirstOrDefault(c => c.Guid == _deleteConfirmGuid);
-            if (doomed is null) _deleteConfirmGuid = 0;
+            if (doomed is null) CloseDeleteConfirm();
             else
             {
-                float dw = 320f * s, dh = 150f * s;
+                float dw = 512f * s, dh = 256f * s;
                 var dmin = new Vector2((disp.X - dw) * 0.5f, (disp.Y - dh) * 0.5f);
                 var dmax = dmin + new Vector2(dw, dh);
                 if (_skin is not null) _skin.DrawBackdrop(dl, dmin, dmax, WowSkin.Dialog);
                 else dl.AddRectFilled(dmin, dmax, ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 0f, 0f, 0.9f)));
 
                 float dcx = dmin.X + dw * 0.5f;
-                GlueText(dl, "Delete Character", dcx, dmin.Y + 16f * s, 18f * s, WowSkin.GlueGold, 1);
-                GlueText(dl, $"Are you sure you want to delete {doomed.Name}?", dcx, dmin.Y + 46f * s,
-                         13f * s, WowSkin.Normal, 1);
-                GlueText(dl, "This cannot be undone.", dcx, dmin.Y + 64f * s, 12f * s, WowSkin.Muted, 1);
+                GlueText(dl, "Do you want to delete", dcx, dmin.Y + 16f * s,
+                    18f * s, WowSkin.GlueGold, 1);
+                GlueText(dl,
+                    $"{_deleteConfirmName}   Level {_deleteConfirmLevel}   {ClassName(_deleteConfirmClass)}?",
+                    dcx, dmin.Y + 40f * s, 18f * s, WowSkin.Normal, 1);
+                GlueText(dl, "Type \"DELETE\" into the field to confirm.", dcx,
+                    dmin.Y + 83f * s, 12f * s, WowSkin.GlueGold, 1);
 
-                var dbtn = new Vector2(110f * s, 32f * s);
-                ImGui.SetCursorScreenPos(new Vector2(dcx - dbtn.X - 8f * s, dmax.Y - dbtn.Y - 16f * s));
-                if (_skin?.GlueButton("Accept", dbtn) ?? false)
+                ImGui.SetCursorScreenPos(new Vector2(dcx - 65f * s, dmin.Y + 102f * s));
+                ImGui.SetNextItemWidth(130f * s);
+                if (_deleteConfirmFocus)
+                {
+                    ImGui.SetKeyboardFocusHere();
+                    _deleteConfirmFocus = false;
+                }
+                ImGui.InputText("##delete-confirm-text", _deleteConfirmText,
+                    (uint)_deleteConfirmText.Length);
+                bool armed = string.Equals(BufToString(_deleteConfirmText), "DELETE",
+                    StringComparison.OrdinalIgnoreCase);
+                bool cancelDelete = ImGui.IsKeyPressed(ImGuiKey.Escape);
+                bool confirmDelete = armed && ImGui.IsKeyPressed(ImGuiKey.Enter);
+
+                var dbtn = new Vector2(200f * s, 40f * s);
+                ImGui.SetCursorScreenPos(new Vector2(dcx - dbtn.X - 6f * s,
+                    dmax.Y - dbtn.Y - 16f * s));
+                bool okay = _skin?.GlueButton("Okay", dbtn, armed) ??
+                    (armed && ImGui.Button("Okay", dbtn));
+                if ((okay && armed) || confirmDelete)
                 {
                     _net.DeleteCharacter(_deleteConfirmGuid);
-                    _deleteConfirmGuid = 0;
+                    CloseDeleteConfirm();
                 }
-                ImGui.SetCursorScreenPos(new Vector2(dcx + 8f * s, dmax.Y - dbtn.Y - 16f * s));
-                if (_skin?.GlueButton("Cancel", dbtn) ?? false) _deleteConfirmGuid = 0;
+                ImGui.SetCursorScreenPos(new Vector2(dcx + 7f * s,
+                    dmax.Y - dbtn.Y - 16f * s));
+                if ((_skin?.GlueButton("Cancel", dbtn) ?? ImGui.Button("Cancel", dbtn)) ||
+                    cancelDelete)
+                    CloseDeleteConfirm();
             }
         }
 

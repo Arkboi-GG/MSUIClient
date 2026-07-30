@@ -575,6 +575,42 @@ public sealed class CharacterRenderer : IDisposable
         _config = config;
     }
 
+    /// <summary>Carry world/dev tuning onto a renderer whose authored assets are already loaded.</summary>
+    public void CopyRuntimeTuningFrom(CharacterRenderer? source)
+    {
+        if (source is null) return;
+        HideHair = source.HideHair;
+        SoloGeoset = source.SoloGeoset;
+        Enabled = source.Enabled;
+        BindPose = source.BindPose;
+        FrozenStandPose = source.FrozenStandPose;
+        ShowAllGeosets = source.ShowAllGeosets;
+        MagentaUnbound = source.MagentaUnbound;
+        HeadingOffsetDegrees = source.HeadingOffsetDegrees;
+        ModelScale = source.ModelScale;
+        SheathState = source.SheathState;
+        ZOffset = source.ZOffset;
+        Strafe = source.Strafe;
+        TorsoFollow = source.TorsoFollow;
+        MaxTwistDegrees = source.MaxTwistDegrees;
+        ForceAngleDegrees = source.ForceAngleDegrees;
+        DefaultBlendSeconds = source.DefaultBlendSeconds;
+        StandingChaseCeilingDegrees = source.StandingChaseCeilingDegrees;
+        AnimationResolved = source.AnimationResolved;
+        SunDirection = source.SunDirection;
+        SunColor = source.SunColor;
+        SunIntensity = source.SunIntensity;
+        AmbientColor = source.AmbientColor;
+        AmbientIntensity = source.AmbientIntensity;
+        ShadowSoftness = source.ShadowSoftness;
+        FogColor = source.FogColor;
+        FogStart = source.FogStart;
+        FogEnd = source.FogEnd;
+        AlphaCutoff = source.AlphaCutoff;
+        HiddenCategories.Clear();
+        HiddenCategories.UnionWith(source.HiddenCategories);
+    }
+
     /// <summary>
     /// character.vert is new because skinning is new. The fragment stage is
     /// wmo.frag UNCHANGED - sharing the file is what guarantees a character

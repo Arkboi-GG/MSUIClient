@@ -36,7 +36,9 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private LoadingScreen? _loadScreen;
+    private int? _loadScreenMapId;
     private bool _worldLoading;
+    private int? _worldLoadingMapId;
     private float _loadProgress;
     private float _loadCurtainAlpha = 1f;
 
@@ -95,12 +97,14 @@ public sealed partial class GameLoop
     /// <summary>
     /// Put the exclusive loading art up at the Enter World click, before the server's
     /// LOGIN_VERIFY_WORLD supplies the authoritative spawn and permits real loading to begin.
-    /// This curtain deliberately does not set _worldLoading: Update must keep pumping the socket.
+    /// This pre-spawn curtain deliberately does not set _worldLoading. Update pumps the socket
+    /// in both curtain states; LOGIN_VERIFY_WORLD then starts the guarded world-load cycle.
     /// </summary>
     private void ArmEnterWorldCurtain(GL gl, int mapId)
     {
         _loadScreen?.Dispose();
         _loadScreen = new LoadingScreen(gl);
+        _loadScreenMapId = mapId;
         if (_config.Render.LoadingScreenArt) TryLoadLoadingArt(gl, mapId);
         TryLoadLoadingBarArt(gl);
         _loadProgress = 0f;
@@ -114,19 +118,30 @@ public sealed partial class GameLoop
     /// </summary>
     private void BeginWorldLoad(GL gl)
     {
+        // PumpNet can receive another enter-world notification while this load
+        // is already active. Re-entering would dispose the curtain and reset all
+        // phase state mid-drain, so the active map owns exactly one load cycle.
+        if (_worldLoading && _worldLoadingMapId == _config.Start.Map) return;
+
+        _worldLoadingMapId = _config.Start.Map;
         _loadCentre = _residentCentre
             ?? TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
         _residentCentre = _loadCentre;
 
-        _loadScreen?.Dispose();
-        _loadScreen = new LoadingScreen(gl);
-        if (_config.Render.LoadingScreenArt)
-            TryLoadLoadingArt(gl, _config.Start.Map);
-        TryLoadLoadingBarArt(gl);
+        if (_loadScreen is null || _loadScreenMapId != _config.Start.Map)
+        {
+            _loadScreen?.Dispose();
+            _loadScreen = new LoadingScreen(gl);
+            _loadScreenMapId = _config.Start.Map;
+            if (_config.Render.LoadingScreenArt)
+                TryLoadLoadingArt(gl, _config.Start.Map);
+            TryLoadLoadingBarArt(gl);
+        }
         _worldLoading = true;
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
         _loadClock.Restart();
+        BeginLoadTimeline();
         SetLoadPhase(WorldLoadPhase.Terrain);
 
         // Start the terrain ring streaming off-thread now (parse + mesh + upload
@@ -134,13 +149,13 @@ public sealed partial class GameLoop
         // the resident radius, matching the crossing lead.
         _terrain?.QueuePreload(
             TerrainRenderer.TileRing(_loadCentre.col, _loadCentre.row, _config.Start.TileRadius + 1),
-            _adts!);
+            _adts!, _loadCentre);
 
         // Start warming the resident ring's building models off-thread too, so the
         // placement pass below is a cache hit instead of a blocking resolve.
         _wmo?.QueuePreloadForTiles(
             TerrainRenderer.TileRing(_loadCentre.col, _loadCentre.row, _config.Start.TileRadius),
-            _adts!);
+            _adts!, new Vector2(_config.Start.X, _config.Start.Y));
         _wmoWarmTotal = Math.Max(1, _wmo?.PendingPreloads ?? 1);
 
         Console.WriteLine("[load] streaming world behind loading screen " +
@@ -152,6 +167,15 @@ public sealed partial class GameLoop
     {
         _loadPhase = phase;
         _loadPhaseClock.Restart();
+        StartLoadTimelinePhase(phase);
+    }
+
+    private void AdvanceLoadPhase(WorldLoadPhase phase, bool watchdog = false)
+    {
+        if (watchdog)
+            Console.WriteLine($"[load] WATCHDOG {_loadPhase}");
+        ExitLoadTimelinePhase(watchdog ? "watchdog" : "condition-met");
+        SetLoadPhase(phase);
     }
 
     private bool PhaseTimedOut => _loadPhaseClock.Elapsed.TotalSeconds > LoadPhaseWatchdogSeconds;
@@ -275,15 +299,20 @@ public sealed partial class GameLoop
                 var ring = TerrainRenderer.TileRing(c.col, c.row, radius);
                 int ready = 0;
                 foreach (var t in ring)
-                    if (_terrain is not null && _terrain.PreloadReady(new[] { t })) ready++;
+                    if (_terrain is not null && _terrain.PreloadReady(t)) ready++;
                 BumpProgress(0.04f + 0.18f * ready / Math.Max(1, ring.Count));
 
-                if (_terrain is null || _terrain.PreloadReady(ring) || PhaseTimedOut)
+                // The player tile and its eight neighbours are the reveal-critical
+                // terrain. Nearest-first queueing guarantees these are indices 0..8;
+                // the outer ring continues preparing while later phases warm assets.
+                var clearRing = TerrainRenderer.TileRing(c.col, c.row, radius: 1);
+                bool timedOut = PhaseTimedOut;
+                if (_terrain is null || _terrain.PreloadReady(clearRing) || timedOut)
                 {
                     // All resident tiles prepared off-thread -> adopting them here
                     // just creates the small VAOs, no MPQ/parse on this thread.
                     _terrain?.SetResidency(c.col, c.row, radius, _adts!);
-                    SetLoadPhase(WorldLoadPhase.WarmBuildings);
+                    AdvanceLoadPhase(WorldLoadPhase.WarmBuildings, timedOut);
                 }
                 break;
             }
@@ -292,9 +321,13 @@ public sealed partial class GameLoop
             {
                 DrainWarm(() => _wmo?.WarmNextPreload() ?? false);
                 int pending = _wmo?.PendingPreloads ?? 0;
+                // Deferred ADT tiles can unfold into several WMO roots. Keep the
+                // denominator synchronized with the largest real queue observed.
+                _wmoWarmTotal = Math.Max(_wmoWarmTotal, Math.Max(1, pending));
                 BumpProgress(0.22f + 0.20f * (1f - pending / (float)_wmoWarmTotal));
-                if (pending == 0 || PhaseTimedOut)
-                    SetLoadPhase(WorldLoadPhase.PlaceBuildings);
+                bool timedOut = PhaseTimedOut;
+                if (pending == 0 || timedOut)
+                    AdvanceLoadPhase(WorldLoadPhase.PlaceBuildings, timedOut);
                 break;
             }
 
@@ -304,11 +337,12 @@ public sealed partial class GameLoop
                 // outer ring for the first crossings (it streams after the curtain).
                 _wmo?.ResetPlacements();
                 if (_wmo is not null && _terrain is not null)
-                    _wmo.LoadForTiles(_terrain.LoadedTiles, _adts!);
+                    _wmo.LoadForTiles(_terrain.LoadedTiles, _adts!, warmedOnly: true);
                 _wmo?.QueuePreloadForTiles(
-                    TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius), _adts!);
+                    TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius), _adts!,
+                    new Vector2(_config.Start.X, _config.Start.Y));
                 BumpProgress(0.48f);
-                SetLoadPhase(WorldLoadPhase.Liquid);
+                AdvanceLoadPhase(WorldLoadPhase.Liquid);
                 break;
             }
 
@@ -327,14 +361,18 @@ public sealed partial class GameLoop
                     if (_wmo is not null)
                         _doodads.QueuePreloadModels(
                             _wmo.EnumerateDoodads(centreV, demand)
-                                .Select(d => d.ModelPath)
-                                .Distinct(StringComparer.OrdinalIgnoreCase));
+                                .OrderBy(d => Vector2.DistanceSquared(
+                                    new Vector2(d.Transform.M41, d.Transform.M42), centreV))
+                                .Select(d => (d.ModelPath, Vector2.DistanceSquared(
+                                    new Vector2(d.Transform.M41, d.Transform.M42), centreV)))
+                                .DistinctBy(d => d.ModelPath, StringComparer.OrdinalIgnoreCase),
+                            "interior-doodad");
                     _doodadWarmTotal = Math.Max(1, _doodads.PendingPreloads);
                 }
 
                 _adts?.Retain(TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius));
                 BumpProgress(0.50f);
-                SetLoadPhase(WorldLoadPhase.WarmDoodads);
+                AdvanceLoadPhase(WorldLoadPhase.WarmDoodads);
                 break;
             }
 
@@ -347,8 +385,9 @@ public sealed partial class GameLoop
                 DrainWarm(() => _doodads?.WarmNextPreload() ?? false);
                 int pending = _doodads?.PendingPreloads ?? 0;
                 BumpProgress(0.50f + 0.40f * (1f - pending / (float)_doodadWarmTotal));
-                if (pending == 0 || PhaseTimedOut)
-                    SetLoadPhase(WorldLoadPhase.PlaceDoodads);
+                bool timedOut = PhaseTimedOut;
+                if (pending == 0 || timedOut)
+                    AdvanceLoadPhase(WorldLoadPhase.PlaceDoodads, timedOut);
                 break;
             }
 
@@ -358,7 +397,7 @@ public sealed partial class GameLoop
                 // one shot, behind the curtain, so the reveal is fully populated.
                 if (_doodads is not null) PopulateDoodads(c, reportDiagnostics: true);
                 BumpProgress(0.92f);
-                SetLoadPhase(WorldLoadPhase.Collision);
+                AdvanceLoadPhase(WorldLoadPhase.Collision);
                 break;
             }
 
@@ -368,7 +407,7 @@ public sealed partial class GameLoop
                 // AFTER doodad placement so trees/fences/props are solid on arrival.
                 BeginCollisionBuild();
                 BumpProgress(0.94f);
-                SetLoadPhase(WorldLoadPhase.Finish);
+                AdvanceLoadPhase(WorldLoadPhase.Finish);
                 break;
             }
 
@@ -377,7 +416,8 @@ public sealed partial class GameLoop
                 // Hold the curtain until collision under the player is real, like
                 // benilla's player-settling gate - so you never spawn falling
                 // through an unbuilt floor.
-                if (_collisionBuildTask is not null && !PhaseTimedOut)
+                bool timedOut = PhaseTimedOut;
+                if (_collisionBuildTask is not null && !timedOut)
                 {
                     BumpProgress(0.96f);
                     break;
@@ -424,7 +464,7 @@ public sealed partial class GameLoop
                 // world placed behind the curtain stays opaque (stamped while
                 // _worldShown was false), and the curtain's own fade covers it.
                 _worldShown = true;
-                SetLoadPhase(WorldLoadPhase.Fade);
+                AdvanceLoadPhase(WorldLoadPhase.Fade, timedOut);
                 break;
             }
 
@@ -433,10 +473,14 @@ public sealed partial class GameLoop
                 _loadCurtainAlpha -= dt / LoadFadeSeconds;
                 if (_loadCurtainAlpha <= 0f)
                 {
+                    ExitLoadTimelinePhase("condition-met");
                     _worldLoading = false;
+                    _worldLoadingMapId = null;
                     _loadPhase = WorldLoadPhase.Done;
                     _loadScreen?.Dispose();
                     _loadScreen = null;
+                    _loadScreenMapId = null;
+                    NoteLoadCurtainClear();
                 }
                 break;
             }
@@ -451,7 +495,8 @@ public sealed partial class GameLoop
     /// </summary>
     private static void DrainWarm(Func<bool> warmOne)
     {
-        for (int i = 0; i < 48; i++)
+        long started = Stopwatch.GetTimestamp();
+        while (Stopwatch.GetElapsedTime(started).TotalMilliseconds < LoadWarmBudgetMs)
             if (!warmOne()) break;
     }
 

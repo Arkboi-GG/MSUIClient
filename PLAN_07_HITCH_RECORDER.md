@@ -78,10 +78,14 @@ Writing only the stalled frame would capture the symptom and discard the setup.
 destroyed every frame.** `_updateMilliseconds`, `_movementMilliseconds`,
 `_residencyMilliseconds`, `_preloadMilliseconds`, `_characterUpdateMilliseconds`,
 `_cameraCollisionMilliseconds`, `_worldRenderMilliseconds`,
-`_characterRenderMilliseconds`, `_debugRenderMilliseconds`
+`_characterRenderMilliseconds`, `_creatureRenderMilliseconds`,
+`CreatureLoadMs`, `CreatureLoadsThisFrame`, `CreatureCacheEntries`,
+`_selectionRenderMilliseconds`, `_spellEffectRenderMilliseconds`, and
+`_debugRenderMilliseconds`
 (`Program.cs:109–117`) are all overwritten on the next frame and only ever read
 by the HUD (`Program.cs:1434`). They are exactly the right fields; they simply
-have no memory. The ring gives them one.
+have no memory. The ring gives them one. Creature model work is classified as
+`creature-model-load`; residual creature draw time is `creature-render`.
 
 **D4 — Record `unaccounted = dt - (update + render)` as a first-class field.**
 This is the single highest-value number in the record and nothing currently

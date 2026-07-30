@@ -101,6 +101,8 @@ public static class AdtTerrainReader
     /// Set once at startup from the controller/DI layer.
     /// </summary>
     public static Func<string, byte[]?>? StormLibExtractor { get; set; }
+    private static long _fallbackArchiveOpens;
+    public static long FallbackArchiveOpens => Interlocked.Read(ref _fallbackArchiveOpens);
 
     // ═══════════════════════════════════════════════════════════════════
     // PUBLIC API — High-level extraction from MPQ
@@ -155,12 +157,14 @@ public static class AdtTerrainReader
         {
             try
             {
-                byte[]? stormResult = StormLibExtractor(internalPath);
-                if (stormResult != null) return stormResult;
+                // The process-wide MpqMount is authoritative for runtime reads.
+                // A miss is a real miss: reopening every archive cannot discover
+                // anything the mounted priority chain did not already inspect.
+                return StormLibExtractor(internalPath);
             }
             catch
             {
-                // StormLib failed — fall through to War3Net
+                return null;
             }
         }
 
@@ -182,6 +186,7 @@ public static class AdtTerrainReader
 
             try
             {
+                Interlocked.Increment(ref _fallbackArchiveOpens);
                 using var archive = MSUIClient.Formats.Mpq.MpqArchive.Open(mpqPath);
                 if (archive != null)
                 {

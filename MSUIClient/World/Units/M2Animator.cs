@@ -517,7 +517,12 @@ public sealed class M2Animator
             clip = null;
             foreach (int fallbackId in authoredFallbacks)
             {
-                if (!_clips.TryGetValue(fallbackId, out clip)) continue;
+                if (!_clips.TryGetValue(fallbackId, out clip) && bakeOnDemand)
+                {
+                    clip = Bake(fallbackId);
+                    if (clip is not null) _clips[fallbackId] = clip;
+                }
+                if (clip is null) continue;
                 break;
             }
             kind = clip is null ? ResolutionKind.Missing : ResolutionKind.Fallback;

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
@@ -31,18 +32,24 @@ public sealed class CreatureRenderer : IDisposable
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly ClientConfig _config;
+    private readonly CreatureLifecycleTracker? _lifecycle;
+    private readonly AssetWorkerPool? _workers;
+    private readonly GpuUploadWorker? _uploads;
     private readonly string _attachmentShaderDir;
     private Shader? _shader;
     private CreatureModelResolver? _resolver;
     private ItemDisplayTable? _itemDisplay;
     private CharacterGeosets? _geosets;
-    private readonly Dictionary<string, LoadedModel?> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LoadedModel?> _modelCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Appearance?> _appearanceCache = new(StringComparer.OrdinalIgnoreCase);
     private sealed class UnitAttachments
     {
-        public AttachedItemRenderer Renderer = null!;
+        public AttachedItemRenderer.MountSet Mounts = null!;
         public string Signature = "";
+        public float LastSeenAt;
     }
     private readonly Dictionary<ulong, UnitAttachments> _unitAttachments = [];
+    private AttachedItemRenderer? _attachedItems;
     private readonly Matrix4x4[] _bindSkin = Enumerable.Repeat(Matrix4x4.Identity, M2Animator.MaxBones).ToArray();
 
     public bool Enabled { get; set; } = true;
@@ -52,6 +59,9 @@ public sealed class CreatureRenderer : IDisposable
     public float ScaleMultiplier { get; set; } = 1f;
     public int DrawnLastFrame { get; private set; }
     public int AnimatedLastFrame { get; private set; }
+    public double LoadMillisecondsThisFrame { get; private set; }
+    public int LoadsThisFrame { get; private set; }
+    public int CacheEntries => _modelCache.Count;
     public long CombatActionsTriggered { get; private set; }
     public int CombatActionsActive => _combatActions.Count;
     public ulong HoveredGuid { get; set; }
@@ -86,9 +96,6 @@ public sealed class CreatureRenderer : IDisposable
     private static readonly Vector3 FogColor = new(0.56f, 0.71f, 0.85f);
     private const float FogStart = 350f, FogEnd = 900f;
 
-    private static readonly int[] CreatureAnims =
-        { 0, 1, 4, 5, 6, 7, 9, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
-          30, 41, 42, 85, 87, 88, 117 };
     private const float DefaultWalkSpeed = 2.5f;
     private const float MovingEpsilon = 0.1f;
 
@@ -99,7 +106,7 @@ public sealed class CreatureRenderer : IDisposable
         0f, 0f, 0f, 1f);
 
     private const int FloatsPerVertex = 16;   // pos3 + norm3 + uv2 + weight4 + index4
-    private const int LoadsPerFrame = 4;
+    private const double FinalizeBudgetMs = 2.0;
     private int _diagLogged;
 
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
@@ -113,6 +120,8 @@ public sealed class CreatureRenderer : IDisposable
     private readonly Dictionary<ulong, float> _deathTime = new();
     private readonly HashSet<ulong> _seen = new();
     private readonly List<ulong> _stale = new();
+    private readonly List<WorldEntity> _orderedUnits = [];
+    private Vector3 _sortCameraPosition;
     private float _globalTime;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private double _lastSeconds;
@@ -174,15 +183,73 @@ public sealed class CreatureRenderer : IDisposable
         public float HorizontalRadius;
         public M2PortraitCamera? PortraitCamera;
         public M2Model Source = null!;
-        public HashSet<int>? VisibleGeosets;   // null = draw all (beasts, or filter disabled/failed)
+        public HashSet<int>? VisibleGeosets; // legacy first-load copy; render uses Appearance
+    }
+    private sealed class Appearance
+    {
+        public readonly List<Texture?> Textures = [];
+        public HashSet<int>? VisibleGeosets;
     }
     private struct DrawBatch { public int Start, Count; public Texture? Tex; public int Blend; public int GeosetId; }
 
-    public CreatureRenderer(GL gl, MpqMount mpq, ClientConfig config)
+    private sealed class PreparedModel
+    {
+        public M2Model? Source;
+        public M2Animator? Animator;
+        public float[] Vertices = [];
+        public ushort[] Indices = [];
+        public float MinHeight;
+        public float MaxHeight;
+        public float HorizontalRadius;
+    }
+
+    private readonly record struct UploadedBuffers(uint Vbo, uint Ebo);
+
+    private sealed class ModelLoadJob
+    {
+        public required string Path;
+        public required Task<PreparedModel?> Worker;
+        public PreparedModel? Ready;
+        public Task<UploadedBuffers>? Upload;
+    }
+
+    private sealed class PreparedTexture
+    {
+        public string Path = "";
+        public byte[]? Bgra;
+        public int Width;
+        public int Height;
+    }
+
+    private sealed class PreparedAppearance
+    {
+        public HashSet<int>? VisibleGeosets;
+        public List<PreparedTexture?> Textures = [];
+    }
+
+    private sealed class AppearanceLoadJob
+    {
+        public required Task<PreparedAppearance?> Worker;
+        public PreparedAppearance? Ready;
+        public Task<Dictionary<string, Texture?>>? Upload;
+    }
+
+    private readonly Dictionary<string, ModelLoadJob> _modelJobs =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _requestedModels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, AppearanceLoadJob> _appearanceJobs =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public CreatureRenderer(GL gl, MpqMount mpq, ClientConfig config,
+        CreatureLifecycleTracker? lifecycle = null, AssetWorkerPool? workers = null,
+        GpuUploadWorker? uploads = null)
     {
         _gl = gl;
         _mpq = mpq;
         _config = config;
+        _lifecycle = lifecycle;
+        _workers = workers;
+        _uploads = uploads;
         _attachmentShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
         if (!File.Exists(Path.Combine(_attachmentShaderDir, "attached.vert")))
             _attachmentShaderDir = Path.Combine(config.RepoRoot, "MSUIClient", "Shaders");
@@ -205,6 +272,8 @@ public sealed class CreatureRenderer : IDisposable
                     .OrderBy(specimen => specimen.DisplayId)
                     .ToArray();
                 _shader = Shader.FromSource(_gl, "creature", VertSrc, FragSrc);
+                _attachedItems = new AttachedItemRenderer(_gl, _config);
+                _attachedItems.LoadShaders(_attachmentShaderDir);
 
                 // Geoset visibility for humanoid NPCs (best-effort — filter degrades to naked defaults).
                 var idBytes = mpq.ReadFile(ItemDisplayTable.MpqPath);
@@ -230,6 +299,8 @@ public sealed class CreatureRenderer : IDisposable
     {
         DrawnLastFrame = 0;
         AnimatedLastFrame = 0;
+        LoadMillisecondsThisFrame = 0;
+        LoadsThisFrame = 0;
         if (!Ok || !Enabled || _shader is null || _resolver is null) return;
 
         double nowS = _clock.Elapsed.TotalSeconds;
@@ -240,7 +311,6 @@ public sealed class CreatureRenderer : IDisposable
         Vector3 camPos = camera.Position;
         Matrix4x4 viewProj = camera.RelativeViewProjection;
         float heading0 = HeadingOffsetDegrees * MathF.PI / 180f;
-        int loadsThisFrame = 0;
 
         _gl.Enable(EnableCap.DepthTest);
         _gl.Enable(EnableCap.Blend);
@@ -255,21 +325,69 @@ public sealed class CreatureRenderer : IDisposable
         _shader.Set("uTex", 0);
         _seen.Clear();
 
-        foreach (var e in entities.Units)
-        {
-            if (!e.IsCreature) continue;
-            if (e.DisplayId <= 0) continue;
-            if (!_resolver.TryResolve(e.DisplayId, out CreatureModelInfo info)) continue;
+        _orderedUnits.Clear();
+        foreach (WorldEntity entity in entities.Units)
+            if (entity.IsCreature) _orderedUnits.Add(entity);
+        _sortCameraPosition = camPos;
+        _orderedUnits.Sort(CompareUnitDistance);
 
-            string key = CacheKey(info);
-            if (!_cache.TryGetValue(key, out var model))
+        foreach (var e in _orderedUnits)
+        {
+            if (e.DisplayId <= 0)
             {
-                if (loadsThisFrame >= LoadsPerFrame) continue;
-                loadsThisFrame++;
-                model = LoadModel(info);
-                _cache[key] = model;
+                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.QUERY_PENDING);
+                continue;
             }
-            if (model is null) continue;
+            if (!_resolver.TryResolve(e.DisplayId, out CreatureModelInfo info))
+            {
+                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
+                continue;
+            }
+            _lifecycle?.NoteDisplayResolved(e.Guid, e.DisplayId, info.ModelPath);
+
+            string modelKey = info.ModelPath;
+            bool spentLoadSlot = false;
+            if (!_modelCache.TryGetValue(modelKey, out var model))
+            {
+                bool firstEnqueue = _lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
+                if (firstEnqueue)
+                    Console.WriteLine($"[creature-lifecycle] {e.Guid:X16} enqueue world-render {info.ModelPath}");
+                if (!EligibleForLoad(e, camPos, camera.Target, viewProj) ||
+                    LoadMillisecondsThisFrame >= FinalizeBudgetMs)
+                    continue;
+                _lifecycle?.NoteModelLoading(e.Guid);
+                if (!TryAcquireModel(info, allowFinalize: true, out model, out bool finalizedModel))
+                    continue;
+                if (finalizedModel)
+                {
+                    spentLoadSlot = true;
+                }
+            }
+            if (model is null)
+            {
+                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
+                continue;
+            }
+
+            string appearanceKey = AppearanceKey(info);
+            if (!_appearanceCache.TryGetValue(appearanceKey, out Appearance? appearance))
+            {
+                if (!spentLoadSlot)
+                {
+                    bool firstEnqueue = _lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
+                    if (firstEnqueue)
+                        Console.WriteLine($"[creature-lifecycle] {e.Guid:X16} enqueue world-render {info.ModelPath}");
+                    if (!EligibleForLoad(e, camPos, camera.Target, viewProj) ||
+                        LoadMillisecondsThisFrame >= FinalizeBudgetMs)
+                        continue;
+                }
+                _lifecycle?.NoteModelLoading(e.Guid);
+                if (!TryAcquireAppearance(model, info, allowFinalize: true,
+                        out appearance, out bool finalizedAppearance))
+                    continue;
+            }
+            _lifecycle?.NoteModelReady(e.Guid, appearance is not null);
+            if (appearance is null) continue;
 
             _seen.Add(e.Guid);
             TrackLifeState(e);
@@ -297,7 +415,7 @@ public sealed class CreatureRenderer : IDisposable
                 float rate;
                 if (e.IsDead)
                 {
-                    clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, false, 6, 0);
+                    clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, true, 6, 0);
                     rate = 1f;
                     float deathAt = _deathTime.GetValueOrDefault(e.Guid, float.PositiveInfinity);
                     at = float.IsPositiveInfinity(deathAt)
@@ -342,11 +460,12 @@ public sealed class CreatureRenderer : IDisposable
             }
             _shader.Set("uBoneCount", boneCount);
 
-            bool filter = GeosetFilter && model.VisibleGeosets is not null;
+            bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
-            foreach (var b in model.Batches)
+            for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
             {
-                if (filter && !model.VisibleGeosets!.Contains(b.GeosetId)) continue;
+                DrawBatch b = model.Batches[batchIndex];
+                if (filter && !appearance.VisibleGeosets!.Contains(b.GeosetId)) continue;
 
                 bool additive = b.Blend is 3 or 4;
                 bool alphaKey = b.Blend == 1;
@@ -354,10 +473,11 @@ public sealed class CreatureRenderer : IDisposable
                 else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
                 else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
                 _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
-                b.Tex?.Bind(0);
+                appearance.Textures[batchIndex]?.Bind(0);
                 DrawElements(b.Start, b.Count);
             }
             DrawnLastFrame++;
+            _lifecycle?.NoteFirstDraw(e.Guid);
 
             DrawVirtualWeapons(camera, e, model, m, boneCount > 0 ? _skin : _bindSkin);
             // The attachment path has its own shader; restore ours before the
@@ -372,22 +492,57 @@ public sealed class CreatureRenderer : IDisposable
         PruneAnimState();
     }
 
+    private int CompareUnitDistance(WorldEntity left, WorldEntity right) =>
+        Vector3.DistanceSquared(left.Position, _sortCameraPosition)
+            .CompareTo(Vector3.DistanceSquared(right.Position, _sortCameraPosition));
+
+    private bool EligibleForLoad(WorldEntity entity, Vector3 cameraPosition, Vector3 cameraTarget,
+        Matrix4x4 viewProjection)
+    {
+        float radius = MathF.Max(1f, UnitRenderScale(entity.Scale, ScaleMultiplier) * 2f);
+        float distanceSq = Vector3.DistanceSquared(entity.Position, cameraPosition);
+        if (distanceSq > AnimateDistance * AnimateDistance)
+        {
+            _lifecycle?.NoteAdmission(entity.Guid, distanceSq,
+                CreatureLifecycleTracker.AdmissionCode.OUT_OF_RADIUS,
+                entity.Position, cameraPosition, cameraTarget);
+            return false;
+        }
+        Vector3 relative = entity.Position - cameraPosition;
+        bool visible = Camera.BoxInFrustum(viewProjection,
+            relative - new Vector3(radius, radius, radius),
+            relative + new Vector3(radius, radius, radius * 1.5f));
+        _lifecycle?.NoteAdmission(entity.Guid, distanceSq, visible
+                ? CreatureLifecycleTracker.AdmissionCode.VISIBLE
+                : CreatureLifecycleTracker.AdmissionCode.OUT_OF_FRUSTUM,
+            entity.Position, cameraPosition, cameraTarget);
+        return visible;
+    }
+
+    public void NoteKnownNotDrawn(EntityStore entities)
+    {
+        if (_lifecycle is null) return;
+        foreach (WorldEntity entity in entities.Units)
+            if (entity.IsCreature)
+                _lifecycle.NoteReason(entity.Guid,
+                    CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
+    }
+
     private void DrawVirtualWeapons(Camera camera, WorldEntity entity, LoadedModel model,
         Matrix4x4 transform, Matrix4x4[] skin)
     {
         uint d0 = entity.Fields.VirtualItemDisplay(0);
         uint d1 = entity.Fields.VirtualItemDisplay(1);
         uint d2 = entity.Fields.VirtualItemDisplay(2);
-        if ((d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0) return;
+        if ((d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0 ||
+            _attachedItems is null) return;
 
         string signature = $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
             $"{d1}:{entity.Fields.VirtualItemInfo(1)}:{entity.Fields.VirtualItemSheath(1)}|" +
             $"{d2}:{entity.Fields.VirtualItemInfo(2)}:{entity.Fields.VirtualItemSheath(2)}";
         if (!_unitAttachments.TryGetValue(entity.Guid, out UnitAttachments? state))
         {
-            var renderer = new AttachedItemRenderer(_gl, _config);
-            renderer.LoadShaders(_attachmentShaderDir);
-            state = new UnitAttachments { Renderer = renderer };
+            state = new UnitAttachments();
             _unitAttachments[entity.Guid] = state;
         }
         if (state.Signature != signature)
@@ -397,11 +552,12 @@ public sealed class CreatureRenderer : IDisposable
             AddVirtualPiece(equipment, entity.Fields, 1, d1);
             AddVirtualPiece(equipment, entity.Fields, 2, d2);
             equipment.Resolve(_itemDisplay);
-            state.Renderer.Rebuild(equipment);
+            state.Mounts = _attachedItems.BuildMountSet(equipment);
             state.Signature = signature;
         }
-        state.Renderer.SheathState = entity.Fields.SheathState;
-        state.Renderer.Render(camera, transform, model.Source, skin);
+        state.LastSeenAt = _globalTime;
+        _attachedItems.Render(camera, transform, model.Source, skin, state.Mounts,
+            entity.Fields.SheathState);
     }
 
     private static void AddVirtualPiece(CharacterEquipment equipment, ObjectFields fields,
@@ -485,7 +641,18 @@ public sealed class CreatureRenderer : IDisposable
     /// </summary>
     public bool RenderPortrait(Camera camera, WorldEntity entity)
     {
-        if (_shader is null || !TryGetModel(entity, out LoadedModel? model) || model is null) return false;
+        if (_shader is null || !TryGetModel(entity, out LoadedModel? model) || model is null ||
+            _resolver is null || !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info)) return false;
+        string appearanceKey = AppearanceKey(info);
+        if (!_appearanceCache.TryGetValue(appearanceKey, out Appearance? appearance))
+        {
+            _lifecycle?.NoteLoadEnqueued(entity.Guid, nameof(RenderPortrait));
+            _lifecycle?.NoteModelLoading(entity.Guid);
+            if (!TryAcquireAppearance(model, info, allowFinalize: true,
+                    out appearance, out _)) return false;
+        }
+        _lifecycle?.NoteModelReady(entity.Guid, appearance is not null);
+        if (appearance is null) return false;
 
         Vector3 camPos = camera.Position;
         float heading = entity.Orientation + HeadingOffsetDegrees * MathF.PI / 180f;
@@ -513,7 +680,7 @@ public sealed class CreatureRenderer : IDisposable
         if (model.Animator is not null && model.BoneCount > 0)
         {
             // benilla portrait/booth.rs:48-66,203-216: a fresh Stand instance frozen at t=0.
-            M2Animator.Clip? clip = model.Animator.Find(0);
+            M2Animator.Clip? clip = model.Animator.FindOrBake(0);
             boneCount = Math.Min(model.BoneCount, M2Animator.MaxBones);
             model.Animator.Evaluate(clip, 0f, 0f, _skin);
             M2Animator.Pack(_skin, boneCount, _packed);
@@ -521,36 +688,55 @@ public sealed class CreatureRenderer : IDisposable
         }
         _shader.Set("uBoneCount", boneCount);
 
-        bool filter = GeosetFilter && model.VisibleGeosets is not null;
+        bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
         _gl.BindVertexArray(model.Vao);
-        foreach (var batch in model.Batches)
+        for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
         {
-            if (filter && !model.VisibleGeosets!.Contains(batch.GeosetId)) continue;
+            DrawBatch batch = model.Batches[batchIndex];
+            if (filter && !appearance.VisibleGeosets!.Contains(batch.GeosetId)) continue;
             bool additive = batch.Blend is 3 or 4;
             bool alphaKey = batch.Blend == 1;
             if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
             else if (batch.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
             else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
             _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
-            batch.Tex?.Bind(0);
+            appearance.Textures[batchIndex]?.Bind(0);
             DrawElements(batch.Start, batch.Count);
         }
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
+        _lifecycle?.NoteFirstDraw(entity.Guid);
         return true;
     }
 
-    private bool TryGetModel(WorldEntity entity, out LoadedModel? model)
+    private bool TryGetModel(WorldEntity entity, out LoadedModel? model,
+        [CallerMemberName] string caller = "")
     {
         model = null;
         if (!Ok || !Enabled || _resolver is null || !entity.IsCreature || entity.DisplayId <= 0 ||
-            !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info)) return false;
-        string key = CacheKey(info);
-        if (!_cache.TryGetValue(key, out model))
+            !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info))
         {
-            model = LoadModel(info);
-            _cache[key] = model;
+            if (entity.IsCreature)
+                _lifecycle?.NoteReason(entity.Guid, entity.DisplayId <= 0
+                    ? CreatureLifecycleTracker.ReasonCode.QUERY_PENDING
+                    : CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
+            return false;
         }
+        _lifecycle?.NoteDisplayResolved(entity.Guid, entity.DisplayId, info.ModelPath);
+        string key = info.ModelPath;
+        if (!_modelCache.TryGetValue(key, out model))
+        {
+            bool firstEnqueue = _lifecycle?.NoteLoadEnqueued(entity.Guid, caller) == true;
+            if (firstEnqueue)
+                Console.WriteLine($"[creature-lifecycle] {entity.Guid:X16} enqueue {caller} {info.ModelPath}");
+            _lifecycle?.NoteModelLoading(entity.Guid);
+            // Non-render callers (portrait framing, selection proxy, nameplate
+            // height) may request residency, but must never parse, upload or
+            // adopt a model on their own timing path.
+            _requestedModels.Add(key);
+            return false;
+        }
+        else _lifecycle?.NoteModelReady(entity.Guid, model is not null);
         return model is not null;
     }
 
@@ -561,13 +747,13 @@ public sealed class CreatureRenderer : IDisposable
         float speed = e.Spline?.AverageSpeed ?? 0f;
         if (e.Spline is null || speed <= MovingEpsilon)
             return e.Engaged
-                ? animator.Resolve(unit, BaseAnimationTrack, 25, false, 26, 27, 28, 0)
-                : animator.Resolve(unit, BaseAnimationTrack, 0, false);
+                ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
+                : animator.Resolve(unit, BaseAnimationTrack, 0, true);
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = speed > 2f * walk
-            ? animator.Resolve(unit, BaseAnimationTrack, 5, false, 4, 0)
-            : animator.Resolve(unit, BaseAnimationTrack, 4, false, 5, 0);
+            ? animator.Resolve(unit, BaseAnimationTrack, 5, true, 4, 0)
+            : animator.Resolve(unit, BaseAnimationTrack, 4, true, 5, 0);
 
         if (clip is not null && clip.MoveSpeed > 0.01f)
             rate = Math.Clamp(speed / clip.MoveSpeed, 0.25f, 3f);
@@ -581,11 +767,11 @@ public sealed class CreatureRenderer : IDisposable
             return animator.Resolve(unit, ActionAnimationTrack, action.AnimationId, true);
         return action.AnimationId switch
         {
-            16 => animator.Resolve(unit, ActionAnimationTrack, 16, false, 17, 18, 19, 85),
-            87 => animator.Resolve(unit, ActionAnimationTrack, 87, false, 88, 117, 16),
-            20 => animator.Resolve(unit, ActionAnimationTrack, 20, false, 21, 22, 23, 9, 0),
-            7 => animator.Resolve(unit, ActionAnimationTrack, 7, false, 0),
-            _ => animator.Resolve(unit, ActionAnimationTrack, action.AnimationId, false, 9, 0),
+            16 => animator.Resolve(unit, ActionAnimationTrack, 16, true, 17, 18, 19, 85),
+            87 => animator.Resolve(unit, ActionAnimationTrack, 87, true, 88, 117, 16),
+            20 => animator.Resolve(unit, ActionAnimationTrack, 20, true, 21, 22, 23, 9, 0),
+            7 => animator.Resolve(unit, ActionAnimationTrack, 7, true, 0),
+            _ => animator.Resolve(unit, ActionAnimationTrack, action.AnimationId, true, 9, 0),
         };
     }
 
@@ -624,12 +810,19 @@ public sealed class CreatureRenderer : IDisposable
             _knownAlive.Remove(k);
             _observedDead.Remove(k);
             _deathTime.Remove(k);
-            if (_unitAttachments.Remove(k, out UnitAttachments? attachments))
-                attachments.Renderer.Dispose();
         }
+
+        // Visibility can fluctuate at the frustum edge and streamed units can
+        // briefly leave the entity set. Keep lightweight mount sets warm long
+        // enough to avoid rebuilding them on the next frame/packet episode;
+        // GPU models and the shader belong to the one shared renderer.
+        _stale.Clear();
+        foreach (var pair in _unitAttachments)
+            if (_globalTime - pair.Value.LastSeenAt >= 30f) _stale.Add(pair.Key);
+        foreach (ulong guid in _stale) _unitAttachments.Remove(guid);
     }
 
-    private static string CacheKey(in CreatureModelInfo info) =>
+    private static string AppearanceKey(in CreatureModelInfo info) =>
         info.HasExtended
             ? $"{info.ModelPath}|npc:{info.ExtRace}/{info.ExtSex}/{info.ExtSkin}/{info.ExtHairStyle}/{info.ExtFacialHair}/{info.BakeName}/{string.Join('.', info.ExtEquipment)}"
             : $"{info.ModelPath}|{string.Join(",", info.Textures)}";
@@ -650,6 +843,375 @@ public sealed class CreatureRenderer : IDisposable
         return e;   // NPCs carry no cloak column
     }
 
+    private bool TryAcquireModel(in CreatureModelInfo info, bool allowFinalize,
+        out LoadedModel? model, out bool finalized)
+    {
+        finalized = false;
+        if (_modelCache.TryGetValue(info.ModelPath, out model)) return true;
+
+        // Portrait-batch construction intentionally has no streaming workers.
+        if (_workers is null || _uploads is null)
+        {
+            model = LoadModelMeasured(info);
+            _modelCache[info.ModelPath] = model;
+            finalized = true;
+            return true;
+        }
+
+        if (!_modelJobs.TryGetValue(info.ModelPath, out ModelLoadJob? job))
+        {
+            string path = info.ModelPath;
+            _requestedModels.Remove(path);
+            job = new ModelLoadJob { Path = path, Worker = _workers.Run(() => PrepareModel(path)) };
+            _modelJobs[path] = job;
+            model = null;
+            return false;
+        }
+        if (!job.Worker.IsCompleted)
+        {
+            model = null;
+            return false;
+        }
+
+        if (job.Ready is null)
+        {
+            try { job.Ready = job.Worker.GetAwaiter().GetResult(); }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[creature-prepare] {job.Path} failed: {exception.Message}");
+                _modelCache[job.Path] = null;
+                _modelJobs.Remove(job.Path);
+                model = null;
+                return true;
+            }
+            if (job.Ready is null)
+            {
+                _modelCache[job.Path] = null;
+                _modelJobs.Remove(job.Path);
+                model = null;
+                return true;
+            }
+        }
+
+        if (job.Upload is null)
+        {
+            PreparedModel ready = job.Ready;
+            job.Upload = _uploads.Enqueue(Path.GetFileName(job.Path),
+                uploadGl => UploadPreparedModel(uploadGl, ready));
+            model = null;
+            return false;
+        }
+        if (!job.Upload.IsCompleted || !allowFinalize)
+        {
+            model = null;
+            return false;
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        LoadsThisFrame++;
+        try
+        {
+            UploadedBuffers uploaded = job.Upload.GetAwaiter().GetResult();
+            model = FinalizePreparedModel(job.Ready, uploaded);
+            _modelCache[job.Path] = model;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[creature-upload] {job.Path} failed: {exception.Message}");
+            model = null;
+            _modelCache[job.Path] = null;
+        }
+        finally
+        {
+            LoadMillisecondsThisFrame += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            _modelJobs.Remove(job.Path);
+        }
+        finalized = true;
+        return true;
+    }
+
+    private PreparedModel? PrepareModel(string path)
+    {
+        byte[]? bytes = _mpq.ReadFile(path);
+        if (bytes is null) return null;
+        M2Model? m2 = M2Reader.Parse(bytes);
+        if (m2 is null || !m2.IsValid) return null;
+
+        var prepared = new PreparedModel
+        {
+            Source = m2,
+            Animator = M2Animator.Build(m2, Array.Empty<int>()),
+            Vertices = new float[m2.Vertices.Count * FloatsPerVertex],
+            Indices = m2.Indices.ToArray(),
+        };
+        float minHeight = float.PositiveInfinity;
+        float maxHeight = float.NegativeInfinity;
+        float horizontalRadius = 0f;
+        for (int i = 0; i < m2.Vertices.Count; i++)
+        {
+            var vertex = m2.Vertices[i];
+            int offset = i * FloatsPerVertex;
+            prepared.Vertices[offset] = vertex.PosX;
+            prepared.Vertices[offset + 1] = vertex.PosY;
+            prepared.Vertices[offset + 2] = vertex.PosZ;
+            prepared.Vertices[offset + 3] = vertex.NormX;
+            prepared.Vertices[offset + 4] = vertex.NormY;
+            prepared.Vertices[offset + 5] = vertex.NormZ;
+            prepared.Vertices[offset + 6] = vertex.TexU;
+            prepared.Vertices[offset + 7] = vertex.TexV;
+
+            float total = vertex.BoneWeight0 + vertex.BoneWeight1 +
+                vertex.BoneWeight2 + vertex.BoneWeight3;
+            if (total <= 0f)
+            {
+                prepared.Vertices[offset + 8] = 1f;
+            }
+            else
+            {
+                prepared.Vertices[offset + 8] = vertex.BoneWeight0 / total;
+                prepared.Vertices[offset + 9] = vertex.BoneWeight1 / total;
+                prepared.Vertices[offset + 10] = vertex.BoneWeight2 / total;
+                prepared.Vertices[offset + 11] = vertex.BoneWeight3 / total;
+                prepared.Vertices[offset + 12] = ClampBone(vertex.BoneIndex0);
+                prepared.Vertices[offset + 13] = ClampBone(vertex.BoneIndex1);
+                prepared.Vertices[offset + 14] = ClampBone(vertex.BoneIndex2);
+                prepared.Vertices[offset + 15] = ClampBone(vertex.BoneIndex3);
+            }
+
+            Vector3 basis = Vector3.Transform(
+                new Vector3(vertex.PosX, vertex.PosY, vertex.PosZ), Basis);
+            minHeight = MathF.Min(minHeight, basis.Z);
+            maxHeight = MathF.Max(maxHeight, basis.Z);
+            horizontalRadius = MathF.Max(horizontalRadius,
+                MathF.Sqrt(basis.X * basis.X + basis.Y * basis.Y));
+        }
+        prepared.MinHeight = float.IsFinite(minHeight) ? minHeight : 0f;
+        prepared.MaxHeight = float.IsFinite(maxHeight) ? maxHeight : 2f;
+        prepared.HorizontalRadius = MathF.Max(0.25f, horizontalRadius);
+        return prepared;
+    }
+
+    private static unsafe UploadedBuffers UploadPreparedModel(GL gl, PreparedModel prepared)
+    {
+        uint vbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, vbo);
+        fixed (float* vertices = prepared.Vertices)
+            gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(prepared.Vertices.Length * sizeof(float)), vertices,
+                BufferUsageARB.StaticDraw);
+        uint ebo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, ebo);
+        fixed (ushort* indices = prepared.Indices)
+            gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(prepared.Indices.Length * sizeof(ushort)), indices,
+                BufferUsageARB.StaticDraw);
+        return new UploadedBuffers(vbo, ebo);
+    }
+
+    private unsafe LoadedModel FinalizePreparedModel(
+        PreparedModel prepared, UploadedBuffers uploaded)
+    {
+        M2Model m2 = prepared.Source!;
+        var model = new LoadedModel
+        {
+            Source = m2,
+            Animator = prepared.Animator,
+            BoneCount = prepared.Animator is { BoneCount: <= M2Animator.MaxBones }
+                ? prepared.Animator.BoneCount : 0,
+            PortraitCamera = m2.PortraitCamera,
+            MinHeight = prepared.MinHeight,
+            MaxHeight = prepared.MaxHeight,
+            HorizontalRadius = prepared.HorizontalRadius,
+            Vbo = uploaded.Vbo,
+            Ebo = uploaded.Ebo,
+        };
+        if (model.Animator is not null)
+            model.Animator.ResolutionSink = (unit, track, resolution) =>
+                AnimationResolved?.Invoke(unit, track, resolution);
+
+        model.Vao = _gl.GenVertexArray();
+        _gl.BindVertexArray(model.Vao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.Vbo);
+        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, model.Ebo);
+        int stride = FloatsPerVertex * sizeof(float);
+        _gl.EnableVertexAttribArray(0); _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, (uint)stride, (void*)0);
+        _gl.EnableVertexAttribArray(1); _gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, (uint)stride, (void*)(3 * sizeof(float)));
+        _gl.EnableVertexAttribArray(2); _gl.VertexAttribPointer(2, 2, VertexAttribPointerType.Float, false, (uint)stride, (void*)(6 * sizeof(float)));
+        _gl.EnableVertexAttribArray(3); _gl.VertexAttribPointer(3, 4, VertexAttribPointerType.Float, false, (uint)stride, (void*)(8 * sizeof(float)));
+        _gl.EnableVertexAttribArray(4); _gl.VertexAttribPointer(4, 4, VertexAttribPointerType.Float, false, (uint)stride, (void*)(12 * sizeof(float)));
+        _gl.BindVertexArray(0);
+
+        foreach (var batch in m2.Batches)
+        {
+            if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
+            var submesh = m2.Submeshes[batch.SubmeshIndex];
+            int blend = batch.MaterialIndex < m2.RenderFlags.Count
+                ? m2.RenderFlags[batch.MaterialIndex].BlendingMode : 0;
+            model.Batches.Add(new DrawBatch
+            {
+                Start = submesh.IndexStart,
+                Count = submesh.IndexCount,
+                Blend = blend,
+                GeosetId = submesh.Id,
+            });
+        }
+        return model;
+    }
+
+    private bool TryAcquireAppearance(LoadedModel model, in CreatureModelInfo info,
+        bool allowFinalize, out Appearance? appearance, out bool finalized)
+    {
+        string key = AppearanceKey(info);
+        finalized = false;
+        if (_appearanceCache.TryGetValue(key, out appearance)) return true;
+        if (_workers is null || _uploads is null)
+        {
+            appearance = BuildAppearanceMeasured(model, info);
+            _appearanceCache[key] = appearance;
+            finalized = true;
+            return true;
+        }
+
+        if (!_appearanceJobs.TryGetValue(key, out AppearanceLoadJob? job))
+        {
+            CreatureModelInfo captured = info;
+            job = new AppearanceLoadJob
+            {
+                Worker = _workers.Run<PreparedAppearance?>(() => PrepareAppearance(model.Source, captured)),
+            };
+            _appearanceJobs[key] = job;
+            appearance = null;
+            return false;
+        }
+        if (!job.Worker.IsCompleted)
+        {
+            appearance = null;
+            return false;
+        }
+        if (job.Ready is null)
+        {
+            try { job.Ready = job.Worker.GetAwaiter().GetResult(); }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[creature-appearance] {info.ModelPath} failed: {exception.Message}");
+                _appearanceCache[key] = null;
+                _appearanceJobs.Remove(key);
+                appearance = null;
+                return true;
+            }
+            if (job.Ready is null)
+            {
+                _appearanceCache[key] = null;
+                _appearanceJobs.Remove(key);
+                appearance = null;
+                return true;
+            }
+        }
+        if (job.Upload is null)
+        {
+            PreparedAppearance ready = job.Ready;
+            PreparedTexture[] pending = ready.Textures
+                .Where(texture => texture is not null && !_texCache.ContainsKey(texture.Path))
+                .Select(texture => texture!)
+                .DistinctBy(texture => texture.Path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            job.Upload = _uploads.Enqueue(Path.GetFileName(info.ModelPath), uploadGl =>
+            {
+                var textures = new Dictionary<string, Texture?>(StringComparer.OrdinalIgnoreCase);
+                foreach (PreparedTexture texture in pending)
+                    textures[texture.Path] = texture.Bgra is null ? null : Texture.From2D(
+                        uploadGl, texture.Bgra, texture.Width, texture.Height,
+                        mipmaps: true, repeat: true, ownerGl: _gl);
+                return textures;
+            });
+            appearance = null;
+            return false;
+        }
+        if (!job.Upload.IsCompleted || !allowFinalize)
+        {
+            appearance = null;
+            return false;
+        }
+
+        long started = Stopwatch.GetTimestamp();
+        LoadsThisFrame++;
+        try
+        {
+            foreach (var pair in job.Upload.GetAwaiter().GetResult())
+                _texCache.TryAdd(pair.Key, pair.Value);
+            appearance = new Appearance { VisibleGeosets = job.Ready.VisibleGeosets };
+            foreach (PreparedTexture? texture in job.Ready.Textures)
+                appearance.Textures.Add(texture is not null &&
+                    _texCache.TryGetValue(texture.Path, out Texture? loaded) ? loaded : null);
+            _appearanceCache[key] = appearance;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[creature-appearance-upload] {info.ModelPath} failed: {exception.Message}");
+            appearance = null;
+            _appearanceCache[key] = null;
+        }
+        finally
+        {
+            LoadMillisecondsThisFrame += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            _appearanceJobs.Remove(key);
+        }
+        finalized = true;
+        return true;
+    }
+
+    private PreparedAppearance PrepareAppearance(M2Model m2, CreatureModelInfo info)
+    {
+        var prepared = new PreparedAppearance();
+        if (info.HasExtended && _geosets is not null)
+        {
+            EquipGeosets? equipment = BuildNpcEquip(info);
+            HashSet<int> visible = _geosets.Visible(
+                info.ExtRace, info.ExtSex, info.ExtHairStyle, info.ExtFacialHair, equipment);
+            prepared.VisibleGeosets = m2.Submeshes.Any(submesh => visible.Contains(submesh.Id))
+                ? visible : null;
+        }
+
+        string path = info.ModelPath;
+        string modelDir = path.Contains('\\') ? path[..path.LastIndexOf('\\')] : "";
+        foreach (var batch in m2.Batches)
+        {
+            if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
+            PreparedTexture? preparedTexture = null;
+            if (batch.TextureIndex < m2.TextureLookup.Count)
+            {
+                int textureIndex = m2.TextureLookup[batch.TextureIndex];
+                if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
+                {
+                    IReadOnlyList<string> candidates = ResolveBatchTexture(
+                        m2.Textures[textureIndex].Type, m2.Textures[textureIndex].Filename,
+                        modelDir, info);
+                    foreach (string candidate in candidates)
+                    {
+                        if (string.IsNullOrWhiteSpace(candidate)) continue;
+                        byte[]? bytes = _mpq.ReadFile(candidate);
+                        if (bytes is null) continue;
+                        try
+                        {
+                            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+                            preparedTexture = new PreparedTexture
+                            {
+                                Path = candidate,
+                                Bgra = bgra,
+                                Width = width,
+                                Height = height,
+                            };
+                            break;
+                        }
+                        catch { }
+                    }
+                }
+            }
+            prepared.Textures.Add(preparedTexture);
+        }
+        return prepared;
+    }
+
     private unsafe LoadedModel? LoadModel(in CreatureModelInfo info)
     {
         string path = info.ModelPath;
@@ -662,7 +1224,7 @@ public sealed class CreatureRenderer : IDisposable
 
             var lm = new LoadedModel { PortraitCamera = m2.PortraitCamera, Source = m2 };
 
-            var animator = M2Animator.Build(m2, CreatureAnims);
+            var animator = M2Animator.Build(m2, Array.Empty<int>());
             if (animator is not null && animator.BoneCount <= M2Animator.MaxBones)
             {
                 animator.ResolutionSink = (unit, track, resolution) =>
@@ -771,6 +1333,54 @@ public sealed class CreatureRenderer : IDisposable
 
     private static float ClampBone(byte index) => index < M2Animator.MaxBones ? index : 0f;
 
+    private Appearance? BuildAppearance(LoadedModel model, in CreatureModelInfo info)
+    {
+        try
+        {
+            var appearance = new Appearance();
+            M2Model m2 = model.Source;
+            string path = info.ModelPath;
+            string modelDir = path.Contains('\\') ? path[..path.LastIndexOf('\\')] : "";
+
+            if (info.HasExtended && _geosets is not null)
+            {
+                var eq = BuildNpcEquip(info);
+                var visible = _geosets.Visible(
+                    info.ExtRace, info.ExtSex, info.ExtHairStyle, info.ExtFacialHair, eq);
+                int matches = 0;
+                foreach (var submesh in m2.Submeshes)
+                    if (visible.Contains(submesh.Id)) matches++;
+                appearance.VisibleGeosets = matches > 0 ? visible : null;
+            }
+
+            foreach (var batch in m2.Batches)
+            {
+                if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
+                Texture? texture = null;
+                if (batch.TextureIndex < m2.TextureLookup.Count)
+                {
+                    int textureIndex = m2.TextureLookup[batch.TextureIndex];
+                    if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
+                    {
+                        var candidates = ResolveBatchTexture(
+                            m2.Textures[textureIndex].Type,
+                            m2.Textures[textureIndex].Filename,
+                            modelDir,
+                            info);
+                        texture = LoadTexture(candidates, out _);
+                    }
+                }
+                appearance.Textures.Add(texture);
+            }
+            return appearance;
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[creature] appearance '{info.ModelPath}' failed: {exception.Message}");
+            return null;
+        }
+    }
+
     // ── texture resolution ────────────────────────────────────────────────────────
 
     private static IReadOnlyList<string> ResolveBatchTexture(uint type, string embedded, string modelDir, in CreatureModelInfo info)
@@ -855,22 +1465,48 @@ public sealed class CreatureRenderer : IDisposable
     public void Dispose()
     {
         ClearPortraitCache();
-        foreach (var attachments in _unitAttachments.Values) attachments.Renderer.Dispose();
         _unitAttachments.Clear();
+        _attachedItems?.Dispose();
         _shader?.Dispose();
+    }
+
+    private LoadedModel? LoadModelMeasured(in CreatureModelInfo info)
+    {
+        long started = Stopwatch.GetTimestamp();
+        LoadsThisFrame++;
+        try { return LoadModel(info); }
+        finally
+        {
+            LoadMillisecondsThisFrame += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+    }
+
+    private Appearance? BuildAppearanceMeasured(LoadedModel model, in CreatureModelInfo info)
+    {
+        long started = Stopwatch.GetTimestamp();
+        LoadsThisFrame++;
+        try { return BuildAppearance(model, info); }
+        finally
+        {
+            LoadMillisecondsThisFrame += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
     }
 
     /// <summary>Release synchronously loaded specimen assets between bounded batch chunks.</summary>
     public void ClearPortraitCache()
     {
-        foreach (var m in _cache.Values)
+        foreach (var m in _modelCache.Values)
         {
             if (m is null) continue;
             if (m.Vbo != 0) _gl.DeleteBuffer(m.Vbo);
             if (m.Ebo != 0) _gl.DeleteBuffer(m.Ebo);
             if (m.Vao != 0) _gl.DeleteVertexArray(m.Vao);
         }
-        _cache.Clear();
+        _modelCache.Clear();
+        _appearanceCache.Clear();
+        _modelJobs.Clear();
+        _appearanceJobs.Clear();
+        _requestedModels.Clear();
         foreach (var t in _texCache.Values) t?.Dispose();
         _texCache.Clear();
     }

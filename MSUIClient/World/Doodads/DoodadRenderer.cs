@@ -316,6 +316,8 @@ public sealed class DoodadRenderer : IDisposable
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _preloadQueue = new();
     private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (float DistanceSq, string Queue)> _preloadTrace =
+        new(StringComparer.OrdinalIgnoreCase);
     // A POOL of in-flight prepare jobs. Was a single _preloadJob, which prepared
     // exactly ONE model at a time - the ~0.10 s x N serial stall on zone load and
     // .tele (245 Stormwind doodads = ~25 s of one-at-a-time streaming). The
@@ -392,6 +394,7 @@ public sealed class DoodadRenderer : IDisposable
     }
     public int TextureCount => _textures.Count(t => t.Value is not null);
     public int PendingPreloads => _preloadQueue.Count + _preloadJobs.Count;
+    public Action<string, string, float>? PreloadDequeued { get; set; }
     public int TotalTriangles { get; private set; }
     public int CollisionModels { get; private set; }
     public int DrawnLastFrame { get; private set; }
@@ -738,21 +741,34 @@ public sealed class DoodadRenderer : IDisposable
                 paths.Add((doodad.ModelPath, distanceSq));
             }
         }
-        QueuePreloadModels(paths.OrderBy(p => p.DistanceSq).Select(p => p.Path));
+        QueuePreloadModels(
+            paths.OrderBy(p => p.DistanceSq).Select(p => (p.Path, p.DistanceSq)),
+            "outdoor-doodad");
     }
 
     /// <summary>Queue M2 paths without creating visible placements.</summary>
     public void QueuePreloadModels(IEnumerable<string> paths)
     {
         foreach (string path in paths)
-        {
-            if (string.IsNullOrWhiteSpace(path)) continue;
-            string key = ModelCacheKey(path);
-            if (_models.ContainsKey(key) ||
-                _preloadJobs.Any(j => j.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase)) ||
-                !_preloadQueued.Add(key)) continue;
-            _preloadQueue.Enqueue(path);
-        }
+            QueuePreloadModel(path, 0f, "doodad");
+    }
+
+    public void QueuePreloadModels(
+        IEnumerable<(string Path, float DistanceSq)> paths, string queue)
+    {
+        foreach (var (path, distanceSq) in paths)
+            QueuePreloadModel(path, distanceSq, queue);
+    }
+
+    private void QueuePreloadModel(string path, float distanceSq, string queue)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        string key = ModelCacheKey(path);
+        if (_models.ContainsKey(key) ||
+            _preloadJobs.Any(j => j.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase)) ||
+            !_preloadQueued.Add(key)) return;
+        _preloadQueue.Enqueue(path);
+        _preloadTrace[key] = (distanceSq, queue);
     }
 
     /// <summary>
@@ -770,6 +786,9 @@ public sealed class DoodadRenderer : IDisposable
             string path = _preloadQueue.Dequeue();
             string key = ModelCacheKey(path);
             _preloadQueued.Remove(key);
+            var trace = _preloadTrace.GetValueOrDefault(key);
+            _preloadTrace.Remove(key);
+            PreloadDequeued?.Invoke(trace.Queue ?? "doodad", path, trace.DistanceSq);
             if (_models.ContainsKey(key)) continue;
             if (_preloadJobs.Any(j => j.CacheKey.Equals(key, StringComparison.OrdinalIgnoreCase))) continue;
             _preloadJobs.Add(new ModelPreloadJob
@@ -808,15 +827,6 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         return _preloadQueue.Count > 0 || _preloadJobs.Count > 0;
-    }
-
-    public void DrainPreloads()
-    {
-        var timer = System.Diagnostics.Stopwatch.StartNew();
-        int steps = 0;
-        while (WarmNextPreload(waitForWorker: true)) steps++;
-        Console.WriteLine($"[doodad-preload] initial ring completed in {steps} staged step(s), " +
-                          $"{timer.Elapsed.TotalSeconds:F1}s");
     }
 
     /// <summary>
@@ -1076,18 +1086,18 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     private static IEnumerable<string> PathCandidates(string modelPath)
     {
-        yield return modelPath;
-
         int dot = modelPath.LastIndexOf('.');
         if (dot > 0)
         {
             string stem = modelPath[..dot];
             yield return stem + ".m2";
-            yield return stem + ".M2";
+            if (!modelPath.EndsWith(".m2", StringComparison.OrdinalIgnoreCase))
+                yield return modelPath;
         }
         else
         {
             yield return modelPath + ".m2";
+            yield return modelPath;
         }
     }
 
