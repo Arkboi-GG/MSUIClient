@@ -296,6 +296,7 @@ Build status: BUILT+GATES-PASS
 | 4A | IMPLEMENTED, GATES PASS | Replaced the guessed G2 band with measured tiny/full cohorts and added single-readback subject-pixel `meanLuma` evidence. |
 | 4B | IMPLEMENTED, GATES PASS | Added the two-entry expected-blank allowlist and separated expected from unexpected G1 failures without changing any portrait pixels or framing. |
 | 4C | DIAGNOSIS COMPLETE — EXONERATED; NO FIX | The specimen booth and live creature renderer use the identical display-texture resolution path. Dark rows are already selected by their DBC display data; no booth divergence exists. |
+| 4D | ACCEPTED, GATES PASS | Replaced lexical MPQ precedence with the numeric 1.12 order. Nico ruled both changed rows correct real-1.12 behavior; the pre-fix state was the defect. |
 
 ## Slice 2 files touched
 
@@ -303,6 +304,10 @@ Build status: BUILT+GATES-PASS
 |---|---|---|
 | `MSUIClient/Engine/PortraitRenderTarget.cs` | Edit | Computes subject-only mean luminance inside the existing classification/readback pass. |
 | `MSUIClient/Program.PortraitBatch.cs` | Edit | Adds `meanLuma` after `alphaHi` and measured tiny/full summary cohorts with the 20 most extreme keys. |
+| `MSUIClient/Formats/MpqMount.cs` | Edit | Adds pure numeric `OrderArchives`, locale-tier handling, and the once-per-mount priority line. |
+| `tools/portrait-camera-check/Program.cs` | Edit | Adds exact numeric/locale ordering assertions and arbitrary-path before/after provenance reporting. |
+| `.gitignore` | Edit | Keeps generated portrait runs ignored while tracking the canonical baseline path. |
+| `portrait-batch/baseline/verdicts.csv` | New | Accepted post-4D full-sweep CSV; canonical input for future `--diff` runs. |
 | `portrait-expected-blank.txt` | New | Exactly `creature:15435` and `creature:16925`, each with its required invisible-by-design reason. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Edit | Adds this Slice 2 stage-boundary record. |
 
@@ -368,6 +373,47 @@ The smallest fix for the hypothesized booth defect is therefore **none**. If an
 empty-texture display is later ruled wrong in both a live spawn and the Lab, that
 would be a shared renderer/data-fallback decision, outside 4C and not a specimen-path
 repair.
+
+## Stage 4D — MPQ patch precedence accepted
+
+The pure priority function now orders numbered patches by descending numeric
+priority, followed by the unnumbered patch tier and then base archives. Locale
+patches follow the same numbered tiers and outrank the global patch within an equal
+tier. Unit-style assertions cover the exact sample order, `patch-10 > patch-9`, and
+locale/global ties. The installed mount reported exactly one shared priority line:
+
+```text
+[mpq] priority: patch-4.MPQ > patch-2.MPQ > patch.MPQ > terrain.MPQ > model.MPQ > backup.MPQ > base.MPQ > dbc.MPQ > fonts.MPQ > interface.MPQ > misc.MPQ > sound.MPQ > speech.MPQ > texture.MPQ > wmo.MPQ
+```
+
+The full sweep used `portrait-batch/calibration-4b-full/verdicts.csv` as its
+baseline; `portrait-batch/codex-full` was untouched. It completed 10,534/10,534 in
+1,305.437 seconds with the same 10,505 Ready / 17 Blank / 12 Skipped totals and
+produced two changed rows. `--diff` compared outcome, subject-pixel movement above
+15%, and—because both CSVs contain the column—absolute `meanLuma` movement above
+10. Every row below names both its model supplier and the two creature-DBC
+suppliers before/after. Nico accepted both changes as the client coming into
+agreement with real 1.12 archive precedence; the pre-fix state was the defect.
+Camera anchors held and no custom-patch shadowing was found.
+
+```text
+creature:5299: outcome Ready -> Ready; subjectPx 43479 -> 35309; meanLuma 69.3226 -> 58.1178 (delta -11.2048); model archive patch.MPQ -> patch.MPQ; CreatureDisplayInfo.dbc archive patch.MPQ -> patch-2.MPQ; CreatureModelData.dbc archive patch.MPQ -> patch-2.MPQ; model Creature\GolemHarvestStage2\GolemHarvestStage2.m2
+creature:16943: outcome Ready -> Ready; subjectPx 47690 -> 31366; meanLuma 61.9745 -> 63.2271 (delta +1.2526); model archive patch.MPQ -> patch-2.MPQ; CreatureDisplayInfo.dbc archive patch.MPQ -> patch-2.MPQ; CreatureModelData.dbc archive patch.MPQ -> patch-2.MPQ; model Creature\Hippogryph\HippogryphPet.m2
+```
+
+Final gates:
+
+```text
+Build succeeded. 1 Warning(s), 0 Error(s) — only the pre-existing CA2014 warning.
+combat/movement/targeting foundation checks passed
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+The accepted post-4D CSV is tracked at
+`portrait-batch/baseline/verdicts.csv` and is the canonical baseline for future
+`--diff` runs. `portrait-batch/codex-full` remains untouched historical evidence.
 
 CSV head:
 

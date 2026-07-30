@@ -6,6 +6,8 @@ using MSUIClient.Formats.Mpq;
 
 string data = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine("GameData", "Data"));
 data = Path.GetFullPath(data);
+bool provenanceOnly = args.Length > 1 &&
+    args[1].Equals("--provenance", StringComparison.OrdinalIgnoreCase);
 string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 [
     @"Character\Dwarf\Male\DwarfMale.m2",
@@ -14,6 +16,23 @@ string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 ];
 
 CheckDefaultTuningIdentity();
+CheckArchiveOrdering();
+if (provenanceOnly)
+{
+    string[] requestedPaths = args.Skip(2).ToArray();
+    if (requestedPaths.Length == 0)
+        throw new ArgumentException("--provenance requires at least one internal MPQ path");
+    string[] beforeChain = LegacyDiagnosticLoadOrder(data).ToArray();
+    string[] afterChain = DiagnosticLoadOrder(data).ToArray();
+    foreach (string requestedPath in requestedPaths)
+    {
+        string before = TryReadWithProvenance(beforeChain, requestedPath)?.Archive ?? "not found";
+        string after = TryReadWithProvenance(afterChain, requestedPath)?.Archive ?? "not found";
+        Console.WriteLine($"[camera-check] provenance path={requestedPath} " +
+            $"before={Path.GetFileName(before)} after={Path.GetFileName(after)}");
+    }
+    return;
+}
 using var mpq = new MpqMount(data);
 if (mpq.ArchiveCount == 0) throw new InvalidOperationException($"No MPQs mounted from {data}");
 CheckCreatureSpecimenEnumeration(mpq);
@@ -146,6 +165,31 @@ static void SameBits(float expected, float actual, string field)
             $"Default portrait tuning changed {field}: {expected:R} != {actual:R}");
 }
 
+static void CheckArchiveOrdering()
+{
+    AssertArchiveOrder(
+        ["base.MPQ", "patch.MPQ", "patch-2.MPQ", "patch-4.MPQ", "patch-10.MPQ"],
+        ["patch-10.MPQ", "patch-4.MPQ", "patch-2.MPQ", "patch.MPQ", "base.MPQ"]);
+    AssertArchiveOrder(
+        ["patch-9.MPQ", "patch-10.MPQ"],
+        ["patch-10.MPQ", "patch-9.MPQ"]);
+    AssertArchiveOrder(
+        ["base.MPQ", "patch.MPQ", "patch-enUS.MPQ", "patch-2.MPQ",
+            "patch-enUS-2.MPQ", "patch-10.MPQ", "patch-enUS-10.MPQ"],
+        ["patch-enUS-10.MPQ", "patch-10.MPQ", "patch-enUS-2.MPQ",
+            "patch-2.MPQ", "patch-enUS.MPQ", "patch.MPQ", "base.MPQ"]);
+    Console.WriteLine("[camera-check] MPQ archive ordering assertions passed");
+}
+
+static void AssertArchiveOrder(string[] input, string[] expected)
+{
+    IReadOnlyList<string> actual = MpqMount.OrderArchives(input);
+    if (!actual.SequenceEqual(expected, StringComparer.OrdinalIgnoreCase))
+        throw new InvalidDataException(
+            $"Archive order mismatch: expected {string.Join(" > ", expected)}, " +
+            $"got {string.Join(" > ", actual)}");
+}
+
 static void CheckCreatureSpecimenEnumeration(MpqMount mpq)
 {
     CreatureDisplayInfoTable? displays = mpq.ReadFile(CreatureDisplayInfoTable.MpqPath) is { } di
@@ -177,25 +221,39 @@ static IEnumerable<string> DiagnosticLoadOrder(string clientDataPath)
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    foreach (string path in all
-        .Where(f => Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
-        .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase))
-        yield return path;
+    return MpqMount.OrderArchives(all);
+}
 
-    foreach (string path in all
-        .Where(f => !Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
-        .OrderBy(f =>
-        {
-            string name = Path.GetFileName(f).ToLowerInvariant();
-            if (name == "terrain.mpq") return 0;
-            if (name == "model.mpq") return 1;
-            return 10;
-        }))
-        yield return path;
+static IEnumerable<string> LegacyDiagnosticLoadOrder(string clientDataPath)
+{
+    string[] all = Directory.GetFiles(clientDataPath, "*.MPQ", SearchOption.TopDirectoryOnly)
+        .Concat(Directory.GetFiles(clientDataPath, "*.mpq", SearchOption.TopDirectoryOnly))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    return all
+        .Where(path => Path.GetFileName(path).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+        .Concat(all
+            .Where(path => !Path.GetFileName(path).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path =>
+            {
+                string name = Path.GetFileName(path);
+                if (name.Equals("terrain.mpq", StringComparison.OrdinalIgnoreCase)) return 0;
+                if (name.Equals("model.mpq", StringComparison.OrdinalIgnoreCase)) return 1;
+                return 10;
+            }));
 }
 
 static (string Archive, byte[] Bytes) ReadWithProvenance(IEnumerable<string> archivePaths,
     string internalPath)
+{
+    return TryReadWithProvenance(archivePaths, internalPath) ??
+        throw new FileNotFoundException(internalPath);
+}
+
+static (string Archive, byte[] Bytes)? TryReadWithProvenance(
+    IEnumerable<string> archivePaths, string internalPath)
 {
     foreach (string archivePath in archivePaths)
     {
@@ -203,7 +261,7 @@ static (string Archive, byte[] Bytes) ReadWithProvenance(IEnumerable<string> arc
         if (archive?.ReadFile(internalPath) is { } bytes) return (archivePath, bytes);
     }
 
-    throw new FileNotFoundException(internalPath);
+    return null;
 }
 
 static void PrintCameraHeader(byte[] bytes)

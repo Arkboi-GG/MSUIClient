@@ -27,10 +27,9 @@ namespace MSUIClient.Formats;
 ///   call site through it with no changes to AdtTerrainReader at all:
 ///   ReadFileFromMpqs, ReadBlpPixels and ReadFromMpq all benefit at once.
 ///
-///   Load order is preserved exactly: patches first in reverse-alphabetical
-///   order so patch-3 beats patch-2 beats patch, then base archives with
-///   terrain.MPQ and model.MPQ first. Getting that order wrong means reading
-///   pre-patch versions of files, which would be a subtle and horrible bug.
+///   Load order follows the 1.12 rule: numbered patches in descending numeric
+///   priority, then the unnumbered patch tier, then base archives. Locale
+///   patches outrank the global patch within the same tier.
 ///
 /// THREADING (2026-07-26 — this is the change that unblocks parallel streaming)
 ///   MpqArchive.ReadFile is FULLY concurrent-safe: it reads only immutable
@@ -78,6 +77,7 @@ public sealed class MpqMount : IDisposable
             }
         }
 
+        Console.WriteLine($"[mpq] priority: {string.Join(" > ", _archives.Select(x => x.Name))}");
         Console.WriteLine($"[mpq] mounted {_archives.Count} archive(s), held open (parallel reads)");
     }
 
@@ -116,12 +116,64 @@ public sealed class MpqMount : IDisposable
     }
 
     /// <summary>
-    /// Patches first, reverse alphabetical, then base archives with terrain and
-    /// model prioritised. Mirrors AdtTerrainReader.GetMpqLoadOrder, which is
-    /// private — duplicated rather than exposed, because the ordering is the
-    /// part that must not drift and a copy next to its explanation is easier to
-    /// keep honest than a call into another file.
+    /// Pure 1.12 archive-priority computation. Highest priority is returned
+    /// first because ReadFile returns the first matching file.
     /// </summary>
+    public static IReadOnlyList<string> OrderArchives(IEnumerable<string> names)
+    {
+        var archives = names
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(name => (Name: name, Patch: ParsePatchName(Path.GetFileName(name))))
+            .ToArray();
+
+        var patches = archives
+            .Where(x => x.Patch is not null)
+            .OrderByDescending(x => x.Patch!.Value.Number.HasValue)
+            .ThenByDescending(x => x.Patch!.Value.Number ?? -1)
+            .ThenByDescending(x => x.Patch!.Value.Locale.Length > 0)
+            .ThenBy(x => x.Patch!.Value.Locale, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => Path.GetFileName(x.Name), StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Name);
+
+        var bases = archives
+            .Where(x => x.Patch is null)
+            .OrderBy(x => BaseArchiveRank(Path.GetFileName(x.Name)))
+            .ThenBy(x => Path.GetFileName(x.Name), StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Name);
+
+        return patches.Concat(bases).ToArray();
+    }
+
+    private readonly record struct PatchName(string Locale, int? Number);
+
+    private static PatchName? ParsePatchName(string fileName)
+    {
+        string stem = Path.GetFileNameWithoutExtension(fileName);
+        if (stem.Equals("patch", StringComparison.OrdinalIgnoreCase))
+            return new PatchName("", null);
+        if (!stem.StartsWith("patch-", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        string suffix = stem[6..];
+        string[] parts = suffix.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return null;
+
+        if (int.TryParse(parts[^1], out int number) && number >= 0)
+        {
+            string locale = parts.Length == 1 ? "" : string.Join('-', parts[..^1]);
+            return new PatchName(locale, number);
+        }
+
+        return new PatchName(suffix, null);
+    }
+
+    private static int BaseArchiveRank(string fileName)
+    {
+        if (fileName.Equals("terrain.mpq", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (fileName.Equals("model.mpq", StringComparison.OrdinalIgnoreCase)) return 1;
+        return 10;
+    }
+
     private static List<string> LoadOrder(string clientDataPath)
     {
         var result = new List<string>();
@@ -132,19 +184,7 @@ public sealed class MpqMount : IDisposable
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        result.AddRange(all
-            .Where(f => Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase));
-
-        result.AddRange(all
-            .Where(f => !Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(f =>
-            {
-                var name = Path.GetFileName(f).ToLowerInvariant();
-                if (name == "terrain.mpq") return 0;
-                if (name == "model.mpq") return 1;
-                return 10;
-            }));
+        result.AddRange(OrderArchives(all));
 
         return result;
     }

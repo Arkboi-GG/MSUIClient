@@ -90,6 +90,8 @@ scratch/
 # Scene dumps (dev tool output; regenerated on demand)
 dumps/
 # Regenerable pixel evidence from --portrait-batch (often >1 GiB per full run)
-portrait-batch/
+portrait-batch/*
+!portrait-batch/baseline/
+!portrait-batch/baseline/verdicts.csv
 __pycache__/
 *.pyc

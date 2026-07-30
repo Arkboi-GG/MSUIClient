@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Formats.Mpq;
 using MSUIClient.Net;
 using MSUIClient.World.Units;
 using Silk.NET.OpenGL;
@@ -529,7 +530,7 @@ public sealed partial class GameLoop
         if (_portraitBatchOptions?.DiffFile is not { } diffFile) return;
         string path = ResolveBatchPath(diffFile);
         var previous = ReadPriorBatch(path);
-        var changes = new List<string>();
+        var changed = new List<(BatchResult Current, PriorBatchRow Old)>();
         foreach (BatchResult current in _batchResults)
         {
             if (!previous.TryGetValue(current.Key, out var old)) continue;
@@ -537,22 +538,65 @@ public sealed partial class GameLoop
             bool pixelsChanged = old.SubjectPx == 0
                 ? current.SubjectPx != 0
                 : Math.Abs(current.SubjectPx - old.SubjectPx) / (double)Math.Abs(old.SubjectPx) > 0.15;
-            if (outcomeChanged || pixelsChanged)
-                changes.Add($"{current.Key}: {old.Outcome}/{old.SubjectPx} -> " +
-                            $"{current.Outcome}/{current.SubjectPx}");
+            bool lumaChanged = old.MeanLuma is { } oldLuma &&
+                Math.Abs(current.MeanLuma - oldLuma) > 10.0;
+            if (outcomeChanged || pixelsChanged || lumaChanged)
+                changed.Add((current, old));
         }
+
+        string[] modelPaths = changed.Select(x => x.Current.ModelPath)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string[] provenancePaths = modelPaths
+            .Concat([CreatureDisplayInfoTable.MpqPath, CreatureModelDataTable.MpqPath])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string[] archives = EnumerateArchivePaths(_config.ClientDataPath);
+        var beforeSuppliers = ResolveSuppliers(LegacyArchiveOrder(archives), provenancePaths);
+        var afterSuppliers = ResolveSuppliers(MpqMount.OrderArchives(archives), provenancePaths);
+        var changes = changed.Select(change =>
+        {
+            BatchResult current = change.Current;
+            PriorBatchRow old = change.Old;
+            string luma = old.MeanLuma is { } oldLuma
+                ? $"; meanLuma {oldLuma:0.####} -> {current.MeanLuma:0.####} " +
+                  $"(delta {current.MeanLuma - oldLuma:+0.####;-0.####;0})"
+                : "";
+            string before = beforeSuppliers.GetValueOrDefault(current.ModelPath, "not found");
+            string after = afterSuppliers.GetValueOrDefault(current.ModelPath, "not found");
+            string displayBefore = beforeSuppliers.GetValueOrDefault(
+                CreatureDisplayInfoTable.MpqPath, "not found");
+            string displayAfter = afterSuppliers.GetValueOrDefault(
+                CreatureDisplayInfoTable.MpqPath, "not found");
+            string modelDataBefore = beforeSuppliers.GetValueOrDefault(
+                CreatureModelDataTable.MpqPath, "not found");
+            string modelDataAfter = afterSuppliers.GetValueOrDefault(
+                CreatureModelDataTable.MpqPath, "not found");
+            return $"{current.Key}: outcome {old.Outcome} -> {current.Outcome}; " +
+                   $"subjectPx {old.SubjectPx} -> {current.SubjectPx}{luma}; " +
+                   $"model archive {before} -> {after}; " +
+                   $"CreatureDisplayInfo.dbc archive {displayBefore} -> {displayAfter}; " +
+                   $"CreatureModelData.dbc archive {modelDataBefore} -> {modelDataAfter}; " +
+                   $"model {current.ModelPath}";
+        }).ToList();
         File.WriteAllLines(Path.Combine(_batchOutputDirectory, "diff.txt"), changes);
         foreach (string change in changes) Console.WriteLine($"[batch-diff] {change}");
     }
 
-    private static Dictionary<string, (string Outcome, int SubjectPx)> ReadPriorBatch(string path)
+    private readonly record struct PriorBatchRow(
+        string Outcome, int SubjectPx, double? MeanLuma, string ModelPath);
+
+    private static Dictionary<string, PriorBatchRow> ReadPriorBatch(string path)
     {
-        var result = new Dictionary<string, (string, int)>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, PriorBatchRow>(StringComparer.OrdinalIgnoreCase);
         using var reader = File.OpenText(path);
         string[] headers = (reader.ReadLine() ?? "").Split(',');
         int keyIndex = Array.IndexOf(headers, "key");
         int outcomeIndex = Array.IndexOf(headers, "outcome");
         int subjectIndex = Array.IndexOf(headers, "subjectPx");
+        int lumaIndex = Array.IndexOf(headers, "meanLuma");
+        int modelPathIndex = Array.IndexOf(headers, "modelPath");
         if (keyIndex < 0 || outcomeIndex < 0 || subjectIndex < 0)
             throw new InvalidDataException("--diff CSV is missing key/outcome/subjectPx columns");
         string? line;
@@ -562,8 +606,66 @@ public sealed partial class GameLoop
             if (fields.Length <= Math.Max(keyIndex, Math.Max(outcomeIndex, subjectIndex)) ||
                 !int.TryParse(fields[subjectIndex], NumberStyles.Integer, CultureInfo.InvariantCulture,
                     out int subjectPx)) continue;
-            result[fields[keyIndex]] = (fields[outcomeIndex], subjectPx);
+            double? meanLuma = lumaIndex >= 0 && lumaIndex < fields.Length &&
+                double.TryParse(fields[lumaIndex], NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double parsedLuma)
+                    ? parsedLuma : null;
+            string modelPath = modelPathIndex >= 0 && modelPathIndex < fields.Length
+                ? fields[modelPathIndex] : "";
+            result[fields[keyIndex]] = new PriorBatchRow(
+                fields[outcomeIndex], subjectPx, meanLuma, modelPath);
         }
         return result;
+    }
+
+    private static string[] EnumerateArchivePaths(string clientDataPath) =>
+        Directory.GetFiles(clientDataPath, "*.MPQ", SearchOption.TopDirectoryOnly)
+            .Concat(Directory.GetFiles(clientDataPath, "*.mpq", SearchOption.TopDirectoryOnly))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static IReadOnlyList<string> LegacyArchiveOrder(IEnumerable<string> names)
+    {
+        string[] all = names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return all
+            .Where(path => Path.GetFileName(path).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(path => path, StringComparer.OrdinalIgnoreCase)
+            .Concat(all
+                .Where(path => !Path.GetFileName(path).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path =>
+                {
+                    string name = Path.GetFileName(path);
+                    if (name.Equals("terrain.mpq", StringComparison.OrdinalIgnoreCase)) return 0;
+                    if (name.Equals("model.mpq", StringComparison.OrdinalIgnoreCase)) return 1;
+                    return 10;
+                }))
+            .ToArray();
+    }
+
+    private static Dictionary<string, string> ResolveSuppliers(
+        IEnumerable<string> archivePaths, IEnumerable<string> internalPaths)
+    {
+        var unresolved = internalPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var suppliers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string archivePath in archivePaths)
+        {
+            if (unresolved.Count == 0) break;
+            using MpqArchive? archive = MpqArchive.Open(archivePath);
+            if (archive is null) continue;
+            foreach (string internalPath in unresolved.ToArray())
+            {
+                try
+                {
+                    if (archive.ReadFile(internalPath) is null) continue;
+                    suppliers[internalPath] = Path.GetFileName(archivePath);
+                    unresolved.Remove(internalPath);
+                }
+                catch
+                {
+                    // A malformed or unsupported entry cannot supply this path.
+                }
+            }
+        }
+        return suppliers;
     }
 }
