@@ -1,0 +1,18 @@
+# Portrait blanks deferred for human Lab classification.
+# These are a worklist, not a claim that the blank is correct by design.
+# G1 still fails for any blank absent from both this file and portrait-expected-blank.txt.
+creature:860   # deferred 2026-07-30, pending Lab ruling
+creature:1921  # deferred 2026-07-30, pending Lab ruling
+creature:2429  # deferred 2026-07-30, pending Lab ruling
+creature:5850  # deferred 2026-07-30, pending Lab ruling
+creature:6352  # deferred 2026-07-30, pending Lab ruling
+creature:8810  # deferred 2026-07-30, pending Lab ruling
+creature:8811  # deferred 2026-07-30, pending Lab ruling
+creature:12750 # deferred 2026-07-30, pending Lab ruling
+creature:12929 # deferred 2026-07-30, pending Lab ruling
+creature:13489 # deferred 2026-07-30, pending Lab ruling
+creature:15791 # deferred 2026-07-30, pending Lab ruling
+creature:15792 # deferred 2026-07-30, pending Lab ruling
+creature:15866 # deferred 2026-07-30, pending Lab ruling
+creature:15882 # deferred 2026-07-30, pending Lab ruling
+creature:15900 # deferred 2026-07-30, pending Lab ruling

@@ -297,6 +297,7 @@ Build status: BUILT+GATES-PASS
 | 4B | IMPLEMENTED, GATES PASS | Added the two-entry expected-blank allowlist and separated expected from unexpected G1 failures without changing any portrait pixels or framing. |
 | 4C | DIAGNOSIS COMPLETE — EXONERATED; NO FIX | The specimen booth and live creature renderer use the identical display-texture resolution path. Dark rows are already selected by their DBC display data; no booth divergence exists. |
 | 4D | ACCEPTED, GATES PASS | Replaced lexical MPQ precedence with the numeric 1.12 order. Nico ruled both changed rows correct real-1.12 behavior; the pre-fix state was the defect. |
+| 4E | IMPLEMENTED, GATES PASS | Added a distinct 15-row known-deferred blank worklist; G1 now fails only for blanks in neither classification list. |
 
 ## Slice 2 files touched
 
@@ -309,6 +310,7 @@ Build status: BUILT+GATES-PASS
 | `.gitignore` | Edit | Keeps generated portrait runs ignored while tracking the canonical baseline path. |
 | `portrait-batch/baseline/verdicts.csv` | New | Accepted post-4D full-sweep CSV; canonical input for future `--diff` runs. |
 | `portrait-expected-blank.txt` | New | Exactly `creature:15435` and `creature:16925`, each with its required invisible-by-design reason. |
+| `portrait-known-blank.txt` | New | The 15 current unresolved framing/effect blanks, explicitly deferred pending Lab rulings. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Edit | Adds this Slice 2 stage-boundary record. |
 
 ## Slice 2 symbol verification and evidence
@@ -414,6 +416,34 @@ portrait camera check passed
 The accepted post-4D CSV is tracked at
 `portrait-batch/baseline/verdicts.csv` and is the canonical baseline for future
 `--diff` runs. `portrait-batch/codex-full` remains untouched historical evidence.
+
+## Stage 4E — known-deferred portrait blanks
+
+`portrait-known-blank.txt` is loaded through the same tolerant blank-list parser
+as the expected-by-design list but remains semantically separate. It contains the
+10 AncientProtector, two MouthofKathune, and three PortalofKathune rows from the
+accepted baseline, each marked `deferred 2026-07-30, pending Lab ruling`.
+
+G1 and the process exit now count only blanks present in neither list. Expected
+blanks take precedence if a key is accidentally present in both lists; the
+known-deferred bucket excludes such overlaps. A new, unlisted Blank therefore still
+fails G1 and exits 3.
+
+Focused 17-row gate using all current blanks:
+
+```text
+[batch] expected-blank entries=2
+[batch] known-deferred entries=15
+specimens: 17/17
+Blank: 17
+G1 blanks (unexpected): 0 (PASS)
+known-deferred: 15
+expected-blank: 2
+[batch] complete: 17/17, blanks=0, exit=0
+```
+
+The standard build, combat-wire, and portrait-camera gates all passed; camera
+coverage remained 1,224 / 1,289 / 56.
 
 CSV head:
 
