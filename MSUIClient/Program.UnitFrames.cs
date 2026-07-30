@@ -17,6 +17,8 @@ public sealed partial class GameLoop
         Vector2 p = authoredOrigin * s;
         Vector2 size = new(232, 100);
         Vector2 windowSize = playerFrame ? size : new Vector2(232, 118);
+        CollectGameplayLayout(playerFrame ? "player-frame" : "target-frame",
+            authoredOrigin.X, authoredOrigin.Y, windowSize.X, windowSize.Y, p, windowSize * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(windowSize * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);

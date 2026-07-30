@@ -1252,7 +1252,11 @@ public sealed partial class GameLoop
     public void Overlay()    => _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: false);
 
     /// <summary>ClientWindow.OnOverlayTop: the "on top" additive glue quads, drawn over the HUD.</summary>
-    public void OverlayTop() => _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: true);
+    public void OverlayTop()
+    {
+        _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: true);
+        FinishGameplayDump();
+    }
 
 
     /// <summary>The booth dev-tuning modal (fine-tune nudges on the scene-camera placement). Toggled by

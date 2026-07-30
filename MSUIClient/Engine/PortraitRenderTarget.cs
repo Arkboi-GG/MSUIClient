@@ -175,12 +175,19 @@ public sealed class PortraitRenderTarget : IDisposable
     public void SavePng(string path)
     {
         byte[] rgba = CaptureRgba();
+        SaveRgbaPng(path, Width, Height, rgba);
+    }
+
+    public static void SaveRgbaPng(string path, int width, int height, byte[] rgba)
+    {
+        if (rgba.Length != checked(width * height * 4))
+            throw new ArgumentException("RGBA byte count does not match image dimensions", nameof(rgba));
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
-        using var bitmap = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
-        for (int y = 0; y < Height; y++)
-        for (int x = 0; x < Width; x++)
+        using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
         {
-            int i = (y * Width + x) * 4;
+            int i = (y * width + x) * 4;
             bitmap.SetPixel(x, y,
                 new SKColor(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]));
         }

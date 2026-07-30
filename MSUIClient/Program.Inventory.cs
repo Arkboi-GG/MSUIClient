@@ -186,6 +186,8 @@ public sealed partial class GameLoop
         Vector2 backpackMin = barMin + new Vector2(981f, 14f) * s;
         Vector2 firstBagMin = backpackMin - new Vector2(168f, 0f) * s;
         Vector2 windowMin = barMin + new Vector2(798f, 0f) * s;
+        CollectGameplayLayout("bag-cluster", 798f, 715f, 226f, 53f,
+            windowMin, new Vector2(226f, 53f) * s);
         ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(226, 53) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -197,6 +199,10 @@ public sealed partial class GameLoop
         {
             Vector2 min = i == 4 ? backpackMin : firstBagMin + new Vector2(i * 42f, 0f) * s;
             float buttonSize = i == 4 ? 37f : 36f;
+            float authoredX = i == 4 ? 981f : 813f + i * 42f;
+            string layoutId = i == 4 ? "backpack" : $"bag-slot-{4 - i}";
+            CollectGameplayLayout(layoutId, authoredX, 729f, buttonSize, buttonSize,
+                min, new Vector2(buttonSize) * s);
             string art = i == 4 ? @"Interface\Buttons\Button-Backpack-Up" : @"Interface\Paperdoll\UI-PaperDoll-Slot-Bag";
             ItemTemplate? bagTemplate = null;
             if (i < 4)

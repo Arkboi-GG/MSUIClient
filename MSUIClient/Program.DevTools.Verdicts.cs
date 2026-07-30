@@ -42,6 +42,8 @@ public sealed partial class GameLoop
                 _wireLog.Stop();
             }
         }
+        ImGui.SameLine();
+        if (ImGui.Button("Dump (F10)##verdicts")) ArmGameplayDump();
         if (!expanded) return;
 
         IReadOnlyList<IVerdict> live = _verdicts.Snapshot();

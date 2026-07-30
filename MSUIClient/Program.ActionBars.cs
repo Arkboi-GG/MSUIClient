@@ -211,6 +211,8 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
+        CollectGameplayLayout("action-bar", 0f, 715f, 1024f, 53f,
+            barMin, new Vector2(1024f, 53f) * scale);
         ImDrawListPtr bg = ImGui.GetBackgroundDrawList();
 
         // FrameXML child order: XP and the LOW-strata latency meter sit beneath the dwarf art.
@@ -245,6 +247,8 @@ public sealed partial class GameLoop
             int wireSlot = ActionWireSlot(i);
             Vector2 buttonMin = new(barMin.X + (8f + 42f * i) * scale, display.Y - 40f * scale);
             Vector2 buttonMax = buttonMin + new Vector2(36f, 36f) * scale;
+            CollectGameplayLayout($"action-slot-{i + 1}", 8f + 42f * i, 728f, 36f, 36f,
+                buttonMin, buttonMax - buttonMin);
             ActionSlot? slot = _actions[wireSlot];
 
             ImGui.SetCursorScreenPos(buttonMin);
@@ -276,6 +280,7 @@ public sealed partial class GameLoop
                 // otherwise unusable: icon (0.4,0.4,0.4), ring reset to white.
                 ActionButtonVerdict verdict = ComputeButtonVerdict(
                     wireSlot, action, spellInfo, player, pushed, hovered, gridShown);
+                CollectGameplayAction(verdict);
                 EmitActionButtonVerdict(verdict);
                 uint iconTint = verdict.Usability switch
                 {
@@ -351,6 +356,7 @@ public sealed partial class GameLoop
             {
                 ActionButtonVerdict verdict = ComputeButtonVerdict(
                     wireSlot, null, null, player, pushed, hovered, gridShown);
+                CollectGameplayAction(verdict);
                 EmitActionButtonVerdict(verdict);
                 if (clicked) PlaceCarriedItemOnAction(wireSlot);
                 DrawSlotRing(dl, buttonMin, buttonMax,
@@ -410,6 +416,8 @@ public sealed partial class GameLoop
     {
         if (_gameplayArt is null) return;
         Vector2 windowMin = barMin + new Vector2(552f, -5f) * scale;
+        CollectGameplayLayout("micro-cluster", 552f, 710f, 211f, 58f,
+            windowMin, new Vector2(211f, 58f) * scale);
         ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(211f, 58f) * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -436,6 +444,8 @@ public sealed partial class GameLoop
             var button = buttons[i];
             Vector2 min = windowMin + new Vector2(26f * i, 0f) * scale;
             Vector2 max = min + new Vector2(29f, 58f) * scale;
+            CollectGameplayLayout($"micro-{button.Art.ToLowerInvariant()}",
+                552f + 26f * i, 710f, 29f, 58f, min, max - min);
             Vector2 mouse = ImGui.GetIO().MousePos;
             bool held = ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
                 mouse.X >= min.X && mouse.X <= max.X &&

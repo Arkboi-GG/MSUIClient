@@ -278,6 +278,8 @@ public sealed partial class GameLoop
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 size = new(256, 64);
         Vector2 p = new((display.X - size.X * s) * .5f, display.Y - 145f * s);
+        Vector2 authored = p / s;
+        CollectGameplayLayout("cast-bar", authored.X, authored.Y, size.X, size.Y, p, size * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);

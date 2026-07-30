@@ -334,6 +334,7 @@ public sealed partial class GameLoop : IDisposable
     private string _vantageNameInput = "";
     private bool _reloadVantageKeyDown;
     private bool _dumpKeyDown;
+    private bool _gameplayDumpKeyDown;
     private string? _currentVantage;
 
     // Curated visibility overrides: core data, loaded and honoured always (even in
@@ -1231,6 +1232,12 @@ public sealed partial class GameLoop : IDisposable
             DumpScene();
         _dumpKeyDown = dumpKey;
 
+        // F10 arms a gameplay-plane dump for the next complete HUD frame (dev only).
+        bool gameplayDumpKey = _window.IsDown(Key.F10);
+        if (gameplayDumpKey && !_gameplayDumpKeyDown && _config.DevTools)
+            ArmGameplayDump();
+        _gameplayDumpKeyDown = gameplayDumpKey;
+
         bool shift = _window.IsDown(Key.ShiftLeft) || _window.IsDown(Key.ShiftRight);
 
         // A and D TURN, they do not strafe. That is vanilla's default bind and
@@ -1897,6 +1904,9 @@ public sealed partial class GameLoop : IDisposable
         // bars, auras, unit frames and developer windows over the loading art.
         if (_worldLoading || _loadScreen is not null) return;
 
+        // Arm before any gameplay widgets draw; OverlayTop writes after the frame.
+        BeginGameplayDumpFrame();
+
         // THE SETTINGS MODAL IS DRAWN FIRST, AND DELIBERATELY ABOVE THE RETURN
         // BELOW. It is the PLAYER's surface - the Escape menu - so it must exist
         // in a shipping build where all the developer tooling is off. Moving this
@@ -1943,6 +1953,8 @@ public sealed partial class GameLoop : IDisposable
             }
             ImGui.SameLine();
             if (ImGui.Button("Dump scene (F9)")) DumpScene();
+            ImGui.SameLine();
+            if (ImGui.Button("Dump gameplay (F10)")) ArmGameplayDump();
 
             if (_currentVantage is not null)
             {

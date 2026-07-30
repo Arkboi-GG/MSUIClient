@@ -503,6 +503,58 @@ creature:4,creature,4,Creature\CrystalSpider\CrystalSpider.m2,Skipped,,false,0,0
 creature:13,creature,13,Creature\HUFMCitizenLow\HUFMCitizenLow.m2,Ready,Authored,false,50459,0,255,127,255,106.3794,-1,1.9136,0,0,27,0.2222,210.8103,
 ```
 
+## SPEC 06 — F10 gameplay dump
+
+`Program.DevTools.GameplayDump.cs` adds the DevTools-only F10 gameplay-plane
+capture. F10 uses the existing edge-detect pattern (`Program.cs:1236-1240`);
+the Scene and vantage panel and Verdicts panel expose the same arm operation as
+**Dump gameplay (F10)** / **Dump (F10)**. The request is armed before the next
+gameplay HUD is built (`Program.cs:1908`) and written from `OverlayTop` after the
+ImGui pass (`Program.Net.cs:1254-1259`), so the collected rectangles and paired
+screenshot belong to one completed frame.
+
+The JSON keys are emitted in the specified order: name/time/map, scenario,
+portraits, actionBar, animator, verdicts, wire, and layout. Scenario health,
+power, and lootability reuse the established descriptor accessors
+(`Net/ObjectFields.cs:151-174`). Pending, auto-repeat, and queued-melee spell ids
+come directly from the action state (`Program.ActionBars.cs:23-25`), while cast
+bar spell/stage/timing come directly from `Program.Casting.cs:11-15`. No new
+descriptor offset or field interpretation was introduced.
+
+The armed frame records all 12 action slots and their same-call
+`ComputeButtonVerdict` results, all eight micro buttons, four bag slots plus the
+backpack, the action/micro/bag containers, the active cast bar, and whichever
+player/target frames were actually drawn. Collection occurs at the draw sites
+(`Program.ActionBars.cs:214-359`, `Program.Inventory.cs:189-205`,
+`Program.Casting.cs:282`, and `Program.UnitFrames.cs:20-21`), so screen rectangles
+are the values consumed by ImGui rather than a dump-time re-derivation. The
+collector is only active for the armed frame.
+
+After the JSON write, default-framebuffer RGBA readback is vertically flipped and
+passed through the extracted `PortraitRenderTarget.SaveRgbaPng` encoder. PNG
+failure is isolated and leaves a successful JSON dump intact. Success prints the
+specified one-line `[gdump] wrote ...` summary and copies the JSON path.
+
+One bounded omission is recorded: there is no target-portrait dirty field or
+accessor in the current client (only `_targetPortraitUsable` and retry/request
+state), so the dump does not invent one. Player `dirty` is reported from the
+existing `_playerPortraitDirty` field. This follows SPEC 06's no-new-descriptor-
+guess rule.
+
+Offline gates:
+
+```text
+Build succeeded. 1 Warning(s), 0 Error(s) — only the pre-existing CA2014 warning.
+combat/movement/targeting/wire foundation checks passed
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+The OpenGL framebuffer, clipboard, two-resolution layout comparison, repeated
+dump comparison, and `devTools:false` inertness require a live gameplay window
+and remain Nico's live verification boundary.
+
 ## Live checks for Nico
 
 1. Paste one `[portrait] player bake ...` line and confirm the HUD portrait matches
@@ -545,3 +597,9 @@ SPEC TOOLKIT 05:
 1. Record a session: enter world, cast once, loot once, toggle off. Send the
    assistant the `.txt` — this replaces "the loot window misbehaved" prose
    forever.
+
+SPEC TOOLKIT 06 (verbatim):
+
+1. Reproduce any current visual gripe, press F10, send the JSON (+PNG) to the
+   assistant instead of describing the gripe. That exchange is the toolkit's
+   acceptance test.
