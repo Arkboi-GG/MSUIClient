@@ -87,14 +87,15 @@ public static partial class Program
 
 public sealed partial class GameLoop
 {
-    // Heuristics Nico may retune; they flag suspicious framing, not correctness law.
-    private const int BatchSubjectMin = 800;
-    private const int BatchSubjectMax = 30_000;
+    // Derived from the 2026-07-30 codex-full Ready distribution
+    // (p1≈24k, p50≈45k, p99≈59k); informational, not correctness law.
+    private const int BatchTinySubjectMaxExclusive = 8_000;
+    private const int BatchFullSubjectMinInclusive = 63_000;
     private const int BatchCacheChunk = 128;
     private const double BatchSpecimenTimeoutSeconds = 10.0;
     private const string BatchCsvHeader =
         "key,kind,displayId,modelPath,outcome,cameraSource,authoredRetried,subjectPx," +
-        "rgbLo,rgbHi,alphaLo,alphaHi,pieces,bindPoseHeight,eyeHeight,distance," +
+        "rgbLo,rgbHi,alphaLo,alphaHi,meanLuma,pieces,bindPoseHeight,eyeHeight,distance," +
         "fovyDeg,nearPlane,elapsedMs,note";
 
     private readonly PortraitBatchOptions? _portraitBatchOptions;
@@ -115,7 +116,7 @@ public sealed partial class GameLoop
     private readonly record struct BatchResult(
         string Key, string Kind, int DisplayId, string ModelPath,
         PortraitOutcome Outcome, string CameraSource, bool AuthoredRetried,
-        int SubjectPx, int RgbLo, int RgbHi, int AlphaLo, int AlphaHi, int Pieces,
+        int SubjectPx, int RgbLo, int RgbHi, int AlphaLo, int AlphaHi, double MeanLuma, int Pieces,
         float BindPoseHeight, float EyeHeight, float Distance, float FovyDeg,
         float NearPlane, double ElapsedMs, string Note)
     {
@@ -125,6 +126,7 @@ public sealed partial class GameLoop
             SubjectPx.ToString(CultureInfo.InvariantCulture),
             RgbLo.ToString(CultureInfo.InvariantCulture), RgbHi.ToString(CultureInfo.InvariantCulture),
             AlphaLo.ToString(CultureInfo.InvariantCulture), AlphaHi.ToString(CultureInfo.InvariantCulture),
+            F(MeanLuma),
             Pieces.ToString(CultureInfo.InvariantCulture), F(BindPoseHeight), F(EyeHeight),
             F(Distance), F(FovyDeg), F(NearPlane), F(ElapsedMs), Csv(Note));
 
@@ -296,7 +298,7 @@ public sealed partial class GameLoop
         return new BatchResult(specimen.Key, specimen.Kind, specimen.DisplayId,
             specimen.ModelPath, outcome, cameraSource.ToString(), bake.AuthoredRetriedAsBounds,
             bake.Stats.SubjectPixels, bake.Stats.MinRgb, bake.Stats.MaxRgb,
-            bake.Stats.MinAlpha, bake.Stats.MaxAlpha, -1, bake.Framing.Height,
+            bake.Stats.MinAlpha, bake.Stats.MaxAlpha, bake.Stats.MeanLuma, -1, bake.Framing.Height,
             verdict.EyeHeight, verdict.Distance, verdict.FovyDegrees, verdict.NearPlane,
             timer.Elapsed.TotalMilliseconds, note);
     }
@@ -312,7 +314,7 @@ public sealed partial class GameLoop
 
     private static BatchResult SkippedBatchResult(BatchSpecimen specimen, double elapsedMs, string note) =>
         new(specimen.Key, specimen.Kind, specimen.DisplayId, specimen.ModelPath,
-            PortraitOutcome.Skipped, "", false, 0, 0, 0, 0, 0, -1,
+            PortraitOutcome.Skipped, "", false, 0, 0, 0, 0, 0, 0, -1,
             0f, 0f, 0f, 0f, 0f, elapsedMs, note);
 
     private static string FileNameForKey(string key)
@@ -427,8 +429,10 @@ public sealed partial class GameLoop
     private void WriteBatchSummary(bool incomplete, string? error)
     {
         int blanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank);
-        var suspicious = _batchResults.Where(x => x.Outcome == PortraitOutcome.Ready &&
-            (x.SubjectPx < BatchSubjectMin || x.SubjectPx > BatchSubjectMax)).ToArray();
+        var tiny = _batchResults.Where(x => x.Outcome == PortraitOutcome.Ready &&
+            x.SubjectPx < BatchTinySubjectMaxExclusive).OrderBy(x => x.SubjectPx).ToArray();
+        var full = _batchResults.Where(x => x.Outcome == PortraitOutcome.Ready &&
+            x.SubjectPx >= BatchFullSubjectMinInclusive).OrderByDescending(x => x.SubjectPx).ToArray();
         var lines = new List<string>
         {
             $"specimens: {_batchResults.Count}/{_batchSpecimens.Count}",
@@ -437,7 +441,8 @@ public sealed partial class GameLoop
             $"NotDrawn: {_batchResults.Count(x => x.Outcome == PortraitOutcome.NotDrawn)}",
             $"Skipped: {_batchResults.Count(x => x.Outcome == PortraitOutcome.Skipped)}",
             $"G1 blanks: {(blanks == 0 ? "PASS" : "FAIL")} ({blanks})",
-            $"G2 subject band: {suspicious.Length} Ready outside [{BatchSubjectMin}, {BatchSubjectMax}] (informational)",
+            $"tiny: {tiny.Length} Ready below {BatchTinySubjectMaxExclusive} (informational)",
+            $"full: {full.Length} Ready at/above {BatchFullSubjectMinInclusive} (informational)",
             $"durationSeconds: {_batchClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",
             $"clientGitDescribe: {TryGitDescribe()}",
             "startupPath: batch-only GL + MPQ/DBC + creature renderer; login/network/world load skipped",
@@ -452,11 +457,17 @@ public sealed partial class GameLoop
             .ThenBy(x => x.SubjectPx)
             .Take(20)
             .Select(x => $"{x.Key}: {x.Outcome}, subjectPx={x.SubjectPx}, note={x.Note}"));
-        if (suspicious.Length > 0)
+        if (tiny.Length > 0)
         {
             lines.Add("");
-            lines.Add("G2 suspicious:");
-            lines.AddRange(suspicious.Select(x => $"{x.Key}: subjectPx={x.SubjectPx}"));
+            lines.Add("tiny — 20 most extreme:");
+            lines.AddRange(tiny.Take(20).Select(x => $"{x.Key}: subjectPx={x.SubjectPx}"));
+        }
+        if (full.Length > 0)
+        {
+            lines.Add("");
+            lines.Add("full — 20 most extreme:");
+            lines.AddRange(full.Take(20).Select(x => $"{x.Key}: subjectPx={x.SubjectPx}"));
         }
         File.WriteAllLines(Path.Combine(_batchOutputDirectory, "summary.txt"), lines);
     }

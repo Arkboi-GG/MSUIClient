@@ -285,6 +285,38 @@ Stage 2C enumeration evidence:
 
 The booth uses the primary path, not the Player/Target fallback. Its synthetic unit is never inserted into `_entities`; live target and specimen rendering both call `TryBakeCreaturePortrait`. Actual cycling pixels and Blank/NotDrawn worklist remain live-unverified.
 
+# Toolkit Slice 2 — implementation report 2026-07-30
+
+Build status: BUILT+GATES-PASS
+
+## Slice 2 stages completed
+
+| Stage | Status | Commit/summary |
+|---|---|---|
+| 4A | IMPLEMENTED, GATES PASS | Replaced the guessed G2 band with measured tiny/full cohorts and added single-readback subject-pixel `meanLuma` evidence. |
+
+## Slice 2 files touched
+
+| File | New/Edit | What |
+|---|---|---|
+| `MSUIClient/Engine/PortraitRenderTarget.cs` | Edit | Computes subject-only mean luminance inside the existing classification/readback pass. |
+| `MSUIClient/Program.PortraitBatch.cs` | Edit | Adds `meanLuma` after `alphaHi` and measured tiny/full summary cohorts with the 20 most extreme keys. |
+| `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Edit | Adds this Slice 2 stage-boundary record. |
+
+## Slice 2 symbol verification and evidence
+
+- `PortraitRenderTarget.Analyze` is the single FBO readback and subject-classification pass; `ReadbackStats` has no other construction site.
+- The accepted full CSV independently reproduces 10,505 Ready rows, min 250, p1 23,793, p50 45,116, max 65,536, 47 rows below 8,000, and 13 rows at/above 63,000. The p99 calculation method differs slightly (nearest-rank source value versus floor-index 59,077), but both round to the documented ≈59k and do not affect either specified cutoff.
+- Stage 4A's 200-specimen run produced 197 populated Ready `meanLuma` values, `tiny: 1`, `full: 2`, and an empty `diff.txt` against the pre-column `codex-full/verdicts.csv` baseline.
+
+CSV head:
+
+```text
+key,kind,displayId,modelPath,outcome,cameraSource,authoredRetried,subjectPx,rgbLo,rgbHi,alphaLo,alphaHi,meanLuma,pieces,bindPoseHeight,eyeHeight,distance,fovyDeg,nearPlane,elapsedMs,note
+creature:4,creature,4,Creature\CrystalSpider\CrystalSpider.m2,Skipped,,false,0,0,0,0,0,0,-1,0,0,0,0,0,90.2832,model-unavailable
+creature:13,creature,13,Creature\HUFMCitizenLow\HUFMCitizenLow.m2,Ready,Authored,false,50459,0,255,127,255,106.3794,-1,1.9136,0,0,27,0.2222,210.8103,
+```
+
 ## Live checks for Nico
 
 1. Paste one `[portrait] player bake ...` line and confirm the HUD portrait matches

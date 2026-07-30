@@ -11,7 +11,7 @@ namespace MSUIClient.Engine;
 public sealed class PortraitRenderTarget : IDisposable
 {
     public readonly record struct ReadbackStats(int SubjectPixels, byte MinRgb, byte MaxRgb,
-        byte MinAlpha, byte MaxAlpha)
+        byte MinAlpha, byte MaxAlpha, double MeanLuma)
     {
         public bool HasSubject => SubjectPixels >= 128;
         public override string ToString() =>
@@ -121,6 +121,7 @@ public sealed class PortraitRenderTarget : IDisposable
         byte clearB = transparent ? (byte)0 : (byte)10;
         byte clearA = transparent ? (byte)0 : (byte)255;
         int subject = 0;
+        long subjectLumaSum = 0;
         byte minRgb = 255, maxRgb = 0, minAlpha = 255, maxAlpha = 0;
         for (int i = 0; i < rgba.Length; i += 4)
         {
@@ -130,9 +131,14 @@ public sealed class PortraitRenderTarget : IDisposable
             minAlpha = Math.Min(minAlpha, a);
             maxAlpha = Math.Max(maxAlpha, a);
             int colourDelta = Math.Abs(r - clearR) + Math.Abs(g - clearG) + Math.Abs(b - clearB);
-            if (colourDelta > 18 || Math.Abs(a - clearA) > 12) subject++;
+            if (colourDelta > 18 || Math.Abs(a - clearA) > 12)
+            {
+                subject++;
+                subjectLumaSum += r + g + b;
+            }
         }
-        return new ReadbackStats(subject, minRgb, maxRgb, minAlpha, maxAlpha);
+        double meanLuma = subject == 0 ? 0.0 : subjectLumaSum / (3.0 * subject);
+        return new ReadbackStats(subject, minRgb, maxRgb, minAlpha, maxAlpha, meanLuma);
     }
 
     /// <summary>
