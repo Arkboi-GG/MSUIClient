@@ -4,10 +4,27 @@ namespace MSUIClient.Net;
 
 public enum CastTargetKind { SelfImplicit, Unit, Refused }
 
+public enum CastTargetReason
+{
+    ImplicitSelf,
+    UnsupportedTargetShape,
+    SelectedUnit,
+    SelfFallback,
+    NoValidUnit,
+    UnavailableOrPassive,
+    AlreadyQueued,
+    CooldownOrGlobalCooldown,
+    PendingCast,
+    Mounted,
+    TooClose,
+    OutOfRange,
+}
+
 public readonly record struct CastTargetCandidate(
     ulong Guid, bool IsSelf, bool Friendly, bool Attackable, bool Dead);
 
-public readonly record struct CastTargetVerdict(CastTargetKind Kind, ulong Guid = 0);
+public readonly record struct CastTargetVerdict(
+    CastTargetKind Kind, CastTargetReason Reason, ulong Guid = 0);
 
 /// <summary>
 /// Pure build-5875 ArmCast/BindTarget law, transcribed from Benilla ui_action/cast_target.rs.
@@ -42,13 +59,14 @@ public static class CastTargetLaw
         CastTargetCandidate? selection, CastTargetCandidate? self, bool autoSelfCast = true)
     {
         ushort word = TargetMask(spell);
-        if (word == 0) return new(CastTargetKind.SelfImplicit);
-        if ((word & ~UnitBits) != 0) return new(CastTargetKind.Refused);
+        if (word == 0) return new(CastTargetKind.SelfImplicit, CastTargetReason.ImplicitSelf);
+        if ((word & ~UnitBits) != 0)
+            return new(CastTargetKind.Refused, CastTargetReason.UnsupportedTargetShape);
         if (selection is { } selected && ClearSatisfied(word, selected) == 0)
-            return new(CastTargetKind.Unit, selected.Guid);
+            return new(CastTargetKind.Unit, CastTargetReason.SelectedUnit, selected.Guid);
         if (autoSelfCast && self is { } player && ClearSatisfied(word, player) == 0)
-            return new(CastTargetKind.Unit, player.Guid);
-        return new(CastTargetKind.Refused);
+            return new(CastTargetKind.Unit, CastTargetReason.SelfFallback, player.Guid);
+        return new(CastTargetKind.Refused, CastTargetReason.NoValidUnit);
     }
 
     private static ushort ClearSatisfied(ushort word, in CastTargetCandidate candidate)

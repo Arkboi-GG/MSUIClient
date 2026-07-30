@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -82,8 +83,12 @@ public sealed partial class GameLoop
 
     private void TryCast(uint spellId)
     {
-        if (_net is null || _spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell) || spell.Passive)
+        if (_net is null) return;
+        if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell) || spell.Passive)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
             return;
+        }
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         if (spell.AutoRepeat && _autoRepeatSpell == spellId)
         {
@@ -93,28 +98,50 @@ public sealed partial class GameLoop
             _character?.CancelSpellVisual();
             return;
         }
-        if (spell.OnNextSwing && _queuedMeleeSpell == spellId) return;
+        if (spell.OnNextSwing && _queuedMeleeSpell == spellId)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.AlreadyQueued, 0, sent: false);
+            return;
+        }
         if (_actions.IsOnCooldown(spellId, now) || now < _globalCooldownUntil)
-        { RefuseCast("Spell is not ready yet."); return; }
+        {
+            EmitCastVerdict(spellId, CastTargetReason.CooldownOrGlobalCooldown, 0, sent: false);
+            RefuseCast("Spell is not ready yet.");
+            return;
+        }
         if (!spell.AutoRepeat && !spell.OnNextSwing && _pendingCastSpell != 0)
         {
             if (_pendingCastSpell != spellId) RefuseCast("Another action is in progress");
+            EmitCastVerdict(spellId, CastTargetReason.PendingCast, 0, sent: false);
             return;
         }
         if (_entities.TryGet(_net.PlayerGuid, out WorldEntity caster))
         {
             if (caster.Fields.MountDisplayId != 0 && (spell.Attributes & 0x0100_0000u) == 0)
-            { RefuseCast("You are mounted"); return; }
+            {
+                EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: false);
+                RefuseCast("You are mounted");
+                return;
+            }
         }
 
-        if (!TryResolveCastTarget(spell, out ulong target))
+        CastTargetVerdict targetVerdict = ResolveCastTarget(spell);
+        ulong target = targetVerdict.Guid;
+        if (targetVerdict.Kind == CastTargetKind.Refused)
         {
+            EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: false);
             RefuseCast(_selectionGuid == 0 ? "You have no target." : "Invalid target");
             return;
         }
-        if (target == _selectionGuid && target != _net.PlayerGuid && CastRangeRefusal(spell) is { } rangeError)
-        { RefuseCast(rangeError); return; }
+        if (target == _selectionGuid && target != _net.PlayerGuid &&
+            CastRangeRefusal(spell) is { } rangeFailure)
+        {
+            EmitCastVerdict(spellId, rangeFailure.Reason, target, sent: false);
+            RefuseCast(rangeFailure.Text);
+            return;
+        }
         _net.CastSpell(spellId, target);
+        EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: true);
         if (spell.AutoRepeat) _autoRepeatSpell = spellId;
         else if (spell.OnNextSwing) _queuedMeleeSpell = spellId;
         else _pendingCastSpell = spellId;
@@ -127,7 +154,7 @@ public sealed partial class GameLoop
 
     private void RefuseCast(string text) => PushCenterText(text, CenterCombatTextStyle.Damage);
 
-    private string? CastRangeRefusal(in SpellInfo spell)
+    private (string Text, CastTargetReason Reason)? CastRangeRefusal(in SpellInfo spell)
     {
         if (_net is null || _controller is null || _spellCatalog is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
@@ -144,23 +171,31 @@ public sealed partial class GameLoop
             if (min != 0f) min += selfReach + targetReach;
         }
         float d2 = Vector3.DistanceSquared(_controller.Position, target.Position);
-        if (min > 0f && d2 < min * min) return "Target too close";
-        return d2 > max * max ? "Out of range." : null;
+        if (min > 0f && d2 < min * min)
+            return ("Target too close", CastTargetReason.TooClose);
+        return d2 > max * max ? ("Out of range.", CastTargetReason.OutOfRange) : null;
     }
 
     // Benilla cast_target.rs transcribes Spell_C::ArmCast/BindTarget: seed the target word from
     // Spell.dbc Targets, apply EffectImplicitTargetA[0], then satisfy every unit-shaped bit.
     // A hostile selection therefore cannot receive Holy Light; autoSelfCast binds the player.
-    private bool TryResolveCastTarget(in SpellInfo spell, out ulong target)
+    private CastTargetVerdict ResolveCastTarget(in SpellInfo spell)
     {
         CastTargetCandidate? selected = null, self = null;
         if (_selectionGuid != 0 && _entities.TryGet(_selectionGuid, out WorldEntity selectedEntity))
             selected = CastCandidate(selectedEntity, _selectionGuid == _net!.PlayerGuid);
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             self = CastCandidate(player, isSelf: true);
-        CastTargetVerdict verdict = CastTargetLaw.Resolve(spell, selected, self);
-        target = verdict.Guid;
-        return verdict.Kind != CastTargetKind.Refused;
+        return CastTargetLaw.Resolve(spell, selected, self);
+    }
+
+    private void EmitCastVerdict(uint spellId, CastTargetReason reason, ulong resolvedGuid, bool sent)
+    {
+        var verdict = new CastVerdict(
+            NowSeconds(), spellId, reason, _selectionGuid, resolvedGuid, sent);
+        _verdicts.Add(verdict);
+        if (!sent || resolvedGuid != _selectionGuid)
+            Console.WriteLine($"[verdict:cast] {verdict.ToLine()}");
     }
 
     private CastTargetCandidate CastCandidate(WorldEntity candidate, bool isSelf) => new(

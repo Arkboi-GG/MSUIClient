@@ -70,12 +70,18 @@ var wolfTarget = new CastTargetCandidate(2, IsSelf: false, Friendly: false, Atta
 var selfSpellTarget = CastTargetLaw.Resolve(TargetSpell(0, 1), wolfTarget, playerTarget);
 Check(selfSpellTarget.Kind == CastTargetKind.SelfImplicit && selfSpellTarget.Guid == 0,
       "implicit-self spell ignores hostile selection");
+Check(selfSpellTarget.Reason == CastTargetReason.ImplicitSelf,
+      "implicit-self reason");
 var holyLightTarget = CastTargetLaw.Resolve(TargetSpell(0, 21), wolfTarget, playerTarget);
 Check(holyLightTarget.Kind == CastTargetKind.Unit && holyLightTarget.Guid == 1,
       "friendly spell on hostile selection auto-targets player");
+Check(holyLightTarget.Reason == CastTargetReason.SelfFallback,
+      "friendly hostile-selection fallback reason");
 var fireballTarget = CastTargetLaw.Resolve(TargetSpell(0, 6), wolfTarget, playerTarget);
 Check(fireballTarget.Kind == CastTargetKind.Unit && fireballTarget.Guid == 2,
       "hostile spell binds attackable selection");
+Check(fireballTarget.Reason == CastTargetReason.SelectedUnit,
+      "hostile selected-unit reason");
 
 var camera = new Camera
 {

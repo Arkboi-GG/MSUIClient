@@ -1,4 +1,5 @@
 using System.Globalization;
+using MSUIClient.Net;
 
 namespace MSUIClient.Engine;
 
@@ -60,6 +61,21 @@ public readonly record struct PortraitVerdict(
         Time, Subject, Outcome, CameraSource, AuthoredRetriedAsBounds,
         SubjectPixels, RgbLo, RgbHi, AlphaLo, AlphaHi, Pieces, DisplayId,
         BindPoseHeight, EyeHeight, Distance, FovyDegrees, NearPlane);
+}
+
+public readonly record struct CastVerdict(
+    double Time,
+    uint SpellId,
+    CastTargetReason Reason,
+    ulong SelectedGuid,
+    ulong ResolvedGuid,
+    bool Sent) : IVerdict
+{
+    public string Channel => "cast";
+
+    public string ToLine() => string.Format(CultureInfo.InvariantCulture,
+        "time={0:F3} spell={1} reason={2} selected=0x{3:X16} resolved=0x{4:X16} sent={5}",
+        Time, SpellId, Reason, SelectedGuid, ResolvedGuid, Sent);
 }
 
 public sealed class VerdictRing
