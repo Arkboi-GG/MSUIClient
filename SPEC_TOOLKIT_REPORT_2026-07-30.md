@@ -12,13 +12,14 @@ Build status: BUILT+GATES-PASS
 | 1B | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added branch-derived cast-target reasons, cast verdict capture at every existing send/refusal exit, and mechanical reason assertions for the existing pure-law scenarios. |
 | 1C | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Centralized requested-versus-played animation resolution and added always-ringed, transition-latched animation verdicts for player and creature base/action/spell-hold tracks. |
 | 1D | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Unified visible action-button state and drawing through `ActionButtonVerdict`; ring/console output occurs only when usability, range, flashing, or checked state transitions. |
+| 2A | IMPLEMENTED, GATES PASS; LIVE FBO UNVERIFIED | Added tolerant per-model portrait overrides and routed player/creature bounds cameras through default-identical tunings, including explicit authored/bounds forcing. |
 
 ## Files touched
 
 | File | New/Edit | What |
 |---|---|---|
 | `MSUIClient/Engine/Verdicts.cs` | New | `IVerdict`, portrait enums/record, and the 256-entry single-threaded verdict ring. |
-| `MSUIClient/Program.Portraits.cs` | Edit | One verdict ring field and player/target verdict capture from the exact locals used by the existing bake/accept decisions. Existing console lines are unchanged. |
+| `MSUIClient/Program.Portraits.cs` | Edit | Captured player/target verdicts from the existing bake decisions. Stage 2A also loads overrides independently of DevTools, resolves canonical keys, applies force-source precedence, and parameterizes only the existing bounds-camera literals. |
 | `MSUIClient/Program.DevTools.Verdicts.cs` | New | DevTools-only copyable Verdicts panel. |
 | `MSUIClient/Program.cs` | Edit | One call to draw the Verdicts panel inside the existing `_config.DevTools`-gated HUD. |
 | `MSUIClient/Net/CastTargetLaw.cs` | Edit | Added a reason to each existing pure-law exit without changing target resolution. |
@@ -29,7 +30,8 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/World/Units/CreatureRenderer.cs` | Edit | Routed existing per-display creature animation choices through the same resolver and forwarded its results with `creature:<display>` identity. |
 | `MSUIClient/Program.AnimationVerdicts.cs` | New | Captured all resolution results into the ring and emitted warning kinds only when a unit/track choice transitions. |
 | `MSUIClient/Program.Net.cs` | Edit | Connected the gameplay creature renderer to the animation verdict capture sink. |
-| `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis-only provenance and raw v256 camera-header/camera-record output authorized after the required gate failed. No resolver/parser behavior changed. |
+| `MSUIClient/Engine/PortraitTuning.cs` | New | Default-identical tuning record plus case-insensitive, comment/trailing-comma-tolerant `portrait-overrides.json` load/upsert/remove persistence. |
+| `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis provenance/raw v256 camera output plus Stage 2A float-bit assertions for the default bounds-camera tunings. No resolver/parser behavior changed. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | New | This stage-boundary report. |
 
 ## Symbol verification
@@ -61,6 +63,7 @@ Build status: BUILT+GATES-PASS
 | SPEC 01 Stage 1E console identity | Stage 1A explicitly keeps the legacy `[portrait]` console line unchanged and adds no `[verdict:portrait]` stdout line, while 1E asks copied rows to match a verdict console line. | Panel rows use the stable future-channel shape `HH:mm:ss.f [verdict:<channel>] <ToLine()>`; no new console output was invented. Later transition-only channels can use the same `[verdict:<channel>] <ToLine()>` payload, excluding the panel-only wall-clock prefix. |
 | SPEC 01 Stage 1B capture-site citation | The spec names `Program.Casting.cs`, but the sole `CastTargetLaw.Resolve` consumption and `_net.CastSpell` send/refusal path are in `Program.ActionBars.cs`. | Instrumented the actual consumer and its existing local exits. No cast-selection, refusal, or send behavior was changed. |
 | SPEC 01 Stage 1C track values | The spec requires an integer track but does not assign values. | Used the renderer's three real layers: base/locomotion `0`, combat/action `1`, and held spell `2`; documented here and shared by player and creature paths. |
+| SPEC 02 Stage 2A bit-identity evidence | The offline tools cannot execute the live OpenGL portrait FBO and therefore cannot truthfully produce before/after `[portrait]` subject counts. | Confirmed `portrait-overrides.json` is missing and extended the mandatory camera gate to assert the default player target/window/FOV/distance/near and shared yaw/pitch values are float-bit identical to the replaced literals. Rendering and analysis code are unchanged; live FBO numbers remain explicitly unverified. |
 
 ## Findings (bugs noticed, NOT fixed)
 
@@ -194,6 +197,15 @@ No real `[verdict:cast]` line is claimed from the offline gates. The combat-wire
 No real `[verdict:anim]` line is claimed from the offline gates. `Exact` and `BakedOnDemand` are ring-only; `Fallback`, `Missing`, and the currently unreachable `Substituted` tripwire are console-visible only when the `(unit, track, requested, played, kind)` choice changes. The live cast-and-move check remains Nico's verification boundary.
 
 No real `[verdict:action]` line is claimed from the offline gates. The first live draw and later changes emit only on the specified `Usability | Range | Flashing | Checked` state tuple. Range still uses the original squared-distance predicate; `DistanceToTarget` adds a square root for evidence only. Nico's out-of-range, low-power, auto-attack, and same-scenario visual A/B checks remain the verification boundary.
+
+Stage 2A empty-store evidence:
+
+```text
+portrait-overrides.json: MISSING (empty-store path)
+[camera-check] portrait tuning defaults are float-bit identical
+```
+
+No live player/target FBO count is claimed. With no override, the authored path is unchanged and every bounds-camera arithmetic operation receives a default value whose float bits match the former literal; the live before/after `[portrait]` pair remains Nico's verification boundary.
 
 ## Live checks for Nico
 

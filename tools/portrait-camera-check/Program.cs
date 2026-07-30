@@ -13,6 +13,7 @@ string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
     @"Creature\Wolf\Wolf.m2",
 ];
 
+CheckDefaultTuningIdentity();
 using var mpq = new MpqMount(data);
 if (mpq.ArchiveCount == 0) throw new InvalidOperationException($"No MPQs mounted from {data}");
 string[] diagnosticChain = DiagnosticLoadOrder(data).ToArray();
@@ -106,6 +107,43 @@ foreach (string path in models)
 
 if (failed) throw new InvalidDataException("One or more models had no parsed portrait camera; see diagnostics above.");
 Console.WriteLine("portrait camera check passed");
+
+static void CheckDefaultTuningIdentity()
+{
+    PortraitTuning tuning = PortraitTuning.Default;
+    foreach (float modelHeight in new[] { 0.3f, 0.75f, 1.8f, 4.25f, 12f })
+    {
+        float head = MathF.Max(0.3f, modelHeight);
+        float oldTarget = 0.92f * head;
+        float newTarget = tuning.HeadFraction * head;
+        float oldWindow = Math.Clamp(0.34f * head, 0.55f, 1.10f);
+        float newWindow = Math.Clamp(
+            tuning.WindowFraction * head, tuning.WindowMin, tuning.WindowMax);
+        float oldFovy = 0.5f * 180f / MathF.PI;
+        float newFovy = tuning.FovyDegrees;
+        float oldDistance = (oldWindow * 0.5f) /
+            MathF.Tan(oldFovy * 0.5f * MathF.PI / 180f);
+        float newDistance = (newWindow * 0.5f) /
+            MathF.Tan(newFovy * 0.5f * MathF.PI / 180f);
+        SameBits(oldTarget, newTarget, "player target");
+        SameBits(oldWindow, newWindow, "player window");
+        SameBits(oldFovy, newFovy, "player fovy");
+        SameBits(oldDistance, newDistance, "player distance");
+        SameBits(MathF.Max(0.02f, oldDistance - head),
+            MathF.Max(tuning.NearFloor, newDistance - head), "player near");
+    }
+    SameBits(0.42f, tuning.YawOffset, "yaw offset");
+    SameBits(0.02f, tuning.Pitch, "pitch");
+    SameBits(0.5f * 180f / MathF.PI, tuning.FovyDegrees, "creature fovy");
+    Console.WriteLine("[camera-check] portrait tuning defaults are float-bit identical");
+}
+
+static void SameBits(float expected, float actual, string field)
+{
+    if (BitConverter.SingleToInt32Bits(expected) != BitConverter.SingleToInt32Bits(actual))
+        throw new InvalidDataException(
+            $"Default portrait tuning changed {field}: {expected:R} != {actual:R}");
+}
 
 static IEnumerable<string> DiagnosticLoadOrder(string clientDataPath)
 {
