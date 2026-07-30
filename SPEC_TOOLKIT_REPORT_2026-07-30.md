@@ -15,6 +15,7 @@ Build status: BUILT+GATES-PASS
 | 2A | IMPLEMENTED, GATES PASS; LIVE FBO UNVERIFIED | Added tolerant per-model portrait overrides and routed player/creature bounds cameras through default-identical tunings, including explicit authored/bounds forcing. |
 | 2B | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the DevTools Portrait Lab for live Player/Target evidence, tuning, source forcing, persistence, PNG capture, and a dedicated unmasked bake. |
 | 2C | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the offline specimen booth over all resolvable CreatureDisplayInfo rows, text filtering, bracket/button cycling, synthetic entities, and shared live/specimen creature bake law. |
+| 3 | IMPLEMENTED, STANDARD GATES PASS; FULL BATCH G1 FAIL (17 BLANK) | Added in-client `--portrait-batch`, list/limit/diff/unmasked options, complete creature enumeration, shared-path sequential bakes, CSV/PNG/contact-sheet/summary evidence, cache chunking, and meaningful exit codes. Full 10,534-specimen run completed without OOM/hang; its 17 Blank verdicts are preserved as the Portrait Lab worklist. |
 
 ## Files touched
 
@@ -39,6 +40,9 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/World/Units/CreatureRenderer.cs` | Edit | Exposed sorted resolvable display IDs plus normalized model paths for the lab. |
 | `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis provenance/raw v256 camera output, Stage 2A default-tuning bit checks, and Stage 2C specimen/wolf-filter enumeration. No resolver/parser behavior changed. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | New | This stage-boundary report. |
+| `MSUIClient/Program.PortraitBatch.cs` | New | Batch CLI parsing, batch-only startup, sequential shared-path sweep, outputs, diffing, gates, progress, and summary. |
+| `MSUIClient/Engine/PortraitRenderTarget.cs` | Edit | Exposed a top-left-origin RGBA snapshot for CPU contact-sheet composition; `SavePng` consumes the same orientation-normalized bytes. |
+| `.gitignore` | Edit | Ignores regenerable `portrait-batch/` output, which measured 1.28 GiB for the full run. |
 
 ## Symbol verification
 
@@ -58,6 +62,7 @@ Build status: BUILT+GATES-PASS
 | Exact spell-action paths | `CharacterRenderer.BeginSpellVisual/ReleaseSpellVisual`; `CreatureRenderer` `AuthoredExact` and spell-hold branches | Both still request the authored ID with on-demand baking and no Stand fallback. |
 | Action-button state rules | `Program.ActionBars.cs` (`DrawActionBars`, former `SpellActionUsable` and `ActionInRange`) | Usability, range/reach, current/flash, carried-grid, equipped, and stack predicates existed as cited. They now execute once in `ComputeButtonVerdict`. |
 | Portrait Lab host | Existing `_config.DevTools` HUD in `Program.cs` | `DrawPortraitLabPanel()` is adjacent to the Verdicts panel and unreachable when DevTools is false. |
+| Batch startup seam | `Program.Main`, `GameLoop.Load`, `GameLoop.Update` | Batch mode keeps normal window/GL initialization, subscribes only Load/Update/Closing, then initializes MPQ/DBC/creature/portrait resources and never calls `InitNet` or begins world loading. |
 
 ## Deviations
 
@@ -71,6 +76,10 @@ Build status: BUILT+GATES-PASS
 | SPEC 01 Stage 1B capture-site citation | The spec names `Program.Casting.cs`, but the sole `CastTargetLaw.Resolve` consumption and `_net.CastSpell` send/refusal path are in `Program.ActionBars.cs`. | Instrumented the actual consumer and its existing local exits. No cast-selection, refusal, or send behavior was changed. |
 | SPEC 01 Stage 1C track values | The spec requires an integer track but does not assign values. | Used the renderer's three real layers: base/locomotion `0`, combat/action `1`, and held spell `2`; documented here and shared by player and creature paths. |
 | SPEC 02 Stage 2A bit-identity evidence | The offline tools cannot execute the live OpenGL portrait FBO and therefore cannot truthfully produce before/after `[portrait]` subject counts. | Confirmed `portrait-overrides.json` is missing and extended the mandatory camera gate to assert the default player target/window/FOV/distance/near and shared yaw/pitch values are float-bit identical to the replaced literals. Rendering and analysis code are unchanged; live FBO numbers remain explicitly unverified. |
+| SPEC 03 §2 asynchronous streaming | The shared creature portrait path is synchronous: `TryGetModel` calls `LoadModel` inline and exposes no pending state or streaming pump. | Measured the synchronous call. A completed call over 10 seconds is recorded `Skipped/timeout`; cancellation cannot safely interrupt inline GL/model creation. No specimen exceeded the limit in the full run. |
+| SPEC 03 §3 Windows filenames | Keys contain `:`, which is illegal in Windows filenames. | CSV/contact-sheet identities retain exact `creature:<id>` keys; individual files use the reversible safe form `creature-<id>.png`. |
+| SPEC 03 §4 players | Stage 2C found no cheap server-free, naked all-races player construction seam. | Default enumeration remains creatures only; explicit `player:*` list entries emit `Skipped/unsupported-v1`, including the exercised `player:dwarf-male` case. |
+| SPEC 03 §5 G1 target | The complete canonical-data sweep found 17 Blank rows. | Preserved the rows, images, failing `G1 blanks: FAIL (17)` summary, and exit 3 semantics. No framing or parser adjustment was made to chase the gate; these rows are the intended Lab worklist. |
 
 ## Findings (bugs noticed, NOT fixed)
 
@@ -84,6 +93,48 @@ Build status: BUILT+GATES-PASS
 - Resolution is `CreatureDisplayInfo.Id -> ModelId -> CreatureModelData.ModelPath`, with display/model scales and texture/extended-NPC data folded into `CreatureModelInfo` (`CreatureDbc.cs:217-240`). The table currently has `Find` and `Count` but no enumeration surface, even though all rows are already held in `_rows` (`CreatureDbc.cs:31-33`); exposing a read-only row collection is sufficient.
 - Model acquisition is synchronous, not asynchronous: `TryGetModel` calls `LoadModel` immediately on the first cache miss and caches the result (`CreatureRenderer.cs:532-543`). A false portrait draw therefore means unresolved/load failure, not “still streaming”; the lab will retain the one-second retry idiom without claiming asynchronous streaming.
 - Creature names are not present in `CreatureDisplayInfo`/`CreatureModelData`; the cheap specimen label is display ID plus normalized model path. The primary synthetic-entity path is viable, so the Player/Target-only fallback is not needed.
+
+## Stage 3 evidence — batch portrait bake
+
+The smoke protocol produced 20/20 CSV rows, 20 individual portrait PNGs, one
+2048×2048 labeled contact sheet, and `summary.txt`; visual inspection confirmed
+top-left image orientation, row-major cells, circular masking, and bottom-left
+display-ID stamps. Result: 19 Ready, 1 Skipped (`creature:4`, model unavailable),
+0 Blank, exit 0.
+
+The list/diff protocol used `creature:30` plus `player:dwarf-male`. The player row
+was `Skipped/unsupported-v1`. A temporary, subsequently removed bounds override
+changed exactly one diff row:
+
+```text
+[batch-diff] creature:30: Ready/35248 -> Ready/22879
+```
+
+The complete default sweep ran the same in-client shared helper over all 10,534
+resolvable display rows. It completed without OOM or hang, crossing every
+128-specimen cache-release boundary:
+
+```text
+specimens: 10534/10534
+Ready: 10505
+Blank: 17
+NotDrawn: 0
+Skipped: 12
+G1 blanks: FAIL (17)
+G2 subject band: 10261 Ready outside [800, 30000] (informational)
+durationSeconds: 1351.256
+cachePolicy: release creature model/texture cache every 128 specimens
+```
+
+Direct process-code checks returned `2` for an unknown option and `3` for a
+one-entry `creature:860` blank run; the green smoke run returned `0`.
+
+Artifacts: 10,534 individual portrait PNGs, 10,534 CSV rows, 165 contact sheets,
+`summary.txt`, total 1,306.2 MiB under `portrait-batch/codex-full/`. The 17 Blank
+rows comprise ten `AncientProtector` display IDs plus `InvisibleMan`, two
+`MouthofKathune01`, three `PortalofKathune`, and `InvisibleStalkerNoName`. This
+classification is evidence, not a framing-code change. The 12 Skipped rows are
+unavailable models and do not count against G1 by the specified law.
 
 ## DIAGNOSIS — authored M2 cameras missing from the parsed model
 
@@ -253,3 +304,10 @@ SPEC TOOLKIT 02:
    their PNGs (these are the next framing worklist, not bugs to fix now).
 3. Tune one bad one until it looks right, Save override, relog, confirm it held.
 4. Set `devTools:false` — confirm the game looks and behaves exactly as before.
+
+SPEC TOOLKIT 03:
+
+1. Run the full sweep; send the assistant `verdicts.csv` + the first contact sheet +
+   `summary.txt`. (This artifact set replaces screenshot-driven portrait debugging.)
+2. Skim the sheets by eye for anything framed absurdly that the gates didn't flag —
+   name the displayId; it becomes a Lab session, not a code change.

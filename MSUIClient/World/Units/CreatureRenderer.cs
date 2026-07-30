@@ -854,6 +854,15 @@ public sealed class CreatureRenderer : IDisposable
 
     public void Dispose()
     {
+        ClearPortraitCache();
+        foreach (var attachments in _unitAttachments.Values) attachments.Renderer.Dispose();
+        _unitAttachments.Clear();
+        _shader?.Dispose();
+    }
+
+    /// <summary>Release synchronously loaded specimen assets between bounded batch chunks.</summary>
+    public void ClearPortraitCache()
+    {
         foreach (var m in _cache.Values)
         {
             if (m is null) continue;
@@ -864,9 +873,6 @@ public sealed class CreatureRenderer : IDisposable
         _cache.Clear();
         foreach (var t in _texCache.Values) t?.Dispose();
         _texCache.Clear();
-        foreach (var attachments in _unitAttachments.Values) attachments.Renderer.Dispose();
-        _unitAttachments.Clear();
-        _shader?.Dispose();
     }
 
     private const string VertSrc = @"#version 330 core

@@ -89,5 +89,7 @@ Desktop.ini
 scratch/
 # Scene dumps (dev tool output; regenerated on demand)
 dumps/
+# Regenerable pixel evidence from --portrait-batch (often >1 GiB per full run)
+portrait-batch/
 __pycache__/
 *.pyc

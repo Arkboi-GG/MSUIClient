@@ -22,17 +22,25 @@ namespace MSUIClient;
 /// Phase 1: load Northshire straight out of the local MPQs and walk around it.
 /// No asset server, no bake, no HTTP, no coordinate conversion.
 /// </summary>
-public static class Program
+public static partial class Program
 {
     public static int Main(string[] args)
     {
         Console.WriteLine("MSUI Client — VMaNGOS 1.12.1 (build 5875)");
         Console.WriteLine();
 
+        if (!TryParsePortraitBatchArgs(args, out PortraitBatchOptions? portraitBatch,
+                out string? configPath, out string? argumentError))
+        {
+            Console.Error.WriteLine($"[batch] {argumentError}");
+            PrintPortraitBatchUsage();
+            return 2;
+        }
+
         ClientConfig config;
         try
         {
-            config = ClientConfig.Load(args.Length > 0 ? args[0] : null);
+            config = ClientConfig.Load(configPath);
         }
         catch (Exception ex)
         {
@@ -65,14 +73,17 @@ public static class Program
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
         };
 
-        var game = new GameLoop(window, config) { SettingsFile = settings };
+        var game = new GameLoop(window, config, portraitBatch) { SettingsFile = settings };
 
         window.OnLoad += game.Load;
         window.OnUpdate += game.Update;
-        window.OnRender += game.Render;
-        window.OnGui += game.Gui;
-        window.OnOverlay += game.Overlay;
-        window.OnOverlayTop += game.OverlayTop;
+        if (portraitBatch is null)
+        {
+            window.OnRender += game.Render;
+            window.OnGui += game.Gui;
+            window.OnOverlay += game.Overlay;
+            window.OnOverlayTop += game.OverlayTop;
+        }
         window.OnClosing += game.Dispose;
 
         try
@@ -82,11 +93,11 @@ public static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[fatal] {ex}");
-            return 2;
+            return portraitBatch is null ? 2 : 1;
         }
 
         game.Dispose();
-        return 0;
+        return portraitBatch is null ? 0 : game.PortraitBatchExitCode;
     }
 
     /// <summary>
@@ -357,10 +368,11 @@ public sealed partial class GameLoop : IDisposable
                 StringComparison.OrdinalIgnoreCase)
          && _wmo is not null;
 
-    public GameLoop(ClientWindow window, ClientConfig config)
+    public GameLoop(ClientWindow window, ClientConfig config, PortraitBatchOptions? portraitBatch = null)
     {
         _window = window;
         _config = config;
+        _portraitBatchOptions = portraitBatch;
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -368,6 +380,12 @@ public sealed partial class GameLoop : IDisposable
     public void Load(GL gl)
     {
         var startup = Stopwatch.StartNew();
+
+        if (_portraitBatchOptions is not null)
+        {
+            InitPortraitBatch(gl);
+            return;
+        }
 
         _window.Camera.Target = new Vector3(_config.Start.X, _config.Start.Y, _config.Start.Z);
         _window.Camera.Yaw = _config.Start.Orientation;
@@ -1044,6 +1062,12 @@ public sealed partial class GameLoop : IDisposable
 
     public void Update(float dt)
     {
+        if (_portraitBatchOptions is not null)
+        {
+            StepPortraitBatch();
+            return;
+        }
+
         // Frame boundary. Update-entry to Update-entry is the only placement
         // where a frame's Update AND its Render both fall inside the period
         // being measured - see HitchRecorder.FrameBoundary for why the obvious
@@ -2748,6 +2772,8 @@ public sealed partial class GameLoop : IDisposable
         _disposed = true;
 
         _net?.Dispose();
+        _batchPortraitTarget?.Dispose();
+        _batchPortraitTarget = null;
         _glue?.Dispose();
         DisposeGameplayUi();
         DisposePortraits();

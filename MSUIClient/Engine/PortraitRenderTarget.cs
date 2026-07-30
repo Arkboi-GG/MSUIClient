@@ -168,20 +168,31 @@ public sealed class PortraitRenderTarget : IDisposable
     /// <summary>Write the actual FBO pixels for a failed-bake investigation.</summary>
     public void SavePng(string path)
     {
-        byte[] rgba = ReadRgba();
+        byte[] rgba = CaptureRgba();
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         using var bitmap = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
         for (int y = 0; y < Height; y++)
         for (int x = 0; x < Width; x++)
         {
             int i = (y * Width + x) * 4;
-            bitmap.SetPixel(x, Height - 1 - y,
+            bitmap.SetPixel(x, y,
                 new SKColor(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]));
         }
         using SKImage image = SKImage.FromBitmap(bitmap);
         using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
         using FileStream stream = File.Create(path);
         data.SaveTo(stream);
+    }
+
+    /// <summary>Return a top-left-origin RGBA snapshot suitable for CPU composition.</summary>
+    public byte[] CaptureRgba()
+    {
+        byte[] raw = ReadRgba();
+        int stride = Width * 4;
+        byte[] topDown = new byte[raw.Length];
+        for (int y = 0; y < Height; y++)
+            System.Buffer.BlockCopy(raw, y * stride, topDown, (Height - 1 - y) * stride, stride);
+        return topDown;
     }
 
     private unsafe byte[] ReadRgba()
