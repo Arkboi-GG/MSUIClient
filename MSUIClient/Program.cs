@@ -1899,6 +1899,7 @@ public sealed partial class GameLoop : IDisposable
             ImGui.TextDisabled("Esc - game menu / video settings");
 
             DrawUiSkinPanel();
+            DrawVerdictsPanel();
 
             if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
             {

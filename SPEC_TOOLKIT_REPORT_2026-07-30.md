@@ -8,6 +8,7 @@ Build status: BUILT+GATES-PASS
 |---|---|---|
 | Core prerequisite | IMPLEMENTED, GATES PASS | Commit `931f1f2`: restored bounded vanilla-v256 authored-camera parsing, expanded the camera instrument, and corrected false historical verification claims. |
 | 1A | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added verdict infrastructure and captured player/target portrait verdicts at the existing bake decision sites. Stage commit: `toolkit: verdicts-1A portrait verdict ring`. |
+| 1E | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the DevTools Verdicts panel with derived channel filters, text filtering, pause snapshots, bottom-following log rows, and row/visible/tail clipboard actions. Stage commit: `toolkit: verdicts-1E add copyable verdict panel`. |
 
 ## Files touched
 
@@ -15,6 +16,8 @@ Build status: BUILT+GATES-PASS
 |---|---|---|
 | `MSUIClient/Engine/Verdicts.cs` | New | `IVerdict`, portrait enums/record, and the 256-entry single-threaded verdict ring. |
 | `MSUIClient/Program.Portraits.cs` | Edit | One verdict ring field and player/target verdict capture from the exact locals used by the existing bake/accept decisions. Existing console lines are unchanged. |
+| `MSUIClient/Program.DevTools.Verdicts.cs` | New | DevTools-only copyable Verdicts panel. |
+| `MSUIClient/Program.cs` | Edit | One call to draw the Verdicts panel inside the existing `_config.DevTools`-gated HUD. |
 | `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis-only provenance and raw v256 camera-header/camera-record output authorized after the required gate failed. No resolver/parser behavior changed. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | New | This stage-boundary report. |
 
@@ -30,6 +33,7 @@ Build status: BUILT+GATES-PASS
 | `NowSeconds()` | `Program.Casting.cs:347` | Exists as a private static member of the same partial `GameLoop`. |
 | `VisiblePieces` | `World/Units/CharacterRenderer.cs` | Exists for the player renderer. Creature pieces are unavailable at this capture site, so the specified `-1` is used. |
 | `BindPoseHeight()` | `World/Units/CharacterRenderer.cs:409` | Exists for the player. Target framing exposes `Height`, which is recorded as the target bind/framing height. |
+| Existing DevTools HUD | `Program.cs:1885-1903` | The master `_config.DevTools` return and existing main HUD were found; `DrawVerdictsPanel()` is invoked only below that gate. |
 
 ## Deviations
 
@@ -38,6 +42,8 @@ Build status: BUILT+GATES-PASS
 | SPEC 01 Stage 1A mapping note | `ReadbackStats` names the ranges `MinRgb/MaxRgb/MinAlpha/MaxAlpha`, not `RgbLo/RgbHi/AlphaLo/AlphaHi`. | Mirrored the real byte fields into the verdict's integer range fields without synthesizing measurements. |
 | SPEC 00 §4 gate | The prescribed portrait-camera command initially failed because the committed parser never populated `M2Model.PortraitCamera`. | Resolved in the separately approved core commit `931f1f2`; the exact documented counts now pass. |
 | SPEC 01 Stage 1A paper doll | The paper-doll bake has no `Analyze()` call. | Skipped exactly as the spec directs. |
+| SPEC 01 Stage 1E generic timestamp | The specified `IVerdict` shape exposed no timestamp even though every verdict record carries `Time` and the generic panel must format it. | Added `double Time { get; }` to `IVerdict`; positional verdict records satisfy it from the same captured timestamp without reflection or recomputation. |
+| SPEC 01 Stage 1E console identity | Stage 1A explicitly keeps the legacy `[portrait]` console line unchanged and adds no `[verdict:portrait]` stdout line, while 1E asks copied rows to match a verdict console line. | Panel rows use the stable future-channel shape `HH:mm:ss.f [verdict:<channel>] <ToLine()>`; no new console output was invented. Later transition-only channels can use the same `[verdict:<channel>] <ToLine()>` payload, excluding the panel-only wall-clock prefix. |
 
 ## Findings (bugs noticed, NOT fixed)
 

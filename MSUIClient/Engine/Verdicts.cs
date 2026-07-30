@@ -4,6 +4,7 @@ namespace MSUIClient.Engine;
 
 public interface IVerdict
 {
+    double Time { get; }
     string Channel { get; }
     string ToLine();
 }
