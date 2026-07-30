@@ -294,6 +294,7 @@ Build status: BUILT+GATES-PASS
 | Stage | Status | Commit/summary |
 |---|---|---|
 | 4A | IMPLEMENTED, GATES PASS | Replaced the guessed G2 band with measured tiny/full cohorts and added single-readback subject-pixel `meanLuma` evidence. |
+| 4B | IMPLEMENTED, GATES PASS | Added the two-entry expected-blank allowlist and separated expected from unexpected G1 failures without changing any portrait pixels or framing. |
 
 ## Slice 2 files touched
 
@@ -301,6 +302,7 @@ Build status: BUILT+GATES-PASS
 |---|---|---|
 | `MSUIClient/Engine/PortraitRenderTarget.cs` | Edit | Computes subject-only mean luminance inside the existing classification/readback pass. |
 | `MSUIClient/Program.PortraitBatch.cs` | Edit | Adds `meanLuma` after `alphaHi` and measured tiny/full summary cohorts with the 20 most extreme keys. |
+| `portrait-expected-blank.txt` | New | Exactly `creature:15435` and `creature:16925`, each with its required invisible-by-design reason. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Edit | Adds this Slice 2 stage-boundary record. |
 
 ## Slice 2 symbol verification and evidence
@@ -308,6 +310,7 @@ Build status: BUILT+GATES-PASS
 - `PortraitRenderTarget.Analyze` is the single FBO readback and subject-classification pass; `ReadbackStats` has no other construction site.
 - The accepted full CSV independently reproduces 10,505 Ready rows, min 250, p1 23,793, p50 45,116, max 65,536, 47 rows below 8,000, and 13 rows at/above 63,000. The p99 calculation method differs slightly (nearest-rank source value versus floor-index 59,077), but both round to the documented ≈59k and do not affect either specified cutoff.
 - Stage 4A's 200-specimen run produced 197 populated Ready `meanLuma` values, `tiny: 1`, `full: 2`, and an empty `diff.txt` against the pre-column `codex-full/verdicts.csv` baseline.
+- Stage 4B's full sweep completed 10,534/10,534 in 1,407.2 seconds: 10,505 Ready, 17 Blank, 12 Skipped, `G1 blanks (unexpected): 15 (FAIL)`, `expected-blank: 2`, `tiny: 47`, and `full: 13`. The only expected keys are `creature:15435` and `creature:16925`; AncientProtector and Kathune remain unexpected. The process retained exit 3.
 
 CSV head:
 

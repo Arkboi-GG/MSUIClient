@@ -103,6 +103,7 @@ public sealed partial class GameLoop
     private readonly List<BatchSpecimen> _batchSpecimens = [];
     private readonly List<BatchResult> _batchResults = [];
     private readonly List<(string Key, byte[] Rgba)> _batchSheetCells = [];
+    private readonly HashSet<string> _batchExpectedBlank = new(StringComparer.OrdinalIgnoreCase);
     private string _batchOutputDirectory = "";
     private int _batchIndex;
     private int _batchSheetIndex;
@@ -150,6 +151,7 @@ public sealed partial class GameLoop
                     CultureInfo.InvariantCulture)));
             Directory.CreateDirectory(_batchOutputDirectory);
             BuildBatchSpecimenList(options);
+            LoadExpectedBlankList();
             _batchClock = Stopwatch.StartNew();
             Console.WriteLine($"[batch] ready: {_batchSpecimens.Count} specimen(s), " +
                               $"out={_batchOutputDirectory}, masked={!options.Unmasked}");
@@ -205,6 +207,32 @@ public sealed partial class GameLoop
 
         if (options.Limit is { } limit && _batchSpecimens.Count > limit)
             _batchSpecimens.RemoveRange(limit, _batchSpecimens.Count - limit);
+    }
+
+    private void LoadExpectedBlankList()
+    {
+        string path = Path.Combine(_config.RepoRoot, "portrait-expected-blank.txt");
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"[batch] expected-blank list missing: {path}");
+            return;
+        }
+
+        var known = (_creatures?.PortraitSpecimens ?? Array.Empty<CreatureRenderer.PortraitSpecimen>())
+            .Select(x => CreaturePortraitKey(x.DisplayId))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string sourceLine in File.ReadLines(path))
+        {
+            string key = sourceLine.Split('#', 2)[0].Trim();
+            if (key.Length == 0) continue;
+            if (!known.Contains(key))
+            {
+                Console.WriteLine($"[batch] expected-blank unknown key: {key}");
+                continue;
+            }
+            _batchExpectedBlank.Add(key);
+        }
+        Console.WriteLine($"[batch] expected-blank entries={_batchExpectedBlank.Count}");
     }
 
     private void StepPortraitBatch()
@@ -413,7 +441,8 @@ public sealed partial class GameLoop
                 new[] { BatchCsvHeader }.Concat(_batchResults.Select(x => x.CsvLine)));
             WriteBatchDiff();
             WriteBatchSummary(incomplete, error);
-            int blanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank);
+            int blanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank &&
+                !_batchExpectedBlank.Contains(x.Key));
             PortraitBatchExitCode = incomplete ? 1 : blanks == 0 ? 0 : 3;
             Console.WriteLine($"[batch] complete: {_batchResults.Count}/{_batchSpecimens.Count}, " +
                               $"blanks={blanks}, exit={PortraitBatchExitCode}");
@@ -428,7 +457,10 @@ public sealed partial class GameLoop
 
     private void WriteBatchSummary(bool incomplete, string? error)
     {
-        int blanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank);
+        int blanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank &&
+            !_batchExpectedBlank.Contains(x.Key));
+        int expectedBlanks = _batchResults.Count(x => x.Outcome == PortraitOutcome.Blank &&
+            _batchExpectedBlank.Contains(x.Key));
         var tiny = _batchResults.Where(x => x.Outcome == PortraitOutcome.Ready &&
             x.SubjectPx < BatchTinySubjectMaxExclusive).OrderBy(x => x.SubjectPx).ToArray();
         var full = _batchResults.Where(x => x.Outcome == PortraitOutcome.Ready &&
@@ -437,10 +469,11 @@ public sealed partial class GameLoop
         {
             $"specimens: {_batchResults.Count}/{_batchSpecimens.Count}",
             $"Ready: {_batchResults.Count(x => x.Outcome == PortraitOutcome.Ready)}",
-            $"Blank: {blanks}",
+            $"Blank: {blanks + expectedBlanks}",
             $"NotDrawn: {_batchResults.Count(x => x.Outcome == PortraitOutcome.NotDrawn)}",
             $"Skipped: {_batchResults.Count(x => x.Outcome == PortraitOutcome.Skipped)}",
-            $"G1 blanks: {(blanks == 0 ? "PASS" : "FAIL")} ({blanks})",
+            $"G1 blanks (unexpected): {blanks} ({(blanks == 0 ? "PASS" : "FAIL")})",
+            $"expected-blank: {expectedBlanks}",
             $"tiny: {tiny.Length} Ready below {BatchTinySubjectMaxExclusive} (informational)",
             $"full: {full.Length} Ready at/above {BatchFullSubjectMinInclusive} (informational)",
             $"durationSeconds: {_batchClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",

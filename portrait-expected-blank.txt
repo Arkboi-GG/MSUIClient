@@ -1,0 +1,6 @@
+# Specimens that are BLANK by design (invisible/utility models).
+# One key per line, mandatory trailing comment stating the reason.
+# G1 counts only blanks NOT listed here; allowlisted blanks are reported
+# separately in summary as "expected-blank: N".
+creature:15435   # InvisibleMan — invisible by design
+creature:16925   # InvisibleStalkerNoName — invisible by design
