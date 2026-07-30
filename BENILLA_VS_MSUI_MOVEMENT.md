@@ -220,3 +220,19 @@ happened to be (0, from `Start.Orientation`). Same for the ctor initializer at P
 7. Step height 1.0 → 0.7, slope 55° → 50°.
 8. Swim.
 9. Capsule sweep to replace the single horizontal ray.
+
+## 2026-07-30 09:00 spell-animation correction
+
+The reported “movement freezes after casting” case had a narrower, presentation-level cause than
+the broader movement work above. A requested spell animation could be absent from the animator's
+already-baked clips. The exact spell-action path then substituted Stand, so locomotion input could
+continue while the model appeared stalled.
+
+`M2Animator.FindOrBake` now obtains the requested clip on demand. Exact player and creature spell
+paths no longer treat Stand as an acceptable missing-spell fallback, and control returns to the
+movement-driven base state after the one-shot. This follows Benilla's exact spell action/return law
+in `crates/benilla/src/creature_anim/spell_visual.rs` (approximately lines 420–670).
+
+This does not close the structural movement items above. Live sign-off must specifically cast while
+stationary, begin moving during/after recovery, and confirm that the correct walk/run clip resumes
+without a Stand latch.

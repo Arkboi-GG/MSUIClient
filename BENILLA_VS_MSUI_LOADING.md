@@ -309,3 +309,15 @@ Corroborating docs (your own): `SYSTEM_STREAMING.md §3, §5A.14, §6`; `PLAN_08
 `PROJECT_HANDBOOK.md §3.20 (terrain 4.7→0.4s, buildings 27.2→0.9s, doodads 26.9→13.1s), §3.24, §3.32`.
 Note: your docs' reference client is "WoWee", not benilla — the two happen to reach the same
 budgeted-streaming conclusion.
+
+## 2026-07-30 09:00 transition correction
+
+This document primarily explains asset-streaming latency. A separate presentation defect was found
+during the later live UI review: Enter World could wait for asynchronous verification before the
+loading cover was armed, allowing a dialog or gameplay action bar to appear briefly.
+
+`ArmEnterWorldCurtain` now raises the loading cover at the button click. World-ready state continues
+to decide when the cover may come down; the change does not pretend loading is complete or bypass
+server/world initialization. Required live proof is a frame-clean transition from character select
+to the loading screen, with no intervening dialog or gameplay HUD. See
+`July-30-20206-9AM-HANDOFF.md` for the full review chronology.

@@ -162,3 +162,11 @@ GameObject chest loot (`CMSG_GAMEOBJ_USE`, a different opcode family).
 - The kneel is a one-shot (plays once, ~0.5 s); the reference holds the kneel while the
   window is open. A hold mechanism (like `_spellHold`) is a possible polish follow-up.
 - Loot-row count text uses the default font size (matches the bag windows' idiom).
+
+## 09:00 follow-up handoff
+
+The later live-feedback correction pass is documented in `July-30-20206-9AM-HANDOFF.md`. It adds
+the additive-art correction, Character micro portrait layering, bag state behavior, friendly-spell
+target law, post-cast animation recovery, selected-character persistence and immediate Enter World
+loading cover. Those changes supersede this session note's no-compiler boundary: the current tree
+builds and the targeted cast-target-law tests pass, while the listed live checks remain required.

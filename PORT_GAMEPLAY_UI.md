@@ -4235,3 +4235,26 @@ Full session detail in `PORT_SESSION_2026-07-30.md`; SYSTEM_GAMEPLAY_UI.md is at
 Validation boundary: authored and adversarially reviewed WITHOUT a compiler or live realm (no .NET
 SDK reachable from the sandbox). `dotnet build` is the first gate; SYSTEM_GAMEPLAY_UI.md's live
 checklist (items 1, 2, 3, 3b) is the sign-off.
+
+## Implementation update — 09:00 corrective pass (2026-07-30)
+
+This update supersedes the preceding no-compiler statement: the current tree builds and the targeted
+cast-target-law tests pass. Live rendering and realm behavior are still the final authority.
+
+- Additive FrameXML layers now use `GameplayArt.AdditiveHandle` for action, micro, bag, loot,
+  equipped-border and casting spark/flash art. This fixes the common alpha-composition failure that
+  produced dark spell hovers and a black-backed cast spark. Reference: `ActionBar.xml` 588–641,
+  `BagFrame.xml` 1233–1424, `CastingBarFrame.xml` 215–225 and `MicroMenu.xml`.
+- The Character micro portrait is drawn in the authored layer order (`MicroMenu.xml` 161–199,
+  244–257), and bag hover/open/tooltip behavior follows `BagFrame.xml` 643–680 and 1233–1424.
+- `Net/CastTargetLaw.cs` ports the target-shape decision from `ui_action/cast_target.rs`: helpful
+  unit casts cannot be sent to a hostile wolf; self-capable casts fall back to the player and
+  unsupported target forms are refused locally.
+- `M2Animator.FindOrBake` and the exact player/creature spell paths prevent missing spell clips from
+  substituting Stand and visually freezing locomotion. Reference: `creature_anim/spell_visual.rs`
+  420–670.
+- The selected character GUID is persisted as an explicit product requirement. Enter World raises
+  its loading curtain on click so gameplay UI cannot flash during asynchronous entry checks.
+
+The full chronology, code rationale, proof map and required live checklist are recorded in
+`July-30-20206-9AM-HANDOFF.md`.

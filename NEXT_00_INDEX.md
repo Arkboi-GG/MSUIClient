@@ -1,5 +1,13 @@
 # NEXT — gameplay-UI fix handoff (2026-07-30, from a live 1.12-vs-MSUI screenshot pass)
 
+> **Superseded status note (2026-07-30 09:00):** this is the original research handoff, not the
+> current implementation status. The later live review explicitly rejected floating target plates,
+> accepted the flush bar and purple XP bar, and produced additional corrections for additive button
+> art, cast targeting, spell animation recovery, selected-character persistence, and immediate
+> loading cover. Use `July-30-20206-9AM-HANDOFF.md` and `SYSTEM_GAMEPLAY_UI.md` for current status.
+> The statement below that nothing was compiled is historical; the current tree has since been
+> built and its targeted cast-target tests pass.
+
 Seven defects Nico flagged by comparing a live MSUI screenshot (Dwarf "Dwfpala" in Coldridge
 Valley) against the real 1.12 client. **Each doc below finds the benilla source with
 file:line proof, states the current MSUI gap, and gives a concrete implementation spec.** All
