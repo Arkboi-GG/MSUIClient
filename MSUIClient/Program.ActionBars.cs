@@ -26,6 +26,8 @@ public sealed partial class GameLoop
     private double _globalCooldownUntil;
     private int _actionPage = 1;
     private const int ActionPageCount = 6;
+    private readonly ActionButtonVerdict?[] _lastActionButtonVerdicts =
+        new ActionButtonVerdict?[120];
 
     private static readonly Key[] ActionKeys =
     [
@@ -245,12 +247,18 @@ public sealed partial class GameLoop
             Vector2 buttonMax = buttonMin + new Vector2(36f, 36f) * scale;
             ActionSlot? slot = _actions[wireSlot];
 
+            ImGui.SetCursorScreenPos(buttonMin);
+            bool clicked = ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin);
+            bool hovered = ImGui.IsItemHovered();
+            bool activated = ImGui.IsItemActivated();
+            bool pushed = ImGui.IsItemActive() || _window.IsDown(ActionKeys[i]);
+            if (hovered) hoveredSlot = wireSlot;
+
             if (slot is { } action)
             {
                 string iconPath = @"Interface\Icons\INV_Misc_QuestionMark.blp";
                 string title = $"Action {action.ActionId}";
                 SpellInfo? spellInfo = null;
-                ItemTemplate? itemInfo = null;
                 if (action.Kind == ActionSlot.Spell && _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true)
                 {
                     spellInfo = spell;
@@ -259,7 +267,6 @@ public sealed partial class GameLoop
                 }
                 else if (action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null)
                 {
-                    itemInfo = item;
                     iconPath = item.IconPath;
                     title = item.Name;
                 }
@@ -267,43 +274,28 @@ public sealed partial class GameLoop
                 // ── the reference three-way usability verdict (ActionButton_UpdateUsable) ──
                 // usable: icon+ring white; not enough power: icon+ring (0.5,0.5,1);
                 // otherwise unusable: icon (0.4,0.4,0.4), ring reset to white.
-                bool usable = true, oom = false;
-                int itemCount = 0;
-                bool equipped = false;
-                if (player is { } p)
+                ActionButtonVerdict verdict = ComputeButtonVerdict(
+                    wireSlot, action, spellInfo, player, pushed, hovered, gridShown);
+                EmitActionButtonVerdict(verdict);
+                uint iconTint = verdict.Usability switch
                 {
-                    if (spellInfo is { } sp) (usable, oom) = SpellActionUsable(sp, p);
-                    else if (action.Kind == ActionSlot.Item)
-                    {
-                        itemCount = CountItemInBags(p, action.ActionId);
-                        equipped = IsItemEquipped(p, action.ActionId);
-                        usable = itemCount > 0 || equipped;
-                    }
-                }
-                uint iconTint = oom ? 0xffff8080u : usable ? 0xffffffffu : 0xff666666u;
+                    ButtonUsability.NotEnoughPower => 0xffff8080u,
+                    ButtonUsability.Usable => 0xffffffffu,
+                    _ => 0xff666666u,
+                };
                 uint icon = _gameplayArt.Handle(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax, Vector2.Zero, Vector2.One, iconTint);
 
-                // current / auto-repeat state (CheckedTexture + red flash)
-                bool isAttack = spellInfo is { Id: 6603 };
-                bool engaged = _combat.IsEngaged(_net.PlayerGuid);
-                bool autoRepeat = spellInfo is { } s2 && s2.Id == _autoRepeatSpell;
-                bool current = (isAttack && engaged) || autoRepeat ||
-                               (spellInfo is { } s3 && (s3.Id == _pendingCastSpell || s3.Id == _queuedMeleeSpell));
-                if (((isAttack && engaged) || autoRepeat) && flashPhase)
+                if (verdict.Flashing && flashPhase)
                 {
                     uint flash = _gameplayArt.Handle(@"Interface\Buttons\UI-QuickslotRed");
                     if (flash != 0) dl.AddImage((nint)flash, buttonMin, buttonMax);
                 }
 
-                float cooldown = action.Kind == ActionSlot.Spell
-                    ? _actions.CooldownFraction(action.ActionId, now) : 0f;
+                float cooldown = verdict.IsItem ? 0f : _actions.CooldownFraction(verdict.ActionId, now);
                 if (cooldown > 0f) DrawCooldownSwipe(dl, buttonMin, buttonMax, cooldown);
 
-                ImGui.SetCursorScreenPos(buttonMin);
-                bool clicked = ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin);
-                if (ImGui.IsItemHovered()) hoveredSlot = wireSlot;
-                if (ImGui.IsItemActivated())
+                if (activated)
                 {
                     _pressedActionSlot = wireSlot;
                     _actionPressPosition = ImGui.GetIO().MousePos;
@@ -312,13 +304,12 @@ public sealed partial class GameLoop
                     UseAction(wireSlot);
 
                 // PUSHED replaces the normal state while the mouse or the bound key is down.
-                bool pushed = ImGui.IsItemActive() || _window.IsDown(ActionKeys[i]);
-                if (pushed)
+                if (verdict.Pushed)
                 {
                     uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");
                     if (depress != 0) dl.AddImage((nint)depress, buttonMin, buttonMax);
                 }
-                if (ImGui.IsItemHovered())
+                if (verdict.Hover)
                 {
                     uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
                     if (highlight != 0) dl.AddImage((nint)highlight, buttonMin, buttonMax);
@@ -327,12 +318,12 @@ public sealed partial class GameLoop
                     ImGui.TextDisabled($"Action {wireSlot + 1}");
                     ImGui.EndTooltip();
                 }
-                if (current)
+                if (verdict.Checked)
                 {
                     uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
                     if (check != 0) dl.AddImage((nint)check, buttonMin, buttonMax);
                 }
-                if (equipped)
+                if (verdict.EquippedBorder)
                 {
                     uint border = _gameplayArt.AdditiveHandle(@"Interface\Buttons\UI-ActionButton-Border");
                     if (border != 0)
@@ -346,25 +337,26 @@ public sealed partial class GameLoop
 
                 // The oom blue tints icon AND ring; grey-unusable resets the ring to white.
                 DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
-                    oom ? 0xffff8080u : 0xffffffffu);
+                    verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
 
                 // Hotkey: red (1.0,0.1,0.1) while the selection is out of range, grey otherwise.
-                uint hotkeyColor = 0xff999999;
-                if (spellInfo is { } rangeSpell && ActionInRange(rangeSpell) == false)
-                    hotkeyColor = 0xff1a1aff;
+                uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
+                    ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin, ActionLabels[i], scale, hotkeyColor);
 
-                if (itemInfo is not null && itemCount > 0)
-                    DrawActionCount(dl, buttonMax, itemCount, scale);
+                if (verdict.IsItem && verdict.StackCount > 0)
+                    DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
             }
             else
             {
-                ImGui.SetCursorScreenPos(buttonMin);
-                if (ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin))
-                    PlaceCarriedItemOnAction(wireSlot);
-                if (ImGui.IsItemHovered()) hoveredSlot = wireSlot;
+                ActionButtonVerdict verdict = ComputeButtonVerdict(
+                    wireSlot, null, null, player, pushed, hovered, gridShown);
+                EmitActionButtonVerdict(verdict);
+                if (clicked) PlaceCarriedItemOnAction(wireSlot);
                 DrawSlotRing(dl, buttonMin, buttonMax,
-                    gridShown ? @"Interface\Buttons\UI-Quickslot" : @"Interface\Buttons\UI-Quickslot2", scale);
+                    verdict.CarriedGrid
+                        ? @"Interface\Buttons\UI-Quickslot"
+                        : @"Interface\Buttons\UI-Quickslot2", scale);
                 DrawActionText(dl, buttonMin, ActionLabels[i], scale, 0xff999999);
             }
         }
@@ -708,35 +700,81 @@ public sealed partial class GameLoop
         dl.AddText(font, size, pos, 0xffffffff, text);
     }
 
-    /// <summary>
-    /// The power leg of the reference usable walk (benilla usable.rs:172-186): dead is grey;
-    /// cost = ManaCost + base * ManaCostPercent / 100, where base is BASE_MANA for power type
-    /// mana and MAXPOWER for the rest; short power reads blue (oom), everything else white.
-    /// The other eleven gates (reagents, stances, aura states…) are later port slices.
-    /// </summary>
-    private static (bool Usable, bool Oom) SpellActionUsable(in SpellInfo spell, WorldEntity player)
+    private ActionButtonVerdict ComputeButtonVerdict(
+        int slot,
+        ActionSlot? action,
+        SpellInfo? spell,
+        WorldEntity? player,
+        bool pushed,
+        bool hover,
+        bool carriedGrid)
     {
-        if (player.IsDead) return (false, false);
-        byte powerType = (byte)spell.PowerType;
-        uint baseAmount = spell.ManaCostPercent == 0 ? 0u
-            : powerType == 0 ? player.Fields.BaseMana
-            : player.Fields.MaxPower(powerType);
-        uint cost = spell.ManaCost + baseAmount * spell.ManaCostPercent / 100;
-        if (cost > 0 && player.Fields.Power(powerType) < cost) return (false, true);
-        return (true, false);
+        bool isItem = action is { Kind: ActionSlot.Item };
+        uint actionId = action?.ActionId ?? 0;
+        ButtonUsability usability = action is null ? ButtonUsability.Unusable : ButtonUsability.Usable;
+        int powerCost = 0, currentPower = 0, baseMana = 0, stackCount = 0;
+        bool equipped = false;
+
+        if (player is { } p)
+        {
+            baseMana = (int)Math.Min(p.Fields.BaseMana, int.MaxValue);
+            if (spell is { } sp)
+            {
+                if (p.IsDead)
+                {
+                    usability = ButtonUsability.Unusable;
+                }
+                else
+                {
+                    byte powerType = (byte)sp.PowerType;
+                    uint baseAmount = sp.ManaCostPercent == 0 ? 0u
+                        : powerType == 0 ? p.Fields.BaseMana
+                        : p.Fields.MaxPower(powerType);
+                    uint cost = sp.ManaCost + baseAmount * sp.ManaCostPercent / 100;
+                    uint power = p.Fields.Power(powerType);
+                    powerCost = (int)Math.Min(cost, int.MaxValue);
+                    currentPower = (int)Math.Min(power, int.MaxValue);
+                    if (cost > 0 && power < cost)
+                        usability = ButtonUsability.NotEnoughPower;
+                }
+            }
+            else if (isItem)
+            {
+                stackCount = CountItemInBags(p, actionId);
+                equipped = IsItemEquipped(p, actionId);
+                usability = stackCount > 0 || equipped
+                    ? ButtonUsability.Usable : ButtonUsability.Unusable;
+            }
+        }
+
+        ButtonRange range = ButtonRange.NoCheck;
+        int rangeIndex = spell is { } indexed
+            ? (int)Math.Min(indexed.RangeIndex, int.MaxValue) : 0;
+        float rangeMin = 0f, rangeMax = 0f, distance = -1f;
+        if (spell is { } rangeSpell)
+            (range, rangeMin, rangeMax, distance) = ComputeButtonRange(rangeSpell);
+
+        bool isAttack = spell is { Id: 6603 };
+        bool engaged = isAttack && _net is not null && _combat.IsEngaged(_net.PlayerGuid);
+        bool autoRepeat = spell is { } repeat && repeat.Id == _autoRepeatSpell;
+        bool checkedState = engaged || autoRepeat ||
+            (spell is { } pending &&
+             (pending.Id == _pendingCastSpell || pending.Id == _queuedMeleeSpell));
+
+        return new ActionButtonVerdict(
+            NowSeconds(), slot, isItem, actionId, usability, range,
+            pushed, hover, checkedState, engaged || autoRepeat, carriedGrid, equipped,
+            powerCost, currentPower, baseMana, rangeIndex, rangeMin, rangeMax, distance, stackCount);
     }
 
-    /// <summary>
-    /// Range verdict against the current selection (benilla state.rs resolve_range): melee rows
-    /// use edge-to-edge reach max(selfReach+targetReach+1.3333, 5.0); ranged rows widen both
-    /// ends by the reaches, the min only when it is non-zero. Null = no gate (never reddens).
-    /// </summary>
-    private bool? ActionInRange(in SpellInfo spell)
+    private (ButtonRange Range, float Min, float Max, float Distance)
+        ComputeButtonRange(in SpellInfo spell)
     {
         if (_net is null || _controller is null || _spellCatalog is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row))
-            return null;
+            return (ButtonRange.NoCheck, 0f, 0f, -1f);
+
         float selfReach = _entities.TryGet(_net.PlayerGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
@@ -748,12 +786,31 @@ public sealed partial class GameLoop
         }
         else
         {
-            if (min <= 0f && max <= 0f) return null; // self/no-range row: no gate
+            if (min <= 0f && max <= 0f)
+                return (ButtonRange.NoCheck, min, max, -1f);
             max += selfReach + targetReach;
             if (min != 0f) min += selfReach + targetReach;
         }
-        float d2 = Vector3.DistanceSquared(_controller.Position, target.Position);
-        return d2 >= min * min && d2 <= max * max;
+
+        float distanceSquared = Vector3.DistanceSquared(_controller.Position, target.Position);
+        float distance = MathF.Sqrt(distanceSquared);
+        ButtonRange range = distanceSquared >= min * min && distanceSquared <= max * max
+            ? ButtonRange.InRange : ButtonRange.OutOfRange;
+        return (range, min, max, distance);
+    }
+
+    private void EmitActionButtonVerdict(in ActionButtonVerdict verdict)
+    {
+        ActionButtonVerdict? previous = _lastActionButtonVerdicts[verdict.Slot];
+        bool changed = previous is not { } old ||
+            old.Usability != verdict.Usability ||
+            old.Range != verdict.Range ||
+            old.Flashing != verdict.Flashing ||
+            old.Checked != verdict.Checked;
+        _lastActionButtonVerdicts[verdict.Slot] = verdict;
+        if (!changed) return;
+        _verdicts.Add(verdict);
+        Console.WriteLine($"[verdict:action] {verdict.ToLine()}");
     }
 
     /// <summary>Total stack count of an item entry across the backpack and equipped bags

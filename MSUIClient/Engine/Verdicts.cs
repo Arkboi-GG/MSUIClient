@@ -95,6 +95,42 @@ public readonly record struct AnimChoice(
         Time, Unit, Track, RequestedId, PlayedId, Kind);
 }
 
+public enum ButtonUsability { Usable, NotEnoughPower, Unusable }
+public enum ButtonRange { NoCheck, InRange, OutOfRange }
+
+public readonly record struct ActionButtonVerdict(
+    double Time,
+    int Slot,
+    bool IsItem,
+    uint ActionId,
+    ButtonUsability Usability,
+    ButtonRange Range,
+    bool Pushed,
+    bool Hover,
+    bool Checked,
+    bool Flashing,
+    bool CarriedGrid,
+    bool EquippedBorder,
+    int PowerCost,
+    int CurrentPower,
+    int BaseMana,
+    int RangeIndex,
+    float RangeMin,
+    float RangeMax,
+    float DistanceToTarget,
+    int StackCount) : IVerdict
+{
+    public string Channel => "action";
+
+    public string ToLine() => string.Format(CultureInfo.InvariantCulture,
+        "time={0:F3} slot={1} {2}={3} usable={4} range={5} pushed={6} hover={7} " +
+        "checked={8} flashing={9} grid={10} equipped={11} cost={12} power={13} " +
+        "baseMana={14} rangeIndex={15} min={16:F2} max={17:F2} dist={18:F2} stack={19}",
+        Time, Slot, IsItem ? "item" : "spell", ActionId, Usability, Range, Pushed, Hover,
+        Checked, Flashing, CarriedGrid, EquippedBorder, PowerCost, CurrentPower, BaseMana,
+        RangeIndex, RangeMin, RangeMax, DistanceToTarget, StackCount);
+}
+
 public sealed class VerdictRing
 {
     private const int Capacity = 256;

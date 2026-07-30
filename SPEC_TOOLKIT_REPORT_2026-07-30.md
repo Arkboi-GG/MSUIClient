@@ -11,6 +11,7 @@ Build status: BUILT+GATES-PASS
 | 1E | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the DevTools Verdicts panel with derived channel filters, text filtering, pause snapshots, bottom-following log rows, and row/visible/tail clipboard actions. Stage commit: `toolkit: verdicts-1E add copyable verdict panel`. |
 | 1B | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added branch-derived cast-target reasons, cast verdict capture at every existing send/refusal exit, and mechanical reason assertions for the existing pure-law scenarios. |
 | 1C | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Centralized requested-versus-played animation resolution and added always-ringed, transition-latched animation verdicts for player and creature base/action/spell-hold tracks. |
+| 1D | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Unified visible action-button state and drawing through `ActionButtonVerdict`; ring/console output occurs only when usability, range, flashing, or checked state transitions. |
 
 ## Files touched
 
@@ -21,7 +22,7 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/Program.DevTools.Verdicts.cs` | New | DevTools-only copyable Verdicts panel. |
 | `MSUIClient/Program.cs` | Edit | One call to draw the Verdicts panel inside the existing `_config.DevTools`-gated HUD. |
 | `MSUIClient/Net/CastTargetLaw.cs` | Edit | Added a reason to each existing pure-law exit without changing target resolution. |
-| `MSUIClient/Program.ActionBars.cs` | Edit | Captured cast verdicts from the existing send/refusal locals; accepted casts remain console-silent unless the resolved target differs from the selection. |
+| `MSUIClient/Program.ActionBars.cs` | Edit | Captured cast verdicts from the existing send/refusal locals. Stage 1D also moved the existing per-button predicates into `ComputeButtonVerdict`; stateful drawing now consumes that result directly. |
 | `tools/combat-wire-check/Program.cs` | Edit | Added one expected-reason assertion to each existing cast-target scenario; no new scenario was added. |
 | `MSUIClient/World/Units/M2Animator.cs` | Edit | Added the single runtime resolution point that classifies cached exact, on-demand bake, explicit authored fallback, or missing without changing clip order. |
 | `MSUIClient/World/Units/CharacterRenderer.cs` | Edit | Routed existing player animation choices through the classified resolver and forwarded its results. Track mapping: base `0`, action `1`, spell hold `2`. |
@@ -47,6 +48,7 @@ Build status: BUILT+GATES-PASS
 | `CastTargetLaw.Resolve` consumer | `Program.ActionBars.cs` (`ResolveCastTarget` called by `TryCast`) | The real send/refusal site is here, not in the spec-cited `Program.Casting.cs`. `_net.CastSpell` and all local refusal gates are in the same method. |
 | `M2Animator.FindOrBake` | `World/Units/M2Animator.cs` | Existing exact on-demand path confirmed. Stage 1C's `Resolve` preserves it while adding classification and the existing authored fallback lists at one decision point. |
 | Exact spell-action paths | `CharacterRenderer.BeginSpellVisual/ReleaseSpellVisual`; `CreatureRenderer` `AuthoredExact` and spell-hold branches | Both still request the authored ID with on-demand baking and no Stand fallback. |
+| Action-button state rules | `Program.ActionBars.cs` (`DrawActionBars`, former `SpellActionUsable` and `ActionInRange`) | Usability, range/reach, current/flash, carried-grid, equipped, and stack predicates existed as cited. They now execute once in `ComputeButtonVerdict`. |
 
 ## Deviations
 
@@ -190,6 +192,8 @@ No real `[verdict:portrait]` line is claimed: Stage 1A intentionally keeps the e
 No real `[verdict:cast]` line is claimed from the offline gates. The combat-wire gate verifies the existing implicit-self, self-fallback, and selected-unit scenarios now carry `ImplicitSelf`, `SelfFallback`, and `SelectedUnit` respectively; Nico's Holy Light and cooldown checks remain the live verification boundary.
 
 No real `[verdict:anim]` line is claimed from the offline gates. `Exact` and `BakedOnDemand` are ring-only; `Fallback`, `Missing`, and the currently unreachable `Substituted` tripwire are console-visible only when the `(unit, track, requested, played, kind)` choice changes. The live cast-and-move check remains Nico's verification boundary.
+
+No real `[verdict:action]` line is claimed from the offline gates. The first live draw and later changes emit only on the specified `Usability | Range | Flashing | Checked` state tuple. Range still uses the original squared-distance predicate; `DistanceToTarget` adds a square root for evidence only. Nico's out-of-range, low-power, auto-attack, and same-scenario visual A/B checks remain the verification boundary.
 
 ## Live checks for Nico
 
