@@ -295,6 +295,7 @@ Build status: BUILT+GATES-PASS
 |---|---|---|
 | 4A | IMPLEMENTED, GATES PASS | Replaced the guessed G2 band with measured tiny/full cohorts and added single-readback subject-pixel `meanLuma` evidence. |
 | 4B | IMPLEMENTED, GATES PASS | Added the two-entry expected-blank allowlist and separated expected from unexpected G1 failures without changing any portrait pixels or framing. |
+| 4C | DIAGNOSIS COMPLETE — EXONERATED; NO FIX | The specimen booth and live creature renderer use the identical display-texture resolution path. Dark rows are already selected by their DBC display data; no booth divergence exists. |
 
 ## Slice 2 files touched
 
@@ -311,6 +312,62 @@ Build status: BUILT+GATES-PASS
 - The accepted full CSV independently reproduces 10,505 Ready rows, min 250, p1 23,793, p50 45,116, max 65,536, 47 rows below 8,000, and 13 rows at/above 63,000. The p99 calculation method differs slightly (nearest-rank source value versus floor-index 59,077), but both round to the documented ≈59k and do not affect either specified cutoff.
 - Stage 4A's 200-specimen run produced 197 populated Ready `meanLuma` values, `tiny: 1`, `full: 2`, and an empty `diff.txt` against the pre-column `codex-full/verdicts.csv` baseline.
 - Stage 4B's full sweep completed 10,534/10,534 in 1,407.2 seconds: 10,505 Ready, 17 Blank, 12 Skipped, `G1 blanks (unexpected): 15 (FAIL)`, `expected-blank: 2`, `tiny: 47`, and `full: 13`. The only expected keys are `creature:15435` and `creature:16925`; AncientProtector and Kathune remain unexpected. The process retained exit 3.
+
+## Stage 4C diagnosis — dark specimen textures
+
+**Verdict: exonerated.** The specimen/synthetic path does not drop or bypass
+`CreatureDisplayInfo` texture variations. It enters the same display-id resolver,
+cache key, model loader, texture candidate selector, and draw batches as a live
+world unit. No fix is proposed.
+
+Evidence and exact path:
+
+1. `CreatureDisplayInfo` parses its three texture stems from fields 6/7/8
+   (`MSUIClient/Formats/CreatureDbc.cs:16-24,36-54`). `CreatureModelResolver.TryResolve`
+   joins display ID to model and extra rows, then carries `d.Textures` plus the full
+   extended-NPC skin/bake/equipment identity into `CreatureModelInfo`
+   (`CreatureDbc.cs:189-241`).
+2. The live world path calls `_resolver.TryResolve(e.DisplayId)`, derives
+   `CacheKey(info)`, then `LoadModel(info)` (`CreatureRenderer.cs:258-270`). The key
+   includes all beast texture stems, or the extended race/sex/skin/hair/bake/equipment
+   identity (`CreatureRenderer.cs:632-635`), so displays sharing an M2 cannot alias
+   across skins.
+3. `LoadModel` passes that same `CreatureModelInfo` to `ResolveBatchTexture` for every
+   batch (`CreatureRenderer.cs:653-756`). Monster-skin types 11/12/13 select the
+   matching display texture slot; character body type 1 uses the extended NPC skin
+   candidates (`CreatureRenderer.cs:776-811`). `RenderPortrait` binds the resulting
+   `DrawBatch.Tex` objects directly (`CreatureRenderer.cs:486-540`).
+4. The batch synthetic entity stores the requested display ID in the ordinary
+   `UNIT_DISPLAYID` descriptor (`ObjectFields.cs:92-101`;
+   `Program.PortraitBatch.cs:289-299`). `TryBakeCreaturePortrait` calls the same
+   creature framing/authored-camera/`RenderPortrait` methods
+   (`Program.Portraits.cs:305-351`). `TryGetModel` again resolves
+   `entity.DisplayId` through the same resolver/key/loader
+   (`CreatureRenderer.cs:543-554`). There is no specimen-only texture decision.
+
+Three dark sheet-1 specimens:
+
+| Display | Model | subjectPx | meanLuma | DBC texture evidence |
+|---:|---|---:|---:|---|
+| 16 | `Creature\HumanThief\HumanThief.m2` | 34,096 | 0.0000 | texture slots empty; extraId 0 |
+| 39 | `Creature\TitanFemale\TitanFemale.m2` | 55,595 | 0.0000 | texture slots empty; extraId 0 |
+| 53 | `Character\Dwarf\Male\DwarfMale.m2` | 55,574 | 0.0000 | texture slots empty; extraId 0 |
+
+These rows bake a silhouette/eyes because the selected display rows provide no skin,
+not because the booth forgot one. The live renderer receives the same empty
+`CreatureModelInfo.Textures` for the same display ID.
+
+Two same-model, different-skin pairs confirm distinct resolution:
+
+| Pair | DBC skin stems | Batch evidence |
+|---|---|---|
+| HumanThief 16 / 149 | empty / `HumanThiefSkin` | meanLuma 0.0000 / 51.8954; subjectPx 34,096 / 30,032 |
+| MineSpider 30 / 283 | `MineSpiderSkinSteel` / `MineSpiderSkinGreen` | meanLuma 25.1040 / 59.7323; subjectPx 35,248 / 45,858 |
+
+The smallest fix for the hypothesized booth defect is therefore **none**. If an
+empty-texture display is later ruled wrong in both a live spawn and the Lab, that
+would be a shared renderer/data-fallback decision, outside 4C and not a specimen-path
+repair.
 
 CSV head:
 
@@ -346,3 +403,13 @@ SPEC TOOLKIT 03:
    `summary.txt`. (This artifact set replaces screenshot-driven portrait debugging.)
 2. Skim the sheets by eye for anything framed absurdly that the gates didn't flag —
    name the displayId; it becomes a Lab session, not a code change.
+
+SPEC TOOLKIT 04:
+
+1. Lab-check the AncientProtector (any of its 10 display ids) and the Kathune
+   mouth/portal: are they visible creatures in 1.12? Rule each: framing worklist
+   (needs an override / giant-framing law) or expected-blank (allowlist it).
+2. Lab-check one dark-cohort specimen against a live GM-spawned one of the same
+   display id: same appearance? (Feeds 4C's verdict.)
+3. Review 4D's diff.txt: every changed row is your ruling — expected custom
+   content surfacing, or a problem.
