@@ -78,6 +78,23 @@ public readonly record struct CastVerdict(
         Time, SpellId, Reason, SelectedGuid, ResolvedGuid, Sent);
 }
 
+public enum AnimChoiceKind { Exact, BakedOnDemand, Fallback, Missing, Substituted }
+
+public readonly record struct AnimChoice(
+    double Time,
+    string Unit,
+    int Track,
+    int RequestedId,
+    int PlayedId,
+    AnimChoiceKind Kind) : IVerdict
+{
+    public string Channel => "anim";
+
+    public string ToLine() => string.Format(CultureInfo.InvariantCulture,
+        "time={0:F3} unit={1} track={2} requested={3} played={4} kind={5}",
+        Time, Unit, Track, RequestedId, PlayedId, Kind);
+}
+
 public sealed class VerdictRing
 {
     private const int Capacity = 256;

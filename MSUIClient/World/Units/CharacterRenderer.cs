@@ -563,6 +563,11 @@ public sealed class CharacterRenderer : IDisposable
     public float ClipMoveSpeed => _clip?.MoveSpeed ?? 0f;
     public float GroundSpeed => _groundSpeed;
     public string SkinTexturePath { get; private set; } = "";
+    public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+
+    private const int BaseAnimationTrack = 0;
+    private const int ActionAnimationTrack = 1;
+    private const int SpellHoldAnimationTrack = 2;
 
     public CharacterRenderer(GL gl, ClientConfig config)
     {
@@ -659,6 +664,8 @@ public sealed class CharacterRenderer : IDisposable
         }
         else
         {
+            _animator.ResolutionSink = (unit, track, resolution) =>
+                AnimationResolved?.Invoke(unit, track, resolution);
             _skin = new Matrix4x4[_animator.BoneCount];
             _packed = new float[M2Animator.MaxBones * 12];
 
@@ -1869,9 +1876,10 @@ public sealed class CharacterRenderer : IDisposable
         bool mainWeapon = Equipment.Pieces.Any(p => p.InventoryType is
             CharacterEquipment.Slot.Weapon or CharacterEquipment.Slot.MainHand);
         bool offWeapon = Equipment.Pieces.Any(p => p.InventoryType == CharacterEquipment.Slot.OffHand);
+        int requested = offHand ? (offWeapon ? 87 : 117) : twoHand ? 18 : mainWeapon ? 17 : 16;
         _combatAction = offHand
-            ? _animator.FindFirst(offWeapon ? 87 : 117, 87, 117, 16)
-            : _animator.FindFirst(twoHand ? 18 : mainWeapon ? 17 : 16, 16, 17, 18, 19, 85);
+            ? _animator.Resolve("player", ActionAnimationTrack, requested, false, 87, 117, 16)
+            : _animator.Resolve("player", ActionAnimationTrack, requested, false, 16, 17, 18, 19, 85);
         CombatActionsTriggered++;
         RestartCombatAction();
     }
@@ -1879,12 +1887,20 @@ public sealed class CharacterRenderer : IDisposable
     public void TriggerCombatReaction(uint victimState, bool landedHit)
     {
         if (_animator is null) return;
-        _combatAction = victimState switch
+        int requested = victimState switch
         {
-            2 or 8 => _animator.FindFirst(30, 9),
-            3 => _animator.FindFirst(20, 21, 22, 23, 9),
-            5 => _animator.FindFirst(24, 9),
-            _ when landedHit => _animator.FindFirst(9),
+            2 or 8 => 30,
+            3 => 20,
+            5 => 24,
+            _ when landedHit => 9,
+            _ => -1,
+        };
+        _combatAction = requested switch
+        {
+            30 => _animator.Resolve("player", ActionAnimationTrack, 30, false, 9),
+            20 => _animator.Resolve("player", ActionAnimationTrack, 20, false, 21, 22, 23, 9),
+            24 => _animator.Resolve("player", ActionAnimationTrack, 24, false, 9),
+            9 => _animator.Resolve("player", ActionAnimationTrack, 9, false),
             _ => null,
         };
         if (_combatAction is not null) CombatActionsTriggered++;
@@ -1894,7 +1910,7 @@ public sealed class CharacterRenderer : IDisposable
     public void BeginSpellVisual(ushort? animationId)
     {
         if (_animator is null || animationId is not { } id || id == 0) { _spellHold = null; return; }
-        _spellHold = _animator.FindOrBake(id);
+        _spellHold = _animator.Resolve("player", SpellHoldAnimationTrack, id, true);
         if (_spellHold is not null) RestartCombatActionFor(_spellHold);
     }
 
@@ -1902,7 +1918,7 @@ public sealed class CharacterRenderer : IDisposable
     {
         _spellHold = null;
         if (_animator is null || animationId is not { } id || id == 0) return;
-        _combatAction = _animator.FindOrBake(id);
+        _combatAction = _animator.Resolve("player", ActionAnimationTrack, id, true);
         if (_combatAction is not null)
         {
             CombatActionsTriggered++;
@@ -1915,7 +1931,7 @@ public sealed class CharacterRenderer : IDisposable
     public float TriggerOneShot(int animationId)
     {
         if (_animator is null) return 0f;
-        _combatAction = _animator.FindFirst(animationId, 0);
+        _combatAction = _animator.Resolve("player", ActionAnimationTrack, animationId, false, 0);
         if (_combatAction is null) return 0f;
         CombatActionsTriggered++;
         RestartCombatAction();
@@ -2289,10 +2305,10 @@ public sealed class CharacterRenderer : IDisposable
         // authored landing that moves is a forward one and playing it backwards
         // is worse than cutting straight to the gait.
         _landClip = !state.Moving
-            ? _animator.FindFirst(39)
+            ? _animator.Resolve("player", BaseAnimationTrack, 39, false)
             : state.Walking || state.Forward < -0.01f
                 ? null
-                : _animator.FindFirst(187);
+                : _animator.Resolve("player", BaseAnimationTrack, 187, false);
 
         _landForward = state.Forward;
         _landStrafe = state.Strafe;
@@ -2309,7 +2325,7 @@ public sealed class CharacterRenderer : IDisposable
         if (state.Flying)
         {
             _landClip = null;
-            return _animator.FindFirst(40, 38, 0);
+            return _animator.Resolve("player", BaseAnimationTrack, 40, false, 38, 0);
         }
 
         if (!state.Grounded && state.VerticalVelocity > 0.5f)
@@ -2318,7 +2334,7 @@ public sealed class CharacterRenderer : IDisposable
             // positive launch velocity distinguishes it from a transient loss
             // of support while walking over stairs or a narrow prop.
             _landClip = null;
-            return _animator.FindFirst(38, 37, 40, 0);
+            return _animator.Resolve("player", BaseAnimationTrack, 38, false, 37, 40, 0);
         }
 
         if (!state.Grounded &&
@@ -2328,7 +2344,7 @@ public sealed class CharacterRenderer : IDisposable
             // is a real fall, not a one-frame floor-query miss. Only animation
             // is delayed; gravity and collision have already been running.
             _landClip = null;
-            return _animator.FindFirst(40, 38, 0);
+            return _animator.Resolve("player", BaseAnimationTrack, 40, false, 38, 0);
         }
 
         // ── landing ──────────────────────────────────────────────────────────
@@ -2379,12 +2395,12 @@ public sealed class CharacterRenderer : IDisposable
             // steps, with no key involved either way.
             if (_bodyTurnStep > 1e-5f)
             {
-                var left = _animator.Find(11);
+                var left = _animator.Resolve("player", BaseAnimationTrack, 11, false);
                 if (left is not null) return left;
             }
             else if (_bodyTurnStep < -1e-5f)
             {
-                var right = _animator.Find(12);
+                var right = _animator.Resolve("player", BaseAnimationTrack, 12, false);
                 if (right is not null) return right;
             }
 
@@ -2394,10 +2410,10 @@ public sealed class CharacterRenderer : IDisposable
                 bool armed = Equipment.Pieces.Any(p => p.InventoryType is
                     CharacterEquipment.Slot.Weapon or CharacterEquipment.Slot.MainHand);
                 int ready = twoHand ? 27 : armed ? 26 : 25;
-                return _animator.FindFirst(ready, 25, 0);
+                return _animator.Resolve("player", BaseAnimationTrack, ready, false, 25, 0);
             }
 
-            return _animator.FindFirst(0);
+            return _animator.Resolve("player", BaseAnimationTrack, 0, false);
         }
 
         // Angle between where the character is FACING and where he is actually
@@ -2429,10 +2445,14 @@ public sealed class CharacterRenderer : IDisposable
                 : MathF.Abs(phi) > backwards;
 
             if (backing)
-                return LocomotionClip(_animator.FindFirst(13, 4, 5, 0), state.Walking, out rate);
+                return LocomotionClip(
+                    _animator.Resolve("player", BaseAnimationTrack, 13, false, 4, 5, 0),
+                    state.Walking, out rate);
 
             return LocomotionClip(
-                state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0),
+                state.Walking
+                    ? _animator.Resolve("player", BaseAnimationTrack, 4, false, 5, 0)
+                    : _animator.Resolve("player", BaseAnimationTrack, 5, false, 4, 0),
                 state.Walking, out rate);
         }
 
@@ -2443,17 +2463,23 @@ public sealed class CharacterRenderer : IDisposable
         {
             if (_forwardness >= 0f)
                 return LocomotionClip(
-                    state.Walking ? _animator.FindFirst(4, 5, 0) : _animator.FindFirst(5, 4, 0),
+                    state.Walking
+                        ? _animator.Resolve("player", BaseAnimationTrack, 4, false, 5, 0)
+                        : _animator.Resolve("player", BaseAnimationTrack, 5, false, 4, 0),
                     state.Walking, out rate);
 
-            return LocomotionClip(_animator.FindFirst(13, 4, 5, 0), state.Walking, out rate);
+            return LocomotionClip(
+                _animator.Resolve("player", BaseAnimationTrack, 13, false, 4, 5, 0),
+                state.Walking, out rate);
         }
 
         var sideways = _sideness > 0f
-            ? (state.Walking ? _animator.FindFirst(12, 92, 5, 4, 0)
-                             : _animator.FindFirst(92, 12, 5, 4, 0))
-            : (state.Walking ? _animator.FindFirst(11, 93, 5, 4, 0)
-                             : _animator.FindFirst(93, 11, 5, 4, 0));
+            ? (state.Walking
+                ? _animator.Resolve("player", BaseAnimationTrack, 12, false, 92, 5, 4, 0)
+                : _animator.Resolve("player", BaseAnimationTrack, 92, false, 12, 5, 4, 0))
+            : (state.Walking
+                ? _animator.Resolve("player", BaseAnimationTrack, 11, false, 93, 5, 4, 0)
+                : _animator.Resolve("player", BaseAnimationTrack, 93, false, 11, 5, 4, 0));
         return LocomotionClip(sideways, state.Walking, out rate);
     }
 

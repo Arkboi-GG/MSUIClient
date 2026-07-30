@@ -60,6 +60,13 @@ namespace MSUIClient.World.Units;
 /// </summary>
 public sealed class M2Animator
 {
+    public enum ResolutionKind { Exact, BakedOnDemand, Fallback, Missing, Substituted }
+
+    public readonly record struct Resolution(
+        Clip? Clip, int RequestedId, int PlayedId, ResolutionKind Kind);
+
+    public Action<string, int, Resolution>? ResolutionSink { get; set; }
+
     /// <summary>
     /// Bone budget. MEASURED, not assumed - and the first value was wrong.
     ///
@@ -483,6 +490,41 @@ public sealed class M2Animator
         if (_clips.TryGetValue(animationId, out Clip? cached)) return cached;
         Clip? clip = Bake(animationId);
         if (clip is not null) _clips[animationId] = clip;
+        return clip;
+    }
+
+    /// <summary>
+    /// Resolve one requested clip, optionally baking that exact clip and then walking an
+    /// explicitly authored fallback chain. This is the single requested-versus-played
+    /// decision point used by the runtime renderers.
+    /// </summary>
+    public Clip? Resolve(string unit, int track, int requestedId, bool bakeOnDemand,
+        params int[] authoredFallbacks)
+    {
+        Clip? clip;
+        ResolutionKind kind;
+        if (_clips.TryGetValue(requestedId, out clip))
+        {
+            kind = ResolutionKind.Exact;
+        }
+        else if (bakeOnDemand && (clip = Bake(requestedId)) is not null)
+        {
+            _clips[requestedId] = clip;
+            kind = ResolutionKind.BakedOnDemand;
+        }
+        else
+        {
+            clip = null;
+            foreach (int fallbackId in authoredFallbacks)
+            {
+                if (!_clips.TryGetValue(fallbackId, out clip)) continue;
+                break;
+            }
+            kind = clip is null ? ResolutionKind.Missing : ResolutionKind.Fallback;
+        }
+
+        ResolutionSink?.Invoke(unit, track,
+            new Resolution(clip, requestedId, clip?.AnimationId ?? -1, kind));
         return clip;
     }
 

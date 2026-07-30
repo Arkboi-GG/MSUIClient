@@ -79,7 +79,14 @@ public sealed partial class GameLoop
 
         // The networked creature/NPC renderer. Loads the creature DBCs; draws
         // every streamed Unit as its M2 once we are in world. Best-effort.
-        try { if (_mpq is not null) _creatures = new CreatureRenderer(gl, _mpq, _config); }
+        try
+        {
+            if (_mpq is not null)
+            {
+                _creatures = new CreatureRenderer(gl, _mpq, _config);
+                _creatures.AnimationResolved = CaptureAnimationChoice;
+            }
+        }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
         try { if (_mpq is not null) _selectionRing = new SelectionRingRenderer(gl, _mpq); }
         catch (Exception ex) { Console.WriteLine($"[target] selection ring unavailable: {ex.Message}"); }

@@ -56,6 +56,11 @@ public sealed class CreatureRenderer : IDisposable
     public int CombatActionsActive => _combatActions.Count;
     public ulong HoveredGuid { get; set; }
     public ulong SelectedGuid { get; set; }
+    public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+
+    private const int BaseAnimationTrack = 0;
+    private const int ActionAnimationTrack = 1;
+    private const int SpellHoldAnimationTrack = 2;
 
     /// <summary>Master animation switch (off = static bind pose).</summary>
     public bool Animate { get; set; } = true;
@@ -275,12 +280,13 @@ public sealed class CreatureRenderer : IDisposable
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
                 (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
+                string unit = $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
                 M2Animator.Clip? clip;
                 float rate;
                 if (e.IsDead)
                 {
-                    clip = model.Animator.FindFirst(1, 6, 0);
+                    clip = model.Animator.Resolve(unit, ActionAnimationTrack, 1, false, 6, 0);
                     rate = 1f;
                     float deathAt = _deathTime.GetValueOrDefault(e.Guid, float.PositiveInfinity);
                     at = float.IsPositiveInfinity(deathAt)
@@ -289,7 +295,7 @@ public sealed class CreatureRenderer : IDisposable
                     _deathTime[e.Guid] = at;
                 }
                 else if (_combatActions.TryGetValue(e.Guid, out CombatAction action) &&
-                    ResolveCombatClip(model.Animator, action) is { } actionClip)
+                    ResolveCombatClip(model.Animator, unit, action) is { } actionClip)
                 {
                     clip = actionClip;
                     rate = 1f;
@@ -299,7 +305,7 @@ public sealed class CreatureRenderer : IDisposable
                     at = actionTime;
                 }
                 else if (_spellHolds.TryGetValue(e.Guid, out int heldAnimation) &&
-                    model.Animator.FindOrBake(heldAnimation) is { } holdClip)
+                    model.Animator.Resolve(unit, SpellHoldAnimationTrack, heldAnimation, true) is { } holdClip)
                 {
                     clip = holdClip;
                     rate = 1f;
@@ -308,7 +314,7 @@ public sealed class CreatureRenderer : IDisposable
                 else
                 {
                     _combatActions.Remove(e.Guid);
-                    clip = SelectClip(e, model.Animator, out rate);
+                    clip = SelectClip(e, model.Animator, unit, out rate);
                     at += dt * rate;
                 }
                 if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
@@ -537,33 +543,38 @@ public sealed class CreatureRenderer : IDisposable
         return model is not null;
     }
 
-    private static M2Animator.Clip? SelectClip(WorldEntity e, M2Animator animator, out float rate)
+    private static M2Animator.Clip? SelectClip(
+        WorldEntity e, M2Animator animator, string unit, out float rate)
     {
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
         if (e.Spline is null || speed <= MovingEpsilon)
-            return e.Engaged ? animator.FindFirst(25, 26, 27, 28, 0) : animator.Find(0);
+            return e.Engaged
+                ? animator.Resolve(unit, BaseAnimationTrack, 25, false, 26, 27, 28, 0)
+                : animator.Resolve(unit, BaseAnimationTrack, 0, false);
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = speed > 2f * walk
-            ? animator.FindFirst(5, 4, 0)
-            : animator.FindFirst(4, 5, 0);
+            ? animator.Resolve(unit, BaseAnimationTrack, 5, false, 4, 0)
+            : animator.Resolve(unit, BaseAnimationTrack, 4, false, 5, 0);
 
         if (clip is not null && clip.MoveSpeed > 0.01f)
             rate = Math.Clamp(speed / clip.MoveSpeed, 0.25f, 3f);
         return clip;
     }
 
-    private static M2Animator.Clip? ResolveCombatClip(M2Animator animator, in CombatAction action)
+    private static M2Animator.Clip? ResolveCombatClip(
+        M2Animator animator, string unit, in CombatAction action)
     {
-        if (action.AuthoredExact) return animator.FindOrBake(action.AnimationId);
+        if (action.AuthoredExact)
+            return animator.Resolve(unit, ActionAnimationTrack, action.AnimationId, true);
         return action.AnimationId switch
         {
-            16 => animator.FindFirst(16, 17, 18, 19, 85),
-            87 => animator.FindFirst(87, 88, 117, 16),
-            20 => animator.FindFirst(20, 21, 22, 23, 9, 0),
-            7 => animator.FindFirst(7, 0),
-            _ => animator.FindFirst(action.AnimationId, 9, 0),
+            16 => animator.Resolve(unit, ActionAnimationTrack, 16, false, 17, 18, 19, 85),
+            87 => animator.Resolve(unit, ActionAnimationTrack, 87, false, 88, 117, 16),
+            20 => animator.Resolve(unit, ActionAnimationTrack, 20, false, 21, 22, 23, 9, 0),
+            7 => animator.Resolve(unit, ActionAnimationTrack, 7, false, 0),
+            _ => animator.Resolve(unit, ActionAnimationTrack, action.AnimationId, false, 9, 0),
         };
     }
 
@@ -643,6 +654,8 @@ public sealed class CreatureRenderer : IDisposable
             var animator = M2Animator.Build(m2, CreatureAnims);
             if (animator is not null && animator.BoneCount <= M2Animator.MaxBones)
             {
+                animator.ResolutionSink = (unit, track, resolution) =>
+                    AnimationResolved?.Invoke(unit, track, resolution);
                 lm.Animator = animator;
                 lm.BoneCount = animator.BoneCount;
             }
