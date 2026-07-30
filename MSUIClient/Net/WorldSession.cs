@@ -5,6 +5,9 @@ using System.Text;
 
 namespace MSUIClient.Net;
 
+public delegate void WirePacketObserver(
+    bool outgoing, ushort opcode, ReadOnlySpan<byte> payload);
+
 // The world server (mangosd) connection: the auth handshake + 1.12 header
 // obfuscation, packet framing, and the outbound CMSG builders. Ported from
 // benilla-protocol/src/world/{mod,session}.rs.
@@ -38,20 +41,24 @@ public sealed class WorldSession : IDisposable
     private readonly WorldHeaderCrypto _crypto;
     private readonly string _account;          // uppercased
     private readonly object _sendLock = new();
+    private readonly WirePacketObserver? _wireObserver;
     private volatile bool _closed;
 
-    private WorldSession(TcpClient tcp, NetworkStream stream, WorldHeaderCrypto crypto, string account)
+    private WorldSession(TcpClient tcp, NetworkStream stream, WorldHeaderCrypto crypto,
+        string account, WirePacketObserver? wireObserver)
     {
         _tcp = tcp;
         _stream = stream;
         _crypto = crypto;
         _account = account;
+        _wireObserver = wireObserver;
     }
 
     public string Account => _account;
 
     /// <summary>Connect + complete the auth handshake, leaving header obfuscation enabled and the session ready for CharEnum.</summary>
-    public static WorldSession Connect(string host, int port, string username, byte[] sessionKey, TimeSpan timeout)
+    public static WorldSession Connect(string host, int port, string username, byte[] sessionKey,
+        TimeSpan timeout, WirePacketObserver? wireObserver = null)
     {
         var tcp = new TcpClient();
         try
@@ -62,7 +69,8 @@ public sealed class WorldSession : IDisposable
             tcp.ReceiveTimeout = (int)timeout.TotalMilliseconds; // handshake only; cleared after login
             var stream = tcp.GetStream();
             string account = Srp6Client.Normalize(username);
-            var session = new WorldSession(tcp, stream, new WorldHeaderCrypto(sessionKey), account);
+            var session = new WorldSession(tcp, stream, new WorldHeaderCrypto(sessionKey),
+                account, wireObserver);
             session.Handshake(sessionKey);
             return session;
         }
@@ -124,6 +132,7 @@ public sealed class WorldSession : IDisposable
             body.CopyTo(packet.AsSpan(header.Length));
             _stream.Write(packet, 0, packet.Length);
         }
+        ObserveWire(outgoing: true, opcode, body);
     }
 
     /// <summary>Read + decrypt one server packet. Blocking; call only from the net worker thread.</summary>
@@ -135,7 +144,18 @@ public sealed class WorldSession : IDisposable
         int bodyLen = Math.Max(0, size - 2);
         byte[] body = new byte[bodyLen];
         if (bodyLen > 0) _stream.ReadExactly(body);
+        ObserveWire(outgoing: false, opcode, body);
         return (opcode, body);
+    }
+
+    private void ObserveWire(bool outgoing, ushort opcode, ReadOnlySpan<byte> body)
+    {
+        try { _wireObserver?.Invoke(outgoing, opcode, body); }
+        catch
+        {
+            // Instrumentation is observational: it may never fail a successful
+            // send or prevent a decoded packet from reaching its handler.
+        }
     }
 
     // --- high-level requests --------------------------------------------------------------------

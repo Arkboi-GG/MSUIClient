@@ -298,6 +298,7 @@ Build status: BUILT+GATES-PASS
 | 4C | DIAGNOSIS COMPLETE — EXONERATED; NO FIX | The specimen booth and live creature renderer use the identical display-texture resolution path. Dark rows are already selected by their DBC display data; no booth divergence exists. |
 | 4D | ACCEPTED, GATES PASS | Replaced lexical MPQ precedence with the numeric 1.12 order. Nico ruled both changed rows correct real-1.12 behavior; the pre-fix state was the defect. |
 | 4E | IMPLEMENTED, GATES PASS | Added a distinct 15-row known-deferred blank worklist; G1 now fails only for blanks in neither classification list. |
+| 05 | IMPLEMENTED, GATES PASS; LIVE LOOT CHECK PENDING | Added the always-on 512-packet wire ring, opt-in binary/text recorder, and interleaved wire pseudo-channel. Replay was not built. |
 
 ## Slice 2 files touched
 
@@ -311,6 +312,12 @@ Build status: BUILT+GATES-PASS
 | `portrait-batch/baseline/verdicts.csv` | New | Accepted post-4D full-sweep CSV; canonical input for future `--diff` runs. |
 | `portrait-expected-blank.txt` | New | Exactly `creature:15435` and `creature:16925`, each with its required invisible-by-design reason. |
 | `portrait-known-blank.txt` | New | The 15 current unresolved framing/effect blanks, explicitly deferred pending Lab rulings. |
+| `MSUIClient/Engine/WireRing.cs` | New | Thread-safe 512-packet metadata/prefix ring plus buffered `.wlog`/`.txt` recorder. |
+| `MSUIClient/Net/WorldSession.cs` | Edit | Exception-isolated observation at the single post-send and post-decryption choke points. |
+| `MSUIClient/Net/NetworkClient.cs` | Edit | Carries the observer into each world session without changing queue/dispatch order. |
+| `MSUIClient/Program.Net.cs` | Edit | Owns the ring/recorder, captures packets, and drains buffered log writes on the game thread. |
+| `MSUIClient/Program.DevTools.Verdicts.cs` | Edit | Adds the recording toggle and merged, filterable, copyable `wire` pseudo-channel. |
+| `tools/combat-wire-check/Program.cs` | Edit | Verifies ring rollover, opcode naming, file shape, payload cap, and auth suppression. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Edit | Adds this Slice 2 stage-boundary record. |
 
 ## Slice 2 symbol verification and evidence
@@ -445,6 +452,49 @@ expected-blank: 2
 The standard build, combat-wire, and portrait-camera gates all passed; camera
 coverage remained 1,224 / 1,289 / 56.
 
+## SPEC 05 — wire tap recorder stage A
+
+The tap is installed at the two shared world-packet choke points. Outgoing capture
+runs only after `_stream.Write` has completed; incoming capture runs after header
+decryption and the full body read, immediately before `ReceivePacket` returns
+(`WorldSession.cs:114-148`). Both calls pass through exception isolation
+(`WorldSession.cs:151-159`), so recorder failure cannot turn a successful send into
+a client failure or prevent a decoded SMSG from reaching dispatch. Replay stages
+B/C were not implemented.
+
+Threading verification: `WorldSession.ReceivePacket` is explicitly worker-thread
+only (`WorldSession.cs:19-21`), and `NetworkClient` enqueues that decoded body for
+the game loop at `NetworkClient.cs:432`. Outgoing sends may originate from the game
+thread, worker, or ping timer. The ring and recorder therefore lock their shared
+state. Packet capture copies at most 16 bytes for the UI ring and queues at most
+256 bytes for recording; disk writes and five-second flushes run from
+`Program.Net.cs`'s game-thread pump.
+
+The always-on ring stores 512 metadata rows. The DevTools-only **Record wire log**
+toggle creates a new timestamped `dumps/wire-*.wlog` and companion `.txt`, prints
+and copies the path, closes/flushed both on toggle-off, and is disposed after the
+network worker on client exit. With `devTools:false` there is no toggle and the
+default-off recorder creates no files; the harmless in-memory ring still fills.
+
+Payload storage is suppressed for these world auth/session opcodes:
+`SMSG_AUTH_CHALLENGE (0x01EC)`, `CMSG_AUTH_SESSION (0x01ED)`,
+`SMSG_AUTH_RESPONSE (0x01EE)`, and `SMSG_WARDEN_DATA (0x02E6)`. Their metadata and
+true size remain visible, but stored size is zero. The realmd logon challenge/proof
+exchange is handled by `RealmClient`, outside the tapped world stream, and is never
+captured.
+
+Offline gate evidence:
+
+```text
+combat/movement/targeting/wire foundation checks passed
+```
+
+That gate verifies 512-entry rollover order, cached known/unknown opcode names,
+the exact binary fields, 256-byte prefix capping, zero-byte auth payloads, and the
+human-readable companion. Build and portrait-camera gates also passed; camera
+coverage remained 1,224 / 1,289 / 56. The live cast/loot sequence, in-client copy,
+and toggle-close/new-file checks remain Nico's live verification boundary.
+
 CSV head:
 
 ```text
@@ -489,3 +539,9 @@ SPEC TOOLKIT 04:
    display id: same appearance? (Feeds 4C's verdict.)
 3. Review 4D's diff.txt: every changed row is your ruling — expected custom
    content surfacing, or a problem.
+
+SPEC TOOLKIT 05:
+
+1. Record a session: enter world, cast once, loot once, toggle off. Send the
+   assistant the `.txt` — this replaces "the loot window misbehaved" prose
+   forever.

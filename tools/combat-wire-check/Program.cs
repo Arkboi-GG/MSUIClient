@@ -101,4 +101,51 @@ Check(faced < 0.01f || faced > 6.20f, "idle facing takes the short wrapped turn"
 Check(MathF.Abs(EntityStore.TurnToward(0f, MathF.PI, 0.5f) - 0.5f) < 0.0001f,
       "idle facing respects the turn-rate cap");
 
-Console.WriteLine("combat/movement/targeting foundation checks passed");
+var wire = new WireRing();
+for (int i = 0; i < 513; i++)
+{
+    ushort opcode = (ushort)(0x7000 + i);
+    wire.Add(new WirePacket(i, false, opcode, WireRing.NameFor(opcode), 1), [(byte)i]);
+}
+IReadOnlyList<WirePacket> wireSnapshot = wire.Snapshot();
+Check(wireSnapshot.Count == 512 && wireSnapshot[0].Time == 1 && wireSnapshot[^1].Time == 512,
+      "wire ring capacity/order");
+Check(WireRing.NameFor((ushort)Op.CMSG_LOOT) == "CMSG_LOOT" &&
+      WireRing.NameFor(0x7FFF) == "0x7FFF", "wire opcode name cache/fallback");
+
+string wireTemp = Path.Combine(Path.GetTempPath(), "msui-wire-check-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(wireTemp);
+try
+{
+    string relative;
+    using (var recorder = new WireLogRecorder())
+    {
+        relative = recorder.Start(wireTemp);
+        var normal = new WirePacket(1.25, true, (ushort)Op.CMSG_LOOT,
+            WireRing.NameFor((ushort)Op.CMSG_LOOT), 300);
+        recorder.Enqueue(normal, Enumerable.Range(0, 300).Select(i => (byte)i).ToArray());
+        var auth = new WirePacket(2.5, true, (ushort)Op.CMSG_AUTH_SESSION,
+            WireRing.NameFor((ushort)Op.CMSG_AUTH_SESSION), 3);
+        recorder.Enqueue(auth, [1, 2, 3]);
+        recorder.Stop();
+    }
+    string binaryPath = Path.Combine(wireTemp, relative);
+    using var binary = new BinaryReader(File.OpenRead(binaryPath));
+    Check(binary.ReadByte() == 1 && Math.Abs(binary.ReadDouble() - 1.25) < 0.0001 &&
+          binary.ReadUInt16() == (ushort)Op.CMSG_LOOT && binary.ReadUInt32() == 300 &&
+          binary.ReadUInt16() == 256, "wire binary header/payload cap");
+    Check(binary.ReadBytes(256).Length == 256, "wire stored payload prefix");
+    Check(binary.ReadByte() == 1 && Math.Abs(binary.ReadDouble() - 2.5) < 0.0001 &&
+          binary.ReadUInt16() == (ushort)Op.CMSG_AUTH_SESSION && binary.ReadUInt32() == 3 &&
+          binary.ReadUInt16() == 0, "wire auth payload suppression");
+    string text = File.ReadAllText(Path.ChangeExtension(binaryPath, ".txt"));
+    Check(text.Contains("CMSG_LOOT(0x015D) 300B", StringComparison.Ordinal) &&
+          text.Contains("CMSG_AUTH_SESSION(0x01ED) 3B  [payload omitted]", StringComparison.Ordinal),
+          "wire text companion");
+}
+finally
+{
+    Directory.Delete(wireTemp, recursive: true);
+}
+
+Console.WriteLine("combat/movement/targeting/wire foundation checks passed");

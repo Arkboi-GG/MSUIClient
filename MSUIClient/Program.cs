@@ -2772,6 +2772,7 @@ public sealed partial class GameLoop : IDisposable
         _disposed = true;
 
         _net?.Dispose();
+        _wireLog.Dispose();
         _batchPortraitTarget?.Dispose();
         _batchPortraitTarget = null;
         _glue?.Dispose();

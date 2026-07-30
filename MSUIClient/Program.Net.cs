@@ -23,6 +23,8 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private NetworkClient? _net;
+    private readonly WireRing _wire = new();
+    private readonly WireLogRecorder _wireLog = new();
     private readonly EntityStore _entities = new();   // game-thread-owned world model (from UPDATE_OBJECT)
     private readonly CombatState _combat = new();
     private readonly LocalMovementSender _movementSender = new();
@@ -125,7 +127,7 @@ public sealed partial class GameLoop
 
         try
         {
-            _net = new NetworkClient(_config.ToNetSettings());
+            _net = new NetworkClient(_config.ToNetSettings(), CaptureWirePacket);
             if (_config.Server.AutoConnect &&
                 !string.IsNullOrWhiteSpace(_config.Server.Account) &&
                 !string.IsNullOrWhiteSpace(_config.Server.Password))
@@ -148,6 +150,7 @@ public sealed partial class GameLoop
     /// <summary>Pump the network client once per frame. Called near the top of Update(dt), before the world-load guard.</summary>
     private void PumpNet(float dt)
     {
+        _wireLog.Pump();
         if (_net is null) return;
 
         // Surface any character-create result (the create request runs while parked at select).
@@ -362,6 +365,17 @@ public sealed partial class GameLoop
         if (_controller is not null)
             _entities.FaceIdleTargets(dt, _net.PlayerGuid, _controller.Position);
         DiscoverItemTemplates();
+    }
+
+    private void CaptureWirePacket(bool outgoing, ushort opcode, ReadOnlySpan<byte> payload)
+    {
+        var packet = new WirePacket(NowSeconds(), outgoing, opcode,
+            WireRing.NameFor(opcode), payload.Length);
+        ReadOnlySpan<byte> visiblePayload = WireLogRecorder.ShouldStorePayload(opcode)
+            ? payload
+            : ReadOnlySpan<byte>.Empty;
+        _wire.Add(packet, visiblePayload);
+        _wireLog.Enqueue(packet, payload);
     }
 
     private void ApplyUpdates(List<ObjectUpdate> updates)

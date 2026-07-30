@@ -9,25 +9,57 @@ public sealed partial class GameLoop
     private readonly Dictionary<string, bool> _verdictChannelFilters =
         new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<IVerdict>? _pausedVerdicts;
+    private IReadOnlyList<WirePacketDetail>? _pausedWire;
     private string _verdictTextFilter = "";
     private bool _verdictPaused;
     private int _verdictCopyLast = 20;
     private double _verdictCopiedUntil;
+    private readonly record struct VerdictPanelRow(double Time, string Channel, string Text);
 
     private void DrawVerdictsPanel()
     {
-        if (!ImGui.CollapsingHeader("Verdicts")) return;
+        bool expanded = ImGui.CollapsingHeader("Verdicts");
+        ImGui.SameLine();
+        bool recording = _wireLog.IsRecording;
+        if (ImGui.Checkbox("Record wire log##verdicts", ref recording))
+        {
+            if (recording)
+            {
+                try
+                {
+                    string path = _wireLog.Start(_config.RepoRoot);
+                    Console.WriteLine($"[wire] recording to {path}");
+                    CopyVerdictText(path);
+                }
+                catch (Exception ex)
+                {
+                    _wireLog.Stop();
+                    Console.WriteLine($"[wire] could not start recording: {ex.Message}");
+                }
+            }
+            else
+            {
+                _wireLog.Stop();
+            }
+        }
+        if (!expanded) return;
 
         IReadOnlyList<IVerdict> live = _verdicts.Snapshot();
+        IReadOnlyList<WirePacketDetail> liveWire = _wire.SnapshotDetailed();
         bool pause = _verdictPaused;
         if (ImGui.Checkbox("Pause##verdicts", ref pause))
         {
             _verdictPaused = pause;
             _pausedVerdicts = pause ? live : null;
+            _pausedWire = pause ? liveWire : null;
         }
 
         IReadOnlyList<IVerdict> displayed = _pausedVerdicts ?? live;
-        foreach (string channel in displayed.Select(v => v.Channel)
+        IReadOnlyList<WirePacketDetail> displayedWire = _pausedWire ?? liveWire;
+        List<VerdictPanelRow> liveRows = MergeVerdictRows(live, liveWire);
+        List<VerdictPanelRow> displayedRows = MergeVerdictRows(displayed, displayedWire);
+        foreach (string channel in displayedRows.Select(row => row.Channel)
+                     .Append("wire")
                      .Distinct(StringComparer.OrdinalIgnoreCase)
                      .OrderBy(v => v, StringComparer.OrdinalIgnoreCase))
         {
@@ -42,11 +74,11 @@ public sealed partial class GameLoop
         ImGui.SetNextItemWidth(210f);
         ImGui.InputText("Filter##verdicts", ref _verdictTextFilter, 128u);
 
-        List<string> visibleRows = displayed
-            .Where(v => !_verdictChannelFilters.TryGetValue(v.Channel, out bool enabled) || enabled)
-            .Select(FormatVerdictRow)
-            .Where(row => string.IsNullOrEmpty(_verdictTextFilter) ||
-                          row.Contains(_verdictTextFilter, StringComparison.OrdinalIgnoreCase))
+        List<string> visibleRows = displayedRows
+            .Where(row => !_verdictChannelFilters.TryGetValue(row.Channel, out bool enabled) || enabled)
+            .Select(row => row.Text)
+            .Where(text => string.IsNullOrEmpty(_verdictTextFilter) ||
+                          text.Contains(_verdictTextFilter, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (ImGui.Button("Copy visible##verdicts"))
@@ -59,7 +91,7 @@ public sealed partial class GameLoop
         if (ImGui.Button($"Copy last {_verdictCopyLast}##verdicts"))
         {
             string text = string.Join(Environment.NewLine,
-                live.TakeLast(_verdictCopyLast).Select(FormatVerdictRow));
+                liveRows.TakeLast(_verdictCopyLast).Select(row => row.Text));
             CopyVerdictText(text);
         }
         if (NowSeconds() < _verdictCopiedUntil)
@@ -82,11 +114,30 @@ public sealed partial class GameLoop
         ImGui.EndChild();
     }
 
+    private List<VerdictPanelRow> MergeVerdictRows(
+        IReadOnlyList<IVerdict> verdicts, IReadOnlyList<WirePacketDetail> wire)
+    {
+        return verdicts.Select(verdict => new VerdictPanelRow(
+                verdict.Time, verdict.Channel, FormatVerdictRow(verdict)))
+            .Concat(wire.Select(item => new VerdictPanelRow(
+                item.Packet.Time, "wire", FormatWireRow(item))))
+            .OrderBy(row => row.Time)
+            .ToList();
+    }
+
     private string FormatVerdictRow(IVerdict verdict)
     {
         double age = Math.Max(0.0, NowSeconds() - verdict.Time);
         DateTime local = DateTime.Now - TimeSpan.FromSeconds(age);
         return $"{local:HH:mm:ss.f} [verdict:{verdict.Channel}] {verdict.ToLine()}";
+    }
+
+    private string FormatWireRow(WirePacketDetail detail)
+    {
+        double age = Math.Max(0.0, NowSeconds() - detail.Packet.Time);
+        DateTime local = DateTime.Now - TimeSpan.FromSeconds(age);
+        return $"{local:HH:mm:ss.f} [wire] " +
+               WireLogRecorder.FormatText(detail.Packet, detail.Prefix);
     }
 
     private void CopyVerdictText(string text)
