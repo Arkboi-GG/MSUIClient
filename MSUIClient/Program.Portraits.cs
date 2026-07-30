@@ -44,10 +44,22 @@ public sealed partial class GameLoop
             _playerPortrait?.Dispose();
             _targetPortrait?.Dispose();
             _paperDoll?.Dispose();
+            _labPortrait?.Dispose();
             _playerPortrait = null;
             _targetPortrait = null;
             _paperDoll = null;
+            _labPortrait = null;
             Console.WriteLine($"[portrait] render targets unavailable: {ex.Message}");
+        }
+        if (_config.DevTools)
+        {
+            try { _labPortrait = new PortraitRenderTarget(gl); }
+            catch (Exception ex)
+            {
+                _labPortrait?.Dispose();
+                _labPortrait = null;
+                Console.WriteLine($"[portrait] lab render target unavailable: {ex.Message}");
+            }
         }
     }
 
@@ -154,7 +166,7 @@ public sealed partial class GameLoop
                     camera.NearPlane));
                 if (!_playerPortraitUsable && !_playerPortraitFailureDumped)
                 {
-                    DumpFailedPortrait(_playerPortrait, "player");
+                    DumpPortrait(_playerPortrait, "player", "blank");
                     _playerPortraitFailureDumped = true;
                 }
                 if (_playerPortraitUsable)
@@ -308,17 +320,21 @@ public sealed partial class GameLoop
             if (!_targetPortraitFailureDumped)
             {
                 Console.WriteLine($"[portrait] target bake BLANK ({targetStats}, display={target.DisplayId})");
-                DumpFailedPortrait(_targetPortrait, $"target-{target.DisplayId}");
+                DumpPortrait(_targetPortrait, $"target-{target.DisplayId}", "blank");
                 _targetPortraitFailureDumped = true;
             }
         }
     }
 
-    private PortraitTuning ResolveTuning(string key) =>
-        _portraitOverrides?.Find(key) ?? PortraitTuning.Default;
+    private PortraitTuning ResolveTuning(string key)
+    {
+        if (TryResolveLabTuning(key, out PortraitTuning lab)) return lab;
+        return _portraitOverrides?.Find(key) ?? PortraitTuning.Default;
+    }
 
     private (PortraitTuning Tuning, bool StoreHit) ResolveTuningWithHit(string key)
     {
+        if (TryResolveLabTuning(key, out PortraitTuning lab)) return (lab, true);
         PortraitTuning? stored = _portraitOverrides?.Find(key);
         return stored is null ? (PortraitTuning.Default, false) : (stored, true);
     }
@@ -472,14 +488,14 @@ public sealed partial class GameLoop
         ImGui.Dummy(new Vector2(size, size));
     }
 
-    private static void DumpFailedPortrait(PortraitRenderTarget target, string name)
+    private static void DumpPortrait(PortraitRenderTarget target, string name, string suffix)
     {
         try
         {
             string directory = Path.Combine(AppContext.BaseDirectory, "portrait-diagnostics");
-            string path = Path.Combine(directory, $"{name}-blank.png");
+            string path = Path.Combine(directory, $"{name}-{suffix}.png");
             target.SavePng(path);
-            Console.WriteLine($"[portrait] failed FBO dumped to {path}");
+            Console.WriteLine($"[portrait] FBO dumped to {path}");
         }
         catch (Exception ex)
         {
@@ -492,8 +508,10 @@ public sealed partial class GameLoop
         _playerPortrait?.Dispose();
         _targetPortrait?.Dispose();
         _paperDoll?.Dispose();
+        _labPortrait?.Dispose();
         _playerPortrait = null;
         _targetPortrait = null;
         _paperDoll = null;
+        _labPortrait = null;
     }
 }

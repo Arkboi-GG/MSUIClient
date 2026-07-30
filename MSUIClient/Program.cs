@@ -1901,6 +1901,7 @@ public sealed partial class GameLoop : IDisposable
 
             DrawUiSkinPanel();
             DrawVerdictsPanel();
+            DrawPortraitLabPanel();
 
             if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
             {

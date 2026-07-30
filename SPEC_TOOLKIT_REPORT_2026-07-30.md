@@ -13,6 +13,7 @@ Build status: BUILT+GATES-PASS
 | 1C | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Centralized requested-versus-played animation resolution and added always-ringed, transition-latched animation verdicts for player and creature base/action/spell-hold tracks. |
 | 1D | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Unified visible action-button state and drawing through `ActionButtonVerdict`; ring/console output occurs only when usability, range, flashing, or checked state transitions. |
 | 2A | IMPLEMENTED, GATES PASS; LIVE FBO UNVERIFIED | Added tolerant per-model portrait overrides and routed player/creature bounds cameras through default-identical tunings, including explicit authored/bounds forcing. |
+| 2B | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the DevTools Portrait Lab for live Player/Target evidence, tuning, source forcing, persistence, PNG capture, and a dedicated unmasked bake. |
 
 ## Files touched
 
@@ -21,7 +22,7 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/Engine/Verdicts.cs` | New | `IVerdict`, portrait enums/record, and the 256-entry single-threaded verdict ring. |
 | `MSUIClient/Program.Portraits.cs` | Edit | Captured player/target verdicts from the existing bake decisions. Stage 2A also loads overrides independently of DevTools, resolves canonical keys, applies force-source precedence, and parameterizes only the existing bounds-camera literals. |
 | `MSUIClient/Program.DevTools.Verdicts.cs` | New | DevTools-only copyable Verdicts panel. |
-| `MSUIClient/Program.cs` | Edit | One call to draw the Verdicts panel inside the existing `_config.DevTools`-gated HUD. |
+| `MSUIClient/Program.cs` | Edit | Calls the Verdicts and Portrait Lab panels only inside the existing `_config.DevTools`-gated HUD. |
 | `MSUIClient/Net/CastTargetLaw.cs` | Edit | Added a reason to each existing pure-law exit without changing target resolution. |
 | `MSUIClient/Program.ActionBars.cs` | Edit | Captured cast verdicts from the existing send/refusal locals. Stage 1D also moved the existing per-button predicates into `ComputeButtonVerdict`; stateful drawing now consumes that result directly. |
 | `tools/combat-wire-check/Program.cs` | Edit | Added one expected-reason assertion to each existing cast-target scenario; no new scenario was added. |
@@ -31,6 +32,7 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/Program.AnimationVerdicts.cs` | New | Captured all resolution results into the ring and emitted warning kinds only when a unit/track choice transitions. |
 | `MSUIClient/Program.Net.cs` | Edit | Connected the gameplay creature renderer to the animation verdict capture sink. |
 | `MSUIClient/Engine/PortraitTuning.cs` | New | Default-identical tuning record plus case-insensitive, comment/trailing-comma-tolerant `portrait-overrides.json` load/upsert/remove persistence. |
+| `MSUIClient/Program.DevTools.Portraits.cs` | New | Player/Target lab UI, full verdict evidence, tuning controls, persisted override actions, PNG capture, and an independently baked unmasked render target. |
 | `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis provenance/raw v256 camera output plus Stage 2A float-bit assertions for the default bounds-camera tunings. No resolver/parser behavior changed. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | New | This stage-boundary report. |
 
@@ -51,6 +53,7 @@ Build status: BUILT+GATES-PASS
 | `M2Animator.FindOrBake` | `World/Units/M2Animator.cs` | Existing exact on-demand path confirmed. Stage 1C's `Resolve` preserves it while adding classification and the existing authored fallback lists at one decision point. |
 | Exact spell-action paths | `CharacterRenderer.BeginSpellVisual/ReleaseSpellVisual`; `CreatureRenderer` `AuthoredExact` and spell-hold branches | Both still request the authored ID with on-demand baking and no Stand fallback. |
 | Action-button state rules | `Program.ActionBars.cs` (`DrawActionBars`, former `SpellActionUsable` and `ActionInRange`) | Usability, range/reach, current/flash, carried-grid, equipped, and stack predicates existed as cited. They now execute once in `ComputeButtonVerdict`. |
+| Portrait Lab host | Existing `_config.DevTools` HUD in `Program.cs` | `DrawPortraitLabPanel()` is adjacent to the Verdicts panel and unreachable when DevTools is false. |
 
 ## Deviations
 
@@ -207,6 +210,8 @@ portrait-overrides.json: MISSING (empty-store path)
 
 No live player/target FBO count is claimed. With no override, the authored path is unchanged and every bounds-camera arithmetic operation receives a default value whose float bits match the former literal; the live before/after `[portrait]` pair remains Nico's verification boundary.
 
+Stage 2B has no offline visual claim. The unmasked checkbox writes only to the dedicated `_labPortrait`; `_playerPortrait` and `_targetPortrait` retain their existing circular mask calls. Slider latency, evidence/pixel agreement, PNG capture, and persistence remain live checks.
+
 ## Live checks for Nico
 
 1. Paste one `[portrait] player bake ...` line and confirm the HUD portrait matches
@@ -217,3 +222,12 @@ No live player/target FBO count is claimed. With no override, the authored path 
    `[verdict:action]` transition lines; confirm each matched the visual state.
 4. Cast, then move immediately → paste any `[verdict:anim]` lines (expect none at
    `Missing`/`Substituted`); confirm locomotion resumed instantly.
+
+SPEC TOOLKIT 02:
+
+1. Open Portrait Lab, subject Player: drag FovyDegrees to 60 and back — portrait
+   reframes live both ways; paste one before/after verdict pair.
+2. Specimen-cycle 10 creatures with `]` — note any Blank/NotDrawn verdicts and save
+   their PNGs (these are the next framing worklist, not bugs to fix now).
+3. Tune one bad one until it looks right, Save override, relog, confirm it held.
+4. Set `devTools:false` — confirm the game looks and behaves exactly as before.
