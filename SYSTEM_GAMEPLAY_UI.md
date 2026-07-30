@@ -1,6 +1,6 @@
 # Gameplay UI — action bars, inventory, portraits and character panels
 
-Status: Draft 5 — 2026-07-30 — implementation checkpoint, live validation incomplete
+Status: Draft 6 — 2026-07-30 09:00 — corrective implementation checkpoint, live validation incomplete
 
 This document records the implemented native-ImGui port of the build-5875 gameplay UI. The
 authoritative research and exact FrameXML/wire citations remain in `PORT_GAMEPLAY_UI.md`; this file
@@ -23,6 +23,24 @@ exist; it does not mean the result has passed live visual or interaction validat
 The next gameplay-UI pass should begin from this table. A successful build, camera-frustum count, or
 packet-law test is supporting evidence only; none may be promoted to **verified** without observing
 the corresponding behavior in the running client.
+
+## 09:00 corrective checkpoint
+
+This section supersedes conflicting status statements in older `NEXT_*` research notes. The complete
+conversation narrative and sign-off list are in `July-30-20206-9AM-HANDOFF.md`.
+
+| Surface | Implemented correction | Benilla authority | Live boundary |
+|---|---|---|---|
+| Action, micro, bag, loot and cast additive art | `GameplayArt.AdditiveHandle` is used for authored ADD overlays; spell hover and cast spark no longer depend on alpha-compositing additive source pixels. | `ActionBar.xml` 588–641; `BagFrame.xml` 1233–1424; `CastingBarFrame.xml` 215–225; `MicroMenu.xml` | Verify no black rectangles or unreadable hovered icons. |
+| Character micro portrait | Portrait is composited between the button face and additive overlay instead of behind the frame. | `MicroMenu.xml` 161–199, 244–257 | Verify visible portrait plus working Character button. |
+| Backpack/bags | Authored hover/open checkbutton states and tooltips are wired; placement remains relative to scaled action-bar slots. | `BagFrame.xml` 643–680, 1233–1424 | Verify all UI scales and bag states. |
+| Helpful cast target | Pure `Net/CastTargetLaw.cs` resolves masks; hostile selection falls back to self for a self-capable helpful spell, unsupported shapes are refused. | `ui_action/cast_target.rs` | Verify Holy Light with a hostile wolf selected heals the player. |
+| Post-cast locomotion | `M2Animator.FindOrBake` obtains exact requested spell clips; exact player/creature spell paths do not use Stand as a missing-clip substitute. | `creature_anim/spell_visual.rs` 420–670 | Verify immediate movement-animation recovery after casting. |
+| Character selection | `GameSettings.LastCharacterGuid` is saved and restored. | Direct product requirement; no Benilla equivalent is claimed. | Verify logout and return-to-select. |
+| Enter World transition | `ArmEnterWorldCurtain` raises the loading cover on click, before asynchronous verification or HUD rendering. | 1.12 transition requirement plus existing world-ready gate | Verify no dialog/action-bar frame leaks. |
+
+Later user direction is authoritative over `NEXT_02_TARGET_PLATE.md`: floating target plates are not
+wanted. Keep reaction-aware overhead names; do not reintroduce selected-target plates.
 
 ## Implemented in the current tree
 

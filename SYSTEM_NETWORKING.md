@@ -347,3 +347,21 @@ Both Debug and Release are verified with the repository's .NET SDK. The first co
 aliases (every renderer carries them, to disambiguate the Silk.NET types); they are in
 now. If a later change touches these files, expect the same CS0104 if the aliases are
 dropped.
+
+## 14. 2026-07-30 09:00 cast and character-entry corrections
+
+Two client decisions adjacent to networking were tightened in the corrective pass:
+
+- `Net/CastTargetLaw.cs` is the pure pre-send target-shape law. It mirrors Benilla's
+  `ui_action/cast_target.rs` separation of self, selected-unit, ground and item targets. A helpful
+  spell cannot be serialized against a hostile selected wolf; a self-capable helpful spell falls
+  back to the player, while unsupported shapes are refused locally. Cooldown/GCD, pending-cast,
+  mounted and known-range gates are also checked before send. Server responses remain authoritative.
+- `GameSettings.LastCharacterGuid` persists and restores the selected character GUID. This is an
+  explicit product requirement from live review; no Benilla persistence equivalent is claimed.
+  Clicking Enter World calls `ArmEnterWorldCurtain` immediately, before asynchronous entry
+  verification, so the existing world-ready gate cannot leak the gameplay HUD during transition.
+
+Target-law tests pass and the current solution builds. Live proof is still required for Holy Light
+with a hostile selection, logout/return selection restoration and a frame-clean Enter World
+transition. The complete handoff is `July-30-20206-9AM-HANDOFF.md`.
