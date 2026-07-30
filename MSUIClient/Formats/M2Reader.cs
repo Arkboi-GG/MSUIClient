@@ -998,6 +998,7 @@ public class M2Reader
     private const int ATTACHMENT_STRIDE = 48;
     private const int SEQUENCE_STRIDE_VANILLA = 68;
     private const int ANIM_BLOCK_STRIDE_VANILLA = 28;
+    private const int CAMERA_STRIDE_VANILLA = 124;
     private const int RANGE_STRIDE = 8;     // 2 × uint32
 
     /// <summary>
@@ -1118,6 +1119,8 @@ public class M2Reader
             uint ofsAttachmentLookup = ReadUInt32(data, 0x110);
             ParseAttachmentLookup(data, nAttachmentLookup, ofsAttachmentLookup, model);
 
+            ParsePortraitCamera(data, model);
+
             return model.IsValid ? model : null;
         }
         catch
@@ -1125,6 +1128,105 @@ public class M2Reader
             return null;
         }
     }
+
+    private static void ParsePortraitCamera(byte[] data, M2Model model)
+    {
+        if (data.Length < 0x134) return;
+
+        uint cameraCount = ReadUInt32(data, 0x124);
+        uint cameraOffset = ReadUInt32(data, 0x128);
+        uint lookupCount = ReadUInt32(data, 0x12C);
+        uint lookupOffset = ReadUInt32(data, 0x130);
+        if (cameraCount == 0 || lookupCount == 0 ||
+            !ArrayFits(data, cameraOffset, cameraCount, CAMERA_STRIDE_VANILLA) ||
+            !ArrayFits(data, lookupOffset, lookupCount, sizeof(short))) return;
+
+        short cameraIndex = (short)ReadUInt16(data, (int)lookupOffset);
+        if (cameraIndex < 0 || (uint)cameraIndex >= cameraCount) return;
+
+        long cameraAt = cameraOffset + (long)cameraIndex * CAMERA_STRIDE_VANILLA;
+        if (cameraAt < 0 || cameraAt + CAMERA_STRIDE_VANILLA > data.Length) return;
+        int camera = (int)cameraAt;
+
+        if (!TryReadStaticVectorTrack(data, camera + 16, out Vector3 positionKey) ||
+            !TryReadStaticVectorTrack(data, camera + 56, out Vector3 targetKey) ||
+            !TryReadStaticFloatTrack(data, camera + 96, out float roll)) return;
+
+        Vector3 rawPosition = new(
+            ReadFloat(data, camera + 44),
+            ReadFloat(data, camera + 48),
+            ReadFloat(data, camera + 52));
+        Vector3 rawTarget = new(
+            ReadFloat(data, camera + 84),
+            ReadFloat(data, camera + 88),
+            ReadFloat(data, camera + 92));
+        rawPosition += positionKey;
+        rawTarget += targetKey;
+
+        float fov = ReadFloat(data, camera + 4);
+        float farClip = ReadFloat(data, camera + 8);
+        float nearClip = ReadFloat(data, camera + 12);
+        if (!float.IsFinite(fov) || !float.IsFinite(farClip) || !float.IsFinite(nearClip) ||
+            !IsFinite(rawPosition) || !IsFinite(rawTarget) || !float.IsFinite(roll)) return;
+
+        // M2 vertices are stored downstream as (px, pz, -py). Camera points must use the
+        // byte-identical basis so authored eye/target and rendered geometry share one space.
+        Vector3 position = new(rawPosition.X, rawPosition.Z, -rawPosition.Y);
+        Vector3 target = new(rawTarget.X, rawTarget.Z, -rawTarget.Y);
+        model.PortraitCamera = new M2PortraitCamera(
+            fov, farClip, nearClip, position, target, roll);
+    }
+
+    private static bool TryReadStaticVectorTrack(byte[] data, int track, out Vector3 value)
+    {
+        value = Vector3.Zero;
+        if (!TryReadStaticTrack(data, track, 12, out uint keyOffset, out uint keyCount))
+            return false;
+        if (keyCount == 0) return true;
+        value = new Vector3(
+            ReadFloat(data, (int)keyOffset),
+            ReadFloat(data, (int)keyOffset + 4),
+            ReadFloat(data, (int)keyOffset + 8));
+        return IsFinite(value);
+    }
+
+    private static bool TryReadStaticFloatTrack(byte[] data, int track, out float value)
+    {
+        value = 0f;
+        if (!TryReadStaticTrack(data, track, 4, out uint keyOffset, out uint keyCount))
+            return false;
+        if (keyCount == 0) return true;
+        value = ReadFloat(data, (int)keyOffset);
+        return float.IsFinite(value);
+    }
+
+    private static bool TryReadStaticTrack(byte[] data, int track, int keyStride,
+        out uint keyOffset, out uint keyCount)
+    {
+        keyOffset = 0;
+        keyCount = 0;
+        if (track < 0 || track + ANIM_BLOCK_STRIDE_VANILLA > data.Length) return false;
+
+        uint rangeCount = ReadUInt32(data, track + 4);
+        uint rangeOffset = ReadUInt32(data, track + 8);
+        uint timeCount = ReadUInt32(data, track + 12);
+        uint timeOffset = ReadUInt32(data, track + 16);
+        keyCount = ReadUInt32(data, track + 20);
+        keyOffset = ReadUInt32(data, track + 24);
+
+        // This portrait path intentionally supports only an absent or single static key.
+        if (rangeCount > 1 || timeCount > 1 || keyCount > 1 || timeCount != keyCount) return false;
+        if (rangeCount == 1 && !ArrayFits(data, rangeOffset, 1, RANGE_STRIDE)) return false;
+        if (timeCount == 1 && !ArrayFits(data, timeOffset, 1, sizeof(uint))) return false;
+        if (keyCount == 1 && !ArrayFits(data, keyOffset, 1, keyStride)) return false;
+        return true;
+    }
+
+    private static bool ArrayFits(byte[] data, uint offset, uint count, int stride)
+        => count == 0 || (offset != 0 && offset + (long)count * stride <= data.Length);
+
+    private static bool IsFinite(Vector3 value)
+        => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 
     // ── Vertices ────────────────────────────────────────────────────────────
     //

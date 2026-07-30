@@ -52,6 +52,14 @@ Source: `benilla/crates/benilla/src/portrait/{mod,framing,booth}.rs`.
 
 ## MSUI diagnosis (ranked, with the exonerations)
 
+> **CORRECTION 2026-07-30:** The authored-camera parse/projection verification below did not
+> correspond to committed running code. Full-history searches find `ParsePortraitCamera` only in
+> this document and find `PortraitCamera` first introduced by commit `74349395`, which added the
+> model property and camera-check consumer but no parser or assignment. The cited
+> `M2Reader.cs:1079-1080` function never existed in repository history. The coordinate-space
+> contract remains the intended law, but the claim that it had been implemented and checked was
+> false. See `SPEC_TOOLKIT_REPORT_2026-07-30.md` §DIAGNOSIS.
+
 The M2 camera parse and camera-space math were checked and are **correct**:
 - Vertices are stored `(px, pz, -py)` (`Formats/M2Reader.cs:1218-1220`) and
   `ParsePortraitCamera` applies the **identical** swap to eye/target

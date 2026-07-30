@@ -109,6 +109,11 @@ wanted. Keep reaction-aware overhead names; do not reintroduce selected-target p
 - `tools/portrait-camera-check` is the serverless MPQ-backed camera harness. On the installed data,
   DwarfMale's authored camera places 1,224 parsed vertices inside its clip volume, HumanMale 1,289,
   and Wolf 56. This pins the M2 camera parser/projection independently of OpenGL framebuffer state.
+  **Correction 2026-07-30:** this passing claim did not correspond to committed running code.
+  Commit `74349395` added the nullable camera property and this tool without adding the parser that
+  populates it; full repository history contains no `ParsePortraitCamera` implementation. The
+  numbers remain the required gate targets, not prior verification evidence. See
+  `SPEC_TOOLKIT_REPORT_2026-07-30.md` §DIAGNOSIS.
 - Portrait consumers draw the complete baked texture quad beneath Blizzard's circular frame chrome.
   `ImDrawList.AddImageRounded` is not used: this ImGui.NET/backend combination emitted only one
   textured fan triangle, producing the captured face-shaped wedge even though FBO readback and the

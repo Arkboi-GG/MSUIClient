@@ -1,8 +1,11 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Formats.Mpq;
 
 string data = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine("GameData", "Data"));
+data = Path.GetFullPath(data);
 string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 [
     @"Character\Dwarf\Male\DwarfMale.m2",
@@ -12,12 +15,26 @@ string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 
 using var mpq = new MpqMount(data);
 if (mpq.ArchiveCount == 0) throw new InvalidOperationException($"No MPQs mounted from {data}");
+string[] diagnosticChain = DiagnosticLoadOrder(data).ToArray();
+Console.WriteLine($"[camera-check] data={data}");
+Console.WriteLine($"[camera-check] archive-chain={string.Join(" > ", diagnosticChain.Select(Path.GetFileName))}");
+bool failed = false;
 
 foreach (string path in models)
 {
     byte[] bytes = mpq.ReadFile(path) ?? throw new FileNotFoundException(path);
+    (string sourceArchive, byte[] sourceBytes) = ReadWithProvenance(diagnosticChain, path);
+    Console.WriteLine($"[camera-check] model={path} archive={Path.GetFileName(sourceArchive)} " +
+        $"bytes={bytes.Length} sharedBytesMatch={bytes.AsSpan().SequenceEqual(sourceBytes)}");
+    PrintCameraHeader(bytes);
     M2Model model = M2Reader.Parse(bytes) ?? throw new InvalidDataException($"Could not parse {path}");
-    M2PortraitCamera camera = model.PortraitCamera ?? throw new InvalidDataException($"No portrait camera: {path}");
+    Console.WriteLine($"[camera-check] parsed version={model.Version} portraitCamera={(model.PortraitCamera is null ? "null" : "present")}");
+    if (model.PortraitCamera is not { } camera)
+    {
+        Console.WriteLine($"[camera-check] FAIL no parsed portrait camera: {path}");
+        failed = true;
+        continue;
+    }
     var view = new Camera
     {
         AuthoredPosition = camera.Position,
@@ -87,4 +104,102 @@ foreach (string path in models)
         throw new InvalidDataException($"Renderer basis changed portrait coverage for {path}: {inside} -> {transformedInside}");
 }
 
+if (failed) throw new InvalidDataException("One or more models had no parsed portrait camera; see diagnostics above.");
 Console.WriteLine("portrait camera check passed");
+
+static IEnumerable<string> DiagnosticLoadOrder(string clientDataPath)
+{
+    string[] all = Directory.GetFiles(clientDataPath, "*.MPQ", SearchOption.TopDirectoryOnly)
+        .Concat(Directory.GetFiles(clientDataPath, "*.mpq", SearchOption.TopDirectoryOnly))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    foreach (string path in all
+        .Where(f => Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase))
+        yield return path;
+
+    foreach (string path in all
+        .Where(f => !Path.GetFileName(f).StartsWith("patch", StringComparison.OrdinalIgnoreCase))
+        .OrderBy(f =>
+        {
+            string name = Path.GetFileName(f).ToLowerInvariant();
+            if (name == "terrain.mpq") return 0;
+            if (name == "model.mpq") return 1;
+            return 10;
+        }))
+        yield return path;
+}
+
+static (string Archive, byte[] Bytes) ReadWithProvenance(IEnumerable<string> archivePaths,
+    string internalPath)
+{
+    foreach (string archivePath in archivePaths)
+    {
+        using MpqArchive? archive = MpqArchive.Open(archivePath);
+        if (archive?.ReadFile(internalPath) is { } bytes) return (archivePath, bytes);
+    }
+
+    throw new FileNotFoundException(internalPath);
+}
+
+static void PrintCameraHeader(byte[] bytes)
+{
+    uint version = U32(bytes, 0x004);
+    uint cameraCount = U32(bytes, 0x124);
+    uint cameraOffset = U32(bytes, 0x128);
+    uint lookupCount = U32(bytes, 0x12C);
+    uint lookupOffset = U32(bytes, 0x130);
+    short lookup0 = lookupCount > 0 && lookupOffset <= bytes.Length - 2
+        ? BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan((int)lookupOffset, 2))
+        : (short)-1;
+    long selectedCameraOffset = lookup0 >= 0 ? cameraOffset + lookup0 * 124L : -1L;
+
+    Console.WriteLine($"[camera-check] header version={version} " +
+        $"cameras=count@0x124={cameraCount},offset@0x128=0x{cameraOffset:X} " +
+        $"cameraLookup=count@0x12C={lookupCount},offset@0x130=0x{lookupOffset:X} " +
+        $"lookup0={lookup0} cameraStride=124 selectedCameraOffset=" +
+        $"{(selectedCameraOffset >= 0 ? $"0x{selectedCameraOffset:X}" : "n/a")}");
+
+    if (selectedCameraOffset < 0 || selectedCameraOffset > bytes.Length - 124) return;
+    int camera = (int)selectedCameraOffset;
+    Console.WriteLine($"[camera-check] camera type={U32(bytes, camera)} " +
+        $"fov={F32(bytes, camera + 4):F6} far={F32(bytes, camera + 8):F4} " +
+        $"near={F32(bytes, camera + 12):F4} " +
+        $"positionBase=({F32(bytes, camera + 44):F4},{F32(bytes, camera + 48):F4},{F32(bytes, camera + 52):F4}) " +
+        $"targetBase=({F32(bytes, camera + 84):F4},{F32(bytes, camera + 88):F4},{F32(bytes, camera + 92):F4})");
+    PrintTrackHeader(bytes, camera + 16, "position");
+    PrintTrackHeader(bytes, camera + 56, "target");
+    PrintTrackHeader(bytes, camera + 96, "roll");
+    uint positionKeys = U32(bytes, camera + 40);
+    uint targetKeys = U32(bytes, camera + 80);
+    uint rollKeys = U32(bytes, camera + 120);
+    Console.WriteLine($"[camera-check] staticKeys " +
+        $"position=({F32(bytes, (int)positionKeys):F4},{F32(bytes, (int)positionKeys + 4):F4},{F32(bytes, (int)positionKeys + 8):F4}) " +
+        $"target=({F32(bytes, (int)targetKeys):F4},{F32(bytes, (int)targetKeys + 4):F4},{F32(bytes, (int)targetKeys + 8):F4}) " +
+        $"roll={F32(bytes, (int)rollKeys):F6}");
+}
+
+static uint U32(byte[] bytes, int offset) => offset <= bytes.Length - 4
+    ? BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(offset, 4))
+    : 0;
+
+static float F32(byte[] bytes, int offset) => offset <= bytes.Length - 4
+    ? BitConverter.ToSingle(bytes, offset)
+    : 0f;
+
+static void PrintTrackHeader(byte[] bytes, int track, string name)
+{
+    short globalSequence = track <= bytes.Length - 4
+        ? BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(track + 2, 2))
+        : (short)-1;
+    Console.WriteLine($"[camera-check] {name}Track at=0x{track:X} " +
+        $"interpolation={U16(bytes, track)} globalSequence={globalSequence} " +
+        $"ranges={U32(bytes, track + 4)}@0x{U32(bytes, track + 8):X} " +
+        $"times={U32(bytes, track + 12)}@0x{U32(bytes, track + 16):X} " +
+        $"keys={U32(bytes, track + 20)}@0x{U32(bytes, track + 24):X}");
+}
+
+static ushort U16(byte[] bytes, int offset) => offset <= bytes.Length - 2
+    ? BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2))
+    : (ushort)0;
