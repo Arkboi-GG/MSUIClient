@@ -242,69 +242,37 @@ public sealed partial class GameLoop
             return;
         }
         bool changed = requestChanged || appearanceChanged || !_targetPortraitUsable;
-        if (!changed || NowSeconds() < _targetPortraitRetryAt ||
-            !_creatures.TryGetPortraitFraming(target, out var framing)) return;
+        if (!changed || NowSeconds() < _targetPortraitRetryAt) return;
 
         string targetTuningKey = CreaturePortraitKey(target.DisplayId);
         (PortraitTuning targetTuning, bool targetStoreHit) =
             ResolveTuningWithHit(targetTuningKey);
-        bool deriveCreatureFromHeight = targetStoreHit &&
-            (targetTuning.HeadFraction != PortraitTuning.Default.HeadFraction ||
-             targetTuning.WindowFraction != PortraitTuning.Default.WindowFraction);
-        M2PortraitCamera targetAuthored = default;
-        Matrix4x4 targetPortraitTransform = default;
-        bool targetUsesAuthored = targetTuning.ForceSource != PortraitCameraSource.Bounds &&
-            _creatures.TryGetAuthoredPortrait(target, out targetAuthored, out targetPortraitTransform) &&
-            Vector3.DistanceSquared(targetAuthored.Position, targetAuthored.Target) > 1e-8f;
-        bool targetForcedAuthoredMissing =
-            targetTuning.ForceSource == PortraitCameraSource.Authored && !targetUsesAuthored;
-        Camera targetCamera = targetUsesAuthored
-            ? AuthoredPortraitCamera(targetAuthored, targetPortraitTransform)
-            : CreatureBoundsPortraitCamera(
-                target, framing, targetTuning, deriveCreatureFromHeight);
-        bool targetAuthoredRetriedAsBounds = false;
-        bool drawn = false;
-        _targetPortrait.Bake(() =>
-        {
-            if (targetForcedAuthoredMissing) drawn = true;
-            else drawn = _creatures.RenderPortrait(targetCamera, target);
-        });
-        PortraitRenderTarget.ReadbackStats targetStats = _targetPortrait.Analyze();
-        if (drawn && !targetStats.HasSubject &&
-            targetTuning.ForceSource != PortraitCameraSource.Authored)
-        {
-            Camera fallback = CreatureBoundsPortraitCamera(
-                target, framing, targetTuning, deriveCreatureFromHeight);
-            _targetPortrait.Bake(() => drawn = _creatures.RenderPortrait(fallback, target));
-            targetStats = _targetPortrait.Analyze();
-            targetCamera = fallback;
-            targetAuthoredRetriedAsBounds = targetUsesAuthored;
-        }
-        _targetPortraitUsable = drawn && targetStats.HasSubject;
-        bool targetUsedBounds = !targetForcedAuthoredMissing &&
-            (!targetUsesAuthored || targetAuthoredRetriedAsBounds);
+        if (!TryBakeCreaturePortrait(
+                _targetPortrait, target, targetTuning, targetStoreHit, out CreaturePortraitBake bake))
+            return;
+        _targetPortraitUsable = bake.Drawn && bake.Stats.HasSubject;
         _verdicts.Add(new PortraitVerdict(
             NowSeconds(),
             PortraitSubject.Target,
-            !drawn
+            !bake.Drawn
                 ? PortraitOutcome.NotDrawn
-                : targetStats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank,
-            EffectivePortraitCameraSource(targetStoreHit, targetTuning, targetUsedBounds),
-            targetAuthoredRetriedAsBounds,
-            targetStats.SubjectPixels,
-            targetStats.MinRgb,
-            targetStats.MaxRgb,
-            targetStats.MinAlpha,
-            targetStats.MaxAlpha,
+                : bake.Stats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank,
+            EffectivePortraitCameraSource(targetStoreHit, targetTuning, bake.UsedBounds),
+            bake.AuthoredRetriedAsBounds,
+            bake.Stats.SubjectPixels,
+            bake.Stats.MinRgb,
+            bake.Stats.MaxRgb,
+            bake.Stats.MinAlpha,
+            bake.Stats.MaxAlpha,
             -1,
             target.DisplayId,
-            framing.Height,
-            targetUsedBounds ? targetCamera.EyeHeight : 0f,
-            targetUsedBounds ? targetCamera.Distance : 0f,
-            targetCamera.AuthoredVerticalFieldOfViewRadians is float targetAuthoredFovy
+            bake.Framing.Height,
+            bake.UsedBounds ? bake.Camera.EyeHeight : 0f,
+            bake.UsedBounds ? bake.Camera.Distance : 0f,
+            bake.Camera.AuthoredVerticalFieldOfViewRadians is float targetAuthoredFovy
                 ? targetAuthoredFovy * 180f / MathF.PI
-                : targetCamera.FieldOfViewDegrees,
-            targetCamera.NearPlane));
+                : bake.Camera.FieldOfViewDegrees,
+            bake.Camera.NearPlane));
         if (_targetPortraitUsable)
         {
             _targetPortrait.ApplyCircularMask();
@@ -319,11 +287,68 @@ public sealed partial class GameLoop
             _targetPortraitRetryAt = NowSeconds() + 1.0;
             if (!_targetPortraitFailureDumped)
             {
-                Console.WriteLine($"[portrait] target bake BLANK ({targetStats}, display={target.DisplayId})");
+                Console.WriteLine($"[portrait] target bake BLANK ({bake.Stats}, display={target.DisplayId})");
                 DumpPortrait(_targetPortrait, $"target-{target.DisplayId}", "blank");
                 _targetPortraitFailureDumped = true;
             }
         }
+    }
+
+    private readonly record struct CreaturePortraitBake(
+        bool Drawn,
+        PortraitRenderTarget.ReadbackStats Stats,
+        Camera Camera,
+        bool UsedBounds,
+        bool AuthoredRetriedAsBounds,
+        CreatureRenderer.PortraitFraming Framing);
+
+    private bool TryBakeCreaturePortrait(
+        PortraitRenderTarget renderTarget,
+        WorldEntity target,
+        PortraitTuning tuning,
+        bool overrideHit,
+        out CreaturePortraitBake result)
+    {
+        result = default;
+        if (_creatures is null ||
+            !_creatures.TryGetPortraitFraming(target, out CreatureRenderer.PortraitFraming framing))
+            return false;
+
+        bool deriveFromHeight = overrideHit &&
+            (tuning.HeadFraction != PortraitTuning.Default.HeadFraction ||
+             tuning.WindowFraction != PortraitTuning.Default.WindowFraction);
+        M2PortraitCamera authoredData = default;
+        Matrix4x4 transform = default;
+        bool usesAuthored = tuning.ForceSource != PortraitCameraSource.Bounds &&
+            _creatures.TryGetAuthoredPortrait(target, out authoredData, out transform) &&
+            Vector3.DistanceSquared(authoredData.Position, authoredData.Target) > 1e-8f;
+        bool forcedAuthoredMissing =
+            tuning.ForceSource == PortraitCameraSource.Authored && !usesAuthored;
+        Camera camera = usesAuthored
+            ? AuthoredPortraitCamera(authoredData, transform)
+            : CreatureBoundsPortraitCamera(target, framing, tuning, deriveFromHeight);
+
+        bool drawn = false;
+        renderTarget.Bake(() =>
+        {
+            if (forcedAuthoredMissing) drawn = true;
+            else drawn = _creatures.RenderPortrait(camera, target);
+        });
+        PortraitRenderTarget.ReadbackStats stats = renderTarget.Analyze();
+        bool retriedAsBounds = false;
+        if (drawn && !stats.HasSubject && tuning.ForceSource != PortraitCameraSource.Authored)
+        {
+            Camera fallback = CreatureBoundsPortraitCamera(
+                target, framing, tuning, deriveFromHeight);
+            renderTarget.Bake(() => drawn = _creatures.RenderPortrait(fallback, target));
+            stats = renderTarget.Analyze();
+            camera = fallback;
+            retriedAsBounds = usesAuthored;
+        }
+        bool usedBounds = !forcedAuthoredMissing && (!usesAuthored || retriedAsBounds);
+        result = new CreaturePortraitBake(
+            drawn, stats, camera, usedBounds, retriedAsBounds, framing);
+        return true;
     }
 
     private PortraitTuning ResolveTuning(string key)

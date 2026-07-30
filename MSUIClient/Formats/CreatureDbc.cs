@@ -30,6 +30,7 @@ public sealed class CreatureDisplayInfoTable
 
     private readonly Dictionary<uint, CreatureDisplayRow> _rows = new();
     public int Count => _rows.Count;
+    public IReadOnlyCollection<CreatureDisplayRow> All => _rows.Values;
     public CreatureDisplayRow? Find(uint displayId) => _rows.TryGetValue(displayId, out var r) ? r : null;
 
     public static CreatureDisplayInfoTable? Parse(byte[] data)

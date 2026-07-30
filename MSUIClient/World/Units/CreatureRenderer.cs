@@ -58,6 +58,10 @@ public sealed class CreatureRenderer : IDisposable
     public ulong SelectedGuid { get; set; }
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
 
+    public readonly record struct PortraitSpecimen(int DisplayId, string ModelPath);
+    private IReadOnlyList<PortraitSpecimen> _portraitSpecimens = Array.Empty<PortraitSpecimen>();
+    public IReadOnlyList<PortraitSpecimen> PortraitSpecimens => _portraitSpecimens;
+
     private const int BaseAnimationTrack = 0;
     private const int ActionAnimationTrack = 1;
     private const int SpellHoldAnimationTrack = 2;
@@ -193,6 +197,13 @@ public sealed class CreatureRenderer : IDisposable
             if (di is not null && md is not null)
             {
                 _resolver = new CreatureModelResolver(di, md, ex);
+                _portraitSpecimens = di.All
+                    .Select(row => _resolver.TryResolve((int)row.Id, out CreatureModelInfo info)
+                        ? new PortraitSpecimen((int)row.Id, info.ModelPath)
+                        : default)
+                    .Where(specimen => specimen.DisplayId > 0)
+                    .OrderBy(specimen => specimen.DisplayId)
+                    .ToArray();
                 _shader = Shader.FromSource(_gl, "creature", VertSrc, FragSrc);
 
                 // Geoset visibility for humanoid NPCs (best-effort — filter degrades to naked defaults).

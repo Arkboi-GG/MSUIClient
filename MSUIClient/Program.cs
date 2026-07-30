@@ -1162,6 +1162,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateCharacterPageInput(typing);
         UpdateSpellbookInput(typing);
         UpdateSheathInput(typing);
+        UpdatePortraitLabInput(typing);
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);

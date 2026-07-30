@@ -16,6 +16,7 @@ string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 CheckDefaultTuningIdentity();
 using var mpq = new MpqMount(data);
 if (mpq.ArchiveCount == 0) throw new InvalidOperationException($"No MPQs mounted from {data}");
+CheckCreatureSpecimenEnumeration(mpq);
 string[] diagnosticChain = DiagnosticLoadOrder(data).ToArray();
 Console.WriteLine($"[camera-check] data={data}");
 Console.WriteLine($"[camera-check] archive-chain={string.Join(" > ", diagnosticChain.Select(Path.GetFileName))}");
@@ -143,6 +144,30 @@ static void SameBits(float expected, float actual, string field)
     if (BitConverter.SingleToInt32Bits(expected) != BitConverter.SingleToInt32Bits(actual))
         throw new InvalidDataException(
             $"Default portrait tuning changed {field}: {expected:R} != {actual:R}");
+}
+
+static void CheckCreatureSpecimenEnumeration(MpqMount mpq)
+{
+    CreatureDisplayInfoTable? displays = mpq.ReadFile(CreatureDisplayInfoTable.MpqPath) is { } di
+        ? CreatureDisplayInfoTable.Parse(di) : null;
+    CreatureModelDataTable? models = mpq.ReadFile(CreatureModelDataTable.MpqPath) is { } md
+        ? CreatureModelDataTable.Parse(md) : null;
+    if (displays is null || models is null)
+        throw new InvalidDataException("Creature specimen DBCs are unavailable");
+    var resolver = new CreatureModelResolver(displays, models);
+    var specimens = displays.All
+        .Select(row => resolver.TryResolve((int)row.Id, out CreatureModelInfo info)
+            ? (DisplayId: (int)row.Id, info.ModelPath) : default)
+        .Where(specimen => specimen.DisplayId > 0)
+        .OrderBy(specimen => specimen.DisplayId)
+        .ToArray();
+    int wolves = specimens.Count(specimen =>
+        specimen.ModelPath.Contains("wolf", StringComparison.OrdinalIgnoreCase));
+    if (specimens.Length == 0 || wolves == 0)
+        throw new InvalidDataException(
+            $"Creature specimen enumeration failed: total={specimens.Length}, wolfMatches={wolves}");
+    Console.WriteLine(
+        $"[camera-check] portrait specimens={specimens.Length}, wolfFilterMatches={wolves}");
 }
 
 static IEnumerable<string> DiagnosticLoadOrder(string clientDataPath)

@@ -14,13 +14,14 @@ Build status: BUILT+GATES-PASS
 | 1D | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Unified visible action-button state and drawing through `ActionButtonVerdict`; ring/console output occurs only when usability, range, flashing, or checked state transitions. |
 | 2A | IMPLEMENTED, GATES PASS; LIVE FBO UNVERIFIED | Added tolerant per-model portrait overrides and routed player/creature bounds cameras through default-identical tunings, including explicit authored/bounds forcing. |
 | 2B | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the DevTools Portrait Lab for live Player/Target evidence, tuning, source forcing, persistence, PNG capture, and a dedicated unmasked bake. |
+| 2C | IMPLEMENTED, GATES PASS; LIVE UNVERIFIED | Added the offline specimen booth over all resolvable CreatureDisplayInfo rows, text filtering, bracket/button cycling, synthetic entities, and shared live/specimen creature bake law. |
 
 ## Files touched
 
 | File | New/Edit | What |
 |---|---|---|
 | `MSUIClient/Engine/Verdicts.cs` | New | `IVerdict`, portrait enums/record, and the 256-entry single-threaded verdict ring. |
-| `MSUIClient/Program.Portraits.cs` | Edit | Captured player/target verdicts from the existing bake decisions. Stage 2A also loads overrides independently of DevTools, resolves canonical keys, applies force-source precedence, and parameterizes only the existing bounds-camera literals. |
+| `MSUIClient/Program.Portraits.cs` | Edit | Captured portrait verdicts, loads overrides independently of DevTools, applies tuning/source precedence, and provides the shared live-target/specimen creature bake helper. |
 | `MSUIClient/Program.DevTools.Verdicts.cs` | New | DevTools-only copyable Verdicts panel. |
 | `MSUIClient/Program.cs` | Edit | Calls the Verdicts and Portrait Lab panels only inside the existing `_config.DevTools`-gated HUD. |
 | `MSUIClient/Net/CastTargetLaw.cs` | Edit | Added a reason to each existing pure-law exit without changing target resolution. |
@@ -32,8 +33,11 @@ Build status: BUILT+GATES-PASS
 | `MSUIClient/Program.AnimationVerdicts.cs` | New | Captured all resolution results into the ring and emitted warning kinds only when a unit/track choice transitions. |
 | `MSUIClient/Program.Net.cs` | Edit | Connected the gameplay creature renderer to the animation verdict capture sink. |
 | `MSUIClient/Engine/PortraitTuning.cs` | New | Default-identical tuning record plus case-insensitive, comment/trailing-comma-tolerant `portrait-overrides.json` load/upsert/remove persistence. |
-| `MSUIClient/Program.DevTools.Portraits.cs` | New | Player/Target lab UI, full verdict evidence, tuning controls, persisted override actions, PNG capture, and an independently baked unmasked render target. |
-| `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis provenance/raw v256 camera output plus Stage 2A float-bit assertions for the default bounds-camera tunings. No resolver/parser behavior changed. |
+| `MSUIClient/Program.DevTools.Portraits.cs` | New | Player/Target/Specimen lab UI, full verdict evidence, tuning/persistence/PNG controls, dedicated unmasked baking, filtering, and edge-detected cycling. |
+| `MSUIClient/Formats/CreatureDbc.cs` | Edit | Exposed the already-parsed display rows as a read-only collection for complete specimen enumeration. |
+| `MSUIClient/Net/ObjectFields.cs` | Edit | Added a narrow synthetic-unit descriptor factory for display ID and scale; it neither enters `EntityStore` nor touches the wire. |
+| `MSUIClient/World/Units/CreatureRenderer.cs` | Edit | Exposed sorted resolvable display IDs plus normalized model paths for the lab. |
+| `tools/portrait-camera-check/Program.cs` | Edit | Diagnosis provenance/raw v256 camera output, Stage 2A default-tuning bit checks, and Stage 2C specimen/wolf-filter enumeration. No resolver/parser behavior changed. |
 | `SPEC_TOOLKIT_REPORT_2026-07-30.md` | New | This stage-boundary report. |
 
 ## Symbol verification
@@ -72,6 +76,14 @@ Build status: BUILT+GATES-PASS
 
 - The target path retries the bounds camera whenever a drawn bake is blank, even when the initial camera was already bounds-derived. Stage 1A preserves that existing behavior byte-for-byte.
 - The authored-camera parser omission and false prior gate claims were resolved/corrected in the separately approved core commit `931f1f2` before Stage 1A was committed.
+
+### Stage 2C discovery — specimen booth
+
+- `WorldEntity` is constructible without `EntityStore` (`Net/Entities.cs:9`). The portrait path reads only `Type == Unit`, descriptor-backed `DisplayId` and `Scale`, plus `Position` and `Orientation`; `RenderPortrait` does not consult live health, combat, spline, selection, or store membership (`CreatureRenderer.cs:415-529`). A reserved fake GUID can remain entirely outside `_entities`.
+- The only construction seam is descriptor initialization: `DisplayId` and `Scale` are read-only projections of sparse `ObjectFields` (`ObjectFields.cs:137-138`). The smallest primary-path support is a narrow synthetic-unit factory on `ObjectFields`; no network packet or entity-store insertion is needed.
+- Resolution is `CreatureDisplayInfo.Id -> ModelId -> CreatureModelData.ModelPath`, with display/model scales and texture/extended-NPC data folded into `CreatureModelInfo` (`CreatureDbc.cs:217-240`). The table currently has `Find` and `Count` but no enumeration surface, even though all rows are already held in `_rows` (`CreatureDbc.cs:31-33`); exposing a read-only row collection is sufficient.
+- Model acquisition is synchronous, not asynchronous: `TryGetModel` calls `LoadModel` immediately on the first cache miss and caches the result (`CreatureRenderer.cs:532-543`). A false portrait draw therefore means unresolved/load failure, not “still streaming”; the lab will retain the one-second retry idiom without claiming asynchronous streaming.
+- Creature names are not present in `CreatureDisplayInfo`/`CreatureModelData`; the cheap specimen label is display ID plus normalized model path. The primary synthetic-entity path is viable, so the Player/Target-only fallback is not needed.
 
 ## DIAGNOSIS — authored M2 cameras missing from the parsed model
 
@@ -211,6 +223,16 @@ portrait-overrides.json: MISSING (empty-store path)
 No live player/target FBO count is claimed. With no override, the authored path is unchanged and every bounds-camera arithmetic operation receives a default value whose float bits match the former literal; the live before/after `[portrait]` pair remains Nico's verification boundary.
 
 Stage 2B has no offline visual claim. The unmasked checkbox writes only to the dedicated `_labPortrait`; `_playerPortrait` and `_targetPortrait` retain their existing circular mask calls. Slider latency, evidence/pixel agreement, PNG capture, and persistence remain live checks.
+
+Stage 2C enumeration evidence:
+
+```text
+[dbc] CreatureDisplayInfo: 10534 record(s), 48B each, 10534 indexed
+[dbc] CreatureModelData: 430 record(s), 64B each, 430 indexed
+[camera-check] portrait specimens=10534, wolfFilterMatches=94
+```
+
+The booth uses the primary path, not the Player/Target fallback. Its synthetic unit is never inserted into `_entities`; live target and specimen rendering both call `TryBakeCreaturePortrait`. Actual cycling pixels and Blank/NotDrawn worklist remain live-unverified.
 
 ## Live checks for Nico
 

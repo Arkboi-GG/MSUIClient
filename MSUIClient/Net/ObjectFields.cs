@@ -89,6 +89,17 @@ public sealed class ObjectFields
     public ObjectFields() => _fields = new Dictionary<ushort, uint>();
     private ObjectFields(Dictionary<ushort, uint> fields, bool created) { _fields = fields; _created = created; }
 
+    /// <summary>
+    /// Minimal descriptor snapshot for a DevTools-only synthetic creature. It is never merged
+    /// into the live entity store or serialized onto the wire.
+    /// </summary>
+    public static ObjectFields ForSyntheticUnit(int displayId, float scale = 1f) =>
+        new(new Dictionary<ushort, uint>
+        {
+            [UNIT_DISPLAYID] = unchecked((uint)displayId),
+            [OBJECT_SCALE_X] = BitConverter.SingleToUInt32Bits(scale),
+        }, created: true);
+
     public static ObjectFields Read(PacketReader r)
     {
         int blocks = r.ReadU8();
