@@ -1,0 +1,8 @@
+{
+  "result": "TIMEOUT",
+  "detail": "world did not become ready",
+  "account": "nico",
+  "character": "Test",
+  "realm": null,
+  "elapsed": 15.012134496122599
+}
