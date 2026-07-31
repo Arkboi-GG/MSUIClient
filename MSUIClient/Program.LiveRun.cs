@@ -41,6 +41,7 @@ public sealed partial class GameLoop
     private readonly LiveRunOptions? _liveRunOptions;
     private double _liveRunElapsed;
     private bool _liveTeleportSent;
+    private double _liveTeleportSentAt;
     private readonly HashSet<string> _liveHeld = new(StringComparer.OrdinalIgnoreCase);
     private List<string>? _liveSteps;
     private int _liveStep;
@@ -50,6 +51,7 @@ public sealed partial class GameLoop
     private readonly List<string> _liveLog = [];
     private string _liveStamp = "";
     private readonly List<ulong> _liveSpawnGuids = [];
+    private HashSet<ulong>? _liveSpawnBefore;
     public int LiveRunExitCode { get; private set; } = 1;
 
     private void AdvanceLiveRun(float dt)
@@ -61,6 +63,17 @@ public sealed partial class GameLoop
         if (_net is not { IsInWorld:true } || _worldLoading || _controller is null || _character is null) return;
         if (_liveTeleportSent)
         {
+            var readyArena=VantageStore.Load(_config.RepoRoot).Find("movement-arena");
+            if (readyArena is null) { FinishLiveBootstrap("NO_VANTAGE","movement-arena missing"); return; }
+            float dx=_controller.Position.X-readyArena.X,dy=_controller.Position.Y-readyArena.Y,dz=_controller.Position.Z-readyArena.Z;
+            bool atArena=dx*dx+dy*dy+dz*dz<=9f;
+            if (!atArena && NowSeconds()-_liveTeleportSentAt<2.0) return;
+            if (!atArena && !_liveLog.Contains("TELEPORT_UNCONFIRMED"))
+            {
+                _liveLog.Add("TELEPORT_UNCONFIRMED");
+                EmitCombat("BootstrapTeleportUnconfirmed","gm-command-no-position-change",0,
+                    $"position={_controller.Position.X:R}|{_controller.Position.Y:R}|{_controller.Position.Z:R}");
+            }
             if (_liveRunOptions.Protocol is null) { FinishLiveBootstrap("READY", "world+wire+verdict ready"); return; }
             AdvanceProtocol(); return;
         }
@@ -69,6 +82,7 @@ public sealed partial class GameLoop
         string command=string.Create(CultureInfo.InvariantCulture,
             $".go xyz {arena.X:R} {arena.Y:R} {arena.Z:R} {arena.Map}");
         _liveTeleportSent=SendGmCommand(command,"live-bootstrap");
+        if(_liveTeleportSent) _liveTeleportSentAt=NowSeconds();
         if (!_liveTeleportSent) FinishLiveBootstrap("GM_SEND_FAILED", command);
     }
 
@@ -99,7 +113,10 @@ public sealed partial class GameLoop
             string[] p=line.Split(' ',3,StringSplitOptions.RemoveEmptyEntries);
             switch(p[0].ToLowerInvariant())
             {
-                case "gm": Log(SendGmCommand(line[3..],"protocol-runner"),line); break;
+                case "gm":
+                    if(line[3..].StartsWith(".npc add",StringComparison.OrdinalIgnoreCase))
+                        _liveSpawnBefore=_entities.Units.Where(x=>x.IsCreature).Select(x=>x.Guid).ToHashSet();
+                    Log(SendGmCommand(line[3..],"protocol-runner"),line); break;
                 case "wait": _liveWaitUntil=now+double.Parse(p[1],CultureInfo.InvariantCulture); Log(true,line); break;
                 case "waitfor":
                     string[] w=line[8..].Split(' '); double timeout=double.Parse(w[^1],CultureInfo.InvariantCulture);
@@ -130,6 +147,12 @@ public sealed partial class GameLoop
     private IEnumerable<string> VerdictLines()=>_verdicts.SnapshotAll().Select(v=>$"[{v.Channel}] {v.ToLine()}");
     private void Log(bool pass,string text)
     {
+        if(_liveSpawnBefore is not null)
+        {
+            ulong appeared=_entities.Units.Where(x=>x.IsCreature&&!_liveSpawnBefore.Contains(x.Guid))
+                .Select(x=>x.Guid).OrderBy(x=>x).FirstOrDefault();
+            if(appeared!=0&&!_liveSpawnGuids.Contains(appeared)) { _liveSpawnGuids.Add(appeared); _liveSpawnBefore=null; }
+        }
         foreach(string line in VerdictLines().Where(x=>x.Contains("event=GmChatResponse")))
         {
             var match=System.Text.RegularExpressions.Regex.Match(line,@"0x[0-9A-Fa-f]{8,16}");

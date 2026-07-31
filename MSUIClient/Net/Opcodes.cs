@@ -137,6 +137,7 @@ public enum Op : ushort
     SMSG_BINDPOINTUPDATE         = 0x0155,
     CMSG_MESSAGECHAT             = 0x0095,
     SMSG_MESSAGECHAT             = 0x0096,
+    SMSG_NOTIFICATION            = 0x01CB,
     SMSG_EMOTE                   = 0x0103,
     SMSG_TEXT_EMOTE              = 0x0105,
 }

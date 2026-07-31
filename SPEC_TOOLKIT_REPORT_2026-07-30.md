@@ -2932,3 +2932,24 @@ Opcode values were verified against the local authoritative
 BADFACING 0x0146, NOTSTANDING 0x0147, DEADTARGET 0x0148, and CANT_ATTACK
 0x0149. No combat decision or wire send changed. D0 manifest:
 `live-runs/manifests/D0-20260731-143326.sha256`.
+
+## D1 - CB1 root-cause matrix: INVALID specimens
+
+The unchanged four-variant protocol ran, but no GM command response and no new
+spawn entity followed `.npc add`; selection therefore fell back to existing
+world creatures 36-88 yd away. V-A produced NOTINRANGE 0x0145 exactly, proving
+the new error capture, but V-B/V-C/V-D cannot answer the decision table.
+Additionally `.go xyz` received no response or position change. The command
+sender reports local send success, while VMaNGOS executes none of `.go`,
+`.npc add`, `.npc delete`, or `.die` through this path.
+
+```text
+EXPECTED valid matrix specimens: 4
+ACTUAL: 0
+EXPECTED player swings usable for decision table: >=1 qualifying branch
+ACTUAL: 0
+RESULT: D1 INVALID; root cause moves upstream to CMSG_MESSAGECHAT capability
+```
+
+No CB1 combat conclusion is drawn. D1 manifest:
+`live-runs/manifests/D1-20260731-144349.sha256`.

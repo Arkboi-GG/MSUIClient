@@ -435,6 +435,7 @@ public sealed partial class GameLoop
                         ObserveCombatError((Op)opcode, body);
                         break;
                     case Op.SMSG_MESSAGECHAT:
+                    case Op.SMSG_NOTIFICATION:
                         ObserveGmChatResponse(body);
                         break;
                 }
