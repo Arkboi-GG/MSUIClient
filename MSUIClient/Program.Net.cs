@@ -279,6 +279,39 @@ public sealed partial class GameLoop
             {
                 switch ((Op)opcode)
                 {
+                    case Op.MSG_MOVE_TELEPORT_ACK:
+                        {
+                            // Build 5875 server->client same-map teleport:
+                            // packed mover guid, movement counter, destination MovementInfo.
+                            var teleportReader = new PacketReader(body);
+                            ulong moverGuid = teleportReader.ReadPackedGuid();
+                            uint counter = teleportReader.ReadU32();
+                            MovementInfo destination = MovementInfo.Read(teleportReader);
+                            if (teleportReader.Remaining != 0)
+                                throw new InvalidDataException(
+                                    $"MSG_MOVE_TELEPORT_ACK has {teleportReader.Remaining} trailing byte(s)");
+                            if (_controller is null || moverGuid != _net.PlayerGuid)
+                            {
+                                Console.WriteLine($"[net] ignored same-map teleport for mover 0x{moverGuid:X16} " +
+                                                  $"(player 0x{_net.PlayerGuid:X16})");
+                                break;
+                            }
+
+                            // Apply on the game thread before acknowledging. Camera yaw is the
+                            // next frame's MovementInput yaw, so updating it is what makes the
+                            // server orientation survive rather than being overwritten immediately.
+                            _controller.Teleport(destination.Position.X, destination.Position.Y,
+                                destination.Position.Z);
+                            _controller.Yaw = destination.Orientation;
+                            _window.Camera.Yaw = destination.Orientation;
+                            _window.Camera.OrbitYaw = 0f;
+                            _window.Camera.Target = _controller.Position;
+                            _character?.SnapFacing(destination.Orientation);
+                            _movementSender.Reset(destination.Orientation);
+                            ObserveTeleportApplied(moverGuid, counter, destination);
+                            _net.TeleportAck(moverGuid, counter);
+                        }
+                        break;
                     case Op.SMSG_UPDATE_OBJECT:
                         _pendingObjectReceivedStamp = receivedStamp;
                         ObjectUpdateBuffer updateBuffer = _objectUpdateBuffer;

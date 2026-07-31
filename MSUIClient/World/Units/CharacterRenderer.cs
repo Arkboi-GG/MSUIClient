@@ -611,6 +611,15 @@ public sealed partial class CharacterRenderer : IDisposable
     // Live animation diagnostics.
     public float BodyYawDegrees => _bodyYaw * 180f / MathF.PI;
     public float BodyYawRadians => _bodyYaw;
+
+    /// <summary>Snap the rendered body to a server-authoritative facing change.</summary>
+    public void SnapFacing(float yaw)
+    {
+        _bodyYaw = yaw;
+        _moveYaw = 0f;
+        _bodyTurnStep = 0f;
+        _hasBodyYaw = true;
+    }
     public string BlendFrom => _previousClip?.Name ?? "";
     public float BlendWeight => BlendWeightNow();
     public float BlendFromTime => _previousClipTime;

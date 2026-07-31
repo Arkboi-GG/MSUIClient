@@ -371,6 +371,26 @@ public sealed class WorldSession : IDisposable
 
     public void WorldportAck() => SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);
 
+    /// <summary>
+    /// Client half of the build-5875 same-map teleport handshake. The server's
+    /// MSG_MOVE_TELEPORT_ACK carries a packed mover guid, counter and destination
+    /// MovementInfo; the reply is the full guid, the same counter, and the
+    /// client's monotonic movement clock.
+    /// </summary>
+    public void TeleportAck(ulong guid, uint counter)
+    {
+        SendPacket((ushort)Op.MSG_MOVE_TELEPORT_ACK, BuildTeleportAckBody(guid, counter));
+    }
+
+    public static byte[] BuildTeleportAckBody(ulong guid, uint counter)
+    {
+        var w = new PacketWriter(16);
+        w.WriteU64(guid);
+        w.WriteU32(counter);
+        w.WriteU32(MovementInfo.ClientUptimeMs());
+        return w.ToArray();
+    }
+
     private void SendFullGuid(Op op, ulong guid)
     {
         var w = new PacketWriter(8);

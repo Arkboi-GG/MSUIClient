@@ -3134,3 +3134,36 @@ portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
 
 **HARD STOP - SPEC-18 stopped at G2. The accepted tree records the transport
 fix and the unimplemented same-map teleport prerequisite; G3/G4 remain closed.**
+## T0 — same-map teleport receive/apply/ack
+
+### Actual versus predicted
+
+The authorized production change now consumes VMaNGOS's server-to-client
+`MSG_MOVE_TELEPORT_ACK` shape (packed mover GUID, counter, destination
+MovementInfo), applies the pose on the game thread to controller, camera, and
+rendered body, resets the movement sender, and replies once with the required
+full GUID, matching counter, and client time. The layout was verified against
+the project's build-5875 movement decoder, benilla's parser/sender and golden
+fixture, and the official VMaNGOS sender, packet reader, and near-teleport
+handler sources.
+
+The clean run `T0-teleport-acceptance-20260731-153015` passed every acceptance
+row. Counter 1 requested exactly `-8970|-132.493|83.53` at orientation
+`2.7227101`; the apply verdict followed packet receipt in one live tick, and the
+next movement row retained both aim and body yaw. The sole matching reply body
+was `0100000000000000010000001B320000`. Across 1,846 idle rows covering more
+than 30 seconds, X/Y remained byte-identical with no snap-back. The subsequent
+real-input run emitted start, heartbeat, heartbeat, stop; server `.gps`
+confirmed the final trace pose. The post-teleport run-start-stop audit passed
+all seven current-tree bands.
+
+An initial run exposed a runner-only false warning: after the protocol moved
+away, bootstrap continued checking the staging arena. T0 now stops that check
+once protocol ownership begins; the clean acceptance run has 13/13 steps PASS
+and no false bootstrap verdict. Far-map transfer remains unchanged, untested,
+and out of scope.
+
+Full actual-versus-predicted detail and wire hex are in
+`live-runs/T0-teleport-acceptance-20260731-153015.md`. Standard four gates pass:
+Debug build (known CA2014 only), combat/wire, portrait-camera
+1,224 / 1,289 / 56, and move-audit-check.

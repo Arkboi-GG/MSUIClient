@@ -64,6 +64,10 @@ public sealed partial class GameLoop
         if (_net is not { IsInWorld:true } || _worldLoading || _controller is null || _character is null) return;
         if (_liveTeleportSent)
         {
+            // Once the protocol has started it owns position. Do not keep testing
+            // the bootstrap arena after a later scenario step deliberately moves
+            // the character away from it.
+            if (_liveSteps is not null) { AdvanceProtocol(); return; }
             var readyArena=VantageStore.Load(_config.RepoRoot).Find("movement-arena");
             if (readyArena is null) { FinishLiveBootstrap("NO_VANTAGE","movement-arena missing"); return; }
             float dx=_controller.Position.X-readyArena.X,dy=_controller.Position.Y-readyArena.Y,dz=_controller.Position.Z-readyArena.Z;

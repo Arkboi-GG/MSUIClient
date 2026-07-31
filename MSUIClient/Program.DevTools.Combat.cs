@@ -89,6 +89,11 @@ public sealed partial class GameLoop
         EmitCombat("TeleportWire", outgoing ? "client-send" : "server-receive", 0,
             $"opcode=0x{opcode:X4};bytes={body.Length};hex={Convert.ToHexString(body)}");
 
+    private void ObserveTeleportApplied(ulong guid, uint counter, MovementInfo movement) =>
+        EmitCombat("TeleportApplied", "server-authoritative", guid,
+            $"counter={counter};position={movement.Position.X:R}|{movement.Position.Y:R}|{movement.Position.Z:R};" +
+            $"orientation={movement.Orientation:R};movementTime={movement.Timestamp};flags=0x{movement.Flags:X8}");
+
     private void ObserveCombatAnimationChoice(in AnimChoice choice)
     {
         if (!choice.Unit.Equals("player", StringComparison.OrdinalIgnoreCase) ||

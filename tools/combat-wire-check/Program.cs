@@ -67,6 +67,15 @@ var decoded = MovementInfo.Read(new PacketReader(writer.ToArray()));
 Check(decoded.Flags == movement.Flags && decoded.FallTime == 321, "movement flags/fall time round-trip");
 Check(decoded.Jump is { ZSpeed: < 0, XySpeed: 7 }, "movement jump tail round-trip");
 
+// Build-5875 client same-map teleport acknowledgement: full guid, counter,
+// monotonic client time. The first twelve bytes match benilla's golden packet;
+// the live clock is asserted structurally because it is deliberately not fixed.
+byte[] teleportAck = WorldSession.BuildTeleportAckBody(0x123456789ABCDEF0ul, 7);
+Check(teleportAck.Length == 16, "teleport ack body size");
+Check(teleportAck.AsSpan(0, 12).SequenceEqual(Hex("f0debc9a7856341207000000")),
+    "teleport ack full-guid/counter layout");
+Check(new PacketReader(teleportAck, 12, 4).ReadU32() != 0, "teleport ack client time");
+
 var hostile = new FactionTemplateRow { Faction = 1, EnemyGroupMask = 4 };
 var monster = new FactionTemplateRow { Faction = 2, GroupMask = 4 };
 Check(hostile.ReactionToward(monster) == FactionReaction.Hostile, "faction enemy-group precedence");

@@ -250,6 +250,12 @@ public sealed class NetworkClient : IDisposable
 
     public void CompleteCinematic() { try { _session?.CompleteCinematic(); } catch { } }
 
+    public void TeleportAck(ulong guid, uint counter)
+    {
+        if (State != NetState.InWorld || _session is null) return;
+        try { _session.TeleportAck(guid, counter); } catch { }
+    }
+
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
     public Action<Op, ulong>? CombatSendObserved { get; set; }
     public void AttackSwing(ulong guid)
