@@ -3001,3 +3001,40 @@ finding is `live-runs/D3-live-rerun-20260731-144903.json`. D3 manifest:
 
 D3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## D4 - combat diagnosis round 2 close-out (HARD STOP)
+
+The full root-cause matrix, re-scoped findings, and implied order queue are
+frozen in `live-runs/D4-combat-diagnosis-packet-20260731-145135.md`.
+
+CB1 is NOT DETERMINED: none of V-A through V-D produced a controlled specimen,
+so no decision-table row qualifies. The isolated NOTINRANGE 0x0145 event proves
+the D0 capture but not a GM-mode root cause. CB6 is likewise NOT DETERMINED:
+there is no response- and descriptor-confirmed death. CB4 is PARTIAL with only
+its exact wire pairing retained. CB7's foreign-swing audit failure is removed,
+but zero player swing samples means it supplies no positive combat claim.
+
+The first implied order is the upstream autonomous GM-command capability, with
+positive response, position-mutation, and response-derived spawn-identity
+proof. Only then can unchanged D1/D2/D3 protocols yield combat evidence.
+Nico's CB2/CB3 defer-to-server ruling remains closed: no client range or facing
+gate is queued. Attack-error text display remains a later signed order.
+
+```text
+EXPECTED qualifying CB1 matrix specimens: 4
+ACTUAL: 0
+EXPECTED confirmed CB6 deaths: 1
+ACTUAL: 0
+EXPECTED restored CB4 player-swing confirmation: 1 or more player-guid rows
+ACTUAL: 0 archived; live rerun invalid
+EXPECTED combat fixes in SPEC-17: 0
+ACTUAL: 0
+```
+
+D4 manifest: `live-runs/manifests/D4-20260731-145135.sha256`.
+
+D4 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+**HARD STOP - SPEC-17 D0-D4 is complete. No combat fix, F3-F6 work, or
+additional diagnosis is authorized without a new signed order.**
