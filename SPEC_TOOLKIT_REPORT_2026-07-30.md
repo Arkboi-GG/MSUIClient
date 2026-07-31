@@ -1768,3 +1768,42 @@ prepared for their permitted commit. Pre-existing user-owned changes remain
 untouched (`MSUIClient/Formats/DbcReader.cs`, `vantages.json`,
 `PILOT_PROTOCOL.md`, `SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md`, and the supplied
 untracked `SPEC_TOOLKIT_09_W4_INHERIT_DIAGNOSIS.md`). W8-3 passes.
+
+### W8-4 - HARD STOP ruling packet
+
+All diagnostic predictions matched their baseline queries, the historical
+candidate built without source changes, the focused evidence was captured,
+and the temporary worktree was discarded. The standard accepted-tree gates
+after the evidence commits produced:
+
+```text
+dotnet build MSUIClient.sln -c Debug
+Build succeeded. 0 Warning(s), 0 Error(s).
+
+dotnet run --project tools\combat-wire-check\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\portrait-camera-check\MSUIPortraitCameraCheck.csproj -c Release -- GameData\Data
+DwarfMale inside=1224
+HumanMale inside=1289
+Wolf inside=56
+portrait camera check passed
+```
+
+Nico's ruling is required between these two evidence-framed choices:
+
+- **Option A - inheritance is correct.** Unbound facial-hair type-8 should
+  follow the head slot; the 689 changes are a legitimate consequence of
+  7C-2a. Consequence if ruled: `cohort-7c2a-inherit.keys` is promoted to
+  acceptance authority alongside `cohort-7c2a.keys`, and W4 reruns against
+  the union (8,889 + 689 = 9,578 rows; any other change still rejects).
+- **Option B - inheritance must be pinned.** Unbound facial-hair type-8 must
+  keep the dressed baked atlas; the candidate needs an implementation change
+  so exactly the 8,889 authority rows change and the 689 stay byte-identical.
+
+No recommendation weighting is added beyond the evidence. Neither option is
+implemented. `cohort-7c2a.keys`, `variant-items-known-issues.txt`, and all
+expected lists are unchanged. W5 remains stopped. 7C-3 remains queued and
+untouched pending its own ruling.
+
+**HARD STOP - awaiting Nico's Option A / Option B ruling.**
