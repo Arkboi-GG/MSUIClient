@@ -1503,3 +1503,22 @@ Artifacts:
 Standard gates passed: Debug solution build succeeded with only the existing
 CA2014 warning, combat/wire checks passed, and portrait-camera anchors remained
 1,224 / 1,289 / 56. W6 is self-ruled accepted.
+
+### W7 - unattended close-out
+
+| Work item | Mechanical result | Status / commit |
+|---|---|---|
+| W0 panel reconciliation | Three missing Portrait Lab copy affordances added; wire toggle and latest target dump already present; all standard gates pass. | Accepted, `5e8a74d` |
+| W1 item classification | 58 unique issue rows / 76 failure observations classified; custom 67218-67221 files exist under Cape and the Head demand was wrong; 3,944-row rerun has gated G3 zero and `changedRows=0`. | Accepted, `4b6e240` |
+| W2 attachment fix | Predicted 2,698 specimens; actual baseline and candidate transition set 3,535 specimens / 33,532 batch rows. Willem mounted and texture strings unchanged in the candidate, but cohort equality failed. | Rejected and removed, report commit `bb42a9f` |
+| W3 type-6 hair | Required accepted W2; not run. Predicted 7,677 rows / 5,114 specimens therefore not claimed. | Stopped by W2 |
+| W4 npc-bare head composite | Required accepted W2/W3; not run. | Stopped by W2 |
+| W5 replacement baselines | Required accepted W2-W4; not run; committed NPC/items baselines remain canonical. | Stopped by W2 |
+| W6 player sweep | 634/634 Ready over 16 race/sex pairs; 359 collision rows, each with one extra match and an exact winner record. | Accepted; 7C-3 candidate, `62d18f7` |
+| W7 close-out | This matrix and the Session 2 live checklist added; final gates pass. | Accepted |
+
+The requested ideal end state was not reached because unattended law required a
+hard stop at W2. The accepted tree remains buildable, but Willem is not claimed
+helmeted and the 5,114-NPC real-hair outcome is not claimed. No expected cohort
+or law was adjusted to manufacture acceptance. `CHECKS_GAMEPLAY.md` now states
+the stopped-chain expectations directly beside the live checks.
