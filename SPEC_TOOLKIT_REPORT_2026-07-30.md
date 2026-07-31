@@ -3288,3 +3288,27 @@ RESULT: H0 COMPLETE; H1 opens
 
 The full law table is `live-runs/H0-attack-law-20260731-163000.md`; manifest:
 `live-runs/manifests/H0-20260731-163000.sha256`.
+
+## H1 — triple attack-target identity audit
+
+The three independent identities match exactly. The server's `.npc info`
+response named entry 6 / DB GUID 303741; the client object store assigned
+`0xF13000000604A27D`; and the real outgoing `CMSG_SET_SELECTION` and
+`CMSG_ATTACKSWING` bodies were both `7D A2 04 06 00 00 30 F1`. Decoding the
+identity yields unit high `0xF130`, entry 6, and low `0x04A27D` / 303741 in
+every source.
+
+```text
+EXPECTED: land server response, object-store GUID, and both wire GUIDs
+ACTUAL: all four are exactly 0xF13000000604A27D
+DEVIATION: none
+RESULT: response-derived identity mismatch eliminated; H2 opens
+```
+
+The live protocol player gained an instrument-only `wire-trace start|stop`
+primitive so protocol artifacts can contain the actual session packet bodies.
+It changes no packet construction or behavior. The identity run deliberately
+makes no attack-acceptance claim: no server attack response arrived during its
+observation window. Full evidence is in
+`live-runs/H1-triple-identity-20260731-163500.md`; staged-byte hashes are in
+`live-runs/manifests/H1-20260731-163500.sha256`.

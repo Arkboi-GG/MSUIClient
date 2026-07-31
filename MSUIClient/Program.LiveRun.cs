@@ -143,6 +143,10 @@ public sealed partial class GameLoop
                 case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
+                case "wire-trace":
+                    if(p[1]=="start") Log(true,$"{line} path={_wireLog.Start(_config.RepoRoot)}");
+                    else { _wireLog.Stop(); Log(true,line); }
+                    break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
@@ -204,7 +208,7 @@ public sealed partial class GameLoop
 
     private void FinishProtocol()
     {
-        StopCombatTrace(); StopMovementTrace(); _liveHeld.Clear();
+        StopCombatTrace(); StopMovementTrace(); _wireLog.Stop(); _liveHeld.Clear();
         string dir=Path.GetFullPath(Path.IsPathRooted(_liveRunOptions!.OutputDirectory)?_liveRunOptions.OutputDirectory:Path.Combine(_config.RepoRoot,_liveRunOptions.OutputDirectory));
         Directory.CreateDirectory(dir);
         string log=Path.Combine(dir,$"runner-{_liveStamp}.csv"), verdict=Path.Combine(dir,$"verdicts-{_liveStamp}.txt");

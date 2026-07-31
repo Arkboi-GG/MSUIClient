@@ -1,0 +1,21 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\H1-triple-identity-20260731-163500.txt
+1,PASS,gm .gm on
+2,PASS,gm .npc spawn add 6
+3,PASS,wait 0.2
+4,PASS,wire-trace start path=dumps/wire-20260731-163245.wlog
+5,PASS,select spawn:1 guid=0xF13000000604A27D
+6,PASS,assert within3=true
+7,PASS,gm .npc set level 60
+8,PASS,gm .npc set reactstate 0
+9,PASS,gm .npc info
+10,PASS,wait 1
+11,PASS,trace start H1-triple-identity-20260731-163500
+12,PASS,attack start
+13,PASS,wait 2
+14,PASS,attack stop
+15,PASS,trace stop
+16,PASS,wire-trace stop
+17,PASS,gm .npc spawn delete
+18,PASS,wait 1
+19,PASS,waitgone spawn:1 guid=0xF13000000604A27D descriptorPresent=False
