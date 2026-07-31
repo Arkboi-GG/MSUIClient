@@ -1996,3 +1996,19 @@ Per SPEC-11's explicit W10-1 rule, reconstruction would be new implementation
 and requires its own order. **HARD STOP at W10-1. W10-2 and W10-3 were not
 executed; no three-way artifact was fabricated. The accepted renderer,
 authority files, W5, CHECKS_GAMEPLAY.md, and 7C-3 remain untouched.**
+
+Post-commit W10-1 gates on the accepted tree:
+
+```text
+dotnet build MSUIClient.sln -c Debug
+Build succeeded. 1 known CA2014 warning, 0 errors.
+
+dotnet run --project tools\combat-wire-check\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\portrait-camera-check\MSUIPortraitCameraCheck.csproj -c Release -- GameData\Data
+DwarfMale inside=1224
+HumanMale inside=1289
+Wolf inside=56
+portrait camera check passed
+```
