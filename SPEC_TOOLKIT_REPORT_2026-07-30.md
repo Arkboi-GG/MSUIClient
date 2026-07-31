@@ -3480,3 +3480,59 @@ All four boundary gates passed: Debug build with 0 warnings/errors, combat wire
 foundation, portrait camera (10534 specimens; 1224/1289/56 controls), and
 movement audit check. A first parallel check launch collided in a shared
 generated Release file; the uncontended sequential rerun passed in full.
+
+## X0 — travel-laptop re-bootstrap credential HARD STOP
+
+### Actual versus predicted
+
+The repository preflight is clean and complete. Every tracked root
+`SPEC_TOOLKIT_*.md`, `*PLAN*.md`, and `*PROTOCOL*.md` file is present;
+SPEC-22 is tracked; and there were zero untracked order or plan documents to
+preserve. Accepted preflight HEAD was
+`145db117e475110e646a88792bb6b0b9383d6b3d`.
+
+```text
+PREDICTED root documents: complete and tracked
+ACTUAL: complete and tracked; zero tracked-missing or untracked order docs
+RESULT: PASS
+
+PREDICTED four gates: green
+ACTUAL build: PASS, 0 errors, established CA2014 warning only
+ACTUAL combat-wire: PASS
+ACTUAL portrait-camera: PASS, 10,534 specimens; 1,224 / 1,289 / 56 controls
+ACTUAL move-audit: PASS
+RESULT: PASS
+
+PREDICTED travel-laptop config: dedicated TEST values recoverable locally
+ACTUAL: ignored config exists but has obsolete host and non-TEST identity;
+        the TEST secret is not recoverable from tracked files
+RESULT: BLOCKED before config mutation
+
+PREDICTED SSH: existing key auth or new dedicated key installation
+ACTUAL existing key auth: FAIL, publickey/password refusal
+ACTUAL key recovery: new dedicated ED25519 pair generated locally
+PUBLIC FINGERPRINT: SHA256:mwe0xwrQKqTTTi4jhIPj1JjC3vdzcHGW38ymAZTkTi4
+RESULT: HARD STOP before password use and authorized_keys installation
+```
+
+The run-dated checkpoint is
+`live-runs/X0-rebootstrap-hard-stop-20260731-185842.md`, SHA-256
+`d2385b0618fd0d1ca8e98cf2a09506367659b70d266509e476a78105b7727a71`.
+Its manifest is `live-runs/manifests/X0-20260731-185842.sha256`, SHA-256
+`16ccba10ff79c1e3b524bedd768454187eaedfe4c972d1976fe00900b69a1f94`.
+
+The frozen hard-stop boundary rerun also passed all four gates sequentially:
+Debug build 0 warnings / 0 errors, combat-wire PASS, portrait-camera PASS with
+the same 10,534 specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No password was printed, stored, traced, or committed. The ignored config was
+not partially rewritten. X0's four SPEC-19 T2 proofs, X1-X4, and SPEC-21 P3/P4
+remain not started. No client production code, combat behavior, server code,
+database, persistent server configuration, error display, or F3-F6 behavior
+changed.
+
+**HARD STOP — supply the current SSH password for
+`wowvmangos@192.168.0.2` through an ephemeral secure path so the new public key
+can be installed, and supply the current dedicated TEST account password used
+by both realm login and RA (or state that RA uses a different credential).
+Do not place either secret in a repository file.**
