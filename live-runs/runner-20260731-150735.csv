@@ -1,0 +1,6 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\G0-transport-20260731-150800.txt
+1,PASS,gm ping-20260731-150800
+2,PASS,wait 3
+3,PASS,gm .gps
+4,PASS,wait 3

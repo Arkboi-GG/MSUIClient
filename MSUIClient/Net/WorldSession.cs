@@ -244,11 +244,11 @@ public sealed class WorldSession : IDisposable
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);
-    public void SendChatSay(string text)
+    public void SendChatSay(string text, uint language)
     {
         var w = new PacketWriter(System.Text.Encoding.UTF8.GetByteCount(text) + 9);
         w.WriteU32(0); // CHAT_MSG_SAY
-        w.WriteU32(0); // LANG_UNIVERSAL; server resolves command privilege
+        w.WriteU32(language); // logged-in character's faction tongue; VMaNGOS rejects client Universal
         w.WriteCString(text);
         SendPacket((ushort)Op.CMSG_MESSAGECHAT, w.AsSpan());
     }

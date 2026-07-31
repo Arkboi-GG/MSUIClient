@@ -466,6 +466,8 @@ public sealed partial class GameLoop
             : ReadOnlySpan<byte>.Empty;
         _wire.Add(packet, visiblePayload);
         _wireLog.Enqueue(packet, payload);
+        if ((Op)opcode is Op.CMSG_MESSAGECHAT or Op.SMSG_MESSAGECHAT or Op.SMSG_NOTIFICATION)
+            ObserveGmChatWire(outgoing, opcode, payload);
         if (outgoing) _creatureLifecycle.NoteOutgoingPacket(opcode, payload.Length);
     }
 

@@ -141,8 +141,10 @@ the filename.
 `.gitattributes`.
 # Combat GM scenario deck
 
-The DevTools GM console sends each line as `CMSG_MESSAGECHAT` SAY with universal
-language. For the VMaNGOS combat instrument run, paste the commands one at a
+The DevTools GM console sends each line as `CMSG_MESSAGECHAT` SAY with the
+logged-in character's faction language (Common for Alliance, Orcish for Horde).
+VMaNGOS rejects Universal from client chat before command parsing. For the
+VMaNGOS combat instrument run, paste the commands one at a
 time from `scenarios/combat/dummy.txt` while standing at the flat movement-arena
 vantage. It uses VMaNGOS/MaNGOS chat-command syntax: `.gm on`, `.npc add 6`,
 `.combatstop`, `.npc delete`, `.respawn`, and `.gps`. Entry 6 is the low-level

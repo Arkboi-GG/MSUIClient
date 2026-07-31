@@ -3038,3 +3038,40 @@ portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
 
 **HARD STOP - SPEC-17 D0-D4 is complete. No combat fix, F3-F6 work, or
 additional diagnosis is authorized without a new signed order.**
+
+## G0 - GM transport versus permissions
+
+The Run-16 GM-dependent steps are reclassified as unproven: GUID-sorted nearby
+creatures were wild-world specimens, not response-identified spawns.
+
+G0 isolated a transport encoding defect. MSUI used client language 0
+(`LANG_UNIVERSAL`). Benilla's authoritative sender states that VMaNGOS rejects
+client Universal before dot-command parsing and always uses the logged-in
+character's faction tongue (`world/writer/chat.rs:10-30`). The body field order
+already matched `messages/client.rs:53-75` and the golden at
+`tests/client.rs:79-81`; only language selection was wrong.
+
+After the authorized instrument correction, Human character `Test` sent Common
+language 7. `ping-20260731-150800` echoed as `SMSG_MESSAGECHAT`, and `.gps`
+returned server-authored Northshire map and coordinates. Both directions' full
+hex are frozen in `live-runs/verdicts-20260731-150735.txt` and summarized in
+`live-runs/G0-transport-proof-20260731-150735.md`.
+
+Permissions are sufficient: login sent `GM mode is ON` and `You are now
+invisible (rank 6)`, and `.gps` executed. The remote DB port is not exposed;
+SSH is reachable but has no non-interactive credential. Exactly zero SQL
+queries and zero remote file reads occurred. G1 provisioning is unnecessary.
+
+```text
+EXPECTED corrected plain SAY: server echo
+ACTUAL: exact ping echo received
+EXPECTED corrected dot command: server system response
+ACTUAL: .gps returned map 0 and X/Y/Z at Northshire
+EXPECTED permission blocker: refusal or absent privileged response
+ACTUAL: rank 6 plus successful .gps; no blocker
+```
+
+G0 manifest: `live-runs/manifests/G0-20260731-150735.sha256`.
+
+G0 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.

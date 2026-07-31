@@ -1,0 +1,4 @@
+gm ping-20260731-150800
+wait 3
+gm .gps
+wait 3

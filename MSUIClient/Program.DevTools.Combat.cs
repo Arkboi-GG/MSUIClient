@@ -81,6 +81,10 @@ public sealed partial class GameLoop
         EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
     }
 
+    private void ObserveGmChatWire(bool outgoing, ushort opcode, ReadOnlySpan<byte> body) =>
+        EmitCombat("GmChatWire", outgoing ? "client-send" : "server-receive", 0,
+            $"opcode=0x{opcode:X4};bytes={body.Length};hex={Convert.ToHexString(body)}");
+
     private void ObserveCombatAnimationChoice(in AnimChoice choice)
     {
         if (!choice.Unit.Equals("player", StringComparison.OrdinalIgnoreCase) ||

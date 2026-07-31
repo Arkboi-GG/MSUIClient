@@ -265,7 +265,7 @@ public sealed class NetworkClient : IDisposable
     public bool SendChatSay(string text)
     {
         if (State != NetState.InWorld || _session is null) return false;
-        try { _session.SendChatSay(text); return true; } catch { return false; }
+        try { _session.SendChatSay(text, Player?.FactionLanguage ?? 0); return true; } catch { return false; }
     }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
     public void CastSpell(uint spellId, ulong targetGuid) { try { _session?.CastSpell(spellId, targetGuid); } catch { } }
