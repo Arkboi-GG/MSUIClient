@@ -28,6 +28,7 @@ public sealed partial class GameLoop
         var verdict = new AnimChoice(
             NowSeconds(), unit, track, resolution.RequestedId, resolution.PlayedId, kind);
         _verdicts.Add(verdict);
+        ObserveCombatAnimationChoice(verdict);
         if (kind is AnimChoiceKind.Fallback or AnimChoiceKind.Missing or
             AnimChoiceKind.Substituted)
             Console.WriteLine($"[verdict:anim] {verdict.ToLine()}");

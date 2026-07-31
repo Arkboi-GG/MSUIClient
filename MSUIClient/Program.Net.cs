@@ -146,6 +146,7 @@ public sealed partial class GameLoop
         try
         {
             _net = new NetworkClient(_config.ToNetSettings(), CaptureWirePacket);
+            _net.CombatSendObserved = ObserveCombatSend;
             if (_config.Server.AutoConnect &&
                 !string.IsNullOrWhiteSpace(_config.Server.Account) &&
                 !string.IsNullOrWhiteSpace(_config.Server.Password))
@@ -423,6 +424,7 @@ public sealed partial class GameLoop
                     case Op.SMSG_LOG_XPGAIN:
                         CombatEvent combatEvent = _combat.Apply(
                             CombatPacketParser.Parse((Op)opcode, body), _entities);
+                        ObserveCombatReceive((Op)opcode, combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
                 }

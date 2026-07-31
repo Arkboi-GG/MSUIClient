@@ -251,8 +251,17 @@ public sealed class NetworkClient : IDisposable
     public void CompleteCinematic() { try { _session?.CompleteCinematic(); } catch { } }
 
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
-    public void AttackSwing(ulong guid) { try { _session?.AttackSwing(guid); } catch { } }
-    public void AttackStop() { try { _session?.AttackStop(); } catch { } }
+    public Action<Op, ulong>? CombatSendObserved { get; set; }
+    public void AttackSwing(ulong guid)
+    {
+        if (State != NetState.InWorld || _session is null) return;
+        try { _session.AttackSwing(guid); CombatSendObserved?.Invoke(Op.CMSG_ATTACKSWING, guid); } catch { }
+    }
+    public void AttackStop()
+    {
+        if (State != NetState.InWorld || _session is null) return;
+        try { _session.AttackStop(); CombatSendObserved?.Invoke(Op.CMSG_ATTACKSTOP, 0); } catch { }
+    }
     public bool SendChatSay(string text)
     {
         if (State != NetState.InWorld || _session is null) return false;

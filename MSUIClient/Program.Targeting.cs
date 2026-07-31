@@ -45,9 +45,14 @@ public sealed partial class GameLoop
         if (_combat.AttackRevision != _targetCombatSeen)
         {
             _targetCombatSeen = _combat.AttackRevision;
+            ulong previousAttack = _attackTargetGuid;
             _attackTargetGuid = _combat.TryGetAttackTarget(_net.PlayerGuid, out ulong victim)
                 ? victim
                 : 0;
+            if (previousAttack != _attackTargetGuid)
+                ObserveCombatIntent(_attackTargetGuid != 0,
+                    _attackTargetGuid != 0 ? _attackTargetGuid : previousAttack,
+                    _attackTargetGuid != 0 ? "server-start" : _lastCombatStopCause);
         }
 
         // A dead target STAYS selected (the 1.12 client keeps the corpse in the target frame,
@@ -114,7 +119,12 @@ public sealed partial class GameLoop
 
         bool wasAttacking = _attackTargetGuid != 0 || _combat.IsEngaged(_net.PlayerGuid);
         bool changed = guid != _selectionGuid;
-        if (changed && wasAttacking) StopAttack();
+        if (changed && wasAttacking)
+        {
+            EmitCombat("TargetSwitch", "selection-change", guid,
+                $"from=0x{_selectionGuid:X16} to=0x{guid:X16}");
+            StopAttack("target-switch");
+        }
 
         if (changed)
         {
@@ -137,14 +147,16 @@ public sealed partial class GameLoop
             {
                 _net.AttackSwing(guid);
                 _attackTargetGuid = guid; // speculative until SMSG_ATTACKSTART/STOP
+                ObserveCombatIntent(true, guid, changed && wasAttacking ? "target-switch" : "user-start");
             }
         }
     }
 
-    private void StopAttack()
+    private void StopAttack(string cause = "user-cancel")
     {
         if (_net is null || (_attackTargetGuid == 0 && !_combat.IsEngaged(_net.PlayerGuid))) return;
         _net.AttackStop();
+        ObserveCombatIntent(false, _attackTargetGuid, cause);
         _attackTargetGuid = 0;
     }
 

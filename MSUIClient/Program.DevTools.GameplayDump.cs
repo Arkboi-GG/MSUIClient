@@ -239,6 +239,18 @@ public sealed partial class GameLoop
                 selection = AnimatorTracks(selectionUnit),
                 recent = verdictSnapshot.OfType<AnimChoice>().TakeLast(20).ToArray(),
             },
+            combat = new
+            {
+                intentOn = _attackTargetGuid != 0,
+                targetGuid = $"0x{_attackTargetGuid:X16}",
+                serverEngaged = _net is not null && _combat.IsEngaged(_net.PlayerGuid),
+                swingTimerOwner = "server",
+                clientRangeEligibility = "unchecked",
+                clientArcEligibility = "unchecked",
+                traceActive = _combatTraceWriter is not null,
+                tracePath = _combatTracePath,
+                recent = verdictSnapshot.OfType<CombatVerdict>().TakeLast(50).ToArray(),
+            },
             verdicts = verdictSnapshot.Select(verdict => new
             {
                 channel = verdict.Channel,

@@ -2677,3 +2677,38 @@ ACTUAL other combat/wire deltas: 0
 
 C0 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## C1 - combat trace and verdict channel
+
+The run-dated combat recorder observes the real targeting call sites, successful
+WorldSession attack sends, parsed server attack-family receives, player animator
+choices, and the existing locomotion mixer state. F10 now includes intent,
+authoritative engagement, trace state, capability ownership, and the last 50
+combat verdicts. Target switches and all locally or authoritatively observed
+intent edges carry explicit causes.
+
+The forensic result is itself important: this client has no swing timer, weapon
+speed clock, melee range test, or facing/arc gate. Completed swings arrive in
+`SMSG_ATTACKERSTATEUPDATE`; the client starts the attack one-shot from that
+server event. Accordingly, the trace reports timer owner `server`, weapon speed
+empty, and range/arc `unchecked`. It also records raw target distance and bearing
+delta. No synthetic eligibility or timer value was introduced.
+
+```text
+PREDICTED swing-timer observation: live owner sampled
+ACTUAL: server-owned; no client timer exists to arm/fire/reset
+PREDICTED range/arc eligibility observation: live owner sampled
+ACTUAL: client has no range/arc eligibility owner; fields are unchecked and
+  clientAction=none, with raw distance/bearing retained
+PREDICTED combat/wire behavior delta: 0
+ACTUAL: 0; the only additions are observers, verdicts, trace and F10 fields
+PREDICTED artifact naming: run-dated
+ACTUAL: dumps/combattrace-<name>-<yyyyMMdd-HHmmss>.csv
+```
+
+The C1 SHA-256 manifest is
+`combat-instruments/manifests/C1-20260731-135654.sha256`; its own SHA-256 is
+recorded by the stage commit after the manifest content is frozen.
+
+C1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.

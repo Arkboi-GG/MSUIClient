@@ -1479,6 +1479,7 @@ public sealed partial class GameLoop : IDisposable
         phaseStarted = Stopwatch.GetTimestamp();
         _character?.Update(dt, BuildUnitState());
         SampleMovementTrace(dt, input, turn);
+        SampleCombatTrace(dt);
         AdvanceMovementSuiteAfterSample();
         _characterUpdateMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
@@ -2142,6 +2143,7 @@ public sealed partial class GameLoop : IDisposable
             DrawVerdictsPanel();
             DrawGmConsolePanel();
             DrawMovementInstrumentsPanel();
+            DrawCombatInstrumentsPanel();
             DrawPortraitLabPanel();
 
             if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
