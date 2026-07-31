@@ -1,0 +1,7 @@
+# VMaNGOS GM deck: paste one command at a time through DevTools > GM console.
+# Run at the flat movement-arena vantage. Entry 6 is the level-1 Kobold Vermin.
+.gm on
+.npc add 6
+# Move a few yards sideways before issuing the second add.
+.npc add 6
+# Select each spawn and use .gps if its position must be captured for the run.

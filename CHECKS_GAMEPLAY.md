@@ -233,3 +233,50 @@ standing jump blend into 39 and the running jump into 187 without a landing
 pop? A failure here reopens F1/F2 with the pasted sequence; it does not
 authorize terrain, swim, speed-wire, or collision work.
 >
+
+### Session 3 combat run (CB1-CB7)
+
+Start a run-dated combat trace in DevTools. Prepare two targets with
+`scenarios/combat/dummy.txt`; after the run, clean them with `reset.txt`.
+Paste verdict lines, not visual summaries. F10 once during combat and retain
+the run-dated CSV path.
+
+**CB1. Stationary swings.** Attack the first target and stand still through at
+least three `SwingReceive` events. Paste `IntentOn`, `AttackSwingSend`,
+`AttackStartReceive`, three `SwingReceive`, and the associated `AnimChoice`
+lines.
+>
+
+**CB2. Orbit while attacking.** Orbit the target while staying near it, so
+facing changes. Paste the trace Tick rows at the bearing-delta edges plus the
+surrounding `SwingReceive` lines. The answering columns are `distance`,
+`bearingDelta`, `rangeEligibility`, `arcEligibility`, and `clientAction`.
+>
+
+**CB3. Range edge.** Walk out of range mid-swing, pause, and walk back. Paste
+the Tick rows at both distance edges and every `AttackSwingSend`,
+`AttackStopSend`, and `SwingReceive` in that window.
+>
+
+**CB4. Cancel and re-attack.** Cancel once (Esc/stop action), then attack once
+again. Paste `IntentOff cause=user-cancel`, the single `AttackStopSend`, then
+the new `IntentOn` and single `AttackSwingSend`. Include any server stop/start
+echoes and the next `SwingReceive`.
+>
+
+**CB5. Mid-swing target switch.** Switch from the first target to the second.
+Paste `TargetSwitch`, `IntentOff cause=target-switch`, `AttackStopSend`, the
+new `IntentOn cause=target-switch`, `AttackSwingSend`, and server echoes.
+>
+
+**CB6. Target death.** Kill the selected target mid-swing. Paste
+`AttackStopReceive cause=target-death`, `IntentOff cause=target-death`, and all
+later attack-family lines through two expected weapon periods; there must be
+no lingering `SwingReceive` for the dead target.
+>
+
+**CB7. Chase attack.** Attack while moving continuously. Paste consecutive
+`SwingReceive` and `AnimChoice` lines plus Tick rows showing `clipName`,
+`clipB`, `blendWeight`, distance, and bearing. This is the locomotion/attack
+mixer-overlap evidence.
+>

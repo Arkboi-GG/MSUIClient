@@ -139,3 +139,13 @@ the filename.
 
 **Line endings.** CRLF for C#, shaders and config; LF for markdown. Enforced by
 `.gitattributes`.
+# Combat GM scenario deck
+
+The DevTools GM console sends each line as `CMSG_MESSAGECHAT` SAY with universal
+language. For the VMaNGOS combat instrument run, paste the commands one at a
+time from `scenarios/combat/dummy.txt` while standing at the flat movement-arena
+vantage. It uses VMaNGOS/MaNGOS chat-command syntax: `.gm on`, `.npc add 6`,
+`.combatstop`, `.npc delete`, `.respawn`, and `.gps`. Entry 6 is the low-level
+Kobold Vermin used as the disposable melee target. The reset deck requires the
+operator to select each spawned target before `.npc delete`; it intentionally
+contains no automated world or database mutation.

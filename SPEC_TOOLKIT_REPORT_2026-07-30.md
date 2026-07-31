@@ -2712,3 +2712,26 @@ recorded by the stage commit after the manifest content is frozen.
 
 C1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## C2 - combat scenario deck and Session 3 protocol
+
+The VMaNGOS deck uses two level-1 Kobold Vermin (entry 6), spawned separately
+at the flat movement-arena vantage. SETUP records the exact chat-command syntax
+and the selection-dependent cleanup procedure. Session 3 now contains CB1-CB7,
+and each paste slot names the verdict events or trace columns that answer it.
+
+```text
+PREDICTED scenario files: dummy.txt + reset.txt
+ACTUAL: both committed under scenarios/combat/
+PREDICTED protocol items: CB1-CB7
+ACTUAL: 7/7, covering stationary, orbit, range edge, cancel/re-arm,
+  target switch, death, and chase/animation overlap
+PREDICTED prose-only answers accepted: 0
+ACTUAL: 0; every item requests named verdict lines or CSV columns
+```
+
+The C2 SHA-256 manifest is
+`combat-instruments/manifests/C2-20260731-135938.sha256`.
+
+C2 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
