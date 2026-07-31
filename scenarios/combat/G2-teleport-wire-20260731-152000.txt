@@ -1,0 +1,8 @@
+move-trace start G2-teleport-wire-20260731-152000
+gm .gps
+wait 2
+gm .go xyz -8970.0 -132.493 83.53 0
+wait 5
+gm .gps
+wait 2
+move-trace stop

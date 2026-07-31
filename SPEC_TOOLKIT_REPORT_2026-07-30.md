@@ -3094,3 +3094,43 @@ Artifact: `live-runs/G1-provisioning-20260731-150954.json`; manifest:
 
 G1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## G2 - positive-proof gate HARD STOP
+
+`.gps` passes, but the required `.go xyz` movement proof fails inside the
+client. VMaNGOS executed the command and sent opcode 0x00C7 with the requested
+position `(-8970.0, -132.493, 83.53)`. MSUI has no receive/apply/ack arm for
+same-map `MSG_MOVE_TELEPORT_ACK`; all 545 movement-trace rows remain at
+`(-8949.95, -132.493, 83.529526)`, and follow-up `.gps` reports that old pose.
+
+Benilla's authoritative shape is `messages/parse.rs:201-210`; its required
+client echo is `world/session.rs:548-554` with body builder
+`messages/client.rs:293-300`. The exact packet, trace, and command results are
+frozen in `live-runs/G2-hard-stop-20260731-151705.md`.
+
+The same run also proves the old deck's `.npc add 6` is not a creature-spawn
+command on this installed server: it responds `You must select a vendor`.
+No controlled creature appeared and no death claim was made. Because G2 demands
+all four positive proofs and says any failure is a hard stop, no alternative
+spawn command was attempted after the teleport failure.
+
+```text
+EXPECTED .gps: server response
+ACTUAL: PASS
+EXPECTED .go: position mutation visible in movement trace
+ACTUAL: FAIL; server packet received, client change 0/545 rows
+EXPECTED controlled spawn <=3 yd: one
+ACTUAL: zero; installed command parsed as vendor operation
+EXPECTED descriptor-confirmed death: one
+ACTUAL: zero; no controlled target
+```
+
+G2 manifest: `live-runs/manifests/G2-20260731-151705.sha256`.
+G3 and G4: NOT STARTED due to the binding G2 hard stop. No combat fix,
+error-text display, F3-F6 work, or teleport behavior fix was made.
+
+G2 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+**HARD STOP - SPEC-18 stopped at G2. The accepted tree records the transport
+fix and the unimplemented same-map teleport prerequisite; G3/G4 remain closed.**

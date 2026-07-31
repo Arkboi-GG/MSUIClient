@@ -1,0 +1,13 @@
+step,result,detail
+TELEPORT_UNCONFIRMED
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\G2-command-discovery-20260731-151600.txt
+1,PASS,gm .help go
+2,PASS,wait 2
+3,PASS,gm .help go xyz
+4,PASS,wait 2
+5,PASS,gm .help npc spawn
+6,PASS,wait 2
+7,PASS,gm .help npc despawn
+8,PASS,wait 2
+9,PASS,gm .help die
+10,PASS,wait 2

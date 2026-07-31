@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text.Json;
 using MSUIClient.Engine;
 using MSUIClient.Net;
@@ -123,12 +124,13 @@ public sealed partial class GameLoop
                     _liveWaitPattern=string.Join(' ',w[..^1]); _liveWaitTimeout=now+timeout; return;
                 case "assert": Log(VerdictLines().Any(x=>x.Contains(line[7..],StringComparison.OrdinalIgnoreCase)),line); break;
                 case "select":
+                    RefreshLiveSpawnIdentities();
                     int ordinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     ulong guid=ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
-                    if(guid==0) guid=_entities.Units.Where(x=>x.IsCreature && x.Guid!=_net!.PlayerGuid).OrderBy(x=>x.Guid).Skip(ordinal-1).FirstOrDefault()?.Guid ?? 0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
                 case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
+                case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
@@ -145,14 +147,28 @@ public sealed partial class GameLoop
     }
 
     private IEnumerable<string> VerdictLines()=>_verdicts.SnapshotAll().Select(v=>$"[{v.Channel}] {v.ToLine()}");
+    private void RefreshLiveSpawnIdentities()
+    {
+        if (_liveSpawnBefore is null || _controller is null) return;
+        var appeared=_entities.Units
+            .Where(x=>x.IsCreature&&!_liveSpawnBefore.Contains(x.Guid))
+            .Select(x=>(Unit:x,Distance:Vector3.Distance(x.Position,_controller.Position)))
+            .Where(x=>x.Distance<=3f)
+            .OrderBy(x=>x.Distance).ThenBy(x=>x.Unit.Guid).ToList();
+        foreach(var candidate in appeared)
+        {
+            if(_liveSpawnGuids.Contains(candidate.Unit.Guid)) continue;
+            _liveSpawnGuids.Add(candidate.Unit.Guid);
+            EmitCombat("SpawnObserved","post-command-entity-delta",candidate.Unit.Guid,
+                $"entry={candidate.Unit.Fields.Entry};distance={candidate.Distance:R};position="+
+                $"{candidate.Unit.Position.X:R}|{candidate.Unit.Position.Y:R}|{candidate.Unit.Position.Z:R}");
+        }
+        if(appeared.Count>0) _liveSpawnBefore=null;
+    }
+
     private void Log(bool pass,string text)
     {
-        if(_liveSpawnBefore is not null)
-        {
-            ulong appeared=_entities.Units.Where(x=>x.IsCreature&&!_liveSpawnBefore.Contains(x.Guid))
-                .Select(x=>x.Guid).OrderBy(x=>x).FirstOrDefault();
-            if(appeared!=0&&!_liveSpawnGuids.Contains(appeared)) { _liveSpawnGuids.Add(appeared); _liveSpawnBefore=null; }
-        }
+        RefreshLiveSpawnIdentities();
         foreach(string line in VerdictLines().Where(x=>x.Contains("event=GmChatResponse")))
         {
             var match=System.Text.RegularExpressions.Regex.Match(line,@"0x[0-9A-Fa-f]{8,16}");
@@ -164,7 +180,7 @@ public sealed partial class GameLoop
 
     private void FinishProtocol()
     {
-        StopCombatTrace(); _liveHeld.Clear();
+        StopCombatTrace(); StopMovementTrace(); _liveHeld.Clear();
         string dir=Path.GetFullPath(Path.IsPathRooted(_liveRunOptions!.OutputDirectory)?_liveRunOptions.OutputDirectory:Path.Combine(_config.RepoRoot,_liveRunOptions.OutputDirectory));
         Directory.CreateDirectory(dir);
         string log=Path.Combine(dir,$"runner-{_liveStamp}.csv"), verdict=Path.Combine(dir,$"verdicts-{_liveStamp}.txt");

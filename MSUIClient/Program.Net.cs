@@ -468,6 +468,8 @@ public sealed partial class GameLoop
         _wireLog.Enqueue(packet, payload);
         if ((Op)opcode is Op.CMSG_MESSAGECHAT or Op.SMSG_MESSAGECHAT or Op.SMSG_NOTIFICATION)
             ObserveGmChatWire(outgoing, opcode, payload);
+        if ((Op)opcode is Op.MSG_MOVE_TELEPORT_ACK or Op.SMSG_NEW_WORLD or Op.SMSG_TRANSFER_PENDING)
+            ObserveTeleportWire(outgoing, opcode, payload);
         if (outgoing) _creatureLifecycle.NoteOutgoingPacket(opcode, payload.Length);
     }
 

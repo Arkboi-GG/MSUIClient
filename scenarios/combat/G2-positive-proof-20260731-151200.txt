@@ -1,0 +1,21 @@
+move-trace start G2-teleport-20260731-151200
+gm .gps
+wait 2
+gm .go xyz -8960.0 -132.493 83.53 0
+wait 4
+gm .gps
+wait 2
+gm .go xyz -8949.95 -132.493 83.5312 0
+wait 4
+gm .npc add 6
+wait 3
+select spawn:1
+gm .gps
+wait 2
+gm .die
+wait 3
+waitdeath spawn:1
+wait 1
+gm .npc delete
+wait 2
+move-trace stop
