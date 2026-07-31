@@ -244,6 +244,14 @@ public sealed class WorldSession : IDisposable
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);
+    public void SendChatSay(string text)
+    {
+        var w = new PacketWriter(System.Text.Encoding.UTF8.GetByteCount(text) + 9);
+        w.WriteU32(0); // CHAT_MSG_SAY
+        w.WriteU32(0); // LANG_UNIVERSAL; server resolves command privilege
+        w.WriteCString(text);
+        SendPacket((ushort)Op.CMSG_MESSAGECHAT, w.AsSpan());
+    }
     public void SetSheathed(byte state)
     {
         var w = new PacketWriter(4); w.WriteU32(state);

@@ -113,6 +113,20 @@ public readonly record struct MoveVerdict(
         Time, Kind, From, To, FromClipId, ToClipId, ClipTimeAtCut);
 }
 
+public readonly record struct CombatVerdict(
+    double Time,
+    string Event,
+    string Cause,
+    ulong TargetGuid,
+    string Detail) : IVerdict
+{
+    public string Channel => "combat";
+
+    public string ToLine() => string.Format(CultureInfo.InvariantCulture,
+        "time={0:F3} event={1} cause={2} target=0x{3:X16} detail={4}",
+        Time, Event, Cause, TargetGuid, Detail.Replace(' ', '_'));
+}
+
 public enum ButtonUsability { Usable, NotEnoughPower, Unusable }
 public enum ButtonRange { NoCheck, InRange, OutOfRange }
 
@@ -183,7 +197,7 @@ public sealed class VerdictRing
     }
 
     public static IReadOnlyList<string> Channels { get; } =
-        ["portrait", "cast", "action", "anim", "move"];
+        ["portrait", "cast", "action", "anim", "move", "combat"];
 
     private readonly Dictionary<string, ChannelRing> _channels =
         new(StringComparer.OrdinalIgnoreCase)
@@ -193,6 +207,7 @@ public sealed class VerdictRing
             ["action"] = new(512),
             ["anim"] = new(1024),
             ["move"] = new(1024),
+            ["combat"] = new(2048),
         };
     private long _nextSequence;
 

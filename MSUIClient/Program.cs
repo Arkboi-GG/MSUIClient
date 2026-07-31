@@ -2140,6 +2140,7 @@ public sealed partial class GameLoop : IDisposable
 
             DrawUiSkinPanel();
             DrawVerdictsPanel();
+            DrawGmConsolePanel();
             DrawMovementInstrumentsPanel();
             DrawPortraitLabPanel();
 

@@ -253,6 +253,11 @@ public sealed class NetworkClient : IDisposable
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
     public void AttackSwing(ulong guid) { try { _session?.AttackSwing(guid); } catch { } }
     public void AttackStop() { try { _session?.AttackStop(); } catch { } }
+    public bool SendChatSay(string text)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.SendChatSay(text); return true; } catch { return false; }
+    }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
     public void CastSpell(uint spellId, ulong targetGuid) { try { _session?.CastSpell(spellId, targetGuid); } catch { } }
     public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }

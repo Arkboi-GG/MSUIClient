@@ -201,6 +201,11 @@ Run on the post-SPEC-14 tree at normal frame rate. The automated fixed-step
 gate is green; these checks are the human feel/visual half and do not authorize
 F3-F6.
 
+**CB0. GM send capability.** Open DevTools -> GM console, send `.gps`, and
+paste the `[verdict:combat] event=GmCommand` line plus the server's chat
+response. Use Previous/Next to confirm command recall.
+>
+
 **M1. Start and stop.** From idle, press W for several seconds and release.
 Does Run begin immediately, cross-fade without a pose pop, and stop sharply
 without foot sliding or a Stand latch? Paste the relevant `[verdict:move]`

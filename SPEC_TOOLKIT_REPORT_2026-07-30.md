@@ -2630,3 +2630,50 @@ portrait-camera 1,224 / 1,289 / 56, and move-audit-check with hardCuts=0.
 
 **HARD STOP — SPEC-14 is complete. Nico's terrain/realm coverage ruling is
 required before any F3-F6 implementation or additional movement diagnosis.**
+
+## C0 - GM chat-send capability
+
+Symbol search found `CMSG_MESSAGECHAT` in the opcode table but no outbound
+builder or caller. C0 adds the authorized DevTools-only GM console, with SAY /
+LANG_UNIVERSAL packet construction, send, 32-command Previous/Next recall,
+copyable last command, and `[verdict:combat] event=GmCommand` echo including
+the actual send result. CB0 in Session 3 asks Nico to send `.gps` and paste the
+server response; server acceptance is live-unverified here.
+
+```text
+PREDICTED existing send path: unknown
+ACTUAL existing send path: absent (opcode only)
+PREDICTED authorized wire delta: typed CMSG_MESSAGECHAT only
+ACTUAL authorized wire delta: DevTools console -> NetworkClient -> WorldSession
+PREDICTED other combat/wire deltas: 0
+ACTUAL other combat/wire deltas: 0
+```
+
+### Retroactive SPEC-14 canonical baseline SHA-256 manifest
+
+| SHA-256 | Artifact |
+|---|---|
+| `ef26eba5204cd72cd184eaaaa1b2a0e9a3a32c8366f90a685dd62125d05678d5` | `backpedal-run1.csv` |
+| `da744dbc3fcd7b5ee0f6719ca7c3ccf98d4427fa348613a8e738b5bb1aa28107` | `backpedal-verdicts.csv` |
+| `62a0ae8512e9b29fe7074bc5ff18073c1163618421544b29ef5ade6dfcb9f144` | `diagonal-run1.csv` |
+| `0b0c5a57306a21b045e41da056684b6516d2c69ea65bcd47e2da2b88b8a09782` | `diagonal-verdicts.csv` |
+| `6f4c3e10dea8af74256cc639103fd8ad9cc0582c367106c1343d70435e269699` | `jump-flat-run1.csv` |
+| `18b19df180c233133a67280563ab4e7cd880f7bf12c1851758795ba7ad2a4cf1` | `jump-flat-verdicts.csv` |
+| `4f9adbd34c97ad37f9c2d0637dcb5929195dca08a25f29041f9aad1ac41b746e` | `jump-standing-run1.csv` |
+| `000cf218883cc62ade786537b4cdb24f8a98e828efc50d4037f358a0f0b33c9c` | `jump-standing-verdicts.csv` |
+| `3f72ef601cad72df73786e97c50a7bd522f71998e3f3b59dcf09c97d0e4e3c8a` | `run-start-stop-run1.csv` |
+| `42688a5e1695d075bf60d61435f03ae6911a71987f0fefc54427899b5bf957fa` | `run-start-stop-verdicts.csv` |
+| `32f866ee30ec9c3d1c4e8542420392e51f27c0e6cee5f1983a72fdced9a101c2` | `strafe-pure-run1.csv` |
+| `bf45f5de44377085c032fb3d04f836d587d9aaef8c8f5d375ae11ffee6162e22` | `strafe-pure-verdicts.csv` |
+| `ac1941e27e16949286eccf57e4ff36d4463c5c00cb6b0f681c121c96013fdae1` | `turn-moving-run1.csv` |
+| `a1b5927274e9577a0f6cd5ddbae4e34998fe338b38f782d33f4d9cf17728202b` | `turn-moving-verdicts.csv` |
+| `56e69f558263e53fb92201b69a92c9edd8e88659c37326ac0620c316c14a90ab` | `turn-standing-run1.csv` |
+| `8ad5aa9ec79be6e59b9c5b0974672c9e7787e3a7bdf24e21d2fe4d9574b31d15` | `turn-standing-verdicts.csv` |
+
+### C0 stage manifest
+
+`MSUIClient/Program.DevTools.GmConsole.cs` SHA-256:
+`4dab3583b06f3069a274ea481ae99d7790f1a66a5d28e8fbac3d25e5e502ada6`.
+
+C0 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
