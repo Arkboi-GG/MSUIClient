@@ -1544,3 +1544,35 @@ The sets are element-wise identical. Their sorted keys are committed as
 the correct application of the immutable-acceptance law; only the faulty
 human-transcribed prediction is superseded. From this point, committed
 baseline-derived key lists are acceptance authority for W2, W3, and W4.
+
+### W2 resumed - 7C-1 accepted
+
+The unchanged attachment candidate was reinstated: authored NPC head and
+shoulder displays are resolved through the shared attached-item renderer with
+the NPC race/sex helm suffix, alongside virtual weapons, in both world and
+portrait rendering paths.
+
+Acceptance against committed `cohort-7c1.keys`:
+
+```text
+baseline rows: 64650
+candidate rows: 64650
+authority specimen keys: 3535
+candidate changed specimen keys: 3535
+authority-only keys: 0
+candidate-only keys: 0
+changed keys outside authority: 0
+cohort rows remaining not-mounted: 0
+texture/provenance string differences: 0
+items changedRows: 0
+```
+
+Willem protocol row `npc-extra:675:display:2072:batch:12` reports `mounted`,
+helm display 14964,
+`Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2` from
+`patch.MPQ`; its resolved and effective texture strings remain the original
+`Textures\BakedNpcTextures\c5c3858a5d86e950a1c2f0f43c9dc69f.blp`.
+The full NPC sweep completed 6,939/6,939 with zero unexpected blanks. The full
+items sweep completed 3,944/3,944 with zero changed rows and gated G3 zero.
+Debug build, combat/wire, and portrait-camera gates pass; the only build
+warning remains the pre-existing CA2014 warning. W2 is self-ruled accepted.

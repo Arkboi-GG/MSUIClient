@@ -184,7 +184,7 @@ public sealed partial class CreatureRenderer
             shoulderDisplay,
             shoulderModels.Length > 0 ? shoulderModels : "NONE",
             shoulderSuppliers.Length > 0 ? shoulderSuppliers : "NONE",
-            authoredAttachments ? "not-mounted" : "none-authored",
+            authoredAttachments ? "mounted" : "none-authored",
             textures);
     }
 

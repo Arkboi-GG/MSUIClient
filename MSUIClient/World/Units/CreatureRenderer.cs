@@ -479,7 +479,8 @@ public sealed partial class CreatureRenderer : IDisposable
             DrawnLastFrame++;
             _lifecycle?.NoteFirstDraw(e.Guid);
 
-            DrawVirtualWeapons(camera, e, model, m, boneCount > 0 ? _skin : _bindSkin);
+            DrawNpcAttachments(camera, e, model, info, m,
+                boneCount > 0 ? _skin : _bindSkin);
             // The attachment path has its own shader; restore ours before the
             // next streamed unit uploads its model/bone uniforms.
             _gl.Enable(EnableCap.Blend);
@@ -528,16 +529,22 @@ public sealed partial class CreatureRenderer : IDisposable
                     CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
     }
 
-    private void DrawVirtualWeapons(Camera camera, WorldEntity entity, LoadedModel model,
-        Matrix4x4 transform, Matrix4x4[] skin)
+    private void DrawNpcAttachments(Camera camera, WorldEntity entity, LoadedModel model,
+        in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin)
     {
+        uint head = info.HasExtended && info.ExtEquipment.Length > 0
+            ? info.ExtEquipment[0] : 0;
+        uint shoulders = info.HasExtended && info.ExtEquipment.Length > 1
+            ? info.ExtEquipment[1] : 0;
         uint d0 = entity.Fields.VirtualItemDisplay(0);
         uint d1 = entity.Fields.VirtualItemDisplay(1);
         uint d2 = entity.Fields.VirtualItemDisplay(2);
-        if ((d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0 ||
+        if ((head | shoulders | d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0 ||
             _attachedItems is null) return;
 
-        string signature = $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
+        string suffix = RaceGenderCode(info.ExtRace, info.ExtSex);
+        string signature = $"npc:{head}:{shoulders}:{suffix}|" +
+            $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
             $"{d1}:{entity.Fields.VirtualItemInfo(1)}:{entity.Fields.VirtualItemSheath(1)}|" +
             $"{d2}:{entity.Fields.VirtualItemInfo(2)}:{entity.Fields.VirtualItemSheath(2)}";
         if (!_unitAttachments.TryGetValue(entity.Guid, out UnitAttachments? state))
@@ -548,10 +555,15 @@ public sealed partial class CreatureRenderer : IDisposable
         if (state.Signature != signature)
         {
             var equipment = new CharacterEquipment();
+            if (head != 0)
+                equipment.Add("NPC head", head, CharacterEquipment.Slot.Head);
+            if (shoulders != 0)
+                equipment.Add("NPC shoulders", shoulders, CharacterEquipment.Slot.Shoulders);
             AddVirtualPiece(equipment, entity.Fields, 0, d0);
             AddVirtualPiece(equipment, entity.Fields, 1, d1);
             AddVirtualPiece(equipment, entity.Fields, 2, d2);
             equipment.Resolve(_itemDisplay);
+            _attachedItems.RaceGenderCode = suffix;
             state.Mounts = _attachedItems.BuildMountSet(equipment);
             state.Signature = signature;
         }
@@ -706,6 +718,8 @@ public sealed partial class CreatureRenderer : IDisposable
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         _lifecycle?.NoteFirstDraw(entity.Guid);
+        DrawNpcAttachments(camera, entity, model, info, transform,
+            boneCount > 0 ? _skin : _bindSkin);
         return true;
     }
 
