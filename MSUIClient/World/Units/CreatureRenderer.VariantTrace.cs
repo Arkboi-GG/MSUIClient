@@ -96,9 +96,7 @@ public sealed partial class CreatureRenderer
         _variantCharSections ??= LoadVariantCharSections();
         string demandedHair = ResolveDemandedHairTexture(info);
         string demandedHairSupplier = SupplierFor(demandedHair);
-        string bareDescriptor = $"composite://npc-bare/r{info.ExtRace}-s{info.ExtSex}-" +
-            $"sk{info.ExtSkin}-f{info.ExtFace}-h{info.ExtHairStyle}-" +
-            $"hc{info.ExtHairColor}-fh{info.ExtFacialHair}";
+        string bareDescriptor = NpcBareDescriptor(info);
 
         var textures = new List<VariantTextureTrace>();
         string effective = "UNBOUND";
@@ -121,10 +119,18 @@ public sealed partial class CreatureRenderer
                 {
                     M2TextureRef reference = model.Textures[textureIndex];
                     textureType = reference.Type;
-                    IReadOnlyList<string> candidates = ResolveBatchTexture(
-                        reference.Type, reference.Filename,
-                        ParentDirectory(info.ModelPath), info);
-                    (resolved, supplier) = FirstSupplied(candidates);
+                    if (IsNpcBareHeadBatch(reference.Type, geosetId))
+                    {
+                        resolved = bareDescriptor;
+                        supplier = "generated:npc-bare";
+                    }
+                    else
+                    {
+                        IReadOnlyList<string> candidates = ResolveBatchTexture(
+                            reference.Type, reference.Filename,
+                            ParentDirectory(info.ModelPath), info);
+                        (resolved, supplier) = FirstSupplied(candidates);
+                    }
                     demanded = resolved;
                     demandedSupplier = supplier;
                     if (reference.Type == 6 && demandedHair.Length > 0)
@@ -135,7 +141,17 @@ public sealed partial class CreatureRenderer
                 }
             }
 
-            if (resolved.Length > 0) effective = resolved;
+            bool bareHeadBatch = IsNpcBareHeadBatch(textureType, geosetId);
+            string rowEffective;
+            if (bareHeadBatch)
+            {
+                rowEffective = resolved.Length > 0 ? resolved : effective;
+            }
+            else
+            {
+                if (resolved.Length > 0) effective = resolved;
+                rowEffective = effective;
+            }
             string predicted = resolved;
             int category = geosetId / 100;
             int variant = geosetId % 100;
@@ -154,7 +170,7 @@ public sealed partial class CreatureRenderer
             textures.Add(new VariantTextureTrace(
                 batchIndex, geosetId, VariantRegion(geosetId), textureType,
                 resolved.Length > 0 ? resolved : "NONE",
-                effective, supplier.Length > 0 ? supplier : "NONE",
+                rowEffective, supplier.Length > 0 ? supplier : "NONE",
                 demanded.Length > 0 ? demanded : "NONE",
                 demandedSupplier.Length > 0 ? demandedSupplier : "NONE",
                 demanded.Length > 0 && resolved.Length == 0,
