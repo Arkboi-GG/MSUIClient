@@ -2227,3 +2227,36 @@ cross-fade with locomotion phase carry, split aim/body heading, standing/moving
 turn rates of pi and pi*0.75, and landing clip selection. M0 made no change to
 them. M2 must measure this actual tree and keep vanilla-law bands separate rather
 than adopting the stale 2.8-rad/s/current-tree prediction from the order text.
+
+## M1 - scripted input player and fixed-step determinism
+
+The committed `movement-scripts/*.txt` grammar accepts the optional
+`fixed-dt <ms>` header followed by timestamped press/release edges. During a
+suite run those edges replace the physical-key sample immediately before the
+existing `MovementInput` is constructed; the same controller, sender, and
+renderer calls then consume it. Suite mode is forced offline so scripted input
+cannot reach a realm. Normal interactive input is unchanged.
+
+The `movement-arena` vantage is the Northshire start height-grid location
+(-8949.95, -132.493, 83.5312), with walking collision enabled. All eight ordered
+scripts are committed: run/start/stop, flat jump, standing jump, backpedal,
+forward/back diagonal, standing turn, moving turn, and pure strafe.
+
+```text
+PREDICTED parser: optional fixed-dt plus <t> press|release <key>
+ACTUAL parser: exact grammar; invalid actions and unknown keys fail closed
+PREDICTED path: substituted source -> existing MovementInput -> live owners
+ACTUAL path: substitution occurs after keyboard axes and before the sole
+  MovementInput construction; controller/animator/sender calls are unchanged
+PREDICTED determinism: same script twice => identical kinematic columns
+ACTUAL determinism: run-start-stop, 301 ticks/run at 16.666667 ms; dt,
+  position, velocity, speed, aim yaw, input flags, ground/fall columns are
+  element-wise byte-identical after frame time is excluded; no nondeterminism
+  was found
+PREDICTED behavior deltas outside suite mode: 0
+ACTUAL behavior deltas outside suite mode: 0
+```
+
+M1 standard gates pass: Debug build succeeds with only the known CA2014
+warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56.

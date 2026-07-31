@@ -26,15 +26,15 @@ public sealed partial class GameLoop
 
     private bool MovementTraceActive => _movementTraceWriter is not null;
 
-    private void StartMovementTrace(string name)
+    private void StartMovementTrace(string name, bool exactPath = false)
     {
         StopMovementTrace();
         string safe = string.Concat((string.IsNullOrWhiteSpace(name) ? "manual" : name.Trim())
             .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-'));
         if (safe.Length == 0) safe = "manual";
-        string directory = Path.Combine(_config.RepoRoot, "dumps");
+        string directory = exactPath ? Path.GetDirectoryName(name)! : Path.Combine(_config.RepoRoot, "dumps");
         Directory.CreateDirectory(directory);
-        _movementTracePath = Path.Combine(directory, $"movetrace-{safe}.csv");
+        _movementTracePath = exactPath ? name : Path.Combine(directory, $"movetrace-{safe}.csv");
         _movementTraceWriter = new StreamWriter(_movementTracePath, append: false,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         _movementTraceWriter.WriteLine(MovementTraceHeader);

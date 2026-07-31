@@ -31,16 +31,21 @@ public static partial class Program
 
         PortraitBatchOptions? portraitBatch = null;
         VariantBatchOptions? variantBatch = null;
+        MovementSuiteOptions? movementSuite = null;
         string? configPath;
         string? argumentError;
+        bool movementRequested = args.Contains("--movement-suite", StringComparer.OrdinalIgnoreCase);
         bool variantRequested = args.Contains("--variant-batch", StringComparer.OrdinalIgnoreCase);
-        bool parsed = variantRequested
+        bool parsed = movementRequested
+            ? TryParseMovementSuiteArgs(args, out movementSuite, out configPath, out argumentError)
+            : variantRequested
             ? TryParseVariantBatchArgs(args, out variantBatch, out configPath, out argumentError)
             : TryParsePortraitBatchArgs(args, out portraitBatch, out configPath, out argumentError);
         if (!parsed)
         {
-            Console.Error.WriteLine($"[{(variantRequested ? "variant-batch" : "batch")}] {argumentError}");
-            if (variantRequested) PrintVariantBatchUsage();
+            Console.Error.WriteLine($"[{(movementRequested ? "movement-suite" : variantRequested ? "variant-batch" : "batch")}] {argumentError}");
+            if (movementRequested) PrintMovementSuiteUsage();
+            else if (variantRequested) PrintVariantBatchUsage();
             else PrintPortraitBatchUsage();
             return 2;
         }
@@ -72,6 +77,16 @@ public static partial class Program
             Environment.GetEnvironmentVariable("MSUI_SETTINGS_PATH"));
         ApplyStartupSettings(config, settings.Settings);
 
+        // The committed movement suite is an offline instrument. It exercises
+        // the live local controller/animator path but must never log in or send
+        // scripted movement to a realm.
+        if (movementSuite is not null)
+        {
+            config.Server.Enabled = false;
+            config.Server.AutoConnect = false;
+            config.Window.VSync = false;
+        }
+
         // WoW's own UI typeface, straight out of fonts.MPQ. It has to happen
         // before the window exists: ImGui rasterises its glyph atlas when the
         // controller is constructed, and there is no supported way to swap the
@@ -82,7 +97,7 @@ public static partial class Program
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
         };
 
-        var game = new GameLoop(window, config, portraitBatch, variantBatch) { SettingsFile = settings };
+        var game = new GameLoop(window, config, portraitBatch, variantBatch, movementSuite) { SettingsFile = settings };
 
         window.OnLoad += game.Load;
         window.OnUpdate += game.Update;
@@ -106,6 +121,7 @@ public static partial class Program
         }
 
         game.Dispose();
+        if (movementSuite is not null) return game.MovementSuiteExitCode;
         if (variantBatch is not null) return game.VariantBatchExitCode;
         return portraitBatch is null ? 0 : game.PortraitBatchExitCode;
     }
@@ -383,12 +399,14 @@ public sealed partial class GameLoop : IDisposable
          && _wmo is not null;
 
     public GameLoop(ClientWindow window, ClientConfig config,
-        PortraitBatchOptions? portraitBatch = null, VariantBatchOptions? variantBatch = null)
+        PortraitBatchOptions? portraitBatch = null, VariantBatchOptions? variantBatch = null,
+        MovementSuiteOptions? movementSuite = null)
     {
         _window = window;
         _config = config;
         _portraitBatchOptions = portraitBatch;
         _variantBatchOptions = variantBatch;
+        _movementSuiteOptions = movementSuite;
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -1117,6 +1135,12 @@ public sealed partial class GameLoop : IDisposable
             return;
         }
 
+        if (_movementSuiteFinished)
+        {
+            _window.Close();
+            return;
+        }
+
         // Frame boundary. Update-entry to Update-entry is the only placement
         // where a frame's Update AND its Render both fall inside the period
         // being measured - see HitchRecorder.FrameBoundary for why the obvious
@@ -1176,6 +1200,12 @@ public sealed partial class GameLoop : IDisposable
 
         // Networked: stay stateless (no world/character) until login assigns a spawn point.
         if (_config.Server.Enabled && !_worldLoadStarted) return;
+
+        if (_movementSuiteOptions is not null)
+        {
+            if (!EnsureMovementSuiteStarted()) return;
+            dt = _movementScript!.FixedDt;
+        }
 
         // Adopting ready terrain creates VAOs and installs height grids on this
         // thread; five tiles can land in one frame.
@@ -1342,6 +1372,9 @@ public sealed partial class GameLoop : IDisposable
         float forward = typing ? 0f : Math.Clamp(
             _window.Axis(Key.W, Key.S) + _window.Axis(Key.Up, Key.Down), -1f, 1f);
 
+        bool scriptedJump = false;
+        OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
+
         // TURNING IS SLOWER WHILE YOU ARE MOVING, and that is not a detail. The
         // reference turns at 180 deg/s planted and three quarters of that once
         // you are translating, which is why running a tight circle in vanilla
@@ -1371,7 +1404,7 @@ public sealed partial class GameLoop : IDisposable
             Strafe = strafe,
             Up = typing ? 0f : _window.Axis(Key.Space, Key.ControlLeft),
             Yaw = _window.Camera.Yaw,
-            Jump = !typing && _window.IsDown(Key.Space),
+            Jump = _movementScript is not null ? scriptedJump : !typing && _window.IsDown(Key.Space),
             Walking = shift && !_controller.Flying,
             Boost = shift && _controller.Flying,
         };
@@ -1446,6 +1479,7 @@ public sealed partial class GameLoop : IDisposable
         phaseStarted = Stopwatch.GetTimestamp();
         _character?.Update(dt, BuildUnitState());
         SampleMovementTrace(dt, input, turn);
+        AdvanceMovementSuiteAfterSample();
         _characterUpdateMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         // Moving re-centres the camera behind the character, like the real

@@ -1,0 +1,6 @@
+fixed-dt 16.666667
+0.000000 press W
+0.000000 press TURN-LEFT
+2.000000 release TURN-LEFT
+2.500000 release W
+3.000000 release W

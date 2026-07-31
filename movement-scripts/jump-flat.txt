@@ -1,0 +1,6 @@
+fixed-dt 16.666667
+0.500000 press W
+1.500000 press SPACE
+1.516667 release SPACE
+3.500000 release W
+4.000000 release W

@@ -1,0 +1,8 @@
+fixed-dt 16.666667
+0.000000 press W
+0.000000 press STRAFE-RIGHT
+3.000000 release W
+3.000000 press S
+6.000000 release S
+6.000000 release STRAFE-RIGHT
+6.500000 release S

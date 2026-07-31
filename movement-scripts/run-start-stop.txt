@@ -1,0 +1,4 @@
+fixed-dt 16.666667
+1.000000 press W
+4.000000 release W
+5.000000 release W
