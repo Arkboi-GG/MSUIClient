@@ -2412,3 +2412,32 @@ move-audit-check passes all 44 current rows.
 
 **HARD STOP — Nico's fix-order ruling is required. No movement fix, benilla
 change, panes/keybind work, or further diagnosis is authorized by SPEC-13.**
+
+## S1 - integrator-aware jump law correction
+
+Pilot review correctly identified the four jump failures as expectation
+authoring defects. The audit now regresses gravity from the airborne velocity
+slope using accumulated trace timestamps (so the CSV's six-decimal per-row dt
+does not bias the fit) and recovers launch velocity as first-airborne velZ plus
+g*dt. Symplectic-Euler apex/time/return predictions are then evaluated at each
+trace's measured fixed step. The 44 current-tree bands are byte-unchanged; the
+new g/v0 rows are law-only and therefore do not inflate the current-band count.
+
+```text
+PREDICTED regressed g / v0: 19.2911 / 7.9558
+ACTUAL jump-flat: 19.291103 / 7.955800
+ACTUAL jump-standing: 19.291104 / 7.955800
+PREDICTED current-tree result: 44/44 PASS, unchanged bands
+ACTUAL current-tree result: 44/44 PASS, unchanged bands
+PREDICTED vanilla failures after correction: 0
+ACTUAL vanilla failures after correction: 0
+```
+
+Before, both traces compared 1.574730 yd against the continuum
+1.6105..1.6705 band and 0.383333 sample-relative seconds against
+0.3954..0.4294. After, the trace-derived symplectic centers are 1.574728 and
+0.383333 with the same authored tolerances. This changes no physics and no
+current-tree expectation.
+
+S1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.

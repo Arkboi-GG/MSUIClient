@@ -1,8 +1,8 @@
 using System.Globalization;
 
 record Row(double T, double Dt, double X, double Y, double Z, double Speed, double Aim,
-    string Flags, bool Grounded, string Clip, double ClipTime, double Rate, string Choice);
-record Band(string Name, double CurrentMin, double CurrentMax, double LawMin, double LawMax, string Citation);
+    double VerticalVel, string Flags, bool Grounded, string Clip, double ClipTime, double Rate, string Choice);
+record Band(string Name, double? CurrentMin, double? CurrentMax, string LawMin, string LawMax, string Citation);
 
 static class MoveAudit
 {
@@ -36,7 +36,7 @@ static class MoveAudit
         int I(string n) => Array.IndexOf(h, n);
         var rows = lines.Skip(1).Select(line => { var c = line.Split(','); return new Row(
             D(c[I("t")]), D(c[I("dt")]), D(c[I("posX")]), D(c[I("posY")]), D(c[I("posZ")]),
-            D(c[I("horizSpeed")]), D(c[I("aimYaw")]), c[I("inputFlags")], bool.Parse(c[I("grounded")]),
+            D(c[I("horizSpeed")]), D(c[I("aimYaw")]), D(c[I("verticalVel")]), c[I("inputFlags")], bool.Parse(c[I("grounded")]),
             c[I("clipName")], D(c[I("clipTime")]), D(c[I("playbackRate")]), c[I("lastAnimChoice")]); }).ToList();
         bool Moving(Row r) => r.Flags.Contains("fwd") || r.Flags.Contains("back") || r.Flags.Contains("strafe");
         int firstIntent = rows.FindIndex(Moving); if (firstIntent < 0) firstIntent = 0;
@@ -55,6 +55,17 @@ static class MoveAudit
         foreach (var r in rows) { if (Moving(r) && (r.Clip == "Stand" || Math.Abs(r.Rate) < 1e-5)) { stall += r.Dt; if (stall > .15 && stall-r.Dt <= .15) stalls++; } else stall = 0; }
         int resets = 0; for (int i=1;i<rows.Count;i++) if (rows[i].Clip==rows[i-1].Clip && rows[i].ClipTime+1e-5 < rows[i-1].ClipTime) resets++;
         int subs = rows.Count(r => r.Choice.Contains("Substituted", StringComparison.OrdinalIgnoreCase));
+        List<Row> air = takeoff < 0 ? [] : rows.Skip(takeoff).Take((land < 0 ? rows.Count : land) - takeoff).ToList();
+        double sampleDt = rows.Count < 2 ? 0 : (rows[^1].T-rows[0].T)/(rows.Count-1);
+        double gravity = air.Count < 2 ? 0 : (air[0].VerticalVel-air[^1].VerticalVel)/(air[^1].T-air[0].T);
+        double jumpVelocity = air.Count == 0 ? 0 : air[0].VerticalVel + gravity * sampleDt;
+        double predictedApex = 0, predictedApexTime = 0, predictedAirtime = 0;
+        if (gravity > 0 && jumpVelocity > 0 && air.Count > 0)
+        {
+            double z=0,v=jumpVelocity,dt=sampleDt,max=0; int n=0,maxN=0;
+            while (n < 10000) { n++; v-=gravity*dt; z+=v*dt; if(z>max){max=z;maxN=n;} if(z<=0&&n>1)break; }
+            predictedApex=max; predictedApexTime=Math.Max(0,(maxN-1)*dt); predictedAirtime=(n-1)*dt;
+        }
         return new(StringComparer.Ordinal) {
             ["maxSpeed"] = maxSpeed, ["stopDistance"] = stop, ["turnRate"] = turnRate,
             ["startDisplacementTicks"] = firstMoved < 0 ? 999 : firstMoved-firstIntent,
@@ -62,6 +73,9 @@ static class MoveAudit
             ["jumpApexHeight"] = apexHeight,
             ["jumpApexTime"] = takeoff < 0 || apex < 0 ? 0 : rows[apex].T-rows[takeoff].T,
             ["jumpAirtime"] = takeoff < 0 || land < 0 ? 0 : rows[land].T-rows[takeoff].T,
+            ["gravity"] = gravity, ["jumpVelocity"] = jumpVelocity,
+            ["predictedApex"] = predictedApex, ["predictedApexTime"] = predictedApexTime,
+            ["predictedAirtime"] = predictedAirtime,
             ["stallWindows"] = stalls, ["phaseResets"] = resets, ["substitutedEvents"] = subs
         };
     }
@@ -69,16 +83,25 @@ static class MoveAudit
     static int Audit(Dictionary<string,double> metrics, string expected, string output, bool currentOnly)
     {
         var bands = File.ReadLines(expected).Where(l => l.Length > 0 && !l.StartsWith('#') && !l.StartsWith("name,"))
-            .Select(l => { var c=l.Split(',',6); return new Band(c[0],D(c[1]),D(c[2]),D(c[3]),D(c[4]),c[5]); }).ToList();
+            .Select(l => { var c=l.Split(',',6); return new Band(c[0],DN(c[1]),DN(c[2]),c[3],c[4],c[5]); }).ToList();
         var lines = new List<string>{"name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation"}; int fail=0;
-        foreach(var b in bands) { double m=metrics[b.Name]; bool cp=m>=b.CurrentMin&&m<=b.CurrentMax, lp=m>=b.LawMin&&m<=b.LawMax; if(!cp)fail++;
-            string lawResult = b.LawMin == -999 && b.LawMax == 999 ? "N/A" : lp ? "PASS" : "FAIL";
-            lines.Add(string.Join(',', b.Name,F(m),F(b.CurrentMin),F(b.CurrentMax),cp?"PASS":"FAIL",F(b.LawMin),F(b.LawMax),lawResult,b.Citation.Replace(',',';'))); }
+        foreach(var b in bands) { double m=metrics[b.Name]; double lawMin=Resolve(b.LawMin,metrics),lawMax=Resolve(b.LawMax,metrics);
+            bool hasCurrent=b.CurrentMin.HasValue&&b.CurrentMax.HasValue; bool cp=!hasCurrent||(m>=b.CurrentMin&&m<=b.CurrentMax), lp=m>=lawMin&&m<=lawMax; if(hasCurrent&&!cp)fail++;
+            string lawResult = lawMin == -999 && lawMax == 999 ? "N/A" : lp ? "PASS" : "FAIL";
+            lines.Add(string.Join(',', b.Name,F(m),hasCurrent?F(b.CurrentMin!.Value):"",hasCurrent?F(b.CurrentMax!.Value):"",hasCurrent?(cp?"PASS":"FAIL"):"N/A",F(lawMin),F(lawMax),lawResult,b.Citation.Replace(',',';'))); }
         Directory.CreateDirectory(Path.GetDirectoryName(output)!); File.WriteAllLines(output, lines);
         if (!currentOnly) foreach(var l in lines) Console.WriteLine(l);
         return fail;
     }
     static double D(string s)=>double.Parse(s,CultureInfo.InvariantCulture);
+    static double? DN(string s)=>string.IsNullOrWhiteSpace(s)?null:D(s);
+    static double Resolve(string s, Dictionary<string,double> m)
+    {
+        if (!s.StartsWith('@')) return D(s);
+        string expression=s[1..]; int split=expression.IndexOfAny(['+','-']);
+        if(split<0)return m[expression]; double value=m[expression[..split]],delta=D(expression[(split+1)..]);
+        return expression[split]=='+'?value+delta:value-delta;
+    }
     static string F(double d)=>d.ToString("0.######",CultureInfo.InvariantCulture);
     static double Dist(Row a,Row b)=>Math.Sqrt((a.X-b.X)*(a.X-b.X)+(a.Y-b.Y)*(a.Y-b.Y));
     static double Unwrap(double a){while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a;}
