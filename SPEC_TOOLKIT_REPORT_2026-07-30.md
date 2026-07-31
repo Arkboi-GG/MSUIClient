@@ -2127,3 +2127,60 @@ warning, combat/wire passes, and portrait-camera reports exactly
 | W5 replacement baselines | Full post-7C NPC/items sweeps promoted; pre-7C regenerable artifacts archived; all cohorts and diagnosis evidence frozen. | Accepted, `dfaa679` |
 | W6 player sweep | 634/634 Ready over 16 race/sex pairs; 359 collision rows retain exact winner evidence. | Accepted; 7C-3 queued, `62d18f7` |
 | W7/W11 close-out | Report matrix and Session 2 checklist refreshed; V2 full-PASS and V2b parked-trigger semantics recorded; final gates pass. | Accepted |
+
+## W12 - committed artifact SHA-256 manifest
+
+Hashes were computed from the W11 accepted working-tree files and are recorded
+in lowercase hexadecimal. This section is the content-level handoff for device
+bridges that may retain stale snapshots of overwritten canonical paths.
+
+### Canonical post-7C baselines
+
+| SHA-256 | Path |
+|---|---|
+| `1fba3062e7b2202b80e7858631c8a9c22b970cc4507073a8653fd03a8d1c20ad` | `variant-batch/baseline/npc-extras/verdicts.csv` |
+| `ed6828646501129cf82da98f462842118a91ad4206605d3ff0964d3148d998fc` | `variant-batch/baseline/npc-extras/summary.txt` |
+| `1391f021dd8053ba5b834b88fa4caf6711232bb40b08fd6f3945c3b4df74edb6` | `variant-batch/baseline/items/verdicts.csv` |
+| `b7246f089b361ed05af3ef89f03d49c2f588a4eb40b45dc8eb9be32224800300` | `variant-batch/baseline/items/summary.txt` |
+
+### Frozen acceptance and forbidden-change cohorts
+
+| SHA-256 | Path |
+|---|---|
+| `e5d86a981a62e86461fc2def48955a4651dcc7192848feb0e9828b07b69a5669` | `variant-batch/baseline/npc-extras/cohort-7c1.keys` |
+| `c2631713ccd18304e48882ae17fb50471d3db779a5c6a7f35768c3d050e015bd` | `variant-batch/baseline/npc-extras/cohort-7c2a.keys` |
+| `533992efeafe31b4def14c6bf5965b6bf328e7a492b6919485f81df032168bc6` | `variant-batch/baseline/npc-extras/cohort-7c2a-inherit.keys` |
+| `78506796dc0d65feb09a0232372cb1cd4a4ff1df7782d723cfa992c336dde706` | `variant-batch/baseline/npc-extras/cohort-7c2b.keys` |
+
+`git diff --quiet HEAD -- <all four cohort paths>` returned zero: every
+cohort file is byte-identical to its committed state.
+
+### W8 diagnosis CSV evidence
+
+| SHA-256 | Path |
+|---|---|
+| `c9695fb0cfeb7a538d2f3cb1488d0ca52e74ad5fc7a9380a59fe9edb459206fb` | `variant-batch/diagnosis/7c2a-inherit/accepted.csv` |
+| `05358e32a0d46b374f941d3afd480a6a6a149b6d8825e900083fee8f5e874a36` | `variant-batch/diagnosis/7c2a-inherit/candidate.csv` |
+| `c9695fb0cfeb7a538d2f3cb1488d0ca52e74ad5fc7a9380a59fe9edb459206fb` | `variant-batch/diagnosis/7c2a-inherit/accepted/verdicts.csv` |
+| `05358e32a0d46b374f941d3afd480a6a6a149b6d8825e900083fee8f5e874a36` | `variant-batch/diagnosis/7c2a-inherit/candidate/verdicts.csv` |
+
+There are no committed artifacts under a diagnosis `three-way/` directory:
+W10 hard-stopped at W10-1 before that evidence stage, and no replacement or
+fabricated three-way evidence was created.
+
+### Dated pre-7C history
+
+| SHA-256 | Path |
+|---|---|
+| `cd8723c8322be2852c3c9b23ab50070ff4c44b1c5930c3544941961712f53eee` | `variant-batch/history/2026-07-31-pre7C/npc-extras/verdicts.csv` |
+| `8b2503b28e71fd469a26d21de140898d2a60dc30a35da2fbbc34ee7558bb0205` | `variant-batch/history/2026-07-31-pre7C/items/verdicts.csv` |
+| `1a5faafee0efb9fdec088c7fdfbfa3c5dea7f964db8f3b183dc5421a441f483f` | `variant-batch/history/2026-07-31-pre7C/items/summary.txt` |
+
+The archived pre-7C NPC verdict hash exactly matches the independently supplied
+pilot authority: expected and actual are both
+`cd8723c8322be2852c3c9b23ab50070ff4c44b1c5930c3544941961712f53eee`.
+
+W12 standard gates pass: Debug build succeeds with the single known CA2014
+warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56. W12 is complete; the queue is empty pending Nico's live
+Session 2 evidence and separate 7C-3 ruling.
