@@ -2088,3 +2088,42 @@ scope is complete under the SPEC-12 Option B ruling.
 W11-2 stage-boundary gates pass: Debug build succeeds with the single known
 CA2014 warning, combat/wire passes, and portrait-camera reports exactly
 1,224 / 1,289 / 56.
+
+### W11-3 - Option B close-out accepted
+
+`CHECKS_GAMEPLAY.md` now targets the accepted post-7C Option B tree. V2 is a
+full-PASS expectation for real type-6 hair plus npc-bare type-1 scalp/ear
+regions. V2b separately asks for a live Tauren facial-hair/horn verdict; a
+FAIL is evidence for a new order reopening the parked type-8 inheritance
+question, not a regression of this acceptance. The queued 7C-3 work and its
+359 measured duplicate-key rows are unchanged.
+
+```text
+PREDICTED W4 close-out status: accepted as Option B under SPEC-12
+ACTUAL W4 close-out status: accepted as Option B under SPEC-12
+PREDICTED W5 close-out status: post-7C canonical rebaseline complete
+ACTUAL W5 close-out status: post-7C canonical rebaseline complete
+PREDICTED V2 expectation: full PASS for type-6 hair and type-1 scalp/ears
+ACTUAL V2 expectation: full PASS for type-6 hair and type-1 scalp/ears
+PREDICTED V2b: distinct parked Tauren live trigger
+ACTUAL V2b: distinct parked Tauren live trigger
+PREDICTED 7C-3 state: queued and untouched
+ACTUAL 7C-3 state: queued and untouched
+```
+
+Final W11-3 gates pass: Debug build succeeds with the single known CA2014
+warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56.
+
+### Refreshed SPEC-08 close-out matrix
+
+| Work item | Mechanical result | Status / commit |
+|---|---|---|
+| W0 panel reconciliation | Three missing Portrait Lab copy affordances added; wire toggle and latest target dump were already present; standard gates passed. | Accepted, `5e8a74d` |
+| W1 item classification | 58 unique issue rows / 76 observations classified; custom 67218-67221 files exist under Cape and the Head demand was wrong; gated G3 zero and `changedRows=0`. | Accepted, `4b6e240` |
+| W2 attachment fix | The two baseline queries produced the identical 3,535-specimen cohort; exactly that set changed, items stayed unchanged, and Willem mounted. | Accepted, `30315a2` |
+| W3 type-6 hair | Exactly 7,677 authority rows changed; zero set differences, zero UNBOUND type-6 rows, and NPC G3 zero. | Accepted, `7829bdb` |
+| W4 npc-bare head composite | Under final Option B, exactly the frozen 8,889 type-1 authority rows changed; 0/689 parked inherit rows and zero outside rows changed. | Accepted under SPEC-12, `3bf1f14` |
+| W5 replacement baselines | Full post-7C NPC/items sweeps promoted; pre-7C regenerable artifacts archived; all cohorts and diagnosis evidence frozen. | Accepted, `dfaa679` |
+| W6 player sweep | 634/634 Ready over 16 race/sex pairs; 359 collision rows retain exact winner evidence. | Accepted; 7C-3 queued, `62d18f7` |
+| W7/W11 close-out | Report matrix and Session 2 checklist refreshed; V2 full-PASS and V2b parked-trigger semantics recorded; final gates pass. | Accepted |
