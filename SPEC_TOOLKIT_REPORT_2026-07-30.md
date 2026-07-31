@@ -1913,3 +1913,86 @@ pass: Debug build (known CA2014 only), combat/wire, and portrait-camera
 
 **HARD STOP. W9-3 and W9-4 were not executed. No W4 implementation or W5
 baseline change landed; CHECKS_GAMEPLAY.md and 7C-3 remain untouched.**
+
+## W10 - W4 A-vs-B re-evidence
+
+### W10-1 - forensic commit identification: HARD STOP
+
+The W4-era reachable and reflog history contains one W4 implementation commit:
+
+```text
+306e030ef0dab3779eab1b926a1d4c277bc3cca5  toolkit: materialize 7C-2a head cohort
+48c16dc27f0410f9bd12c051c607a94ac31babc4  toolkit: variants-W4 bind NPC bare head composite
+be31ac6a3fd769129895422bf26314d4f4f9133e  Revert "toolkit: variants-W4 bind NPC bare head composite"
+```
+
+`48c16dc` has parent `306e030`, tree
+`b91791cea7d80b1b23c52763f737a97f31b50bd3`, and was committed at
+2026-07-31 09:49:16 -04:00. Its two production blobs are:
+
+```text
+CreatureRenderer.cs: 32114cb0efec69d93b41c90ad497f5691b38c610
+CreatureRenderer.VariantTrace.cs: 26afca17defaf446bad233c42da720cf5c4dbeb0
+```
+
+Those blobs are the carry-isolated correction. The report blob committed in
+the same tree (`23ff8e8f09339270230cc1918915805de1d61762`)
+explicitly records two prior working-tree runs: “The first full candidate”
+changed 8,889 + 689 rows, while “The corrected implementation” isolated the
+ordinary texture carry and changed only 8,889.
+
+The preserved run metadata independently fixes their provenance:
+
+```text
+original run: variant-batch/resume-w4-npc/summary.txt
+  specimens=6939/6939, csvRows=64650, durationSeconds=982.033
+  clientGitDescribe=306e030-dirty
+corrected run: variant-batch/resume-w4b-npc/summary.txt
+  specimens=6939/6939, csvRows=64650, durationSeconds=947.535
+  clientGitDescribe=306e030-dirty
+```
+
+Thus the original inheritance-producing implementation existed only as an
+uncommitted dirty working tree based on `306e030`; the correction was made in
+that same dirty tree before `48c16dc` captured the final source.
+
+`be31ac6`'s commit body states exactly
+`This reverts commit 48c16dc27f0410f9bd12c051c607a94ac31babc4.` It reverted
+the two corrected carry-isolated production blobs above and the corrected W4
+report append. Its resulting production blobs are the accepted W3 versions:
+
+```text
+CreatureRenderer.cs: 1375256cb4a71ee4cb68923c7dbcbb60fbc8bfc2
+CreatureRenderer.VariantTrace.cs: 596fb676e676183faa14e379c835397ed4fc4167
+```
+
+The object-database audit found no recoverable first-candidate tree:
+
+```text
+reachable/reflog commits adding W4 composite symbols: 48c16dc only
+reachable/reflog commits removing them: be31ac6 only
+unreachable W4-era commits: 0
+unreachable blobs containing PrepareNpcBareComposite / IsNpcBareHeadBatch /
+  NpcBareDescriptor: 0
+```
+
+The unreachable commits reported by `git fsck --full --unreachable
+--no-reflogs` are stash objects dated 2026-07-27 or 2026-07-30, before W4;
+none contains the W4 source symbols. No named or dangling tree therefore
+preserves the original uncorrected implementation.
+
+```text
+PREDICTED distinct first-candidate historical tree: required for W10-2
+ACTUAL distinct first-candidate historical tree: NOT FOUND
+PREDICTED correction commit: 48c16dc or its source
+ACTUAL correction commit: 48c16dc
+PREDICTED be31ac6 reverted tree: exact 48c16dc correction
+ACTUAL be31ac6 reverted tree: exact 48c16dc correction
+PREDICTED recoverable 30/30 inheritance candidate: required for W10-2
+ACTUAL recoverable 30/30 inheritance candidate: none in Git history or objects
+```
+
+Per SPEC-11's explicit W10-1 rule, reconstruction would be new implementation
+and requires its own order. **HARD STOP at W10-1. W10-2 and W10-3 were not
+executed; no three-way artifact was fabricated. The accepted renderer,
+authority files, W5, CHECKS_GAMEPLAY.md, and 7C-3 remain untouched.**
