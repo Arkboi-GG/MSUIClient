@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
@@ -193,6 +194,8 @@ public sealed class CharacterRenderer : IDisposable
 
     private readonly GL _gl;
     private readonly ClientConfig _config;
+    private readonly AssetWorkerPool? _workers;
+    private readonly GpuUploadWorker? _uploads;
 
     private Shader _shader = null!;
     private uint _vao, _vbo, _ebo;
@@ -214,6 +217,53 @@ public sealed class CharacterRenderer : IDisposable
     private int _bodySlotIndex = -1;
     private Texture? _bareSkin;
     private Texture? _dressedSkin;
+
+    private sealed class PreparedTextureData
+    {
+        public byte[] Pixels = [];
+        public int Width;
+        public int Height;
+    }
+
+    private sealed class PreparedSlotData
+    {
+        public uint Type;
+        public SlotFill Fill;
+        public string Source = "";
+        public float AlphaCutoff = 0.35f;
+        public PreparedTextureData? Texture;
+    }
+
+    private sealed class PreparedAppearanceData
+    {
+        public required CharacterEquipment Equipment;
+        public required List<PreparedSlotData> Slots;
+        public required PreparedTextureData Magenta;
+        public PreparedTextureData? BareSkin;
+        public PreparedTextureData? DressedSkin;
+        public byte[]? BaseSkin;
+        public int SkinWidth;
+        public int SkinHeight;
+        public float SkinCutoff;
+        public string SkinPath = "";
+        public int BodySlotIndex = -1;
+        public int UnboundSlots;
+    }
+
+    private sealed class UploadedAppearanceData
+    {
+        public required Dictionary<PreparedTextureData, Texture> Textures;
+    }
+
+    private sealed class AppearanceLoadJob
+    {
+        public required Task<PreparedAppearanceData> Worker;
+        public PreparedAppearanceData? Ready;
+        public Task<UploadedAppearanceData>? Upload;
+    }
+
+    private AppearanceLoadJob? _appearanceLoad;
+    private const double AppearanceFinalizeBudgetMs = 2.0;
 
     private ItemDisplayTable? _itemDisplay;
     private CharSectionsTable? _charSections;
@@ -569,10 +619,13 @@ public sealed class CharacterRenderer : IDisposable
     private const int ActionAnimationTrack = 1;
     private const int SpellHoldAnimationTrack = 2;
 
-    public CharacterRenderer(GL gl, ClientConfig config)
+    public CharacterRenderer(GL gl, ClientConfig config,
+        AssetWorkerPool? workers = null, GpuUploadWorker? uploads = null)
     {
         _gl = gl;
         _config = config;
+        _workers = workers;
+        _uploads = uploads;
     }
 
     /// <summary>Carry world/dev tuning onto a renderer whose authored assets are already loaded.</summary>
@@ -756,6 +809,414 @@ public sealed class CharacterRenderer : IDisposable
 
         BuildTextureSlots(_m2);
         ApplyEquipment();
+    }
+
+    /// <summary>
+    /// Queue the race/gender-stable part of an enter-world avatar change. The
+    /// selected/offline renderer already owns the model, skeleton and buffers;
+    /// only appearance pixels, equipment pixels and their textures are rebuilt.
+    /// CPU decoding/composition and GL uploads follow the same worker split as
+    /// the S6 creature pipeline. <see cref="PumpAppearanceUpdate"/> performs at
+    /// most one state transition per frame and the final main-thread swap is
+    /// measured against the shared two-millisecond adoption budget.
+    /// </summary>
+    public bool QueueAppearanceUpdate(int skinId, int faceId, int hairStyleId,
+        int hairColorId, int facialHairId, CharacterEquipment equipment)
+    {
+        if (_m2 is null) return false;
+        if (_workers is null || _uploads is null)
+        {
+            SkinId = skinId;
+            FaceId = faceId;
+            HairStyleId = hairStyleId;
+            HairColorId = hairColorId;
+            FacialHairId = facialHairId;
+            Equipment = equipment;
+            Reload();
+            return true;
+        }
+
+        // These catalogues are immutable after load, but their lazy creation is
+        // deliberately kept on the owning thread before a worker reads them.
+        LoadCharSections();
+        LoadCharHairGeosets();
+        LoadItemDisplay();
+
+        SkinId = skinId;
+        FaceId = faceId;
+        HairStyleId = hairStyleId;
+        HairColorId = hairColorId;
+        FacialHairId = facialHairId;
+
+        var request = new AppearanceRequest(
+            skinId, faceId, hairStyleId, hairColorId, facialHairId, equipment);
+        _appearanceLoad = new AppearanceLoadJob
+        {
+            Worker = _workers.Run(() => PrepareAppearanceUpdate(request)),
+        };
+        return true;
+    }
+
+    public bool AppearanceReady => _appearanceLoad is null;
+
+    public void PumpAppearanceUpdate()
+    {
+        AppearanceLoadJob? job = _appearanceLoad;
+        if (job is null || !job.Worker.IsCompleted) return;
+
+        if (job.Ready is null)
+        {
+            try { job.Ready = job.Worker.GetAwaiter().GetResult(); }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[character-prepare] appearance failed: {exception.Message}");
+                _appearanceLoad = null;
+                return;
+            }
+            return;
+        }
+
+        if (job.Upload is null)
+        {
+            PreparedAppearanceData ready = job.Ready;
+            job.Upload = _uploads!.Enqueue("player-avatar", uploadGl =>
+            {
+                var textures = new Dictionary<PreparedTextureData, Texture>();
+                foreach (PreparedTextureData texture in EnumeratePreparedTextures(ready).Distinct())
+                    textures[texture] = Texture.From2D(
+                        uploadGl, texture.Pixels, texture.Width, texture.Height,
+                        mipmaps: true, repeat: true, ownerGl: _gl);
+                return new UploadedAppearanceData { Textures = textures };
+            });
+            return;
+        }
+
+        if (!job.Upload.IsCompleted) return;
+
+        long started = Stopwatch.GetTimestamp();
+        try
+        {
+            FinalizeAppearanceUpdate(job.Ready, job.Upload.GetAwaiter().GetResult());
+            Console.WriteLine("[character] async player appearance ready");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[character-upload] appearance failed: {exception.Message}");
+        }
+        finally
+        {
+            double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            if (elapsed > AppearanceFinalizeBudgetMs)
+                Console.WriteLine($"[character] player finalize over budget: {elapsed:F2} ms");
+            _appearanceLoad = null;
+        }
+    }
+
+    private readonly record struct AppearanceRequest(
+        int SkinId, int FaceId, int HairStyleId, int HairColorId, int FacialHairId,
+        CharacterEquipment Equipment);
+
+    private PreparedAppearanceData PrepareAppearanceUpdate(in AppearanceRequest request)
+    {
+        M2Model m2 = _m2 ?? throw new InvalidOperationException("character model is not loaded");
+        uint raceId = CharSectionsTable.RaceId(Race);
+        uint sexId = Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? 1u : 0u;
+        string skinPath = "";
+        string hairPath = "";
+        string facialHairPath = "";
+        var overlays = new List<(string Path, FaceRegion Region)>();
+
+        if (_charSections is not null)
+        {
+            var skinRow = _charSections.Find(
+                raceId, sexId, CharSectionsTable.SectionSkin, -1, request.SkinId);
+            if (skinRow is not null) skinPath = skinRow.Texture1;
+
+            var faceRow = _charSections.Find(
+                raceId, sexId, CharSectionsTable.SectionFace, request.FaceId, request.SkinId);
+            if (faceRow is not null)
+            {
+                if (faceRow.Texture1.Length > 0) overlays.Add((faceRow.Texture1, FaceRegion.Lower));
+                if (faceRow.Texture2.Length > 0) overlays.Add((faceRow.Texture2, FaceRegion.Upper));
+            }
+
+            var hairRow = _charSections.Find(
+                raceId, sexId, CharSectionsTable.SectionHair,
+                request.HairStyleId, request.HairColorId);
+            if (hairRow is not null) hairPath = hairRow.Texture1;
+            if (hairPath.Length == 0)
+            {
+                var substitute = _charSections.Find(
+                    raceId, sexId, CharSectionsTable.SectionHair,
+                    HairSubstituteVariation, request.HairColorId);
+                if (substitute is not null) hairPath = substitute.Texture1;
+            }
+
+            var facialRow = _charSections.Find(
+                raceId, sexId, CharSectionsTable.SectionFacialHair,
+                request.FacialHairId, request.HairColorId);
+            if (facialRow is not null)
+            {
+                facialHairPath = facialRow.Texture1;
+                if (facialRow.Texture1.Length > 0) overlays.Add((facialRow.Texture1, FaceRegion.Lower));
+                if (facialRow.Texture2.Length > 0) overlays.Add((facialRow.Texture2, FaceRegion.Upper));
+            }
+            if (hairRow is not null)
+            {
+                if (hairRow.Texture2.Length > 0) overlays.Add((hairRow.Texture2, FaceRegion.Lower));
+                if (hairRow.Texture3.Length > 0) overlays.Add((hairRow.Texture3, FaceRegion.Upper));
+            }
+        }
+
+        var decodedByPath = new Dictionary<string, PreparedTextureData>(StringComparer.OrdinalIgnoreCase);
+        PreparedTextureData? bare = null;
+        float skinCutoff = 0.35f;
+        string usedSkinPath = "";
+        foreach (string candidate in SkinCandidates(skinPath, Race, Gender))
+        {
+            bare = DecodePreparedTexture(candidate, decodedByPath, out skinCutoff);
+            if (bare is null) continue;
+            usedSkinPath = candidate;
+            break;
+        }
+
+        byte[]? baseSkin = bare?.Pixels.ToArray();
+        if (bare is not null && baseSkin is not null)
+        {
+            foreach ((string path, FaceRegion region) in overlays)
+            {
+                PreparedTextureData? overlay = null;
+                foreach (string candidate in CharacterTextureCandidates(path))
+                {
+                    overlay = DecodePreparedTexture(candidate, decodedByPath, out _);
+                    if (overlay is not null) break;
+                }
+                if (overlay is null) continue;
+                var (x, y, rw, rh) = region == FaceRegion.Upper
+                    ? (0, 160, 128, 32)
+                    : (0, 192, 128, 64);
+                float sx = bare.Width / 256f, sy = bare.Height / 256f;
+                CharacterEquipment.BlitOver(
+                    baseSkin, bare.Width, bare.Height,
+                    overlay.Pixels, overlay.Width, overlay.Height,
+                    (int)(x * sx), (int)(y * sy), (int)(rw * sx), (int)(rh * sy));
+            }
+            bare = new PreparedTextureData
+            {
+                Pixels = baseSkin,
+                Width = bare.Width,
+                Height = bare.Height,
+            };
+        }
+
+        request.Equipment.GenderSuffix =
+            Gender.Equals("Female", StringComparison.OrdinalIgnoreCase) ? "F" : "M";
+        request.Equipment.Resolve(_itemDisplay);
+        PreparedTextureData? dressed = null;
+        if (bare is not null && request.Equipment.Pieces.Count > 0)
+        {
+            byte[] pixels = request.Equipment.Composite(
+                bare.Pixels, bare.Width, bare.Height,
+                path => DecodePixels(path, decodedByPath));
+            dressed = new PreparedTextureData
+            {
+                Pixels = pixels,
+                Width = bare.Width,
+                Height = bare.Height,
+            };
+        }
+
+        PreparedTextureData? cape = PrepareCapeTexture(request.Equipment, decodedByPath);
+        var slots = new List<PreparedSlotData>(m2.Textures.Count);
+        int bodySlot = -1;
+        int unbound = 0;
+        for (int i = 0; i < m2.Textures.Count; i++)
+        {
+            var reference = m2.Textures[i];
+            var slot = new PreparedSlotData { Type = reference.Type };
+            string external = reference.Type switch
+            {
+                6 => hairPath,
+                7 => facialHairPath,
+                _ => "",
+            };
+
+            if (!string.IsNullOrWhiteSpace(reference.Filename))
+            {
+                slot.Texture = DecodePreparedTexture(reference.Filename, decodedByPath, out float cutoff);
+                slot.AlphaCutoff = cutoff;
+                if (slot.Texture is not null)
+                {
+                    slot.Fill = SlotFill.Bound;
+                    slot.Source = reference.Filename;
+                }
+            }
+            else if (external.Length > 0)
+            {
+                foreach (string candidate in CharacterTextureCandidates(external))
+                {
+                    slot.Texture = DecodePreparedTexture(candidate, decodedByPath, out float cutoff);
+                    if (slot.Texture is null) continue;
+                    slot.AlphaCutoff = cutoff;
+                    slot.Fill = SlotFill.Bound;
+                    slot.Source = candidate;
+                    break;
+                }
+            }
+            else if (reference.Type == 1 && bare is not null)
+            {
+                if (bodySlot < 0) bodySlot = i;
+                slot.Texture = dressed ?? bare;
+                slot.AlphaCutoff = skinCutoff;
+                slot.Fill = SlotFill.BodySkin;
+                slot.Source = usedSkinPath;
+            }
+            else if (reference.Type == 2 && cape is not null)
+            {
+                slot.Texture = cape;
+                slot.Fill = SlotFill.Bound;
+                slot.Source = "equipped cloak";
+            }
+
+            if (slot.Fill == SlotFill.Unbound && reference.Type == 6)
+            {
+                foreach (string candidate in HairFallbackCandidates())
+                {
+                    slot.Texture = DecodePreparedTexture(candidate, decodedByPath, out float cutoff);
+                    if (slot.Texture is null) continue;
+                    slot.AlphaCutoff = cutoff;
+                    slot.Fill = SlotFill.Bound;
+                    slot.Source = candidate;
+                    break;
+                }
+            }
+            if (slot.Fill == SlotFill.Unbound) unbound++;
+            slots.Add(slot);
+        }
+
+        return new PreparedAppearanceData
+        {
+            Equipment = request.Equipment,
+            Slots = slots,
+            Magenta = new PreparedTextureData { Pixels = [255, 0, 255, 255], Width = 1, Height = 1 },
+            BareSkin = bare,
+            DressedSkin = dressed,
+            BaseSkin = baseSkin,
+            SkinWidth = bare?.Width ?? 0,
+            SkinHeight = bare?.Height ?? 0,
+            SkinCutoff = skinCutoff,
+            SkinPath = usedSkinPath,
+            BodySlotIndex = bodySlot,
+            UnboundSlots = unbound,
+        };
+    }
+
+    private PreparedTextureData? PrepareCapeTexture(CharacterEquipment equipment,
+        Dictionary<string, PreparedTextureData> cache)
+    {
+        var cloak = equipment.Pieces.LastOrDefault(piece =>
+            piece.InventoryType == CharacterEquipment.Slot.Cloak && piece.Row is not null);
+        if (cloak?.Row is null) return null;
+        foreach (string name in new[] { cloak.Row.ModelTexture1, cloak.Row.ModelTexture2 }
+                     .Where(name => !string.IsNullOrWhiteSpace(name))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+            foreach (string candidate in CapeTextureCandidates(name))
+                if (DecodePreparedTexture(candidate, cache, out _) is { } decoded) return decoded;
+        return null;
+    }
+
+    private (byte[] bgra, int w, int h)? DecodePixels(string path,
+        Dictionary<string, PreparedTextureData> cache)
+        => DecodePreparedTexture(path, cache, out _) is { } decoded
+            ? (decoded.Pixels, decoded.Width, decoded.Height)
+            : null;
+
+    private PreparedTextureData? DecodePreparedTexture(string path,
+        Dictionary<string, PreparedTextureData> cache, out float alphaCutoff)
+    {
+        alphaCutoff = 0.35f;
+        if (cache.TryGetValue(path, out PreparedTextureData? cached))
+        {
+            alphaCutoff = ComputeAlphaCutoff(cached.Pixels);
+            return cached;
+        }
+        var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, path);
+        if (decoded is null) return null;
+        var (pixels, width, height) = decoded.Value;
+        if (pixels.Length < 4 || width <= 0 || height <= 0) return null;
+        alphaCutoff = ComputeAlphaCutoff(pixels);
+        var result = new PreparedTextureData { Pixels = pixels, Width = width, Height = height };
+        cache[path] = result;
+        return result;
+    }
+
+    private static float ComputeAlphaCutoff(byte[] pixels)
+    {
+        byte maxAlpha = 0;
+        for (int i = 3; i < pixels.Length; i += 4)
+            if (pixels[i] > maxAlpha) maxAlpha = pixels[i];
+        if (maxAlpha == 0) return 0f;
+        if (maxAlpha == 1)
+            for (int i = 3; i < pixels.Length; i += 4)
+                if (pixels[i] != 0) pixels[i] = 255;
+        return 0.35f;
+    }
+
+    private static IEnumerable<PreparedTextureData> EnumeratePreparedTextures(
+        PreparedAppearanceData prepared)
+    {
+        if (prepared.BareSkin is not null) yield return prepared.BareSkin;
+        if (prepared.DressedSkin is not null) yield return prepared.DressedSkin;
+        foreach (PreparedSlotData slot in prepared.Slots)
+            if (slot.Texture is not null) yield return slot.Texture;
+        yield return prepared.Magenta;
+    }
+
+    private void FinalizeAppearanceUpdate(
+        PreparedAppearanceData prepared, UploadedAppearanceData uploaded)
+    {
+        Texture[] oldTextures = _slots.Select(slot => slot.Texture)
+            .Where(texture => texture is not null)
+            .Append(_bareSkin)
+            .Append(_dressedSkin)
+            .Append(_magenta)
+            .Where(texture => texture is not null)
+            .Select(texture => texture!)
+            .Distinct()
+            .ToArray();
+
+        _slots.Clear();
+        foreach (PreparedSlotData preparedSlot in prepared.Slots)
+            _slots.Add(new Slot
+            {
+                Type = preparedSlot.Type,
+                Fill = preparedSlot.Fill,
+                Source = preparedSlot.Source,
+                AlphaCutoff = preparedSlot.AlphaCutoff,
+                Texture = preparedSlot.Texture is not null
+                    ? uploaded.Textures[preparedSlot.Texture]
+                    : null,
+            });
+
+        _baseSkin = prepared.BaseSkin;
+        _skinWidth = prepared.SkinWidth;
+        _skinHeight = prepared.SkinHeight;
+        _skinCutoff = prepared.SkinCutoff;
+        _bodySlotIndex = prepared.BodySlotIndex;
+        SkinTexturePath = prepared.SkinPath.Length > 0 ? prepared.SkinPath : "(none)";
+        UnboundSlots = prepared.UnboundSlots;
+        _bareSkin = prepared.BareSkin is not null ? uploaded.Textures[prepared.BareSkin] : null;
+        _dressedSkin = prepared.DressedSkin is not null ? uploaded.Textures[prepared.DressedSkin] : null;
+        _magenta = uploaded.Textures[prepared.Magenta];
+        Equipment = prepared.Equipment;
+        ApplyGeosetVisibility();
+        if (_attached is not null)
+        {
+            _attached.RaceGenderCode = RaceGenderCode(Race, Gender);
+            _attached.Rebuild(Equipment);
+        }
+
+        foreach (Texture texture in oldTextures) texture.Dispose();
     }
 
     /// <summary>

@@ -82,6 +82,8 @@ public sealed class TerrainTile : IDisposable
     {
         public required float[] Vertices;
         public required uint[] Indices;
+        public int VertexFloatCount;
+        public int IndexCount;
         public required TerrainTextures.Prepared Textures;
         public required ChunkRange[] Chunks;
         public int Col, Row, HoleCells;
@@ -165,8 +167,9 @@ public sealed class TerrainTile : IDisposable
         double originY = (32 - col) * 533.33333;
         const float cell = AdtTerrainReader.CELL_SIZE;   // 33.3333 / 8
 
-        var vertices = new List<float>(256 * 145 * FloatsPerVertex);
-        var indices = new List<uint>(256 * 64 * 12);
+        var vertices = new float[256 * 145 * FloatsPerVertex];
+        var indices = new uint[256 * 64 * 12];
+        int vertexFloatCount = 0, indexCount = 0;
 
         int holeCells = 0;
         var min = new Vector3(float.MaxValue);
@@ -178,11 +181,11 @@ public sealed class TerrainTile : IDisposable
         {
             if (chunk?.Heights == null) continue;
 
-            uint baseVertex = (uint)(vertices.Count / FloatsPerVertex);
+            uint baseVertex = (uint)(vertexFloatCount / FloatsPerVertex);
 
             // This chunk's own bounds, accumulated by AddVertex alongside the
             // tile-wide pair, and its slice of the index buffer.
-            int chunkIndexStart = indices.Count;
+            int chunkIndexStart = indexCount;
             var chunkMin = new Vector3(float.MaxValue);
             var chunkMax = new Vector3(float.MinValue);
 
@@ -210,7 +213,7 @@ public sealed class TerrainTile : IDisposable
                 for (int col9 = 0; col9 < 9; col9++)
                 {
                     int idx = row9 * 17 + col9;
-                    AddVertex(vertices, chunk, adt, originX, originY, cell,
+                    AddVertex(vertices, ref vertexFloatCount, chunk, adt, originX, originY, cell,
                               chunk.IndexY * 8 + row9, chunk.IndexX * 8 + col9,
                               chunk.Heights[idx], idx, chunkLayers, alphaLayer, ref min, ref max);
                 }
@@ -220,7 +223,7 @@ public sealed class TerrainTile : IDisposable
                 for (int col8 = 0; col8 < 8; col8++)
                 {
                     int idx = row9 * 17 + 9 + col8;
-                    AddVertex(vertices, chunk, adt, originX, originY, cell,
+                    AddVertex(vertices, ref vertexFloatCount, chunk, adt, originX, originY, cell,
                               chunk.IndexY * 8 + row9 + 0.5, chunk.IndexX * 8 + col8 + 0.5,
                               chunk.Heights[idx], idx, chunkLayers, alphaLayer, ref min, ref max);
                 }
@@ -230,7 +233,7 @@ public sealed class TerrainTile : IDisposable
             // of the buffer rather than threading two more ref params through
             // AddVertex keeps the one place that computes a world position the
             // one place that computes it.
-            for (int v = (int)baseVertex * FloatsPerVertex; v < vertices.Count; v += FloatsPerVertex)
+            for (int v = (int)baseVertex * FloatsPerVertex; v < vertexFloatCount; v += FloatsPerVertex)
             {
                 var p = new Vector3(vertices[v], vertices[v + 1], vertices[v + 2]);
                 chunkMin = Vector3.Min(chunkMin, p);
@@ -250,28 +253,27 @@ public sealed class TerrainTile : IDisposable
 
                 // Counter-clockwise seen from +Z (WoW up), matching the
                 // GL_CCW front face set in ClientWindow.
-                indices.AddRange([tl, mid, tr]);
-                indices.AddRange([tr, mid, br]);
-                indices.AddRange([br, mid, bl]);
-                indices.AddRange([bl, mid, tl]);
+                indices[indexCount++] = tl; indices[indexCount++] = mid; indices[indexCount++] = tr;
+                indices[indexCount++] = tr; indices[indexCount++] = mid; indices[indexCount++] = br;
+                indices[indexCount++] = br; indices[indexCount++] = mid; indices[indexCount++] = bl;
+                indices[indexCount++] = bl; indices[indexCount++] = mid; indices[indexCount++] = tl;
             }
 
             // A chunk that is entirely holes emits no indices and is simply not
             // a drawable range.
-            int chunkIndexCount = indices.Count - chunkIndexStart;
+            int chunkIndexCount = indexCount - chunkIndexStart;
             if (chunkIndexCount > 0)
                 chunkRanges.Add(new ChunkRange(chunkIndexStart, chunkIndexCount, chunkMin, chunkMax));
         }
 
-        if (vertices.Count == 0 || indices.Count == 0) return null;
-
-        var vertexArray = vertices.ToArray();
-        var indexArray = indices.ToArray();
+        if (vertexFloatCount == 0 || indexCount == 0) return null;
 
         return new Prepared
         {
-            Vertices = vertexArray,
-            Indices = indexArray,
+            Vertices = vertices,
+            Indices = indices,
+            VertexFloatCount = vertexFloatCount,
+            IndexCount = indexCount,
             Textures = textures,
             Chunks = [.. chunkRanges],
             Col = col,
@@ -295,12 +297,12 @@ public sealed class TerrainTile : IDisposable
         gl.BindBuffer(BufferTargetARB.ArrayBuffer, uploaded.Vbo);
         fixed (float* p = prepared.Vertices)
             gl.BufferData(BufferTargetARB.ArrayBuffer,
-                (nuint)(prepared.Vertices.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+                    (nuint)(prepared.VertexFloatCount * sizeof(float)), p, BufferUsageARB.StaticDraw);
 
         gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, uploaded.Ebo);
         fixed (uint* p = prepared.Indices)
             gl.BufferData(BufferTargetARB.ElementArrayBuffer,
-                (nuint)(prepared.Indices.Length * sizeof(uint)), p, BufferUsageARB.StaticDraw);
+                    (nuint)(prepared.IndexCount * sizeof(uint)), p, BufferUsageARB.StaticDraw);
 
         return uploaded;
     }
@@ -327,19 +329,20 @@ public sealed class TerrainTile : IDisposable
 
         var p = uploaded.Cpu;
         Console.WriteLine(
-            $"[terrain] tile [{p.Col},{p.Row}] adopted: {p.Vertices.Length / FloatsPerVertex} verts, " +
-            $"{p.Indices.Length / 3} tris, {p.HoleCells} hole cells, " +
+            $"[terrain] tile [{p.Col},{p.Row}] adopted: {p.VertexFloatCount / FloatsPerVertex} verts, " +
+            $"{p.IndexCount / 3} tris, {p.HoleCells} hole cells, " +
             $"z {p.BoundsMin.Z:F1}..{p.BoundsMax.Z:F1}");
 
         var tile = new TerrainTile(gl, vao, uploaded.Vbo, uploaded.Ebo, p.Col, p.Row,
-            p.Vertices.Length / FloatsPerVertex, p.Indices.Length, p.HoleCells,
+            p.VertexFloatCount / FloatsPerVertex, p.IndexCount, p.HoleCells,
             p.BoundsMin, p.BoundsMax, p.Chunks);
         tile.AttachTextures(uploaded.Textures);
         return tile;
     }
 
     private static void AddVertex(
-        List<float> buffer, AdtTerrainReader.McnkChunk chunk, AdtTerrainReader.AdtResult adt,
+        float[] buffer, ref int count, AdtTerrainReader.McnkChunk chunk,
+        AdtTerrainReader.AdtResult adt,
         double originX, double originY, float cell,
         double gridRow, double gridCol, float relativeHeight, int mcvtIndex,
         int[] chunkLayers, float alphaLayer, ref Vector3 min, ref Vector3 max)
@@ -348,18 +351,18 @@ public sealed class TerrainTile : IDisposable
         float wy = (float)(originY - gridCol * cell);
         float wz = chunk.BaseZ + relativeHeight;
 
-        buffer.Add(wx);
-        buffer.Add(wy);
-        buffer.Add(wz);
+        buffer[count++] = wx;
+        buffer[count++] = wy;
+        buffer[count++] = wz;
 
         var n = chunk.NormalAt(mcvtIndex);
         var normal = Vector3.Normalize(new Vector3(n.X, n.Y, n.Z));
         // Degenerate normals appear on a few chunks; point them up rather than
         // letting a NaN poison the lighting.
         if (float.IsNaN(normal.X)) normal = Vector3.UnitZ;
-        buffer.Add(normal.X);
-        buffer.Add(normal.Y);
-        buffer.Add(normal.Z);
+        buffer[count++] = normal.X;
+        buffer[count++] = normal.Y;
+        buffer[count++] = normal.Z;
 
         // UV within THIS CHUNK, 0..1 over its 8 cells. gridRow/gridCol are
         // tile-wide, so subtracting the chunk's own origin gives 0..8 (inner
@@ -368,19 +371,19 @@ public sealed class TerrainTile : IDisposable
         // U follows the column axis and V the row axis, which is the same
         // orientation the alpha masks are written in (TerrainTextures maps px to
         // the column and py to the row), so the mask lines up with no transform.
-        buffer.Add((float)((gridCol - chunk.IndexX * 8) / 8.0));
-        buffer.Add((float)((gridRow - chunk.IndexY * 8) / 8.0));
+        buffer[count++] = (float)((gridCol - chunk.IndexX * 8) / 8.0);
+        buffer[count++] = (float)((gridRow - chunk.IndexY * 8) / 8.0);
 
         // Tileset array indices for this chunk; -1 marks an unused slot.
-        buffer.Add(chunkLayers[0]);
-        buffer.Add(chunkLayers[1]);
-        buffer.Add(chunkLayers[2]);
-        buffer.Add(chunkLayers[3]);
+        buffer[count++] = chunkLayers[0];
+        buffer[count++] = chunkLayers[1];
+        buffer[count++] = chunkLayers[2];
+        buffer[count++] = chunkLayers[3];
 
         // This chunk's layer in the alpha array. Same index TerrainTextures
         // packed it at, range-checked by the caller, and the reason a
         // neighbour's mask is now unreachable at any UV.
-        buffer.Add(alphaLayer);
+        buffer[count++] = alphaLayer;
 
         min = Vector3.Min(min, new Vector3(wx, wy, wz));
         max = Vector3.Max(max, new Vector3(wx, wy, wz));

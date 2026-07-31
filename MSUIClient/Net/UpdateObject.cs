@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.IO.Compression;
 using System.Numerics;
 
@@ -92,14 +93,69 @@ public sealed class ObjectUpdate
     public List<ulong>? Guids;        // out-of-range / near
 }
 
+/// <summary>
+/// Reusable segmented destination for login-burst parses. A normal List grows
+/// one contiguous reference array onto the LOH once a burst crosses roughly
+/// ten thousand entries; fixed 4K chunks stay small and are retained for the
+/// next packet.
+/// </summary>
+public sealed class ObjectUpdateBuffer
+{
+    private const int ChunkSize = 4_096;
+    private readonly List<ObjectUpdate[]> _chunks = [];
+    public int Count { get; private set; }
+
+    public ObjectUpdateBuffer(int capacity = 0) => EnsureCapacity(capacity);
+
+    public ObjectUpdate this[int index]
+    {
+        get
+        {
+            if ((uint)index >= (uint)Count) throw new ArgumentOutOfRangeException(nameof(index));
+            return _chunks[index / ChunkSize][index % ChunkSize];
+        }
+    }
+
+    public void Add(ObjectUpdate update)
+    {
+        EnsureCapacity(Count + 1);
+        _chunks[Count / ChunkSize][Count % ChunkSize] = update;
+        Count++;
+    }
+
+    public void Clear()
+    {
+        int remaining = Count;
+        for (int chunk = 0; remaining > 0; chunk++)
+        {
+            int used = Math.Min(remaining, ChunkSize);
+            Array.Clear(_chunks[chunk], 0, used);
+            remaining -= used;
+        }
+        Count = 0;
+    }
+
+    public void EnsureCapacity(int capacity)
+    {
+        int requiredChunks = (capacity + ChunkSize - 1) / ChunkSize;
+        while (_chunks.Count < requiredChunks) _chunks.Add(new ObjectUpdate[ChunkSize]);
+    }
+}
+
 public static class UpdateObjectParser
 {
-    public static List<ObjectUpdate> Parse(byte[] body)
+    public static ObjectUpdateBuffer Parse(byte[] body, ObjectUpdateBuffer? destination = null)
+        => Parse(body, 0, body.Length, destination);
+
+    private static ObjectUpdateBuffer Parse(
+        byte[] body, int offset, int length, ObjectUpdateBuffer? destination)
     {
-        var r = new PacketReader(body);
+        var r = new PacketReader(body, offset, length);
         uint count = r.ReadU32();
         r.ReadU8();                    // has_transport (ignored)
-        var list = new List<ObjectUpdate>((int)Math.Min(count, 0xFFFF));
+        var list = destination ?? new ObjectUpdateBuffer((int)Math.Min(count, 10_000));
+        list.Clear();
+        list.EnsureCapacity((int)Math.Min(count, int.MaxValue));
         for (uint i = 0; i < count; i++)
         {
             var kind = (UpdateKind)r.ReadU8();
@@ -133,12 +189,24 @@ public static class UpdateObjectParser
         return list;
     }
 
-    public static List<ObjectUpdate> ParseCompressed(byte[] body)
+    public static ObjectUpdateBuffer ParseCompressed(
+        byte[] body, ObjectUpdateBuffer? destination = null)
     {
         var r = new PacketReader(body);
         int decompressedSize = (int)r.ReadU32();
-        byte[] compressed = r.ReadBytes(r.Remaining);
-        return Parse(Inflate(compressed, decompressedSize));
+        if (decompressedSize <= 0)
+            throw new InvalidDataException($"invalid object-update size {decompressedSize}");
+
+        byte[] scratch = ArrayPool<byte>.Shared.Rent(decompressedSize);
+        try
+        {
+            int written = Inflate(body, r.Position, r.Remaining, scratch, decompressedSize);
+            return Parse(scratch, 0, written, destination);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
+        }
     }
 
     private static List<ulong> ReadGuidList(PacketReader r)
@@ -149,12 +217,21 @@ public static class UpdateObjectParser
         return guids;
     }
 
-    private static byte[] Inflate(byte[] compressed, int expectedSize)
+    private static int Inflate(
+        byte[] compressed, int offset, int length, byte[] destination, int expectedSize)
     {
-        using var input = new MemoryStream(compressed);
+        using var input = new MemoryStream(compressed, offset, length, writable: false);
         using var z = new ZLibStream(input, CompressionMode.Decompress);
-        using var output = new MemoryStream(expectedSize > 0 ? expectedSize : compressed.Length * 4);
-        z.CopyTo(output);
-        return output.ToArray();
+        int written = 0;
+        while (written < expectedSize)
+        {
+            int read = z.Read(destination, written, expectedSize - written);
+            if (read == 0) break;
+            written += read;
+        }
+        if (written != expectedSize)
+            throw new InvalidDataException(
+                $"object-update inflated to {written} byte(s), expected {expectedSize}");
+        return written;
     }
 }

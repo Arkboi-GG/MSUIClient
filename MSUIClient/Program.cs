@@ -60,7 +60,8 @@ public static partial class Program
         //
         // A missing or corrupt settings.json is not an error - SettingsStore.Load
         // logs a line and starts from the shipped defaults.
-        var settings = SettingsStore.Load(config.RepoRoot);
+        var settings = SettingsStore.Load(config.RepoRoot,
+            Environment.GetEnvironmentVariable("MSUI_SETTINGS_PATH"));
         ApplyStartupSettings(config, settings.Settings);
 
         // WoW's own UI typeface, straight out of fonts.MPQ. It has to happen
@@ -324,6 +325,9 @@ public sealed partial class GameLoop : IDisposable
     /// crossing, it is simply always running.
     /// </summary>
     private Vector2? _lastDemandCentre;
+    private readonly List<string> _newDoodadModels = [];
+    private readonly HashSet<string> _newDoodadModelKeys =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How far the player must move before a rescan can find anything new.</summary>
     private const float DemandRescanDistance = 24f;
@@ -534,7 +538,7 @@ public sealed partial class GameLoop : IDisposable
         // fast shell setup.
         try
         {
-            _character = new CharacterRenderer(gl, _config);
+            _character = new CharacterRenderer(gl, _config, _assetWorkers, _uploads);
             _character.AnimationResolved = CaptureAnimationChoice;
             _character.LoadShaders(shaderDir);
 
@@ -584,7 +588,9 @@ public sealed partial class GameLoop : IDisposable
             BeginWorldLoad(gl);
     }
 
-    private void PopulateDoodads((int col, int row) centreTile, bool reportDiagnostics)
+    private void PopulateDoodads((int col, int row) centreTile, bool reportDiagnostics,
+        IReadOnlySet<string>? modelFilter = null, bool includeOutdoor = true,
+        bool includeInterior = true)
     {
         if (_doodads is null || _terrain is null || _adts is null) return;
 
@@ -595,21 +601,26 @@ public sealed partial class GameLoop : IDisposable
         // MDDF lists, and enumerating every MODD placement of every resident
         // WMO. At 7,562 placements this measured 71 ms and we do not yet know
         // which half. Split before optimizing - that has been right every time.
-        long doodadPhase = Stopwatch.GetTimestamp();
-        _doodads.LoadForTiles(
-            _terrain.LoadedTiles, _adts, centre, radius, reportDiagnostics);
-        _outdoorPlacementMilliseconds = Stopwatch.GetElapsedTime(doodadPhase).TotalMilliseconds;
+        if (includeOutdoor)
+        {
+            long doodadPhase = Stopwatch.GetTimestamp();
+            _doodads.LoadForTiles(
+                _terrain.LoadedTiles, _adts, centre, radius, reportDiagnostics, modelFilter);
+            _outdoorPlacementMilliseconds = Stopwatch.GetElapsedTime(doodadPhase).TotalMilliseconds;
+        }
 
         // Furniture. A huge WMO can touch the terrain ring while most of its
         // MODD placements are far outside doodad draw range. Resolve only the
         // furniture that could become visible before the next tile crossing.
-        if (_wmo is null) return;
+        if (_wmo is null || !includeInterior) return;
 
         var interiors = Stopwatch.StartNew();
         int requested = 0, placed = 0;
         foreach (var (path, transform, light, wmoInstanceId, ownerGroups) in
                  _wmo.EnumerateDoodads(centre, radius))
         {
+            if (modelFilter is not null &&
+                !modelFilter.Contains(DoodadRenderer.ModelCacheKey(path))) continue;
             requested++;
             if (_doodads.AddPlaced(path, transform, light, wmoInstanceId, ownerGroups)) placed++;
         }
@@ -620,8 +631,12 @@ public sealed partial class GameLoop : IDisposable
             _doodads.ReportInterior(requested, placed, interiors.Elapsed.TotalSeconds);
 
         if (reportDiagnostics)
+        {
+            Console.WriteLine($"[load] doodad placement outdoor {_outdoorPlacementMilliseconds:F2} ms, " +
+                              $"interior {_interiorPlacementMilliseconds:F2} ms");
             Console.WriteLine($"[stream] object residency [{centreTile.col},{centreTile.row}] " +
                               $"radius {radius:F0} yd");
+        }
     }
 
     private void UpdateWorldResidency()
@@ -1113,9 +1128,21 @@ public sealed partial class GameLoop : IDisposable
         long loadNetStarted = Stopwatch.GetTimestamp();
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
         _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
+        _character?.PumpAppearanceUpdate();
+
+        // LOGIN_VERIFY_WORLD only schedules this ownership transfer. Bootstrap
+        // and avatar adoption each get their own curtain frame, outside the
+        // network-pump bracket and without stacking a loader phase behind them.
+        long transitionStarted = Stopwatch.GetTimestamp();
+        if (PumpWorldEntryTransition())
+        {
+            _loadStepMilliseconds = Stopwatch.GetElapsedTime(transitionStarted).TotalMilliseconds;
+            _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
+            return;
+        }
 
         // Keep the socket and movement heartbeat alive behind the curtain. The
-        // pump may itself enter BeginWorldLoad, so test the flag only afterward.
+        // deferred transition may enter BeginWorldLoad, so test the flag afterward.
         if (_worldLoading)
         {
             UpdateMovementSenderDuringLoad();
@@ -1500,7 +1527,6 @@ public sealed partial class GameLoop : IDisposable
             return;
         }
 
-        _lastDemandCentre = centre;
         float radius = DoodadDemandRadius;
         _doodads.QueuePreloadForTiles(_terrain.LoadedTiles, _adts, centre, radius);
         if (_wmo is not null)
@@ -1510,10 +1536,26 @@ public sealed partial class GameLoop : IDisposable
                         new Vector2(d.Transform.M41, d.Transform.M42), centre))
                     .Select(d => d.ModelPath));
 
+        _doodads.DrainNewlyReadyModelPaths(_newDoodadModels);
+        bool movedEnough = _lastDemandCentre is not { } previous ||
+            Vector2.DistanceSquared(centre, previous) >=
+                DemandRescanDistance * DemandRescanDistance;
+        if (_newDoodadModels.Count == 0 && !movedEnough) return;
+
+        IReadOnlySet<string>? modelFilter = null;
+        if (!movedEnough)
+        {
+            _newDoodadModelKeys.Clear();
+            foreach (string path in _newDoodadModels)
+                _newDoodadModelKeys.Add(DoodadRenderer.ModelCacheKey(path));
+            modelFilter = _newDoodadModelKeys;
+        }
+        _lastDemandCentre = centre;
+
         // A model that completed since the previous pass can now acquire its
         // placements. Both outdoor and WMO placement keys are idempotent.
         int placementsBefore = _doodads.InstanceCount;
-        PopulateDoodads(_residentCentre.Value, reportDiagnostics: false);
+        PopulateDoodads(_residentCentre.Value, reportDiagnostics: false, modelFilter);
 
         // Newly-resident doodads are not yet in the collision world (it was built
         // at startup / last tile-cross, before they streamed in). Flag it so the
@@ -1682,6 +1724,12 @@ public sealed partial class GameLoop : IDisposable
             return;
         }
 
+        bool stagedLoadWarmup = _worldLoading &&
+                                _loadPhase == WorldLoadPhase.Fade &&
+                                _loadCurtainAlpha >= 1f &&
+                                _loadFadeWarmStage < 6;
+        bool WarmStage(int stage) => !stagedLoadWarmup || _loadFadeWarmStage == stage;
+
         ApplyAtmosphere();
         _gpuProfiler?.BeginFrame();
 
@@ -1692,27 +1740,30 @@ public sealed partial class GameLoop : IDisposable
         // if the sky pass is disabled the old flat behaviour is exactly what is
         // left (PLAN_09 §1.1: do not remove the clear-colour trick before the
         // replacement is proven, or the far clip becomes a visible edge).
-        _sky?.Render(_window.Camera, _atmosphere);
+        if (WarmStage(0)) _sky?.Render(_window.Camera, _atmosphere);
 
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Terrain);
-        if (_terrain is not null) _terrain.Render(_window.Camera);
+        if (WarmStage(0)) _terrain?.Render(_window.Camera);
+        else _terrain?.NoteNotRendered();
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Terrain);
 
         UpdatePortalFillLight();
 
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Wmo);
         if (_wmo is not null) _wmo.OcclusionWorld = _collision;
-        _wmo?.Render(_window.Camera);
+        if (WarmStage(1)) _wmo?.Render(_window.Camera);
+        else _wmo?.NoteNotRendered();
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Wmo);
 
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Doodads);
-        _doodads?.Render(_window.Camera);
+        if (WarmStage(2)) _doodads?.Render(_window.Camera);
+        else _doodads?.NoteNotRendered();
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Doodads);
 
         // Ground-effect foliage: scatter near the camera (throttled internally),
         // then draw it into the opaque world pass so terrain/water depth-interact.
         long foliageStarted = Stopwatch.GetTimestamp();
-        if (_foliage is not null && _adts is not null && _terrain is not null)
+        if (WarmStage(0) && _foliage is not null && _adts is not null && _terrain is not null)
         {
             _foliage.Time += dt;
             _foliage.Scatter(_window.Camera, _adts, _terrain.LoadedTiles, _terrain);
@@ -1733,7 +1784,7 @@ public sealed partial class GameLoop : IDisposable
         // Particles LAST in the world pass. They are transparent and depth-write
         // is off, so everything opaque must already be in the depth buffer or
         // they draw over walls they are standing behind.
-        if (_particles is not null && _doodads is not null)
+        if (WarmStage(5) && _particles is not null && _doodads is not null)
         {
             var eye = _window.Camera.Position;
             IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
@@ -1753,7 +1804,7 @@ public sealed partial class GameLoop : IDisposable
 
         long characterStarted = Stopwatch.GetTimestamp();
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Character);
-        if (_character is not null && _controller is not null)
+        if (WarmStage(3) && _character is not null && _controller is not null)
             _character.Render(_window.Camera, BuildUnitState());
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
@@ -1766,17 +1817,18 @@ public sealed partial class GameLoop : IDisposable
         // adoption on the same frame as Finish and the world's first render;
         // the following Fade update lowers alpha and its otherwise-idle frame
         // carries the one-model curtained budget.
-        if (!_worldLoading || _loadCurtainAlpha < 1f) DrawCreatures();
+        if (WarmStage(4) &&
+            (!_worldLoading || _loadCurtainAlpha < 1f || stagedLoadWarmup)) DrawCreatures();
         else _creatures?.NoteKnownNotDrawn(_entities);
         _creatureRenderMilliseconds = Stopwatch.GetElapsedTime(creatureStarted).TotalMilliseconds;
         NoteLoadCreatureDraw(_creatures?.DrawnLastFrame ?? 0);
 
         long selectionStarted = Stopwatch.GetTimestamp();
-        DrawSelectionRing();
+        if (WarmStage(5)) DrawSelectionRing();
         _selectionRenderMilliseconds = Stopwatch.GetElapsedTime(selectionStarted).TotalMilliseconds;
 
         long spellEffectStarted = Stopwatch.GetTimestamp();
-        if (_spellEffects is not null && _spellEffectMeshes is not null)
+        if (WarmStage(5) && _spellEffects is not null && _spellEffectMeshes is not null)
             _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
         _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
@@ -1787,7 +1839,7 @@ public sealed partial class GameLoop : IDisposable
         // it. Then, if the camera eye itself is below a water surface, tint the
         // whole screen so it reads as being underwater.
         long liquidStarted = Stopwatch.GetTimestamp();
-        if (_liquid is not null)
+        if (WarmStage(5) && _liquid is not null)
         {
             _liquid.Time += dt;
 
@@ -1981,7 +2033,24 @@ public sealed partial class GameLoop : IDisposable
         // The native loading curtain is an exclusive screen. ImGui is composited
         // after the world pass, so allowing it to run here would paint gameplay
         // bars, auras, unit frames and developer windows over the loading art.
-        if (_worldLoading || _loadScreen is not null) return;
+        bool preWorldPrime = !_worldLoading && _loadScreen is not null &&
+                             !_preWorldHudPrimed;
+        bool hiddenPrime = preWorldPrime ||
+                           (_worldLoading && _loadPhase == WorldLoadPhase.Fade &&
+                            _loadCurtainAlpha >= 1f && _loadFadeWarmStage == 5);
+        if ((_worldLoading || _loadScreen is not null) && !hiddenPrime) return;
+
+        if (hiddenPrime) ImGui.PushStyleVar(ImGuiStyleVar.Alpha, 0f);
+        try
+        {
+            BuildGui();
+            if (preWorldPrime) _preWorldHudPrimed = true;
+        }
+        finally { if (hiddenPrime) ImGui.PopStyleVar(); }
+    }
+
+    private void BuildGui()
+    {
 
         // Arm before any gameplay widgets draw; OverlayTop writes after the frame.
         BeginGameplayDumpFrame();

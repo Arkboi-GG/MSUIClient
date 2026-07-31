@@ -12,6 +12,7 @@
 // DXT5 alpha ramp + 3-bit indices) was validated in a Python prototype before
 // this was written.
 
+using System.Buffers;
 using System.Buffers.Binary;
 
 namespace MSUIClient.Formats;
@@ -28,7 +29,8 @@ public static class BlpDecoder
     /// Decode a BLP2 mip level to BGRA bytes (w*h*4). Drop-in replacement for
     /// War3Net's BlpFile.GetPixels(mip, out w, out h).
     /// </summary>
-    public static byte[] GetPixels(byte[] blp, int mipLevel, out int width, out int height)
+    public static byte[] GetPixels(byte[] blp, int mipLevel, out int width, out int height,
+        bool rentFromPool = false)
     {
         if (blp.Length < PaletteOffset ||
             blp[0] != 'B' || blp[1] != 'L' || blp[2] != 'P' || blp[3] != '2')
@@ -57,13 +59,17 @@ public static class BlpDecoder
         width = w; height = h;
 
         var mip = blp.AsSpan((int)mipOffsets[mipLevel], (int)mipSizes[mipLevel]);
-        var bgra = new byte[w * h * 4];
+        int pixelBytes = checked(w * h * 4);
+        var bgra = rentFromPool
+            ? ArrayPool<byte>.Shared.Rent(pixelBytes)
+            : new byte[pixelBytes];
+        if (rentFromPool) Array.Clear(bgra, 0, pixelBytes);
 
         switch (encoding)
         {
             case EncPalette: DecodePalettized(blp, mip, w, h, alphaDepth, bgra); break;
             case EncDxt:     DecodeDxt(mip, w, h, alphaType, bgra); break;
-            case EncArgb:    mip.Slice(0, Math.Min(bgra.Length, mip.Length)).CopyTo(bgra); break; // already BGRA
+            case EncArgb:    mip.Slice(0, Math.Min(pixelBytes, mip.Length)).CopyTo(bgra); break; // already BGRA
             default:         throw new NotSupportedException($"BLP2 encoding {encoding} is not supported.");
         }
         return bgra;

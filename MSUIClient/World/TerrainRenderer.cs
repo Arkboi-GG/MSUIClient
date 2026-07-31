@@ -67,6 +67,7 @@ public sealed class TerrainRenderer : IDisposable
     public int DrawCallsLastFrame { get; private set; }
     public int TrianglesLastFrame { get; private set; }
     public double RenderMilliseconds { get; private set; }
+    public void NoteNotRendered() => RenderMilliseconds = 0;
     public int TotalTriangles => _tiles.Values.Sum(t => t.TriangleCount);
 
     /// <summary>
@@ -306,11 +307,11 @@ public sealed class TerrainRenderer : IDisposable
         if (adt is null) return null;
 
         var cpu = await _workers.Run(() => new PreloadedTile
-        {
-            Heights = BuildHeightGrid(adt),
-            Holes = BuildHoleGrid(adt),
-            Uploaded = null,
-        }).ConfigureAwait(false);
+            {
+                Heights = BuildHeightGrid(adt),
+                Holes = BuildHoleGrid(adt),
+                Uploaded = null,
+            }).ConfigureAwait(false);
 
         var prepared = await _workers.Run(() => TerrainTile.Prepare(
             adt, _config.ClientDataPath, key.col, key.row)).ConfigureAwait(false);

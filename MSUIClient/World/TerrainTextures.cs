@@ -1,4 +1,5 @@
 ﻿using Silk.NET.OpenGL;
+using System.Buffers;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using Texture = MSUIClient.Engine.Texture; 
@@ -63,6 +64,7 @@ public sealed class TerrainTextures : IDisposable
         public int[][] ChunkLayers = [];
         public int Width;
         public int Height;
+        public bool Pooled;
     }
 
     public const int AlphaSize = 64;
@@ -107,7 +109,7 @@ public sealed class TerrainTextures : IDisposable
 
         for (int i = 0; i < names.Count; i++)
         {
-            var decoded = AdtTerrainReader.ReadBlpPixels(clientDataPath, names[i]);
+            var decoded = AdtTerrainReader.ReadBlpPixelsPooled(clientDataPath, names[i]);
             if (decoded is null)
             {
                 Console.WriteLine($"[terrain] tile [{col},{row}] missing texture: {names[i]}");
@@ -124,6 +126,7 @@ public sealed class TerrainTextures : IDisposable
                 Console.WriteLine(
                     $"[terrain] tile [{col},{row}] texture {names[i]} is {w}x{h}, " +
                     $"expected {expectedW}x{expectedH} — skipped");
+                ArrayPool<byte>.Shared.Return(bgra);
                 continue;
             }
 
@@ -133,7 +136,9 @@ public sealed class TerrainTextures : IDisposable
         }
 
         // ── alpha array + per-chunk layer indices ────────────────────────────
-        var alphaLayers = new byte[ChunkCount * AlphaLayerBytes];
+        int alphaBytes = ChunkCount * AlphaLayerBytes;
+        var alphaLayers = ArrayPool<byte>.Shared.Rent(alphaBytes);
+        Array.Clear(alphaLayers, 0, alphaBytes);
         var layers = new int[ChunkCount][];
 
         for (int i = 0; i < layers.Length; i++) layers[i] = [-1, -1, -1, -1];
@@ -188,6 +193,7 @@ public sealed class TerrainTextures : IDisposable
             ChunkLayers = layers,
             Width = expectedW,
             Height = expectedH,
+            Pooled = true,
         };
     }
 
@@ -199,12 +205,27 @@ public sealed class TerrainTextures : IDisposable
             ChunkLayers = prepared.ChunkLayers,
         };
 
-        if (prepared.Pixels.Count > 0)
-            result._tileset = Texture.Array2D(
-                gl, prepared.Pixels, prepared.Width, prepared.Height, ownerGl: ownerGl);
+        try
+        {
+            if (prepared.Pixels.Count > 0)
+                result._tileset = Texture.Array2D(
+                    gl, prepared.Pixels, prepared.Width, prepared.Height, ownerGl: ownerGl);
 
-        result._alphaArray = Texture.ArrayRgbaNoMips(
-            gl, prepared.AlphaLayers, AlphaSize, AlphaSize, ChunkCount, ownerGl);
+            result._alphaArray = Texture.ArrayRgbaNoMips(
+                gl, prepared.AlphaLayers, AlphaSize, AlphaSize, ChunkCount, ownerGl);
+        }
+        finally
+        {
+            if (prepared.Pooled)
+            {
+                foreach (byte[] pixels in prepared.Pixels)
+                    ArrayPool<byte>.Shared.Return(pixels);
+                ArrayPool<byte>.Shared.Return(prepared.AlphaLayers);
+                prepared.Pixels.Clear();
+                prepared.AlphaLayers = [];
+                prepared.Pooled = false;
+            }
+        }
         return result;
     }
 

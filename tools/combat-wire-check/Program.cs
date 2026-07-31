@@ -2,6 +2,7 @@ using MSUIClient.Net;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.World.Units;
+using System.IO.Compression;
 
 static byte[] Hex(string value) => Convert.FromHexString(value.Replace(" ", ""));
 static void Check(bool condition, string message)
@@ -127,6 +128,29 @@ float faced = EntityStore.TurnToward(6.20f, 0.10f, 0.08f);
 Check(faced < 0.01f || faced > 6.20f, "idle facing takes the short wrapped turn");
 Check(MathF.Abs(EntityStore.TurnToward(0f, MathF.PI, 0.5f) - 0.5f) < 0.0001f,
       "idle facing respects the turn-rate cap");
+
+var updateWriter = new PacketWriter();
+updateWriter.WriteU32(1);
+updateWriter.WriteU8(0);
+updateWriter.WriteU8((byte)UpdateKind.Values);
+updateWriter.WritePackedGuid(1);
+updateWriter.WriteU8(1);
+updateWriter.WriteU32(1u << ObjectFields.OBJECT_ENTRY);
+updateWriter.WriteU32(42);
+byte[] updateBody = updateWriter.ToArray();
+using var compressedStream = new MemoryStream();
+using (var compressedWriter = new BinaryWriter(compressedStream, System.Text.Encoding.UTF8, leaveOpen: true))
+{
+    compressedWriter.Write(updateBody.Length);
+    using var zlib = new ZLibStream(compressedStream, CompressionLevel.Fastest, leaveOpen: true);
+    zlib.Write(updateBody);
+}
+var reusedUpdates = new ObjectUpdateBuffer(10_000);
+ObjectUpdateBuffer parsedUpdates = UpdateObjectParser.ParseCompressed(
+    compressedStream.ToArray(), reusedUpdates);
+Check(ReferenceEquals(parsedUpdates, reusedUpdates) && parsedUpdates.Count == 1 &&
+      parsedUpdates[0].Guid == 1 && parsedUpdates[0].Fields?.Entry == 42,
+      "compressed object-update parse reuses destination and preserves fields");
 
 var wire = new WireRing();
 for (int i = 0; i < 513; i++)

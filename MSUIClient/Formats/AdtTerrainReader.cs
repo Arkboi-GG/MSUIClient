@@ -852,6 +852,24 @@ public static class AdtTerrainReader
         }
     }
 
+    /// <summary>
+    /// Decode into an ArrayPool buffer for prepare/upload pipelines that can
+    /// return the pixels immediately after GL has consumed them.
+    /// </summary>
+    public static (byte[] bgra, int width, int height)? ReadBlpPixelsPooled(
+        string clientDataPath, string blpPath)
+    {
+        try
+        {
+            var blpData = ReadFileFromMpqs(clientDataPath, blpPath);
+            if (blpData is null) return null;
+            var pixels = BlpDecoder.GetPixels(
+                blpData, 0, out int w, out int h, rentFromPool: true);
+            return (pixels, w, h);
+        }
+        catch { return null; }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // SERVER-SIDE COMPOSITE TEXTURE — baked RGB terrain texture
     // ═══════════════════════════════════════════════════════════════════

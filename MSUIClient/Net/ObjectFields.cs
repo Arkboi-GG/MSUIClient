@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Numerics;
+
 namespace MSUIClient.Net;
 
 // A sparse SMSG_UPDATE_OBJECT descriptor set: a bitmask of u32 blocks followed
@@ -103,18 +106,30 @@ public sealed class ObjectFields
     public static ObjectFields Read(PacketReader r)
     {
         int blocks = r.ReadU8();
-        var mask = new uint[blocks];
-        for (int i = 0; i < blocks; i++) mask[i] = r.ReadU32();
-
-        var fields = new Dictionary<ushort, uint>();
-        for (int i = 0; i < blocks; i++)
+        uint[] mask = ArrayPool<uint>.Shared.Rent(Math.Max(1, blocks));
+        try
         {
-            uint word = mask[i];
-            for (int bit = 0; bit < 32; bit++)
-                if ((word & (1u << bit)) != 0)
-                    fields[(ushort)(i * 32 + bit)] = r.ReadU32();
+            int fieldCount = 0;
+            for (int i = 0; i < blocks; i++)
+            {
+                mask[i] = r.ReadU32();
+                fieldCount += BitOperations.PopCount(mask[i]);
+            }
+
+            var fields = new Dictionary<ushort, uint>(fieldCount);
+            for (int i = 0; i < blocks; i++)
+            {
+                uint word = mask[i];
+                for (int bit = 0; bit < 32; bit++)
+                    if ((word & (1u << bit)) != 0)
+                        fields[(ushort)(i * 32 + bit)] = r.ReadU32();
+            }
+            return new ObjectFields(fields, created: false);
         }
-        return new ObjectFields(fields, created: false);
+        finally
+        {
+            ArrayPool<uint>.Shared.Return(mask);
+        }
     }
 
     /// <summary>Mark this as a CREATE snapshot (absent fields then read as 0).</summary>

@@ -42,6 +42,8 @@ public sealed class GlueBooth : IDisposable
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly ClientConfig _config;
+    private readonly AssetWorkerPool? _workers;
+    private readonly GpuUploadWorker? _uploads;
 
     // The per-race background scene and the token it was built from. Switching race disposes the old
     // scene and loads the new one; selection changes are user-paced (a row click), so a rebuild on a
@@ -77,11 +79,14 @@ public sealed class GlueBooth : IDisposable
     // benilla shows Orc before a roster arrives. Race id 2 (Orc) -> token "Orc".
     private const string PlaceholderToken = "Orc";
 
-    public GlueBooth(GL gl, MpqMount mpq, ClientConfig config)
+    public GlueBooth(GL gl, MpqMount mpq, ClientConfig config,
+        AssetWorkerPool? workers = null, GpuUploadWorker? uploads = null)
     {
         _gl = gl;
         _mpq = mpq;
         _config = config;
+        _workers = workers;
+        _uploads = uploads;
     }
 
     /// <summary>True once a race scene has loaded and has geometry to draw.</summary>
@@ -195,7 +200,7 @@ public sealed class GlueBooth : IDisposable
                 string shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
                 if (!File.Exists(Path.Combine(shaderDir, "character.vert")))
                     shaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
-                _createChar = new CharacterRenderer(_gl, _config);
+                _createChar = new CharacterRenderer(_gl, _config, _workers, _uploads);
                 _createChar.LoadShaders(shaderDir);
             }
             catch (Exception e)
@@ -280,7 +285,7 @@ public sealed class GlueBooth : IDisposable
             string shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
             if (!File.Exists(Path.Combine(shaderDir, "character.vert")))
                 shaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
-            r = new CharacterRenderer(_gl, _config);
+            r = new CharacterRenderer(_gl, _config, _workers, _uploads);
             r.LoadShaders(shaderDir);
         }
         catch (Exception e)

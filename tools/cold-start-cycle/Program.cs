@@ -57,6 +57,7 @@ string consolePath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.log");
 string errorPath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.err.log");
 string reportPath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.json");
 string tempConfigPath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.config.json");
+string tempSettingsPath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.settings.json");
 string lockPath = Path.Combine(dumpDirectory, $"cycle-{runLabel}.lock");
 
 using FileStream runLock = OpenRunLock(lockPath, runLabel);
@@ -142,6 +143,10 @@ try
     };
     startInfo.ArgumentList.Add(appDll);
     startInfo.ArgumentList.Add(tempConfigPath);
+    // PLAN_17 section 8 requires stock settings. Do not inherit or overwrite
+    // the developer's settings.json; a missing isolated path gives the client
+    // shipped defaults and any selection save remains disposable harness state.
+    startInfo.Environment["MSUI_SETTINGS_PATH"] = tempSettingsPath;
     app = Process.Start(startInfo)
         ?? throw new InvalidOperationException("could not start the Release client");
     stdout = Drain(app.StandardOutput, consolePath);
@@ -266,6 +271,7 @@ finally
     await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report,
         new JsonSerializerOptions { WriteIndented = true }));
     try { File.Delete(tempConfigPath); } catch { }
+    try { File.Delete(tempSettingsPath); } catch { }
     Console.WriteLine($"[cycle] report {reportPath}");
 }
 

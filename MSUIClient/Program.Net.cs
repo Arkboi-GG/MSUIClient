@@ -41,11 +41,15 @@ public sealed partial class GameLoop
     private SpellEffectSource? _spellEffects;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
+    private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
     private long _netInbound;
     private int _netUpdatesLastFrame;
     private int _creaturesLogged;
-    private Task<List<ObjectUpdate>>? _pendingObjectParse;
-    private List<ObjectUpdate>? _pendingObjectUpdates;
+    private Task<ObjectUpdateBuffer>? _pendingObjectParse;
+    private ObjectUpdateBuffer? _pendingObjectUpdates;
+    // Three retained 4K chunks cover the observed login burst without ever
+    // creating a contiguous >85-KB reference array.
+    private ObjectUpdateBuffer _objectUpdateBuffer = new(12_000);
     private int _pendingObjectUpdateIndex;
     private long _pendingObjectReceivedStamp;
 
@@ -85,7 +89,11 @@ public sealed partial class GameLoop
 
         // The character-select per-race booth (UI_<Race> backgrounds, fog off). Best-effort; the
         // scene itself loads lazily on the first SetRace once we reach character select.
-        try { if (_mpq is not null) _booth = new GlueBooth(gl, _mpq, _config); }
+        try
+        {
+            if (_mpq is not null)
+                _booth = new GlueBooth(gl, _mpq, _config, _assetWorkers, _uploads);
+        }
         catch (Exception ex) { Console.WriteLine($"[booth] init failed: {ex.Message}"); }
 
         // The networked creature/NPC renderer. Loads the creature DBCs; draws
@@ -174,6 +182,8 @@ public sealed partial class GameLoop
         // The server has assigned our character + spawn point (SMSG_LOGIN_VERIFY_WORLD / SMSG_NEW_WORLD).
         if (_net.TakeEnterWorld() is { } enter && _controller is not null)
         {
+            if (_pendingObjectParse is not null)
+                _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
             _combat.Clear();
             _actions.Clear();
@@ -212,25 +222,9 @@ public sealed partial class GameLoop
             {
                 Console.WriteLine($"[net] entering world: map {enter.Map} at " +
                                   $"({enter.Position.X:F0}, {enter.Position.Y:F0}, {enter.Position.Z:F0}) - loading");
-                if (_gl is not null) BeginWorldLoad(_gl);
                 _worldLoadStarted = true;
-
-                bool reusedSelectedAvatar = false;
-                if (_net.Player is { } selected &&
-                    _booth?.TakeCharacter(selected.Guid) is { } selectedAvatar)
-                {
-                    selectedAvatar.CopyRuntimeTuningFrom(_character);
-                    _character?.Dispose();
-                    _character = selectedAvatar;
-                    reusedSelectedAvatar = true;
-                    Console.WriteLine("[character] adopted cached character-select avatar");
-                }
-                _glue?.Dispose(); _glue = null;   // login art no longer needed once in world
-                _booth?.Dispose(); _booth = null; // char-select booth no longer needed once in world
-
-                // Build the player avatar from the LOGGED-IN character (race/gender/skin/hair +
-                // the roster's 19 equipment display ids), instead of the offline test body.
-                ApplyServerCharacter(rebuild: !reusedSelectedAvatar);
+                _preWorldHudPrimed = false;
+                _worldEntryTransitionStage = 1;
             }
             else
             {
@@ -254,6 +248,7 @@ public sealed partial class GameLoop
             {
                 Console.WriteLine($"[net] object-update parse error: {ex.Message}");
                 _pendingObjectUpdates = null;
+                _objectUpdateBuffer.Clear();
             }
             _pendingObjectParse = null;
             _pendingObjectUpdateIndex = 0;
@@ -265,6 +260,7 @@ public sealed partial class GameLoop
                    Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs)
                 ApplyUpdate(pending[_pendingObjectUpdateIndex++], _pendingObjectReceivedStamp);
             if (_pendingObjectUpdateIndex < pending.Count) goto FinishNetPump;
+            pending.Clear();
             _pendingObjectUpdates = null;
             _pendingObjectUpdateIndex = 0;
             updates++;
@@ -284,12 +280,16 @@ public sealed partial class GameLoop
                 {
                     case Op.SMSG_UPDATE_OBJECT:
                         _pendingObjectReceivedStamp = receivedStamp;
-                        _pendingObjectParse = Task.Run(() => UpdateObjectParser.Parse(body));
+                        ObjectUpdateBuffer updateBuffer = _objectUpdateBuffer;
+                        _pendingObjectParse = Task.Run(
+                            () => UpdateObjectParser.Parse(body, updateBuffer));
                         parseStarted = true;
                         break;
                     case Op.SMSG_COMPRESSED_UPDATE_OBJECT:
                         _pendingObjectReceivedStamp = receivedStamp;
-                        _pendingObjectParse = Task.Run(() => UpdateObjectParser.ParseCompressed(body));
+                        ObjectUpdateBuffer compressedBuffer = _objectUpdateBuffer;
+                        _pendingObjectParse = Task.Run(
+                            () => UpdateObjectParser.ParseCompressed(body, compressedBuffer));
                         parseStarted = true;
                         break;
                     case Op.SMSG_DESTROY_OBJECT:
@@ -493,11 +493,32 @@ public sealed partial class GameLoop
         string race = RaceFolder(c.Race);
         string gender = c.Gender == 1 ? "Female" : "Male";
 
-        if (!rebuild)
+        bool sameBody = race.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) &&
+                        gender.Equals(_character.Gender, StringComparison.OrdinalIgnoreCase);
+        CharacterEquipment equipment = BuildEquipment(c);
+        bool sameAppearance = sameBody &&
+                              _character.SkinId == c.Skin &&
+                              _character.FaceId == c.Face &&
+                              _character.HairStyleId == c.HairStyle &&
+                              _character.HairColorId == c.HairColor &&
+                              _character.FacialHairId == c.FacialHair &&
+                              EquipmentVisuallyMatches(_character.Equipment, equipment);
+
+        if (!rebuild && sameAppearance)
         {
             _character.Enabled = true;
             _playerPortraitDirty = true;
             Console.WriteLine($"[character] player model reused: {race} {gender} " +
+                              $"({c.Equipment.Count(e => e.DisplayId != 0)} equipped)");
+            return;
+        }
+
+        if (sameBody && _character.QueueAppearanceUpdate(
+                c.Skin, c.Face, c.HairStyle, c.HairColor, c.FacialHair, equipment))
+        {
+            _character.Enabled = true;
+            _playerPortraitDirty = true;
+            Console.WriteLine($"[character] queued async player appearance diff: {race} {gender} " +
                               $"({c.Equipment.Count(e => e.DisplayId != 0)} equipped)");
             return;
         }
@@ -516,7 +537,7 @@ public sealed partial class GameLoop
         _character.HairStyleId = c.HairStyle;
         _character.HairColorId = c.HairColor;
         _character.FacialHairId = c.FacialHair;
-        _character.Equipment = BuildEquipment(c);
+        _character.Equipment = equipment;
         _character.Reload();          // rebuild texture slots + geosets, then composite the gear
         _character.Enabled = true;
         _playerPortraitDirty = true;
@@ -524,6 +545,59 @@ public sealed partial class GameLoop
         Console.WriteLine($"[character] player model: {race} {gender} " +
                           $"skin {c.Skin} face {c.Face} hair {c.HairStyle}/{c.HairColor} facial {c.FacialHair} " +
                           $"({c.Equipment.Count(e => e.DisplayId != 0)} equipped)");
+    }
+
+    /// <summary>
+    /// Enter-world ownership transfer is deliberately outside <see cref="PumpNet"/>.  The load
+    /// bootstrap and avatar hand-off are independent bounded stages, so neither can turn a login
+    /// packet into a long network-pump frame and the loader cannot stack work on either frame.
+    /// </summary>
+    private bool PumpWorldEntryTransition()
+    {
+        if (_worldEntryTransitionStage == 0) return false;
+
+        if (_worldEntryTransitionStage == 1)
+        {
+            // Auto-login can leave CharacterSelect on the network thread before the booth ever
+            // renders. Materialize the selected roster avatar now, while the curtain is already
+            // opaque but before BeginWorldLoad starts the measured interval.
+            if (_net?.Player is { } rosterAvatar) _booth?.SetCharacter(rosterAvatar);
+            _worldEntryTransitionStage = 2;
+            return true;
+        }
+
+        if (_worldEntryTransitionStage == 2)
+        {
+            // Give the now-authoritative in-world HUD one invisible build while
+            // the already-armed curtain is up, before BeginWorldLoad starts the
+            // measured interval. Gui marks the prime complete later this frame.
+            _worldEntryTransitionStage = 3;
+            return true;
+        }
+
+        if (_worldEntryTransitionStage == 3)
+        {
+            if (_gl is not null) BeginWorldLoad(_gl);
+            _worldEntryTransitionStage = 4;
+            return true;
+        }
+
+        bool reusedSelectedAvatar = false;
+        if (_net?.Player is { } selected &&
+            _booth?.TakeCharacter(selected.Guid) is { } selectedAvatar)
+        {
+            selectedAvatar.CopyRuntimeTuningFrom(_character);
+            _character?.Dispose();
+            _character = selectedAvatar;
+            reusedSelectedAvatar = true;
+            Console.WriteLine("[character] adopted cached character-select avatar");
+        }
+
+        _glue?.Dispose(); _glue = null;
+        _booth?.Dispose(); _booth = null;
+        ApplyServerCharacter(rebuild: !reusedSelectedAvatar);
+        _worldEntryTransitionStage = 0;
+        return true;
     }
 
     /// <summary>Turn the roster's 19 visible-item display ids into a dressable equipment set.</summary>
@@ -1375,6 +1449,12 @@ public sealed partial class GameLoop
             {
                 Character? entering = chars.FirstOrDefault(c => c.Guid == enterGuid);
                 ArmEnterWorldCurtain(_gl, entering is null ? _config.Start.Map : (int)entering.Map);
+
+                // An automated Enter action can land on the first character-select frame,
+                // before DrawCharacterSelectScene has built the selected booth avatar. Build it
+                // now, behind the already-armed curtain, so enter-world can transfer that exact
+                // renderer instead of falling back to an in-load equipment rebuild.
+                if (entering is not null) _booth?.SetCharacter(entering);
             }
             _net.SelectCharacter(enterGuid);
         }

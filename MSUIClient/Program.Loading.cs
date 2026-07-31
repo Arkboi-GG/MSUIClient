@@ -41,6 +41,8 @@ public sealed partial class GameLoop
     private int? _worldLoadingMapId;
     private float _loadProgress;
     private float _loadCurtainAlpha = 1f;
+    private int _loadFadeWarmStage;
+    private bool _preWorldHudPrimed;
 
     /// <summary>Monotonic world clock in seconds, pushed to the renderers each
     /// frame to drive the appear fade (benilla model_fade.rs).</summary>
@@ -52,6 +54,20 @@ public sealed partial class GameLoop
     private bool _worldShown;
     private int _wmoWarmTotal = 1;
     private int _doodadWarmTotal = 1;
+    private int _placeDoodadStage;
+    private (int col, int row)[] _loadDoodadTiles = [];
+    private int _loadDoodadTileIndex;
+    private IEnumerator<(string ModelPath, Matrix4x4 Transform, Vector4 Light,
+        int WmoInstanceId, int[] OwnerGroups)>? _loadInteriorDoodads;
+    private double _loadOutdoorPlacementMs, _loadInteriorPlacementMs;
+    private int _loadInteriorRequested, _loadInteriorPlaced;
+    private int _liquidStage, _liquidTileIndex, _interiorPreloadIndex;
+    private int _finishStage;
+    private (int col, int row)[] _liquidTiles = [];
+    private IEnumerator<(string ModelPath, Matrix4x4 Transform, Vector4 Light,
+        int WmoInstanceId, int[] OwnerGroups)>? _interiorPreloadEnumerator;
+    private readonly List<(string Path, float DistanceSq)> _interiorPreloadCandidates =
+        new(4096);
     private (int col, int row) _loadCentre;
     private WorldLoadPhase _loadPhase = WorldLoadPhase.Done;
     private readonly Stopwatch _loadClock = new();
@@ -109,6 +125,9 @@ public sealed partial class GameLoop
         TryLoadLoadingBarArt(gl);
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
+        _loadFadeWarmStage = 0;
+        _preWorldHudPrimed = false;
+        _placeDoodadStage = 0;
     }
 
     /// <summary>
@@ -140,6 +159,21 @@ public sealed partial class GameLoop
         _worldLoading = true;
         _loadProgress = 0f;
         _loadCurtainAlpha = 1f;
+        _loadFadeWarmStage = 0;
+        _placeDoodadStage = 0;
+        _loadDoodadTiles = [];
+        _loadDoodadTileIndex = 0;
+        _loadInteriorDoodads?.Dispose();
+        _loadInteriorDoodads = null;
+        _loadOutdoorPlacementMs = _loadInteriorPlacementMs = 0;
+        _loadInteriorRequested = _loadInteriorPlaced = 0;
+        _liquidStage = _liquidTileIndex = _interiorPreloadIndex = 0;
+        _finishStage = 0;
+        _liquidTiles = [];
+        _interiorPreloadEnumerator?.Dispose();
+        _interiorPreloadEnumerator = null;
+        _interiorPreloadCandidates.Clear();
+
         _loadClock.Restart();
         BeginLoadTimeline();
         SetLoadPhase(WorldLoadPhase.Terrain);
@@ -348,27 +382,72 @@ public sealed partial class GameLoop
 
             case WorldLoadPhase.Liquid:
             {
-                if (_liquid is not null && _terrain is not null)
+                if (_liquidStage == 0)
+                {
+                    if (_liquid is not null && _terrain is not null)
                     _liquid.LoadForTiles(_terrain.LoadedTiles, _adts!);
+                    _liquidTiles = _terrain?.LoadedTiles.ToArray() ?? [];
+                    _liquidStage = 1;
+                    break;
+                }
 
                 // Queue the near doodads (outdoor MDDF + resident WMO interiors)
-                // so WarmDoodads can drain them behind the curtain.
-                if (_doodads is not null && _terrain is not null)
+                // incrementally so enumeration/sorting cannot form one long
+                // loader frame under worker contention.
+                var centreV = new Vector2(_config.Start.X, _config.Start.Y);
+                float demand = DoodadDemandRadius;
+                if (_liquidStage == 1 && _liquidTileIndex < _liquidTiles.Length)
                 {
-                    var centreV = new Vector2(_config.Start.X, _config.Start.Y);
-                    float demand = DoodadDemandRadius;
-                    _doodads.QueuePreloadForTiles(_terrain.LoadedTiles, _adts!, centreV, demand);
-                    if (_wmo is not null)
-                        _doodads.QueuePreloadModels(
-                            _wmo.EnumerateDoodads(centreV, demand)
-                                .OrderBy(d => Vector2.DistanceSquared(
-                                    new Vector2(d.Transform.M41, d.Transform.M42), centreV))
-                                .Select(d => (d.ModelPath, Vector2.DistanceSquared(
-                                    new Vector2(d.Transform.M41, d.Transform.M42), centreV)))
-                                .DistinctBy(d => d.ModelPath, StringComparer.OrdinalIgnoreCase),
-                            "interior-doodad");
-                    _doodadWarmTotal = Math.Max(1, _doodads.PendingPreloads);
+                    _doodads?.QueuePreloadForTiles(
+                        [_liquidTiles[_liquidTileIndex++]], _adts!, centreV, demand);
+                    break;
                 }
+                if (_liquidStage == 1)
+                {
+                    _interiorPreloadEnumerator = _wmo?.EnumerateDoodads(
+                        centreV, demand).GetEnumerator();
+                    _liquidStage = 2;
+                    break;
+                }
+                if (_liquidStage == 2)
+                {
+                    long started = Stopwatch.GetTimestamp();
+                    bool complete = _interiorPreloadEnumerator is null;
+                    while (!complete &&
+                           Stopwatch.GetElapsedTime(started).TotalMilliseconds < 2.0)
+                    {
+                        if (!_interiorPreloadEnumerator!.MoveNext())
+                        {
+                            complete = true;
+                            break;
+                        }
+                        var d = _interiorPreloadEnumerator.Current;
+                        var delta = new Vector2(d.Transform.M41, d.Transform.M42) - centreV;
+                        _interiorPreloadCandidates.Add((d.ModelPath, delta.LengthSquared()));
+                    }
+                    if (!complete) break;
+                    _interiorPreloadEnumerator?.Dispose();
+                    _interiorPreloadEnumerator = null;
+                    _interiorPreloadCandidates.Sort(
+                        static (a, b) => a.DistanceSq.CompareTo(b.DistanceSq));
+                    _liquidStage = 3;
+                    break;
+                }
+                if (_liquidStage == 3)
+                {
+                    long started = Stopwatch.GetTimestamp();
+                    while (_interiorPreloadIndex < _interiorPreloadCandidates.Count &&
+                           Stopwatch.GetElapsedTime(started).TotalMilliseconds < 2.0)
+                    {
+                        _doodads?.QueuePreloadModels(
+                            [_interiorPreloadCandidates[_interiorPreloadIndex++]],
+                            "interior-doodad");
+                    }
+                    if (_interiorPreloadIndex < _interiorPreloadCandidates.Count) break;
+                    _liquidStage = 4;
+                }
+
+                _doodadWarmTotal = Math.Max(1, _doodads?.PendingPreloads ?? 0);
 
                 _adts?.Retain(TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius));
                 BumpProgress(0.50f);
@@ -393,9 +472,82 @@ public sealed partial class GameLoop
 
             case WorldLoadPhase.PlaceDoodads:
             {
-                // Place every warmed model's instances (outdoor + WMO interior) in
-                // one shot, behind the curtain, so the reveal is fully populated.
-                if (_doodads is not null) PopulateDoodads(c, reportDiagnostics: true);
+                if (_placeDoodadStage == 0)
+                {
+                    _loadDoodadTiles = _terrain?.LoadedTiles.ToArray() ?? [];
+                    _loadDoodadTileIndex = 0;
+                    _placeDoodadStage = 1;
+                    BumpProgress(0.91f);
+                    break;
+                }
+
+                // A single nine-ADT walk varied from 34.88 to 73.34 ms under
+                // live load. One ADT per curtain frame keeps the same placement
+                // keys and makes the work bounded independently of contention.
+                if (_placeDoodadStage == 1 &&
+                    _loadDoodadTileIndex < _loadDoodadTiles.Length)
+                {
+                    long started = Stopwatch.GetTimestamp();
+                    if (_doodads is not null)
+                        _doodads.LoadForTiles(
+                            [_loadDoodadTiles[_loadDoodadTileIndex]], _adts!,
+                            TerrainRenderer.TileCenter(c.col, c.row), ObjectResidencyRadius,
+                            reportDiagnostics: false);
+                    _loadOutdoorPlacementMs +=
+                        Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                    _loadDoodadTileIndex++;
+                    break;
+                }
+
+                if (_placeDoodadStage == 1)
+                {
+                    Vector2 centre = TerrainRenderer.TileCenter(c.col, c.row);
+                    _loadInteriorDoodads = _wmo?.EnumerateDoodads(
+                        centre, ObjectResidencyRadius).GetEnumerator();
+                    _placeDoodadStage = 2;
+                    break;
+                }
+
+                // WMO furniture is an iterator so it can be adopted under the
+                // same 2 ms main-thread budget as S6 finalization.
+                long interiorStarted = Stopwatch.GetTimestamp();
+                bool interiorComplete = _loadInteriorDoodads is null;
+                while (!interiorComplete &&
+                       Stopwatch.GetElapsedTime(interiorStarted).TotalMilliseconds < 2.0)
+                {
+                    if (!_loadInteriorDoodads!.MoveNext())
+                    {
+                        interiorComplete = true;
+                        break;
+                    }
+                    var d = _loadInteriorDoodads.Current;
+                    _loadInteriorRequested++;
+                    if (_doodads?.AddPlaced(d.ModelPath, d.Transform, d.Light,
+                            d.WmoInstanceId, d.OwnerGroups) == true)
+                        _loadInteriorPlaced++;
+                }
+                _loadInteriorPlacementMs +=
+                    Stopwatch.GetElapsedTime(interiorStarted).TotalMilliseconds;
+                if (!interiorComplete) break;
+
+                _loadInteriorDoodads?.Dispose();
+                _loadInteriorDoodads = null;
+                _outdoorPlacementMilliseconds = _loadOutdoorPlacementMs;
+                _interiorPlacementMilliseconds = _loadInteriorPlacementMs;
+                _placementsRequested = _loadInteriorRequested;
+                if (_loadInteriorRequested > 0)
+                    _doodads?.ReportInterior(_loadInteriorRequested, _loadInteriorPlaced,
+                        _loadInteriorPlacementMs / 1000.0);
+                Console.WriteLine($"[load] doodad placement outdoor " +
+                                  $"{_loadOutdoorPlacementMs:F2} ms, " +
+                                  $"interior {_loadInteriorPlacementMs:F2} ms");
+                Console.WriteLine($"[stream] object residency [{c.col},{c.row}] " +
+                                  $"radius {ObjectResidencyRadius:F0} yd");
+                _doodads?.DrainNewlyReadyModelPaths(_newDoodadModels);
+                _newDoodadModels.Clear();
+                if (_controller is not null)
+                    _lastDemandCentre = new Vector2(
+                        _controller.Position.X, _controller.Position.Y);
                 BumpProgress(0.92f);
                 AdvanceLoadPhase(WorldLoadPhase.Collision);
                 break;
@@ -423,23 +575,37 @@ public sealed partial class GameLoop
                     break;
                 }
 
-                // Map.dbc, every WDT, AreaTrigger.dbc and the teleport table.
-                // Kept here (after the world build, as the old Load had it) so
-                // UpdatePortals - which only runs once loading is done - has it.
-                EnsureInstanceData();
+                // The reused booth/bootstrap renderer may still be receiving its
+                // server appearance through the asset/upload workers. Never
+                // reveal a stale, missing or half-equipped local player.
+                if (_character is { AppearanceReady: false })
+                {
+                    BumpProgress(0.98f);
+                    break;
+                }
 
-                float? ground = _terrain?.SampleHeight(_config.Start.X, _config.Start.Y);
-                // Networked spawns are server-authoritative: the server placed us on the
-                // Stormwind WMO floor (Z well above the terrain skirt under the city).
-                // Re-sampling terrain here would drop us below the city and we would have
-                // to fly back up. Trust the server Z when networked; the controller's own
-                // ground resolution settles onto the WMO floor (collision is built by now).
-                _controller?.Teleport(_config.Start.X, _config.Start.Y,
-                    _config.Server.Enabled && _worldLoadStarted ? _config.Start.Z : (ground ?? _config.Start.Z));
-                if (_controller is not null) _window.Camera.Target = _controller.Position;
+                if (_finishStage == 0)
+                {
+                    // Map.dbc, every WDT, AreaTrigger.dbc and the teleport table.
+                    EnsureInstanceData();
+                    _finishStage = 1;
+                    break;
+                }
 
-                _terrain?.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
-                CompareWmoToCollision();
+                if (_finishStage == 1)
+                {
+                    float? ground = _terrain?.SampleHeight(_config.Start.X, _config.Start.Y);
+                    _controller?.Teleport(_config.Start.X, _config.Start.Y,
+                        _config.Server.Enabled && _worldLoadStarted
+                            ? _config.Start.Z
+                            : (ground ?? _config.Start.Z));
+                    if (_controller is not null) _window.Camera.Target = _controller.Position;
+
+                    _terrain?.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
+                    CompareWmoToCollision();
+                    _finishStage = 2;
+                    break;
+                }
 
                 // Hand the outer ring to the background discovery streamer,
                 // nearest first (what the old Load did at the end).
@@ -470,6 +636,16 @@ public sealed partial class GameLoop
 
             case WorldLoadPhase.Fade:
             {
+                // Prime one render family per alpha-1 curtain frame. The first
+                // complete world pass is then cache-hot and cannot stack WMO,
+                // doodad, player, and creature first touches into one reveal
+                // hitch. Stages: terrain/sky, WMO, doodads, player, creatures,
+                // translucent/debug, then one complete verification pass.
+                if (_loadFadeWarmStage < 6)
+                {
+                    _loadFadeWarmStage++;
+                    break;
+                }
                 _loadCurtainAlpha -= dt / LoadFadeSeconds;
                 if (_loadCurtainAlpha <= 0f)
                 {

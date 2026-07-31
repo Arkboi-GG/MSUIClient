@@ -315,6 +315,7 @@ public sealed class DoodadRenderer : IDisposable
     private readonly HashSet<string> _placed = [];
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _preloadQueue = new();
+    private readonly Queue<string> _newlyReadyModels = new();
     private readonly HashSet<string> _preloadQueued = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (float DistanceSq, string Queue)> _preloadTrace =
         new(StringComparer.OrdinalIgnoreCase);
@@ -408,6 +409,13 @@ public sealed class DoodadRenderer : IDisposable
     /// <summary>Frame counter for the throttled [doodad-cull] diagnostic.</summary>
     private int _cullLogFrames;
     public double RenderMilliseconds { get; private set; }
+    public void NoteNotRendered()
+    {
+        RenderMilliseconds = 0;
+        CullMilliseconds = InstanceUploadMilliseconds = DrawMilliseconds = 0;
+        UploadedModelsLastFrame = FirstTouchModelsLastFrame = 0;
+        CullModelsLastFrame = CullInstancesLastFrame = 0;
+    }
 
     // ── The 60 ms split (2026-07-25) ────────────────────────────────────────
     //
@@ -621,7 +629,8 @@ public sealed class DoodadRenderer : IDisposable
         AdtCache adts,
         Vector2? streamCentre = null,
         float maxDistance = float.PositiveInfinity,
-        bool reportDiagnostics = true)
+        bool reportDiagnostics = true,
+        IReadOnlySet<string>? modelFilter = null)
     {
         var started = DateTime.UtcNow;
         float maxDistanceSq = maxDistance * maxDistance;
@@ -634,6 +643,8 @@ public sealed class DoodadRenderer : IDisposable
             foreach (var d in adt.Doodads)
             {
                 if (string.IsNullOrWhiteSpace(d.ModelPath)) continue;
+                if (modelFilter is not null &&
+                    !modelFilter.Contains(ModelCacheKey(d.ModelPath))) continue;
 
                 var transform = BuildPlacement(d);
                 if (streamCentre is Vector2 centre && !float.IsPositiveInfinity(maxDistance))
@@ -827,6 +838,13 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         return _preloadQueue.Count > 0 || _preloadJobs.Count > 0;
+    }
+
+    /// <summary>Drain model paths that became resident since the previous demand pass.</summary>
+    public void DrainNewlyReadyModelPaths(List<string> destination)
+    {
+        destination.Clear();
+        while (_newlyReadyModels.Count > 0) destination.Add(_newlyReadyModels.Dequeue());
     }
 
     /// <summary>
@@ -1107,7 +1125,7 @@ public sealed class DoodadRenderer : IDisposable
     /// M2 name so crossing from the outdoor pass to the interior pass cannot
     /// parse, texture and upload one model twice.
     /// </summary>
-    private static string ModelCacheKey(string modelPath)
+    public static string ModelCacheKey(string modelPath)
     {
         string path = modelPath.Replace('/', '\\');
         string extension = Path.GetExtension(path);
@@ -1267,6 +1285,7 @@ public sealed class DoodadRenderer : IDisposable
         var model = BuildModel(ready.Parsed, uploaded);
         if (model is not null) model.SourcePath = job.Path;
         _models[job.CacheKey] = model;
+        if (model is not null) _newlyReadyModels.Enqueue(job.Path);
         if (model is not null && model.CollisionTriangles.Length >= 3) CollisionModels++;
         return true;
     }

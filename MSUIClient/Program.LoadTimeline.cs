@@ -15,10 +15,12 @@ public sealed partial class GameLoop
 {
     private const int LoadDequeueTraceCapacity = 10;
     private const int LoadFrameTraceCapacity = 1024;
+    private const int PostClearExceptionCapacity = 64;
     private const double FirstCreatureDrawTimeoutSeconds = 10.0;
 
     private LoadTimelineState? _loadTimeline;
     private string _postClearObservationName = "";
+    private PostClearObservationState? _postClearObservation;
 
     private readonly struct LoadQueueDepths(
         int terrain, int wmo, int doodads, int foliage)
@@ -79,12 +81,36 @@ public sealed partial class GameLoop
         public int UnitsKnownAtClear;
         public int UnitsKnownBeforeFramePump;
         public double MaxFrameMsDuringCurtain;
+        public HitchRecorder.FrameSample WorstFrame;
         public int Gen0, Gen1, Gen2;
         public long AllocatedBytes;
         public double GcPauseMs;
         public ulong ThreadCycles;
         public bool IncludeNextCompletedFrame;
         public long FallbackArchiveOpensAtStart;
+        public long WorstAllocatedBytes;
+        public HitchRecorder.FrameSample WorstAllocatedFrame;
+        public int FramesOver40, UnmeasuredFramesOver40;
+        public readonly HitchRecorder.FrameSample[] Exceptions =
+            new HitchRecorder.FrameSample[PostClearExceptionCapacity];
+        public int ExceptionCount;
+    }
+
+    private sealed class PostClearObservationState
+    {
+        public readonly object Gate = new();
+        public string Name = "";
+        public long CurtainClearStamp;
+        public double MaxFrameMs;
+        public HitchRecorder.FrameSample WorstFrame;
+        public int Gen0, Gen1, Gen2;
+        public long AllocatedBytes, WorstAllocatedBytes, WorstPostClearAllocatedBytes;
+        public HitchRecorder.FrameSample WorstAllocatedFrame, WorstPostClearAllocatedFrame;
+        public double GcPauseMs;
+        public int FramesOver40, UnmeasuredFramesOver40;
+        public readonly HitchRecorder.FrameSample[] Exceptions =
+            new HitchRecorder.FrameSample[PostClearExceptionCapacity];
+        public int ExceptionCount;
     }
 
     private LoadQueueDepths CurrentLoadQueueDepths() => new(
@@ -231,6 +257,7 @@ public sealed partial class GameLoop
 
     private void NoteLoadFrame(in HitchRecorder.FrameSample sample)
     {
+        NotePostClearFrame(sample);
         LoadTimelineState? state = _loadTimeline;
         if (state is null || sample.Index == 0) return;
         if (state.CurtainClearStamp != 0 && !state.IncludeNextCompletedFrame) return;
@@ -244,14 +271,69 @@ public sealed partial class GameLoop
         state.FrameCount = Math.Min(state.FrameCount + 1, state.Frames.Length);
         state.OpenFramePhase = _loadPhase;
 
-        state.MaxFrameMsDuringCurtain = Math.Max(state.MaxFrameMsDuringCurtain, sample.FrameMs);
+        if (sample.FrameMs > state.MaxFrameMsDuringCurtain)
+        {
+            state.MaxFrameMsDuringCurtain = sample.FrameMs;
+            state.WorstFrame = sample;
+        }
         state.Gen0 += sample.Gen0;
         state.Gen1 += sample.Gen1;
         state.Gen2 += sample.Gen2;
         state.AllocatedBytes += sample.AllocatedBytes;
+        if (sample.AllocatedBytes > state.WorstAllocatedBytes)
+        {
+            state.WorstAllocatedBytes = sample.AllocatedBytes;
+            state.WorstAllocatedFrame = sample;
+        }
         state.GcPauseMs += sample.GcPauseMs;
         state.ThreadCycles += sample.ThreadCycles;
+        if (sample.FrameMs > 40.0)
+        {
+            state.FramesOver40++;
+            if (sample.DominantPhase() == "unmeasured") state.UnmeasuredFramesOver40++;
+        }
+        if ((sample.FrameMs > 40.0 || sample.Gen2 > 0) &&
+            state.ExceptionCount < state.Exceptions.Length)
+            state.Exceptions[state.ExceptionCount++] = sample;
         if (state.CurtainClearStamp != 0) state.IncludeNextCompletedFrame = false;
+    }
+
+    private void NotePostClearFrame(in HitchRecorder.FrameSample sample)
+    {
+        PostClearObservationState? state = _postClearObservation;
+        if (state is null || sample.Index == 0 ||
+            Stopwatch.GetElapsedTime(state.CurtainClearStamp).TotalSeconds > 60.0) return;
+        lock (state.Gate)
+        {
+            if (sample.FrameMs > state.MaxFrameMs)
+            {
+                state.MaxFrameMs = sample.FrameMs;
+                state.WorstFrame = sample;
+            }
+            state.Gen0 += sample.Gen0;
+            state.Gen1 += sample.Gen1;
+            state.Gen2 += sample.Gen2;
+            state.AllocatedBytes += sample.AllocatedBytes;
+            if (sample.AllocatedBytes > state.WorstAllocatedBytes)
+            {
+                state.WorstAllocatedBytes = sample.AllocatedBytes;
+                state.WorstAllocatedFrame = sample;
+            }
+            if (sample.AllocatedBytes > state.WorstPostClearAllocatedBytes)
+            {
+                state.WorstPostClearAllocatedBytes = sample.AllocatedBytes;
+                state.WorstPostClearAllocatedFrame = sample;
+            }
+            state.GcPauseMs += sample.GcPauseMs;
+            if (sample.FrameMs > 40.0)
+            {
+                state.FramesOver40++;
+                if (sample.DominantPhase() == "unmeasured") state.UnmeasuredFramesOver40++;
+            }
+            if ((sample.FrameMs > 40.0 || sample.Gen2 > 0) &&
+                state.ExceptionCount < state.Exceptions.Length)
+                state.Exceptions[state.ExceptionCount++] = sample;
+        }
     }
 
     private void NoteLoadCreatureDraw(int drawn)
@@ -271,6 +353,24 @@ public sealed partial class GameLoop
         state.CurtainClearStamp = Stopwatch.GetTimestamp();
         state.UnitsKnownAtClear = state.UnitsKnownBeforeFramePump;
         state.IncludeNextCompletedFrame = true;
+        _postClearObservation = new PostClearObservationState
+        {
+            Name = state.Name,
+            CurtainClearStamp = state.CurtainClearStamp,
+            MaxFrameMs = state.MaxFrameMsDuringCurtain,
+            WorstFrame = state.WorstFrame,
+            Gen0 = state.Gen0,
+            Gen1 = state.Gen1,
+            Gen2 = state.Gen2,
+            AllocatedBytes = state.AllocatedBytes,
+            WorstAllocatedBytes = state.WorstAllocatedBytes,
+            WorstAllocatedFrame = state.WorstAllocatedFrame,
+            GcPauseMs = state.GcPauseMs,
+            FramesOver40 = state.FramesOver40,
+            UnmeasuredFramesOver40 = state.UnmeasuredFramesOver40,
+        };
+        Array.Copy(state.Exceptions, _postClearObservation.Exceptions, state.ExceptionCount);
+        _postClearObservation.ExceptionCount = state.ExceptionCount;
         SchedulePostClearObservation(state.Name, state.StartedStamp, state.CurtainClearStamp);
 
         if (state.FirstCreatureDrawStamp != 0 || !_config.Server.Enabled)
@@ -295,12 +395,88 @@ public sealed partial class GameLoop
                     _creatureLifecycle.SnapshotProtocol(loadStartedStamp);
                 HitchRecorder.LogEvent[] events = _hitch.SnapshotEvents();
                 WirePacket[] wireTimeline = _wire.Snapshot().ToArray();
+                object? FrameAllocationEvidence(HitchRecorder.FrameSample sample) =>
+                    sample.Index == 0 ? null : new
+                    {
+                        frameIndex = sample.Index,
+                        frameMs = sample.FrameMs,
+                        dominantPhase = sample.DominantPhase(),
+                        allocatedBytes = sample.AllocatedBytes,
+                        pauseMs = sample.GcPauseMs,
+                        gen2 = sample.Gen2,
+                        loadNetworkPumpMs = sample.LoadNetPumpMs,
+                        loadStepMs = sample.LoadStepMs,
+                        doodadDemandMs = sample.DoodadDemandMs,
+                        modelFinalizeMs = sample.WarmMs,
+                        unitMs = sample.UnitMs,
+                        hudMs = sample.HudMs,
+                        renderMs = sample.RenderMs,
+                    };
+                PostClearObservationState? observation = _postClearObservation;
+                object? frameWindow = null;
+                if (observation is not null && string.Equals(
+                        observation.Name, loadName, StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (observation.Gate)
+                    {
+                        HitchRecorder.FrameSample worst = observation.WorstFrame;
+                        frameWindow = new
+                        {
+                            maxFrameMs = observation.MaxFrameMs,
+                            framesOver40 = observation.FramesOver40,
+                            unmeasuredFramesOver40 = observation.UnmeasuredFramesOver40,
+                            worstFrame = worst.Index == 0 ? null : new
+                            {
+                                frameIndex = worst.Index,
+                                frameMs = worst.FrameMs,
+                                dominantPhase = worst.DominantPhase(),
+                                allocatedBytes = worst.AllocatedBytes,
+                                gen2 = worst.Gen2,
+                            },
+                            gc = new
+                            {
+                                pauseMs = observation.GcPauseMs,
+                                gen0 = observation.Gen0,
+                                gen1 = observation.Gen1,
+                                gen2 = observation.Gen2,
+                                allocatedBytes = observation.AllocatedBytes,
+                                worstFrameAllocatedBytes = observation.WorstAllocatedBytes,
+                                worstPostClearAllocatedBytes = observation.WorstPostClearAllocatedBytes,
+                                worstAllocatedFrame = FrameAllocationEvidence(
+                                    observation.WorstAllocatedFrame),
+                                worstPostClearAllocatedFrame = FrameAllocationEvidence(
+                                    observation.WorstPostClearAllocatedFrame),
+                            },
+                            exceptionFrames = observation.Exceptions
+                                .Take(observation.ExceptionCount)
+                                .Select(sample => new
+                                {
+                                    frameIndex = sample.Index,
+                                    frameMs = sample.FrameMs,
+                                    dominantPhase = sample.DominantPhase(),
+                                    allocatedBytes = sample.AllocatedBytes,
+                                    pauseMs = sample.GcPauseMs,
+                                    gen0 = sample.Gen0,
+                                    gen1 = sample.Gen1,
+                                    gen2 = sample.Gen2,
+                                    loadNetworkPumpMs = sample.LoadNetPumpMs,
+                                    loadStepMs = sample.LoadStepMs,
+                                    doodadDemandMs = sample.DoodadDemandMs,
+                                    modelFinalizeMs = sample.WarmMs,
+                                    unitMs = sample.UnitMs,
+                                    hudMs = sample.HudMs,
+                                    renderMs = sample.RenderMs,
+                                }).ToArray(),
+                        };
+                    }
+                }
                 var payload = new
                 {
                     load = loadName,
                     takenLocal = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     windowFromCurtainClearMs = Stopwatch.GetElapsedTime(curtainClearStamp)
                         .TotalMilliseconds,
+                    frameWindow,
                     creatureLifecycle = lifecycle,
                     outgoingProtocol = protocol,
                     wireTimeline = wireTimeline.Select(packet => new

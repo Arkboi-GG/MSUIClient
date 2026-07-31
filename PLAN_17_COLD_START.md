@@ -452,3 +452,11 @@ one pass, sub-steps 1+2 (cache split + lazy bake) are the 80% and touch no threa
   enter-world to first visible NPC to 8.65 s and 7.03 s, with 45 units known at clear in both; the
   existing-character control reached first visible NPC in 3.11 s with no cinematic packet. See
   `July-30-2026-CINEMATIC-ACK-HANDOFF.md`.
+- The July 30 closeout attempt removed the synchronous player appearance rebuild from
+  `ApplyServerCharacter`, pooled the compressed object-update scratch and update-mask storage, and
+  retained reusable capacity for parsed updates. The named post-clear allocation field moved from
+  20.27 MB to 12.58 MB in `creature-load-azeroth-25.json`, and the old 39.78 ms synchronous
+  `ApplyServerCharacter` pump bracket is gone. PLAN_17 is nevertheless still open: that full
+  create/enter/observe/delete run contains two frames above 40 ms (75.77 and 42.67 ms), three Gen2
+  collections, and VISIBLE lifecycle deltas up to 5.64 s. The required three consecutive passes and
+  PLAN_08 crossing were therefore not claimed. See `July-30-2026-PLAN17-CLOSEOUT-HANDOFF.md`.

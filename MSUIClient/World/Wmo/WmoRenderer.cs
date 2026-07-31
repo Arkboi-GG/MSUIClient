@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Diagnostics;
+using System.Buffers;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
@@ -291,6 +292,7 @@ public sealed class WmoRenderer : IDisposable
     {
         public required string Path;
         public byte[]? Bgra;
+        public bool Pooled;
         public int Width;
         public int Height;
         public byte MaxAlpha;
@@ -438,6 +440,7 @@ public sealed class WmoRenderer : IDisposable
     public int DrawCallsLastFrame { get; private set; }
     public long TrianglesLastFrame { get; private set; }
     public double RenderMilliseconds { get; private set; }
+    public void NoteNotRendered() => RenderMilliseconds = 0;
     public bool Enabled { get; set; } = true;
     public bool FrustumCulling { get; set; } = true;
     public bool UseDistanceLodShells { get; set; } = true;
@@ -1815,7 +1818,8 @@ public sealed class WmoRenderer : IDisposable
                  { material.Texture0Name, material.Texture1Name, material.Texture2Name })
         {
             if (string.IsNullOrWhiteSpace(texturePath) || !seen.Add(texturePath)) continue;
-            var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, texturePath);
+            var decoded = AdtTerrainReader.ReadBlpPixelsPooled(
+                _config.ClientDataPath, texturePath);
             if (decoded is null)
             {
                 prepared.Textures.Add(new PreparedTexture { Path = texturePath });
@@ -1824,19 +1828,21 @@ public sealed class WmoRenderer : IDisposable
 
             var (bgra, width, height) = decoded.Value;
             byte maxAlpha = 0;
-            for (int i = 3; i < bgra.Length; i += 4)
+            int pixelBytes = checked(width * height * 4);
+            for (int i = 3; i < pixelBytes; i += 4)
             {
                 if (bgra[i] > maxAlpha) maxAlpha = bgra[i];
                 if (maxAlpha > 1) break;
             }
             if (maxAlpha == 1)
-                for (int i = 3; i < bgra.Length; i += 4)
+                for (int i = 3; i < pixelBytes; i += 4)
                     if (bgra[i] != 0) bgra[i] = 255;
 
             prepared.Textures.Add(new PreparedTexture
             {
                 Path = texturePath,
                 Bgra = bgra,
+                Pooled = true,
                 Width = width,
                 Height = height,
                 MaxAlpha = maxAlpha,
@@ -1853,9 +1859,21 @@ public sealed class WmoRenderer : IDisposable
 
         foreach (var texture in textures)
         {
-            uploaded.Textures[texture.Path] = texture.Bgra is null
-                ? null
-                : Texture.From2D(gl, texture.Bgra, texture.Width, texture.Height, ownerGl: _gl);
+            try
+            {
+                uploaded.Textures[texture.Path] = texture.Bgra is null
+                    ? null
+                    : Texture.From2D(gl, texture.Bgra, texture.Width, texture.Height, ownerGl: _gl);
+            }
+            finally
+            {
+                if (texture is { Pooled: true, Bgra: not null })
+                {
+                    ArrayPool<byte>.Shared.Return(texture.Bgra);
+                    texture.Bgra = null;
+                    texture.Pooled = false;
+                }
+            }
         }
 
         foreach (var group in prepared.Groups)
@@ -1937,6 +1955,8 @@ public sealed class WmoRenderer : IDisposable
             var pendingTextures = ready.Textures
                 .Where(t => !_textures.ContainsKey(t.Path))
                 .ToList();
+            foreach (var texture in ready.Textures)
+                if (_textures.ContainsKey(texture.Path)) ReturnPreparedTexture(texture);
             job.Upload = _uploads.Enqueue(Path.GetFileName(job.RootPath), uploadGl =>
                 UploadPreparedWmo(uploadGl, ready, pendingTextures));
         }
@@ -2085,6 +2105,14 @@ public sealed class WmoRenderer : IDisposable
 
         _models[job.RootPath] = model;
         return true;
+    }
+
+    private static void ReturnPreparedTexture(PreparedTexture texture)
+    {
+        if (!texture.Pooled || texture.Bgra is null) return;
+        ArrayPool<byte>.Shared.Return(texture.Bgra);
+        texture.Bgra = null;
+        texture.Pooled = false;
     }
 
     /// <summary>

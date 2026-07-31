@@ -575,9 +575,11 @@ public sealed class SettingsStore
     /// <summary>Not named Path: a member called Path would hide System.IO.Path inside this class.</summary>
     public string FilePath => _path;
 
-    public static SettingsStore Load(string repoRoot)
+    public static SettingsStore Load(string repoRoot, string? overridePath = null)
     {
-        string path = System.IO.Path.Combine(repoRoot, "settings.json");
+        string path = string.IsNullOrWhiteSpace(overridePath)
+            ? System.IO.Path.Combine(repoRoot, "settings.json")
+            : System.IO.Path.GetFullPath(overridePath);
 
         try
         {
