@@ -310,6 +310,17 @@ public sealed partial class CharacterRenderer : IDisposable
     public long CombatActionsTriggered { get; private set; }
     public string CurrentAnimation => _clip?.Name ?? "none";
 
+    public readonly record struct ClipTransition(
+        long Sequence,
+        int FromId,
+        string FromName,
+        int ToId,
+        string ToName,
+        float OutgoingTime);
+
+    private long _clipTransitionSequence;
+    public ClipTransition LastClipTransition { get; private set; }
+
     // ── cross-fade ───────────────────────────────────────────────────────────
     //
     // The clip we are fading OUT of, its own clock, and how much of the fade is
@@ -596,6 +607,7 @@ public sealed partial class CharacterRenderer : IDisposable
 
     // Live animation diagnostics.
     public float BodyYawDegrees => _bodyYaw * 180f / MathF.PI;
+    public float BodyYawRadians => _bodyYaw;
     public string BlendFrom => _previousClip?.Name ?? "";
     public float BlendWeight => BlendWeightNow();
     public float MeasuredSpeed => _measuredSpeed;
@@ -613,6 +625,7 @@ public sealed partial class CharacterRenderer : IDisposable
     public int VisiblePieces { get; private set; }
     public int UnboundSlots { get; private set; }
     public string ClipName => _clip?.Name ?? "(bind pose)";
+    public int ClipId => _clip?.AnimationId ?? -1;
     public bool ClipLooping => _clip?.Looping ?? true;
     public float ClipTime => _clipTime;
     public float ClipDuration => _clip?.DurationSeconds ?? 0f;
@@ -2483,6 +2496,13 @@ public sealed partial class CharacterRenderer : IDisposable
         float outgoingRate = _clipRate;
 
         _clip = next;
+        LastClipTransition = new ClipTransition(
+            ++_clipTransitionSequence,
+            outgoing?.AnimationId ?? -1,
+            outgoing?.Name ?? "none",
+            next?.AnimationId ?? -1,
+            next?.Name ?? "none",
+            outgoingTime);
 
         bool carryPhase =
             outgoing is not null && next is not null &&

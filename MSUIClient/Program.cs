@@ -1445,6 +1445,7 @@ public sealed partial class GameLoop : IDisposable
         _walking = input.Walking;
         phaseStarted = Stopwatch.GetTimestamp();
         _character?.Update(dt, BuildUnitState());
+        SampleMovementTrace(dt, input, turn);
         _characterUpdateMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
 
         // Moving re-centres the camera behind the character, like the real
@@ -2105,6 +2106,7 @@ public sealed partial class GameLoop : IDisposable
 
             DrawUiSkinPanel();
             DrawVerdictsPanel();
+            DrawMovementInstrumentsPanel();
             DrawPortraitLabPanel();
 
             if (ImGui.CollapsingHeader("Scene and vantage", ImGuiTreeNodeFlags.DefaultOpen))
@@ -2953,6 +2955,7 @@ public sealed partial class GameLoop : IDisposable
         _disposed = true;
 
         _net?.Dispose();
+        StopMovementTrace();
         _wireLog.Dispose();
         _batchPortraitTarget?.Dispose();
         _batchPortraitTarget = null;

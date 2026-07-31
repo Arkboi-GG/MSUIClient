@@ -2184,3 +2184,46 @@ W12 standard gates pass: Debug build succeeds with the single known CA2014
 warning, combat/wire passes, and portrait-camera reports exactly
 1,224 / 1,289 / 56. W12 is complete; the queue is empty pending Nico's live
 Session 2 evidence and separate 7C-3 ruling.
+
+## M0 - movement trace recorder and move verdict channel
+
+M0 adds a DevTools-only per-tick CSV recorder and the `[verdict:move]` channel.
+The one update hook runs after the real controller, movement sender, and player
+animator have all advanced. Every CSV value is sampled directly from those live
+owners: controller position/velocity/ground state, renderer clip/body-heading
+state, the exact `MovementInput`, and the sender's exact opcode list for that
+update. No physics, animation-selection, input, or wire decision was changed.
+
+```text
+PREDICTED CSV column families: tick/time, kinematics, aim/body yaw, input flags,
+  ground/fall, clip/rate/last choice, exact wire opcodes
+ACTUAL CSV column families: all present in dumps/movetrace-<name>.csv
+PREDICTED transition verdicts: ground/air, gait, clip with outgoing cut time
+ACTUAL transition verdicts: MoveVerdict GroundState/Gait/Clip; clip transition
+  reads CharacterRenderer's captured outgoing clip time
+PREDICTED shown => copyable UI: trace controls and path
+ACTUAL shown => copyable UI: start/stop, status, clickable path, copy button
+PREDICTED behavior deltas: 0
+ACTUAL behavior deltas: 0; new members are read hooks or DevTools-only writers
+```
+
+Symbol verification found the cited owners as
+`Player/CharacterController.cs`, `World/Units/CharacterRenderer.cs` over
+`M2Animator`, and `Net/LocalMovementSender.cs`. The renderer, rather than
+`M2Animator` itself, owns the currently playing clip clock and body heading, so
+the recorder reads the real renderer accessors and records that shape difference.
+
+The compile and three standard gates pass: Debug build has only the known
+CA2014 warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56. A hand-driven WASD trace is not claimed here; the same live
+recorder path is exercised mechanically by M1's fixed-dt scripts before M2
+accepts any baseline.
+
+### M0 finding (not fixed)
+
+The pre-existing tree already contains several behaviors that the older
+`BENILLA_VS_MSUI_MOVEMENT.md` prose describes as absent: intent-driven gait,
+cross-fade with locomotion phase carry, split aim/body heading, standing/moving
+turn rates of pi and pi*0.75, and landing clip selection. M0 made no change to
+them. M2 must measure this actual tree and keep vanilla-law bands separate rather
+than adopting the stale 2.8-rad/s/current-tree prediction from the order text.

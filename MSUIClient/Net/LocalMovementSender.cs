@@ -19,10 +19,12 @@ public sealed class LocalMovementSender
     private float _previousFacing;
     private double _lastHeartbeat;
     private bool _initialized;
+    private readonly List<Op> _lastUpdateOpcodes = [];
 
     public long PacketsSent { get; private set; }
     public Op? LastOpcode { get; private set; }
     public uint LastFlags => _previousFlags;
+    public IReadOnlyList<Op> LastUpdateOpcodes => _lastUpdateOpcodes;
 
     public void Reset(float facing)
     {
@@ -46,6 +48,7 @@ public sealed class LocalMovementSender
         float jumpLaunchSpeed,
         double nowSeconds)
     {
+        _lastUpdateOpcodes.Clear();
         float facing = Normalize(controller.Yaw);
         if (!_initialized) Reset(facing);
 
@@ -96,6 +99,7 @@ public sealed class LocalMovementSender
             net.SendMovement(opcode, Snapshot());
             PacketsSent++;
             LastOpcode = opcode;
+            _lastUpdateOpcodes.Add(opcode);
             sent = true;
         }
 
@@ -143,6 +147,7 @@ public sealed class LocalMovementSender
             net.SendMovement(Op.MSG_MOVE_STOP, MovementInfo.Create(position, facing, MovementFlags.None));
             PacketsSent++;
             LastOpcode = Op.MSG_MOVE_STOP;
+            _lastUpdateOpcodes.Add(Op.MSG_MOVE_STOP);
         }
         _previousFlags = 0;
         _previousFacing = facing;

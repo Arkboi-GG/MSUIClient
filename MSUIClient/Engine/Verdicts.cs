@@ -95,6 +95,24 @@ public readonly record struct AnimChoice(
         Time, Unit, Track, RequestedId, PlayedId, Kind);
 }
 
+public enum MoveTransitionKind { GroundState, Clip, Gait }
+
+public readonly record struct MoveVerdict(
+    double Time,
+    MoveTransitionKind Kind,
+    string From,
+    string To,
+    int FromClipId,
+    int ToClipId,
+    float ClipTimeAtCut) : IVerdict
+{
+    public string Channel => "move";
+
+    public string ToLine() => string.Format(CultureInfo.InvariantCulture,
+        "time={0:F3} kind={1} from={2} to={3} fromClip={4} toClip={5} clipTimeAtCut={6:F6}",
+        Time, Kind, From, To, FromClipId, ToClipId, ClipTimeAtCut);
+}
+
 public enum ButtonUsability { Usable, NotEnoughPower, Unusable }
 public enum ButtonRange { NoCheck, InRange, OutOfRange }
 
@@ -165,7 +183,7 @@ public sealed class VerdictRing
     }
 
     public static IReadOnlyList<string> Channels { get; } =
-        ["portrait", "cast", "action", "anim"];
+        ["portrait", "cast", "action", "anim", "move"];
 
     private readonly Dictionary<string, ChannelRing> _channels =
         new(StringComparer.OrdinalIgnoreCase)
@@ -174,6 +192,7 @@ public sealed class VerdictRing
             ["cast"] = new(128),
             ["action"] = new(512),
             ["anim"] = new(1024),
+            ["move"] = new(1024),
         };
     private long _nextSequence;
 
