@@ -1807,3 +1807,109 @@ expected lists are unchanged. W5 remains stopped. 7C-3 remains queued and
 untouched pending its own ruling.
 
 **HARD STOP - awaiting Nico's Option A / Option B ruling.**
+
+## W9 - W4 resume under ruled Option A authority
+
+### W9-1 - exact historical candidate reinstated
+
+Nico ruled Option A: type-8 facial-hair inheritance is correct, and the
+committed `cohort-7c2a-inherit.keys` is promoted to W4 acceptance authority.
+The two frozen authority files were read without modification:
+
+```text
+cohort-7c2a.keys: 8889 keys
+cohort-7c2a-inherit.keys: 689 keys
+intersection: 0 keys
+union: 9578 keys
+cohort-7c2a.keys SHA-256: C2631713CCD18304E48882AE17FB50471D3DB779A5C6A7F35768C3D050E015BD
+cohort-7c2a-inherit.keys SHA-256: 533992EFEAFE31B4DEF14C6BF5965B6BF328E7A492B6919485F81DF032168BC6
+```
+
+Only `CreatureRenderer.cs` and `CreatureRenderer.VariantTrace.cs` were
+restored from `48c16dc27f0410f9bd12c051c607a94ac31babc4`. Their working blob
+hashes are exactly the historical commit's blobs (`32114cb0...` and
+`26afca17...` respectively); no conflict resolution or source edit was
+required.
+
+```text
+PREDICTED reinstated source files: 2
+ACTUAL reinstated source files: 2
+PREDICTED historical blob mismatches: 0
+ACTUAL historical blob mismatches: 0
+PREDICTED implementation conflicts: 0
+ACTUAL implementation conflicts: 0
+```
+
+W9-1 stage-boundary gates pass: Debug build succeeds with only the known
+CA2014 warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56. W9-1 passes; the candidate remains uncommitted pending
+the full W9-2 mechanical acceptance.
+
+### W9-2 - full acceptance sweep: HARD STOP
+
+The exact W9-1 candidate completed both required full sweeps:
+
+```text
+NPC specimens: 6939/6939
+NPC CSV row keys: 64650/64650 stable
+items specimens: 3944/3944
+unexpected blanks: 0
+NPC G3: 0
+items gated G3: 0
+items changedRows: 0
+```
+
+The authoritative W4 comparison is against the accepted W3 sweep, with the
+two frozen authority files forming the ruled union. The actual-versus-
+predicted result is:
+
+```text
+PREDICTED changed row keys: 9578
+ACTUAL changed row keys: 8889
+PREDICTED authority-only row keys: 0
+ACTUAL authority-only row keys: 689
+PREDICTED candidate-only row keys: 0
+ACTUAL candidate-only row keys: 0
+
+PREDICTED cohort-7c2a changed rows: 8889
+ACTUAL cohort-7c2a changed rows: 8889
+PREDICTED cohort-7c2a predicted7C2Texture mismatches: 0
+ACTUAL cohort-7c2a predicted7C2Texture mismatches: 0
+
+PREDICTED cohort-7c2a-inherit changed rows: 689
+ACTUAL cohort-7c2a-inherit changed rows: 0
+PREDICTED cohort-7c2a-inherit new-value mismatches: 0
+ACTUAL cohort-7c2a-inherit new-value mismatches: 689
+PREDICTED changes outside the union: 0
+ACTUAL changes outside the union: 0
+
+PREDICTED type-6 rows changed from accepted W3: 0
+ACTUAL type-6 rows changed from accepted W3: 0
+PREDICTED type-6 UNBOUND rows: 0
+ACTUAL type-6 UNBOUND rows: 0
+
+PREDICTED mounted attachment specimens: 3535
+ACTUAL mounted attachment specimens: 3535
+PREDICTED attachment-cohort not-mounted specimens: 0
+ACTUAL attachment-cohort not-mounted specimens: 0
+```
+
+The named protocols also match: Willem remains `mounted` with
+`Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2` from
+`patch.MPQ`; control `npc-extra:54:display:3340:batch:15` remains
+`Character\Human\Hair02_09.blp` from `texture.MPQ`.
+
+This is a direct conflict between W9's two mechanical requirements: the exact
+historical `48c16dc` implementation is the carry-isolated candidate recorded
+by W8-3, so it deliberately leaves all 689 promoted type-8 effective bindings
+unchanged. Making those rows inherit would require a source delta beyond
+exact reinstatement, which W9-1 forbids.
+
+Per the immutable acceptance law, the candidate was reverted to the accepted
+W3 renderer state. Neither renderer file has a working-tree diff, and both
+authority-file SHA-256 values remain byte-identical to W9-1. Post-revert gates
+pass: Debug build (known CA2014 only), combat/wire, and portrait-camera
+1,224 / 1,289 / 56.
+
+**HARD STOP. W9-3 and W9-4 were not executed. No W4 implementation or W5
+baseline change landed; CHECKS_GAMEPLAY.md and 7C-3 remain untouched.**
