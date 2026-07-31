@@ -1,0 +1,10 @@
+SPEC-15 combat instrument inventory
+run=20260731-140243
+C0=18a0034 DevTools GM console; CMSG_MESSAGECHAT SAY; ring echo; 32-command recall
+C1=e3d1640 verdict:combat; run-dated trace; F10 combat block; live send/receive/intent/anim observers
+C2=2a6226b scenarios/combat/dummy.txt; scenarios/combat/reset.txt; CHECKS_GAMEPLAY CB0-CB7
+C3=fa6cfab tools/combat-audit; run-dated verdict output; no committed baseline
+capability.chatSend=implemented; live server acceptance pending CB0
+capability.swingTimer=server-owned; no client timer or weapon-speed clock
+capability.rangeArc=unchecked; no client melee range or arc gate
+deferred=F3-F6 untouched; combat fixes unauthorized pending Nico CB1-CB7

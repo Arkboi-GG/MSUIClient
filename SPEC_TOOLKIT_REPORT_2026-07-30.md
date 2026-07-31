@@ -2765,3 +2765,55 @@ The C3 SHA-256 manifest is
 
 C3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## C4 - combat instrument close-out (HARD STOP)
+
+### Capability finding
+
+C0 found no pre-existing chat sender. The authorized DevTools console now sends
+typed SAY/UNIVERSAL `CMSG_MESSAGECHAT`, preserves 32 commands for recall, and
+echoes the actual local send result into `[verdict:combat]`. Whether VMaNGOS
+accepts and answers `.gps` remains a named CB0 live check; no server-response
+claim is made offline.
+
+Combat itself is server-authoritative in the measured client tree. A local
+attack intent sends one start request; `SMSG_ATTACKSTART/STOP` bracket the
+authoritative state and `SMSG_ATTACKERSTATEUPDATE` supplies completed swings
+that trigger attack animation. There is no client swing clock, weapon-speed
+timer, melee range gate, or facing/arc gate. The instruments preserve those
+absences explicitly and collect the raw evidence required to decide whether
+the strange live behavior is client, server, or protocol ownership.
+
+### Instrument inventory
+
+| Stage | Commit | Inventory |
+|---|---|---|
+| C0 | `18a0034` | GM send console, ring echo, recall, CB0 |
+| C1 | `e3d1640` | combat verdict channel, run-dated trace, F10 block, real send/receive/intent/target/animation observers |
+| C2 | `2a6226b` | two-target VMaNGOS deck, reset deck, CB1-CB7 named-line protocol |
+| C3 | `fa6cfab` | state/cadence/spam/intent/one-shot audit with explicit NO_DATA; no baseline |
+
+The run-dated inventory is
+`combat-instruments/inventory-C4-20260731-140243.txt`. Its SHA-256 is
+`9ff8e9cd3a83696dae0fc6e0ad3fe11530bfd3460450791fc7b6192164b0296c`.
+The C4 manifest is
+`combat-instruments/manifests/C4-20260731-140243.sha256`.
+
+```text
+PREDICTED combat/physics/input behavior changes: 0
+ACTUAL: 0
+PREDICTED wire change beyond C0 console: 0
+ACTUAL: 0
+PREDICTED committed combat baseline: 0
+ACTUAL: 0
+PREDICTED live protocol reference: Session 3 CB0-CB7
+ACTUAL: CHECKS_GAMEPLAY.md Session 3 CB0-CB7
+```
+
+F3-F6 remain untouched. No combat fix is implemented or authorized.
+
+C4 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+**HARD STOP - SPEC-15 C0-C4 is complete. The next combat order must be written
+from Nico's pasted CB0-CB7 live results.**
