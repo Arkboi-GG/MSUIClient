@@ -1,0 +1,22 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T3-summon-probe-20260731-160000.txt
+1,PASS,gm .go xyz -8900 -132.493 83.53 0
+2,PASS,wait 3
+3,PASS,gm .gps
+4,PASS,wait 1
+5,PASS,gm .gm off
+6,PASS,wait 1
+7,PASS,gm .npc summon 6
+8,PASS,wait 1
+9,FAIL,select spawn:1 guid=0x0000000000000000
+10,FAIL,assert within3=true
+11,PASS,gm .npc info
+12,PASS,wait 1
+13,PASS,trace start T3-summon-probe-20260731-160000
+14,PASS,attack start
+15,PASS,wait 10
+16,PASS,attack stop
+17,PASS,trace stop
+18,PASS,gm .npc spawn delete
+19,PASS,wait 1
+20,FAIL,waitgone spawn:1 guid=0x0000000000000000 descriptorPresent=True

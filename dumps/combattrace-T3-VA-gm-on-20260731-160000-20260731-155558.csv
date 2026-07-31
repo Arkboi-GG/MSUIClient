@@ -1,0 +1,22 @@
+row,t,dt,event,cause,intentOn,targetGuid,opcode,swingTimerOwner,weaponSpeedMs,rangeEligibility,arcEligibility,clientAction,distance,bearingDelta,facingDelta,clipId,clipName,clipTime,clipB,clipBTime,blendWeight,animChoice,detail
+0,0.000000,0.000000,TraceStart,operator,false,0x0000000000000000,,server,,unchecked,unchecked,none,-1,,,0,Stand,0.3350728,,,,0->0:Exact,server-authoritative swing timing; client range/arc gates absent
+1,0.000000,0.000000,AttackSwingSend,network-session-send,false,0xF13000000604A271,CMSG_ATTACKSWING,server,,unchecked,unchecked,none,0,,,0,Stand,0.3414999,,,,0->0:Exact,CMSG_ATTACKSWING
+2,0.000000,0.000000,IntentOn,user-start,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.3414999,,,,0->0:Exact,local attack latch edge
+3,0.004581,0.004581,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.3460813,,,,0->0:Exact,none; server owns swing cadence
+4,0.015900,0.011319,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.35740018,,,,0->0:Exact,none; server owns swing cadence
+5,0.030072,0.014172,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.37157178,,,,0->0:Exact,none; server owns swing cadence
+6,0.049407,0.019335,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.39090678,,,,0->0:Exact,none; server owns swing cadence
+7,0.066246,0.016839,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.407746,,,,0->0:Exact,none; server owns swing cadence
+8,0.079413,0.013167,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.4209131,,,,0->0:Exact,none; server owns swing cadence
+9,0.100081,0.020667,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.4415804,,,,0->0:Exact,none; server owns swing cadence
+10,0.112905,0.012824,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.4544045,,,,0->0:Exact,none; server owns swing cadence
+11,0.132974,0.020069,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.47447342,,,,0->0:Exact,none; server owns swing cadence
+12,0.149347,0.016374,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.49084723,,,,0->0:Exact,none; server owns swing cadence
+13,0.166301,0.016954,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.50780106,,,,0->0:Exact,none; server owns swing cadence
+14,0.166301,0.000000,AttackStartReceive,server,true,0xF13000000604A271,SMSG_ATTACKSTART,server,,unchecked,unchecked,none,0,,,0,Stand,0.50780106,,,,0->0:Exact,attacker=0xF13000066A01384C
+15,0.183106,0.016804,Tick,live-sample,true,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.52460545,,,,0->0:Exact,none; server owns swing cadence
+16,0.183106,0.000000,IntentOff,server-stop,false,0xF13000000604A271,,server,,unchecked,unchecked,none,0,,,0,Stand,0.52460545,,,,0->0:Exact,local attack latch edge
+17,0.183106,0.000000,AttackStartReceive,server,false,0xF13000066A01384C,SMSG_ATTACKSTART,server,,unchecked,unchecked,none,28.669731,-0.3706069,-0.3706069,0,Stand,0.52460545,,,,0->0:Exact,attacker=0xF13000000604A271
+18,0.183106,0.000000,AttackStopReceive,server,false,0xF13000066A01384C,SMSG_ATTACKSTOP,server,,unchecked,unchecked,none,10.87034,-1.5135226,-1.5135226,0,Stand,1.757822,,,,0->0:Exact,attacker=0xF13000000604A271 victimDied=False
+19,0.183106,0.000000,AttackStopReceive,server,false,0xF13000000604A271,SMSG_ATTACKSTOP,server,,unchecked,unchecked,none,6.7850056,-1.5144453,-1.5144453,0,Stand,1.757822,,,,0->0:Exact,attacker=0xF13000066A01384C victimDied=False
+20,0.183106,0.000000,ForeignSwingReceive,server-swing,false,0xF13000000604A271,SMSG_ATTACKERSTATEUPDATE,server,,unchecked,unchecked,none,6.7850056,-1.5144453,-1.5144453,0,Stand,1.7735856,,,,0->0:Exact,attacker=0xF13000066A01384C damage=144 hitInfo=0x00008002

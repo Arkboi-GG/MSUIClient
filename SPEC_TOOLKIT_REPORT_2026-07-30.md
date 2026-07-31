@@ -3219,3 +3219,40 @@ RESULT: T2 ACCEPTED; T3 authorized by the positive-proof gate
 Full evidence is in
 `live-runs/T2-positive-proof-acceptance-20260731-154700.md`; staged-byte hashes
 are in `live-runs/manifests/T2-20260731-154700.sha256`.
+
+## T3 — combat diagnosis HARD STOP
+
+### Actual versus predicted
+
+The controlled V-A through V-D matrix reached SPEC-17's explicit no-swing stop
+row. Each isolated trace contains one player `AttackSwingSend`, but all four
+contain zero `AttackStartReceive`, zero player `SwingReceive`, and zero
+`AttackErrorReceive`. V-B has the server-authored `GM mode is OFF` response;
+therefore GM mode is not the root cause. V-C measured distance from 12.296586
+to 2.2626302 yd, and V-D traversed the facing discriminator, but neither
+elicited an error or swing.
+
+```text
+EXPECTED decision branch: V-B swing => GM mode, or V-C/V-D error then swing
+ACTUAL: V-A/V-B/V-C/V-D player swings = 0/0/0/0; attack errors = 0/0/0/0
+BOUND LAW: no swings in any variant => escalate full wire evidence and stop
+RESULT: HARD STOP at T3; CB4/CB5/CB6/CB7 and T4 NOT STARTED
+```
+
+The initially low-health Northshire specimens were contaminated by an entry-1642
+guard; those foreign rows are excluded and retained as failed evidence. The
+accepted matrix used source-verified, live-only health and passive-state fixture
+setup, then exact descriptor cleanup. Remote-cell persistent-spawn trials were
+also cleaned by exact DB GUID. No renderer, combat, input, physics, or wire code
+changed.
+
+The archived initial `IntentOff` is an audit normalization issue: CB6's trace
+began mid-intent and captured a legitimate target-switch Off→On sequence without
+the prior trace's On. It is not a production transition defect; no fix landed.
+
+Full measured table, outgoing body hex, environmental evidence, current CB
+status, and the next signed-order queue are in
+`live-runs/T3-hard-stop-20260731-161700.md`. The first queued prerequisite is
+CMSG_ATTACKSWING receive/acceptance forensics against VMaNGOS and benilla;
+error-text display remains later. T3 hashes are in
+`live-runs/manifests/T3-20260731-161700.sha256`.

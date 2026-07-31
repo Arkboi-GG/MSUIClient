@@ -1,0 +1,20 @@
+gm .go xyz -8900 -132.493 83.53 0
+wait 3
+gm .gps
+wait 1
+gm .gm off
+wait 1
+gm .npc summon 6
+wait 1
+select spawn:1
+assert within3=true
+gm .npc info
+wait 1
+trace start T3-summon-probe-20260731-160000
+attack start
+wait 10
+attack stop
+trace stop
+gm .npc spawn delete
+wait 1
+waitgone spawn:1

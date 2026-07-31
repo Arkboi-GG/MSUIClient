@@ -1,0 +1,22 @@
+gm .gm off
+gm .npc spawn add 6
+wait 0.2
+select spawn:1
+assert within3=true
+gm .npc set level 60
+gm .npc set reactstate 0
+press turn-left
+wait 1
+release turn-left
+trace start T3-VD-facing-turnin-20260731-160000
+attack start
+wait 2
+press turn-right
+wait 1
+release turn-right
+wait 7
+attack stop
+trace stop
+gm .npc spawn delete
+wait 1
+waitgone spawn:1
