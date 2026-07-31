@@ -1576,3 +1576,12 @@ The full NPC sweep completed 6,939/6,939 with zero unexpected blanks. The full
 items sweep completed 3,944/3,944 with zero changed rows and gated G3 zero.
 Debug build, combat/wire, and portrait-camera gates pass; the only build
 warning remains the pre-existing CA2014 warning. W2 is self-ruled accepted.
+
+### W3 authority - type-6 hair row keys
+
+`variant-batch/baseline/npc-extras/cohort-7c2b.keys` is generated from the
+committed baseline query `textureType=6 AND missingDemandedTexture=true`.
+It contains 7,677 distinct row keys across 5,114 specimens. A separate query
+for `textureType=6 AND resolvedTexture=NONE AND demandedTexture!=NONE` produces
+the identical 7,677-key set, with zero keys unique to either query. This
+committed row-key list, not the transcribed count, is W3 acceptance authority.
