@@ -1,0 +1,9 @@
+{
+  "stage": "D3",
+  "requestedScenarios": ["CB4", "CB7"],
+  "status": "NO_VALID_SPECIMEN",
+  "executed": false,
+  "reason": "The live CMSG_MESSAGECHAT path reports local send success but VMaNGOS neither acknowledges nor executes .go, .npc add, .npc delete, or .die. D1 therefore could not create or identify a controlled target. Re-running CB4/CB7 against GUID-sorted wild creatures would repeat the invalid scope and is not machine-verifiable evidence.",
+  "prerequisite": "Prove a server-acknowledged GM command and response-derived spawned target identity before rerun.",
+  "combatConclusion": "NO_DATA"
+}

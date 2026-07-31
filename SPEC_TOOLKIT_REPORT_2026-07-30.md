@@ -2962,3 +2962,42 @@ the current GM channel. Repeating `.die` would only repeat a locally-sent,
 server-unexecuted command. Result is NO_DATA, frozen in
 `live-runs/D2-death-confirmation-20260731-144700.json`; manifest
 `live-runs/manifests/D2-20260731-144700.sha256`.
+
+## D3 - scoped CB4/CB7 verification and archived re-audit
+
+The live CB4/CB7 rerun has no valid specimen. D1 proved that the client reports
+the GM chat send locally but the server neither acknowledges nor executes the
+teleport/spawn/delete/death commands. Selecting a GUID-sorted wild creature
+would knowingly repeat the invalid target protocol, so the result is explicit
+NO_DATA rather than a fabricated machine verification. The prerequisite is a
+server-acknowledged command and response-derived spawned target identity.
+
+The archived `20260731-141730` traces were re-audited with attacker == player
+GUID scoping:
+
+| Scenario | Player swings before -> after | Re-audited result |
+|---|---:|---|
+| CB1 | 0 -> 0 | unchanged NO_DATA |
+| CB2 | 0 -> 0 | unchanged NO_DATA; defer-to-server law remains Nico's ruling |
+| CB3 | 0 -> 0 | unchanged NO_DATA; defer-to-server law remains Nico's ruling |
+| CB4 | 1 -> 0 | swing confirmation and one-shot PASS void; wire pairing remains 2/2 starts and 2/2 stops |
+| CB5 | 1 -> 0 | target-switch wire sequence stands; swing/animation becomes NO_DATA |
+| CB6 | 8 -> 0 | all apparent swings were foreign; target-death behavior remains NO_DATA; redundant initial IntentOff audit row remains |
+| CB7 | 1 -> 0 | `swingInsideIntent` FAIL -> PASS after excluding the foreign attacker; redundant initial IntentOff audit row remains |
+
+```text
+EXPECTED CB4 player swing after scope correction: required to restore claim
+ACTUAL: 0 in archive; live rerun unavailable
+RESULT: PARTIAL, wire pairing only
+EXPECTED CB7 foreign swing treatment: excluded from player assertion
+ACTUAL: swingInsideIntent PASS; player swing samples 0
+RESULT: prior scope failure removed, no player-swing claim
+```
+
+The row-by-row delta is frozen in
+`live-runs/D3-archived-reaudit-20260731-144903.csv`; the live prerequisite
+finding is `live-runs/D3-live-rerun-20260731-144903.json`. D3 manifest:
+`live-runs/manifests/D3-20260731-144903.sha256`.
+
+D3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
