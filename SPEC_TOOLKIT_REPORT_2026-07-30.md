@@ -2508,3 +2508,32 @@ in diagonal Run->WalkBackwards entering at 0.563730 rather than zero.
 
 S3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check with hardCuts=0.
+
+## S4 - F2 JumpStart 37 to Jump 38 handoff
+
+The launch edge now arms JumpStart 37 and holds it for its own authored
+AnimationData/M2 duration, measured at runtime as exactly 0.833000 s. Only an
+arc still airborne after that window receives Jump 38 for at least one tick
+before the existing Fall latch may select 40. Landing before expiry routes
+directly from 37 to the already-accepted standing/moving landing pick.
+
+```text
+PREDICTED jump-flat short-arc sequence: 37 -> 187 (no 38)
+ACTUAL: Run -> JumpStart(37), 49 rows/max sampled time 0.816667,
+  then JumpLandRun(187) -> Run -> Stand
+PREDICTED jump-standing short-arc sequence: 37 -> 39 (no 38)
+ACTUAL: Stand -> JumpStart(37), 48 rows/max sampled time 0.800000,
+  then JumpEnd(39) -> Stand
+PREDICTED kinematic drift from S3: 0
+ACTUAL: 0 byte differences across every required kinematic column/row
+PREDICTED hardCuts / Substituted: 0 / 0
+ACTUAL: 0 / 0
+```
+
+Both committed scripts are shorter than the 0.833 s handoff window, so they
+correctly cannot demonstrate 37->38. The longer-airborne branch is implemented
+exactly as ordered but remains a future extended-jump scenario coverage item;
+no claim of observing that branch is made here.
+
+S4 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.

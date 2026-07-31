@@ -363,6 +363,9 @@ public sealed partial class CharacterRenderer : IDisposable
     private float _landForward, _landStrafe;
     private bool _landWalking;
     private bool _wasAirborne;
+    private bool _jumpArcActive;
+    private bool _jumpHangShown;
+    private M2Animator.Clip? _jumpStartClip;
 
     /// <summary>Below this the character counts as standing still, in yards per second.</summary>
     private const float MoveThreshold = 0.3f;
@@ -2341,7 +2344,22 @@ public sealed partial class CharacterRenderer : IDisposable
         ResolveMotion(state);
 
         bool airborne = !state.Grounded && !state.Flying;
+        bool jumpLaunched = airborne && !_wasAirborne && state.VerticalVelocity > 0.5f;
+        if (jumpLaunched && _animator is not null)
+        {
+            _jumpArcActive = true;
+            _jumpHangShown = false;
+            _jumpStartClip = _animator.Resolve("player", BaseAnimationTrack, 37, false, 38, 40, 0);
+            if (_jumpStartClip is not null)
+                Console.WriteLine($"[anim] JumpStart window {_jumpStartClip.DurationSeconds:F6}s");
+        }
         LatchLanding(state, airborne);
+        if (!airborne)
+        {
+            _jumpArcActive = false;
+            _jumpHangShown = false;
+            _jumpStartClip = null;
+        }
         _wasAirborne = airborne;
 
         DriveBodyHeading(dt, state, airborne);
@@ -2854,6 +2872,26 @@ public sealed partial class CharacterRenderer : IDisposable
             return _animator.Resolve("player", BaseAnimationTrack, 40, false, 38, 0);
         }
 
+        // A deliberate jump is a transition bracket, not a direct selection of
+        // the hang loop. The launch event arms JumpStart 37 and its own authored
+        // duration controls the handoff. A short arc lands directly from 37;
+        // only an arc still airborne after that window sees Jump 38.
+        if (!state.Grounded && _jumpArcActive)
+        {
+            if (_jumpStartClip is not null)
+            {
+                bool startFinished = ReferenceEquals(_clip, _jumpStartClip) &&
+                                     _clipTime >= _jumpStartClip.DurationSeconds;
+                if (!startFinished) return _jumpStartClip;
+            }
+
+            if (!_jumpHangShown)
+            {
+                _jumpHangShown = true;
+                return _animator.Resolve("player", BaseAnimationTrack, 38, false, 40, 0);
+            }
+        }
+
         if (!state.Grounded && state.VerticalVelocity > 0.5f)
         {
             // A deliberate jump must react immediately. The controller's
@@ -3316,6 +3354,9 @@ public sealed partial class CharacterRenderer : IDisposable
         _clip = null;
         _previousClip = null;
         _landClip = null;
+        _jumpStartClip = null;
+        _jumpArcActive = false;
+        _jumpHangShown = false;
         _blendRemaining = 0f;
         _blendDuration = 0f;
         _clipTime = 0f;
