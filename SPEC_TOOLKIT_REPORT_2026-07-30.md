@@ -2885,3 +2885,28 @@ and movement-trace evidence is named for each. V3 needs a portrait-lab runner
 primitive; V4 needs disposable character-selection/customization. CHECKS itself
 now carries the class inline. A3 manifest:
 `live-runs/manifests/A3-20260731-142000.sha256`.
+
+## A4 - autonomous live-run close-out (HARD STOP)
+
+The frozen packet is `live-runs/A4-packet-20260731-142100.md`, SHA-256
+`8f4d433bac675424c8782dd473e9b5010a1eaa50f088d33dc9b4088554415ff4`.
+
+| Kind | Item | Evidence / next ruling |
+|---|---|---|
+| MACHINE-VERIFIED | CB4 | Two starts/two sends and two cancels/two stops; clean re-arm. |
+| MACHINE-VERIFIED | CB5 | TargetSwitch followed by one stop/off/start/on pair at 55.455. |
+| DEFECT-CANDIDATE | CB1 | Start accepted, no player SwingReceive in 12 seconds. |
+| DEFECT-CANDIDATE | CB6 | `.die` produced no `cause=target-death`; assertion timed out. |
+| RULING-NEEDED | CB2 | Should client gate facing or continue deferring to server? |
+| RULING-NEEDED | CB3 | Should client gate range or continue deferring to server? |
+| INSTRUMENT-DEFECT | CB7/audit | Filter attack-family audit rows by player attacker; foreign NPC swings are not player intent violations. |
+
+Still-missing runner primitives: server chat-response capture; spawn identity
+from GM response rather than GUID sort; targeted death confirmation;
+portrait-lab cycle/copy; disposable character customization/select.
+
+No combat fix, combat baseline, or F3-F6 implementation was started.
+A4 manifest: `live-runs/manifests/A4-20260731-142100.sha256`.
+
+**HARD STOP - SPEC-16 A0-A4 complete. Await Nico's CB1/CB6 and range/facing
+rulings plus a new signed implementation order.**
