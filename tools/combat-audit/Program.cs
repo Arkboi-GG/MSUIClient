@@ -22,12 +22,17 @@ int Col(string name) => Array.FindIndex(header, x => x.Equals(name, StringCompar
 int eventCol = Col("event"), tCol = Col("t"), causeCol = Col("cause"), targetCol = Col("targetGuid");
 int weaponCol = Col("weaponSpeedMs"), rangeCol = Col("rangeEligibility"), arcCol = Col("arcEligibility");
 int choiceCol = Col("animChoice"), clipBCol = Col("clipB"), clipCol = Col("clipName");
+int detailCol = Col("detail");
 if (eventCol < 0 || tCol < 0 || causeCol < 0 || targetCol < 0)
 { Console.Error.WriteLine("trace lacks required event/t/cause/targetGuid columns"); return 2; }
 var rows = csv.Skip(1).Select(c => new Row(
     Text(c,eventCol), Number(c,tCol), Text(c,causeCol), Text(c,targetCol),
     NumberOrNull(c,weaponCol), Text(c,rangeCol), Text(c,arcCol), Text(c,choiceCol),
-    Text(c,clipBCol), Text(c,clipCol))).ToList();
+    Text(c,clipBCol), Text(c,clipCol), Text(c,detailCol))).ToList();
+string playerGuid = rows.Where(r=>r.Event=="AttackStartReceive")
+    .Select(r=>System.Text.RegularExpressions.Regex.Match(r.Detail,@"attacker=(0x[0-9A-Fa-f]+)")).FirstOrDefault(m=>m.Success)?.Groups[1].Value ?? "";
+rows=rows.Select(r=>r.Event=="SwingReceive"&&playerGuid.Length>0&&!r.Detail.Contains($"attacker={playerGuid}",StringComparison.OrdinalIgnoreCase)
+    ?r with{Event="ForeignSwingReceive"}:r).ToList();
 
 var results = new List<Result>();
 bool on = false; int starts = 0, stops = 0, sends = 0, stopSends = 0, illegal = 0, swingOff = 0;
@@ -110,5 +115,5 @@ static string[] ParseCsv(string line)
 }
 
 record Row(string Event, double T, string Cause, string Target, double? WeaponSpeedMs,
-    string Range, string Arc, string Choice, string ClipB, string Clip);
+    string Range, string Arc, string Choice, string ClipB, string Clip, string Detail);
 record Result(string Check, string Status, string Detail);

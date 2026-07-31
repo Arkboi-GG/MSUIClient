@@ -2919,3 +2919,16 @@ were byte-identical before merge (both SHA-256
 Therefore the authoritative roles paragraph, three-tier law 3, and law 12
 were already present; merge diff was zero lines. Other current content was
 preserved byte-for-byte and the redundant amendment file was deleted.
+
+## D0 - combat diagnosis instrument corrections
+
+Player and foreign melee swings now split at the live parsed attacker GUID;
+archived audits infer the player from ATTACKSTART and reclassify foreign rows.
+Attack errors 0x0145-0x0149, chat responses, response-derived spawn GUIDs,
+descriptor death checks, and explicit distance/facing-delta columns are wired.
+
+Opcode values were verified against the local authoritative
+`benilla-protocol/src/messages/opcode_names.rs`: NOTINRANGE 0x0145,
+BADFACING 0x0146, NOTSTANDING 0x0147, DEADTARGET 0x0148, and CANT_ATTACK
+0x0149. No combat decision or wire send changed. D0 manifest:
+`live-runs/manifests/D0-20260731-143326.sha256`.

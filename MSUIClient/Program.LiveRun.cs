@@ -49,6 +49,7 @@ public sealed partial class GameLoop
     private double _liveWaitTimeout;
     private readonly List<string> _liveLog = [];
     private string _liveStamp = "";
+    private readonly List<ulong> _liveSpawnGuids = [];
     public int LiveRunExitCode { get; private set; } = 1;
 
     private void AdvanceLiveRun(float dt)
@@ -106,13 +107,19 @@ public sealed partial class GameLoop
                 case "assert": Log(VerdictLines().Any(x=>x.Contains(line[7..],StringComparison.OrdinalIgnoreCase)),line); break;
                 case "select":
                     int ordinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
-                    ulong guid=_entities.Units.Where(x=>x.IsCreature && x.Guid!=_net!.PlayerGuid).OrderBy(x=>x.Guid).Skip(ordinal-1).FirstOrDefault()?.Guid ?? 0;
+                    ulong guid=ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
+                    if(guid==0) guid=_entities.Units.Where(x=>x.IsCreature && x.Guid!=_net!.PlayerGuid).OrderBy(x=>x.Guid).Skip(ordinal-1).FirstOrDefault()?.Guid ?? 0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
                 case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
+                case "waitdeath":
+                    int deathOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    ulong deathGuid=deathOrdinal<=_liveSpawnGuids.Count?_liveSpawnGuids[deathOrdinal-1]:_selectionGuid;
+                    bool dead=_entities.TryGet(deathGuid,out WorldEntity victim)&&victim.IsDead;
+                    Log(dead,$"{line} guid=0x{deathGuid:X16} health={(dead?0:victim?.Fields.Health??0)}"); break;
                 default: Log(false,$"unknown {line}"); break;
             }
         }
@@ -122,7 +129,15 @@ public sealed partial class GameLoop
 
     private IEnumerable<string> VerdictLines()=>_verdicts.SnapshotAll().Select(v=>$"[{v.Channel}] {v.ToLine()}");
     private void Log(bool pass,string text)
-    { string line=$"{_liveStep+1},{(pass?"PASS":"FAIL")},{text}"; _liveLog.Add(line); Console.WriteLine($"[protocol] {line}"); }
+    {
+        foreach(string line in VerdictLines().Where(x=>x.Contains("event=GmChatResponse")))
+        {
+            var match=System.Text.RegularExpressions.Regex.Match(line,@"0x[0-9A-Fa-f]{8,16}");
+            if(match.Success&&ulong.TryParse(match.Value[2..],NumberStyles.HexNumber,CultureInfo.InvariantCulture,out ulong guid)&&!_liveSpawnGuids.Contains(guid))
+                _liveSpawnGuids.Add(guid);
+        }
+        string entry=$"{_liveStep+1},{(pass?"PASS":"FAIL")},{text}"; _liveLog.Add(entry); Console.WriteLine($"[protocol] {entry}");
+    }
 
     private void FinishProtocol()
     {

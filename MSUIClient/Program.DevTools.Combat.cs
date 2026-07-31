@@ -11,7 +11,7 @@ public sealed partial class GameLoop
 {
     private const string CombatTraceHeader =
         "row,t,dt,event,cause,intentOn,targetGuid,opcode,swingTimerOwner,weaponSpeedMs," +
-        "rangeEligibility,arcEligibility,clientAction,distance,bearingDelta,clipId,clipName," +
+        "rangeEligibility,arcEligibility,clientAction,distance,bearingDelta,facingDelta,clipId,clipName," +
         "clipTime,clipB,clipBTime,blendWeight,animChoice,detail";
     private StreamWriter? _combatTraceWriter;
     private string _combatTraceName = "manual";
@@ -60,13 +60,25 @@ public sealed partial class GameLoop
             CombatAttackStarted x => ("AttackStartReceive", x.Victim, "server", $"attacker=0x{x.Attacker:X16}"),
             CombatAttackStopped x => ("AttackStopReceive", x.Victim, x.VictimDied ? "target-death" : "server",
                 $"attacker=0x{x.Attacker:X16} victimDied={x.VictimDied}"),
-            CombatMeleeSwing x => ("SwingReceive", x.Victim, "server-swing",
+            CombatMeleeSwing x => (x.Attacker == _net?.PlayerGuid ? "SwingReceive" : "ForeignSwingReceive", x.Victim, "server-swing",
                 $"attacker=0x{x.Attacker:X16} damage={x.Damage} hitInfo=0x{x.HitInfo:X8}"),
             _ => ("CombatReceive", 0UL, "server", value.GetType().Name),
         };
         if (value is CombatAttackStopped stopped)
             _lastCombatStopCause = stopped.VictimDied ? "target-death" : "server-stop";
         EmitCombat(evt, cause, target, detail, opcode);
+    }
+
+    private void ObserveCombatError(Op opcode, byte[] body) =>
+        EmitCombat("AttackErrorReceive", "server-law", _attackTargetGuid,
+            $"opcode={opcode} value=0x{(ushort)opcode:X4} bytes={body.Length}", opcode);
+
+    private void ObserveGmChatResponse(byte[] body)
+    {
+        string text=string.Join('|', System.Text.Encoding.UTF8.GetString(body)
+            .Split('\0',StringSplitOptions.RemoveEmptyEntries)
+            .Select(x=>new string(x.Where(ch=>!char.IsControl(ch)).ToArray())).Where(x=>x.Length>1));
+        EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
     }
 
     private void ObserveCombatAnimationChoice(in AnimChoice choice)
@@ -118,6 +130,7 @@ public sealed partial class GameLoop
             (_attackTargetGuid != 0).ToString().ToLowerInvariant(), $"0x{target:X16}", Csv(opcodeText),
             "server", "", "unchecked", "unchecked", "none",
             distance.ToString("R", CultureInfo.InvariantCulture),
+            float.IsNaN(bearing) ? "" : bearing.ToString("R", CultureInfo.InvariantCulture),
             float.IsNaN(bearing) ? "" : bearing.ToString("R", CultureInfo.InvariantCulture),
             _character?.ClipId ?? -1, Csv(_character?.ClipName ?? "none"),
             (_character?.ClipTime ?? 0).ToString("R", CultureInfo.InvariantCulture),

@@ -427,6 +427,16 @@ public sealed partial class GameLoop
                         ObserveCombatReceive((Op)opcode, combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
+                    case Op.SMSG_ATTACKSWING_NOTINRANGE:
+                    case Op.SMSG_ATTACKSWING_BADFACING:
+                    case Op.SMSG_ATTACKSWING_NOTSTANDING:
+                    case Op.SMSG_ATTACKSWING_DEADTARGET:
+                    case Op.SMSG_ATTACKSWING_CANT_ATTACK:
+                        ObserveCombatError((Op)opcode, body);
+                        break;
+                    case Op.SMSG_MESSAGECHAT:
+                        ObserveGmChatResponse(body);
+                        break;
                 }
             }
             catch (Exception ex)
