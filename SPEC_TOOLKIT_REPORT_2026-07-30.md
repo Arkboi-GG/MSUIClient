@@ -2874,3 +2874,14 @@ The observed `SwingReceive` rows in CB6/CB7 name non-player attackers; none of
 the seven traces contains a player-guid attacker swing. Therefore cadence and
 player attack animation remain NO_DATA, not failed cadence. Combat fixes were
 not attempted.
+
+## A3 - Session 2/3 CHECKS migration
+
+All 18 items are classified in
+`live-runs/CHECKS-migration-20260731-142000.csv`: 12 AGENT-RUNNABLE now,
+2 AGENT-RUNNABLE-NEXT, and 4 NICO-ONLY. The NICO-only set is limited to V1,
+V2, V2b visual rulings and M5 pose-pop perception. Existing batch/contact-sheet
+and movement-trace evidence is named for each. V3 needs a portrait-lab runner
+primitive; V4 needs disposable character-selection/customization. CHECKS itself
+now carries the class inline. A3 manifest:
+`live-runs/manifests/A3-20260731-142000.sha256`.

@@ -1,0 +1,19 @@
+item,class,protocol_or_justification,evidence
+V1,NICO-ONLY,visual helm/face coherence,variant-batch baseline named Willem row
+V2,NICO-ONLY,visual texture correctness,npc-extras contact sheets and resolved-texture CSV
+V2b,NICO-ONLY,parked Tauren visual ruling,diagnosis/7c2a-inherit paired contact sheet
+V3,AGENT-RUNNABLE-NEXT,add portrait-lab cycle/copy primitive,portrait batch already pre-gathers specimen renders
+V4,AGENT-RUNNABLE-NEXT,add character-selection primitive,W6 634 sweep and 359 collision rows pre-gathered
+CB0,AGENT-RUNNABLE,gm .gps,protocol runner GM verdict
+M1,AGENT-RUNNABLE,SPEC-13 run-start-stop,movement baseline
+M2,AGENT-RUNNABLE,SPEC-13 turn scripts,movement baseline
+M3,AGENT-RUNNABLE,SPEC-13 strafe/diagonal scripts,movement baseline
+M4,AGENT-RUNNABLE,SPEC-13 jump scripts,movement baseline
+M5,NICO-ONLY,perceptual foot/hip pose-pop judgment,post-F1/F2 trace bracket pre-gathered
+CB1,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB2,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB3,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB4,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB5,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB6,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
+CB7,AGENT-RUNNABLE,cb-protocol.txt,A2 trace/audit
