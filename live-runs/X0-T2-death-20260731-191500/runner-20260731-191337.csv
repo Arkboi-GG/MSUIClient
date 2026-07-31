@@ -1,0 +1,15 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T2-death-proof-20260731-154700.txt
+1,PASS,gm .npc spawn add 6
+2,PASS,wait 0.2
+3,PASS,select spawn:1 guid=0xF13000000604A28A
+4,PASS,assert within3=true
+5,PASS,gm .npc info
+6,PASS,wait 1
+7,PASS,assert Entry:_6
+8,PASS,gm .die
+9,PASS,wait 1
+10,PASS,waitdeath spawn:1 guid=0xF13000000604A28A health=0
+11,PASS,gm .npc spawn delete
+12,PASS,wait 1
+13,PASS,waitgone spawn:1 guid=0xF13000000604A28A descriptorPresent=False

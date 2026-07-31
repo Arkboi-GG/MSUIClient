@@ -3536,3 +3536,58 @@ changed.
 can be installed, and supply the current dedicated TEST account password used
 by both realm login and RA (or state that RA uses a different credential).
 Do not place either secret in a repository file.**
+
+## X0 resumed — travel-laptop re-bootstrap complete
+
+### Actual versus predicted
+
+Nico supplied the unrecoverable credentials. They were not echoed into any
+tracked file or artifact. The ignored config already held the supplied account
+credential; only the stale host and selected character were corrected. A
+read-only RA `server info` round trip then authenticated successfully.
+
+The new public key was installed through an interactive password prompt. A
+subsequent explicit-key, batch-only probe returned `KEY_AUTH_OK`; password use
+ceased. SETUP records only the travel-laptop public fingerprint.
+
+```text
+PREDICTED config: 192.168.0.2 + supplied test account + Test character
+ACTUAL: validated in ignored config; RA authentication PASS
+RESULT: PASS
+
+PREDICTED SSH: key-only auth after one interactive install
+ACTUAL: key-only batch auth PASS
+PUBLIC FINGERPRINT: SHA256:mwe0xwrQKqTTTi4jhIPj1JjC3vdzcHGW38ymAZTkTi4
+RESULT: PASS; password use ceased
+
+PREDICTED T2 .gps / .go / identified spawn / confirmed death: all PASS
+ACTUAL .gps: 4/4 PASS
+ACTUAL .go: 6/6 PASS, requested position applied
+ACTUAL spawn: 10/10 PASS, entry 6 GUID 0xF13000000604A289,
+              within3=true and exact descriptor cleanup
+ACTUAL death: 13/13 PASS, entry 6 GUID 0xF13000000604A28A,
+              descriptor health=0 and exact descriptor cleanup
+RESULT: four-proof loop PASS once from the travel laptop
+```
+
+The live runner mechanically rewrote its historical generic movement trace and
+`vantages.json`. The new movement trace was first preserved under its dated X0
+directory; both tracked files were then restored from accepted HEAD. No prior
+evidence or user vantage delta remains.
+
+The completion packet is
+`live-runs/X0-rebootstrap-complete-20260731-191443.md`, SHA-256
+`0283ede33ca518a40ff33fa10481093bcafe8df2e2c9d97e5b555d64c561136c`.
+The 11-file manifest is
+`live-runs/manifests/X0-resume-20260731-191443.sha256`, SHA-256
+`1ff50c1cfd9378bafb98b0e6c611470fb48ebdb3b35ddaf6854e968f0c11ae42`;
+all entries recomputed exactly before the stage boundary.
+
+X0 completion boundary gates passed sequentially: Debug build 0 warnings / 0
+errors; combat-wire PASS (its Release build emitted only the established CA2014
+warning); portrait-camera PASS with 10,534 specimens and 1,224 / 1,289 / 56
+controls; move-audit PASS.
+
+No client production code, combat behavior, server code, database, persistent
+server configuration, error display, or F3-F6 behavior changed. X0 is complete
+and X1 is authorized. SPEC-21 P3/P4 remain queued.

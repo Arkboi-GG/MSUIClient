@@ -201,3 +201,10 @@ and the other configured logs sit beside the binary. The process console is
 server restart or persistent config edit. The deployed source checkout was
 read-only at revision `d7779aee9d43113e78c078b54daef89946be0b1a` with a clean
 status. No database query or write was made during the SSH setup or P2 resume.
+
+The travel-laptop bootstrap on 2026-07-31 uses a separate dedicated ED25519
+identity in that laptop's user SSH directory. Its public fingerprint is
+`SHA256:mwe0xwrQKqTTTi4jhIPj1JjC3vdzcHGW38ymAZTkTi4`. Key-only batch
+authentication to `wowvmangos@192.168.0.2` was confirmed after interactive
+installation; password use then ceased. The private key and local client
+configuration remain untracked.
