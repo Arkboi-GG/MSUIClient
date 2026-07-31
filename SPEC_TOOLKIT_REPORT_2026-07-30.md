@@ -3754,3 +3754,58 @@ ruling options; SPEC-21 P3/P4 remain queued.
 X3 boundary gates passed sequentially: Debug build with only the established
 CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
 and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## X4 — attack-transit HARD STOP
+
+### Actual versus predicted
+
+```text
+PREDICTED final transit verdict: flushed+present, flushed+absent, or not-flushed
+ACTUAL client flush: true
+ACTUAL on-wire state: unmeasured because prescribed capture privilege unavailable
+ACTUAL server debug admission: absent from SPEC-21 P2
+RESULT: TRANSIT_UNRESOLVED_CAPTURE_PRIVILEGE; HARD STOP
+```
+
+The client-defect branch is closed. The accepted `.gps` control and attack were
+written 12 ms apart, both after successful socket flush, and the control was
+server-delivered. The attack's exact post-encryption write is 14 bytes with
+SHA-256
+`784feef9f39b41853082ecfd8bb6dd47d801f1d3e7143986d79abb317c336420`.
+It is not called an on-wire frame.
+
+The prior-run reconciliation is unchanged where it matters: SPEC-21's zero
+server receive/dispatch/handler debug lines remain valid negative logging
+evidence; X1 strengthens the client boundary; X2 leaves packet loss versus an
+unlogged server predicate unresolved; all stated precondition exclusions stand;
+and SPEC-21 P3/P4 remain queued.
+
+The ordered ruling options are:
+
+1. smallest next step: rerun the accepted X1 scenario from a Windows
+   Administrator-elevated session with bounded pktmon/netsh capture, extract the
+   two frames, revert filters, and delete raw ETL/PCAP;
+2. alternatively, issue a new order for a narrowly scoped, temporary Linux
+   tcpdump authorization and revoke it after one capture;
+3. only if the frame is captured at the host, rule on gdb or a temporary
+   instrumented server rebuild on a COPY at the enumerated dispatch boundaries.
+
+The complete packet is
+`live-runs/X4-attack-transit-hard-stop-20260731-194000.md`, SHA-256
+`ad07ef9533ae222bc16d6d76b210897a434e576b20416acc230f8cc03c74e5ac`.
+The four-file manifest is
+`live-runs/manifests/X4-20260731-194000.sha256`, SHA-256
+`12f7a5c455b39aab9dfe7bc80cf6f5bd21c2fb426b12d1128daf0e520ad78dbf`;
+all entries recomputed exactly.
+
+No raw capture exists; Windows trace status is stopped; no filters remain from
+this work. No server code, database, persistent config, combat behavior, error
+display, or F3-F6 work changed.
+
+**HARD STOP — SPEC-22 X0-X4 is complete at the available privilege boundary.
+Nico's next ruling must authorize a capture-capable environment/path before
+P3/P4 or deeper server instrumentation.**
+
+X4 final boundary gates passed sequentially: Debug build with only the
+established CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534
+specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
