@@ -3654,3 +3654,52 @@ No combat decision, packet construction, server code, database, persistent
 server configuration, error display, or F3-F6 behavior changed. The socket
 observer is DevTools-gated and observational exceptions are swallowed. X2 is
 authorized; SPEC-21 P3/P4 remain queued.
+
+## X2 — bounded transit capture unavailable
+
+### Actual versus predicted
+
+```text
+PREDICTED Linux: sudo -n tcpdump on world port 8085
+ACTUAL: /usr/bin/tcpdump exists; sudo -n requires a password
+RESULT: unavailable; interactive/password sudo was not attempted
+
+PREDICTED Windows fallback: elevated pktmon or netsh
+ACTUAL pktmon: driver access denied
+ACTUAL UAC preflight: no approved elevated process or output
+ACTUAL netsh start: requires Administrator elevation
+ACTUAL other capture tools: dumpcap/tshark/WinDump/Npcap absent
+RESULT: unavailable
+
+PREDICTED built-in packet log: use if it covers world opcodes
+ACTUAL: Anticheat.PacketLogSize records movement history only and writes only
+        on anticheat kick/ban
+RESULT: inapplicable to CMSG_ATTACKSWING; no setting changed
+
+PREDICTED raw capture cleanup: delete after frame extraction
+ACTUAL: no capture started and no raw file was created
+RESULT: trace stopped, no filters changed, temporary helper removed
+```
+
+Read-only deployed enumeration cites
+`mangosd.conf:1589-1592,2120`,
+`MovementAnticheat.cpp:151-158,399-407`, and `World.cpp:1109`. This option is
+not a general ingress/world packet logger and cannot observe opcode 321 without
+inducing an anticheat penalty, which is outside scope.
+
+The exact X1 attack write remains proven at the client socket boundary, but X2
+cannot promote it to `present on wire` or `absent on wire`: neither proposition
+was measured. Full detail is in
+`live-runs/X2-transit-capture-unavailable-20260731-193200.md`, SHA-256
+`7d424420c85c97fdc76652607cf54c607f7beffdeda2ee755ea565a8b4198bbd`.
+The two-file manifest is
+`live-runs/manifests/X2-20260731-193200.sha256`, SHA-256
+`e6c8d05d000f170e263bad24d303aa7e64e9bf3b4ccba3db4eeff5d69b26f4b0`.
+
+No server code, database, persistent configuration, combat behavior, error
+display, or F3-F6 behavior changed. No raw capture exists. X3 must therefore
+select no on-wire decision row and state the unresolved measurement honestly.
+
+X2 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
