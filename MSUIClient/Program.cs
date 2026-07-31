@@ -68,6 +68,7 @@ public static partial class Program
 
         Console.WriteLine($"[start] map {config.Start.Map} ({config.Start.MapName}) " +
                           $"at ({config.Start.X:F1}, {config.Start.Y:F1}, {config.Start.Z:F1})");
+        if (liveRun?.Character is { Length: > 0 }) config.Server.Character = liveRun.Character;
 
         // The player's settings are read BEFORE the window exists, because four
         // of them are decided at window creation and cannot be changed after it:

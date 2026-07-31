@@ -1,0 +1,8 @@
+item,result,law,evidence,classification
+CB1,FAIL,no player SwingReceive in 12s despite one start send,runner step 8 timeout; AttackSwingSend time=6.865; AttackStartReceive time=6.949,DEFECT-CANDIDATE
+CB2,NO_PLAYER_SWING,client range/facing gating is unruled,one start and one stop; zero SwingReceive,RULING-NEEDED
+CB3,NO_PLAYER_SWING,client range gating versus server errors is unruled,one start and one stop; zero SwingReceive,RULING-NEEDED
+CB4,PASS,single STOP per cancel and clean re-arm,intentStarts=2 attackSwingSends=2 localCancels=2 attackStopSends=2,MACHINE-VERIFIED
+CB5,PASS,target switch has one stop/start pair,TargetSwitch time=55.455 then stop/off/start/on same timestamp,MACHINE-VERIFIED
+CB6,FAIL,.die produced no target-death cause,runner step 54 timeout; eight observed swings were NPC->player not player swings,DEFECT-CANDIDATE
+CB7,AUDIT_SCOPE_FAIL,foreign NPC swing arrived after local intent off,IntentOff time=71.418 then NPC SwingReceive time=71.783,AUDIT-INSTRUMENT-DEFECT

@@ -1,0 +1,7 @@
+check,result,detail
+legalTransitions,FAIL,t=0.016677; event=IntentOff; target=0x0000000000000000; IntentOff while Off
+swingInsideIntent,PASS,every SMSG_ATTACKERSTATEUPDATE was inside an intent-on window
+oneSwingSendPerStart,PASS,intentStarts=1; attackSwingSends=1
+oneStopSendPerCancel,PASS,localCancels=1; attackStopSends=1
+cadenceVsWeaponSpeed,NO_DATA,weaponSpeedSamples=0; eligibilitySamples=0; swingSamples=8
+oneShotReturn,NO_DATA,swingEvents=8; attackAnimChoices=0

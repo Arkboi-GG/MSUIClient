@@ -2851,3 +2851,26 @@ run-dated runner CSV and complete verdict-ring dump.
 
 No live execution was attempted with the non-TEST config. A1 manifest:
 `live-runs/manifests/A1-20260731-141425.sha256`.
+
+## A2 - autonomous CB1-CB7 live run
+
+Nico authorized his account; the existing dedicated character `Test` was
+confirmed through the network harness and no other character was selected.
+The real client completed all 65 protocol steps with two assertion timeouts.
+Seven run-dated traces, a verdict dump, runner log, and seven audit CSVs are
+frozen by `live-runs/manifests/A2-20260731-141900.sha256`.
+
+| Item | Result | Exact evidence / classification |
+|---|---|---|
+| CB1 | FAIL candidate | `AttackSwingSend time=6.865`, `AttackStartReceive time=6.949`, then runner step 8 `waitfor event=SwingReceive timeout`; no player swing in 12 s. |
+| CB2 | RULING-NEEDED | One start/stop, zero player swings while orbiting. Client-side facing gate vs server ownership is unruled. |
+| CB3 | RULING-NEEDED | One start/stop, zero player swings across distance dance. Client-side range gate vs server ownership is unruled. |
+| CB4 | MACHINE-VERIFIED PASS | audit: `intentStarts=2; attackSwingSends=2`, `localCancels=2; attackStopSends=2`; clean re-arm. |
+| CB5 | MACHINE-VERIFIED PASS | `TargetSwitch time=55.455`, then stop/off/start/on at the same timestamp; one pair. |
+| CB6 | FAIL candidate | runner step 54 `waitfor cause=target-death timeout`; `.die` did not yield the demanded player-target death cause. |
+| CB7 | AUDIT-INSTRUMENT defect | Local `IntentOff time=71.418`; an NPC-to-NPC/player `SwingReceive time=71.783` followed. Combat-audit incorrectly treats every realm swing as the player's and reports swing-while-off. |
+
+The observed `SwingReceive` rows in CB6/CB7 name non-player attackers; none of
+the seven traces contains a player-guid attacker swing. Therefore cadence and
+player attack animation remain NO_DATA, not failed cadence. Combat fixes were
+not attempted.

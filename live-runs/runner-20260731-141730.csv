@@ -1,0 +1,67 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\cb-protocol.txt
+1,PASS,gm .gm on
+2,PASS,gm .npc add 6
+3,PASS,gm .npc add 6
+4,PASS,wait 2
+5,PASS,select spawn:1 guid=0xF13000007900B1EF
+6,PASS,trace start CB1-stationary
+7,PASS,attack start
+8,FAIL,waitfor event=SwingReceive timeout
+9,PASS,wait 5
+10,PASS,dump CB1-stationary
+11,PASS,attack stop
+12,PASS,trace stop
+13,PASS,trace start CB2-orbit
+14,PASS,attack start
+15,PASS,press turn-left
+16,PASS,press W
+17,PASS,wait 6
+18,PASS,release W
+19,PASS,release turn-left
+20,PASS,attack stop
+21,PASS,trace stop
+22,PASS,trace start CB3-range-edge
+23,PASS,attack start
+24,PASS,press S
+25,PASS,wait 5
+26,PASS,release S
+27,PASS,press W
+28,PASS,wait 5
+29,PASS,release W
+30,PASS,attack stop
+31,PASS,trace stop
+32,PASS,trace start CB4-cancel-rearm
+33,PASS,attack start
+34,PASS,wait 2
+35,PASS,attack stop
+36,PASS,wait 1
+37,PASS,attack start
+38,PASS,waitfor event=SwingReceive
+39,PASS,attack stop
+40,PASS,trace stop
+41,PASS,trace start CB5-target-switch
+42,PASS,select spawn:1 guid=0xF13000007900B1EF
+43,PASS,attack start
+44,PASS,wait 1
+45,PASS,select spawn:2 guid=0xF13000007900B1F1
+46,PASS,waitfor event=TargetSwitch
+47,PASS,attack stop
+48,PASS,trace stop
+49,PASS,trace start CB6-target-death
+50,PASS,select spawn:1 guid=0xF13000007900B1EF
+51,PASS,attack start
+52,PASS,wait 1
+53,PASS,gm .die
+54,FAIL,waitfor cause=target-death timeout
+55,PASS,trace stop
+56,PASS,trace start CB7-chase
+57,PASS,select spawn:2 guid=0xF13000007900B1F1
+58,PASS,attack start
+59,PASS,press W
+60,PASS,wait 8
+61,PASS,release W
+62,PASS,attack stop
+63,PASS,dump CB7-chase
+64,PASS,trace stop
+65,PASS,gm .combatstop

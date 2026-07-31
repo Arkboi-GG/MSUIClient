@@ -5,7 +5,7 @@ using MSUIClient.Net;
 
 namespace MSUIClient;
 
-public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds);
+public sealed record LiveRunOptions(string OutputDirectory, string? Protocol, double TimeoutSeconds, string? Character);
 
 public static partial class Program
 {
@@ -13,16 +13,17 @@ public static partial class Program
         out string? configPath, out string? error)
     {
         options = null; configPath = null; error = null;
-        string output = "live-runs"; string? protocol = null; double timeout = 120;
+        string output = "live-runs"; string? protocol = null, character = null; double timeout = 120;
         for (int i=0;i<args.Length;i++)
         {
             string arg=args[i];
             if (arg=="--live-bootstrap") continue;
-            if (arg is "--live-protocol" or "--out" or "--timeout")
+            if (arg is "--live-protocol" or "--out" or "--timeout" or "--character")
             {
                 if (++i>=args.Length) { error=$"missing value for {arg}"; return false; }
                 if (arg=="--live-protocol") protocol=args[i];
                 else if (arg=="--out") output=args[i];
+                else if (arg=="--character") character=args[i];
                 else if (!double.TryParse(args[i], NumberStyles.Float, CultureInfo.InvariantCulture, out timeout) || timeout<=0)
                 { error="--timeout must be positive"; return false; }
                 continue;
@@ -31,7 +32,7 @@ public static partial class Program
             if (configPath is not null) { error=$"unexpected argument {arg}"; return false; }
             configPath=arg;
         }
-        options=new(output,protocol,timeout); return true;
+        options=new(output,protocol,timeout,character); return true;
     }
 }
 

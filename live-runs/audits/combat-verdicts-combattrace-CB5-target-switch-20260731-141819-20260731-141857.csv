@@ -1,0 +1,7 @@
+check,result,detail
+legalTransitions,PASS,Off --IntentOn--> On; On --IntentOff--> Off; no unknown edge
+swingInsideIntent,PASS,every SMSG_ATTACKERSTATEUPDATE was inside an intent-on window
+oneSwingSendPerStart,PASS,intentStarts=2; attackSwingSends=2
+oneStopSendPerCancel,PASS,localCancels=2; attackStopSends=2
+cadenceVsWeaponSpeed,NO_DATA,weaponSpeedSamples=0; eligibilitySamples=0; swingSamples=1
+oneShotReturn,NO_DATA,swingEvents=1; attackAnimChoices=0
