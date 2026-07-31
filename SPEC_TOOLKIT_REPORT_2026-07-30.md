@@ -1359,6 +1359,30 @@ portrait camera check passed
 sheet, and summary. 7C-1 must not begin until this checkpoint is explicitly
 accepted.
 
+### W5 - canonical post-7C baselines
+
+The accepted W4b full sweep is now the canonical NPC-extras baseline. A fresh
+final items sweep completed 3,944/3,944 and remained `changedRows=0`. The old
+NPC/items CSVs and all three immutable cohort files moved together to
+`variant-batch/history/2026-07-31-pre7C/`; the authority files therefore remain
+adjacent to the exact baseline CSVs from which they were queried.
+
+Current baseline totals:
+
+| Axis | Specimens / rows | G1 | G3 gated / raw |
+|---|---:|---:|---:|
+| NPC extras | 6,939 / 64,650 | 0 | 0 / 0 |
+| Items | 3,944 / 3,944 | 0 | 0 / 26 allowlisted |
+| Players | 634 / 634 | 0 | 0 / 0 |
+
+The final NPC diff against pre-7C contains 41,690 changed CSV rows across
+6,760 specimens; the exact per-stage authority equalities remain 3,535
+specimens for W2, 7,677 rows for W3, and 8,889 rows for W4. The canonical NPC
+directory contains 109 regenerated contact sheets and indexes; items contains
+62. `variant-batch/baseline/REVIEW.md` records those equality results, final G3
+totals, and the ten largest absolute specimen mean-luma deltas with sheet/cell
+locations. W5 is self-ruled accepted.
+
 ## SPEC 08 — unattended 7C
 
 ### W0 — Stage 1G affordance reconciliation
