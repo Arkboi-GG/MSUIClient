@@ -3075,3 +3075,22 @@ G0 manifest: `live-runs/manifests/G0-20260731-150735.sha256`.
 
 G0 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## G1 - provisioning not required
+
+G1 performed no mutation. Server-authored login notices report GM mode ON and
+rank 6, while `.gps` executed and returned privileged system output. The
+conditional provisioning branch is therefore false. No mangosd console command
+and no SQL statement was executed.
+
+```text
+PREDICTED action if gmlevel insufficient: provision through mangosd console
+ACTUAL gm permission: sufficient (rank 6 and .gps success)
+RESULT: NOT_REQUIRED; zero state changes
+```
+
+Artifact: `live-runs/G1-provisioning-20260731-150954.json`; manifest:
+`live-runs/manifests/G1-20260731-150954.sha256`.
+
+G1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
