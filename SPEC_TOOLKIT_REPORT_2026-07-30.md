@@ -1715,3 +1715,56 @@ ACTUAL only-run: 0
 ```
 
 All W8-2 predictions and invariants match exactly. W8-2 passes.
+
+### W8-3 - visual ruling evidence from history
+
+Revert `be31ac6a3fd769129895422bf26314d4f4f9133e` names the reverted W4
+implementation as `48c16dc27f0410f9bd12c051c607a94ac31babc4`. That exact commit
+was checked out detached in a temporary worktree. Both the accepted tree and
+historical candidate built in Release with zero errors and only the known
+CA2014 warning.
+
+The deterministic sample is recorded in
+`variant-batch/diagnosis/7c2a-inherit/sample-specimens.txt`: the first 16
+distinct specimens encountered in the sorted diagnostic row-key list. Both
+builds ran that same list through the normal unmasked NPC-extras batch path,
+using the same installed GameData and settings. The historical worktree used
+an uncommitted temporary config whose only purpose was to point at the
+accepted tree's absolute GameData paths.
+
+```text
+PREDICTED historical commit builds in isolation: yes
+ACTUAL historical commit builds in isolation: yes
+PREDICTED sample specimens per build: 16
+ACTUAL accepted sample specimens: 16
+ACTUAL candidate sample specimens: 16
+PREDICTED normal-path CSVs delivered: 2
+ACTUAL normal-path CSVs delivered: 2
+ACTUAL accepted CSV rows: 209
+ACTUAL candidate CSV rows: 209
+ACTUAL accepted-only row keys: 0
+ACTUAL candidate-only row keys: 0
+ACTUAL accepted Ready specimens: 16
+ACTUAL candidate Ready specimens: 16
+PREDICTED paired head/face rows: 16
+ACTUAL paired head/face rows: 16
+ACTUAL pixel-identical accepted/candidate pairs: 0
+ACTUAL pixel-different accepted/candidate pairs: 16
+```
+
+The master contact sheet and 16 specimen-keyed pair strips place accepted
+`ed37e8f` output on the left and candidate `48c16dc` output on the right. The
+two CSVs show 32 sampled type-1 head rows changing effective and resolved
+texture, and zero sampled type-8 effective-texture changes. This is consistent
+with the carry-isolated implementation present in the exact reverted commit;
+the 689 inherited changes remain established by the preserved first-run diff
+and the W8-2 baseline query, not by rewriting history.
+
+The temporary worktree was discarded after capture. A direct working-tree
+diff of `CreatureRenderer.cs` and `CreatureRenderer.VariantTrace.cs` is empty.
+The accepted tree was never modified; the only W8 additions are the committed
+diagnostic key list, report appends, and ignored diagnosis artifacts being
+prepared for their permitted commit. Pre-existing user-owned changes remain
+untouched (`MSUIClient/Formats/DbcReader.cs`, `vantages.json`,
+`PILOT_PROTOCOL.md`, `SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md`, and the supplied
+untracked `SPEC_TOOLKIT_09_W4_INHERIT_DIAGNOSIS.md`). W8-3 passes.
