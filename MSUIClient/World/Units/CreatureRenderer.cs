@@ -39,6 +39,7 @@ public sealed partial class CreatureRenderer : IDisposable
     private Shader? _shader;
     private CreatureModelResolver? _resolver;
     private ItemDisplayTable? _itemDisplay;
+    private CharSectionsTable? _charSections;
     private CharacterGeosets? _geosets;
     private readonly Dictionary<string, LoadedModel?> _modelCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Appearance?> _appearanceCache = new(StringComparer.OrdinalIgnoreCase);
@@ -281,6 +282,8 @@ public sealed partial class CreatureRenderer : IDisposable
                 var hairBytes = mpq.ReadFile(CharHairGeosetsTable.MpqPath);
                 var facialBytes = mpq.ReadFile(CharacterFacialHairTable.MpqPath);
                 var helmBytes = mpq.ReadFile(HelmetGeosetVisTable.MpqPath);
+                var sectionBytes = mpq.ReadFile(CharSectionsTable.MpqPath);
+                _charSections = sectionBytes is null ? null : CharSectionsTable.Parse(sectionBytes);
                 _geosets = new CharacterGeosets(
                     hairBytes is null ? null : CharHairGeosetsTable.Parse(hairBytes),
                     facialBytes is null ? null : CharacterFacialHairTable.Parse(facialBytes),
@@ -1397,7 +1400,8 @@ public sealed partial class CreatureRenderer : IDisposable
 
     // ── texture resolution ────────────────────────────────────────────────────────
 
-    private static IReadOnlyList<string> ResolveBatchTexture(uint type, string embedded, string modelDir, in CreatureModelInfo info)
+    private IReadOnlyList<string> ResolveBatchTexture(uint type, string embedded,
+        string modelDir, in CreatureModelInfo info)
     {
         if (!string.IsNullOrEmpty(embedded)) return new[] { embedded };
 
@@ -1414,6 +1418,8 @@ public sealed partial class CreatureRenderer : IDisposable
             }
             case 1:
                 return NpcBodySkinCandidates(info);
+            case 6:
+                return NpcHairTextureCandidates(info);
             default:
                 if (info.Textures.Length > 0 && !string.IsNullOrEmpty(info.Textures[0]))
                     return new[] { UnderDir(modelDir, info.Textures[0]) };
@@ -1440,6 +1446,20 @@ public sealed partial class CreatureRenderer : IDisposable
         list.Add($"Character\\{race}\\{gender}\\{race}{gender}Skin{(int)info.ExtSkin:00}_00.blp");
         list.Add($"Character\\{race}\\{gender}\\{race}{gender}Skin00_00.blp");
         return list;
+    }
+
+    private IReadOnlyList<string> NpcHairTextureCandidates(in CreatureModelInfo info)
+    {
+        if (!info.HasExtended || _charSections is null) return Array.Empty<string>();
+        CharSectionRow? row = _charSections.Find(
+            info.ExtRace, info.ExtSex, CharSectionsTable.SectionHair,
+            info.ExtHairStyle, (int)info.ExtHairColor);
+        if (row is null || row.Texture1.Length == 0)
+            row = _charSections.Find(
+                info.ExtRace, info.ExtSex, CharSectionsTable.SectionHair,
+                1, (int)info.ExtHairColor);
+        if (row is null || row.Texture1.Length == 0) return Array.Empty<string>();
+        return CharacterTextureCandidates(row.Texture1, info.ExtRace, info.ExtSex).ToArray();
     }
 
     private static string RaceFolder(byte race) => race switch

@@ -1585,3 +1585,29 @@ It contains 7,677 distinct row keys across 5,114 specimens. A separate query
 for `textureType=6 AND resolvedTexture=NONE AND demandedTexture!=NONE` produces
 the identical 7,677-key set, with zero keys unique to either query. This
 committed row-key list, not the transcribed count, is W3 acceptance authority.
+
+### W3 - 7C-2b accepted
+
+Production creature appearance resolution now treats replaceable texture type
+6 as the NPC character-hair slot. It resolves the extra row's race, sex, hair
+style, and hair colour through `CharSections`, with the ruled literal-style-1
+fallback. The same resolver feeds synchronous batch/portrait loading and the
+normal asynchronous world appearance path.
+
+```text
+authority row keys: 7677
+candidate changed type-6 row keys: 7677
+authority-only keys: 0
+candidate-only keys: 0
+unresolved authority rows: 0
+supplier mismatches: 0
+remaining type-6 UNBOUND rows: 0
+forbidden non-type-6 texture-string changes: 0
+NPC G3: 0
+```
+
+Control row `npc-extra:54:display:3340:batch:15` resolves, demands, and
+effectively binds exactly `Character\Human\Hair02_09.blp` from `texture.MPQ`.
+The full sweep completed 6,939/6,939 with 64,650 stable row keys and zero
+unexpected blanks. Standard gates pass with only the pre-existing CA2014
+warning. W3 is self-ruled accepted.
