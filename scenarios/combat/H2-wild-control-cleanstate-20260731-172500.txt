@@ -1,0 +1,17 @@
+gm .gm on
+gm .go creature 45551
+wait 3
+wire-trace start
+select wild-entry:121
+gm .combatstop
+gm .gm off
+wait 1
+gm .npc info
+wait 1
+trace start H2-wild-cleanstate-entry121-20260731-172500
+attack start
+wait 2
+attack stop
+wait 0.2
+trace stop
+wire-trace stop

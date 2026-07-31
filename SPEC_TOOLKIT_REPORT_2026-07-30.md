@@ -3312,3 +3312,43 @@ makes no attack-acceptance claim: no server attack response arrived during its
 observation window. Full evidence is in
 `live-runs/H1-triple-identity-20260731-163500.md`; staged-byte hashes are in
 `live-runs/manifests/H1-20260731-163500.sha256`.
+
+## H2 — attack acceptance HARD STOP
+
+The required wild positive control now fails. The current client rediscovered
+the exact run-16 object-store target `0xF13000007900B1EF` (entry 121, faction
+17, flags 0, alive) at 2.1473 yd and sent the full little-endian body
+`EF B1 00 79 00 00 30 F1`. No attack-start, attack-stop, or attack-error
+response followed. The archived run-16 verdict records `AttackSwingSend` at
+6.865 and `AttackStartReceive` at 6.949 for that same full GUID.
+
+```text
+EXPECTED positive control: SMSG_ATTACKSTART, matching runs 16/17
+ACTUAL current tree: one real send, zero attack-family responses
+RESULT: H2 positive-control regression path; HARD STOP before H3
+```
+
+The spawn object-store cell likewise sent
+`7F A2 04 06 00 00 30 F1` for independently confirmed
+`0xF13000000604A27F` and received no attack-family response. H1 proved the
+response-derived and object-store spawn identities are identical, so SPEC-20's
+third cell is N/A rather than a duplicate experiment. Both failures enter
+H0's found-candidate silent-return family: a lookup miss and the handler's
+friendly/spawning/not-selectable/dead rejections would have sent attack-stop;
+success would have sent attack-start. The exact silent predicate is not
+observable client-side.
+
+The ordered bisect did not identify T0 as first bad. Accepted run-17-era commit
+`6a5e73a`, built in isolation, also selected the exact archived GUID and failed
+today. A second isolation run reduced it to the historical single
+unacknowledged bootstrap teleport and again failed. This is a real regression
+against the committed archive, but it depends on live server/session state not
+reproduced by source revision alone; attributing it to T0 would contradict the
+actual bisect.
+
+The complete matrix, calibration results, wire bytes, bisect limitations, and
+next-order requirement are in
+`live-runs/H2-attack-accept-hard-stop-20260731-173500.md`. H3 was not started;
+no combat behavior, error-text, F3-F6, or production-network change landed.
+The H2 staged-byte manifest is
+`live-runs/manifests/H2-20260731-173500.sha256`.

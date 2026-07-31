@@ -1,0 +1,15 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\H2-wild-control-archived-20260731-171000.txt
+1,PASS,gm .gm on
+2,PASS,gm .help go creature
+3,PASS,gm .go creature 45551
+4,PASS,wait 3
+5,PASS,wire-trace start path=dumps/wire-20260731-164508.wlog
+6,PASS,select wild-entry:121 guid=0xF13000007900B1EF
+7,PASS,trace start H2-wild-archived-entry121-20260731-171000
+8,PASS,attack start
+9,PASS,wait 2
+10,PASS,attack stop
+11,PASS,wait 0.2
+12,PASS,trace stop
+13,PASS,wire-trace stop

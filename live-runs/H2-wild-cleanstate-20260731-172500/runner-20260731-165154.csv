@@ -1,0 +1,19 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\H2-wild-control-cleanstate-20260731-172500.txt
+1,PASS,gm .gm on
+2,PASS,gm .go creature 45551
+3,PASS,wait 3
+4,PASS,wire-trace start path=dumps/wire-20260731-165157.wlog
+5,PASS,select wild-entry:121 guid=0xF13000007900B1EF
+6,PASS,gm .combatstop
+7,PASS,gm .gm off
+8,PASS,wait 1
+9,PASS,gm .npc info
+10,PASS,wait 1
+11,PASS,trace start H2-wild-cleanstate-entry121-20260731-172500
+12,PASS,attack start
+13,PASS,wait 2
+14,PASS,attack stop
+15,PASS,wait 0.2
+16,PASS,trace stop
+17,PASS,wire-trace stop

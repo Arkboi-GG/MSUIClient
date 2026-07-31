@@ -1,0 +1,27 @@
+gm .gm on
+wire-trace start
+select wild-hostile:1
+trace start H2-wild-object-store-20260731-170000
+attack start
+wait 2
+attack stop
+wait 0.2
+trace stop
+gm .npc spawn add 6
+wait 0.2
+select spawn:1
+assert within3=true
+gm .npc set level 60
+gm .npc set reactstate 0
+gm .npc info
+wait 1
+trace start H2-spawn-object-store-20260731-170000
+attack start
+wait 2
+attack stop
+wait 0.2
+trace stop
+wire-trace stop
+gm .npc spawn delete
+wait 1
+waitgone spawn:1

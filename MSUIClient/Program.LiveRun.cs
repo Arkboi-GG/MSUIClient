@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text.Json;
 using MSUIClient.Engine;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -131,7 +132,11 @@ public sealed partial class GameLoop
                 case "select":
                     RefreshLiveSpawnIdentities();
                     int ordinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
-                    ulong guid=LiveSpawnGuid(ordinal);
+                    bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
+                    bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
+                    bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
+                    ulong guid=wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
+                        wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
                     if(guid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
                     {
                         if(_liveSelectWaitStarted==0) _liveSelectWaitStarted=now;
@@ -180,6 +185,51 @@ public sealed partial class GameLoop
             .Where(x=>x.Event=="SpawnObserved").Select(x=>x.TargetGuid).Distinct().ToArray();
         if(ordinal>0&&ordinal<=observed.Length) return observed[ordinal-1];
         return ordinal>0&&ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
+    }
+    private ulong LiveWildGuid(int ordinal)
+    {
+        if(_controller is null||ordinal<=0) return 0;
+        var candidates=_entities.Units
+            .Where(x=>x.IsCreature&&!_liveSpawnGuids.Contains(x.Guid))
+            .Select(x=>(Unit:x,Distance:Vector3.Distance(x.Position,_controller.Position)))
+            .OrderBy(x=>x.Unit.Guid).ToList();
+        if(ordinal>candidates.Count) return 0;
+        var selected=candidates[ordinal-1];
+        EmitCombat("WildObserved","pre-existing-object-store",selected.Unit.Guid,
+            $"entry={selected.Unit.Fields.Entry};distance={selected.Distance:R};"+
+            $"faction={selected.Unit.Fields.FactionTemplate};flags=0x{selected.Unit.Fields.UnitFlags:X8};position="+
+            $"{selected.Unit.Position.X:R}|{selected.Unit.Position.Y:R}|{selected.Unit.Position.Z:R}");
+        return selected.Unit.Guid;
+    }
+    private ulong LiveWildEntryGuid(int entry)
+    {
+        if(_controller is null||entry<=0) return 0;
+        WorldEntity? selected=_entities.Units
+            .Where(x=>x.IsCreature&&!_liveSpawnGuids.Contains(x.Guid)&&x.Entry==(uint)entry)
+            .OrderBy(x=>x.Guid).FirstOrDefault();
+        if(selected is null) return 0;
+        float distance=Vector3.Distance(selected.Position,_controller.Position);
+        EmitCombat("WildObserved","pre-existing-object-store-entry-control",selected.Guid,
+            $"entry={selected.Fields.Entry};distance={distance:R};faction={selected.Fields.FactionTemplate};"+
+            $"flags=0x{selected.Fields.UnitFlags:X8};position="+
+            $"{selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
+        return selected.Guid;
+    }
+    private ulong LiveWildHostileGuid(int ordinal)
+    {
+        if(_controller is null||ordinal<=0) return 0;
+        var candidates=_entities.Units
+            .Where(x=>x.IsCreature&&!_liveSpawnGuids.Contains(x.Guid)&&!x.IsDead&&
+                x.Fields.UnitFlags==0&&ReactionPlayerToward(x)==FactionReaction.Hostile)
+            .Select(x=>(Unit:x,Distance:Vector3.Distance(x.Position,_controller.Position)))
+            .OrderBy(x=>x.Distance).ThenBy(x=>x.Unit.Guid).ToList();
+        if(ordinal>candidates.Count) return 0;
+        var selected=candidates[ordinal-1];
+        EmitCombat("WildObserved","pre-existing-object-store-hostile",selected.Unit.Guid,
+            $"entry={selected.Unit.Fields.Entry};distance={selected.Distance:R};faction={selected.Unit.Fields.FactionTemplate};"+
+            $"reaction=Hostile;flags=0x{selected.Unit.Fields.UnitFlags:X8};position="+
+            $"{selected.Unit.Position.X:R}|{selected.Unit.Position.Y:R}|{selected.Unit.Position.Z:R}");
+        return selected.Unit.Guid;
     }
     private void RefreshLiveSpawnIdentities()
     {
