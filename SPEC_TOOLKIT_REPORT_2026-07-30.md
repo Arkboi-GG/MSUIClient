@@ -1611,3 +1611,15 @@ effectively binds exactly `Character\Human\Hair02_09.blp` from `texture.MPQ`.
 The full sweep completed 6,939/6,939 with 64,650 stable row keys and zero
 unexpected blanks. Standard gates pass with only the pre-existing CA2014
 warning. W3 is self-ruled accepted.
+
+### W4 authority - type-1 head-region row keys
+
+`variant-batch/baseline/npc-extras/cohort-7c2a.keys` is generated from the
+committed baseline query `textureType=1 AND region IN (hair-scalp, ears)`.
+It contains 8,889 distinct row keys across 5,898 specimens. Adding the
+independent requirement that `predicted7C2Texture` begin with
+`composite://npc-bare/` produces the identical set, with zero keys unique to
+either query. Of the authority rows, 8,884 currently resolve from
+`Textures\BakedNpcTextures\...`; five resolve from the bare race/sex fallback
+skin because no baked texture won. No rows were excluded for that source
+deviation: the complete committed head-region key set is W4 authority.
