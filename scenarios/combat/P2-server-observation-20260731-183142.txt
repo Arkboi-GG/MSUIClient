@@ -1,0 +1,24 @@
+move-trace start P2-server-observation-position-20260731-183142
+gm .gm off
+wait 0.5
+gm .gm
+wait 0.5
+gm .npc spawn add 6
+wait 0.1
+select spawn:1
+assert within3=true
+wire-trace start
+trace start P2-server-observation-20260731-183142
+attack start
+wait 3
+attack stop
+wait 0.1
+trace stop
+wire-trace stop
+move-trace stop
+gm .gm on
+wait 0.5
+gm .npc spawn delete
+wait 0.5
+waitgone spawn:1
+gm .gm off

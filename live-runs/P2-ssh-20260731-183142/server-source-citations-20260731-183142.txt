@@ -1,0 +1,24 @@
+Deployed VMaNGOS revision: d7779aee9d43113e78c078b54daef89946be0b1a
+Read-only checkout: /home/wowvmangos/vmangos
+
+src/game/Server/Protocol/Opcodes.cpp:398-401
+  CMSG_SET_SELECTION and CMSG_ATTACKSWING are STATUS_LOGGEDIN,
+  PACKET_PROCESS_SPELLS handlers.
+
+src/game/Server/WorldSession.cpp:520-588
+  Normal STATUS_LOGGEDIN packets execute at line 546 without an admission log.
+  Debug/error lines exist for unexpected, unhandled, or wrong-status packets,
+  none of which appeared in the bounded capture.
+
+src/game/Handlers/CombatHandler.cpp:32-62
+  HandleAttackSwingOpcode checks type, lookup, friendly/flags, and alive state,
+  then calls Unit::Attack. The normal entry has no log statement.
+
+src/game/Objects/Unit.cpp:4721-4780
+  Unit::Attack has unlogged false returns for self/deleted/dead/out-of-world,
+  mounted attacker, GM victim, evading creature, and already-attacking state.
+
+src/game/Commands/ServerCommands.cpp:530-587
+  Log filters are selected by literal name; log-level mutation changes the
+  console level only. This is why the accepted bounded commands were
+  `server log filter combat on|off` and `server log level 3|2`.

@@ -39,6 +39,7 @@ _wowee_ref/
 # Per-machine paths. client-config.json.example is committed instead, so
 # a fresh clone has a template without carrying anyone's local layout.
 client-config.json
+local-credentials/
 
 # Per-user preferences written by the settings modal (Escape). Taste, not
 # wiring: it holds view distance, clutter density, water look and any named

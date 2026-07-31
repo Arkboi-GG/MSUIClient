@@ -1,0 +1,39 @@
+SPEC-21 P2 bounded server-console search
+capture=server-console-20260731-183142.txt
+deployedRevision=d7779aee9d43113e78c078b54daef89946be0b1a
+
+positive controls in capture:
+Console log level: 2 File log level: 2 = present at line 56
+combat = off = present at line 68
+Console log level set to 3 = present at line 73
+combat = on = present at line 74
+account-1 character enumeration = present at lines 7674-7682
+combat = off after capture = present at line 29423
+Console log level set to 2 = present at line 29424
+Console log level: 2 File log level: 2 after capture = present at line 29425
+
+required admission searches:
+CMSG_ATTACKSWING=0
+ATTACKSWING=0
+HandleAttackSwing=0
+received opcode=0
+opcode 0x0141=0
+opcode 321=0
+
+client-side controls in verdicts-20260731-183229.txt:
+AttackPrecondition=1
+AttackSwingSend=1
+IntentOn=1
+AttackError=0
+
+The two AttackStartReceive rows are foreign creature combat. Their attacker is
+0xF13000066A01384C, while the proven player GUID in AttackPrecondition is
+0x0000000000000001. They are not evidence that the player's swing was accepted.
+
+VERBATIM NEGATIVE RESULT:
+At console log level 3 with LogFilter_Combat ON, the complete bounded mangosd
+console window contains no CMSG_ATTACKSWING receive, dispatch, opcode, or
+HandleAttackSwing admission line for TEST. The deployed normal logged-in
+dispatch and attack handler contain no unconditional admission log, so this
+capture cannot distinguish pre-handler loss from normal dispatch followed by
+an unlogged silent predicate.

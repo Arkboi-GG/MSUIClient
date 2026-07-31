@@ -177,13 +177,27 @@ The external deployment exposes Remote Administration on the configured LAN
 host, port 3443. `tools/vmangos-ra` reads the dedicated TEST account and
 password from the gitignored client config at runtime, redacts both from its
 run-dated transcript, and sends console commands without storing credentials.
-SOAP port 7878 is closed. SSH identity `wowvmangos@192.168.0.2` currently lacks
-a usable non-interactive credential.
+SOAP port 7878 is closed. SSH uses the dedicated ED25519 identity stored only
+under the ignored `MSUIClient/local-credentials/` directory. Its fingerprint is
+`SHA256:nu7SKMUP8+hBTglZCMgQzHwiui968yVgyF1VUK+gUdc`. The public key is installed
+for `wowvmangos@192.168.0.2`; key-only batch authentication was confirmed before
+diagnostic work continued. The bootstrap password was entered interactively for
+installation, was never stored or printed, and is no longer used. Rotate that
+password now that key access is established.
 
 For bounded diagnostics, query and preserve the original state with
-`server log level` and `server log filter`. On this server, `server log level
-3` changes the console sink only; it leaves the file level unchanged. Restore
-the observed values after every capture. SPEC-21 P2 observed and restored
-console/file levels `2/2` and combat filter `off`. RA does not relay live
-mangosd process log output, so Linux log access is still required for handler
-tracing.
+`server log level` and `server log filter`. Filters are addressed by name on
+this build: use `server log filter combat on|off`, not a numeric index. On this
+server, `server log level 3` changes the console sink only; it leaves the file
+level unchanged. Restore the observed values after every capture. SPEC-21 P2
+observed and restored console/file levels `2/2` and combat filter `off`.
+
+The deployed world process is
+`/home/wowvmangos/vmangos/run/bin/mangosd`, working in the same directory and
+running as detached screen session `mangosd`. Its config is
+`/home/wowvmangos/vmangos/run/etc/mangosd.conf`; `LogsDir = ""`, so `Server.log`
+and the other configured logs sit beside the binary. The process console is
+`/dev/pts/1`. Bounded console captures use screen's temporary logging, never a
+server restart or persistent config edit. The deployed source checkout was
+read-only at revision `d7779aee9d43113e78c078b54daef89946be0b1a` with a clean
+status. No database query or write was made during the SSH setup or P2 resume.

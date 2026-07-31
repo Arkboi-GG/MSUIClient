@@ -3438,3 +3438,45 @@ The detailed access request and actual-versus-predicted packet are in
 behavior, error display, server code, database, or F3-F6 change was made.
 
 All four stage-boundary gates passed.
+
+## P2 resumed — SSH console capture negative-evidence hard stop
+
+Dedicated ED25519 key access to `wowvmangos@192.168.0.2` is operational. The
+fingerprint and setup shape are recorded in `SETUP.md`; password use ceased as
+soon as key-only authentication passed, and rotation is recommended. No secret
+was printed, stored, traced, or committed.
+
+The deployed server checkout is clean at
+`d7779aee9d43113e78c078b54daef89946be0b1a`. The accepted bounded run confirmed
+console/file `2/2` and combat OFF, set console 3 and the named `combat` filter
+ON, ran one zero-failure GM-OFF `TEST` attack at 0 yd against an alive,
+descriptor-proven spawn, and restored/reconfirmed `2/2` plus combat OFF.
+
+```text
+PREDICTED: debug console names receive/dispatch/attack-handler admission for TEST
+ACTUAL: one client AttackPrecondition + one CMSG_ATTACKSWING send;
+        zero CMSG_ATTACKSWING, ATTACKSWING, HandleAttackSwing, received-opcode,
+        opcode-0x0141, or opcode-321 lines in the full server console window
+RESULT: P2 negative-evidence HARD STOP; P3 and P4 NOT STARTED
+```
+
+The two attack-start rows in the client verdict are foreign creature combat:
+attacker `0xF13000066A01384C`, not player GUID `0x0000000000000001`. The deployed
+normal dispatch path (`WorldSession.cpp:520-588`) and handler
+(`CombatHandler.cpp:32-62`) have no unconditional admission logging, while
+`Unit::Attack` (`Unit.cpp:4721-4780`) retains unlogged false returns. The allowed
+logging depth therefore cannot distinguish pre-handler loss from normal
+dispatch plus a silent predicate. A new signed order must authorize any deeper
+server instrumentation.
+
+The prior numeric filter syntax is corrected: this build requires
+`server log filter combat on|off`. The accepted run proves ON before the attack
+and OFF after restoration. No server code, database, persistent config, combat
+behavior, error display, or F3-F6 change was made. Full evidence is in
+`live-runs/P2-ssh-hard-stop-20260731-184000.md` and
+`live-runs/P2-ssh-20260731-183142/`.
+
+All four boundary gates passed: Debug build with 0 warnings/errors, combat wire
+foundation, portrait camera (10534 specimens; 1224/1289/56 controls), and
+movement audit check. A first parallel check launch collided in a shared
+generated Release file; the uncontended sequential rerun passed in full.
