@@ -155,25 +155,22 @@ gets specced against a verified foundation.
 
 ## Session 2 - variant fixes
 
-Run this after reviewing the unattended 7C stop result. The accepted tree does
-not contain the rejected W2 candidate or its dependent hair fixes, so checks
-V1 and V2 are expected to remain red until the 2,698-vs-3,535 cohort ruling is
-resolved. Record what the live client actually shows; do not mark an expected
-failure as a pass.
+Run this against the accepted post-7C tree. Record what the live client
+actually shows; the offline sweeps are green, but these checks supply the first
+in-world confirmation.
 
 **V1. Willem, Northshire.** Find Deputy Willem (display 2072 / extra 675). Is
 his authored Stormwind plate helm visibly mounted, without changing his face
 or scalp texture?
-> BLOCKED BY W2: candidate mounted him, but the full cohort was 3,535 instead
-> of the immutable predicted 2,698, so that implementation was rejected and
-> removed. Accepted-tree expectation: not helmeted.
+> Expect: helmet visibly mounted and fitted; face/scalp remain correctly
+> textured. Paste the Willem Portrait Lab specimen id/model/verdict triple.
 
 **V2. Dressed humanoid NPC hair.** Check several merchants or guards with
 authored clothing and visible hair. Is the hair/scalp supplied by a real
 `Character\\...\\Hair*.blp`, with no clothing texture or black chunks on the
 head?
-> BLOCKED BY W2 -> W3/W4: the 5,114-specimen type-6 hair fix and npc-bare head
-> composite were not run. Accepted-tree expectation: known failures remain.
+> Expect: real hair colour/texture with no clothing-atlas bleed and no black
+> chunks. Check at least one Human and one non-Human dressed NPC.
 
 **V3. Portrait Lab cycle.** Open Portrait Lab in Specimen mode and press `]`
 through at least ten humanoids. Use the new copy controls to paste one active
@@ -184,5 +181,6 @@ override key, one latest portrait verdict, and one specimen id/model pair.
 race/sex/customization combinations. Record any creation-vs-render mismatch.
 The offline W6 baseline is 634/634 Ready, but 359 specimens encounter a
 duplicate `CharSections` key; their exact file-order winners are the proposed
-7C-3 protocol, not yet a renderer fix.
+7C-3 protocol, not yet a renderer fix. Do not fold any observation here into
+7C-1/2 acceptance; 7C-3 remains queued for its own ruling.
 >
