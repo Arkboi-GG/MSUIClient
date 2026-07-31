@@ -2838,3 +2838,16 @@ SHA256: b285d57019a2e4e4ed9c48022358e64adf11622d6790d7d20816cb8214dccd4d
 No Nico character was logged in or altered. This runner failure is evidence,
 not a blocker to implementing later independent stages. A0 manifest:
 `live-runs/manifests/A0-20260731-141241.sha256`.
+
+## A1 - live protocol runner
+
+The SPEC-13 input player now accepts live protocol steps for `gm`, deterministic
+`select spawn:N`, `attack start|stop`, `wait`, `waitfor`, `assert`, `dump`,
+`trace start|stop`, and the existing `press`/`release` movement primitives.
+Selection and attack call `CommitSelection`/`StopAttack`; GM calls the C0 send
+method; movement feeds the same `MovementInput` override used by SPEC-13.
+Failures are logged and execution advances where safe. Completion writes a
+run-dated runner CSV and complete verdict-ring dump.
+
+No live execution was attempted with the non-TEST config. A1 manifest:
+`live-runs/manifests/A1-20260731-141425.sha256`.

@@ -121,7 +121,14 @@ public sealed partial class GameLoop
 
     private void OverrideMovementInput(ref float forward, ref float strafe, ref float turn, ref bool shift, ref bool jump)
     {
-        if (_movementScript is null) return;
+        if (_movementScript is null)
+        {
+            if (_liveHeld.Count == 0) return;
+            forward = (_liveHeld.Contains("W") ? 1 : 0) - (_liveHeld.Contains("S") ? 1 : 0);
+            strafe = (_liveHeld.Contains("STRAFE-RIGHT") ? 1 : 0) - (_liveHeld.Contains("STRAFE-LEFT") ? 1 : 0);
+            turn = (_liveHeld.Contains("TURN-LEFT") ? 1 : 0) - (_liveHeld.Contains("TURN-RIGHT") ? 1 : 0);
+            shift = _liveHeld.Contains("SHIFT"); jump = _liveHeld.Contains("SPACE"); return;
+        }
         while (_movementEdgeIndex < _movementScript.Edges.Count && _movementScript.Edges[_movementEdgeIndex].Time <= _movementScriptTime + 1e-7)
         {
             ScriptEdge e = _movementScript.Edges[_movementEdgeIndex++];
