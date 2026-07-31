@@ -2537,3 +2537,96 @@ no claim of observing that branch is made here.
 
 S4 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## S5 - dated movement rebaseline and close-out (HARD STOP)
+
+The pre-F1/F2 traces and their S2 verdicts are frozen under
+`movement-scenarios/history/2026-07-31-pre-F1-F2/`. The canonical baseline is
+the post-F1-observability/post-F2 set; `move-audit-check` now enforces
+hardCuts=0. Session 3 was appended to `CHECKS_GAMEPLAY.md` with paste slots for
+start/stop, turns, strafe/diagonal, jump bracket, and landing blend.
+
+```text
+PREDICTED history specimens: 8 traces + 8 verdict CSVs
+ACTUAL history specimens: 8 traces + 8 verdict CSVs
+PREDICTED canonical hardCuts: 0
+ACTUAL canonical hardCuts: 0
+PREDICTED kinematic changes: 0
+ACTUAL: every kinematic value remains byte-identical; only animation/trace
+  observability columns and F2 clip selections differ
+PREDICTED standard gate: green
+ACTUAL standard gate: green
+```
+
+### Full before/after audit table
+
+“Before” is the dated pre-F1/F2 history; “after” is the canonical baseline.
+The final column is the post-fix vanilla-law result.
+
+| Scenario | Metric | Before measured/result | After measured/result | Law |
+|---|---|---|---|---|
+| backpedal | maxSpeed | 4.5 / PASS | 4.5 / PASS | PASS |
+| backpedal | stopDistance | 0 / PASS | 0 / PASS | PASS |
+| backpedal | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| backpedal | hardCuts | 1 / PASS | 0 / PASS | PASS |
+| backpedal | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| diagonal | maxSpeed | 7 / PASS | 7 / PASS | PASS |
+| diagonal | stopDistance | 0 / PASS | 0 / PASS | PASS |
+| diagonal | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| diagonal | hardCuts | 1 / PASS | 0 / PASS | PASS |
+| diagonal | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| jump-flat | maxSpeed | 7 / PASS | 7 / PASS | PASS |
+| jump-flat | jumpApexHeight | 1.574730 / PASS | 1.574730 / PASS | PASS |
+| jump-flat | jumpApexTime | 0.383333 / PASS | 0.383333 / PASS | PASS |
+| jump-flat | jumpAirtime | 0.816667 / PASS | 0.816667 / PASS | PASS |
+| jump-flat | gravity | 19.291103 / N/A | 19.291103 / N/A | PASS |
+| jump-flat | jumpVelocity | 7.955800 / N/A | 7.955800 / N/A | PASS |
+| jump-flat | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| jump-flat | hardCuts | 6 / PASS | 0 / PASS | PASS |
+| jump-flat | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| jump-standing | jumpApexHeight | 1.574730 / PASS | 1.574730 / PASS | PASS |
+| jump-standing | jumpApexTime | 0.383333 / PASS | 0.383333 / PASS | PASS |
+| jump-standing | jumpAirtime | 0.800000 / PASS | 0.800000 / PASS | PASS |
+| jump-standing | gravity | 19.291112 / N/A | 19.291112 / N/A | PASS |
+| jump-standing | jumpVelocity | 7.955800 / N/A | 7.955800 / N/A | PASS |
+| jump-standing | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| jump-standing | hardCuts | 4 / PASS | 0 / PASS | PASS |
+| jump-standing | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| run-start-stop | maxSpeed | 7 / PASS | 7 / PASS | PASS |
+| run-start-stop | stopDistance | 0 / PASS | 0 / PASS | PASS |
+| run-start-stop | startDisplacementTicks | 1 / PASS | 1 / PASS | PASS |
+| run-start-stop | startClipLatencyMs | 0 / PASS | 0 / PASS | PASS |
+| run-start-stop | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| run-start-stop | hardCuts | 2 / PASS | 0 / PASS | PASS |
+| run-start-stop | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| strafe-pure | maxSpeed | 7 / PASS | 7 / PASS | PASS |
+| strafe-pure | stopDistance | 0 / PASS | 0 / PASS | PASS |
+| strafe-pure | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| strafe-pure | hardCuts | 2 / PASS | 0 / PASS | PASS |
+| strafe-pure | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| turn-moving | maxSpeed | 7.000001 / PASS | 7.000001 / PASS | PASS |
+| turn-moving | turnRate | 2.356214 / PASS | 2.356214 / PASS | PASS |
+| turn-moving | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| turn-moving | hardCuts | 1 / PASS | 0 / PASS | PASS |
+| turn-moving | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+| turn-standing | turnRate | 3.141604 / PASS | 3.141604 / PASS | PASS |
+| turn-standing | stallWindows | 0 / PASS | 0 / PASS | PASS |
+| turn-standing | hardCuts | 1 / PASS | 0 / PASS | PASS |
+| turn-standing | substitutedEvents | 0 / PASS | 0 / PASS | PASS |
+
+### F3-F6 coverage packet for Nico's terrain input
+
+| Deferred item | Required next-order coverage | Nico input needed |
+|---|---|---|
+| F3 server speed changes | Connected script/GM action for FORCE_RUN_SPEED_CHANGE and FORCE_RUN_BACK_SPEED_CHANGE; trace receipt, applied controller speed, ACK opcode, displacement/rate rows, restoration. | Confirm usable GM commands/account and whether the test realm can safely alter the test character's speeds. |
+| F4 step/slope | Committed `movement-stair-slope-course` vantage; scripts for sub/at/over 0.7 yd steps and 49/50/51-degree ramps; traversal, ground-source, slide and penetration rows. | Name a stable existing Northshire/GM-spawned course or authorize a synthetic local collision fixture in a new order. |
+| F5 swim | Water vantage with known surface/bottom; forward/back, pitch-up/down, entry/exit and jump-from-water scripts; 3D speed, flags, vertical travel and swim clip rows. | Name a stable water site/depth ladder and confirm whether server swim flags are available offline or require the realm. |
+| F6 capsule sweep | Collision course containing wall glances, fence rails, inside/outside corners and a narrow doorway; contact/penetration/slide-distance rows at multiple approach angles. | Name suitable static geometry or authorize a synthetic local collision fixture; provide the target capsule law if server collision height should override config. |
+
+F3-F6 remain unstarted and untouched.
+
+S5 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check with hardCuts=0.
+
+**HARD STOP — SPEC-14 is complete. Nico's terrain/realm coverage ruling is
+required before any F3-F6 implementation or additional movement diagnosis.**

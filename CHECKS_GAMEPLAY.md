@@ -192,3 +192,39 @@ The offline W6 baseline is 634/634 Ready, but 359 specimens encounter a
 duplicate `CharSections` key; their exact file-order winners are the proposed
 7C-3 protocol, not yet a renderer fix. It remains queued for its own ruling.
 >
+
+---
+
+## Session 3 - movement feel after F1/F2
+
+Run on the post-SPEC-14 tree at normal frame rate. The automated fixed-step
+gate is green; these checks are the human feel/visual half and do not authorize
+F3-F6.
+
+**M1. Start and stop.** From idle, press W for several seconds and release.
+Does Run begin immediately, cross-fade without a pose pop, and stop sharply
+without foot sliding or a Stand latch? Paste the relevant `[verdict:move]`
+transition lines.
+>
+
+**M2. Standing and moving turns.** Turn left while planted, then repeat while
+running. Does the planted body use the shuffle/frozen chase naturally, and does
+the moving circle feel slower (0.75 of the standing turn rate)? Paste both
+turn-rate audit rows or note the visible failure.
+>
+
+**M3. Pure strafe and diagonal.** Hold Q, then E, then W+E and S+E. Does the
+body remain approximately +/-90 degrees from aim during pure strafe, with no
+sqrt(2) speed surge or gait pop on the diagonal reversal?
+>
+
+**M4. Jump arc and bracket.** Jump standing and while running. Does JumpStart
+play immediately, with the same physical arc as before and no visible hang or
+premature Fall pose? Paste the 37-to-landing transition sequence.
+>
+
+**M5. Landing blend.** Watch feet/hips at touchdown in both jumps. Does the
+standing jump blend into 39 and the running jump into 187 without a landing
+pop? A failure here reopens F1/F2 with the pasted sequence; it does not
+authorize terrain, swim, speed-wire, or collision work.
+>
