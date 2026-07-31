@@ -1,7 +1,7 @@
 # Autonomous CB1-CB7; all actions use runner/user paths.
 gm .gm on
-gm .npc add 6
-gm .npc add 6
+gm .npc spawn add 6
+gm .npc spawn add 6
 wait 2
 select spawn:1
 trace start CB1-stationary

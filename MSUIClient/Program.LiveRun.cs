@@ -53,6 +53,7 @@ public sealed partial class GameLoop
     private string _liveStamp = "";
     private readonly List<ulong> _liveSpawnGuids = [];
     private HashSet<ulong>? _liveSpawnBefore;
+    private double _liveSelectWaitStarted;
     public int LiveRunExitCode { get; private set; } = 1;
 
     private void AdvanceLiveRun(float dt)
@@ -119,7 +120,7 @@ public sealed partial class GameLoop
             switch(p[0].ToLowerInvariant())
             {
                 case "gm":
-                    if(line[3..].StartsWith(".npc add",StringComparison.OrdinalIgnoreCase))
+                    if(line[3..].StartsWith(".npc spawn add",StringComparison.OrdinalIgnoreCase))
                         _liveSpawnBefore=_entities.Units.Where(x=>x.IsCreature).Select(x=>x.Guid).ToHashSet();
                     Log(SendGmCommand(line[3..],"protocol-runner"),line); break;
                 case "wait": _liveWaitUntil=now+double.Parse(p[1],CultureInfo.InvariantCulture); Log(true,line); break;
@@ -130,7 +131,14 @@ public sealed partial class GameLoop
                 case "select":
                     RefreshLiveSpawnIdentities();
                     int ordinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
-                    ulong guid=ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
+                    ulong guid=LiveSpawnGuid(ordinal);
+                    if(guid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
+                    {
+                        if(_liveSelectWaitStarted==0) _liveSelectWaitStarted=now;
+                        _liveWaitUntil=now+0.05;
+                        return;
+                    }
+                    _liveSelectWaitStarted=0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
                 case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
@@ -140,9 +148,16 @@ public sealed partial class GameLoop
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "waitdeath":
                     int deathOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
-                    ulong deathGuid=deathOrdinal<=_liveSpawnGuids.Count?_liveSpawnGuids[deathOrdinal-1]:_selectionGuid;
+                    ulong deathGuid=LiveSpawnGuid(deathOrdinal);
+                    if(deathGuid==0) deathGuid=_selectionGuid;
                     bool dead=_entities.TryGet(deathGuid,out WorldEntity victim)&&victim.IsDead;
                     Log(dead,$"{line} guid=0x{deathGuid:X16} health={(dead?0:victim?.Fields.Health??0)}"); break;
+                case "waitgone":
+                    int goneOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    ulong goneGuid=LiveSpawnGuid(goneOrdinal);
+                    if(goneGuid==0) goneGuid=_selectionGuid;
+                    bool gone=goneGuid!=0&&!_entities.TryGet(goneGuid,out _);
+                    Log(gone,$"{line} guid=0x{goneGuid:X16} descriptorPresent={!gone}"); break;
                 default: Log(false,$"unknown {line}"); break;
             }
         }
@@ -151,20 +166,31 @@ public sealed partial class GameLoop
     }
 
     private IEnumerable<string> VerdictLines()=>_verdicts.SnapshotAll().Select(v=>$"[{v.Channel}] {v.ToLine()}");
+
+    private ulong LiveSpawnGuid(int ordinal)
+    {
+        // SpawnObserved is the authoritative identity assertion. Resolve from
+        // the verdict ring as well as the cache so a descriptor that lands at a
+        // protocol-step boundary cannot be lost to ordering between refreshes.
+        ulong[] observed=_verdicts.Snapshot("combat").OfType<CombatVerdict>()
+            .Where(x=>x.Event=="SpawnObserved").Select(x=>x.TargetGuid).Distinct().ToArray();
+        if(ordinal>0&&ordinal<=observed.Length) return observed[ordinal-1];
+        return ordinal>0&&ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
+    }
     private void RefreshLiveSpawnIdentities()
     {
         if (_liveSpawnBefore is null || _controller is null) return;
         var appeared=_entities.Units
             .Where(x=>x.IsCreature&&!_liveSpawnBefore.Contains(x.Guid))
             .Select(x=>(Unit:x,Distance:Vector3.Distance(x.Position,_controller.Position)))
-            .Where(x=>x.Distance<=3f)
             .OrderBy(x=>x.Distance).ThenBy(x=>x.Unit.Guid).ToList();
         foreach(var candidate in appeared)
         {
             if(_liveSpawnGuids.Contains(candidate.Unit.Guid)) continue;
             _liveSpawnGuids.Add(candidate.Unit.Guid);
             EmitCombat("SpawnObserved","post-command-entity-delta",candidate.Unit.Guid,
-                $"entry={candidate.Unit.Fields.Entry};distance={candidate.Distance:R};position="+
+                $"entry={candidate.Unit.Fields.Entry};distance={candidate.Distance:R};"+
+                $"within3={(candidate.Distance<=3f).ToString().ToLowerInvariant()};position="+
                 $"{candidate.Unit.Position.X:R}|{candidate.Unit.Position.Y:R}|{candidate.Unit.Position.Z:R}");
         }
         if(appeared.Count>0) _liveSpawnBefore=null;
@@ -173,12 +199,6 @@ public sealed partial class GameLoop
     private void Log(bool pass,string text)
     {
         RefreshLiveSpawnIdentities();
-        foreach(string line in VerdictLines().Where(x=>x.Contains("event=GmChatResponse")))
-        {
-            var match=System.Text.RegularExpressions.Regex.Match(line,@"0x[0-9A-Fa-f]{8,16}");
-            if(match.Success&&ulong.TryParse(match.Value[2..],NumberStyles.HexNumber,CultureInfo.InvariantCulture,out ulong guid)&&!_liveSpawnGuids.Contains(guid))
-                _liveSpawnGuids.Add(guid);
-        }
         string entry=$"{_liveStep+1},{(pass?"PASS":"FAIL")},{text}"; _liveLog.Add(entry); Console.WriteLine($"[protocol] {entry}");
     }
 

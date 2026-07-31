@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T1-failed-spawn-cleanup-20260731-154400.txt
+1,PASS,gm .npc spawn delete 303725
+2,PASS,wait 2

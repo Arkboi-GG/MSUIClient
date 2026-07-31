@@ -1,6 +1,6 @@
 # VMaNGOS GM cleanup deck: target each test spawn before each delete.
 .combatstop
-.npc delete
+.npc spawn delete
 # Select the second spawned Kobold Vermin.
-.npc delete
+.npc spawn delete
 .respawn

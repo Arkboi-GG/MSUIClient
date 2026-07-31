@@ -1,0 +1,12 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T1-lifecycle-validation-20260731-153900.txt
+1,PASS,gm .npc spawn add 6
+2,PASS,wait 2
+3,FAIL,select spawn:1 guid=0x0000000000000000
+4,PASS,assert SpawnObserved
+5,PASS,gm .npc info
+6,PASS,wait 2
+7,FAIL,assert Entry:_6
+8,PASS,gm .npc spawn delete
+9,PASS,wait 2
+10,FAIL,waitgone spawn:1 guid=0x0000000000000000 descriptorPresent=True

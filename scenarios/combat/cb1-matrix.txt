@@ -1,6 +1,6 @@
 # V-A baseline: GM on, spawn at feet.
 gm .gm on
-gm .npc add 6
+gm .npc spawn add 6
 wait 2
 select spawn:1
 trace start D1-VA-gm-on
@@ -8,10 +8,10 @@ attack start
 waitfor event=SwingReceive 10
 attack stop
 trace stop
-gm .npc delete
+gm .npc spawn delete
 # V-B only variable: GM off.
 gm .gm off
-gm .npc add 6
+gm .npc spawn add 6
 wait 2
 select spawn:2
 trace start D1-VB-gm-off
@@ -19,9 +19,9 @@ attack start
 waitfor event=SwingReceive 10
 attack stop
 trace stop
-gm .npc delete
+gm .npc spawn delete
 # V-C: GM off, start about 10 yd out then walk in while latched.
-gm .npc add 6
+gm .npc spawn add 6
 wait 2
 select spawn:3
 press S
@@ -36,9 +36,9 @@ release W
 waitfor event=SwingReceive 8
 attack stop
 trace stop
-gm .npc delete
+gm .npc spawn delete
 # V-D: GM off, in range, face 180 degrees away then turn in.
-gm .npc add 6
+gm .npc spawn add 6
 wait 2
 select spawn:4
 press turn-left
@@ -53,4 +53,4 @@ release turn-right
 waitfor event=SwingReceive 8
 attack stop
 trace stop
-gm .npc delete
+gm .npc spawn delete

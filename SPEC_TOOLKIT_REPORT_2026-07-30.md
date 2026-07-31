@@ -3167,3 +3167,32 @@ Full actual-versus-predicted detail and wire hex are in
 `live-runs/T0-teleport-acceptance-20260731-153015.md`. Standard four gates pass:
 Debug build (known CA2014 only), combat/wire, portrait-camera
 1,224 / 1,289 / 56, and move-audit-check.
+## T1 — server-specific creature lifecycle deck
+
+### Actual versus predicted
+
+The live server's `.help npc spawn` tree identified `add`, `delete`, and `info`
+as subcommands. This matches official VMaNGOS command-table bindings at
+`src/game/Chat/Chat.cpp:662-670` and the add/delete handlers at
+`src/game/Commands/CreatureCommands.cpp:928-976,1001-1046`. The actual Linux
+source checkout could not be read from Windows because no Linux credentials or
+checkout path were available; this is a provenance limitation, not silently
+represented as a disk read.
+
+The corrected lifecycle passed end to end. `.npc spawn add 6` created
+`0xF13000000604A26E` (DB GUID 303726); the client measured entry 6 at
+1.7489377 yd; `.npc info` independently returned Entry 6 / GUID 303726; and
+`.npc spawn delete` returned `Creature Removed`, followed by descriptor absence
+for the exact full GUID. Active combat decks and SETUP now use the verified
+syntax.
+
+Two failed validation iterations remain evidence: they exposed a selector
+arrival race and a cleanup-risking <=3-yard filter. Exact server-command cleanup
+removed DB GUIDs 303723, 303724, and 303725. The instrument now resolves spawn
+ordinals from `SpawnObserved`, waits boundedly for descriptors, records
+`within3` as an explicit acceptance fact, and proves cleanup through `waitgone`.
+No combat behavior changed.
+
+Full evidence is in `live-runs/T1-lifecycle-acceptance-20260731-154414.md`.
+Standard four gates pass: Debug build, combat/wire, portrait-camera
+1,224 / 1,289 / 56, and move-audit-check.
