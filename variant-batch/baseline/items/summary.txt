@@ -1,0 +1,63 @@
+axis: items
+specimens: 3944/3944
+csvRows: 3944
+Ready: 3944
+Blank: 0
+NotDrawn: 0
+Skipped: 0
+G1 blanks (unexpected): 0 (PASS)
+G3 resolution missing: 0 row(s) / 0 specimen(s) (PASS)
+G3 raw resolution missing: 26 row(s); allowlisted known issues: 26
+customContentRows: 979
+durationSeconds: 806.138
+clientGitDescribe: d719ab9-dirty
+startupPath: variant-batch-only GL + shared MPQ/DBC + real HumanMale CharacterRenderer paper-doll path
+cachePolicy: release regenerable renderer asset cache every 128 specimens
+charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis
+supplier/customContent: exact winning archive; patch-4.MPQ marks Nico custom content
+ItemDisplayInfoSupplier: patch-4.MPQ
+enumeration: SPEC 07 fallback - installed ItemDisplayInfo helm/cape field signatures
+helmSpecimens: 2718
+capeSpecimens: 1226
+mountedHelms: 2668
+unmountedHelms: 50
+boundCapes: 1226
+unboundCapes: 0
+customAssetHelms: 485
+customAssetCapes: 494
+unmountedCustomAssetRows: 0
+missingDemandSupplierMarkedCustomRows: 0 (UNBOUND rows have no supplying archive)
+knownCustomMissingDemandRows: 4
+knownIssueBucket nico-custom: uniqueRows=4 unmounted=0 missingDemand=4 failureObservations=4
+knownIssueBucket plausible-vanilla: uniqueRows=8 unmounted=8 missingDemand=8 failureObservations=16
+knownIssueBucket vanilla-junk: uniqueRows=46 unmounted=42 missingDemand=14 failureObservations=56
+
+named protocol rows:
+
+G3 missing-demand rows (first 50):
+item:helm:3862: demanded=Item\ObjectComponents\Head\Helm_Cloth_A_02Black.blp effective=UNBOUND
+item:helm:5304: demanded=Item\ObjectComponents\Head\Helm_Cloth_A_02Purple.blp effective=UNBOUND
+item:helm:5590: demanded=Item\ObjectComponents\Head\Helm_Cloth_A_02White.blp effective=UNBOUND
+item:helm:7891: demanded=Item\ObjectComponents\Head\Helm_Cloth_A_02Gray.blp effective=UNBOUND
+item:helm:15028: demanded=Item\ObjectComponents\Head\Wand_1H_Standard_A_01Gold.blp effective=UNBOUND
+item:helm:19427: demanded=Item\ObjectComponents\Head\Cape_Mage_A_01Brown.blp effective=UNBOUND
+item:helm:19430: demanded=Item\ObjectComponents\Head\Cape_Mage_A_01Brown.blp effective=UNBOUND
+item:helm:19952: demanded=Item\ObjectComponents\Head\Cape_Mage_A_01White.blp effective=UNBOUND
+item:helm:23129: demanded=Item\ObjectComponents\Head\Cape_Cloth_A_02White.blp effective=UNBOUND
+item:helm:33619: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01.blp effective=UNBOUND
+item:helm:33645: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01_Blue.blp effective=UNBOUND
+item:helm:33646: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01_Green.blp effective=UNBOUND
+item:helm:33756: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01.blp effective=UNBOUND
+item:helm:33757: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01_Blue.blp effective=UNBOUND
+item:helm:33758: demanded=Item\ObjectComponents\Head\Shoulder_Cloth_AhnQiraj_A_01_Blue.blp effective=UNBOUND
+item:helm:33785: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01.blp effective=UNBOUND
+item:helm:34003: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01_Green.blp effective=UNBOUND
+item:helm:34004: demanded=Item\ObjectComponents\Head\Helmet_AhnQiraj_A_01.blp effective=UNBOUND
+item:helm:34785: demanded=Item\ObjectComponents\Head\Shoulder_Robe_C_03BlackBlack.blp effective=UNBOUND
+item:helm:34975: demanded=Item\ObjectComponents\Head\Shoulder_Leather_B_02Black.blp effective=UNBOUND
+item:helm:34980: demanded=Item\ObjectComponents\Head\Shoulder_Leather_B_01Black.blp effective=UNBOUND
+item:helm:35176: demanded=Item\ObjectComponents\Head\Plate_RaidWarrior_C_01_Shoulder01.blp effective=UNBOUND
+item:helm:67218: demanded=Item\ObjectComponents\Head\Custom_67218_Cape_Cloth_A_02White.blp effective=UNBOUND
+item:helm:67219: demanded=Item\ObjectComponents\Head\Custom_67219_Cape_Cloth_A_02White.blp effective=UNBOUND
+item:helm:67220: demanded=Item\ObjectComponents\Head\Custom_67220_Cape_Cloth_A_02White.blp effective=UNBOUND
+item:helm:67221: demanded=Item\ObjectComponents\Head\Custom_67221_Cape_Cloth_A_02White.blp effective=UNBOUND

@@ -115,6 +115,9 @@ public sealed partial class GameLoop
     private readonly List<(string Key, byte[] Rgba, int Width, int Height)> _variantSheetCells = [];
     private readonly HashSet<string> _variantExpectedBlank = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _variantKnownBlank = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _variantItemKnownIssues = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _variantItemKnownIssueBuckets =
+        new(StringComparer.OrdinalIgnoreCase);
     private string _variantOutputDirectory = "";
     private int _variantIndex;
     private int _variantSheetIndex;
@@ -392,6 +395,27 @@ public sealed partial class GameLoop
     {
         LoadVariantBlankList("portrait-expected-blank.txt", _variantExpectedBlank);
         LoadVariantBlankList("portrait-known-blank.txt", _variantKnownBlank);
+        LoadVariantItemKnownIssues();
+    }
+
+    private void LoadVariantItemKnownIssues()
+    {
+        string path = Path.Combine(_config.RepoRoot, "variant-items-known-issues.txt");
+        if (!File.Exists(path)) return;
+        foreach (string sourceLine in File.ReadLines(path))
+        {
+            string[] parts = sourceLine.Split('#', 2);
+            string key = parts[0].Trim();
+            if (key.Length == 0) continue;
+            _variantItemKnownIssues.Add(key);
+            if (parts.Length < 2) continue;
+            foreach (string field in parts[1].Split(';'))
+            {
+                string value = field.Trim();
+                if (value.StartsWith("bucket=", StringComparison.OrdinalIgnoreCase))
+                    _variantItemKnownIssueBuckets[key] = value[7..].Trim();
+            }
+        }
     }
 
     private void LoadVariantBlankList(string fileName, HashSet<string> destination)
@@ -430,7 +454,7 @@ public sealed partial class GameLoop
             _variantIndex++;
             if (_variantIndex % 25 == 0 || _variantIndex == _variantSpecimens.Count)
             {
-                int missing = _variantRows.Count(row => row.MissingDemandedTexture);
+                int missing = MissingVariantResolutionRows();
                 Console.WriteLine($"[variant-batch] {_variantIndex}/{_variantSpecimens.Count} " +
                     $"ready={_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Ready)} " +
                     $"blank={_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Blank)} " +
@@ -767,7 +791,7 @@ public sealed partial class GameLoop
             WriteVariantDiff();
             WriteVariantSummary(incomplete, error);
             int blanks = UnexpectedVariantBlanks();
-            int missing = _variantRows.Count(row => row.MissingDemandedTexture);
+            int missing = MissingVariantResolutionRows();
             VariantBatchExitCode = incomplete ? 1 : missing > 0 ? 4 : blanks > 0 ? 3 : 0;
             Console.WriteLine($"[variant-batch] complete: " +
                 $"{_variantSpecimenResults.Count}/{_variantSpecimens.Count}, rows={_variantRows.Count}, " +
@@ -786,11 +810,18 @@ public sealed partial class GameLoop
         !_variantExpectedBlank.Contains(CreaturePortraitKey(result.Specimen.DisplayId)) &&
         !_variantKnownBlank.Contains(CreaturePortraitKey(result.Specimen.DisplayId)));
 
+    private int MissingVariantResolutionRows() => _variantRows.Count(row =>
+        row.MissingDemandedTexture && !_variantItemKnownIssues.Contains(row.RowKey));
+
     private void WriteVariantSummary(bool incomplete, string? error)
     {
         int blanks = UnexpectedVariantBlanks();
-        int missingRows = _variantRows.Count(row => row.MissingDemandedTexture);
-        int missingSpecimens = _variantRows.Where(row => row.MissingDemandedTexture)
+        int rawMissingRows = _variantRows.Count(row => row.MissingDemandedTexture);
+        int knownMissingRows = _variantRows.Count(row => row.MissingDemandedTexture &&
+            _variantItemKnownIssues.Contains(row.RowKey));
+        int missingRows = MissingVariantResolutionRows();
+        int missingSpecimens = _variantRows.Where(row => row.MissingDemandedTexture &&
+                !_variantItemKnownIssues.Contains(row.RowKey))
             .Select(row => row.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         var lines = new List<string>
         {
@@ -804,6 +835,7 @@ public sealed partial class GameLoop
             $"G1 blanks (unexpected): {blanks} ({(blanks == 0 ? "PASS" : "FAIL")})",
             $"G3 resolution missing: {missingRows} row(s) / {missingSpecimens} specimen(s) " +
                 $"({(missingRows == 0 ? "PASS" : "FAIL")})",
+            $"G3 raw resolution missing: {rawMissingRows} row(s); allowlisted known issues: {knownMissingRows}",
             $"customContentRows: {_variantRows.Count(row => row.CustomContent)}",
             $"durationSeconds: {_variantClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",
             $"clientGitDescribe: {TryGitDescribe()}",
@@ -827,7 +859,26 @@ public sealed partial class GameLoop
             lines.Add($"customAssetHelms: {_variantRows.Count(row => row.Region == "helm" && row.CustomContent)}");
             lines.Add($"customAssetCapes: {_variantRows.Count(row => row.Region == "cape" && row.CustomContent)}");
             lines.Add($"unmountedCustomAssetRows: {_variantRows.Count(row => row.AttachmentStatus == "not-mounted" && row.CustomContent)}");
-            lines.Add($"missingDemandCustomAssetRows: {_variantRows.Count(row => row.MissingDemandedTexture && row.CustomContent)}");
+            lines.Add($"missingDemandSupplierMarkedCustomRows: {_variantRows.Count(row => row.MissingDemandedTexture && row.CustomContent)} " +
+                "(UNBOUND rows have no supplying archive)");
+            lines.Add($"knownCustomMissingDemandRows: {_variantRows.Count(row =>
+                row.MissingDemandedTexture && _variantItemKnownIssueBuckets.TryGetValue(row.RowKey, out string? bucket) &&
+                bucket.Equals("nico-custom", StringComparison.OrdinalIgnoreCase))}");
+            foreach (string bucket in _variantItemKnownIssueBuckets.Values
+                         .Distinct(StringComparer.OrdinalIgnoreCase)
+                         .OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+            {
+                HashSet<string> keys = _variantItemKnownIssueBuckets
+                    .Where(pair => pair.Value.Equals(bucket, StringComparison.OrdinalIgnoreCase))
+                    .Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                int unique = _variantRows.Count(row => keys.Contains(row.RowKey));
+                int unmounted = _variantRows.Count(row => keys.Contains(row.RowKey) &&
+                    row.AttachmentStatus == "not-mounted");
+                int unresolved = _variantRows.Count(row => keys.Contains(row.RowKey) &&
+                    row.MissingDemandedTexture);
+                lines.Add($"knownIssueBucket {bucket}: uniqueRows={unique} unmounted={unmounted} " +
+                    $"missingDemand={unresolved} failureObservations={unmounted + unresolved}");
+            }
         }
         if (incomplete) lines.Add($"incomplete: {error ?? "unknown error"}");
         lines.Add("");

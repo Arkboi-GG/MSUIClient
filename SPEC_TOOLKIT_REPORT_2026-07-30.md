@@ -1374,3 +1374,47 @@ Verdicts-panel clipboard helper; no rendering or portrait law changed.
 Standard gates passed: solution build succeeded with the one pre-existing
 CA2014 warning; combat/wire checks passed; portrait camera checks retained
 DwarfMale 1,224, HumanMale 1,289, and Wolf 56 inside-vertex counts.
+
+### W1 — items-axis failure classification
+
+The checkpoint contains 76 failure observations over 58 unique rows: 50
+`not-mounted`, 26 missing demanded textures, and 18 rows present in both sets.
+`variant-items-known-issues.txt` records every unique row in the same
+comment-tolerant key format as the portrait exception lists. The item gate now
+counts only unresolved rows absent from that list; raw misses remain reported.
+
+| Bucket | Unique rows | Not mounted | Missing demand | Failure observations |
+|---|---:|---:|---:|---:|
+| Vanilla junk | 46 | 42 | 14 | 56 |
+| Plausible vanilla (`Helmet_AhnQiraj_*`) | 8 | 8 | 8 | 16 |
+| Nico custom (67218–67221) | 4 | 0 | 4 | 4 |
+| **Total** | **58** | **50** | **26** | **76** |
+
+Archive-listfile search found no literal `Helmet_AhnQiraj_A_01*` file under
+any path. Related real vanilla families do exist in `patch.MPQ` under stems
+such as `Helm_Leather_AhnQiraj_*`, `Helm_Plate_AhnQiraj_*`, and
+`Helm_Robe_AhnQiraj_*`; therefore those eight suspect DBC rows remain isolated
+as plausible vanilla data defects instead of being folded into generic junk.
+
+The four custom BLPs are present in `patch-4.MPQ` at
+`Item\ObjectComponents\Cape\Custom_67218_Cape_Cloth_A_02White.blp` through
+the corresponding 67221 path. The sweep demanded those exact stems under
+`Item\ObjectComponents\Head\`. Classification: **demanded-path derivation is
+wrong; Nico's texture files are not missing**. The prior “no custom rows among
+G3” conclusion was false because `customContent` was derived only from a
+winning supplier, while an `UNBOUND` row necessarily has no supplier. The
+summary now exposes both supplier-marked and classification-known custom counts.
+
+One authorized read-only VMaNGOS attempt used the previously recorded endpoint
+`localhost:3306`, user/database `root`/`mangos`, sourced previously from
+`MangosSuperUI/appsettings.Development.json`. TCP connection was actively
+refused before authentication; **zero SQL statements executed and zero rows
+were read**. Item-template reference status is therefore unknown.
+
+The full 3,944-row re-sweep completed in 805.975 seconds: 3,944 Ready, zero
+blanks, 26 raw missing demands, all 26 allowlisted, gated G3 zero, and
+`diff.txt` empty (`changedRows=0`). No item rendering row changed.
+
+Standard gates passed: solution build succeeded with only the pre-existing
+CA2014 warning, combat/wire checks passed, and portrait-camera anchors remained
+1,224 / 1,289 / 56. W1 is self-ruled accepted under the unattended criteria.
