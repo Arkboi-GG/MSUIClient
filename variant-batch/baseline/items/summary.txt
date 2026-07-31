@@ -9,8 +9,8 @@ G1 blanks (unexpected): 0 (PASS)
 G3 resolution missing: 0 row(s) / 0 specimen(s) (PASS)
 G3 raw resolution missing: 26 row(s); allowlisted known issues: 26
 customContentRows: 979
-durationSeconds: 806.138
-clientGitDescribe: d719ab9-dirty
+durationSeconds: 818.763
+clientGitDescribe: 2744d26-dirty
 startupPath: variant-batch-only GL + shared MPQ/DBC + real HumanMale CharacterRenderer paper-doll path
 cachePolicy: release regenerable renderer asset cache every 128 specimens
 charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis

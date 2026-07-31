@@ -2060,3 +2060,31 @@ Willem remains mounted with
 The W4 root cause landed as `3bf1f14`. Committed stage-boundary gates pass:
 Debug build succeeds with only the known CA2014 warning, combat/wire passes,
 and portrait-camera reports exactly 1,224 / 1,289 / 56. W11-1 is accepted.
+
+### W11-2 - post-7C Option B rebaseline accepted
+
+The accepted W11-1 full sweeps are now canonical. Regenerable pre-7C NPC and
+items artifacts moved to `variant-batch/history/2026-07-31-pre7C/`; the four
+acceptance key lists remain at their original canonical paths, byte-identical.
+The diagnosis directory is unchanged.
+
+```text
+PREDICTED canonical NPC specimens / row keys: 6939 / 64650
+ACTUAL canonical NPC specimens / row keys: 6939 / 64650
+PREDICTED combined pre-7C changed rows / specimens: 41690 / 6760
+ACTUAL combined pre-7C changed rows / specimens: 41690 / 6760
+PREDICTED canonical NPC unexpected blanks / G3: 0 / 0
+ACTUAL canonical NPC unexpected blanks / G3: 0 / 0
+PREDICTED canonical items specimens / changedRows / gated G3: 3944 / 0 / 0
+ACTUAL canonical items specimens / changedRows / gated G3: 3944 / 0 / 0
+PREDICTED frozen Option-B authority / forbidden-inherit changes: 8889 / 0
+ACTUAL frozen Option-B authority / forbidden-inherit changes: 8889 / 0
+```
+
+The regenerated `variant-batch/baseline/REVIEW.md` records stage equality,
+final gates, and the ten largest specimen mean-luma changes. W5 rebaseline
+scope is complete under the SPEC-12 Option B ruling.
+
+W11-2 stage-boundary gates pass: Debug build succeeds with the single known
+CA2014 warning, combat/wire passes, and portrait-camera reports exactly
+1,224 / 1,289 / 56.
