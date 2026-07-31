@@ -145,7 +145,8 @@ public sealed partial class GameLoop
 
         try
         {
-            _net = new NetworkClient(_config.ToNetSettings(), CaptureWirePacket);
+            _net = new NetworkClient(_config.ToNetSettings(), CaptureWirePacket,
+                _config.DevTools ? ObserveSocketWrite : null);
             _net.CombatSendObserved = ObserveCombatSend;
             if (_config.Server.AutoConnect &&
                 !string.IsNullOrWhiteSpace(_config.Server.Account) &&

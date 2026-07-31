@@ -181,6 +181,10 @@ public sealed partial class GameLoop
                     if(p[1]=="start") Log(true,$"{line} path={_wireLog.Start(_config.RepoRoot)}");
                     else { _wireLog.Stop(); Log(true,line); }
                     break;
+                case "socket-trace":
+                    if(p[1]=="start") { StartSocketTrace(p[2]); Log(true,$"{line} path={_socketTracePath}"); }
+                    else { StopSocketTrace(); Log(true,line); }
+                    break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
@@ -301,7 +305,7 @@ public sealed partial class GameLoop
 
     private void FinishProtocol()
     {
-        StopCombatTrace(); StopMovementTrace(); _wireLog.Stop(); _liveHeld.Clear();
+        StopCombatTrace(); StopMovementTrace(); StopSocketTrace(); _wireLog.Stop(); _liveHeld.Clear();
         string dir=Path.GetFullPath(Path.IsPathRooted(_liveRunOptions!.OutputDirectory)?_liveRunOptions.OutputDirectory:Path.Combine(_config.RepoRoot,_liveRunOptions.OutputDirectory));
         Directory.CreateDirectory(dir);
         string log=Path.Combine(dir,$"runner-{_liveStamp}.csv"), verdict=Path.Combine(dir,$"verdicts-{_liveStamp}.txt");

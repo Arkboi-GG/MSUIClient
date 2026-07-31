@@ -1,12 +1,15 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace MSUIClient.Net;
 
 public delegate void WirePacketObserver(
     bool outgoing, ushort opcode, ReadOnlySpan<byte> payload);
+public delegate void SocketWriteObserver(
+    ushort opcode, ReadOnlySpan<byte> packet, ReadOnlySpan<byte> sha256);
 
 // The world server (mangosd) connection: the auth handshake + 1.12 header
 // obfuscation, packet framing, and the outbound CMSG builders. Ported from
@@ -42,23 +45,26 @@ public sealed class WorldSession : IDisposable
     private readonly string _account;          // uppercased
     private readonly object _sendLock = new();
     private readonly WirePacketObserver? _wireObserver;
+    private readonly SocketWriteObserver? _socketWriteObserver;
     private volatile bool _closed;
 
     private WorldSession(TcpClient tcp, NetworkStream stream, WorldHeaderCrypto crypto,
-        string account, WirePacketObserver? wireObserver)
+        string account, WirePacketObserver? wireObserver, SocketWriteObserver? socketWriteObserver)
     {
         _tcp = tcp;
         _stream = stream;
         _crypto = crypto;
         _account = account;
         _wireObserver = wireObserver;
+        _socketWriteObserver = socketWriteObserver;
     }
 
     public string Account => _account;
 
     /// <summary>Connect + complete the auth handshake, leaving header obfuscation enabled and the session ready for CharEnum.</summary>
     public static WorldSession Connect(string host, int port, string username, byte[] sessionKey,
-        TimeSpan timeout, WirePacketObserver? wireObserver = null)
+        TimeSpan timeout, WirePacketObserver? wireObserver = null,
+        SocketWriteObserver? socketWriteObserver = null)
     {
         var tcp = new TcpClient();
         try
@@ -70,7 +76,7 @@ public sealed class WorldSession : IDisposable
             var stream = tcp.GetStream();
             string account = Srp6Client.Normalize(username);
             var session = new WorldSession(tcp, stream, new WorldHeaderCrypto(sessionKey),
-                account, wireObserver);
+                account, wireObserver, socketWriteObserver);
             session.Handshake(sessionKey);
             return session;
         }
@@ -131,6 +137,8 @@ public sealed class WorldSession : IDisposable
             header.CopyTo(packet, 0);
             body.CopyTo(packet.AsSpan(header.Length));
             _stream.Write(packet, 0, packet.Length);
+            _stream.Flush();
+            ObserveSocketWrite(opcode, packet);
         }
         ObserveWire(outgoing: true, opcode, body);
     }
@@ -155,6 +163,22 @@ public sealed class WorldSession : IDisposable
         {
             // Instrumentation is observational: it may never fail a successful
             // send or prevent a decoded packet from reaching its handler.
+        }
+    }
+
+    private void ObserveSocketWrite(ushort opcode, ReadOnlySpan<byte> packet)
+    {
+        if (_socketWriteObserver is null) return;
+        try
+        {
+            byte[] sha256 = SHA256.HashData(packet);
+            _socketWriteObserver(opcode, packet, sha256);
+        }
+        catch
+        {
+            // This callback runs only after Write + Flush both succeeded.
+            // Evidence collection may never turn a successful socket write into
+            // a failed gameplay send.
         }
     }
 

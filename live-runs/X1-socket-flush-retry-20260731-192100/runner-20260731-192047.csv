@@ -1,0 +1,32 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\X1-socket-flush-retry-20260731-192100.txt
+1,PASS,gm .gm off
+2,PASS,wait 0.5
+3,PASS,gm .gm
+4,PASS,wait 0.5
+5,PASS,gm .dismount
+6,PASS,wait 0.5
+7,PASS,gm .combatstop TEST
+8,PASS,wait 0.5
+9,PASS,gm .npc spawn add 6
+10,PASS,wait 0.1
+11,PASS,select spawn:1 guid=0xF13000000604A28C
+12,PASS,assert within3=true
+13,PASS,gm .npc info
+14,PASS,wait 0.5
+15,PASS,socket-trace start X1-attack-control-retry-20260731-192100 path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-X1-attack-control-retry-20260731-192100-20260731-192050.csv
+16,PASS,trace start X1-attack-control-retry-20260731-192100
+17,PASS,gm .gps
+18,PASS,attack start
+19,PASS,waitfor detail=Map:_0_
+20,PASS,wait 3
+21,PASS,attack stop
+22,PASS,wait 0.1
+23,PASS,trace stop
+24,PASS,socket-trace stop
+25,PASS,gm .gm on
+26,PASS,wait 0.5
+27,PASS,gm .npc spawn delete
+28,PASS,wait 0.5
+29,PASS,waitgone spawn:1 guid=0xF13000000604A28C descriptorPresent=False
+30,PASS,gm .gm off

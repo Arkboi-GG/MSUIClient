@@ -3001,6 +3001,7 @@ public sealed partial class GameLoop : IDisposable
         _disposed = true;
 
         _net?.Dispose();
+        StopSocketTrace();
         StopMovementTrace();
         _wireLog.Dispose();
         _batchPortraitTarget?.Dispose();

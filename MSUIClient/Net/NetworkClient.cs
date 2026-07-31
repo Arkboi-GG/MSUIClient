@@ -47,6 +47,7 @@ public sealed class NetworkClient : IDisposable
 {
     private readonly NetSettings _cfg;
     private readonly WirePacketObserver? _wireObserver;
+    private readonly SocketWriteObserver? _socketWriteObserver;
     private readonly ConcurrentQueue<(ushort Opcode, byte[] Body, long ReceivedStamp)> _inbound = new();
 
     private Thread? _worker;
@@ -94,10 +95,12 @@ public sealed class NetworkClient : IDisposable
     private string _account;
     private string _password;
 
-    public NetworkClient(NetSettings cfg, WirePacketObserver? wireObserver = null)
+    public NetworkClient(NetSettings cfg, WirePacketObserver? wireObserver = null,
+        SocketWriteObserver? socketWriteObserver = null)
     {
         _cfg = cfg;
         _wireObserver = wireObserver;
+        _socketWriteObserver = socketWriteObserver;
         _account = cfg.Account;
         _password = cfg.Password;
     }
@@ -319,7 +322,7 @@ public sealed class NetworkClient : IDisposable
             // 2. world connect + auth handshake.
             SetState(NetState.ConnectingWorld, $"connecting to world {worldHost}:{worldPort} ({realm.Name})");
             _session = WorldSession.Connect(worldHost, worldPort, _account, logon.SessionKey,
-                timeout, _wireObserver);
+                timeout, _wireObserver, _socketWriteObserver);
 
             // 3. character enum -> PARK at character select. We do NOT auto-log-in.
             SetState(NetState.Authenticating, "requesting character list");

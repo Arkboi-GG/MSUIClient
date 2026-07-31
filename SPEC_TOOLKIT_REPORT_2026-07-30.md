@@ -3591,3 +3591,66 @@ controls; move-audit PASS.
 No client production code, combat behavior, server code, database, persistent
 server configuration, error display, or F3-F6 behavior changed. X0 is complete
 and X1 is authorized. SPEC-21 P3/P4 remain queued.
+
+## X1 — client socket-flush evidence
+
+### Actual versus predicted
+
+The new observer sits at `WorldSession`'s serialized `NetworkStream.Write`
+site. It runs only after the exact post-encryption packet has returned from
+both `Write` and `Flush`; SHA-256 is computed there from that same byte array.
+DevTools receives the computed hash and bytes for a bounded run-dated CSV. It
+does not reconstruct the frame or touch cipher state.
+
+```text
+PREDICTED delivered chat control: flushed write plus server response
+ACTUAL CMSG_MESSAGECHAT at 5.929:
+  bytes=19
+  sha256=80254993e43f40b1b225ddd72c330c80e1d7df63e9d7c8f444fecf5fbe36ffea
+  post-encryption bytes=3F85FEA7407400000000070000002E67707300
+  flushed=true
+  server .gps Map response at 6.077
+RESULT: DELIVERED CONTROL PASS
+
+PREDICTED proven GM-off CMSG_ATTACKSWING: flushed write
+ACTUAL CMSG_ATTACKSWING at 5.941:
+  bytes=14
+  sha256=784feef9f39b41853082ecfd8bb6dd47d801f1d3e7143986d79abb317c336420
+  post-encryption bytes=8263DEEECF998CA20406000030F1
+  body=8CA20406000030F1; target=0xF13000000604A28C
+  flushed=true
+  precondition=GM off, present, visible, alive 100/100, flags zero, distance 0 yd
+RESULT: ATTACK SOCKET-FLUSH PASS
+
+PREDICTED not-flushed branch: client defect HARD STOP
+ACTUAL: false; chat and attack returned from write+flush with exact hashes
+RESULT: X2 authorized
+```
+
+The accepted trace contains exactly those two writes, 12 ms apart. A later
+attack-start names the spawned creature as attacker and a guard as victim; it
+is foreign combat, not a player response, and does not change the transit
+question.
+
+The first attempt is retained but invalid. Its plain SAY control did not echo;
+the five-second wait let the random-motion target drift to 3.5097475 yd and
+engage a guard. Its runner records one failure, so none of its behavioral rows
+are promoted. The corrected `.gps` control run has 30/30 PASS rows and a
+distance-zero attack precondition.
+
+Full evidence is in
+`live-runs/X1-socket-flush-accepted-20260731-192300.md`, SHA-256
+`54bf915cdcedaa099f0532dc7e20577934f1b664ee2d2881dd975c601d350151`.
+The 17-file stage manifest is
+`live-runs/manifests/X1-20260731-192300.sha256`, SHA-256
+`929d917f766ae8501d6398a51dccfbdec787c5efe44da1c5182359a08cbc851a`;
+all entries recomputed exactly.
+
+X1 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No combat decision, packet construction, server code, database, persistent
+server configuration, error display, or F3-F6 behavior changed. The socket
+observer is DevTools-gated and observational exceptions are swallowed. X2 is
+authorized; SPEC-21 P3/P4 remain queued.
