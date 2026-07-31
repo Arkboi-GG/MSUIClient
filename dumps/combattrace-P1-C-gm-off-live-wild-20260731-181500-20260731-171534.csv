@@ -1,0 +1,2 @@
+row,t,dt,event,cause,intentOn,targetGuid,opcode,swingTimerOwner,weaponSpeedMs,rangeEligibility,arcEligibility,clientAction,distance,bearingDelta,facingDelta,clipId,clipName,clipTime,clipB,clipBTime,blendWeight,animChoice,detail
+0,0.000000,0.000000,TraceStart,operator,false,0x0000000000000000,,server,,unchecked,unchecked,none,-1,,,0,Stand,9.539978,,,,0->0:Exact,server-authoritative swing timing; client range/arc gates absent

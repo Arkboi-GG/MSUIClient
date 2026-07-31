@@ -1,0 +1,23 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\P1-C-live-wild-20260731-194500.txt
+1,PASS,move-trace start P1-C-live-wild-position-20260731-194500
+2,PASS,gm .gm on
+3,PASS,wait 0.5
+4,PASS,anchor wild-entry:299 guid=0xF13000012B013838 position=-9025.298|-116.072655|87.668365
+5,PASS,wait 2
+6,PASS,gm .gm off
+7,PASS,wait 0.5
+8,PASS,gm .gm
+9,PASS,wait 0.5
+10,FAIL,select anchor guid=0x0000000000000000
+11,PASS,gm .npc info
+12,PASS,wait 0.5
+13,PASS,wire-trace start path=dumps/wire-20260731-172250.wlog
+14,PASS,trace start P1-C-gm-off-live-wild-20260731-194500
+15,PASS,attack start
+16,PASS,wait 3
+17,PASS,attack stop
+18,PASS,wait 0.1
+19,PASS,trace stop
+20,PASS,wire-trace stop
+21,PASS,move-trace stop

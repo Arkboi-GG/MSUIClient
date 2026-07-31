@@ -3380,3 +3380,29 @@ existing attack send and samples controller pose, server-reported GM state,
 and the exact object-store descriptor. It changes no combat or wire behavior.
 Full evidence is in `live-runs/P0-precondition-truth-20260731-180000.md`;
 staged-byte hashes are in `live-runs/manifests/P0-20260731-180000.sha256`.
+
+## P1 — attack-precondition matrix
+
+The prediction was rejected. A server-confirmed GM-OFF fresh spawn at 0 yd,
+the same spawn under server-confirmed GM-ON at 1.4692235 yd, and a separately
+re-anchored live wild entry-299 creature under GM-OFF at 1.1230221 yd all sent
+one correctly typed attack body and all received zero attack-family events.
+The A/B bodies were identical (`84 A2 04 06 00 00 30 F1`); C sent
+`49 38 01 2B 01 00 30 F1`. Every target was present, visible, alive, and read
+from the client's own object store at send time.
+
+```text
+PREDICTED: A and C ATTACKSTART + swings; B silently refused
+ACTUAL: A, B, and C all silently refused
+DEVIATION: GM state does not discriminate acceptance
+RESULT: P1 COMPLETE; P2 server-side observation is mandatory
+```
+
+The exact predicate remains inside H0's `Unit::Attack` silent-return family;
+client evidence cannot name it. The runner gained only an object-store anchor
+primitive that teleports via the existing real GM chat input path. Invalid
+calibration cells (absent targets or distance above 3 yd) remain recorded and
+were not promoted to evidence. Full results and prior-run reconciliation are
+in `live-runs/P1-precondition-matrix-20260731-204000.md`.
+
+All four stage-boundary gates passed.

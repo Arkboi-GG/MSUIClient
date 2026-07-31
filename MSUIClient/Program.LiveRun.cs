@@ -55,6 +55,7 @@ public sealed partial class GameLoop
     private readonly List<ulong> _liveSpawnGuids = [];
     private HashSet<ulong>? _liveSpawnBefore;
     private double _liveSelectWaitStarted;
+    private ulong _liveAnchorGuid;
     public int LiveRunExitCode { get; private set; } = 1;
 
     private void AdvanceLiveRun(float dt)
@@ -131,11 +132,14 @@ public sealed partial class GameLoop
                 case "assert": Log(VerdictLines().Any(x=>x.Contains(line[7..],StringComparison.OrdinalIgnoreCase)),line); break;
                 case "select":
                     RefreshLiveSpawnIdentities();
-                    int ordinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
+                    int ordinal=anchor?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
                     bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
-                    ulong guid=wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
+                    ulong guid=anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
+                        wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
                         wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
                     if(guid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
                     {
@@ -145,6 +149,31 @@ public sealed partial class GameLoop
                     }
                     _liveSelectWaitStarted=0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
+                case "anchor":
+                    int anchorOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    ulong anchorGuid=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase)
+                        ?LiveWildEntryNearestGuid(anchorOrdinal):p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase)
+                            ?LiveWildEntryGuid(anchorOrdinal):p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase)
+                            ?LiveWildHostileGuid(anchorOrdinal):LiveWildGuid(anchorOrdinal);
+                    WorldEntity? anchorTarget=null;
+                    if(anchorGuid==0||!_entities.TryGet(anchorGuid,out anchorTarget))
+                    {
+                        if(now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
+                        {
+                            if(_liveSelectWaitStarted==0) _liveSelectWaitStarted=now;
+                            _liveWaitUntil=now+0.05;
+                            return;
+                        }
+                    }
+                    _liveSelectWaitStarted=0;
+                    _liveAnchorGuid=anchorGuid;
+                    bool anchored=anchorGuid!=0&&anchorTarget is not null&&SendGmCommand(
+                        string.Create(CultureInfo.InvariantCulture,
+                            $".go xyz {anchorTarget.Position.X:R} {anchorTarget.Position.Y:R} {anchorTarget.Position.Z:R} {_config.Start.Map}"),
+                        "protocol-runner-anchor");
+                    Log(anchored,$"{line} guid=0x{anchorGuid:X16} position="+
+                        (anchorTarget is null?"unavailable":$"{anchorTarget.Position.X:R}|{anchorTarget.Position.Y:R}|{anchorTarget.Position.Z:R}"));
+                    break;
                 case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
@@ -210,6 +239,20 @@ public sealed partial class GameLoop
         if(selected is null) return 0;
         float distance=Vector3.Distance(selected.Position,_controller.Position);
         EmitCombat("WildObserved","pre-existing-object-store-entry-control",selected.Guid,
+            $"entry={selected.Fields.Entry};distance={distance:R};faction={selected.Fields.FactionTemplate};"+
+            $"flags=0x{selected.Fields.UnitFlags:X8};position="+
+            $"{selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
+        return selected.Guid;
+    }
+    private ulong LiveWildEntryNearestGuid(int entry)
+    {
+        if(_controller is null||entry<=0) return 0;
+        WorldEntity? selected=_entities.Units
+            .Where(x=>x.IsCreature&&!_liveSpawnGuids.Contains(x.Guid)&&!x.IsDead&&x.Entry==(uint)entry)
+            .OrderBy(x=>Vector3.Distance(x.Position,_controller.Position)).ThenBy(x=>x.Guid).FirstOrDefault();
+        if(selected is null) return 0;
+        float distance=Vector3.Distance(selected.Position,_controller.Position);
+        EmitCombat("WildObserved","pre-existing-object-store-entry-nearest",selected.Guid,
             $"entry={selected.Fields.Entry};distance={distance:R};faction={selected.Fields.FactionTemplate};"+
             $"flags=0x{selected.Fields.UnitFlags:X8};position="+
             $"{selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");

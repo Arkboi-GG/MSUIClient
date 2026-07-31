@@ -1,0 +1,46 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\P1-precondition-matrix-20260731-183000.txt
+1,PASS,move-trace start P1-precondition-matrix-position-20260731-183000
+2,PASS,gm .gm off
+3,PASS,wait 0.5
+4,PASS,gm .gm
+5,PASS,wait 0.5
+6,PASS,gm .npc spawn add 6
+7,PASS,wait 0.1
+8,PASS,select spawn:1 guid=0xF13000000604A284
+9,PASS,assert within3=true
+10,PASS,wire-trace start path=dumps/wire-20260731-171741.wlog
+11,PASS,trace start P1-A-gm-off-spawn-20260731-183000
+12,PASS,attack start
+13,PASS,wait 1
+14,PASS,attack stop
+15,PASS,wait 0.1
+16,PASS,trace stop
+17,PASS,gm .gm on
+18,PASS,wait 0.5
+19,PASS,gm .gm
+20,PASS,wait 0.5
+21,PASS,trace start P1-B-gm-on-same-spawn-20260731-183000
+22,PASS,attack start
+23,PASS,wait 1
+24,PASS,attack stop
+25,PASS,wait 0.1
+26,PASS,trace stop
+27,PASS,gm .npc spawn delete
+28,PASS,wait 0.5
+29,PASS,waitgone spawn:1 guid=0xF13000000604A284 descriptorPresent=False
+30,PASS,gm .go creature 59385
+31,PASS,wait 2
+32,PASS,gm .gm off
+33,PASS,wait 0.5
+34,PASS,gm .gm
+35,PASS,wait 0.5
+36,FAIL,select wild-entry:122 guid=0x0000000000000000
+37,PASS,trace start P1-C-gm-off-live-wild-20260731-183000
+38,PASS,attack start
+39,PASS,wait 2
+40,PASS,attack stop
+41,PASS,wait 0.1
+42,PASS,trace stop
+43,PASS,wire-trace stop
+44,PASS,move-trace stop

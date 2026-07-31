@@ -1,0 +1,21 @@
+move-trace start P1-C-live-wild-position-20260731-201500
+gm .gm on
+wait 0.5
+anchor wild-entry-nearest:299
+wait 2
+gm .gm off
+wait 0.5
+gm .gm
+wait 0.5
+select wild-entry-nearest:299
+gm .npc info
+wait 0.5
+wire-trace start
+trace start P1-C-gm-off-live-wild-20260731-201500
+attack start
+wait 3
+attack stop
+wait 0.1
+trace stop
+wire-trace stop
+move-trace stop

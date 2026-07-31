@@ -1,0 +1,44 @@
+move-trace start P1-precondition-matrix-position-20260731-183000
+gm .gm off
+wait 0.5
+gm .gm
+wait 0.5
+gm .npc spawn add 6
+wait 0.1
+select spawn:1
+assert within3=true
+wire-trace start
+trace start P1-A-gm-off-spawn-20260731-183000
+attack start
+wait 1
+attack stop
+wait 0.1
+trace stop
+gm .gm on
+wait 0.5
+gm .gm
+wait 0.5
+trace start P1-B-gm-on-same-spawn-20260731-183000
+attack start
+wait 1
+attack stop
+wait 0.1
+trace stop
+gm .npc spawn delete
+wait 0.5
+waitgone spawn:1
+gm .go creature 59385
+wait 2
+gm .gm off
+wait 0.5
+gm .gm
+wait 0.5
+select wild-entry:122
+trace start P1-C-gm-off-live-wild-20260731-183000
+attack start
+wait 2
+attack stop
+wait 0.1
+trace stop
+wire-trace stop
+move-trace stop
