@@ -3703,3 +3703,54 @@ select no on-wire decision row and state the unresolved measurement honestly.
 X2 boundary gates passed sequentially: Debug build with only the established
 CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
 and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## X3 — transit decision table HARD STOP
+
+### Actual versus predicted
+
+```text
+PREDICTED client branch: flushed or not flushed
+ACTUAL: flushed=true with exact 14-byte post-encryption hash/bytes
+
+PREDICTED wire branch: present or absent
+ACTUAL: UNMEASURED; both prescribed capture boundaries require unavailable privilege
+
+PREDICTED causal result: select one three-row transit verdict
+ACTUAL: selecting present or absent would fabricate evidence
+RESULT: TRANSIT_UNRESOLVED_CAPTURE_PRIVILEGE; HARD STOP
+```
+
+The decision table selects an explicit evidence-capability row: client flush is
+proven, server debug admission remains absent from SPEC-21, and on-wire state is
+unknown. It does not relabel the successful local write as a captured frame.
+
+The deployed candidate table is frozen with exact citations:
+
+- socket read/decrypt/framing/body completion:
+  `Server/WorldSocket.cpp:98-148`;
+- authenticated session admission and binary queue handoff:
+  `Server/WorldSocket.cpp:153-183`;
+- opcode lookup/parser and queue:
+  `Server/WorldSession.cpp:277-331`;
+- opcode 321 registration as `STATUS_LOGGEDIN` / `PACKET_PROCESS_SPELLS`:
+  `Server/Protocol/Opcodes.cpp:398-401`;
+- anti-flood and session-state processing gates:
+  `Server/WorldSession.cpp:518-549,1250-1313`;
+- handler branches: `Handlers/CombatHandler.cpp:32-62`;
+- silent `Unit::Attack` returns and success send:
+  `Objects/Unit.cpp:4721-4804`.
+
+The full table, classifications, and exact client socket bytes are in
+`live-runs/X3-transit-decision-20260731-193600.md`, SHA-256
+`4a6a98e4d9a15846d740ccde38e8af550721a7bbdcc2674c128a5c2a25a8c802`.
+The three-file manifest is
+`live-runs/manifests/X3-20260731-193600.sha256`, SHA-256
+`1f6e02686ed9fb6e8c60b7b3e1b6b98def944e15746dd4934570b7d127cf03c2`.
+
+No deeper server instrumentation, server code, database, persistent config,
+combat behavior, error display, or F3-F6 work was attempted. X4 must freeze the
+ruling options; SPEC-21 P3/P4 remain queued.
+
+X3 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
