@@ -2291,3 +2291,28 @@ are findings only; no gravity, jump, or animation change was made.
 M2 standard gates pass: Debug build succeeds with only the known CA2014
 warning, combat/wire passes, portrait-camera reports exactly 1,224 / 1,289 /
 56, and the new move-audit-check gate passes.
+
+## M3 - benilla launch capture and read-only assessment
+
+```text
+PREDICTED exact launch information: working directory, PowerShell line, build
+ACTUAL working directory: C:\Users\nico\Desktop\benilla-main
+ACTUAL checked-in launch line: powershell -ExecutionPolicy Bypass -File
+  .\run-benilla.ps1
+ACTUAL build/run: cargo run --release -p benilla; -Debug removes --release
+PREDICTED benilla changes: 0
+ACTUAL benilla changes: 0; inspection was read-only
+```
+
+The launcher supports Data/host/user/password/character/debug parameters and
+sets the corresponding environment variables. A separate personalized command
+actually typed by Nico was not present, so `SETUP.md` explicitly distinguishes
+the exact checked-in launcher line from an unprovided personalized invocation.
+
+Assessment: the player path consumes Bevy `ButtonInput<KeyCode>` directly.
+There is no movement-script source or movement CSV dumper in the inspected
+tree. Input injection and post-controller/animator trace capture are technically
+feasible, but require a separately authorized benilla instrumentation change.
+
+M3 standard gates pass: Debug build, combat/wire, portrait-camera
+1,224 / 1,289 / 56, and move-audit-check are green.

@@ -97,6 +97,29 @@ the current tile index, and free-fly movement.
 Controls: WASD move, Space/Ctrl up-down, Shift boost, hold mouse to look,
 wheel to zoom, Esc to quit.
 
+### Benilla comparison launch (movement M3 assessment)
+
+The local comparison checkout is `C:\Users\nico\Desktop\benilla-main`.
+Its committed PowerShell launcher documents this exact launch line from that
+working directory:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run-benilla.ps1
+```
+
+Optional launcher arguments are `-Data`, `-WowHost`, `-User`, `-Pass`,
+`-Char`, and `-Debug`. The script's build/run command is
+`cargo run --release -p benilla` (or `cargo run -p benilla` with `-Debug`). It
+sets `WOW_DATA`, `WOW_HOST`, and optional credential/character variables before
+launch. Nico's personalized invocation beyond the checked-in launcher line has
+not been supplied; this records the exact available line without inventing one.
+
+Read-only assessment: benilla currently reads Bevy `ButtonInput<KeyCode>`
+directly in `crates/benilla/src/player.rs`; no committed scripted movement
+source or movement CSV recorder was found. Both are feasible as additive test
+instrumentation at that input resource and the post-controller/animation
+systems, but would require benilla source changes. No benilla file was changed.
+
 ## Conventions
 
 **Coordinates.** Everything is WoW world space: X north, Y west, Z up,
