@@ -1191,28 +1191,18 @@ public sealed partial class CreatureRenderer : IDisposable
 
         string path = info.ModelPath;
         string modelDir = path.Contains('\\') ? path[..path.LastIndexOf('\\')] : "";
-        PreparedTexture? bareHead = PrepareNpcBareComposite(info);
-        PreparedTexture? carriedTexture = null;
         foreach (var batch in m2.Batches)
         {
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
-            int geosetId = m2.Submeshes[batch.SubmeshIndex].Id;
             PreparedTexture? preparedTexture = null;
             if (batch.TextureIndex < m2.TextureLookup.Count)
             {
                 int textureIndex = m2.TextureLookup[batch.TextureIndex];
                 if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
                 {
-                    M2TextureRef reference = m2.Textures[textureIndex];
-                    if (bareHead is not null &&
-                        IsNpcBareHeadBatch(reference.Type, geosetId))
-                    {
-                        preparedTexture = bareHead;
-                        prepared.Textures.Add(preparedTexture);
-                        continue;
-                    }
                     IReadOnlyList<string> candidates = ResolveBatchTexture(
-                        reference.Type, reference.Filename, modelDir, info);
+                        m2.Textures[textureIndex].Type, m2.Textures[textureIndex].Filename,
+                        modelDir, info);
                     foreach (string candidate in candidates)
                     {
                         if (string.IsNullOrWhiteSpace(candidate)) continue;
@@ -1234,8 +1224,6 @@ public sealed partial class CreatureRenderer : IDisposable
                     }
                 }
             }
-            if (preparedTexture is not null) carriedTexture = preparedTexture;
-            else preparedTexture = carriedTexture;
             prepared.Textures.Add(preparedTexture);
         }
         return prepared;
@@ -1370,17 +1358,6 @@ public sealed partial class CreatureRenderer : IDisposable
             M2Model m2 = model.Source;
             string path = info.ModelPath;
             string modelDir = path.Contains('\\') ? path[..path.LastIndexOf('\\')] : "";
-            PreparedTexture? bareHead = PrepareNpcBareComposite(info);
-            Texture? bareHeadTexture = null;
-            if (bareHead is not null)
-            {
-                if (!_texCache.TryGetValue(bareHead.Path, out bareHeadTexture))
-                {
-                    bareHeadTexture = Texture.From2D(_gl, bareHead.Bgra!,
-                        bareHead.Width, bareHead.Height, mipmaps: true, repeat: true);
-                    _texCache[bareHead.Path] = bareHeadTexture;
-                }
-            }
 
             if (info.HasExtended && _geosets is not null)
             {
@@ -1393,7 +1370,6 @@ public sealed partial class CreatureRenderer : IDisposable
                 appearance.VisibleGeosets = matches > 0 ? visible : null;
             }
 
-            Texture? carriedTexture = null;
             foreach (var batch in m2.Batches)
             {
                 if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
@@ -1403,21 +1379,12 @@ public sealed partial class CreatureRenderer : IDisposable
                     int textureIndex = m2.TextureLookup[batch.TextureIndex];
                     if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
                     {
-                        M2TextureRef reference = m2.Textures[textureIndex];
-                        if (bareHeadTexture is not null &&
-                            IsNpcBareHeadBatch(reference.Type,
-                                m2.Submeshes[batch.SubmeshIndex].Id))
-                        {
-                            texture = bareHeadTexture;
-                        }
-                        else
-                        {
-                            var candidates = ResolveBatchTexture(
-                                reference.Type, reference.Filename, modelDir, info);
-                            texture = LoadTexture(candidates, out _);
-                            if (texture is not null) carriedTexture = texture;
-                            else texture = carriedTexture;
-                        }
+                        var candidates = ResolveBatchTexture(
+                            m2.Textures[textureIndex].Type,
+                            m2.Textures[textureIndex].Filename,
+                            modelDir,
+                            info);
+                        texture = LoadTexture(candidates, out _);
                     }
                 }
                 appearance.Textures.Add(texture);
@@ -1493,113 +1460,6 @@ public sealed partial class CreatureRenderer : IDisposable
                 1, (int)info.ExtHairColor);
         if (row is null || row.Texture1.Length == 0) return Array.Empty<string>();
         return CharacterTextureCandidates(row.Texture1, info.ExtRace, info.ExtSex).ToArray();
-    }
-
-    private static bool IsNpcBareHeadBatch(uint textureType, int geosetId)
-    {
-        if (textureType != 1) return false;
-        int category = geosetId / 100;
-        int variant = geosetId % 100;
-        return (category == 0 && variant > 0) || category == 7;
-    }
-
-    private static string NpcBareDescriptor(in CreatureModelInfo info) =>
-        $"composite://npc-bare/r{info.ExtRace}-s{info.ExtSex}-" +
-        $"sk{info.ExtSkin}-f{info.ExtFace}-h{info.ExtHairStyle}-" +
-        $"hc{info.ExtHairColor}-fh{info.ExtFacialHair}";
-
-    private PreparedTexture? PrepareNpcBareComposite(in CreatureModelInfo info)
-    {
-        if (!info.HasExtended || _charSections is null) return null;
-        byte raceId = info.ExtRace;
-        byte sexId = info.ExtSex;
-
-        CharSectionRow? skinRow = _charSections.Find(
-            info.ExtRace, info.ExtSex, CharSectionsTable.SectionSkin,
-            -1, (int)info.ExtSkin);
-        IEnumerable<string> skinCandidates = skinRow is null
-            ? Array.Empty<string>()
-            : CharacterTextureCandidates(skinRow.Texture1, info.ExtRace, info.ExtSex);
-        string race = RaceFolder(info.ExtRace);
-        string gender = info.ExtSex == 1 ? "Female" : "Male";
-        skinCandidates = skinCandidates.Concat(
-        [
-            $@"Character\{race}\{gender}\{race}{gender}Skin{(int)info.ExtSkin:00}_00.blp",
-            $@"Character\{race}\{gender}\{race}{gender}Skin00_00.blp",
-        ]).Distinct(StringComparer.OrdinalIgnoreCase);
-
-        byte[]? atlas = null;
-        int atlasWidth = 0, atlasHeight = 0;
-        foreach (string candidate in skinCandidates)
-        {
-            byte[]? bytes = _mpq.ReadFile(candidate);
-            if (bytes is null) continue;
-            try
-            {
-                atlas = BlpDecoder.GetPixels(bytes, 0, out atlasWidth, out atlasHeight);
-                break;
-            }
-            catch { }
-        }
-        if (atlas is null) return null;
-
-        void Overlay(string partial, bool upper)
-        {
-            if (partial.Length == 0) return;
-            foreach (string candidate in CharacterTextureCandidates(
-                         partial, raceId, sexId))
-            {
-                byte[]? bytes = _mpq.ReadFile(candidate);
-                if (bytes is null) continue;
-                try
-                {
-                    byte[] pixels = BlpDecoder.GetPixels(bytes, 0,
-                        out int width, out int height);
-                    (int x, int y, int w, int h) = upper
-                        ? (0, 160, 128, 32)
-                        : (0, 192, 128, 64);
-                    float sx = atlasWidth / 256f, sy = atlasHeight / 256f;
-                    CharacterEquipment.BlitOver(atlas, atlasWidth, atlasHeight,
-                        pixels, width, height, (int)(x * sx), (int)(y * sy),
-                        (int)(w * sx), (int)(h * sy));
-                    return;
-                }
-                catch { }
-            }
-        }
-
-        CharSectionRow? face = _charSections.Find(
-            info.ExtRace, info.ExtSex, CharSectionsTable.SectionFace,
-            (int)info.ExtFace, (int)info.ExtSkin);
-        if (face is not null)
-        {
-            Overlay(face.Texture1, upper: false);
-            Overlay(face.Texture2, upper: true);
-        }
-        CharSectionRow? facial = _charSections.Find(
-            info.ExtRace, info.ExtSex, CharSectionsTable.SectionFacialHair,
-            info.ExtFacialHair, (int)info.ExtHairColor);
-        if (facial is not null)
-        {
-            Overlay(facial.Texture1, upper: false);
-            Overlay(facial.Texture2, upper: true);
-        }
-        CharSectionRow? hair = _charSections.Find(
-            info.ExtRace, info.ExtSex, CharSectionsTable.SectionHair,
-            info.ExtHairStyle, (int)info.ExtHairColor);
-        if (hair is not null)
-        {
-            Overlay(hair.Texture2, upper: false);
-            Overlay(hair.Texture3, upper: true);
-        }
-
-        return new PreparedTexture
-        {
-            Path = NpcBareDescriptor(info),
-            Bgra = atlas,
-            Width = atlasWidth,
-            Height = atlasHeight,
-        };
     }
 
     private static string RaceFolder(byte race) => race switch

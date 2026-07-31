@@ -1623,35 +1623,3 @@ either query. Of the authority rows, 8,884 currently resolve from
 `Textures\BakedNpcTextures\...`; five resolve from the bare race/sex fallback
 skin because no baked texture won. No rows were excluded for that source
 deviation: the complete committed head-region key set is W4 authority.
-
-### W4 - 7C-2a accepted after carry isolation
-
-The first full candidate changed all 8,889 authority rows exactly as predicted
-and no other type-1 row, but also changed `effectiveTexture` on 689 unbound
-type-8 rows. Those rows followed a head batch and inherited the newly bound
-composite instead of the pre-head dressed texture. This was an implementation
-mismatch, not an authority change; the 8,889-key list was left untouched.
-
-The corrected implementation keeps the ordinary texture carry independent of
-the temporary head-composite binding in both synchronous and asynchronous
-appearance paths. The second full sweep produced:
-
-```text
-authority row keys: 8889
-candidate changed rows vs accepted W3: 8889
-authority-only keys: 0
-candidate-only keys: 0
-rows not equal to baseline predicted7C2Texture: 0
-changed type-1 rows outside head authority: 0
-changed non-type-1 rows outside head authority: 0
-NPC G3: 0
-```
-
-Willem batch 12 is exactly
-`composite://npc-bare/r1-s0-sk4-f6-h0-hc8-fh6` and remains `mounted`.
-Control 3340/54 batch 18 is exactly
-`composite://npc-bare/r1-s0-sk4-f10-h3-hc9-fh2`; its batch 15 hair binding
-remains `Character\Human\Hair02_09.blp`. The full sweep completed 6,939/6,939
-with 64,650 stable row keys, zero unexpected blanks, and G3 zero. Standard
-gates pass with only the pre-existing CA2014 warning. W4 is self-ruled
-accepted.
