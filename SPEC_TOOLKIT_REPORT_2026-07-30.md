@@ -2910,3 +2910,12 @@ A4 manifest: `live-runs/manifests/A4-20260731-142100.sha256`.
 
 **HARD STOP - SPEC-16 A0-A4 complete. Await Nico's CB1/CB6 and range/facing
 rulings plus a new signed implementation order.**
+
+## SPEC-17 protocol housekeeping
+
+`PILOT_PROTOCOL_AMENDMENT_20260731.md` and the current `PILOT_PROTOCOL.md`
+were byte-identical before merge (both SHA-256
+`a9ce2016bcbbcc5ec5cfc24e136d68bd38f74365230826583ba3ad81a0bee934d`).
+Therefore the authoritative roles paragraph, three-tier law 3, and law 12
+were already present; merge diff was zero lines. Other current content was
+preserved byte-for-byte and the redundant amendment file was deleted.
