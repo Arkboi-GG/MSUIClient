@@ -3196,3 +3196,26 @@ No combat behavior changed.
 Full evidence is in `live-runs/T1-lifecycle-acceptance-20260731-154414.md`.
 Standard four gates pass: Debug build, combat/wire, portrait-camera
 1,224 / 1,289 / 56, and move-audit-check.
+
+## T2 — positive-proof gate
+
+### Actual versus predicted
+
+All four previously blocked G2 proofs now pass. `.gps` returned server-authored
+map and pose text. `.go` produced `TeleportApplied counter=1` at exactly
+`-8970|-132.493|83.53`, visible in the movement trace within one live tick.
+The spawn proof selected the newly observed zero-distance entry-6 creature
+`0xF13000000604A26F` (DB GUID 303727), confirmed it independently with
+`.npc info`, and proved cleanup by exact descriptor absence. The death proof
+used a second throwaway, `0xF13000000604A270` (DB GUID 303728), and observed
+descriptor health zero after `.die` before exact cleanup.
+
+```text
+EXPECTED .gps / .go / identified <=3 yd spawn / confirmed death: all PASS
+ACTUAL: all PASS (runner rows 4/4, 6/6, 10/10, and 13/13)
+RESULT: T2 ACCEPTED; T3 authorized by the positive-proof gate
+```
+
+Full evidence is in
+`live-runs/T2-positive-proof-acceptance-20260731-154700.md`; staged-byte hashes
+are in `live-runs/manifests/T2-20260731-154700.sha256`.

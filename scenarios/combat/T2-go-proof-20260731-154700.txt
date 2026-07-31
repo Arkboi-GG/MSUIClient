@@ -1,0 +1,6 @@
+move-trace start T2-go-proof-20260731-154700
+gm .go xyz -8970.0 -132.493 83.53 0
+waitfor TeleportApplied 5
+wait 2
+assert position=-8970|-132.493|83.53
+move-trace stop

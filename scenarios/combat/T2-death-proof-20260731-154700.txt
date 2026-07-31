@@ -1,0 +1,13 @@
+gm .npc spawn add 6
+wait 0.2
+select spawn:1
+assert within3=true
+gm .npc info
+wait 1
+assert Entry:_6
+gm .die
+wait 1
+waitdeath spawn:1
+gm .npc spawn delete
+wait 1
+waitgone spawn:1

@@ -1,0 +1,8 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T2-go-proof-20260731-154700.txt
+1,PASS,move-trace start T2-go-proof-20260731-154700
+2,PASS,gm .go xyz -8970.0 -132.493 83.53 0
+3,PASS,waitfor TeleportApplied
+4,PASS,wait 2
+5,PASS,assert position=-8970|-132.493|83.53
+6,PASS,move-trace stop
