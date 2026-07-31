@@ -1649,3 +1649,69 @@ first full mismatch. Willem's attachments and the 5,114-specimen type-6 hair
 binding are present. The type-1 npc-bare head composite is not present, and no
 post-7C rebaseline is claimed. No expected cohort or law was adjusted.
 `CHECKS_GAMEPLAY.md` states the split live expectation directly.
+
+## W8 - W4 inheritance diagnosis (report-only)
+
+### W8-1 - accepted-tree integrity
+
+The mechanical `7829bdb..ed37e8f` changed-file list is:
+
+```text
+M	CHECKS_GAMEPLAY.md
+M	SPEC_TOOLKIT_REPORT_2026-07-30.md
+A	variant-batch/baseline/npc-extras/cohort-7c2a.keys
+```
+
+```text
+PREDICTED production source files changed: 0
+ACTUAL production source files changed: 0
+PREDICTED changed-file classes: documentation, checklist, report, key lists
+ACTUAL changed-file classes: documentation, checklist, report, key lists
+```
+
+The accepted tree therefore contains no production source change after the W3
+renderer state. W8-1 passes.
+
+### W8-2 - diagnostic inheritance cohort
+
+`variant-batch/baseline/npc-extras/cohort-7c2a-inherit.keys` was generated only
+from the committed baseline CSV. Its recorded query selects distinct type-8
+facial-hair row keys where the same specimen has a `cohort-7c2a.keys` row at a
+strictly lower batch index. The file is labelled **DIAGNOSTIC EVIDENCE** and is
+not acceptance authority pending Nico's ruling.
+
+```text
+PREDICTED total type-8 facial-hair rows: 930
+ACTUAL total type-8 facial-hair rows: 930
+PREDICTED inheritance cohort rows: 689
+ACTUAL inheritance cohort rows: 689
+PREDICTED inheritance cohort specimens: 410
+ACTUAL inheritance cohort specimens: 410
+PREDICTED remaining type-8 facial-hair rows: 241
+ACTUAL remaining type-8 facial-hair rows: 241
+PREDICTED invariant A resolvedTexture!=NONE: 0
+ACTUAL invariant A resolvedTexture!=NONE: 0
+PREDICTED invariant B nearest-preceding effectiveTexture mismatches: 0
+ACTUAL invariant B nearest-preceding effectiveTexture mismatches: 0
+PREDICTED invariant C remainder rows without only-higher head rows: 0
+ACTUAL invariant C remainder rows without only-higher head rows: 0
+PREDICTED invariant D nearest-preceding npc-bare prefix exceptions: 0
+ACTUAL invariant D nearest-preceding npc-bare prefix exceptions: 0
+```
+
+The rejected W4 run's preserved changed-row artifact is
+`variant-batch/resume-w4-npc/diff.txt`. Selecting its baseline type-8
+facial-hair rows whose diff line contains an `effectiveTexture` transition to
+`composite://npc-bare/` yields the rejected run's forbidden W4 subset. Its
+element-wise comparison with the diagnostic key list is:
+
+```text
+PREDICTED both: 689
+ACTUAL both: 689
+PREDICTED only-list: 0
+ACTUAL only-list: 0
+PREDICTED only-run: 0
+ACTUAL only-run: 0
+```
+
+All W8-2 predictions and invariants match exactly. W8-2 passes.
