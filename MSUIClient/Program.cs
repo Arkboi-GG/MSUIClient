@@ -32,11 +32,16 @@ public static partial class Program
         PortraitBatchOptions? portraitBatch = null;
         VariantBatchOptions? variantBatch = null;
         MovementSuiteOptions? movementSuite = null;
+        LiveRunOptions? liveRun = null;
         string? configPath;
         string? argumentError;
         bool movementRequested = args.Contains("--movement-suite", StringComparer.OrdinalIgnoreCase);
         bool variantRequested = args.Contains("--variant-batch", StringComparer.OrdinalIgnoreCase);
-        bool parsed = movementRequested
+        bool liveRequested = args.Contains("--live-bootstrap", StringComparer.OrdinalIgnoreCase) ||
+                             args.Contains("--live-protocol", StringComparer.OrdinalIgnoreCase);
+        bool parsed = liveRequested
+            ? TryParseLiveRunArgs(args, out liveRun, out configPath, out argumentError)
+            : movementRequested
             ? TryParseMovementSuiteArgs(args, out movementSuite, out configPath, out argumentError)
             : variantRequested
             ? TryParseVariantBatchArgs(args, out variantBatch, out configPath, out argumentError)
@@ -97,7 +102,7 @@ public static partial class Program
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
         };
 
-        var game = new GameLoop(window, config, portraitBatch, variantBatch, movementSuite) { SettingsFile = settings };
+        var game = new GameLoop(window, config, portraitBatch, variantBatch, movementSuite, liveRun) { SettingsFile = settings };
 
         window.OnLoad += game.Load;
         window.OnUpdate += game.Update;
@@ -122,6 +127,7 @@ public static partial class Program
 
         game.Dispose();
         if (movementSuite is not null) return game.MovementSuiteExitCode;
+        if (liveRun is not null) return game.LiveRunExitCode;
         if (variantBatch is not null) return game.VariantBatchExitCode;
         return portraitBatch is null ? 0 : game.PortraitBatchExitCode;
     }
@@ -400,13 +406,14 @@ public sealed partial class GameLoop : IDisposable
 
     public GameLoop(ClientWindow window, ClientConfig config,
         PortraitBatchOptions? portraitBatch = null, VariantBatchOptions? variantBatch = null,
-        MovementSuiteOptions? movementSuite = null)
+        MovementSuiteOptions? movementSuite = null, LiveRunOptions? liveRun = null)
     {
         _window = window;
         _config = config;
         _portraitBatchOptions = portraitBatch;
         _variantBatchOptions = variantBatch;
         _movementSuiteOptions = movementSuite;
+        _liveRunOptions = liveRun;
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -1510,6 +1517,7 @@ public sealed partial class GameLoop : IDisposable
 
         // Target picking uses the final camera and final collision world for this frame.
         UpdateTargeting();
+        AdvanceLiveRun(dt);
         UpdateCombatFeedback(dt);
         UpdateSpellPresentation();
 

@@ -149,3 +149,20 @@ vantage. It uses VMaNGOS/MaNGOS chat-command syntax: `.gm on`, `.npc add 6`,
 Kobold Vermin used as the disposable melee target. The reset deck requires the
 operator to select each spawned target before `.npc delete`; it intentionally
 contains no automated world or database mutation.
+
+## Autonomous live-run bootstrap
+
+`tools/live-run` is the single entry point. It first checks the configured
+realmd endpoint, refuses any account name other than the dedicated `TEST`, then
+launches MSUI with auto-connect/auto-character entry and the live bootstrap.
+The TEST password remains only in the gitignored config. Example:
+
+```powershell
+dotnet run --project tools\live-run\live-run.csproj -- MSUIClient\client-config.json --out live-runs
+```
+
+The VMaNGOS deployment is external at the configured LAN host; no server
+executable or service launcher exists in this repository. Its one permitted
+manual start must therefore be performed on that host once per sitting. A
+closed realmd port is recorded as a run-dated `SERVER_UNREACHABLE` artifact and
+nonzero exit, rather than prompting for per-scenario intervention.

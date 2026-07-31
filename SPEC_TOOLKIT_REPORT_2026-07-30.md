@@ -2817,3 +2817,24 @@ portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
 
 **HARD STOP - SPEC-15 C0-C4 is complete. The next combat order must be written
 from Nico's pasted CB0-CB7 live results.**
+
+## A0 - autonomous live-session bootstrap
+
+`tools/live-run` now preflights realmd, refuses any account except dedicated
+`TEST` with a named character, launches MSUI auto-login, waits for the real
+world/renderer state, sends the movement-arena `.go xyz` through the same C0
+GM-command method, writes a dated result, and exits with a named status. SETUP
+records that VMaNGOS is external and its one manual start is outside this repo.
+
+```text
+PREDICTED safe account: dedicated TEST + named disposable character
+ACTUAL configured account: non-TEST; bootstrap refused before login
+PREDICTED failure handling: named nonzero result + dated artifact
+ACTUAL: REFUSED_NON_TEST_ACCOUNT, exit 3
+ARTIFACT: live-runs/bootstrap-refused-20260731-141241.json
+SHA256: b285d57019a2e4e4ed9c48022358e64adf11622d6790d7d20816cb8214dccd4d
+```
+
+No Nico character was logged in or altered. This runner failure is evidence,
+not a blocker to implementing later independent stages. A0 manifest:
+`live-runs/manifests/A0-20260731-141241.sha256`.

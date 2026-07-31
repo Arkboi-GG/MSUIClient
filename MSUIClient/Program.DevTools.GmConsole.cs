@@ -16,7 +16,7 @@ public sealed partial class GameLoop
         ImGui.SetNextItemWidth(360f);
         bool submit = ImGui.InputText("Command##gm-console", ref _gmCommand, 512,
             ImGuiInputTextFlags.EnterReturnsTrue);
-        if (submit || ImGui.Button("Send##gm-console")) SendGmCommand();
+        if (submit || ImGui.Button("Send##gm-console")) SendGmCommand(_gmCommand, "user-console");
         ImGui.SameLine();
         if (ImGui.Button("Previous##gm-console") && _gmCommandHistory.Count > 0)
         {
@@ -38,16 +38,17 @@ public sealed partial class GameLoop
         }
     }
 
-    private void SendGmCommand()
+    private bool SendGmCommand(string text, string cause)
     {
-        string command = _gmCommand.Trim();
-        if (command.Length == 0) return;
+        string command = text.Trim();
+        if (command.Length == 0) return false;
         bool sent = _net?.SendChatSay(command) == true;
         if (_gmCommandHistory.Count == 32) _gmCommandHistory.RemoveAt(0);
         _gmCommandHistory.Add(command); _gmHistoryIndex = _gmCommandHistory.Count;
-        var verdict = new CombatVerdict(NowSeconds(), "GmCommand", "user-console", 0,
+        var verdict = new CombatVerdict(NowSeconds(), "GmCommand", cause, 0,
             $"sent={sent};text={command}");
         _verdicts.Add(verdict);
         Console.WriteLine($"[verdict:combat] {verdict.ToLine()}");
+        return sent;
     }
 }
