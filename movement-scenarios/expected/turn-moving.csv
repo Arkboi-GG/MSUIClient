@@ -2,5 +2,5 @@ name,currentMin,currentMax,lawMin,lawMax,citation
 maxSpeed,6.95,7.05,6.95,7.05,run speed 7.00 +/-0.05
 turnRate,2.30,2.41,2.306194,2.406194,vanilla moving turn pi*0.75 +/-0.05
 stallWindows,0,0,0,0,no stalls
-phaseResets,0,0,-999,999,diagnostic only
+hardCuts,1,1,0,0,every legacy transition entering below blend window without observable clipB
 substitutedEvents,0,0,0,0,no substitutions

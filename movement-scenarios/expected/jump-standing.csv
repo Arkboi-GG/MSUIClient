@@ -6,5 +6,5 @@ jumpAirtime,0.79,0.81,@predictedAirtime-0.034,@predictedAirtime+0.034,symplectic
 gravity,,,19.2901,19.2921,airborne velZ slope; benilla state.rs g=19.2911 +/-0.001
 jumpVelocity,,,7.9548,7.9568,first airborne velZ + g*dt; benilla state.rs v0=7.9558 +/-0.001
 stallWindows,0,0,0,0,no stalls
-phaseResets,0,0,-999,999,diagnostic only
+hardCuts,4,4,0,0,every legacy transition entering below blend window without observable clipB
 substitutedEvents,0,0,0,0,no substitutions

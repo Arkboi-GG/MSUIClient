@@ -1,7 +1,8 @@
 using System.Globalization;
 
 record Row(double T, double Dt, double X, double Y, double Z, double Speed, double Aim,
-    double VerticalVel, string Flags, bool Grounded, string Clip, double ClipTime, double Rate, string Choice);
+    double VerticalVel, string Flags, bool Grounded, string Clip, double ClipTime, double Rate, string Choice,
+    string ClipB, double BlendWeight);
 record Band(string Name, double? CurrentMin, double? CurrentMax, string LawMin, string LawMax, string Citation);
 
 static class MoveAudit
@@ -34,10 +35,13 @@ static class MoveAudit
     {
         string[] lines = File.ReadAllLines(path); string[] h = lines[0].Split(',');
         int I(string n) => Array.IndexOf(h, n);
+        string S(string[] c,string n) { int i=I(n); return i<0?"":c[i]; }
+        double O(string[] c,string n) { int i=I(n); return i<0||string.IsNullOrWhiteSpace(c[i])?0:D(c[i]); }
         var rows = lines.Skip(1).Select(line => { var c = line.Split(','); return new Row(
             D(c[I("t")]), D(c[I("dt")]), D(c[I("posX")]), D(c[I("posY")]), D(c[I("posZ")]),
             D(c[I("horizSpeed")]), D(c[I("aimYaw")]), D(c[I("verticalVel")]), c[I("inputFlags")], bool.Parse(c[I("grounded")]),
-            c[I("clipName")], D(c[I("clipTime")]), D(c[I("playbackRate")]), c[I("lastAnimChoice")]); }).ToList();
+            c[I("clipName")], D(c[I("clipTime")]), D(c[I("playbackRate")]), c[I("lastAnimChoice")],
+            S(c,"clipB"),O(c,"blendWeight")); }).ToList();
         bool Moving(Row r) => r.Flags.Contains("fwd") || r.Flags.Contains("back") || r.Flags.Contains("strafe");
         int firstIntent = rows.FindIndex(Moving); if (firstIntent < 0) firstIntent = 0;
         int firstMoved = rows.FindIndex(firstIntent, r => Math.Abs(r.X - rows[firstIntent].X) > 1e-5 || Math.Abs(r.Y - rows[firstIntent].Y) > 1e-5);
@@ -53,7 +57,9 @@ static class MoveAudit
         int apex = takeoff < 0 ? -1 : rows.FindIndex(takeoff, r => Math.Abs(r.Z - rows.Max(x => x.Z)) < 1e-5);
         int stalls = 0; double stall = 0;
         foreach (var r in rows) { if (Moving(r) && (r.Clip == "Stand" || Math.Abs(r.Rate) < 1e-5)) { stall += r.Dt; if (stall > .15 && stall-r.Dt <= .15) stalls++; } else stall = 0; }
-        int resets = 0; for (int i=1;i<rows.Count;i++) if (rows[i].Clip==rows[i-1].Clip && rows[i].ClipTime+1e-5 < rows[i-1].ClipTime) resets++;
+        bool blendColumns = I("clipB") >= 0 && I("blendWeight") >= 0;
+        int hardCuts = 0; for (int i=1;i<rows.Count;i++) if (rows[i].Clip!=rows[i-1].Clip && rows[i].ClipTime < 0.15 &&
+            (!blendColumns || string.IsNullOrEmpty(rows[i].ClipB) || rows[i].BlendWeight <= 0)) hardCuts++;
         int subs = rows.Count(r => r.Choice.Contains("Substituted", StringComparison.OrdinalIgnoreCase));
         List<Row> air = takeoff < 0 ? [] : rows.Skip(takeoff).Take((land < 0 ? rows.Count : land) - takeoff).ToList();
         double sampleDt = rows.Count < 2 ? 0 : (rows[^1].T-rows[0].T)/(rows.Count-1);
@@ -76,7 +82,7 @@ static class MoveAudit
             ["gravity"] = gravity, ["jumpVelocity"] = jumpVelocity,
             ["predictedApex"] = predictedApex, ["predictedApexTime"] = predictedApexTime,
             ["predictedAirtime"] = predictedAirtime,
-            ["stallWindows"] = stalls, ["phaseResets"] = resets, ["substitutedEvents"] = subs
+            ["stallWindows"] = stalls, ["hardCuts"] = hardCuts, ["substitutedEvents"] = subs
         };
     }
 

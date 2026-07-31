@@ -236,3 +236,33 @@ in `crates/benilla/src/creature_anim/spell_visual.rs` (approximately lines 420�
 This does not close the structural movement items above. Live sign-off must specifically cast while
 stationary, begin moving during/after recovery, and confirm that the correct walk/run clip resumes
 without a Stand latch.
+
+## 2026-07-31 measured reconciliation addendum
+
+This addendum supersedes the historical “Suggested order of attack” status,
+without rewriting the source-reading record that produced it. SPEC-13's fixed
+60 Hz scripts and committed traces establish the current tree as follows:
+
+| Original item | Measured status | Proving trace/audit evidence |
+|---:|---|---|
+| 1. Cross-fade + phase preservation | **Unresolved by the original instrument; legacy observation classifies every below-window transition as a hard cut.** | S2 `hardCuts`: 18 across all eight scripts (12 gait/landing/turn transitions plus 6 internal Jump/Fall transitions). S3 adds clipB/weight observability before accepting this item. |
+| 2. Intent-driven animation | **Implemented.** | `run-start-stop`: start displacement 1 tick, clip latency 0 ms, stalls 0; all scripts substitutions 0. |
+| 3. Body heading | **Implemented.** | `strafe-pure` trace bodyYaw-aimYaw is exactly +/-pi/2; standing turn plays shuffle while aim/body are split. |
+| 4. Turn rate | **Implemented.** | `turn-standing=3.141604 rad/s`; `turn-moving=2.356214 rad/s` (pi and 0.75pi within trace precision). |
+| 5. Landing animation | **Implemented.** | jump-standing selects JumpEnd 39; jump-flat selects JumpLandRun 187. |
+| 6. Server speed opcodes | **Untested.** | Offline scripts prove only local 7.0/4.5 speeds; no FORCE_* change/ACK scenario exists. |
+| 7. Step/slope constants | **Untested.** | Flat `movement-arena` has no threshold stair or slope course. |
+| 8. Swim | **Untested.** | No water vantage or swim ladder script exists. |
+| 9. Capsule sweep | **Untested.** | No wall-glance/corner collision course exists. |
+
+Separate jump-bracket status: landing selection is present, but liftoff enters
+Jump 38 directly. The authored JumpStart 37 -> Jump 38 handoff is absent and is
+tracked as F2 under SPEC-14.
+
+The old `phaseResets` audit counted only a clock wrap while a clip name stayed
+unchanged and therefore could not observe a transition cut. It is superseded by
+`hardCuts`: on legacy traces, every clip-name transition entering below the
+blend window without observable clipB state counts; on S3-format traces, a
+transition is a hard cut only when no outgoing clip/positive blend weight is
+present. One-shots may legitimately start their incoming clock at zero while
+still blending from the outgoing pose.

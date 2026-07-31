@@ -2,5 +2,5 @@ name,currentMin,currentMax,lawMin,lawMax,citation
 maxSpeed,6.95,7.05,6.95,7.05,pure strafe equals run speed +/-0.05
 stopDistance,0,0.05,0,0.05,instant stop
 stallWindows,0,0,0,0,no stalls
-phaseResets,0,0,-999,999,diagnostic only
+hardCuts,2,2,0,0,every legacy transition entering below blend window without observable clipB
 substitutedEvents,0,0,0,0,no substitutions

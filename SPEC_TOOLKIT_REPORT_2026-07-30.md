@@ -2441,3 +2441,37 @@ current-tree expectation.
 
 S1 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## S2 - measured movement reconciliation and hard-cut metric
+
+The dated addendum in `BENILLA_VS_MSUI_MOVEMENT.md` now marks items 2/3/4/5
+implemented by their committed audit rows, item 1 pending blend observability,
+and items 6-9 untested. It also records the separate missing JumpStart handoff.
+
+`phaseResets` was removed: it counted only same-name clock wraps and defined
+away transitions. `hardCuts` now examines clip-name transitions. Legacy traces
+have no clipB columns, so an incoming clock below 150 ms is classified as a cut;
+S3-format traces require an outgoing clip and positive blend weight to avoid it.
+
+```text
+PREDICTED pilot legacy hard cuts: 12
+ACTUAL all-transition query: 18
+DECOMPOSITION: 12 gait/landing/turn transitions + 6 internal Jump/Fall
+PREDICTED traces changed: 0
+ACTUAL traces changed: 0; only verdicts and expectation names re-baselined
+PREDICTED current-tree gate: PASS
+ACTUAL current-tree gate: 44/44 PASS plus 4/4 jump law-only rows
+```
+
+The 18/12 difference is not normalized away: the spec's “every clip
+transition” definition includes Run/Stand/turn/landing and the six Jump/Fall
+internal transitions. S3 must drive the full 18 to zero.
+
+S2 symbol verification found the cited mixer already present in commit
+`57ee29d`: `CharacterRenderer.SwitchClip`, two live clocks,
+`M2Animator.Evaluate(current, previous, weight)`, and locomotion phase carry.
+The trace had no access to that state. S3 therefore instruments and mechanically
+accepts the real path rather than fabricating a duplicate mixer.
+
+S2 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.

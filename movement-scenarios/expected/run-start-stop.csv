@@ -5,5 +5,5 @@ stopDistance,0,0.05,0,0.05,instant stop
 startDisplacementTicks,0,1,0,1,at most one tick
 startClipLatencyMs,0,16.667,0,16.667,vanilla intent response at most one tick
 stallWindows,0,0,0,0,no intent-moving Stand/rate-zero window over 150ms
-phaseResets,0,0,-999,999,diagnostic only; no vanilla pass band yet
+hardCuts,2,2,0,0,every legacy transition entering below blend window without observable clipB
 substitutedEvents,0,0,0,0,no substituted animation events
