@@ -1,0 +1,27 @@
+Welcome to World of Warcraft!
+Patch 1.12: Drums of War is now live!
+Username: Password: +Logged in.
+ mangos>> help server log level
+There is no help for that command
++mangos>> help server log filter
+There is no help for that command
++mangos>> server log level
+Console log level: 2 File log level: 2
++mangos>> server log filter
+Log filters state:
+  transport_moves      = on
+  creature_moves       = on
+  visibility_changes   = on
+  weather              = on
+  player_stats         = off
+  sql_text             = off
+  player_moves         = off
+  periodic_effects     = off
+  ai_and_movegens      = off
+  damage               = off
+  combat               = off
+  spell_cast           = off
+  db_stricted_check    = on
+  pathfinding          = off
+  honor                = on
++mangos>

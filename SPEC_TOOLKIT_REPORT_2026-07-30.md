@@ -3406,3 +3406,35 @@ were not promoted to evidence. Full results and prior-run reconciliation are
 in `live-runs/P1-precondition-matrix-20260731-204000.md`.
 
 All four stage-boundary gates passed.
+
+## P2 — server observation (bounded hard stop)
+
+The VMaNGOS RA service at `192.168.0.2:3443` accepted the authorized TEST
+credentials from the gitignored client config. Original server logging was
+console/file `2/2`, combat filter OFF. The bounded capture set console 3 and
+combat ON, repeated a fully proven GM-OFF attack, then restored and verified
+`2/2` + combat OFF. The file level remained 2, exactly as the authoritative
+`ServerCommands.cpp:575-585` implementation predicts, and RA relayed zero
+live process log lines during its 35-second listen window. SSH was refused
+before command execution, so the Linux world log could not be read.
+
+A second server-state run proved TEST was not mounted, executed
+`.combatstop TEST`, and queried the fresh creature. The target used random
+motion rather than HOME motion, was alive and server-found, and a Northshire
+guard successfully initiated combat against that exact creature before the
+player's send. The player then sent at 1.8917537 yd and again received no
+attack-family response. These facts exclude the cheap mounted, stale attack,
+HOME-motion evade, dead, absent, and range explanations, but do not identify
+the remaining server predicate or prove handler entry.
+
+```text
+PREDICTED: server debug capture names the receive/handler path
+ACTUAL: reversible logging change succeeded; required Linux log was inaccessible
+RESULT: P2 HARD STOP; P3 and P4 NOT STARTED
+```
+
+The detailed access request and actual-versus-predicted packet are in
+`live-runs/P2-server-observation-hard-stop-20260731-220000.md`. No combat
+behavior, error display, server code, database, or F3-F6 change was made.
+
+All four stage-boundary gates passed.

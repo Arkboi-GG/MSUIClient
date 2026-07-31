@@ -170,3 +170,20 @@ executable or service launcher exists in this repository. Its one permitted
 manual start must therefore be performed on that host once per sitting. A
 closed realmd port is recorded as a run-dated `SERVER_UNREACHABLE` artifact and
 nonzero exit, rather than prompting for per-scenario intervention.
+
+## VMaNGOS remote administration
+
+The external deployment exposes Remote Administration on the configured LAN
+host, port 3443. `tools/vmangos-ra` reads the dedicated TEST account and
+password from the gitignored client config at runtime, redacts both from its
+run-dated transcript, and sends console commands without storing credentials.
+SOAP port 7878 is closed. SSH identity `wowvmangos@192.168.0.2` currently lacks
+a usable non-interactive credential.
+
+For bounded diagnostics, query and preserve the original state with
+`server log level` and `server log filter`. On this server, `server log level
+3` changes the console sink only; it leaves the file level unchanged. Restore
+the observed values after every capture. SPEC-21 P2 observed and restored
+console/file levels `2/2` and combat filter `off`. RA does not relay live
+mangosd process log output, so Linux log access is still required for handler
+tracing.

@@ -1,0 +1,23 @@
+Welcome to World of Warcraft!
+Patch 1.12: Drums of War is now live!
+Username: Password: +Logged in.
+ mangos>> help server log
+Command log have subcommands:
+
+
+    filter
+
+    level
++mangos>> help log
+There is no help for that command
++mangos>> server log
+There is no such subcommand
+Command  have subcommands:
+
+
+    filter
+
+    level
+-mangos>> log
+Incorrect syntax.
+-mangos>
