@@ -2012,3 +2012,51 @@ HumanMale inside=1289
 Wolf inside=56
 portrait camera check passed
 ```
+
+## W11 - W4 accepted under final Option B ruling
+
+### W11-1 - pinned npc-bare head composite accepted
+
+SPEC-12 records Nico's final Option B ruling. W4 authority is the frozen
+8,889-key `cohort-7c2a.keys`; the frozen 689-key inherit cohort is a
+forbidden-change cohort and the inheritance question is parked for a live
+Tauren verdict.
+
+Only the two production files from `48c16dc` were reinstated. Their working
+blob hashes matched the historical commit exactly before commit; no source
+edit or conflict resolution was required. Fresh full sweeps produced:
+
+```text
+PREDICTED NPC specimens / stable row keys: 6939 / 64650
+ACTUAL NPC specimens / stable row keys: 6939 / 64650
+PREDICTED changed W4 row keys: 8889
+ACTUAL changed W4 row keys: 8889
+PREDICTED authority-only row keys: 0
+ACTUAL authority-only row keys: 0
+PREDICTED candidate-only row keys: 0
+ACTUAL candidate-only row keys: 0
+PREDICTED authority predicted7C2Texture mismatches: 0
+ACTUAL authority predicted7C2Texture mismatches: 0
+PREDICTED inherit-cohort changed rows: 0 of 689
+ACTUAL inherit-cohort changed rows: 0 of 689
+PREDICTED changes outside authority: 0
+ACTUAL changes outside authority: 0
+
+PREDICTED type-6 rows / changes from W3 / UNBOUND: 7677 / 0 / 0
+ACTUAL type-6 rows / changes from W3 / UNBOUND: 7677 / 0 / 0
+PREDICTED mounted attachment specimens / not-mounted: 3535 / 0
+ACTUAL mounted attachment specimens / not-mounted: 3535 / 0
+PREDICTED unexpected blanks / NPC G3: 0 / 0
+ACTUAL unexpected blanks / NPC G3: 0 / 0
+PREDICTED items specimens / changedRows / gated G3: 3944 / 0 / 0
+ACTUAL items specimens / changedRows / gated G3: 3944 / 0 / 0
+```
+
+Willem remains mounted with
+`Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2` from
+`patch.MPQ`. Control `npc-extra:54:display:3340:batch:15` remains
+`Character\Human\Hair02_09.blp` from `texture.MPQ`.
+
+The W4 root cause landed as `3bf1f14`. Committed stage-boundary gates pass:
+Debug build succeeds with only the known CA2014 warning, combat/wire passes,
+and portrait-camera reports exactly 1,224 / 1,289 / 56. W11-1 is accepted.
