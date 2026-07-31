@@ -110,6 +110,11 @@ public sealed partial class GameLoop
         ImGui.TextDisabled(keyValid
             ? $"{_labTuningKey} ({(stored ? "stored" : "not stored")})"
             : "No live subject key");
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!keyValid);
+        if (ImGui.SmallButton("Copy key##portrait-lab"))
+            CopyVerdictText(_labTuningKey);
+        ImGui.EndDisabled();
         ImGui.BeginDisabled(!keyValid);
         if (ImGui.Button("Save override##portrait-lab"))
             _portraitOverrides?.Set(_labTuningKey, _labTuning);
@@ -303,6 +308,15 @@ public sealed partial class GameLoop
             return;
         }
         PortraitVerdict v = matches[^1];
+        if (ImGui.SmallButton("Copy verdict##portrait-lab"))
+            CopyVerdictText($"[verdict:{v.Channel}] {v.ToLine()}");
+        if (_labSubject == PortraitLabSubject.Specimen &&
+            CurrentPortraitLabSpecimen() is { } specimen)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Copy specimen##portrait-lab"))
+                CopyVerdictText($"displayId={specimen.DisplayId} model={specimen.ModelPath}");
+        }
         ImGui.TextUnformatted($"Time: {v.Time:F3}");
         ImGui.TextUnformatted($"Subject: {v.Subject}");
         ImGui.TextUnformatted($"Outcome: {v.Outcome}");

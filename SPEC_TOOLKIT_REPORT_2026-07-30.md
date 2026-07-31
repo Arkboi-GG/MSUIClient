@@ -1358,3 +1358,19 @@ portrait camera check passed
 **HARD STOP.** Nico's role resumes at review of the items CSV, first contact
 sheet, and summary. 7C-1 must not begin until this checkpoint is explicitly
 accepted.
+
+## SPEC 08 — unattended 7C
+
+### W0 — Stage 1G affordance reconciliation
+
+Stage 1G had only partially shipped. The wire-recorder toggle already sits on
+the collapsed Verdicts header in `Program.DevTools.Verdicts.cs`, and the F10
+payload already serializes `portraits.target.latest` in
+`Program.DevTools.GameplayDump.cs`. The Portrait Lab had no copy affordances.
+W0 adds copy controls for its active override key, latest displayed portrait
+verdict, and specimen display-id/model-path pair. All three use the existing
+Verdicts-panel clipboard helper; no rendering or portrait law changed.
+
+Standard gates passed: solution build succeeded with the one pre-existing
+CA2014 warning; combat/wire checks passed; portrait camera checks retained
+DwarfMale 1,224, HumanMale 1,289, and Wolf 56 inside-vertex counts.
