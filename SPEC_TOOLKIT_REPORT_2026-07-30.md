@@ -1522,3 +1522,25 @@ hard stop at W2. The accepted tree remains buildable, but Willem is not claimed
 helmeted and the 5,114-NPC real-hair outcome is not claimed. No expected cohort
 or law was adjusted to manufacture acceptance. `CHECKS_GAMEPLAY.md` now states
 the stopped-chain expectations directly beside the live checks.
+
+### W2 rejection overturned - baseline authority correction
+
+The reviewer identified the original 2,698 prediction as a batch-0-only
+sampling artifact. Two direct queries against the committed NPC-extras
+baseline now establish the authoritative cohort:
+
+```text
+QUERY A: distinct key where outcome=Ready and
+         (helmDisplayId != 0 or shoulderDisplayId != 0)
+QUERY B: distinct key where any row attachmentStatus=not-mounted
+QUERY A keys: 3535
+QUERY B keys: 3535
+only QUERY A: 0
+only QUERY B: 0
+```
+
+The sets are element-wise identical. Their sorted keys are committed as
+`variant-batch/baseline/npc-extras/cohort-7c1.keys`. The prior revert remains
+the correct application of the immutable-acceptance law; only the faulty
+human-transcribed prediction is superseded. From this point, committed
+baseline-derived key lists are acceptance authority for W2, W3, and W4.

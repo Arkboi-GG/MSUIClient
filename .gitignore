@@ -101,6 +101,7 @@ variant-batch/baseline/*
 !variant-batch/baseline/npc-extras/
 variant-batch/baseline/npc-extras/*
 !variant-batch/baseline/npc-extras/verdicts.csv
+!variant-batch/baseline/npc-extras/*.keys
 !variant-batch/baseline/items/
 variant-batch/baseline/items/*
 !variant-batch/baseline/items/verdicts.csv
