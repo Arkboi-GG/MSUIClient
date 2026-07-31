@@ -3352,3 +3352,31 @@ next-order requirement are in
 no combat behavior, error-text, F3-F6, or production-network change landed.
 The H2 staged-byte manifest is
 `live-runs/manifests/H2-20260731-173500.sha256`.
+
+## P0 — attack precondition truth
+
+P0 captured a fully proven GM-OFF send and it was still silent. The server
+reported GM-ON at login before any protocol state command, then confirmed the
+complete OFF→ON→OFF sequence. At send time the player was at the arena, target
+`0xF13000000604A282` was present in the client's object store, alive at
+100/100 health, entry 6 / faction 25, unit and dynamic flags both zero, and
+0.66123295 yd away. The real outgoing body was
+`82 A2 04 06 00 00 30 F1`; no attack-family response followed.
+
+```text
+EXPECTED cheap discriminator: GM-OFF + present/alive/within3 target is valid
+ACTUAL: all preconditions true, one send, zero attack-family receives
+RESULT: P0 COMPLETE; P1 opens and a reproduced silent cell will require P2
+```
+
+Read-only SSH to `wowvmangos@192.168.0.2` was refused before command execution,
+so zero installed config files were read. The authoritative VMaNGOS template
+defines `GM.LoginState = 2` (last saved state), while the live notification
+proves this account's effective login state was ON. No deployed value is
+invented.
+
+The report=act `AttackPrecondition` verdict lands immediately before the
+existing attack send and samples controller pose, server-reported GM state,
+and the exact object-store descriptor. It changes no combat or wire behavior.
+Full evidence is in `live-runs/P0-precondition-truth-20260731-180000.md`;
+staged-byte hashes are in `live-runs/manifests/P0-20260731-180000.sha256`.

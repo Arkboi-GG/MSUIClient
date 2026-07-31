@@ -1,0 +1,38 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\P0-precondition-truth-20260731-180000.txt
+1,PASS,move-trace start P0-arena-position-20260731-180000
+2,PASS,gm .gps
+3,PASS,gm .gm
+4,PASS,wait 1
+5,PASS,gm .gm off
+6,PASS,wait 1
+7,PASS,gm .gm
+8,PASS,wait 1
+9,PASS,gm .gm on
+10,PASS,wait 1
+11,PASS,gm .gm
+12,PASS,wait 1
+13,PASS,gm .npc spawn add 6
+14,PASS,wait 0.2
+15,PASS,select spawn:1 guid=0xF13000000604A282
+16,PASS,assert within3=true
+17,PASS,gm .npc set level 60
+18,PASS,gm .npc set reactstate 0
+19,PASS,gm .npc info
+20,PASS,wait 1
+21,PASS,gm .gm off
+22,PASS,wait 1
+23,PASS,gm .gm
+24,PASS,wait 1
+25,PASS,wire-trace start path=dumps/wire-20260731-171053.wlog
+26,PASS,trace start P0-precondition-truth-20260731-180000
+27,PASS,attack start
+28,PASS,wait 2
+29,PASS,attack stop
+30,PASS,wait 0.2
+31,PASS,trace stop
+32,PASS,wire-trace stop
+33,PASS,move-trace stop
+34,PASS,gm .npc spawn delete
+35,PASS,wait 1
+36,PASS,waitgone spawn:1 guid=0xF13000000604A282 descriptorPresent=False

@@ -19,6 +19,7 @@ public sealed partial class GameLoop
     private int _combatTraceRow;
     private double _combatTraceTime;
     private string _lastCombatStopCause = "server-stop";
+    private bool? _serverGmMode;
 
     private void StartCombatTrace()
     {
@@ -78,7 +79,23 @@ public sealed partial class GameLoop
         string text=string.Join('|', System.Text.Encoding.UTF8.GetString(body)
             .Split('\0',StringSplitOptions.RemoveEmptyEntries)
             .Select(x=>new string(x.Where(ch=>!char.IsControl(ch)).ToArray())).Where(x=>x.Length>1));
+        if(text.Contains("GM mode is ON",StringComparison.OrdinalIgnoreCase)) _serverGmMode=true;
+        else if(text.Contains("GM mode is OFF",StringComparison.OrdinalIgnoreCase)) _serverGmMode=false;
         EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
+    }
+
+    private void ObserveAttackPrecondition(WorldEntity target)
+    {
+        Vector3 player=_controller?.Position??Vector3.Zero;
+        float distance=_controller is null?-1:Vector3.Distance(player,target.Position);
+        EmitCombat("AttackPrecondition","live-send-path",target.Guid,
+            $"player=0x{_net?.PlayerGuid??0:X16};position={player.X:R}|{player.Y:R}|{player.Z:R};"+
+            $"gmMode={(_serverGmMode.HasValue?_serverGmMode.Value.ToString().ToLowerInvariant():"unmeasured")};"+
+            $"gmSource=server-response;present=true;visible=true;alive={!target.IsDead};"+
+            $"health={target.Fields.Health};maxHealth={target.Fields.MaxHealth};"+
+            $"unitFlags=0x{target.Fields.UnitFlags:X8};dynamicFlags=0x{target.Fields.DynamicFlags:X8};"+
+            $"faction={target.Fields.FactionTemplate};entry={target.Entry};distance={distance:R};"+
+            $"targetPosition={target.Position.X:R}|{target.Position.Y:R}|{target.Position.Z:R}");
     }
 
     private void ObserveGmChatWire(bool outgoing, ushort opcode, ReadOnlySpan<byte> body) =>
