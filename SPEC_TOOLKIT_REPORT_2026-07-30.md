@@ -1778,7 +1778,7 @@ after the evidence commits produced:
 
 ```text
 dotnet build MSUIClient.sln -c Debug
-Build succeeded. 0 Warning(s), 0 Error(s).
+Build succeeded. 1 known CA2014 warning, 0 errors.
 
 dotnet run --project tools\combat-wire-check\MSUICombatWireCheck.csproj -c Release
 combat/movement/targeting/wire foundation checks passed
