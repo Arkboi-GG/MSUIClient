@@ -3256,3 +3256,35 @@ status, and the next signed-order queue are in
 CMSG_ATTACKSWING receive/acceptance forensics against VMaNGOS and benilla;
 error-text display remains later. T3 hashes are in
 `live-runs/manifests/T3-20260731-161700.sha256`.
+
+## H0 — VMaNGOS attack-acceptance law
+
+Official VMaNGOS development commit
+`db7450c6e4cc255cffa2620e5d0dd7d2f179d2d2` was read at the exact handler and
+`Unit::Attack` lines. The Linux server checkout remains unavailable from this
+Windows machine; the live server will arbitrate any revision difference.
+
+The strongest H0 discriminator differs from the pilot prediction. A GUID that
+fails `IsUnit()` is silently dropped, but a well-typed unit GUID that misses
+map lookup receives `SMSG_ATTACKSTOP` with a null victim. Friendly,
+spawning/not-selectable, and dead found victims also receive attack-stop. A
+found candidate reaches `Unit::Attack`, whose self/deleted/dead/out-of-world,
+mounted, GM-victim, evade, and already-attacking returns are silent. A newly
+valid attack sends attack-start.
+
+Range, facing, and death errors are later swing-timer decisions, not initial
+lookup responses. NOTINRANGE and BADFACING are state-deduplicated; DEADTARGET
+stops attack; the current CANT_ATTACK branch delays silently. SET_SELECTION
+stores any packet GUID and normally acknowledges neither success nor miss, so
+it cannot prove identity by itself.
+
+```text
+EXPECTED law column: enumerate silent and error paths
+ACTUAL: complete at CombatHandler.cpp:32-62, MiscHandler.cpp:399-431,
+        Unit.cpp:364-475 and 4703-4786, Player.cpp:17118-17146
+DEVIATION: official lookup miss sends attack-stop rather than returning silently
+RESULT: H0 COMPLETE; H1 opens
+```
+
+The full law table is `live-runs/H0-attack-law-20260731-163000.md`; manifest:
+`live-runs/manifests/H0-20260731-163000.sha256`.
