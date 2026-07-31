@@ -2735,3 +2735,33 @@ The C2 SHA-256 manifest is
 
 C2 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## C3 - combat-audit
+
+`tools/combat-audit <trace> [output-directory]` parses quoted CSV, enumerates
+the legal Off/On intent state machine, detects unknown/repeated transitions,
+counts ATTACKSWING per start and ATTACKSTOP per local cancel/target switch,
+rejects server swings outside intent windows, checks cadence to one observed
+tick when weapon speed and eligibility exist, and checks attack-choice return
+to an unblended movement base. Output is always run-dated.
+
+Missing capabilities are explicit `NO_DATA`, never PASS: the current client
+does not supply weapon speed or resolved eligibility, and no live CB trace
+exists yet. Therefore no combat baseline or verdict artifact was cut in C3.
+
+```text
+PREDICTED legal states: Off, On
+ACTUAL: exactly Off --IntentOn--> On and On --IntentOff--> Off
+PREDICTED unknown transition treatment: FAIL
+ACTUAL: FAIL row with timestamp/event/target
+PREDICTED first committed combat baseline: none before Nico live run
+ACTUAL: none
+PREDICTED unavailable measurement treatment: explicit
+ACTUAL: NO_DATA with sample counts
+```
+
+The C3 SHA-256 manifest is
+`combat-instruments/manifests/C3-20260731-140149.sha256`.
+
+C3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
