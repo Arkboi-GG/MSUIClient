@@ -155,25 +155,23 @@ gets specced against a verified foundation.
 
 ## Session 2 - variant fixes
 
-Run this after reviewing the unattended 7C stop result. The accepted tree does
-not contain the rejected W2 candidate or its dependent hair fixes, so checks
-V1 and V2 are expected to remain red until the 2,698-vs-3,535 cohort ruling is
-resolved. Record what the live client actually shows; do not mark an expected
-failure as a pass.
+Run this against the accepted W3 tree. W2 attachments and W3 type-6 hair are
+present; W4's type-1 npc-bare head composite is not. Record the live result
+without folding the remaining W4 symptom into the accepted W3 result.
 
 **V1. Willem, Northshire.** Find Deputy Willem (display 2072 / extra 675). Is
 his authored Stormwind plate helm visibly mounted, without changing his face
 or scalp texture?
-> BLOCKED BY W2: candidate mounted him, but the full cohort was 3,535 instead
-> of the immutable predicted 2,698, so that implementation was rejected and
-> removed. Accepted-tree expectation: not helmeted.
+> Expect: helmet visibly mounted and fitted. His W4 scalp-composite correction
+> is not present, so judge the attachment independently of any exposed scalp.
 
 **V2. Dressed humanoid NPC hair.** Check several merchants or guards with
 authored clothing and visible hair. Is the hair/scalp supplied by a real
 `Character\\...\\Hair*.blp`, with no clothing texture or black chunks on the
 head?
-> BLOCKED BY W2 -> W3/W4: the 5,114-specimen type-6 hair fix and npc-bare head
-> composite were not run. Accepted-tree expectation: known failures remain.
+> Split verdict: the hair mesh should bind a real `Character\\...\\Hair*.blp`
+> (W3 PASS expectation). Clothing-atlas bleed can remain on type-1 scalp/ear
+> under-passes because W4 hard-stopped on 689 forbidden type-8 changes.
 
 **V3. Portrait Lab cycle.** Open Portrait Lab in Specimen mode and press `]`
 through at least ten humanoids. Use the new copy controls to paste one active
@@ -184,5 +182,5 @@ override key, one latest portrait verdict, and one specimen id/model pair.
 race/sex/customization combinations. Record any creation-vs-render mismatch.
 The offline W6 baseline is 634/634 Ready, but 359 specimens encounter a
 duplicate `CharSections` key; their exact file-order winners are the proposed
-7C-3 protocol, not yet a renderer fix.
+7C-3 protocol, not yet a renderer fix. It remains queued for its own ruling.
 >

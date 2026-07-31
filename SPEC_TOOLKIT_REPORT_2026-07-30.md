@@ -1504,25 +1504,6 @@ Standard gates passed: Debug solution build succeeded with only the existing
 CA2014 warning, combat/wire checks passed, and portrait-camera anchors remained
 1,224 / 1,289 / 56. W6 is self-ruled accepted.
 
-### W7 - unattended close-out
-
-| Work item | Mechanical result | Status / commit |
-|---|---|---|
-| W0 panel reconciliation | Three missing Portrait Lab copy affordances added; wire toggle and latest target dump already present; all standard gates pass. | Accepted, `5e8a74d` |
-| W1 item classification | 58 unique issue rows / 76 failure observations classified; custom 67218-67221 files exist under Cape and the Head demand was wrong; 3,944-row rerun has gated G3 zero and `changedRows=0`. | Accepted, `4b6e240` |
-| W2 attachment fix | Predicted 2,698 specimens; actual baseline and candidate transition set 3,535 specimens / 33,532 batch rows. Willem mounted and texture strings unchanged in the candidate, but cohort equality failed. | Rejected and removed, report commit `bb42a9f` |
-| W3 type-6 hair | Required accepted W2; not run. Predicted 7,677 rows / 5,114 specimens therefore not claimed. | Stopped by W2 |
-| W4 npc-bare head composite | Required accepted W2/W3; not run. | Stopped by W2 |
-| W5 replacement baselines | Required accepted W2-W4; not run; committed NPC/items baselines remain canonical. | Stopped by W2 |
-| W6 player sweep | 634/634 Ready over 16 race/sex pairs; 359 collision rows, each with one extra match and an exact winner record. | Accepted; 7C-3 candidate, `62d18f7` |
-| W7 close-out | This matrix and the Session 2 live checklist added; final gates pass. | Accepted |
-
-The requested ideal end state was not reached because unattended law required a
-hard stop at W2. The accepted tree remains buildable, but Willem is not claimed
-helmeted and the 5,114-NPC real-hair outcome is not claimed. No expected cohort
-or law was adjusted to manufacture acceptance. `CHECKS_GAMEPLAY.md` now states
-the stopped-chain expectations directly beside the live checks.
-
 ### W2 rejection overturned - baseline authority correction
 
 The reviewer identified the original 2,698 prediction as a batch-0-only
@@ -1623,3 +1604,48 @@ either query. Of the authority rows, 8,884 currently resolve from
 `Textures\BakedNpcTextures\...`; five resolve from the bare race/sex fallback
 skin because no baked texture won. No rows were excluded for that source
 deviation: the complete committed head-region key set is W4 authority.
+
+### W4 - 7C-2a acceptance: HARD STOP
+
+The first full candidate changed every committed authority row to its exact
+baseline `predicted7C2Texture`, but it also changed 689 rows outside the
+authority. The actual-versus-predicted audit was:
+
+```text
+PREDICTED authority row keys: 8889
+ACTUAL changed authority row keys: 8889
+ACTUAL authority-only keys: 0
+ACTUAL candidate-only type-1 keys: 0
+ACTUAL rows not equal to predicted7C2Texture: 0
+PREDICTED changed rows outside head authority: 0
+ACTUAL changed rows outside head authority: 689
+ACTUAL outside decomposition: textureType=8, region=facial-hair, 689 rows
+ACTUAL outside field: effectiveTexture only
+```
+
+The 689 rows are unbound type-8 batches following a head batch; they inherited
+the new composite instead of the prior dressed atlas. A correction and second
+full sweep were mistakenly attempted before the hard-stop requirement was
+reapplied. Although that later sweep matched, it has no acceptance standing.
+The W4 implementation, W5 rebaseline, and completed-chain W7 commit were all
+removed with explicit revert commits. W4 is rejected and the dependent W5
+chain is stopped. The accepted tree is the buildable W3 state.
+
+### W7 - unattended close-out
+
+| Work item | Mechanical result | Status / commit |
+|---|---|---|
+| W0 panel reconciliation | Three missing Portrait Lab copy affordances added; wire toggle and latest target dump already present; all standard gates pass. | Accepted, `5e8a74d` |
+| W1 item classification | 58 unique issue rows / 76 failure observations classified; custom 67218-67221 files exist under Cape and the Head demand was wrong; 3,944-row rerun has gated G3 zero and `changedRows=0`. | Accepted, `4b6e240` |
+| W2 attachment fix | Both baseline-derived queries produce the identical 3,535-specimen set; the candidate changed exactly those keys, items remained `changedRows=0`, and Willem mounted with unchanged texture strings. | Accepted, `30315a2` |
+| W3 type-6 hair | Exactly 7,677 committed authority rows changed; zero set differences, zero UNBOUND type-6 rows, and NPC G3 zero. | Accepted, `7829bdb` |
+| W4 npc-bare head composite | All 8,889 authority rows changed exactly, but 689 forbidden type-8 effective bindings also changed on the first full acceptance run. | HARD STOP; candidate removed by `be31ac6` |
+| W5 replacement baselines | Depended on accepted W4. A mistakenly continued rebaseline was removed by `af58a27`; pre-7C canonical baselines and committed authority lists remain in place. | Stopped by W4 |
+| W6 player sweep | 634/634 Ready over 16 race/sex pairs; 359 collision rows, each with one extra match and an exact winner record. | Accepted; 7C-3 candidate, `62d18f7` |
+| W7 close-out | This matrix and the Session 2 live checklist added; final gates pass. | Accepted |
+
+The resumed chain legitimately accepted W2 and W3, then hard-stopped at W4's
+first full mismatch. Willem's attachments and the 5,114-specimen type-6 hair
+binding are present. The type-1 npc-bare head composite is not present, and no
+post-7C rebaseline is claimed. No expected cohort or law was adjusted.
+`CHECKS_GAMEPLAY.md` states the split live expectation directly.
