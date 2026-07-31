@@ -347,6 +347,7 @@ public sealed class ItemDisplayTable
     private readonly Dictionary<uint, ItemDisplayRow> _rows = [];
 
     public int Count => _rows.Count;
+    public IReadOnlyCollection<ItemDisplayRow> All => _rows.Values;
 
     public ItemDisplayRow? Find(uint displayId)
         => _rows.TryGetValue(displayId, out var row) ? row : null;

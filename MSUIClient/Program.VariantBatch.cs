@@ -80,9 +80,9 @@ public static partial class Program
             configPath = arg;
         }
 
-        if (!axis.Equals("npc-extras", StringComparison.OrdinalIgnoreCase))
+        if (axis is not ("npc-extras" or "items"))
         {
-            error = $"axis '{axis}' is sequenced after the NPC-extras review checkpoint";
+            error = $"axis '{axis}' is not available at the items review checkpoint";
             return false;
         }
         options = new VariantBatchOptions(axis, output, list, limit, diff, unmasked, exhaustive);
@@ -90,7 +90,7 @@ public static partial class Program
     }
 
     private static void PrintVariantBatchUsage() => Console.Error.WriteLine(
-        "usage: MSUIClient [config.json] --variant-batch [--axis npc-extras] " +
+        "usage: MSUIClient [config.json] --variant-batch [--axis npc-extras|items] " +
         "[--out <dir>] [--list <file>] [--limit <n>] [--diff <verdicts.csv>] " +
         "[--unmasked] [--exhaustive]");
 }
@@ -112,7 +112,7 @@ public sealed partial class GameLoop
     private readonly List<VariantSpecimen> _variantSpecimens = [];
     private readonly List<VariantSpecimenResult> _variantSpecimenResults = [];
     private readonly List<VariantCsvRow> _variantRows = [];
-    private readonly List<(string Key, byte[] Rgba)> _variantSheetCells = [];
+    private readonly List<(string Key, byte[] Rgba, int Width, int Height)> _variantSheetCells = [];
     private readonly HashSet<string> _variantExpectedBlank = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _variantKnownBlank = new(StringComparer.OrdinalIgnoreCase);
     private string _variantOutputDirectory = "";
@@ -120,10 +120,15 @@ public sealed partial class GameLoop
     private int _variantSheetIndex;
     private bool _variantFinished;
     private Stopwatch? _variantClock;
+    private ItemDisplayTable? _variantItemDisplay;
+    private string _variantItemDbcSupplier = "NONE";
+    private readonly Dictionary<string, string> _variantSupplierCache =
+        new(StringComparer.OrdinalIgnoreCase);
     public int VariantBatchExitCode { get; private set; } = 1;
 
     private readonly record struct VariantSpecimen(
-        string Key, uint ExtraId, int DisplayId, string ModelPath, string? SkipNote);
+        string Key, uint ExtraId, int DisplayId, string ModelPath, string? SkipNote,
+        string Kind = "", int InventoryType = 0);
 
     private readonly record struct VariantSpecimenResult(
         VariantSpecimen Specimen, PortraitOutcome Outcome, int SubjectPx,
@@ -132,6 +137,7 @@ public sealed partial class GameLoop
     private readonly record struct VariantCsvRow(
         string RowKey,
         string Key,
+        string Axis,
         int DisplayId,
         uint ExtraId,
         int BatchIndex,
@@ -168,6 +174,7 @@ public sealed partial class GameLoop
         string ShoulderModels,
         string ShoulderSuppliers,
         string AttachmentStatus,
+        string CapeTexture,
         PortraitOutcome Outcome,
         int SubjectPx,
         double MeanLuma,
@@ -175,7 +182,7 @@ public sealed partial class GameLoop
         string Note)
     {
         public string CsvLine => string.Join(',',
-            Csv(RowKey), Csv(Key), "npc-extras", DisplayId, ExtraId, BatchIndex, GeosetId,
+            Csv(RowKey), Csv(Key), Csv(Axis), DisplayId, ExtraId, BatchIndex, GeosetId,
             Csv(Region), TextureType == uint.MaxValue ? "NONE" : TextureType,
             Csv(ResolvedTexture), Csv(EffectiveTexture), Csv(Supplier),
             CustomContent.ToString().ToLowerInvariant(), Csv(DemandedTexture),
@@ -185,7 +192,7 @@ public sealed partial class GameLoop
             Csv(GeosetsChosen), Csv(BakeTexture), Csv(BakeSupplier), HelmDisplayId,
             Csv(HelmSuffix), Csv(HelmModel), Csv(HelmSupplier), ShoulderDisplayId,
             Csv(ShoulderModels), Csv(ShoulderSuppliers), Csv(AttachmentStatus),
-            "NONE", 0, "NONE", Outcome, SubjectPx, F(MeanLuma), F(ElapsedMs), Csv(Note));
+            Csv(CapeTexture), 0, "NONE", Outcome, SubjectPx, F(MeanLuma), F(ElapsedMs), Csv(Note));
 
         private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
         private static string Csv(object value) => Convert.ToString(value, CultureInfo.InvariantCulture)!
@@ -198,19 +205,36 @@ public sealed partial class GameLoop
         {
             _mpq = new MpqMount(_config.ClientDataPath);
             AdtTerrainReader.StormLibExtractor = _mpq.ReadFile;
-            _creatures = new CreatureRenderer(gl, _mpq, _config);
             _portraitOverrides = PortraitOverrideStore.Load(_config.RepoRoot);
-            _batchPortraitTarget = new PortraitRenderTarget(gl);
 
             VariantBatchOptions options = _variantBatchOptions!;
+            if (options.Axis == "npc-extras")
+            {
+                _creatures = new CreatureRenderer(gl, _mpq, _config);
+                _batchPortraitTarget = new PortraitRenderTarget(gl);
+            }
+            else
+            {
+                _batchPortraitTarget = new PortraitRenderTarget(gl, 466, 448);
+                _character = new CharacterRenderer(gl, _config, null, null);
+                string shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!File.Exists(Path.Combine(shaderDir, "character.vert")))
+                    shaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
+                _character.LoadShaders(shaderDir);
+                if (!_character.Load("Human", "Male"))
+                    throw new InvalidDataException("HumanMale item specimen model unavailable");
+                _character.BindPose = false;
+                _character.FrozenStandPose = true;
+            }
             _variantOutputDirectory = ResolveBatchPath(options.OutputDirectory ??
                 Path.Combine("variant-batch", DateTime.Now.ToString(
                     "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), options.Axis));
             Directory.CreateDirectory(_variantOutputDirectory);
-            BuildNpcExtraSpecimens(options);
+            if (options.Axis == "npc-extras") BuildNpcExtraSpecimens(options);
+            else BuildItemSpecimens(options);
             LoadVariantBlankLists();
             _variantClock = Stopwatch.StartNew();
-            Console.WriteLine($"[variant-batch] axis=npc-extras ready: " +
+            Console.WriteLine($"[variant-batch] axis={options.Axis} ready: " +
                               $"{_variantSpecimens.Count} specimen(s), " +
                               $"out={_variantOutputDirectory}, masked={!options.Unmasked}");
         }
@@ -306,6 +330,64 @@ public sealed partial class GameLoop
             _variantSpecimens.RemoveRange(limit, _variantSpecimens.Count - limit);
     }
 
+    private void BuildItemSpecimens(VariantBatchOptions options)
+    {
+        (byte[] bytes, string supplier) = _mpq!.ReadFileWithSupplier(ItemDisplayTable.MpqPath)
+            ?? throw new InvalidDataException(ItemDisplayTable.MpqPath);
+        _variantItemDbcSupplier = supplier.Length == 0 ? "NONE" : supplier;
+        _variantItemDisplay = ItemDisplayTable.Parse(bytes) ??
+            throw new InvalidDataException("ItemDisplayInfo parse failed");
+
+        static bool IsHelm(ItemDisplayRow row) =>
+            row.HelmetGeosetVis1 != 0 || row.HelmetGeosetVis2 != 0 ||
+            row.ModelName1.Contains("helm", StringComparison.OrdinalIgnoreCase) ||
+            row.ModelName2.Contains("helm", StringComparison.OrdinalIgnoreCase);
+        static bool IsCape(ItemDisplayRow row) =>
+            row.ModelName1.Length == 0 && row.ModelName2.Length == 0 &&
+            (row.ModelTexture1.Length > 0 || row.ModelTexture2.Length > 0) &&
+            row.GeosetGroup[0] != 0;
+
+        VariantSpecimen Build(ItemDisplayRow row, string kind) => new(
+            $"item:{kind}:{row.Id}", 0, checked((int)row.Id), "Character\\Human\\Male\\HumanMale.m2",
+            null, kind, kind == "helm" ? CharacterEquipment.Slot.Head : CharacterEquipment.Slot.Cloak);
+
+        if (options.ListFile is null)
+        {
+            IEnumerable<VariantSpecimen> helms = _variantItemDisplay.All.Where(IsHelm)
+                .OrderBy(row => row.Id).Select(row => Build(row, "helm"));
+            IEnumerable<VariantSpecimen> capes = _variantItemDisplay.All.Where(row => !IsHelm(row) && IsCape(row))
+                .OrderBy(row => row.Id).Select(row => Build(row, "cape"));
+            _variantSpecimens.AddRange(helms.Concat(capes));
+        }
+        else
+        {
+            foreach (string sourceLine in File.ReadLines(ResolveBatchPath(options.ListFile)))
+            {
+                string line = sourceLine.Split('#', 2)[0].Trim();
+                if (line.Length == 0) continue;
+                string[] parts = line.Split(':');
+                string kind = parts.Length == 3 ? parts[1].ToLowerInvariant() : "";
+                if (parts.Length == 3 && parts[0].Equals("item", StringComparison.OrdinalIgnoreCase) &&
+                    kind is "helm" or "cape" &&
+                    uint.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out uint id) &&
+                    _variantItemDisplay.Find(id) is { } row)
+                {
+                    bool matches = kind == "helm" ? IsHelm(row) : IsCape(row);
+                    _variantSpecimens.Add(matches ? Build(row, kind) : new VariantSpecimen(
+                        line, 0, checked((int)id), "", "item-kind-mismatch", kind));
+                }
+                else
+                {
+                    _variantSpecimens.Add(new VariantSpecimen(
+                        line, 0, 0, "", "invalid-list-entry", kind));
+                }
+            }
+        }
+
+        if (options.Limit is { } limit && _variantSpecimens.Count > limit)
+            _variantSpecimens.RemoveRange(limit, _variantSpecimens.Count - limit);
+    }
+
     private void LoadVariantBlankLists()
     {
         LoadVariantBlankList("portrait-expected-blank.txt", _variantExpectedBlank);
@@ -326,7 +408,8 @@ public sealed partial class GameLoop
     private void StepVariantBatch()
     {
         if (_variantFinished) return;
-        if (_batchPortraitTarget is null || _creatures is null)
+        bool npcAxis = _variantBatchOptions!.Axis == "npc-extras";
+        if (_batchPortraitTarget is null || (npcAxis ? _creatures is null : _character is null))
         {
             FinishVariantBatch(incomplete: true, error: "variant renderer unavailable");
             return;
@@ -340,7 +423,9 @@ public sealed partial class GameLoop
         try
         {
             VariantSpecimen specimen = _variantSpecimens[_variantIndex];
-            VariantSpecimenResult result = BakeNpcExtraSpecimen(specimen);
+            VariantSpecimenResult result = npcAxis
+                ? BakeNpcExtraSpecimen(specimen)
+                : BakeItemSpecimen(specimen);
             _variantSpecimenResults.Add(result);
             _variantIndex++;
             if (_variantIndex % 25 == 0 || _variantIndex == _variantSpecimens.Count)
@@ -351,7 +436,11 @@ public sealed partial class GameLoop
                     $"blank={_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Blank)} " +
                     $"missingResolution={missing}");
             }
-            if (_variantIndex % VariantCacheChunk == 0) _creatures.ClearPortraitCache();
+            if (_variantIndex % VariantCacheChunk == 0)
+            {
+                if (npcAxis) _creatures!.ClearPortraitCache();
+                else _character!.ClearVariantItemCache();
+            }
         }
         catch (Exception exception)
         {
@@ -402,6 +491,175 @@ public sealed partial class GameLoop
             specimen, outcome, subjectPx, meanLuma, timer.Elapsed.TotalMilliseconds, note);
     }
 
+    private VariantSpecimenResult BakeItemSpecimen(VariantSpecimen specimen)
+    {
+        var timer = Stopwatch.StartNew();
+        PortraitOutcome outcome = PortraitOutcome.Skipped;
+        int subjectPx = 0;
+        double meanLuma = 0;
+        string note = specimen.SkipNote ?? "";
+        ItemDisplayRow? row = specimen.DisplayId > 0
+            ? _variantItemDisplay?.Find((uint)specimen.DisplayId) : null;
+
+        if (specimen.SkipNote is null && row is not null)
+        {
+            var equipment = new CharacterEquipment();
+            equipment.Add($"variant {specimen.Kind} {specimen.DisplayId}",
+                (uint)specimen.DisplayId, specimen.InventoryType);
+            _character!.Equipment = equipment;
+            _character.ApplyEquipment();
+
+            var state = new CharacterRenderer.UnitState
+            {
+                Position = Vector3.Zero,
+                Yaw = 0f,
+                Grounded = true,
+                HasIntent = true,
+            };
+            // Head items face the booth; cape specimens turn the camera around the fixed model
+            // so the cloth is visible instead of hidden behind the torso.
+            float cameraYaw = specimen.Kind == "cape" ? MathF.PI : 0f;
+            Camera camera = PortraitCamera(Vector3.Zero, cameraYaw, 1.25f, 4.15f);
+            camera.FieldOfViewDegrees = 43f;
+            camera.AspectRatio = 233f / 224f;
+            _batchPortraitTarget!.Bake(() => _character.Render(camera, state), transparent: true);
+            PortraitRenderTarget.ReadbackStats stats = _batchPortraitTarget.Analyze(transparent: true);
+            outcome = stats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank;
+            subjectPx = stats.SubjectPixels;
+            meanLuma = stats.MeanLuma;
+        }
+        else
+        {
+            _batchPortraitTarget!.Bake(() => { }, transparent: true);
+            if (row is null && note.Length == 0) note = "item-display-not-found";
+        }
+
+        SaveVariantImage(specimen);
+        AddItemVariantRow(specimen, row, outcome, subjectPx, meanLuma,
+            timer.Elapsed.TotalMilliseconds, note);
+        return new VariantSpecimenResult(
+            specimen, outcome, subjectPx, meanLuma, timer.Elapsed.TotalMilliseconds, note);
+    }
+
+    private void AddItemVariantRow(VariantSpecimen specimen, ItemDisplayRow? row,
+        PortraitOutcome outcome, int subjectPx, double meanLuma, double elapsedMs, string note)
+    {
+        string modelPath = "NONE", modelSupplier = "NONE";
+        string texturePath = "NONE", textureSupplier = "NONE";
+        string demandedTexture = "NONE";
+        bool missingTexture = false;
+        string capeTexture = "NONE";
+        string attachmentStatus = "none-authored";
+
+        if (row is not null && specimen.Kind == "helm")
+        {
+            (modelPath, modelSupplier) = ResolveVariantAsset(
+                row.ModelName1.Length > 0 ? HelmModelCandidates(row.ModelName1) : []);
+            string declaredTexture = row.ModelTexture1.Length > 0
+                ? row.ModelTexture1 : row.ModelTexture2;
+            if (declaredTexture.Length > 0)
+            {
+                string[] candidates = HelmTextureCandidates(declaredTexture).ToArray();
+                demandedTexture = candidates.FirstOrDefault() ?? declaredTexture;
+                (texturePath, textureSupplier) = ResolveVariantAsset(candidates);
+                missingTexture = texturePath == "NONE";
+            }
+            attachmentStatus = _character?.Attached?.MountCount > 0 ? "mounted" : "not-mounted";
+        }
+        else if (row is not null && specimen.Kind == "cape")
+        {
+            string declaredTexture = row.ModelTexture1.Length > 0
+                ? row.ModelTexture1 : row.ModelTexture2;
+            string[] candidates = CapeTextureCandidates(declaredTexture).ToArray();
+            demandedTexture = candidates.FirstOrDefault() ?? declaredTexture;
+            (texturePath, textureSupplier) = ResolveVariantAsset(candidates);
+            capeTexture = _character?.VariantCapeTexture is { Length: > 0 } actual
+                ? actual : texturePath;
+            missingTexture = declaredTexture.Length > 0 && texturePath == "NONE";
+            attachmentStatus = capeTexture == "NONE" ? "cape-unbound" : "cape-bound";
+        }
+
+        string supplier = string.Join('|', new[] { modelSupplier, textureSupplier }
+            .Where(value => value != "NONE").Distinct(StringComparer.OrdinalIgnoreCase));
+        if (supplier.Length == 0) supplier = "NONE";
+        bool custom = supplier.Split('|').Any(IsPatch4);
+        string geosets = _character is null ? "" : string.Join(';',
+            _character.ActiveGeosets.Select(pair => $"{pair.Category}:{pair.Variant}"));
+        string demandedSupplier = texturePath == "NONE" ? "NONE" : textureSupplier;
+
+        _variantRows.Add(new VariantCsvRow(
+            specimen.Key, specimen.Key, "items", specimen.DisplayId, 0, -1,
+            -1, specimen.Kind, specimen.Kind == "cape" ? 2u : uint.MaxValue,
+            texturePath, texturePath == "NONE" ? "UNBOUND" : texturePath,
+            supplier, custom, demandedTexture, demandedSupplier, missingTexture,
+            "NONE", "", specimen.ModelPath, SupplierFor(specimen.ModelPath),
+            1, 0, 0, 0, 9, 0, 0, row is null ? "" : row.Id.ToString(CultureInfo.InvariantCulture),
+            geosets, "NONE", "NONE", specimen.Kind == "helm" ? (uint)specimen.DisplayId : 0,
+            "HuM", modelPath, modelSupplier, 0, "NONE", "NONE",
+            attachmentStatus, capeTexture, outcome, subjectPx, meanLuma, elapsedMs, note));
+    }
+
+    private (string Path, string Supplier) ResolveVariantAsset(IEnumerable<string> candidates)
+    {
+        foreach (string candidate in candidates.Where(value => value.Length > 0)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string supplier = SupplierFor(candidate);
+            if (supplier != "NONE") return (candidate, supplier);
+        }
+        return ("NONE", "NONE");
+    }
+
+    private string SupplierFor(string path)
+    {
+        if (path.Length == 0 || path == "NONE") return "NONE";
+        if (_variantSupplierCache.TryGetValue(path, out string? cached)) return cached;
+        string supplier = _mpq!.ReadFileWithSupplier(path)?.Supplier ?? "NONE";
+        _variantSupplierCache[path] = supplier;
+        return supplier;
+    }
+
+    private static IEnumerable<string> HelmModelCandidates(string modelName)
+    {
+        string stem = modelName.Replace('/', '\\').TrimStart('\\');
+        int dot = stem.LastIndexOf('.');
+        if (dot > 0) stem = stem[..dot];
+        yield return $@"Item\ObjectComponents\Head\{stem}_HuM.m2";
+        yield return $@"Item\ObjectComponents\Head\{stem}_HuM.M2";
+        yield return $@"Item\ObjectComponents\Head\{stem}_HuM.mdx";
+        yield return $@"Item\ObjectComponents\Head\{stem}HuM.m2";
+        yield return $@"Item\ObjectComponents\Head\{stem}.m2";
+        yield return $@"Item\ObjectComponents\Head\{stem}.M2";
+        yield return $@"Item\ObjectComponents\Head\{stem}.mdx";
+        yield return $"{stem}.m2";
+    }
+
+    private static IEnumerable<string> HelmTextureCandidates(string textureName)
+    {
+        string stem = textureName.Replace('/', '\\').TrimStart('\\');
+        if (stem.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+        yield return $@"Item\ObjectComponents\Head\{stem}.blp";
+        yield return $"{stem}.blp";
+    }
+
+    private static IEnumerable<string> CapeTextureCandidates(string textureName)
+    {
+        string stem = textureName.Replace('/', '\\').TrimStart('\\');
+        bool hasDirectory = stem.Contains('\\');
+        if (stem.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+        if (hasDirectory)
+        {
+            yield return stem + ".blp";
+            yield break;
+        }
+        yield return $@"Item\ObjectComponents\Cape\{stem}.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}.blp";
+        yield return $@"Item\ObjectComponents\Cape\{stem}_M.blp";
+        yield return $@"Item\ObjectComponents\Cape\{stem}_U.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}_M.blp";
+        yield return $@"Item\TextureComponents\Cape\{stem}_U.blp";
+    }
+
     private void AddVariantRows(VariantSpecimen specimen,
         CreatureRenderer.NpcVariantTrace? trace, PortraitOutcome outcome,
         int subjectPx, double meanLuma, double elapsedMs, string note)
@@ -409,12 +667,12 @@ public sealed partial class GameLoop
         if (trace is null || trace.Textures.Count == 0)
         {
             _variantRows.Add(new VariantCsvRow(
-                $"{specimen.Key}:batch:-1", specimen.Key, specimen.DisplayId,
+                $"{specimen.Key}:batch:-1", specimen.Key, "npc-extras", specimen.DisplayId,
                 specimen.ExtraId, -1, -1, "NONE", uint.MaxValue,
                 "NONE", "UNBOUND", "NONE", false, "NONE", "NONE", false,
                 "NONE", "", specimen.ModelPath, "NONE", 0, 0, 0, 0, 0, 0, 0,
                 "", "", "NONE", "NONE", 0, "NONE", "NONE", "NONE", 0,
-                "NONE", "NONE", "none-authored", outcome, subjectPx, meanLuma,
+                "NONE", "NONE", "none-authored", "NONE", outcome, subjectPx, meanLuma,
                 elapsedMs, note));
             return;
         }
@@ -425,7 +683,7 @@ public sealed partial class GameLoop
                 IsPatch4(trace.BakeSupplier) || IsPatch4(trace.HelmetSupplier) ||
                 trace.ShoulderSuppliers.Split('|').Any(IsPatch4);
             _variantRows.Add(new VariantCsvRow(
-                $"{specimen.Key}:batch:{texture.BatchIndex}", specimen.Key,
+                $"{specimen.Key}:batch:{texture.BatchIndex}", specimen.Key, "npc-extras",
                 trace.DisplayId, trace.ExtraId, texture.BatchIndex, texture.GeosetId,
                 texture.Region, texture.TextureType, texture.ResolvedTexture,
                 texture.EffectiveTexture, texture.Supplier, custom,
@@ -437,7 +695,7 @@ public sealed partial class GameLoop
                 trace.BakeTexture, trace.BakeSupplier, trace.HelmetDisplayId,
                 trace.HelmetSuffix, trace.HelmetModel, trace.HelmetSupplier,
                 trace.ShoulderDisplayId, trace.ShoulderModels, trace.ShoulderSuppliers,
-                trace.AttachmentStatus, outcome, subjectPx, meanLuma, elapsedMs, note));
+                trace.AttachmentStatus, "NONE", outcome, subjectPx, meanLuma, elapsedMs, note));
         }
     }
 
@@ -446,11 +704,13 @@ public sealed partial class GameLoop
 
     private void SaveVariantImage(VariantSpecimen specimen)
     {
-        if (!_variantBatchOptions!.Unmasked) _batchPortraitTarget!.ApplyCircularMask();
+        if (_variantBatchOptions!.Axis == "npc-extras" && !_variantBatchOptions.Unmasked)
+            _batchPortraitTarget!.ApplyCircularMask();
         string pngPath = Path.Combine(_variantOutputDirectory,
             FileNameForKey(specimen.Key) + ".png");
         _batchPortraitTarget!.SavePng(pngPath);
-        _variantSheetCells.Add((specimen.Key, _batchPortraitTarget.CaptureRgba()));
+        _variantSheetCells.Add((specimen.Key, _batchPortraitTarget.CaptureRgba(),
+            _batchPortraitTarget.Width, _batchPortraitTarget.Height));
         if (_variantSheetCells.Count == 64) FlushVariantContactSheet();
     }
 
@@ -464,13 +724,25 @@ public sealed partial class GameLoop
         {
             int cellX = index % columns * cell;
             int cellY = index / columns * cell;
-            byte[] rgba = _variantSheetCells[index].Rgba;
+            var source = _variantSheetCells[index];
+            byte[] rgba = source.Rgba;
             for (int y = 0; y < cell; y++)
-                System.Buffer.BlockCopy(rgba, y * cell * 4, sheet,
-                    ((cellY + y) * width + cellX) * 4, cell * 4);
+            {
+                int sourceY = y * source.Height / cell;
+                for (int x = 0; x < cell; x++)
+                {
+                    int sourceX = x * source.Width / cell;
+                    int src = (sourceY * source.Width + sourceX) * 4;
+                    int dst = ((cellY + y) * width + cellX + x) * 4;
+                    sheet[dst] = rgba[src];
+                    sheet[dst + 1] = rgba[src + 1];
+                    sheet[dst + 2] = rgba[src + 2];
+                    sheet[dst + 3] = rgba[src + 3];
+                }
+            }
             string key = _variantSheetCells[index].Key;
-            string extra = key.Split(':').ElementAtOrDefault(1) ?? "0";
-            StampDigits(sheet, width, height, cellX + 3, cellY + cell - 10, extra);
+            string label = key.Split(':').LastOrDefault() ?? "0";
+            StampDigits(sheet, width, height, cellX + 3, cellY + cell - 10, label);
             indexLines.Add($"cell={index} row={index / columns} col={index % columns} key={key}");
         }
 
@@ -522,7 +794,7 @@ public sealed partial class GameLoop
             .Select(row => row.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count();
         var lines = new List<string>
         {
-            "axis: npc-extras",
+            $"axis: {_variantBatchOptions!.Axis}",
             $"specimens: {_variantSpecimenResults.Count}/{_variantSpecimens.Count}",
             $"csvRows: {_variantRows.Count}",
             $"Ready: {_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Ready)}",
@@ -535,11 +807,28 @@ public sealed partial class GameLoop
             $"customContentRows: {_variantRows.Count(row => row.CustomContent)}",
             $"durationSeconds: {_variantClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",
             $"clientGitDescribe: {TryGitDescribe()}",
-            "startupPath: variant-batch-only GL + shared MPQ/DBC + real CreatureRenderer portrait path",
-            $"cachePolicy: release shared creature portrait cache every {VariantCacheChunk} specimens",
+            _variantBatchOptions.Axis == "npc-extras"
+                ? "startupPath: variant-batch-only GL + shared MPQ/DBC + real CreatureRenderer portrait path"
+                : "startupPath: variant-batch-only GL + shared MPQ/DBC + real HumanMale CharacterRenderer paper-doll path",
+            $"cachePolicy: release regenerable renderer asset cache every {VariantCacheChunk} specimens",
             "charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis",
             "supplier/customContent: exact winning archive; patch-4.MPQ marks Nico custom content",
         };
+        if (_variantBatchOptions.Axis == "items")
+        {
+            lines.Add($"ItemDisplayInfoSupplier: {_variantItemDbcSupplier}");
+            lines.Add("enumeration: SPEC 07 fallback - installed ItemDisplayInfo helm/cape field signatures");
+            lines.Add($"helmSpecimens: {_variantSpecimens.Count(row => row.Kind == "helm")}");
+            lines.Add($"capeSpecimens: {_variantSpecimens.Count(row => row.Kind == "cape")}");
+            lines.Add($"mountedHelms: {_variantRows.Count(row => row.AttachmentStatus == "mounted")}");
+            lines.Add($"unmountedHelms: {_variantRows.Count(row => row.AttachmentStatus == "not-mounted")}");
+            lines.Add($"boundCapes: {_variantRows.Count(row => row.AttachmentStatus == "cape-bound")}");
+            lines.Add($"unboundCapes: {_variantRows.Count(row => row.AttachmentStatus == "cape-unbound")}");
+            lines.Add($"customAssetHelms: {_variantRows.Count(row => row.Region == "helm" && row.CustomContent)}");
+            lines.Add($"customAssetCapes: {_variantRows.Count(row => row.Region == "cape" && row.CustomContent)}");
+            lines.Add($"unmountedCustomAssetRows: {_variantRows.Count(row => row.AttachmentStatus == "not-mounted" && row.CustomContent)}");
+            lines.Add($"missingDemandCustomAssetRows: {_variantRows.Count(row => row.MissingDemandedTexture && row.CustomContent)}");
+        }
         if (incomplete) lines.Add($"incomplete: {error ?? "unknown error"}");
         lines.Add("");
         lines.Add("named protocol rows:");
@@ -559,7 +848,7 @@ public sealed partial class GameLoop
         string Outcome, int SubjectPx, string ResolvedTexture, string EffectiveTexture,
         string Supplier, string DemandedTexture, string GeosetsChosen,
         string HelmModel, string HelmSupplier, string ShoulderModels,
-        string AttachmentStatus);
+        string AttachmentStatus, string CapeTexture);
 
     private void WriteVariantDiff()
     {
@@ -589,6 +878,7 @@ public sealed partial class GameLoop
             AddDiff(fields, "helmSupplier", old.HelmSupplier, row.HelmSupplier);
             AddDiff(fields, "shoulderModels", old.ShoulderModels, row.ShoulderModels);
             AddDiff(fields, "attachmentStatus", old.AttachmentStatus, row.AttachmentStatus);
+            AddDiff(fields, "capeTexture", old.CapeTexture, row.CapeTexture);
             if (fields.Count > 0) changes.Add($"{row.RowKey}: {string.Join("; ", fields)}");
         }
         foreach (string removed in previous.Keys.Where(key => !current.ContainsKey(key)))
@@ -611,7 +901,7 @@ public sealed partial class GameLoop
         int I(string name) => Array.IndexOf(headers, name);
         string[] required = ["rowKey", "outcome", "subjectPx", "resolvedTexture",
             "effectiveTexture", "supplier", "demandedTexture", "geosetsChosen",
-            "helmModel", "helmSupplier", "shoulderModels", "attachmentStatus"];
+            "helmModel", "helmSupplier", "shoulderModels", "attachmentStatus", "capeTexture"];
         if (required.Any(name => I(name) < 0))
             throw new InvalidDataException("--diff CSV is missing variant resolution columns");
         var result = new Dictionary<string, PriorVariantRow>(StringComparer.OrdinalIgnoreCase);
@@ -627,7 +917,7 @@ public sealed partial class GameLoop
                 V("outcome"), subjectPx, V("resolvedTexture"), V("effectiveTexture"),
                 V("supplier"), V("demandedTexture"), V("geosetsChosen"),
                 V("helmModel"), V("helmSupplier"), V("shoulderModels"),
-                V("attachmentStatus"));
+                V("attachmentStatus"), V("capeTexture"));
         }
         return result;
     }

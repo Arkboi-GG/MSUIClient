@@ -1180,3 +1180,181 @@ portrait camera check passed
 sheets, then rule whether work may proceed to the items axis. 7C-1 remains GO in
 principle but unimplemented; 7C-2a/2b remains confirmed but unimplemented; no
 items or player sweep has begun.
+
+## SPEC 07 - Stage 7B items axis (REVIEW STOP)
+
+### Stage status and resequenced boundary
+
+The NPC-extras checkpoint was accepted. Per Nico's revised order, this stage
+implements only the items axis. The next possible work is 7C-1, followed by the
+separately gated 7C-2 stages; the reduced player sweep is last. No 7C fix and no
+player-axis code is present in this stage.
+
+| Item | Status | Evidence |
+|---|---|---|
+| `--variant-batch --axis items` | Implemented and machine-run | Real HumanMale `CharacterRenderer`, paper-doll target, production equipment/geoset/cape/attachment paths. |
+| Installed fallback cohort | Complete | 3,944 / 3,944 relevant `ItemDisplayInfo` rows: 2,718 helm-field rows and 1,226 cape-field rows. |
+| First contact sheet | Generated and inspected | 64 full-body HumanMale helm specimens with display-id labels. |
+| Cape presentation | Implemented | Fixed model/camera distance, rear-facing camera so cape cloth is visible. |
+| G1 blank render | PASS | 0 unexpected blanks. |
+| G3 demanded BLP resolution | FAIL, measured content/engine evidence | 26 helm texture demands unresolved; 0 cape texture demands unresolved. |
+| 7C stages | **NOT STARTED** | Blocked on this items review checkpoint. |
+| Reduced player sweep | **NOT STARTED** | Explicitly moved to last as insurance after 7C. |
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `.gitignore` | Retains the canonical items CSV while leaving generated sheets and specimen PNGs local. |
+| `MSUIClient/Formats/DbcReader.cs` | Exposes installed `ItemDisplayInfo` rows for fallback enumeration. |
+| `MSUIClient/Program.VariantBatch.cs` | Adds items selection/listing, HumanMale rendering, front helm/rear cape views, per-item verdict strings, supplier-aware G3, summaries, contact-sheet resampling, and cape-aware diffs. |
+| `MSUIClient/World/Units/CharacterRenderer.cs` | Exposes the production-bound cape source and a batch-only attachment-cache release hook. |
+| `MSUIClient/World/Units/AttachedItemRenderer.cs` | Releases regenerable item model/texture caches at unattended batch chunk boundaries. |
+| `variant-items-protocol.txt` | Focused Helm of Might and known-cape protocol. |
+| `variant-batch/baseline/items/verdicts.csv` | Canonical pre-7C items baseline. |
+| `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Records this checkpoint and the ruled 7C acceptance protocols. |
+
+The pre-existing `vantages.json` modification and untracked
+`SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md` remain untouched and outside the stage
+commit.
+
+### Symbol verification
+
+| Cited contract | Found as | Note |
+|---|---|---|
+| Offline item-template enumeration | No offline template catalog exists | Used SPEC 07's explicit fallback: installed rows with helm model/visibility fields or cape model-texture plus cape-geoset fields. |
+| Winning DBC | `MpqMount.ReadFileWithSupplier(ItemDisplayTable.MpqPath)` | `ItemDisplayInfo.dbc` resolves from `patch-4.MPQ`, as ruled. |
+| Real fixed humanoid | `CharacterRenderer.Load("Human", "Male")` | Uses the 466x448 paper-doll target and production equipment application, not a parallel asset pipeline. |
+| Helm fit and mount | `AttachedItemRenderer.Rebuild` | Uses the production `HuM` filename candidates and attachment 11. |
+| Cape texture | `CharacterRenderer.BindCapeTexture` / `VariantCapeTexture` | CSV records the exact production-bound type-2 BLP; cape specimens face away from the booth. |
+| Supplier separation | `ResolveVariantAsset` / `supplier` / `customContent` | Every resolved model/texture reports its actual winning archive; DBC supplier is separately recorded. |
+| Stable comparison | `WriteVariantDiff` | Compares paths, suppliers, geosets, attachment state, and cape texture in addition to normal outcome fields. |
+
+### Measured items corpus
+
+| Measure | Result |
+|---|---:|
+| Installed `ItemDisplayInfo` rows | 38,481 |
+| Relevant fallback specimens | 3,944 |
+| Helm-field specimens | 2,718 |
+| Cape-field specimens | 1,226 |
+| Mounted helms | 2,668 |
+| Unmounted helms | 50 |
+| Bound capes | 1,226 |
+| Unbound capes | 0 |
+| Unexpected blanks | 0 |
+| G3 missing demanded BLPs | 26 |
+| Rows with at least one `patch-4.MPQ` asset | 979 |
+| Custom-asset helms / capes | 485 / 494 |
+
+The provenance split separates custom content cleanly. All 979 rows whose real
+assets resolve from `patch-4.MPQ` are marked `customContent=true`. None of the
+50 unmounted helms and none of the 26 missing BLP rows are custom-asset rows;
+those failures remain distinguishable from Nico's patch-4 assets. The DBC itself
+is supplied by `patch-4.MPQ` for every row and is recorded in `summary.txt`, not
+misrepresented as per-asset provenance.
+
+### Focused protocol strings
+
+| Row | Resolved model/texture | Supplier | State |
+|---|---|---|---|
+| `item:helm:31260` | `Item\\ObjectComponents\\Head\\Helm_Plate_RaidWarrior_A_01_HuM.m2`; `Item\\ObjectComponents\\Head\\Helm_Plate_RaidWarrior_A_01Blue.blp` | `patch.MPQ` | `mounted` |
+| `item:cape:13963` | `Item\\ObjectComponents\\Cape\\Cape_Mage_A_01Black.blp` | `texture.MPQ` | `cape-bound` |
+
+### Recorded 7C acceptance protocols (ruled, not started)
+
+#### 7C-1 attachment protocol
+
+1. Full NPC-extras re-sweep and `--diff` against
+   `variant-batch/baseline/npc-extras/verdicts.csv`.
+2. All 2,698 baseline `not-mounted` authored-equipment cohort rows flip to
+   `mounted`; the changed-row set equals that predicted cohort exactly.
+3. Willem display 2072 / extra 675 renders helmeted, with his named protocol row
+   cited from the CSV.
+4. No specimen outside the authored-equipment cohort changes.
+5. Standard build, combat-wire, and portrait-camera gates pass.
+
+#### 7C-2b type-6 hair protocol
+
+1. Full NPC-extras re-sweep and `--diff` against the accepted 7B baseline.
+2. All 7,677 baseline type-6 miss rows flip to their demanded `CharSections`
+   BLP path; the changed-row set equals that predicted cohort exactly.
+3. Zero `UNBOUND` hair rows remain and G3 becomes 0.
+4. Control display 3340 / extra 54 / batch 15 changes exactly from inherited
+   `Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp`
+   to `Character\\Human\\Hair02_09.blp`, cited by CSV row.
+5. Standard gates pass.
+
+#### 7C-2a type-1 head-region protocol
+
+1. Full NPC-extras re-sweep and `--diff` against the accepted 7B baseline.
+2. Type-1 rows whose classified region is hair, scalp, or ear flip from
+   `Textures\\BakedNpcTextures\\...` to their `composite://npc-bare/...`
+   descriptor; the changed-row set equals that predicted head cohort exactly.
+3. Type-1 body/clothing rows are byte-identical; the diff contains zero changes
+   outside head regions.
+4. Willem 2072/675 batch 12 and control 3340/54 batch 18 show exactly the
+   predicted baseline-recorded string transitions, each cited by CSV row.
+5. Standard gates pass.
+
+Each 7C stage is one root cause, one commit, one full cohort equality proof, and
+one fresh STOP/ruling boundary. These criteria are recorded now but confer no
+authorization to begin 7C before the items checkpoint is accepted.
+
+### Review artifacts
+
+| Artifact | Location |
+|---|---|
+| Canonical items CSV | `variant-batch/baseline/items/verdicts.csv` |
+| Summary | `variant-batch/baseline/items/summary.txt` |
+| First contact sheet/index | `variant-batch/baseline/items/contact-sheet-01.png` / `.txt` |
+| Focused helm/cape list | `variant-items-protocol.txt` |
+
+### Deviations and findings
+
+1. No offline item-template inventory is available, so the spec-authorized
+   `ItemDisplayInfo` field-signature fallback shipped and is named in the CSV
+   summary.
+2. The patched DBC materially expands the cohort. Per-asset supplier columns
+   prevent the table's patch-4 provenance from labeling every stock asset as
+   custom.
+3. Twenty-six declared helm BLPs are unresolved and 50 helm-field rows do not
+   mount a HumanMale model. They are measured findings, not fixed in 7B.
+4. All 1,226 cape-field rows bind a type-2 texture on the fixed HumanMale.
+
+### Console evidence and gates
+
+```text
+[variant-batch] axis=items ready: 3944 specimen(s)
+[variant-batch] 3944/3944 ready=3944 blank=0 missingResolution=26
+[variant-batch] complete: 3944/3944, rows=3944, blanks=0, missingResolution=26, exit=4
+```
+
+Exit 4 is the expected G3 verdict. The unchanged full diff and standard gate
+outputs are:
+
+```text
+[variant-diff] changedRows=0
+[variant-batch] complete: 3944/3944, rows=3944, blanks=0, missingResolution=26, exit=4
+
+dotnet build MSUIClient.sln -c Debug
+Build succeeded.
+    1 Warning(s)
+    0 Error(s)
+The warning is the pre-existing CA2014 at Engine/UI/GlueAdditive.cs:141.
+
+dotnet run --project tools\\combat-wire-check\\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\\portrait-camera-check\\MSUIPortraitCameraCheck.csproj -c Release -- GameData\\Data
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+### Mandatory review boundary
+
+**HARD STOP.** Nico's role resumes at review of the items CSV, first contact
+sheet, and summary. 7C-1 must not begin until this checkpoint is explicitly
+accepted.

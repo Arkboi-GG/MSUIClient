@@ -243,6 +243,26 @@ public sealed class AttachedItemRenderer : IDisposable
         Console.WriteLine($"[attach] {_mounts.Count} model(s) mounted");
     }
 
+    /// <summary>
+    /// Drop unattended batch-only model/texture caches after the current specimen is no longer
+    /// being drawn. Normal interactive rendering never calls this.
+    /// </summary>
+    public void ClearVariantCache()
+    {
+        _mounts.Clear();
+        lock (SharedGate)
+        {
+            foreach (ItemModel model in Models.Values.Where(model => model is not null)
+                         .Select(model => model!).Distinct())
+                model.Dispose();
+            foreach (Texture texture in Textures.Values.Where(texture => texture is not null)
+                         .Select(texture => texture!).Distinct())
+                texture.Dispose();
+            Models.Clear();
+            Textures.Clear();
+        }
+    }
+
     public MountSet BuildMountSet(CharacterEquipment equipment)
     {
         var result = new MountSet();

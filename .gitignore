@@ -101,5 +101,8 @@ variant-batch/baseline/*
 !variant-batch/baseline/npc-extras/
 variant-batch/baseline/npc-extras/*
 !variant-batch/baseline/npc-extras/verdicts.csv
+!variant-batch/baseline/items/
+variant-batch/baseline/items/*
+!variant-batch/baseline/items/verdicts.csv
 __pycache__/
 *.pyc

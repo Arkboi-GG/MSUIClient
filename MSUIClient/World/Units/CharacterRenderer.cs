@@ -51,7 +51,7 @@ namespace MSUIClient.World.Units;
 ///   settles it, instead of a rebuild per guess. The debug capsule already
 ///   draws a facing spike; line the model up with that.
 /// </summary>
-public sealed class CharacterRenderer : IDisposable
+public sealed partial class CharacterRenderer : IDisposable
 {
     /// <summary>Position(3) Normal(3) UV(2) BoneWeights(4) BoneIndices(4).</summary>
     private const int FloatsPerVertex = 16;
@@ -290,6 +290,13 @@ public sealed class CharacterRenderer : IDisposable
 
     /// <summary>What this character is wearing. Populate it, then call ApplyEquipment.</summary>
     public CharacterEquipment Equipment { get; set; } = new();
+
+    /// <summary>Resolved type-2 cloak source currently bound by the production renderer.</summary>
+    public string VariantCapeTexture => _slots.FirstOrDefault(slot =>
+        slot.Type == 2 && slot.Fill == SlotFill.Bound)?.Source ?? "";
+
+    /// <summary>Release regenerable attachment assets between unattended item-batch chunks.</summary>
+    public void ClearVariantItemCache() => _attached?.ClearVariantCache();
 
     private Matrix4x4[] _skin = [];
     private float[] _packed = [];
