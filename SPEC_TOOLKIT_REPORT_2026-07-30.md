@@ -2475,3 +2475,36 @@ accepts the real path rather than fabricating a duplicate mixer.
 
 S2 standard four gates pass: Debug build (known CA2014 only), combat/wire,
 portrait-camera 1,224 / 1,289 / 56, and move-audit-check.
+
+## S3 - F1 mixer observability and acceptance
+
+The ordered `clipB`, `clipBTime`, and incoming `blendWeight` columns were added
+before the acceptance sweep. Symbol verification showed that the actual
+two-clip TRS mixer and locomotion phase carry already existed from `57ee29d`;
+SPEC-13's original columns could see only the incoming clock and therefore
+misclassified a blended one-shot starting at zero as a cut. No duplicate mixer
+or behavior delta was fabricated.
+
+```text
+PREDICTED hardCuts after F1: 0
+ACTUAL hardCuts: 0 across all eight scripts
+PREDICTED every transition has a strictly increasing incoming blend ramp
+ACTUAL: 20/20 clip transitions expose clipB and positive first weight;
+  25 observed blend segments, 0 non-increasing steps
+PREDICTED kinematic drift: 0
+ACTUAL: 0 byte differences across dt/position/velocity/speed/aim/body yaw/
+  input flags/ground/fall columns, every row of all eight traces
+PREDICTED Substituted or MissingClip: 0
+ACTUAL: 0
+```
+
+All jump one-shots retain legitimate zero-time selection: the sampled first
+post-update row is one tick (0.016667/0.016800) into the incoming clip while
+clipB and a positive ramp are present. JumpLandRun 187 and JumpEnd 39 remain
+selected. The committed run-start-stop script contains no same-gait
+interruption/resume, so that specific prose check is not claimed from it;
+locomotion phase carry is instead directly present in `SwitchClip` and visible
+in diagonal Run->WalkBackwards entering at 0.563730 rather than zero.
+
+S3 standard four gates pass: Debug build (known CA2014 only), combat/wire,
+portrait-camera 1,224 / 1,289 / 56, and move-audit-check with hardCuts=0.

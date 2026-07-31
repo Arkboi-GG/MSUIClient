@@ -5,5 +5,5 @@ jumpAirtime,0.8,0.79,0.81,PASS,0.766,0.834,PASS,symplectic first return sample +
 gravity,19.291112,,,N/A,19.2901,19.2921,PASS,airborne velZ slope; benilla state.rs g=19.2911 +/-0.001
 jumpVelocity,7.9558,,,N/A,7.9548,7.9568,PASS,first airborne velZ + g*dt; benilla state.rs v0=7.9558 +/-0.001
 stallWindows,0,0,0,PASS,0,0,PASS,no stalls
-hardCuts,4,4,4,PASS,0,0,FAIL,every legacy transition entering below blend window without observable clipB
+hardCuts,0,0,0,PASS,0,0,PASS,every transition exposes outgoing clipB and positive incoming blend ramp
 substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

@@ -2,5 +2,5 @@ name,currentMin,currentMax,lawMin,lawMax,citation
 maxSpeed,6.95,7.05,6.95,7.05,normalized diagonal equals pure run axis +/-0.05
 stopDistance,0,0.05,0,0.05,instant stop
 stallWindows,0,0,0,0,no stalls
-hardCuts,1,1,0,0,every legacy transition entering below blend window without observable clipB
+hardCuts,0,0,0,0,every transition exposes outgoing clipB and positive incoming blend ramp
 substitutedEvents,0,0,0,0,no substitutions

@@ -610,6 +610,8 @@ public sealed partial class CharacterRenderer : IDisposable
     public float BodyYawRadians => _bodyYaw;
     public string BlendFrom => _previousClip?.Name ?? "";
     public float BlendWeight => BlendWeightNow();
+    public float BlendFromTime => _previousClipTime;
+    public float IncomingBlendWeight => _previousClip is null ? 0f : 1f - BlendWeightNow();
     public float MeasuredSpeed => _measuredSpeed;
 
     public string Race { get; private set; } = "Human";

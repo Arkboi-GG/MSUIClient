@@ -12,7 +12,7 @@ public sealed partial class GameLoop
     private const string MovementTraceHeader =
         "frame,t,dt,posX,posY,posZ,velX,velY,velZ,horizSpeed,aimYaw,bodyYaw," +
         "inputFlags,grounded,verticalVel,fallTimeMs,clipId,clipName,clipTime," +
-        "playbackRate,lastAnimChoice,wireSentThisTick";
+        "clipB,clipBTime,blendWeight,playbackRate,lastAnimChoice,wireSentThisTick";
 
     private StreamWriter? _movementTraceWriter;
     private string _movementTraceName = "manual";
@@ -116,6 +116,11 @@ public sealed partial class GameLoop
             (_character?.ClipId ?? -1).ToString(CultureInfo.InvariantCulture),
             Csv(gait),
             (_character?.ClipTime ?? 0f).ToString("R", CultureInfo.InvariantCulture),
+            Csv(_character?.BlendFrom ?? ""),
+            _character is { BlendFrom.Length: > 0 } blendCharacter
+                ? blendCharacter.BlendFromTime.ToString("R", CultureInfo.InvariantCulture) : "",
+            _character is { BlendFrom.Length: > 0 } weightCharacter
+                ? weightCharacter.IncomingBlendWeight.ToString("R", CultureInfo.InvariantCulture) : "",
             (_character?.ClipRate ?? 0f).ToString("R", CultureInfo.InvariantCulture),
             Csv(lastAnim),
             Csv(wire)));
