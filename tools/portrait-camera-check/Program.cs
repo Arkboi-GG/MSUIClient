@@ -8,6 +8,10 @@ string data = args.Length > 0 ? args[0] : Path.GetFullPath(Path.Combine("GameDat
 data = Path.GetFullPath(data);
 bool provenanceOnly = args.Length > 1 &&
     args[1].Equals("--provenance", StringComparison.OrdinalIgnoreCase);
+bool variantSuppliersOnly = args.Length > 1 &&
+    args[1].Equals("--variant-suppliers", StringComparison.OrdinalIgnoreCase);
+bool variantTraceOnly = args.Length > 1 &&
+    args[1].Equals("--variant-trace", StringComparison.OrdinalIgnoreCase);
 string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 [
     @"Character\Dwarf\Male\DwarfMale.m2",
@@ -17,6 +21,16 @@ string[] models = args.Length > 1 ? args.Skip(1).ToArray() :
 
 CheckDefaultTuningIdentity();
 CheckArchiveOrdering();
+if (variantSuppliersOnly)
+{
+    PrintChangedVariantSuppliers(data);
+    return;
+}
+if (variantTraceOnly)
+{
+    PrintVariantTrace(data);
+    return;
+}
 if (provenanceOnly)
 {
     string[] requestedPaths = args.Skip(2).ToArray();
@@ -264,6 +278,180 @@ static (string Archive, byte[] Bytes)? TryReadWithProvenance(
     return null;
 }
 
+static void PrintChangedVariantSuppliers(string clientDataPath)
+{
+    string[] beforeChain = LegacyDiagnosticLoadOrder(clientDataPath).ToArray();
+    string[] afterChain = DiagnosticLoadOrder(clientDataPath).ToArray();
+    var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var archives = new Dictionary<string, MpqArchive>(StringComparer.OrdinalIgnoreCase);
+    try
+    {
+        foreach (string archivePath in beforeChain)
+        {
+            if (MpqArchive.Open(archivePath) is not { } archive) continue;
+            archives[archivePath] = archive;
+            if (archive.ReadFile("(listfile)") is not { } listBytes) continue;
+            string list = System.Text.Encoding.UTF8.GetString(listBytes);
+            foreach (string rawPath in list.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                string path = rawPath.Trim().Replace('/', '\\');
+                if (path.EndsWith(".dbc", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("Character\\", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("Item\\", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("Textures\\", StringComparison.OrdinalIgnoreCase))
+                    paths.Add(path);
+            }
+        }
+
+        string Supplier(IEnumerable<string> chain, string path)
+        {
+            foreach (string archivePath in chain)
+                if (archives.TryGetValue(archivePath, out MpqArchive? archive) &&
+                    archive.ReadFile(path) is not null)
+                    return archivePath;
+            return "not found";
+        }
+
+        int changed = 0;
+        foreach (string path in paths.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            string before = Supplier(beforeChain, path);
+            string after = Supplier(afterChain, path);
+            if (before.Equals(after, StringComparison.OrdinalIgnoreCase)) continue;
+            changed++;
+            Console.WriteLine($"[variant-supplier] path={path} " +
+                $"before={Path.GetFileName(before)} after={Path.GetFileName(after)}");
+        }
+        Console.WriteLine($"[variant-supplier] candidates={paths.Count} changed={changed}");
+    }
+    finally
+    {
+        foreach (MpqArchive archive in archives.Values) archive.Dispose();
+    }
+}
+
+static void PrintVariantTrace(string clientDataPath)
+{
+    string[] chain = DiagnosticLoadOrder(clientDataPath).ToArray();
+    (string charArchive, byte[] charBytes) = ReadWithProvenance(chain, CharSectionsTable.MpqPath);
+    DbcFile chars = DbcFile.Parse(charBytes) ?? throw new InvalidDataException("CharSections parse failed");
+    Console.WriteLine($"[variant-trace] player=human-male skin=0 face=0 hairStyle=0 hairColor=0 facialHair=0 " +
+        $"CharSections={Path.GetFileName(charArchive)}");
+    PrintCharRows(chars, section: 0, variation: 0, color: 0);
+    PrintCharRows(chars, section: 1, variation: 0, color: 0);
+    PrintCharRows(chars, section: 2, variation: 0, color: 0);
+    PrintCharRows(chars, section: 3, variation: 0, color: 0);
+    PrintCharRows(chars, section: 3, variation: 1, color: 0);
+
+    PrintRawRows(chain, CharHairGeosetsTable.MpqPath,
+        row => row.GetUInt(1) == 1 && row.GetUInt(2) == 0 && row.GetUInt(3) == 0,
+        row => $"race={row.GetUInt(1)} sex={row.GetUInt(2)} style={row.GetUInt(3)} " +
+               $"geoset={row.GetUInt(4)} showsScalp={(row.FieldCount > 5 ? row.GetUInt(5) : 0)}");
+    PrintRawRows(chain, CharacterFacialHairTable.MpqPath,
+        row => row.GetUInt(0) == 1 && row.GetUInt(1) == 0 && row.GetUInt(2) == 0,
+        row => $"race={row.GetUInt(0)} sex={row.GetUInt(1)} facial={row.GetUInt(2)} " +
+               $"geosets={row.GetUInt(6)}/{row.GetUInt(7)}/{row.GetUInt(8)}");
+
+    const uint willemDisplay = 2072;
+    (string displayArchive, byte[] displayBytes) = ReadWithProvenance(chain, CreatureDisplayInfoTable.MpqPath);
+    DbcFile display = DbcFile.Parse(displayBytes) ?? throw new InvalidDataException("CreatureDisplayInfo parse failed");
+    int displayRow = FindRow(display, 0, willemDisplay);
+    uint modelId = display.GetUInt(displayRow, 1);
+    uint extraId = display.GetUInt(displayRow, 3);
+    Console.WriteLine($"[variant-trace] willem display={willemDisplay} modelId={modelId} extraId={extraId} " +
+        $"scale={display.GetFloat(displayRow, 4):R} textures='{display.GetString(displayRow, 6)}'|" +
+        $"'{display.GetString(displayRow, 7)}'|'{display.GetString(displayRow, 8)}' " +
+        $"CreatureDisplayInfo={Path.GetFileName(displayArchive)}");
+
+    (string modelArchive, byte[] modelBytes) = ReadWithProvenance(chain, CreatureModelDataTable.MpqPath);
+    DbcFile models = DbcFile.Parse(modelBytes) ?? throw new InvalidDataException("CreatureModelData parse failed");
+    int modelRow = FindRow(models, 0, modelId);
+    string modelPath = CreatureModelResolver.NormalizeModelPath(models.GetString(modelRow, 2));
+    Console.WriteLine($"[variant-trace] willem-model id={modelId} path={modelPath} " +
+        $"scale={models.GetFloat(modelRow, 4):R} CreatureModelData={Path.GetFileName(modelArchive)} " +
+        $"supplier={Path.GetFileName(ReadWithProvenance(chain, modelPath).Archive)}");
+
+    (string extraArchive, byte[] extraBytes) = ReadWithProvenance(chain, CreatureDisplayExtraTable.MpqPath);
+    DbcFile extras = DbcFile.Parse(extraBytes) ?? throw new InvalidDataException("CreatureDisplayInfoExtra parse failed");
+    int extraRow = FindRow(extras, 0, extraId);
+    uint[] equipment = Enumerable.Range(0, 10).Select(i => extras.GetUInt(extraRow, 8 + i)).ToArray();
+    string bake = extras.GetString(extraRow, 18);
+    string bakePath = bake.Contains('\\') ? bake : $"Textures\\BakedNpcTextures\\{bake}";
+    Console.WriteLine($"[variant-trace] willem-extra id={extraId} race={extras.GetUInt(extraRow, 1)} " +
+        $"sex={extras.GetUInt(extraRow, 2)} skin={extras.GetUInt(extraRow, 3)} face={extras.GetUInt(extraRow, 4)} " +
+        $"hair={extras.GetUInt(extraRow, 5)}/{extras.GetUInt(extraRow, 6)} facial={extras.GetUInt(extraRow, 7)} " +
+        $"equipment={string.Join('/', equipment)} bake={bakePath} " +
+        $"CreatureDisplayInfoExtra={Path.GetFileName(extraArchive)} " +
+        $"bakeSupplier={Path.GetFileName(ReadWithProvenance(chain, bakePath).Archive)}");
+
+    PrintItemTrace(chain, equipment[0], "willem-helm", "HuM");
+    PrintItemTrace(chain, 13963, "cape-test", "HuM");
+    string[] legacy = LegacyDiagnosticLoadOrder(clientDataPath).ToArray();
+    PrintItemTrace(legacy, equipment[0], "willem-helm-legacy", "HuM");
+    PrintItemTrace(legacy, 13963, "cape-test-legacy", "HuM");
+}
+
+static void PrintCharRows(DbcFile dbc, uint section, uint variation, uint color)
+{
+    for (int row = 0; row < dbc.RecordCount; row++)
+    {
+        if (dbc.GetUInt(row, 1) != 1 || dbc.GetUInt(row, 2) != 0 ||
+            dbc.GetUInt(row, 3) != section || dbc.GetUInt(row, 4) != variation ||
+            dbc.GetUInt(row, 5) != color) continue;
+        Console.WriteLine($"[variant-trace] char-section row={row} section={section} variation={variation} " +
+            $"color={color} flags={dbc.GetUInt(row, 9)} textures='{dbc.GetString(row, 6)}'|" +
+            $"'{dbc.GetString(row, 7)}'|'{dbc.GetString(row, 8)}'");
+    }
+}
+
+static void PrintRawRows(string[] chain, string path, Func<DbcRow, bool> matches,
+    Func<DbcRow, string> describe)
+{
+    (string archive, byte[] bytes) = ReadWithProvenance(chain, path);
+    DbcFile dbc = DbcFile.Parse(bytes) ?? throw new InvalidDataException($"{path} parse failed");
+    for (int row = 0; row < dbc.RecordCount; row++)
+    {
+        var view = new DbcRow(dbc, row);
+        if (matches(view)) Console.WriteLine($"[variant-trace] {Path.GetFileName(path)} " +
+            $"archive={Path.GetFileName(archive)} {describe(view)}");
+    }
+}
+
+static int FindRow(DbcFile dbc, int field, uint value)
+{
+    for (int row = 0; row < dbc.RecordCount; row++)
+        if (dbc.GetUInt(row, field) == value) return row;
+    throw new InvalidDataException($"DBC row not found: field {field} = {value}");
+}
+
+static void PrintItemTrace(string[] chain, uint displayId, string label, string raceGender)
+{
+    (string archive, byte[] bytes) = ReadWithProvenance(chain, ItemDisplayTable.MpqPath);
+    DbcFile dbc = DbcFile.Parse(bytes) ?? throw new InvalidDataException("ItemDisplayInfo parse failed");
+    int row = FindRow(dbc, 0, displayId);
+    string model = dbc.GetString(row, 1);
+    string texture = dbc.GetString(row, 3);
+    Console.WriteLine($"[variant-trace] {label} display={displayId} ItemDisplayInfo={Path.GetFileName(archive)} " +
+        $"model='{model}' model2='{dbc.GetString(row, 2)}' texture='{texture}' texture2='{dbc.GetString(row, 4)}' " +
+        $"geosets={dbc.GetUInt(row, 6)}/{dbc.GetUInt(row, 7)}/{dbc.GetUInt(row, 8)} " +
+        $"helmVis={dbc.GetUInt(row, 12)}/{dbc.GetUInt(row, 13)}");
+    if (model.Length > 0)
+    {
+        string stem = Path.GetFileNameWithoutExtension(model);
+        string helmPath = $"Item\\ObjectComponents\\Head\\{stem}_{raceGender}.m2";
+        Console.WriteLine($"[variant-trace] {label}-model path={helmPath} " +
+            $"supplier={(TryReadWithProvenance(chain, helmPath)?.Archive is { } a ? Path.GetFileName(a) : "not found")}");
+    }
+    if (texture.Length > 0)
+    {
+        string capePath = $"Item\\ObjectComponents\\Cape\\{Path.GetFileNameWithoutExtension(texture)}.blp";
+        string headPath = $"Item\\ObjectComponents\\Head\\{Path.GetFileNameWithoutExtension(texture)}.blp";
+        Console.WriteLine($"[variant-trace] {label}-texture capePath={capePath} " +
+            $"capeSupplier={(TryReadWithProvenance(chain, capePath)?.Archive is { } ca ? Path.GetFileName(ca) : "not found")} " +
+            $"headPath={headPath} headSupplier={(TryReadWithProvenance(chain, headPath)?.Archive is { } ha ? Path.GetFileName(ha) : "not found")}");
+    }
+}
+
 static void PrintCameraHeader(byte[] bytes)
 {
     uint version = U32(bytes, 0x004);
@@ -324,3 +512,9 @@ static void PrintTrackHeader(byte[] bytes, int track, string name)
 static ushort U16(byte[] bytes, int offset) => offset <= bytes.Length - 2
     ? BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2))
     : (ushort)0;
+
+readonly record struct DbcRow(DbcFile File, int Index)
+{
+    public int FieldCount => File.FieldCount;
+    public uint GetUInt(int field) => File.GetUInt(Index, field);
+}

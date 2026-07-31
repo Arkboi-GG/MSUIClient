@@ -655,3 +655,171 @@ SPEC TOOLKIT 06 (verbatim):
 1. Reproduce any current visual gripe, press F10, send the JSON (+PNG) to the
    assistant instead of describing the gripe. That exchange is the toolkit's
    acceptance test.
+
+## SPEC 07 — Stage 7A character-variant diagnosis (HARD STOP)
+
+Stage 7A is diagnosis only. No archive order, renderer, DBC parser, texture law,
+or gameplay behavior was changed. This section is the required ruling packet;
+work stops here until Nico rules on it.
+
+### Stage status
+
+| Stage | Status | Result |
+|---|---|---|
+| 7A H1 archive-supplier audit | Complete | 61,499 relevant archive members compared; 38 supplier changes found. Player `CharSections`/hair-geoset/facial-hair data did not change supplier. |
+| 7A player trace | Partial — named case missing | The request retained its `[FILL IN]` placeholder. The available captured Human male `0/0/0/0/0` case was traced as a control, but cannot be represented as Nico's wrong case. |
+| 7A helm/NPC trace | Complete | Deputy Willem display 2072 / extra 675 / head display 14964 resolves to a present HuM helm model and texture. The renderer hides his hair for that helm but never mounts the authored NPC head model. |
+| 7A cape trace | Partial — named case missing | The built-in cape diagnostic display 13963 was traced as a control and resolves correctly. No reported wrong cape display id was supplied. |
+| 7A H2 scoped history | Complete | Relevant commits since 2026-07-27 inventoried below. |
+| 7A boundary | **HARD STOP** | Diagnosis packet only; no 7B fix is authorized. |
+
+### Files changed in 7A
+
+| File | Change |
+|---|---|
+| `tools/portrait-camera-check/Program.cs` | Added read-only `--variant-suppliers` and `--variant-trace` diagnostic modes. |
+| `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Appended this evidence and ruling packet. |
+
+Pre-existing user changes in `vantages.json` and the untracked
+`SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md` were not modified or staged.
+
+### Symbol verification
+
+| Contract / symbol | Verified location | Finding |
+|---|---|---|
+| `CreatureDisplayInfoExtra` equipment decode | `MSUIClient/Formats/CreatureDbc.cs:121-175,200,240` | Ten display ids are preserved in canonical head-through-tabard order. |
+| NPC equipment/geoset application | `MSUIClient/World/Units/CreatureRenderer.cs:831-844` | Body equipment affects geosets; head display affects helm visibility only. No head or shoulder attachment is created. |
+| Creature attachment draw path | `MSUIClient/World/Units/CreatureRenderer.cs:531-560` | Draws server virtual weapons; it does not consume authored extra head/shoulder displays. |
+| Player async appearance mapping | `MSUIClient/World/Units/CharacterRenderer.cs:919-1029` | Resolves skin, face, hair, facial hair, geosets, and baked layers. |
+| `CharSections` lookup | `MSUIClient/Formats/DbcReader.cs:188-284` | Parses the ten-field row but does not retain/use the final Flags field when choosing duplicate keys. |
+| Cape texture law | `MSUIClient/World/Units/CharacterRenderer.cs:1290-1370` | Includes canonical `Item\\ObjectComponents\\Cape\\<stem>.blp`. |
+| Diagnostic control cape | `MSUIClient/World/Units/CharacterEquipment.cs:430` | Display 13963 is the existing `Cape texture test`. |
+
+Independent Benilla comparison:
+
+- `crates/benilla-formats/src/creatures.rs:331-365` decodes the same extra
+  appearance and ten equipment slots.
+- `benilla/src/entities/equipment.rs:541-585,625-670` consumes NPC head and
+  shoulder display ids, mounts the helm at the HELM attachment, and resolves
+  `Head\\<stem>_<race><sex>.m2` independently of its object texture.
+- `benilla/src/entities/attach/char_skin.rs:404-428` uses the same canonical cape
+  object-component path.
+- `benilla/src/entities/attach/sections.rs:78-150,180-220,265-277` confirms the
+  section keys, hair variation-1 fallback, layer order, and standard-row flag law.
+
+### H1 — archive order / supplier delta
+
+The corrected MPQ precedence changed the winning supplier for 38 of 61,499
+relevant candidates:
+
+```text
+DBFilesClient: AreaPOI, AreaTable, AreaTrigger, Cfg_Categories,
+CreatureDisplayInfo, CreatureModelData, CreatureType, DurabilityCosts,
+EmotesTextData, Faction, GroundEffectTexture, ItemSet, LFGDungeons,
+MailTemplate, Map, NamesProfanity, QuestInfo, QuestSort, SkillLine,
+SkillLineAbility, SkillRaceClassInfo, SkillTiers, SoundEntries, Spell,
+SpellFocusObject, SpellItemEnchantment, SpellMechanic, SpellVisual,
+TaxiNodes, WMOAreaTable, WorldSafeLocs, WorldStateUI:
+    patch.MPQ -> patch-2.MPQ
+DBFilesClient\\ItemDisplayInfo.dbc:
+    patch.MPQ -> patch-4.MPQ
+ITEM\\ObjectComponents\\HEAD\\Helm_Plate_RaidWarrior_C_01_NiM.m2:
+    patch.MPQ -> patch-2.MPQ
+ITEM\\ObjectComponents\\HEAD\\Helm_Robe_DungeonWarlock_A_01_TaF.m2:
+    patch.MPQ -> patch-2.MPQ
+ITEM\\ObjectComponents\\WEAPON\\Sword_1H_Stratholme_D_01.m2:
+    patch.MPQ -> patch-2.MPQ
+ITEM\\TEXTURECOMPONENTS\\TORSOUPPERTEXTURE\\Robe_AhnQiraj_A_Green_Chest_TU_U.blp:
+    patch.MPQ -> patch-2.MPQ
+ITEM\\TEXTURECOMPONENTS\\TORSOUPPERTEXTURE\\Robe_AhnQiraj_A_Purple_Chest_TU_U.blp:
+    patch.MPQ -> patch-2.MPQ
+```
+
+`CharSections.dbc`, `CharHairGeosets.dbc`,
+`CharacterFacialHairStyles.dbc`, and the sampled Character textures are absent
+from the delta. H1 therefore does **not** explain the sampled player appearance.
+H1 remains a general item-variant risk because `ItemDisplayInfo.dbc` changed, but
+the old and current rows for Willem's helm 14964 and the cape control 13963 are
+field-identical and resolve to the same assets. H1 does not explain either trace.
+
+### H2 — scoped commit inventory
+
+| Commit | Relevant surface | Diagnostic ruling |
+|---|---|---|
+| `be1fbbd` (2026-07-30) | `CharacterRenderer`, Glue/Net | Added the current asynchronous player appearance preparation path. Temporally plausible for a player-only regression; the available control agrees with Benilla, so the named failing input is required to rule it. |
+| `13de8f5` (2026-07-30) | `CharacterRenderer`, `CreatureRenderer`, `AttachedItemRenderer` | Split/shared asynchronous asset work; no demonstrated variant-key law change in the traced rows. |
+| `10ecbc9`, `fd73621`, `dbe637a`, `0210014`, `52c45ff` | diagnostics, portrait catalog/cache, animation/wire | No demonstrated face/hair/cape/head selection-law change. |
+| `7434939` (2026-07-29) | attachments/equipment and render hosts | Relevant attachment plumbing, but current creature attachments remain limited to virtual weapons. |
+| `57ee29d` (2026-07-29) | character creation/select wiring | Relevant source of player customization inputs; no named failing input supplied for comparison. |
+| `d055c65` (2026-07-27) | initial NPC/player renderer pipeline | `git blame` places the Willem `BuildNpcEquip` omission here: authored head display hides hair but is never attached. |
+
+The `CharSections` lookup's omission of Flags and the current cape candidate law
+predate the scoped history. Flags are a real robustness gap, but the installed
+Human male control rows happen to place the standard (`flags=0`) row first, so it
+is not claimed as the cause of the reported player symptom without the requested
+named case.
+
+### H3 — concrete traces and root-cause rulings
+
+| Case | Exact trace | Root-cause ruling | Smallest later fix (not implemented) |
+|---|---|---|---|
+| Player control: Human male `skin=0 face=0 hairStyle=0 hairColor=0 facialHair=0` | `CharSections=patch.MPQ`; standard skin `HumanMaleSkin00_00`; face `FaceLower00_00` + `FaceUpper00_00`; style-0 hair row is blank and canonical variation-1 fallback selects `Hair03_00` plus scalp layers; hair/facial geoset rows are present. | Control matches Benilla. Reported wrong-player root cause is **UNRULED: named failing creation values and expected appearance were not supplied**. | Once supplied, trace those five values through both input and async renderer. If a duplicate-key flag collision is proven, retain Flags and prefer standard rows; if sync/async divergence is proven, converge on one resolver. |
+| Deputy Willem, NPC 823, display 2072 | Display 2072 -> Human male model 49 -> extra 675; extra head display 14964; HuM model `Helm_Plate_B_01Stormwind_HuM.m2` is in `patch.MPQ`; matching head BLP is in `texture.MPQ`. | **H3, never-correct renderer omission introduced by `d055c65`.** `BuildNpcEquip` applies helm visibility (hiding hair) but never mounts extra equipment head/shoulder models. This directly explains a bald, unhelmeted Willem despite valid assets. | Feed `ExtEquipment[0]` and `[1]` through the shared attached-item renderer using race/sex suffix resolution, alongside (not replacing) virtual weapons. |
+| Cape control, item display 13963 | `ItemDisplayInfo=patch-4.MPQ`; `Cape_Mage_A_01Black` -> `Item\\ObjectComponents\\Cape\\Cape_Mage_A_01Black.blp` in `texture.MPQ`; legacy/current rows identical. | Control matches Benilla. Reported wrong-cape root cause is **UNRULED: no failing cape display id supplied**. | Trace the actual display id before selecting a fix; compare legacy/current row only if it is among changed patch content. |
+
+Deputy Willem's NPC/display identity was cross-checked against the local database
+name data and a public 1.12 database entry for NPC 823 / model 2072. The remainder
+of the trace is entirely from the installed client data.
+
+### Deviations / blocked inputs
+
+1. The spec request's named wrong-player-variant field remained literally
+   `[FILL IN]`. Stage 7A does not invent the player's intended creation choices.
+2. The symptom named capes generally but supplied no failing cape display id. The
+   existing display-13963 diagnostic is recorded only as a known control.
+3. The prior report contains no completed Stage 1G supplier diagnosis and no
+   completed NPC extra-display diagnosis, so both were folded into 7A as ordered.
+4. No fix was attempted. The proposed patches above are boundaries for a later
+   ruled stage, not authorization.
+
+### Console evidence
+
+```text
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+[variant-supplier] candidates=61499 changed=38
+[variant-trace] player=human-male skin=0 face=0 hairStyle=0 hairColor=0 facialHair=0 CharSections=patch.MPQ
+[variant-trace] willem display=2072 modelId=49 extraId=675 scale=1 CreatureDisplayInfo=patch-2.MPQ
+[variant-trace] willem-extra id=675 race=1 sex=0 skin=4 face=6 hair=0/8 facial=6 equipment=14964/7541/7223/0/7224/7225/7255/0/7698/6255 CreatureDisplayInfoExtra=patch.MPQ
+[variant-trace] willem-helm-model path=Item\\ObjectComponents\\Head\\Helm_Plate_B_01Stormwind_HuM.m2 supplier=patch.MPQ
+[variant-trace] cape-test display=13963 ItemDisplayInfo=patch-4.MPQ model='' texture='Cape_Mage_A_01Black'
+[variant-trace] cape-test-texture capePath=Item\\ObjectComponents\\Cape\\Cape_Mage_A_01Black.blp capeSupplier=texture.MPQ
+```
+
+### Mandatory gates
+
+```text
+dotnet build MSUIClient.sln -c Debug
+Build succeeded. 1 Warning(s), 0 Error(s).
+The warning is the pre-existing CA2014 at Engine/UI/GlueAdditive.cs:141.
+
+dotnet run --project tools\\combat-wire-check\\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\\portrait-camera-check\\MSUIPortraitCameraCheck.csproj -c Release -- GameData\\Data
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+### Live checks / ruling requested
+
+**HARD STOP.** Nico must supply/rule the following before any 7B implementation:
+
+1. Supply the exact wrong player case: race, sex, skin, face, hair style, hair
+   color, facial hair, and what was expected versus rendered.
+2. Supply at least one wrong cape item/display id (and expected versus rendered).
+3. Rule whether to proceed with the isolated Willem head/shoulder attachment fix.
+4. Rule whether the player Flags hardening belongs in 7B only if the named trace
+   proves a collision, or should be accepted as preventive hardening separately.
