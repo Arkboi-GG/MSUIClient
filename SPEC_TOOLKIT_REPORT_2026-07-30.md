@@ -2316,3 +2316,99 @@ feasible, but require a separately authorized benilla instrumentation change.
 
 M3 standard gates pass: Debug build, combat/wire, portrait-camera
 1,224 / 1,289 / 56, and move-audit-check are green.
+
+## M4 - measured-versus-expected packet (HARD STOP)
+
+```text
+PREDICTED scenarios / current rows: 8 / all green
+ACTUAL scenarios / current rows: 8 / 44 of 44 PASS
+PREDICTED diagnostic totals: stalls, phase resets, substitutions reported
+ACTUAL diagnostic totals: 0 stalls, 0 phase resets, 0 substitutions
+PREDICTED vanilla-law deviations: measured, never normalized away
+ACTUAL vanilla-law deviations: 4 FAIL rows (jump height and apex time in
+  jump-flat and jump-standing); every other law-bearing row PASS
+PREDICTED movement implementation changes: 0
+ACTUAL movement implementation changes: 0
+```
+
+The phase-reset `N/A` entries below have no law band by order; their current
+band remains a frozen regression gate. Units follow metric names: speeds are
+yd/s, distances yd, turn rates rad/s, times ms or s as named.
+
+| Scenario | Metric | Measured | Current-tree band | Vanilla-law band |
+|---|---|---:|---|---|
+| backpedal | maxSpeed | 4.5 | 4.45..4.55 PASS | 4.45..4.55 PASS |
+| backpedal | stopDistance | 0 | 0..0.05 PASS | 0..0.05 PASS |
+| backpedal | stallWindows | 0 | 0 PASS | 0 PASS |
+| backpedal | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| backpedal | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| diagonal | maxSpeed | 7 | 6.95..7.05 PASS | 6.95..7.05 PASS |
+| diagonal | stopDistance | 0 | 0..0.05 PASS | 0..0.05 PASS |
+| diagonal | stallWindows | 0 | 0 PASS | 0 PASS |
+| diagonal | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| diagonal | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| jump-flat | maxSpeed | 7 | 6.95..7.05 PASS | 6.95..7.05 PASS |
+| jump-flat | jumpApexHeight | 1.574730 | 1.57..1.58 PASS | 1.6105..1.6705 **FAIL** |
+| jump-flat | jumpApexTime | 0.383333 | 0.38..0.39 PASS | 0.3954..0.4294 **FAIL** |
+| jump-flat | jumpAirtime | 0.816667 | 0.80..0.83 PASS | 0.7909..0.8589 PASS |
+| jump-flat | stallWindows | 0 | 0 PASS | 0 PASS |
+| jump-flat | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| jump-flat | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| jump-standing | jumpApexHeight | 1.574730 | 1.57..1.58 PASS | 1.6105..1.6705 **FAIL** |
+| jump-standing | jumpApexTime | 0.383333 | 0.38..0.39 PASS | 0.3954..0.4294 **FAIL** |
+| jump-standing | jumpAirtime | 0.800000 | 0.79..0.81 PASS | 0.7909..0.8589 PASS |
+| jump-standing | stallWindows | 0 | 0 PASS | 0 PASS |
+| jump-standing | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| jump-standing | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| run-start-stop | maxSpeed | 7 | 6.95..7.05 PASS | 6.95..7.05 PASS |
+| run-start-stop | stopDistance | 0 | 0..0.05 PASS | 0..0.05 PASS |
+| run-start-stop | startDisplacementTicks | 1 | 0..1 PASS | 0..1 PASS |
+| run-start-stop | startClipLatencyMs | 0 | 0..16.667 PASS | 0..16.667 PASS |
+| run-start-stop | stallWindows | 0 | 0 PASS | 0 PASS |
+| run-start-stop | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| run-start-stop | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| strafe-pure | maxSpeed | 7 | 6.95..7.05 PASS | 6.95..7.05 PASS |
+| strafe-pure | stopDistance | 0 | 0..0.05 PASS | 0..0.05 PASS |
+| strafe-pure | stallWindows | 0 | 0 PASS | 0 PASS |
+| strafe-pure | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| strafe-pure | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| turn-moving | maxSpeed | 7.000001 | 6.95..7.05 PASS | 6.95..7.05 PASS |
+| turn-moving | turnRate | 2.356214 | 2.30..2.41 PASS | 2.306194..2.406194 PASS |
+| turn-moving | stallWindows | 0 | 0 PASS | 0 PASS |
+| turn-moving | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| turn-moving | substitutedEvents | 0 | 0 PASS | 0 PASS |
+| turn-standing | turnRate | 3.141604 | 3.09..3.19 PASS | 3.091593..3.191593 PASS |
+| turn-standing | stallWindows | 0 | 0 PASS | 0 PASS |
+| turn-standing | phaseResets | 0 | 0 PASS | N/A diagnostic |
+| turn-standing | substitutedEvents | 0 | 0 PASS | 0 PASS |
+
+### Nine-item fix-order ruling packet
+
+This preserves the gap document's order without endorsing stale claims. “Needs
+row” means the present eight-script audit cannot mechanically accept that fix;
+the row/scenario must be instrumented in that future implementation order.
+
+| Order | Candidate root cause | Audit proof rows | Measured disposition |
+|---:|---|---|---|
+| 1 | Cross-fade + phase preservation | `phaseResets` in run-start-stop and both jumps; clipTime at every trace transition | Already 0 resets in all eight; retain as regression evidence, add landing phase-continuity row before any new change. |
+| 2 | Intent-driven animation | run-start-stop `startClipLatencyMs`, `stallWindows`, `substitutedEvents`; diagonal/strafe stalls | Already 0 ms / 0 / 0 on current tree. No fix is evidenced by this packet. |
+| 3 | Split body heading / turn shuffle | turn-standing and turn-moving `aimYaw`, `bodyYaw`, clip columns; **needs** body-settle and shuffle-choice audit rows | Trace columns exist, but no acceptance row yet; instrument those derived rows before implementation. |
+| 4 | Turn rate pi, moving factor 0.75 | standing and moving `turnRate` | 3.141604 and 2.356214, both vanilla PASS; no fix evidenced. |
+| 5 | Landing clips 39/187 | jump `phaseResets`, stalls; **needs** landing-clip-id/phase-continuity row | Current diagnostics are clean but do not prove clip identity. |
+| 6 | Server speed opcodes | speed rows plus wire opcode trace; **needs** connected FORCE_* change/ACK scenario | Offline 7.0/4.5 rows cannot prove network adoption or ACK. |
+| 7 | Step height 0.7 / slope 50 degrees | **needs** deterministic step and two slope-threshold scenarios with pass/fail traversal rows | Flat arena supplies no evidence. |
+| 8 | Swim | **needs** water-entry, forward/back swim speed, vertical input, gait/clip rows | No water scenario exists. |
+| 9 | Capsule sweep | **needs** wall-glance and outside-corner penetration-distance/contact rows | Flat unobstructed scripts supply no evidence. |
+
+The separate login-facing-yaw defect is recorded as a finding only, per the
+scope fence. Its eventual proof requires a login/new-world scenario comparing
+spawn orientation, camera aim, controller yaw, first wire facing, and body yaw
+before any input; none of those values may be synthesized by this flat-arena
+suite.
+
+M4 standard gates pass: Debug build succeeds with the known CA2014 warning;
+combat/wire passes; portrait-camera is 1,224 / 1,289 / 56; and
+move-audit-check passes all 44 current rows.
+
+**HARD STOP — Nico's fix-order ruling is required. No movement fix, benilla
+change, panes/keybind work, or further diagnosis is authorized by SPEC-13.**
