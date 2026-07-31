@@ -1,0 +1,634 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Numerics;
+using MSUIClient.Engine;
+using MSUIClient.Formats;
+using MSUIClient.Net;
+using MSUIClient.World.Units;
+using Silk.NET.OpenGL;
+
+namespace MSUIClient;
+
+public sealed record VariantBatchOptions(
+    string Axis,
+    string? OutputDirectory,
+    string? ListFile,
+    int? Limit,
+    string? DiffFile,
+    bool Unmasked,
+    bool Exhaustive);
+
+public static partial class Program
+{
+    private static bool TryParseVariantBatchArgs(string[] args,
+        out VariantBatchOptions? options, out string? configPath, out string? error)
+    {
+        options = null;
+        configPath = null;
+        error = null;
+        if (!args.Contains("--variant-batch", StringComparer.OrdinalIgnoreCase)) return true;
+
+        string axis = "npc-extras";
+        string? output = null, list = null, diff = null;
+        int? limit = null;
+        bool unmasked = false, exhaustive = false;
+        for (int i = 0; i < args.Length; i++)
+        {
+            string arg = args[i];
+            if (arg.Equals("--variant-batch", StringComparison.OrdinalIgnoreCase)) continue;
+            if (arg.Equals("--unmasked", StringComparison.OrdinalIgnoreCase))
+            {
+                unmasked = true;
+                continue;
+            }
+            if (arg.Equals("--exhaustive", StringComparison.OrdinalIgnoreCase))
+            {
+                exhaustive = true;
+                continue;
+            }
+            if (arg is "--axis" or "--out" or "--list" or "--limit" or "--diff")
+            {
+                if (++i >= args.Length)
+                {
+                    error = $"missing value for {arg}";
+                    return false;
+                }
+                string value = args[i];
+                if (arg == "--axis") axis = value.ToLowerInvariant();
+                else if (arg == "--out") output = value;
+                else if (arg == "--list") list = value;
+                else if (arg == "--diff") diff = value;
+                else if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture,
+                             out int parsed) || parsed <= 0)
+                {
+                    error = "--limit must be a positive integer";
+                    return false;
+                }
+                else limit = parsed;
+                continue;
+            }
+            if (arg.StartsWith('-'))
+            {
+                error = $"unknown option {arg}";
+                return false;
+            }
+            if (configPath is not null)
+            {
+                error = $"unexpected argument {arg}";
+                return false;
+            }
+            configPath = arg;
+        }
+
+        if (!axis.Equals("npc-extras", StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"axis '{axis}' is sequenced after the NPC-extras review checkpoint";
+            return false;
+        }
+        options = new VariantBatchOptions(axis, output, list, limit, diff, unmasked, exhaustive);
+        return true;
+    }
+
+    private static void PrintVariantBatchUsage() => Console.Error.WriteLine(
+        "usage: MSUIClient [config.json] --variant-batch [--axis npc-extras] " +
+        "[--out <dir>] [--list <file>] [--limit <n>] [--diff <verdicts.csv>] " +
+        "[--unmasked] [--exhaustive]");
+}
+
+public sealed partial class GameLoop
+{
+    private const int VariantCacheChunk = 128;
+    private const string VariantCsvHeader =
+        "rowKey,key,axis,displayId,extraId,batchIndex,geosetId,region,textureType," +
+        "resolvedTexture,effectiveTexture,supplier,customContent,demandedTexture," +
+        "demandedSupplier,missingDemandedTexture,predicted7C2Texture,protocolRow," +
+        "modelPath,modelSupplier,race,sex,skin,face,hairStyle,hairColor,facialHair," +
+        "equipment,geosetsChosen,bakeTexture,bakeSupplier,helmDisplayId,helmSuffix," +
+        "helmModel,helmSupplier,shoulderDisplayId,shoulderModels,shoulderSuppliers," +
+        "attachmentStatus,capeTexture,charSectionsDupKey,charSectionsWinnerRow," +
+        "outcome,subjectPx,meanLuma,elapsedMs,note";
+
+    private readonly VariantBatchOptions? _variantBatchOptions;
+    private readonly List<VariantSpecimen> _variantSpecimens = [];
+    private readonly List<VariantSpecimenResult> _variantSpecimenResults = [];
+    private readonly List<VariantCsvRow> _variantRows = [];
+    private readonly List<(string Key, byte[] Rgba)> _variantSheetCells = [];
+    private readonly HashSet<string> _variantExpectedBlank = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _variantKnownBlank = new(StringComparer.OrdinalIgnoreCase);
+    private string _variantOutputDirectory = "";
+    private int _variantIndex;
+    private int _variantSheetIndex;
+    private bool _variantFinished;
+    private Stopwatch? _variantClock;
+    public int VariantBatchExitCode { get; private set; } = 1;
+
+    private readonly record struct VariantSpecimen(
+        string Key, uint ExtraId, int DisplayId, string ModelPath, string? SkipNote);
+
+    private readonly record struct VariantSpecimenResult(
+        VariantSpecimen Specimen, PortraitOutcome Outcome, int SubjectPx,
+        double MeanLuma, double ElapsedMs, string Note);
+
+    private readonly record struct VariantCsvRow(
+        string RowKey,
+        string Key,
+        int DisplayId,
+        uint ExtraId,
+        int BatchIndex,
+        int GeosetId,
+        string Region,
+        uint TextureType,
+        string ResolvedTexture,
+        string EffectiveTexture,
+        string Supplier,
+        bool CustomContent,
+        string DemandedTexture,
+        string DemandedSupplier,
+        bool MissingDemandedTexture,
+        string Predicted7C2Texture,
+        string ProtocolRow,
+        string ModelPath,
+        string ModelSupplier,
+        byte Race,
+        byte Sex,
+        uint Skin,
+        uint Face,
+        byte HairStyle,
+        uint HairColor,
+        byte FacialHair,
+        string Equipment,
+        string GeosetsChosen,
+        string BakeTexture,
+        string BakeSupplier,
+        uint HelmDisplayId,
+        string HelmSuffix,
+        string HelmModel,
+        string HelmSupplier,
+        uint ShoulderDisplayId,
+        string ShoulderModels,
+        string ShoulderSuppliers,
+        string AttachmentStatus,
+        PortraitOutcome Outcome,
+        int SubjectPx,
+        double MeanLuma,
+        double ElapsedMs,
+        string Note)
+    {
+        public string CsvLine => string.Join(',',
+            Csv(RowKey), Csv(Key), "npc-extras", DisplayId, ExtraId, BatchIndex, GeosetId,
+            Csv(Region), TextureType == uint.MaxValue ? "NONE" : TextureType,
+            Csv(ResolvedTexture), Csv(EffectiveTexture), Csv(Supplier),
+            CustomContent.ToString().ToLowerInvariant(), Csv(DemandedTexture),
+            Csv(DemandedSupplier), MissingDemandedTexture.ToString().ToLowerInvariant(),
+            Csv(Predicted7C2Texture), Csv(ProtocolRow), Csv(ModelPath), Csv(ModelSupplier),
+            Race, Sex, Skin, Face, HairStyle, HairColor, FacialHair, Csv(Equipment),
+            Csv(GeosetsChosen), Csv(BakeTexture), Csv(BakeSupplier), HelmDisplayId,
+            Csv(HelmSuffix), Csv(HelmModel), Csv(HelmSupplier), ShoulderDisplayId,
+            Csv(ShoulderModels), Csv(ShoulderSuppliers), Csv(AttachmentStatus),
+            "NONE", 0, "NONE", Outcome, SubjectPx, F(MeanLuma), F(ElapsedMs), Csv(Note));
+
+        private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+        private static string Csv(object value) => Convert.ToString(value, CultureInfo.InvariantCulture)!
+            .Replace(',', ';').Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    private void InitVariantBatch(GL gl)
+    {
+        try
+        {
+            _mpq = new MpqMount(_config.ClientDataPath);
+            AdtTerrainReader.StormLibExtractor = _mpq.ReadFile;
+            _creatures = new CreatureRenderer(gl, _mpq, _config);
+            _portraitOverrides = PortraitOverrideStore.Load(_config.RepoRoot);
+            _batchPortraitTarget = new PortraitRenderTarget(gl);
+
+            VariantBatchOptions options = _variantBatchOptions!;
+            _variantOutputDirectory = ResolveBatchPath(options.OutputDirectory ??
+                Path.Combine("variant-batch", DateTime.Now.ToString(
+                    "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), options.Axis));
+            Directory.CreateDirectory(_variantOutputDirectory);
+            BuildNpcExtraSpecimens(options);
+            LoadVariantBlankLists();
+            _variantClock = Stopwatch.StartNew();
+            Console.WriteLine($"[variant-batch] axis=npc-extras ready: " +
+                              $"{_variantSpecimens.Count} specimen(s), " +
+                              $"out={_variantOutputDirectory}, masked={!options.Unmasked}");
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"[variant-batch] initialization failed: {exception}");
+            FinishVariantBatch(incomplete: true, error: exception.Message);
+        }
+    }
+
+    private void BuildNpcExtraSpecimens(VariantBatchOptions options)
+    {
+        byte[] displayBytes = _mpq!.ReadFile(CreatureDisplayInfoTable.MpqPath)
+            ?? throw new InvalidDataException(CreatureDisplayInfoTable.MpqPath);
+        byte[] modelBytes = _mpq.ReadFile(CreatureModelDataTable.MpqPath)
+            ?? throw new InvalidDataException(CreatureModelDataTable.MpqPath);
+        byte[] extraBytes = _mpq.ReadFile(CreatureDisplayExtraTable.MpqPath)
+            ?? throw new InvalidDataException(CreatureDisplayExtraTable.MpqPath);
+        CreatureDisplayInfoTable displays = CreatureDisplayInfoTable.Parse(displayBytes)
+            ?? throw new InvalidDataException("CreatureDisplayInfo parse failed");
+        CreatureModelDataTable models = CreatureModelDataTable.Parse(modelBytes)
+            ?? throw new InvalidDataException("CreatureModelData parse failed");
+        CreatureDisplayExtraTable extras = CreatureDisplayExtraTable.Parse(extraBytes)
+            ?? throw new InvalidDataException("CreatureDisplayInfoExtra parse failed");
+        var resolver = new CreatureModelResolver(displays, models, extras);
+        Dictionary<uint, int[]> byExtra = displays.All
+            .Where(row => row.ExtendedDisplayId != 0)
+            .GroupBy(row => row.ExtendedDisplayId)
+            .ToDictionary(group => group.Key,
+                group => group.Select(row => (int)row.Id).OrderBy(id => id).ToArray());
+
+        VariantSpecimen Build(uint extraId, int? requestedDisplay = null)
+        {
+            int[] candidates = byExtra.GetValueOrDefault(extraId, []);
+            int displayId = requestedDisplay is { } requested && candidates.Contains(requested)
+                ? requested
+                : extraId == 675 && candidates.Contains(2072) ? 2072
+                : extraId == 54 && candidates.Contains(3340) ? 3340
+                : candidates.FirstOrDefault();
+            string key = $"npc-extra:{extraId}:display:{displayId}";
+            if (displayId == 0)
+                return new VariantSpecimen(key, extraId, 0, "", "no-display-row");
+            return resolver.TryResolve(displayId, out CreatureModelInfo info)
+                ? new VariantSpecimen(key, extraId, displayId, info.ModelPath, null)
+                : new VariantSpecimen(key, extraId, displayId, "", "display-resolve-failed");
+        }
+
+        if (options.ListFile is null)
+        {
+            _variantSpecimens.AddRange(extras.All.OrderBy(row => row.Id)
+                .Select(row => Build(row.Id)));
+        }
+        else
+        {
+            string listPath = ResolveBatchPath(options.ListFile);
+            foreach (string sourceLine in File.ReadLines(listPath))
+            {
+                string line = sourceLine.Split('#', 2)[0].Trim();
+                if (line.Length == 0) continue;
+                string[] parts = line.Split(':');
+                if (parts.Length == 2 && parts[0].Equals("npc-extra", StringComparison.OrdinalIgnoreCase) &&
+                    uint.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out uint extraId))
+                {
+                    _variantSpecimens.Add(extras.Find(extraId) is null
+                        ? new VariantSpecimen(line, extraId, 0, "", "extra-not-found")
+                        : Build(extraId));
+                }
+                else if (parts.Length == 4 &&
+                    parts[0].Equals("npc-extra", StringComparison.OrdinalIgnoreCase) &&
+                    parts[2].Equals("display", StringComparison.OrdinalIgnoreCase) &&
+                    uint.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out extraId) &&
+                    int.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out int displayId))
+                {
+                    _variantSpecimens.Add(extras.Find(extraId) is null
+                        ? new VariantSpecimen(line, extraId, displayId, "", "extra-not-found")
+                        : Build(extraId, displayId));
+                }
+                else if (parts.Length == 2 &&
+                    parts[0].Equals("display", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out displayId) &&
+                    displays.Find((uint)displayId) is { ExtendedDisplayId: not 0 } display)
+                {
+                    _variantSpecimens.Add(Build(display.ExtendedDisplayId, displayId));
+                }
+                else
+                {
+                    _variantSpecimens.Add(new VariantSpecimen(line, 0, 0, "", "invalid-list-entry"));
+                }
+            }
+        }
+
+        if (options.Limit is { } limit && _variantSpecimens.Count > limit)
+            _variantSpecimens.RemoveRange(limit, _variantSpecimens.Count - limit);
+    }
+
+    private void LoadVariantBlankLists()
+    {
+        LoadVariantBlankList("portrait-expected-blank.txt", _variantExpectedBlank);
+        LoadVariantBlankList("portrait-known-blank.txt", _variantKnownBlank);
+    }
+
+    private void LoadVariantBlankList(string fileName, HashSet<string> destination)
+    {
+        string path = Path.Combine(_config.RepoRoot, fileName);
+        if (!File.Exists(path)) return;
+        foreach (string sourceLine in File.ReadLines(path))
+        {
+            string key = sourceLine.Split('#', 2)[0].Trim();
+            if (key.Length > 0) destination.Add(key);
+        }
+    }
+
+    private void StepVariantBatch()
+    {
+        if (_variantFinished) return;
+        if (_batchPortraitTarget is null || _creatures is null)
+        {
+            FinishVariantBatch(incomplete: true, error: "variant renderer unavailable");
+            return;
+        }
+        if (_variantIndex >= _variantSpecimens.Count)
+        {
+            FinishVariantBatch(incomplete: false, error: null);
+            return;
+        }
+
+        try
+        {
+            VariantSpecimen specimen = _variantSpecimens[_variantIndex];
+            VariantSpecimenResult result = BakeNpcExtraSpecimen(specimen);
+            _variantSpecimenResults.Add(result);
+            _variantIndex++;
+            if (_variantIndex % 25 == 0 || _variantIndex == _variantSpecimens.Count)
+            {
+                int missing = _variantRows.Count(row => row.MissingDemandedTexture);
+                Console.WriteLine($"[variant-batch] {_variantIndex}/{_variantSpecimens.Count} " +
+                    $"ready={_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Ready)} " +
+                    $"blank={_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Blank)} " +
+                    $"missingResolution={missing}");
+            }
+            if (_variantIndex % VariantCacheChunk == 0) _creatures.ClearPortraitCache();
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"[variant-batch] incomplete at {_variantIndex + 1}: {exception}");
+            FinishVariantBatch(incomplete: true, error: exception.Message);
+        }
+    }
+
+    private VariantSpecimenResult BakeNpcExtraSpecimen(VariantSpecimen specimen)
+    {
+        var timer = Stopwatch.StartNew();
+        _batchPortraitTarget!.Bake(() => { });
+        PortraitOutcome outcome = PortraitOutcome.Skipped;
+        int subjectPx = 0;
+        double meanLuma = 0;
+        string note = specimen.SkipNote ?? "";
+
+        if (specimen.SkipNote is null)
+        {
+            var entity = new WorldEntity
+            {
+                Guid = 0xB47D_0000_0000UL + specimen.ExtraId,
+                Type = ObjectTypeId.Unit,
+                Fields = ObjectFields.ForSyntheticUnit(specimen.DisplayId, 1f),
+                Position = Vector3.Zero,
+                Orientation = 0f,
+            };
+            (PortraitTuning tuning, bool storeHit) = ResolveTuningWithHit(
+                CreaturePortraitKey(specimen.DisplayId));
+            if (_creatures!.PrepareVariantSpecimen(specimen.DisplayId) &&
+                TryBakeCreaturePortrait(_batchPortraitTarget, entity, tuning, storeHit,
+                    out CreaturePortraitBake bake))
+            {
+                outcome = !bake.Drawn ? PortraitOutcome.NotDrawn
+                    : bake.Stats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank;
+                subjectPx = bake.Stats.SubjectPixels;
+                meanLuma = bake.Stats.MeanLuma;
+            }
+            else note = "model-unavailable";
+        }
+
+        SaveVariantImage(specimen);
+        CreatureRenderer.NpcVariantTrace? trace = specimen.DisplayId == 0
+            ? null : _creatures!.TraceNpcVariant(specimen.DisplayId);
+        AddVariantRows(specimen, trace, outcome, subjectPx, meanLuma,
+            timer.Elapsed.TotalMilliseconds, note);
+        return new VariantSpecimenResult(
+            specimen, outcome, subjectPx, meanLuma, timer.Elapsed.TotalMilliseconds, note);
+    }
+
+    private void AddVariantRows(VariantSpecimen specimen,
+        CreatureRenderer.NpcVariantTrace? trace, PortraitOutcome outcome,
+        int subjectPx, double meanLuma, double elapsedMs, string note)
+    {
+        if (trace is null || trace.Textures.Count == 0)
+        {
+            _variantRows.Add(new VariantCsvRow(
+                $"{specimen.Key}:batch:-1", specimen.Key, specimen.DisplayId,
+                specimen.ExtraId, -1, -1, "NONE", uint.MaxValue,
+                "NONE", "UNBOUND", "NONE", false, "NONE", "NONE", false,
+                "NONE", "", specimen.ModelPath, "NONE", 0, 0, 0, 0, 0, 0, 0,
+                "", "", "NONE", "NONE", 0, "NONE", "NONE", "NONE", 0,
+                "NONE", "NONE", "none-authored", outcome, subjectPx, meanLuma,
+                elapsedMs, note));
+            return;
+        }
+
+        foreach (CreatureRenderer.VariantTextureTrace texture in trace.Textures)
+        {
+            bool custom = IsPatch4(texture.Supplier) || IsPatch4(trace.ModelSupplier) ||
+                IsPatch4(trace.BakeSupplier) || IsPatch4(trace.HelmetSupplier) ||
+                trace.ShoulderSuppliers.Split('|').Any(IsPatch4);
+            _variantRows.Add(new VariantCsvRow(
+                $"{specimen.Key}:batch:{texture.BatchIndex}", specimen.Key,
+                trace.DisplayId, trace.ExtraId, texture.BatchIndex, texture.GeosetId,
+                texture.Region, texture.TextureType, texture.ResolvedTexture,
+                texture.EffectiveTexture, texture.Supplier, custom,
+                texture.DemandedTexture, texture.DemandedSupplier,
+                texture.MissingDemandedTexture, texture.Predicted7C2Texture,
+                texture.ProtocolRow, trace.ModelPath, trace.ModelSupplier,
+                trace.Race, trace.Sex, trace.Skin, trace.Face, trace.HairStyle,
+                trace.HairColor, trace.FacialHair, trace.Equipment, trace.GeosetsChosen,
+                trace.BakeTexture, trace.BakeSupplier, trace.HelmetDisplayId,
+                trace.HelmetSuffix, trace.HelmetModel, trace.HelmetSupplier,
+                trace.ShoulderDisplayId, trace.ShoulderModels, trace.ShoulderSuppliers,
+                trace.AttachmentStatus, outcome, subjectPx, meanLuma, elapsedMs, note));
+        }
+    }
+
+    private static bool IsPatch4(string supplier)
+        => supplier.Equals("patch-4.MPQ", StringComparison.OrdinalIgnoreCase);
+
+    private void SaveVariantImage(VariantSpecimen specimen)
+    {
+        if (!_variantBatchOptions!.Unmasked) _batchPortraitTarget!.ApplyCircularMask();
+        string pngPath = Path.Combine(_variantOutputDirectory,
+            FileNameForKey(specimen.Key) + ".png");
+        _batchPortraitTarget!.SavePng(pngPath);
+        _variantSheetCells.Add((specimen.Key, _batchPortraitTarget.CaptureRgba()));
+        if (_variantSheetCells.Count == 64) FlushVariantContactSheet();
+    }
+
+    private void FlushVariantContactSheet()
+    {
+        if (_variantSheetCells.Count == 0) return;
+        const int cell = 256, columns = 8, rows = 8, width = cell * columns, height = cell * rows;
+        byte[] sheet = new byte[width * height * 4];
+        var indexLines = new List<string>();
+        for (int index = 0; index < _variantSheetCells.Count; index++)
+        {
+            int cellX = index % columns * cell;
+            int cellY = index / columns * cell;
+            byte[] rgba = _variantSheetCells[index].Rgba;
+            for (int y = 0; y < cell; y++)
+                System.Buffer.BlockCopy(rgba, y * cell * 4, sheet,
+                    ((cellY + y) * width + cellX) * 4, cell * 4);
+            string key = _variantSheetCells[index].Key;
+            string extra = key.Split(':').ElementAtOrDefault(1) ?? "0";
+            StampDigits(sheet, width, height, cellX + 3, cellY + cell - 10, extra);
+            indexLines.Add($"cell={index} row={index / columns} col={index % columns} key={key}");
+        }
+
+        int sheetIndex = ++_variantSheetIndex;
+        SaveRgbaPng(Path.Combine(_variantOutputDirectory,
+            $"contact-sheet-{sheetIndex:00}.png"), width, height, sheet);
+        File.WriteAllLines(Path.Combine(_variantOutputDirectory,
+            $"contact-sheet-{sheetIndex:00}.txt"), indexLines);
+        _variantSheetCells.Clear();
+    }
+
+    private void FinishVariantBatch(bool incomplete, string? error)
+    {
+        if (_variantFinished) return;
+        _variantFinished = true;
+        try
+        {
+            FlushVariantContactSheet();
+            Directory.CreateDirectory(_variantOutputDirectory);
+            File.WriteAllLines(Path.Combine(_variantOutputDirectory, "verdicts.csv"),
+                new[] { VariantCsvHeader }.Concat(_variantRows.Select(row => row.CsvLine)));
+            WriteVariantDiff();
+            WriteVariantSummary(incomplete, error);
+            int blanks = UnexpectedVariantBlanks();
+            int missing = _variantRows.Count(row => row.MissingDemandedTexture);
+            VariantBatchExitCode = incomplete ? 1 : missing > 0 ? 4 : blanks > 0 ? 3 : 0;
+            Console.WriteLine($"[variant-batch] complete: " +
+                $"{_variantSpecimenResults.Count}/{_variantSpecimens.Count}, rows={_variantRows.Count}, " +
+                $"blanks={blanks}, missingResolution={missing}, exit={VariantBatchExitCode}");
+        }
+        catch (Exception exception)
+        {
+            VariantBatchExitCode = 1;
+            Console.Error.WriteLine($"[variant-batch] output failed: {exception}");
+        }
+        _window.Close();
+    }
+
+    private int UnexpectedVariantBlanks() => _variantSpecimenResults.Count(result =>
+        result.Outcome == PortraitOutcome.Blank &&
+        !_variantExpectedBlank.Contains(CreaturePortraitKey(result.Specimen.DisplayId)) &&
+        !_variantKnownBlank.Contains(CreaturePortraitKey(result.Specimen.DisplayId)));
+
+    private void WriteVariantSummary(bool incomplete, string? error)
+    {
+        int blanks = UnexpectedVariantBlanks();
+        int missingRows = _variantRows.Count(row => row.MissingDemandedTexture);
+        int missingSpecimens = _variantRows.Where(row => row.MissingDemandedTexture)
+            .Select(row => row.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var lines = new List<string>
+        {
+            "axis: npc-extras",
+            $"specimens: {_variantSpecimenResults.Count}/{_variantSpecimens.Count}",
+            $"csvRows: {_variantRows.Count}",
+            $"Ready: {_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Ready)}",
+            $"Blank: {_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Blank)}",
+            $"NotDrawn: {_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.NotDrawn)}",
+            $"Skipped: {_variantSpecimenResults.Count(row => row.Outcome == PortraitOutcome.Skipped)}",
+            $"G1 blanks (unexpected): {blanks} ({(blanks == 0 ? "PASS" : "FAIL")})",
+            $"G3 resolution missing: {missingRows} row(s) / {missingSpecimens} specimen(s) " +
+                $"({(missingRows == 0 ? "PASS" : "FAIL")})",
+            $"customContentRows: {_variantRows.Count(row => row.CustomContent)}",
+            $"durationSeconds: {_variantClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",
+            $"clientGitDescribe: {TryGitDescribe()}",
+            "startupPath: variant-batch-only GL + shared MPQ/DBC + real CreatureRenderer portrait path",
+            $"cachePolicy: release shared creature portrait cache every {VariantCacheChunk} specimens",
+            "charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis",
+            "supplier/customContent: exact winning archive; patch-4.MPQ marks Nico custom content",
+        };
+        if (incomplete) lines.Add($"incomplete: {error ?? "unknown error"}");
+        lines.Add("");
+        lines.Add("named protocol rows:");
+        lines.AddRange(_variantRows.Where(row => row.ProtocolRow.Length > 0)
+            .Select(row => $"{row.ProtocolRow} rowKey={row.RowKey} " +
+                $"resolved={row.ResolvedTexture} effective={row.EffectiveTexture} " +
+                $"predicted7C2={row.Predicted7C2Texture} supplier={row.Supplier}"));
+        lines.Add("");
+        lines.Add("G3 missing-demand rows (first 50):");
+        lines.AddRange(_variantRows.Where(row => row.MissingDemandedTexture).Take(50)
+            .Select(row => $"{row.RowKey}: demanded={row.DemandedTexture} " +
+                $"effective={row.EffectiveTexture}"));
+        File.WriteAllLines(Path.Combine(_variantOutputDirectory, "summary.txt"), lines);
+    }
+
+    private readonly record struct PriorVariantRow(
+        string Outcome, int SubjectPx, string ResolvedTexture, string EffectiveTexture,
+        string Supplier, string DemandedTexture, string GeosetsChosen,
+        string HelmModel, string HelmSupplier, string ShoulderModels,
+        string AttachmentStatus);
+
+    private void WriteVariantDiff()
+    {
+        if (_variantBatchOptions?.DiffFile is not { } diffFile) return;
+        Dictionary<string, PriorVariantRow> previous = ReadPriorVariantRows(
+            ResolveBatchPath(diffFile));
+        var current = _variantRows.ToDictionary(row => row.RowKey, StringComparer.OrdinalIgnoreCase);
+        var changes = new List<string>();
+        foreach (VariantCsvRow row in _variantRows)
+        {
+            if (!previous.TryGetValue(row.RowKey, out PriorVariantRow old))
+            {
+                changes.Add($"{row.RowKey}: ADDED");
+                continue;
+            }
+            var fields = new List<string>();
+            AddDiff(fields, "outcome", old.Outcome, row.Outcome.ToString());
+            if (old.SubjectPx == 0 ? row.SubjectPx != 0
+                : Math.Abs(row.SubjectPx - old.SubjectPx) / (double)Math.Abs(old.SubjectPx) > 0.15)
+                fields.Add($"subjectPx {old.SubjectPx} -> {row.SubjectPx}");
+            AddDiff(fields, "resolvedTexture", old.ResolvedTexture, row.ResolvedTexture);
+            AddDiff(fields, "effectiveTexture", old.EffectiveTexture, row.EffectiveTexture);
+            AddDiff(fields, "supplier", old.Supplier, row.Supplier);
+            AddDiff(fields, "demandedTexture", old.DemandedTexture, row.DemandedTexture);
+            AddDiff(fields, "geosetsChosen", old.GeosetsChosen, row.GeosetsChosen);
+            AddDiff(fields, "helmModel", old.HelmModel, row.HelmModel);
+            AddDiff(fields, "helmSupplier", old.HelmSupplier, row.HelmSupplier);
+            AddDiff(fields, "shoulderModels", old.ShoulderModels, row.ShoulderModels);
+            AddDiff(fields, "attachmentStatus", old.AttachmentStatus, row.AttachmentStatus);
+            if (fields.Count > 0) changes.Add($"{row.RowKey}: {string.Join("; ", fields)}");
+        }
+        foreach (string removed in previous.Keys.Where(key => !current.ContainsKey(key)))
+            changes.Add($"{removed}: REMOVED");
+        File.WriteAllLines(Path.Combine(_variantOutputDirectory, "diff.txt"), changes);
+        foreach (string change in changes) Console.WriteLine($"[variant-diff] {change}");
+        Console.WriteLine($"[variant-diff] changedRows={changes.Count}");
+    }
+
+    private static void AddDiff(List<string> fields, string name, string oldValue, string newValue)
+    {
+        if (!oldValue.Equals(newValue, StringComparison.Ordinal))
+            fields.Add($"{name} {oldValue} -> {newValue}");
+    }
+
+    private static Dictionary<string, PriorVariantRow> ReadPriorVariantRows(string path)
+    {
+        using var reader = File.OpenText(path);
+        string[] headers = (reader.ReadLine() ?? "").Split(',');
+        int I(string name) => Array.IndexOf(headers, name);
+        string[] required = ["rowKey", "outcome", "subjectPx", "resolvedTexture",
+            "effectiveTexture", "supplier", "demandedTexture", "geosetsChosen",
+            "helmModel", "helmSupplier", "shoulderModels", "attachmentStatus"];
+        if (required.Any(name => I(name) < 0))
+            throw new InvalidDataException("--diff CSV is missing variant resolution columns");
+        var result = new Dictionary<string, PriorVariantRow>(StringComparer.OrdinalIgnoreCase);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            string[] fields = line.Split(',');
+            if (fields.Length < headers.Length ||
+                !int.TryParse(fields[I("subjectPx")], NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int subjectPx)) continue;
+            string V(string name) => fields[I(name)];
+            result[V("rowKey")] = new PriorVariantRow(
+                V("outcome"), subjectPx, V("resolvedTexture"), V("effectiveTexture"),
+                V("supplier"), V("demandedTexture"), V("geosetsChosen"),
+                V("helmModel"), V("helmSupplier"), V("shoulderModels"),
+                V("attachmentStatus"));
+        }
+        return result;
+    }
+}

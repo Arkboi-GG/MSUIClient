@@ -27,7 +27,7 @@ namespace MSUIClient.World.Units;
 //
 // ANIMATION: one M2Animator per model, per-instance clock; idle/walk/run from spline speed.
 
-public sealed class CreatureRenderer : IDisposable
+public sealed partial class CreatureRenderer : IDisposable
 {
     private readonly GL _gl;
     private readonly MpqMount _mpq;

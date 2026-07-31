@@ -154,6 +154,50 @@ public sealed class MpqMount : IDisposable
         return patches.Concat(bases).ToArray();
     }
 
+    /// <summary>
+    /// Diagnostic sibling of <see cref="ReadFile"/> that also returns the
+    /// winning archive name. It follows the identical mounted priority chain
+    /// and performs no writes; batch evidence uses it to make provenance a
+    /// first-class string rather than inferring it from pixels.
+    /// </summary>
+    public (byte[] Data, string Supplier)? ReadFileWithSupplier(string internalPath)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            Interlocked.Increment(ref _reads);
+
+            if (_negative.ContainsKey(internalPath))
+            {
+                Interlocked.Increment(ref _misses);
+                return null;
+            }
+
+            foreach (var (name, archive) in _archives)
+            {
+                try
+                {
+                    byte[]? data = archive.ReadFile(internalPath);
+                    if (data is null) continue;
+                    Interlocked.Increment(ref _hits);
+                    return (data, name);
+                }
+                catch
+                {
+                    // Same fall-through law as ReadFile: try the next archive.
+                }
+            }
+
+            Interlocked.Increment(ref _misses);
+            _negative.TryAdd(internalPath, 0);
+            return null;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
     private readonly record struct PatchName(string Locale, int? Number);
 
     private static PatchName? ParsePatchName(string fileName)

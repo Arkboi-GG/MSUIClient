@@ -143,6 +143,7 @@ public sealed class CreatureDisplayExtraTable
 
     private readonly Dictionary<uint, CreatureDisplayExtraRow> _rows = new();
     public int Count => _rows.Count;
+    public IReadOnlyCollection<CreatureDisplayExtraRow> All => _rows.Values;
     public CreatureDisplayExtraRow? Find(uint id) => id != 0 && _rows.TryGetValue(id, out var r) ? r : null;
 
     public static CreatureDisplayExtraTable? Parse(byte[] data)
@@ -192,10 +193,13 @@ public readonly record struct CreatureModelInfo(
     float Scale,
     string[] Textures,       // beast monster-skin variations
     bool HasExtended,        // true = character-model NPC
+    uint ExtId,
     byte ExtRace,
     byte ExtSex,
     uint ExtSkin,
+    uint ExtFace,
     byte ExtHairStyle,
+    uint ExtHairColor,
     byte ExtFacialHair,
     uint[] ExtEquipment,     // 10 display ids: head, shoulder, shirt, chest, belt, pants, boots, wrist, gloves, tabard
     string BakeName);
@@ -232,10 +236,13 @@ public sealed class CreatureModelResolver
             Scale: d.Scale * m.Scale,
             Textures: d.Textures,
             HasExtended: ex is not null,
+            ExtId: ex?.Id ?? 0,
             ExtRace: ex?.Race ?? 0,
             ExtSex: ex?.Sex ?? 0,
             ExtSkin: ex?.Skin ?? 0,
+            ExtFace: ex?.Face ?? 0,
             ExtHairStyle: ex?.HairStyle ?? 0,
+            ExtHairColor: ex?.HairColor ?? 0,
             ExtFacialHair: ex?.FacialHair ?? 0,
             ExtEquipment: ex?.Equipment ?? System.Array.Empty<uint>(),
             BakeName: ex?.BakeName ?? "");

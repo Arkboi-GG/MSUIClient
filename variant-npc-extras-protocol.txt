@@ -1,0 +1,4 @@
+# Stage 7C named NPC-extra acceptance cohort.
+# These exact display/extra/batch rows are asserted in verdicts.csv.
+npc-extra:675:display:2072
+npc-extra:54:display:3340

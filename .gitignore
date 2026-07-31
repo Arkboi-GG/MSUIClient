@@ -93,5 +93,13 @@ dumps/
 portrait-batch/*
 !portrait-batch/baseline/
 !portrait-batch/baseline/verdicts.csv
+# Regenerable character-variant evidence. Keep only the canonical machine
+# baseline; contact sheets and per-specimen PNGs remain local review artifacts.
+variant-batch/*
+!variant-batch/baseline/
+variant-batch/baseline/*
+!variant-batch/baseline/npc-extras/
+variant-batch/baseline/npc-extras/*
+!variant-batch/baseline/npc-extras/verdicts.csv
 __pycache__/
 *.pyc

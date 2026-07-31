@@ -1009,3 +1009,174 @@ portrait camera check passed
 **HARD STOP.** Nico's role resumes at reviewing the future 7B NPC-extras contact
 sheets/CSV and issuing the 7C rulings. The immediate ruling requested from this
 packet is whether the refined two-part 7C-2 boundary is accepted for later work.
+
+## SPEC 07 - Stage 7B NPC-extras axis (REVIEW STOP)
+
+### Stage status and boundary
+
+| Item | Status | Evidence |
+|---|---|---|
+| `--variant-batch --axis npc-extras` | Implemented and machine-run | Real in-client `CreatureRenderer` portrait path; all 6,939 installed `CreatureDisplayInfoExtra` rows were attempted. |
+| Per-geoset string verdict | Implemented | 64,650 batch rows in `variant-batch/baseline/npc-extras/verdicts.csv`. |
+| Contact sheets | Generated and inspected | 109 sheets plus text indexes; sheets 01 and 10 contain the named control and Willem respectively. |
+| G1 blank render | PASS | 0 unexpected blanks. |
+| G3 demanded texture resolution | FAIL, expected diagnosis evidence | 7,677 rows across 5,114 specimens demand a BLP that the current renderer does not bind. |
+| Items axis | **NOT STARTED** | Deliberately held behind Nico's NPC-extras CSV/sheet review checkpoint. |
+| Reduced player axis | **NOT STARTED** | Deliberately sequenced after the items axis. |
+
+This is an implemented instrument and captured baseline, not a verified visual
+fix. No 7C behavior change is present. This section ends at the required review
+STOP.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `.gitignore` | Ignores generated variant-batch images/indexes while retaining the canonical baseline CSV. |
+| `MSUIClient/Program.cs` | Routes the new unattended variant-batch mode through the existing client host. |
+| `MSUIClient/Program.VariantBatch.cs` | Adds NPC-extras selection, rendering, per-batch CSV, contact sheets, G1/G3, lists/limits, and string-aware diffing. Later axes are explicitly refused at this checkpoint. |
+| `MSUIClient/Formats/MpqMount.cs` | Adds read-only winning-archive provenance for resolved assets. |
+| `MSUIClient/Formats/CreatureDbc.cs` | Exposes installed extra rows and preserves the appearance selectors needed by the trace. |
+| `MSUIClient/World/Units/CreatureRenderer.cs` | Makes the renderer partial so the trace surface can remain isolated. |
+| `MSUIClient/World/Units/CreatureRenderer.VariantTrace.cs` | Reports the renderer's actual visible batches, geosets, direct/effective texture bindings, predicted 7C-2 bindings, and attachment provenance. |
+| `variant-npc-extras-protocol.txt` | Defines the two required focused specimens. |
+| `variant-batch/baseline/npc-extras/verdicts.csv` | Canonical pre-fix NPC-extras baseline. |
+| `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Records this checkpoint and its gates. |
+
+The pre-existing `vantages.json` modification and the user's untracked
+`SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md` remain outside this stage and outside
+its commit.
+
+### Symbol verification
+
+| Cited symbol / contract | Found as | Note |
+|---|---|---|
+| In-client batch host | `Program.TryParseVariantBatchArgs`, `LoadVariantBatch`, `UpdateVariantBatch` | Shares the production window, GL context, mounted archives, DBC tables, and real renderer; it is not a parallel render pipeline. |
+| Exact archive provenance | `MpqMount.ReadFileWithSupplier` | Uses the already-ordered mounted archive list and reports the first successful read without mutating mount state. |
+| Installed NPC-extra enumeration | `CreatureDisplayExtraTable.All` | Enumerates all 6,939 installed rows; representative displays come from the installed display table. |
+| Per-visible-geoset trace | `CreatureRenderer.TraceNpcVariant` | Reports direct and effective textures, material type, geoset/region, expected demand, predicted fixed binding, model provenance, and attachments. |
+| Stable string-aware comparison | `Program.WriteVariantDiff` | Compares row presence, outcomes, resolved/effective paths, supplier, demanded path, chosen geosets, and attachment provenance. |
+| Named list protocol | `variant-npc-extras-protocol.txt` | Pins Willem 2072/675 and control 3340/54 independent of representative-display selection. |
+
+### Instrument contract and measured corpus
+
+The common CSV is batch-row granular: every visible M2 batch receives a stable
+`rowKey` and records `resolvedTexture`, `effectiveTexture`, `supplier`,
+`customContent`, `demandedTexture`, `demandedSupplier`,
+`missingDemandedTexture`, `predicted7C2Texture`, geoset/region, body-composite
+provenance, helm/shoulder provenance, and attachment state. `effectiveTexture`
+is distinct from direct resolution because a batch whose resolver returns no
+texture currently inherits the previous GL binding.
+
+| Measure | Result |
+|---|---:|
+| Installed extra rows attempted | 6,939 / 6,939 |
+| Ready specimens | 6,760 |
+| Explicit skipped/orphan extras | 179 |
+| CSV batch rows | 64,650 |
+| Unexpected blanks | 0 |
+| Missing demanded-resolution rows | 7,677 |
+| Specimens containing missing demand | 5,114 |
+| NPC-axis rows supplied by `patch-4.MPQ` | 0 |
+
+The 179 extras without a resolvable representative display are retained as
+explicit `Skipped` specimens instead of disappearing from coverage. The
+`supplier` and `customContent` columns are already populated by exact MPQ winner;
+they show no patch-4 contribution on this axis. They are mandatory on the next
+items axis so Nico's custom patch content can be separated from engine behavior.
+
+`charSectionsDupKey` and `charSectionsWinnerRow` are reserved in the common CSV
+and intentionally empty on NPC rows. The reduced/full player sweep will populate
+them. A measured zero-collision full sweep leaves Flags retention as a known-gap
+note; any measured collision creates 7C-3 with those exact rows as protocol.
+
+### Named protocol rows and required future transitions
+
+| CSV row | Current direct binding | Current effective binding | Predicted 7C-2 binding |
+|---|---|---|---|
+| `npc-extra:675:display:2072:batch:12` (Willem) | `Textures\\BakedNpcTextures\\c5c3858a5d86e950a1c2f0f43c9dc69f.blp` | same baked dressed atlas | `composite://npc-bare/r1-s0-sk4-f6-h0-hc8-fh6` |
+| `npc-extra:54:display:3340:batch:15` (control) | `NONE` | `Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp` inherited from the prior draw | `Character\\Human\\Hair02_09.blp` |
+| `npc-extra:54:display:3340:batch:18` (control) | `Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp` | same baked dressed atlas | `composite://npc-bare/r1-s0-sk4-f10-h3-hc9-fh2` |
+
+These are assertions recorded by exact CSV row, not visual guesses. The eventual
+7C-2 acceptance sweeps must show precisely these string transitions on these
+three rows. Willem's row also records helm item display 14964, model
+`Item\\ObjectComponents\\Head\\Helm_Plate_B_01Stormwind_HuM.m2`, supplier
+`patch.MPQ`, and attachment status `not-mounted`, preserving the independent
+7C-1 protocol.
+
+### Finding added by the instrument
+
+The baseline confirms and sharpens revised 7A. On the control's batch 15, the
+type-6 hair demand resolves to `NONE`; because the draw loop does not bind a
+fallback texture in that case, the hair mesh samples the previously bound baked
+full-body clothing atlas. Thus the visible armor/clothing-on-hair defect is both
+a missing `CharSections` lookup and a stale effective GL binding. Batch 18 and
+Willem batch 12 independently prove the adjacent type-1 dressed-atlas leak.
+
+### Artifacts for Nico's review
+
+| Artifact | Location |
+|---|---|
+| Canonical per-geoset CSV | `variant-batch/baseline/npc-extras/verdicts.csv` |
+| Corpus summary | `variant-batch/baseline/npc-extras/summary.txt` |
+| Control sheet/index | `variant-batch/baseline/npc-extras/contact-sheet-01.png` / `.txt` |
+| Willem sheet/index | `variant-batch/baseline/npc-extras/contact-sheet-10.png` / `.txt` |
+| Focused reusable list | `variant-npc-extras-protocol.txt` |
+
+### Deviations and setup record
+
+1. The user's revised checkpoint overrides SPEC 07's printed axis order. Only
+   NPC extras are implemented here; items and then reduced players follow after
+   the mandated review handoff.
+2. Contact sheets include a companion `.txt` index so every tile maps back to an
+   exact extra/display identifier without relying on tiny image labels.
+3. G3 is intentionally red on the pre-fix baseline. Its 7,677 rows are the
+   measured failure cohort that later fixes must reduce without unrelated path
+   changes.
+4. VMaNGOS remained unavailable and was not queried during 7B: zero connection
+   attempts and zero SQL statements. This axis uses installed DBC mappings and
+   is not blocked. Working server/port details remain for Nico to add to
+   `SETUP.md` when available.
+
+### Console and diff evidence
+
+```text
+[variant-batch] axis=npc-extras ready: 6939 specimen(s)
+[variant-batch] 6939/6939 ready=6760 blank=0 missingResolution=7677
+[variant-batch] complete: 6939/6939, rows=64650, blanks=0, missingResolution=7677, exit=4
+```
+
+The exit code 4 is the expected G3 verdict, not a host crash. The unchanged full
+corpus comparator rerendered all 6,939 specimens and 64,650 batch rows against
+the canonical CSV:
+
+```text
+[variant-diff] changedRows=0
+[variant-batch] complete: 6939/6939, rows=64650, blanks=0, missingResolution=7677, exit=4
+```
+
+### Standard gates
+
+```text
+dotnet build MSUIClient.sln -c Debug
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+dotnet run --project tools\\combat-wire-check\\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\\portrait-camera-check\\MSUIPortraitCameraCheck.csproj -c Release -- GameData\\Data
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+### Mandatory review boundary
+
+**HARD STOP.** Nico's role resumes now: review the NPC-extras CSV and contact
+sheets, then rule whether work may proceed to the items axis. 7C-1 remains GO in
+principle but unimplemented; 7C-2a/2b remains confirmed but unimplemented; no
+items or player sweep has begun.

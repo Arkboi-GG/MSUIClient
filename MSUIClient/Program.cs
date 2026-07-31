@@ -29,11 +29,19 @@ public static partial class Program
         Console.WriteLine("MSUI Client — VMaNGOS 1.12.1 (build 5875)");
         Console.WriteLine();
 
-        if (!TryParsePortraitBatchArgs(args, out PortraitBatchOptions? portraitBatch,
-                out string? configPath, out string? argumentError))
+        PortraitBatchOptions? portraitBatch = null;
+        VariantBatchOptions? variantBatch = null;
+        string? configPath;
+        string? argumentError;
+        bool variantRequested = args.Contains("--variant-batch", StringComparer.OrdinalIgnoreCase);
+        bool parsed = variantRequested
+            ? TryParseVariantBatchArgs(args, out variantBatch, out configPath, out argumentError)
+            : TryParsePortraitBatchArgs(args, out portraitBatch, out configPath, out argumentError);
+        if (!parsed)
         {
-            Console.Error.WriteLine($"[batch] {argumentError}");
-            PrintPortraitBatchUsage();
+            Console.Error.WriteLine($"[{(variantRequested ? "variant-batch" : "batch")}] {argumentError}");
+            if (variantRequested) PrintVariantBatchUsage();
+            else PrintPortraitBatchUsage();
             return 2;
         }
 
@@ -74,11 +82,11 @@ public static partial class Program
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
         };
 
-        var game = new GameLoop(window, config, portraitBatch) { SettingsFile = settings };
+        var game = new GameLoop(window, config, portraitBatch, variantBatch) { SettingsFile = settings };
 
         window.OnLoad += game.Load;
         window.OnUpdate += game.Update;
-        if (portraitBatch is null)
+        if (portraitBatch is null && variantBatch is null)
         {
             window.OnRender += game.Render;
             window.OnGui += game.Gui;
@@ -94,10 +102,11 @@ public static partial class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[fatal] {ex}");
-            return portraitBatch is null ? 2 : 1;
+            return portraitBatch is null && variantBatch is null ? 2 : 1;
         }
 
         game.Dispose();
+        if (variantBatch is not null) return game.VariantBatchExitCode;
         return portraitBatch is null ? 0 : game.PortraitBatchExitCode;
     }
 
@@ -373,11 +382,13 @@ public sealed partial class GameLoop : IDisposable
                 StringComparison.OrdinalIgnoreCase)
          && _wmo is not null;
 
-    public GameLoop(ClientWindow window, ClientConfig config, PortraitBatchOptions? portraitBatch = null)
+    public GameLoop(ClientWindow window, ClientConfig config,
+        PortraitBatchOptions? portraitBatch = null, VariantBatchOptions? variantBatch = null)
     {
         _window = window;
         _config = config;
         _portraitBatchOptions = portraitBatch;
+        _variantBatchOptions = variantBatch;
         _atmosphere.FogEnd = Math.Clamp(config.Render.WmoDistance, 100f, config.Render.FarPlane);
         _atmosphere.FogStart = MathF.Min(350f, _atmosphere.FogEnd - 1f);
     }
@@ -386,6 +397,11 @@ public sealed partial class GameLoop : IDisposable
     {
         var startup = Stopwatch.StartNew();
 
+        if (_variantBatchOptions is not null)
+        {
+            InitVariantBatch(gl);
+            return;
+        }
         if (_portraitBatchOptions is not null)
         {
             InitPortraitBatch(gl);
@@ -1090,6 +1106,11 @@ public sealed partial class GameLoop : IDisposable
 
     public void Update(float dt)
     {
+        if (_variantBatchOptions is not null)
+        {
+            StepVariantBatch();
+            return;
+        }
         if (_portraitBatchOptions is not null)
         {
             StepPortraitBatch();
