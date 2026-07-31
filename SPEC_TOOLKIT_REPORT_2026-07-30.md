@@ -1418,3 +1418,37 @@ blanks, 26 raw missing demands, all 26 allowlisted, gated G3 zero, and
 Standard gates passed: solution build succeeded with only the pre-existing
 CA2014 warning, combat/wire checks passed, and portrait-camera anchors remained
 1,224 / 1,289 / 56. W1 is self-ruled accepted under the unattended criteria.
+
+### W2 — 7C-1 attachment acceptance: HARD STOP
+
+The candidate implementation fed `ExtEquipment[0]` and `[1]` through the shared
+attachment renderer in both the world and portrait paths. The focused protocol
+mounted Willem's authored
+`Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2` on attachment 11
+from `patch.MPQ`, plus both authored shoulder models. His batch-12 texture
+strings remained unchanged.
+
+The full candidate completed 6,939/6,939 specimens and 64,650 CSV rows. The
+mechanical acceptance audit produced this actual-versus-predicted result:
+
+```text
+PREDICTED not-mounted cohort: 2698 specimens/rows
+ACTUAL committed-baseline not-mounted cohort: 3535 unique specimens, 33532 batch rows
+ACTUAL candidate status transitions: 3535 unique specimens, 33532 batch rows, all not-mounted -> mounted
+ACTUAL row-key set: old=64650 new=64650 missing=0 added=0
+ACTUAL texture-string diffs: 0
+ACTUAL forbidden diffs inside cohort: 0
+ACTUAL diffs outside actual baseline cohort: 0
+ACTUAL Willem 2072/675: mounted, Helm_Plate_B_01Stormwind_HuM.m2, patch.MPQ
+```
+
+This is a hard acceptance mismatch even though the implementation behavior and
+named case matched. The expected 2,698 cohort was not edited or reinterpreted
+to fit the 3,535 rows present in the committed baseline. W2 is **rejected**;
+the candidate renderer/trace changes were removed and are not committed.
+Dependent stages W3, W4, and W5 are stopped. W6 remains independent and runs.
+
+After removing the rejected change, the solution build, combat/wire gate, and
+portrait-camera gate all pass; the tree retains only the pre-existing CA2014
+warning (plus one transient concurrent-build copy retry during the parallel
+gate invocation). The stop-state is buildable.
