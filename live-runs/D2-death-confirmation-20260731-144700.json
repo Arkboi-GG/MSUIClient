@@ -1,0 +1,8 @@
+{
+  "stage": "D2",
+  "result": "NOT_RUN_INVALID_GM_CHANNEL",
+  "required": "server-confirmed selected victim death before intent judgment",
+  "actual": "CMSG_MESSAGECHAT locally sent; no command response, spawn, deletion, teleport, or death mutation observed",
+  "priorEvidence": "runner-20260731-141730 step 54 timeout; no target-death verdict",
+  "combatConclusion": "NO_DATA"
+}

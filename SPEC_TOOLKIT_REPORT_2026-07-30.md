@@ -2953,3 +2953,12 @@ RESULT: D1 INVALID; root cause moves upstream to CMSG_MESSAGECHAT capability
 
 No CB1 combat conclusion is drawn. D1 manifest:
 `live-runs/manifests/D1-20260731-144349.sha256`.
+
+## D2 - death confirmation unavailable
+
+D2 did not judge client intent. The required prerequisite—a selected spawned
+victim whose server descriptor transitions to dead—cannot be produced through
+the current GM channel. Repeating `.die` would only repeat a locally-sent,
+server-unexecuted command. Result is NO_DATA, frozen in
+`live-runs/D2-death-confirmation-20260731-144700.json`; manifest
+`live-runs/manifests/D2-20260731-144700.sha256`.
