@@ -207,6 +207,8 @@ public sealed class ItemDisplayRow
 /// </summary>
 public sealed class CharSectionRow
 {
+    public uint Id;
+    public int RowIndex;
     public uint Race;
     public uint Sex;
     public uint BaseSection;
@@ -215,6 +217,7 @@ public sealed class CharSectionRow
     public string Texture1 = "";
     public string Texture2 = "";
     public string Texture3 = "";
+    public uint Flags;
 }
 
 public sealed class CharSectionsTable
@@ -245,6 +248,8 @@ public sealed class CharSectionsTable
         {
             table._rows.Add(new CharSectionRow
             {
+                Id = dbc.GetUInt(r, 0),
+                RowIndex = r,
                 Race = dbc.GetUInt(r, 1),
                 Sex = dbc.GetUInt(r, 2),
                 BaseSection = dbc.GetUInt(r, 3),
@@ -253,6 +258,7 @@ public sealed class CharSectionsTable
                 Texture1 = dbc.GetString(r, 6),
                 Texture2 = dbc.GetString(r, 7),
                 Texture3 = dbc.GetString(r, 8),
+                Flags = dbc.GetUInt(r, 9),
             });
         }
 
@@ -273,15 +279,20 @@ public sealed class CharSectionsTable
     /// </summary>
     public CharSectionRow? Find(uint race, uint sex, uint section, int variation, int colour)
     {
-        foreach (var row in _rows)
-        {
-            if (row.Race != race || row.Sex != sex || row.BaseSection != section) continue;
-            if (variation >= 0 && row.VariationIndex != (uint)variation) continue;
-            if (colour >= 0 && row.ColorIndex != (uint)colour) continue;
-            return row;
-        }
-        return null;
+        return FindMatches(race, sex, section, variation, colour).FirstOrDefault();
     }
+
+    /// <summary>
+    /// Return file-order matches for batch diagnostics. The production winner
+    /// remains the first row, exactly as <see cref="Find"/> has always selected it.
+    /// </summary>
+    public IReadOnlyList<CharSectionRow> FindMatches(
+        uint race, uint sex, uint section, int variation, int colour)
+        => _rows.Where(row =>
+                row.Race == race && row.Sex == sex && row.BaseSection == section &&
+                (variation < 0 || row.VariationIndex == (uint)variation) &&
+                (colour < 0 || row.ColorIndex == (uint)colour))
+            .ToArray();
 
     /// <summary>Vanilla CharRaces ids, matching the folder names used for MPQ paths.</summary>
     public static uint RaceId(string race) => race.ToLowerInvariant() switch

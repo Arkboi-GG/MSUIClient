@@ -1452,3 +1452,54 @@ After removing the rejected change, the solution build, combat/wire gate, and
 portrait-camera gate all pass; the tree retains only the pre-existing CA2014
 warning (plus one transient concurrent-build copy retry during the parallel
 gate invocation). The stop-state is buildable.
+
+### W3 / W4 / W5 - stopped dependency chain
+
+W3 (type-6 hair binding), W4 (type-1 npc-bare head composite), and W5
+(replacement NPC/items baselines) were not started. They depend on an accepted
+W2 baseline, and W2 failed its immutable 2,698-specimen cohort equality law.
+No renderer fix from this chain is present in the accepted tree; in particular,
+Willem is not claimed helmeted and the 5,114-NPC hair result is not claimed.
+
+### W6 - reduced player sweep: accepted; 7C-3 candidate measured
+
+The independent player axis ran every installed vanilla race (1-8) in both
+sexes. For each race/sex pair it rendered the all-zero base specimen, then
+varied skin, face, hair style, hair colour, and facial hair independently while
+holding every other dial at zero. The production `CharSections` key lookup now
+exposes all file-order matches for diagnostics without changing its historical
+first-row winner.
+
+| Measure | Actual |
+|---|---:|
+| Race/sex pairs | 16 |
+| Total specimens / CSV rows | 634 / 634 |
+| Ready / Blank / Skipped | 634 / 0 / 0 |
+| Base / skin / face rows | 16 / 129 / 121 |
+| Hair-style / hair-colour / facial-hair rows | 128 / 120 / 120 |
+| Rows with duplicate production lookup keys | 359 |
+| Sum of extra matching rows | 359 |
+| Maximum `charSectionsDupKey` on one specimen | 1 |
+| Rows without a collision | 275 |
+
+The collision-bearing specimens decompose by varied axis as: base 10, skin
+27, face 80, hair style 85, hair colour 84, and facial hair 73. Every CSV row
+records `charSectionsDupKey`; collision rows also record the exact selected DBC
+id, physical row index, and Flags value for every production lookup in
+`charSectionsWinnerRow`. The complete 359-row protocol is preserved verbatim
+in `variant-batch/baseline/players/verdicts.csv` and repeated in the baseline
+summary. Seven specimens select at least one non-zero-Flags winner.
+
+Because installed data produced collisions, the pre-ruled decision is
+**7C-3 candidate required**; Flags retention is not left as a zero-evidence
+known-gap note. W6 is report-only and does not alter the winner or renderer.
+
+Artifacts:
+
+- `variant-batch/baseline/players/verdicts.csv`
+- `variant-batch/baseline/players/summary.txt`
+- ten generated contact sheets plus their indexes in the same directory
+
+Standard gates passed: Debug solution build succeeded with only the existing
+CA2014 warning, combat/wire checks passed, and portrait-camera anchors remained
+1,224 / 1,289 / 56. W6 is self-ruled accepted.

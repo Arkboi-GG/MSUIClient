@@ -80,7 +80,7 @@ public static partial class Program
             configPath = arg;
         }
 
-        if (axis is not ("npc-extras" or "items"))
+        if (axis is not ("npc-extras" or "items" or "players"))
         {
             error = $"axis '{axis}' is not available at the items review checkpoint";
             return false;
@@ -90,7 +90,7 @@ public static partial class Program
     }
 
     private static void PrintVariantBatchUsage() => Console.Error.WriteLine(
-        "usage: MSUIClient [config.json] --variant-batch [--axis npc-extras|items] " +
+        "usage: MSUIClient [config.json] --variant-batch [--axis npc-extras|items|players] " +
         "[--out <dir>] [--list <file>] [--limit <n>] [--diff <verdicts.csv>] " +
         "[--unmasked] [--exhaustive]");
 }
@@ -124,6 +124,8 @@ public sealed partial class GameLoop
     private bool _variantFinished;
     private Stopwatch? _variantClock;
     private ItemDisplayTable? _variantItemDisplay;
+    private CharSectionsTable? _variantPlayerCharSections;
+    private string _variantPlayerModelKey = "";
     private string _variantItemDbcSupplier = "NONE";
     private readonly Dictionary<string, string> _variantSupplierCache =
         new(StringComparer.OrdinalIgnoreCase);
@@ -131,7 +133,9 @@ public sealed partial class GameLoop
 
     private readonly record struct VariantSpecimen(
         string Key, uint ExtraId, int DisplayId, string ModelPath, string? SkipNote,
-        string Kind = "", int InventoryType = 0);
+        string Kind = "", int InventoryType = 0, byte PlayerRace = 0, byte PlayerSex = 0,
+        int PlayerSkin = 0, int PlayerFace = 0, int PlayerHairStyle = 0,
+        int PlayerHairColor = 0, int PlayerFacialHair = 0, string PlayerAxis = "");
 
     private readonly record struct VariantSpecimenResult(
         VariantSpecimen Specimen, PortraitOutcome Outcome, int SubjectPx,
@@ -178,6 +182,8 @@ public sealed partial class GameLoop
         string ShoulderSuppliers,
         string AttachmentStatus,
         string CapeTexture,
+        int CharSectionsDupKey,
+        string CharSectionsWinnerRow,
         PortraitOutcome Outcome,
         int SubjectPx,
         double MeanLuma,
@@ -195,7 +201,8 @@ public sealed partial class GameLoop
             Csv(GeosetsChosen), Csv(BakeTexture), Csv(BakeSupplier), HelmDisplayId,
             Csv(HelmSuffix), Csv(HelmModel), Csv(HelmSupplier), ShoulderDisplayId,
             Csv(ShoulderModels), Csv(ShoulderSuppliers), Csv(AttachmentStatus),
-            Csv(CapeTexture), 0, "NONE", Outcome, SubjectPx, F(MeanLuma), F(ElapsedMs), Csv(Note));
+            Csv(CapeTexture), CharSectionsDupKey, Csv(CharSectionsWinnerRow),
+            Outcome, SubjectPx, F(MeanLuma), F(ElapsedMs), Csv(Note));
 
         private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
         private static string Csv(object value) => Convert.ToString(value, CultureInfo.InvariantCulture)!
@@ -228,13 +235,22 @@ public sealed partial class GameLoop
                     throw new InvalidDataException("HumanMale item specimen model unavailable");
                 _character.BindPose = false;
                 _character.FrozenStandPose = true;
+                if (options.Axis == "players")
+                {
+                    byte[] sectionBytes = _mpq.ReadFile(CharSectionsTable.MpqPath)
+                        ?? throw new InvalidDataException(CharSectionsTable.MpqPath);
+                    _variantPlayerCharSections = CharSectionsTable.Parse(sectionBytes)
+                        ?? throw new InvalidDataException("CharSections parse failed");
+                    _variantPlayerModelKey = "1:0";
+                }
             }
             _variantOutputDirectory = ResolveBatchPath(options.OutputDirectory ??
                 Path.Combine("variant-batch", DateTime.Now.ToString(
                     "yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), options.Axis));
             Directory.CreateDirectory(_variantOutputDirectory);
             if (options.Axis == "npc-extras") BuildNpcExtraSpecimens(options);
-            else BuildItemSpecimens(options);
+            else if (options.Axis == "items") BuildItemSpecimens(options);
+            else BuildPlayerSpecimens(options);
             LoadVariantBlankLists();
             _variantClock = Stopwatch.StartNew();
             Console.WriteLine($"[variant-batch] axis={options.Axis} ready: " +
@@ -391,6 +407,45 @@ public sealed partial class GameLoop
             _variantSpecimens.RemoveRange(limit, _variantSpecimens.Count - limit);
     }
 
+    private void BuildPlayerSpecimens(VariantBatchOptions options)
+    {
+        if (options.ListFile is not null)
+            throw new InvalidDataException("the reduced players axis does not accept --list");
+        CharCreateCatalog catalog = CharCreateCatalog.Load(_config.ClientDataPath)
+            ?? throw new InvalidDataException("character-create catalog unavailable");
+        string[] axes = ["skin", "face", "hair-style", "hair-color", "facial-hair"];
+
+        for (byte race = 1; race <= 8; race++)
+        for (byte sex = 0; sex <= 1; sex++)
+        {
+            string raceName = PlayerRaceName(race);
+            string gender = sex == 1 ? "Female" : "Male";
+            string stem = $"player:{raceName.ToLowerInvariant()}-{gender.ToLowerInvariant()}";
+            string model = $@"Character\{raceName}\{gender}\{raceName}{gender}.m2";
+            _variantSpecimens.Add(new VariantSpecimen(
+                $"{stem}:base", 0, 0, model, null, "player", 0, race, sex,
+                PlayerAxis: "base"));
+
+            int[] counts = catalog.DialCounts(race, sex);
+            for (int axis = 0; axis < axes.Length; axis++)
+            for (int value = 1; value < counts[axis]; value++)
+            {
+                int skin = 0, face = 0, hairStyle = 0, hairColor = 0, facialHair = 0;
+                if (axis == 0) skin = value;
+                else if (axis == 1) face = value;
+                else if (axis == 2) hairStyle = value;
+                else if (axis == 3) hairColor = value;
+                else facialHair = value;
+                _variantSpecimens.Add(new VariantSpecimen(
+                    $"{stem}:{axes[axis]}:{value}", 0, 0, model, null, "player", 0,
+                    race, sex, skin, face, hairStyle, hairColor, facialHair, axes[axis]));
+            }
+        }
+
+        if (options.Limit is { } limit && _variantSpecimens.Count > limit)
+            _variantSpecimens.RemoveRange(limit, _variantSpecimens.Count - limit);
+    }
+
     private void LoadVariantBlankLists()
     {
         LoadVariantBlankList("portrait-expected-blank.txt", _variantExpectedBlank);
@@ -447,9 +502,12 @@ public sealed partial class GameLoop
         try
         {
             VariantSpecimen specimen = _variantSpecimens[_variantIndex];
-            VariantSpecimenResult result = npcAxis
-                ? BakeNpcExtraSpecimen(specimen)
-                : BakeItemSpecimen(specimen);
+            VariantSpecimenResult result = _variantBatchOptions.Axis switch
+            {
+                "npc-extras" => BakeNpcExtraSpecimen(specimen),
+                "items" => BakeItemSpecimen(specimen),
+                _ => BakePlayerSpecimen(specimen),
+            };
             _variantSpecimenResults.Add(result);
             _variantIndex++;
             if (_variantIndex % 25 == 0 || _variantIndex == _variantSpecimens.Count)
@@ -463,7 +521,7 @@ public sealed partial class GameLoop
             if (_variantIndex % VariantCacheChunk == 0)
             {
                 if (npcAxis) _creatures!.ClearPortraitCache();
-                else _character!.ClearVariantItemCache();
+                else if (_variantBatchOptions.Axis == "items") _character!.ClearVariantItemCache();
             }
         }
         catch (Exception exception)
@@ -565,6 +623,61 @@ public sealed partial class GameLoop
             specimen, outcome, subjectPx, meanLuma, timer.Elapsed.TotalMilliseconds, note);
     }
 
+    private VariantSpecimenResult BakePlayerSpecimen(VariantSpecimen specimen)
+    {
+        var timer = Stopwatch.StartNew();
+        string race = PlayerRaceName(specimen.PlayerRace);
+        string gender = specimen.PlayerSex == 1 ? "Female" : "Male";
+        string modelKey = $"{specimen.PlayerRace}:{specimen.PlayerSex}";
+        _character!.SkinId = specimen.PlayerSkin;
+        _character.FaceId = specimen.PlayerFace;
+        _character.HairStyleId = specimen.PlayerHairStyle;
+        _character.HairColorId = specimen.PlayerHairColor;
+        _character.FacialHairId = specimen.PlayerFacialHair;
+        _character.Equipment = new CharacterEquipment();
+        bool loaded;
+        if (_variantPlayerModelKey != modelKey)
+        {
+            loaded = _character.Load(race, gender);
+            _variantPlayerModelKey = loaded ? modelKey : "";
+        }
+        else
+        {
+            _character.Reload();
+            loaded = true;
+        }
+
+        PortraitOutcome outcome = PortraitOutcome.Skipped;
+        int subjectPx = 0;
+        double meanLuma = 0;
+        string note = loaded ? _character.HairResolution : "model-unavailable";
+        if (loaded)
+        {
+            var state = new CharacterRenderer.UnitState
+            {
+                Position = Vector3.Zero,
+                Yaw = 0f,
+                Grounded = true,
+                HasIntent = true,
+            };
+            Camera camera = PortraitCamera(Vector3.Zero, 0f, 1.25f, 4.15f);
+            camera.FieldOfViewDegrees = 43f;
+            camera.AspectRatio = 233f / 224f;
+            _batchPortraitTarget!.Bake(() => _character.Render(camera, state), transparent: true);
+            PortraitRenderTarget.ReadbackStats stats = _batchPortraitTarget.Analyze(transparent: true);
+            outcome = stats.HasSubject ? PortraitOutcome.Ready : PortraitOutcome.Blank;
+            subjectPx = stats.SubjectPixels;
+            meanLuma = stats.MeanLuma;
+        }
+        else _batchPortraitTarget!.Bake(() => { }, transparent: true);
+
+        SaveVariantImage(specimen);
+        AddPlayerVariantRow(specimen, outcome, subjectPx, meanLuma,
+            timer.Elapsed.TotalMilliseconds, note);
+        return new VariantSpecimenResult(
+            specimen, outcome, subjectPx, meanLuma, timer.Elapsed.TotalMilliseconds, note);
+    }
+
     private void AddItemVariantRow(VariantSpecimen specimen, ItemDisplayRow? row,
         PortraitOutcome outcome, int subjectPx, double meanLuma, double elapsedMs, string note)
     {
@@ -620,8 +733,75 @@ public sealed partial class GameLoop
             1, 0, 0, 0, 9, 0, 0, row is null ? "" : row.Id.ToString(CultureInfo.InvariantCulture),
             geosets, "NONE", "NONE", specimen.Kind == "helm" ? (uint)specimen.DisplayId : 0,
             "HuM", modelPath, modelSupplier, 0, "NONE", "NONE",
-            attachmentStatus, capeTexture, outcome, subjectPx, meanLuma, elapsedMs, note));
+            attachmentStatus, capeTexture, 0, "NONE",
+            outcome, subjectPx, meanLuma, elapsedMs, note));
     }
+
+    private void AddPlayerVariantRow(VariantSpecimen specimen,
+        PortraitOutcome outcome, int subjectPx, double meanLuma, double elapsedMs, string note)
+    {
+        (int duplicates, string winners) = TracePlayerCharSections(specimen);
+        string skin = _character?.SkinTexturePath ?? "NONE";
+        if (skin.Length == 0 || skin == "(none)") skin = "NONE";
+        string supplier = SupplierFor(skin);
+        string geosets = _character is null ? "" : string.Join(';',
+            _character.ActiveGeosets.Select(pair => $"{pair.Category}:{pair.Variant}"));
+        _variantRows.Add(new VariantCsvRow(
+            specimen.Key, specimen.Key, "players", 0, 0, -1, -1,
+            specimen.PlayerAxis, uint.MaxValue, skin,
+            skin == "NONE" ? "UNBOUND" : skin, supplier, IsPatch4(supplier),
+            "NONE", "NONE", false, "NONE", "", specimen.ModelPath,
+            SupplierFor(specimen.ModelPath), specimen.PlayerRace, specimen.PlayerSex,
+            (uint)specimen.PlayerSkin, (uint)specimen.PlayerFace,
+            (byte)specimen.PlayerHairStyle, (uint)specimen.PlayerHairColor,
+            (byte)specimen.PlayerFacialHair, "", geosets, "NONE", "NONE", 0,
+            "NONE", "NONE", "NONE", 0, "NONE", "NONE", "none-authored", "NONE",
+            duplicates, winners, outcome, subjectPx, meanLuma, elapsedMs, note));
+    }
+
+    private (int Duplicates, string Winners) TracePlayerCharSections(VariantSpecimen specimen)
+    {
+        if (_variantPlayerCharSections is null) return (0, "NONE");
+        int duplicates = 0;
+        var winners = new List<string>();
+
+        CharSectionRow? Lookup(string label, uint section, int variation, int colour)
+        {
+            IReadOnlyList<CharSectionRow> matches = _variantPlayerCharSections.FindMatches(
+                specimen.PlayerRace, specimen.PlayerSex, section, variation, colour);
+            duplicates += Math.Max(0, matches.Count - 1);
+            CharSectionRow? winner = matches.FirstOrDefault();
+            winners.Add(winner is null
+                ? $"{label}=NONE"
+                : $"{label}=id{winner.Id}@row{winner.RowIndex}/flags0x{winner.Flags:X}");
+            return winner;
+        }
+
+        _ = Lookup("skin", CharSectionsTable.SectionSkin, -1, specimen.PlayerSkin);
+        _ = Lookup("face", CharSectionsTable.SectionFace,
+            specimen.PlayerFace, specimen.PlayerSkin);
+        CharSectionRow? hair = Lookup("hair", CharSectionsTable.SectionHair,
+            specimen.PlayerHairStyle, specimen.PlayerHairColor);
+        if (hair is null || hair.Texture1.Length == 0)
+            _ = Lookup("hair-substitute", CharSectionsTable.SectionHair,
+                1, specimen.PlayerHairColor);
+        _ = Lookup("facial", CharSectionsTable.SectionFacialHair,
+            specimen.PlayerFacialHair, specimen.PlayerHairColor);
+        return (duplicates, string.Join('|', winners));
+    }
+
+    private static string PlayerRaceName(byte race) => race switch
+    {
+        1 => "Human",
+        2 => "Orc",
+        3 => "Dwarf",
+        4 => "NightElf",
+        5 => "Scourge",
+        6 => "Tauren",
+        7 => "Gnome",
+        8 => "Troll",
+        _ => "Human",
+    };
 
     private (string Path, string Supplier) ResolveVariantAsset(IEnumerable<string> candidates)
     {
@@ -696,7 +876,8 @@ public sealed partial class GameLoop
                 "NONE", "UNBOUND", "NONE", false, "NONE", "NONE", false,
                 "NONE", "", specimen.ModelPath, "NONE", 0, 0, 0, 0, 0, 0, 0,
                 "", "", "NONE", "NONE", 0, "NONE", "NONE", "NONE", 0,
-                "NONE", "NONE", "none-authored", "NONE", outcome, subjectPx, meanLuma,
+                "NONE", "NONE", "none-authored", "NONE", 0, "NONE",
+                outcome, subjectPx, meanLuma,
                 elapsedMs, note));
             return;
         }
@@ -719,7 +900,8 @@ public sealed partial class GameLoop
                 trace.BakeTexture, trace.BakeSupplier, trace.HelmetDisplayId,
                 trace.HelmetSuffix, trace.HelmetModel, trace.HelmetSupplier,
                 trace.ShoulderDisplayId, trace.ShoulderModels, trace.ShoulderSuppliers,
-                trace.AttachmentStatus, "NONE", outcome, subjectPx, meanLuma, elapsedMs, note));
+                trace.AttachmentStatus, "NONE", 0, "NONE",
+                outcome, subjectPx, meanLuma, elapsedMs, note));
         }
     }
 
@@ -839,11 +1021,16 @@ public sealed partial class GameLoop
             $"customContentRows: {_variantRows.Count(row => row.CustomContent)}",
             $"durationSeconds: {_variantClock?.Elapsed.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture) ?? "0"}",
             $"clientGitDescribe: {TryGitDescribe()}",
-            _variantBatchOptions.Axis == "npc-extras"
-                ? "startupPath: variant-batch-only GL + shared MPQ/DBC + real CreatureRenderer portrait path"
-                : "startupPath: variant-batch-only GL + shared MPQ/DBC + real HumanMale CharacterRenderer paper-doll path",
+            _variantBatchOptions.Axis switch
+            {
+                "npc-extras" => "startupPath: variant-batch-only GL + shared MPQ/DBC + real CreatureRenderer portrait path",
+                "items" => "startupPath: variant-batch-only GL + shared MPQ/DBC + real HumanMale CharacterRenderer paper-doll path",
+                _ => "startupPath: variant-batch-only GL + shared MPQ/DBC + real race/sex CharacterRenderer paper-doll path",
+            },
             $"cachePolicy: release regenerable renderer asset cache every {VariantCacheChunk} specimens",
-            "charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis",
+            _variantBatchOptions.Axis == "players"
+                ? "charSectionsDupKey/charSectionsWinnerRow: populated from production file-order lookup keys"
+                : "charSectionsDupKey/charSectionsWinnerRow: reserved in the common CSV; populated by the sequenced player axis",
             "supplier/customContent: exact winning archive; patch-4.MPQ marks Nico custom content",
         };
         if (_variantBatchOptions.Axis == "items")
@@ -878,6 +1065,26 @@ public sealed partial class GameLoop
                     row.MissingDemandedTexture);
                 lines.Add($"knownIssueBucket {bucket}: uniqueRows={unique} unmounted={unmounted} " +
                     $"missingDemand={unresolved} failureObservations={unmounted + unresolved}");
+            }
+        }
+        if (_variantBatchOptions.Axis == "players")
+        {
+            int collisionRows = _variantRows.Count(row => row.CharSectionsDupKey > 0);
+            lines.Add($"raceSexPairs: {_variantRows.Select(row => $"{row.Race}:{row.Sex}").Distinct().Count()}");
+            lines.Add($"baseRows: {_variantRows.Count(row => row.Region == "base")}");
+            lines.Add($"skinAxisRows: {_variantRows.Count(row => row.Region == "skin")}");
+            lines.Add($"faceAxisRows: {_variantRows.Count(row => row.Region == "face")}");
+            lines.Add($"hairStyleAxisRows: {_variantRows.Count(row => row.Region == "hair-style")}");
+            lines.Add($"hairColorAxisRows: {_variantRows.Count(row => row.Region == "hair-color")}");
+            lines.Add($"facialHairAxisRows: {_variantRows.Count(row => row.Region == "facial-hair")}");
+            lines.Add($"charSectionsCollisionRows: {collisionRows} " +
+                $"({(collisionRows == 0 ? "ZERO - Flags hardening remains known gap" : "7C-3 CANDIDATE")})");
+            if (collisionRows > 0)
+            {
+                lines.Add("");
+                lines.Add("7C-3 collision protocol rows:");
+                lines.AddRange(_variantRows.Where(row => row.CharSectionsDupKey > 0)
+                    .Select(row => $"{row.RowKey}: dup={row.CharSectionsDupKey} winner={row.CharSectionsWinnerRow}"));
             }
         }
         if (incomplete) lines.Add($"incomplete: {error ?? "unknown error"}");
