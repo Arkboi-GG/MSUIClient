@@ -1,0 +1,8 @@
+name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
+maxSpeed,7,6.95,7.05,PASS,6.95,7.05,PASS,run speed 7.00 +/-0.05
+jumpApexHeight,1.57473,1.57,1.58,PASS,1.6105,1.6705,FAIL,v0^2/2g = 1.6405 +/-0.03
+jumpApexTime,0.383333,0.38,0.39,PASS,0.3954,0.4294,FAIL,v0/g = 0.4124 +/- one 60Hz tick
+jumpAirtime,0.816667,0.8,0.83,PASS,0.7909,0.8589,PASS,flat airtime 0.8249 +/-0.034
+stallWindows,0,0,0,PASS,0,0,PASS,no stalls
+phaseResets,0,0,0,PASS,-999,999,N/A,diagnostic only
+substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

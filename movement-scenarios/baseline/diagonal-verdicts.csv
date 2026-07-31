@@ -1,0 +1,6 @@
+name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
+maxSpeed,7,6.95,7.05,PASS,6.95,7.05,PASS,normalized diagonal equals pure run axis +/-0.05
+stopDistance,0,0,0.05,PASS,0,0.05,PASS,instant stop
+stallWindows,0,0,0,PASS,0,0,PASS,no stalls
+phaseResets,0,0,0,PASS,-999,999,N/A,diagnostic only
+substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

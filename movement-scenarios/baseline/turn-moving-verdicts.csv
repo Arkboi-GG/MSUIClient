@@ -1,0 +1,6 @@
+name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
+maxSpeed,7.000001,6.95,7.05,PASS,6.95,7.05,PASS,run speed 7.00 +/-0.05
+turnRate,2.356214,2.3,2.41,PASS,2.306194,2.406194,PASS,vanilla moving turn pi*0.75 +/-0.05
+stallWindows,0,0,0,PASS,0,0,PASS,no stalls
+phaseResets,0,0,0,PASS,-999,999,N/A,diagnostic only
+substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

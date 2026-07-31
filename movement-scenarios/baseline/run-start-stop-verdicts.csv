@@ -1,0 +1,8 @@
+name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
+maxSpeed,7,6.95,7.05,PASS,6.95,7.05,PASS,run speed 7.00 +/-0.05
+stopDistance,0,0,0.05,PASS,0,0.05,PASS,instant stop
+startDisplacementTicks,1,0,1,PASS,0,1,PASS,at most one tick
+startClipLatencyMs,0,0,16.667,PASS,0,16.667,PASS,vanilla intent response at most one tick
+stallWindows,0,0,0,PASS,0,0,PASS,no intent-moving Stand/rate-zero window over 150ms
+phaseResets,0,0,0,PASS,-999,999,N/A,diagnostic only; no vanilla pass band yet
+substitutedEvents,0,0,0,PASS,0,0,PASS,no substituted animation events

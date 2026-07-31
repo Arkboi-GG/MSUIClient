@@ -1,0 +1,6 @@
+name,currentMin,currentMax,lawMin,lawMax,citation
+maxSpeed,6.95,7.05,6.95,7.05,normalized diagonal equals pure run axis +/-0.05
+stopDistance,0,0.05,0,0.05,instant stop
+stallWindows,0,0,0,0,no stalls
+phaseResets,0,0,-999,999,diagnostic only
+substitutedEvents,0,0,0,0,no substitutions

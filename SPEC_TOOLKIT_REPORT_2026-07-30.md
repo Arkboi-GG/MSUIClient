@@ -2260,3 +2260,34 @@ ACTUAL behavior deltas outside suite mode: 0
 M1 standard gates pass: Debug build succeeds with only the known CA2014
 warning, combat/wire passes, and portrait-camera reports exactly
 1,224 / 1,289 / 56.
+
+## M2 - move-audit, dual bands, and committed baseline
+
+All eight scripts ran through the offline live client at 16.666667 ms fixed
+steps. Their per-tick traces live under `movement-scenarios/baseline/` and the
+audit verdicts sit beside them. `tools/move-audit` measures each trace and
+`tools/move-audit-check` reruns all scenarios against only the frozen
+current-tree bands.
+
+```text
+PREDICTED baseline scenarios: 8
+ACTUAL baseline scenarios: 8; every script completed
+PREDICTED current-tree gate: every current band PASS
+ACTUAL current-tree gate: 44/44 PASS; move-audit-check exit 0
+PREDICTED vanilla-law separation: dual columns; laws never fit to measurements
+ACTUAL vanilla-law separation: fixed cited bands; 4 FAIL rows, all jump apex
+  height/time (flat and standing); phase-reset law cells are N/A by design
+PREDICTED stalls / phase resets / substituted events: measured, not inferred
+ACTUAL across all scripts: 0 / 0 / 0
+```
+
+Measured headline values are: run 7.000000 yd/s, backpedal 4.500000 yd/s,
+normalized diagonal and pure strafe 7.000000 yd/s, stop distance 0, standing
+turn 3.141604 rad/s, moving turn 2.356214 rad/s, one-tick displacement start,
+and 0 ms clip-choice latency. Both jump scripts reach 1.574730 yd at 0.383333 s;
+airtime is 0.816667 s moving and 0.800000 s standing. The height/time misses
+are findings only; no gravity, jump, or animation change was made.
+
+M2 standard gates pass: Debug build succeeds with only the known CA2014
+warning, combat/wire passes, portrait-camera reports exactly 1,224 / 1,289 /
+56, and the new move-audit-check gate passes.

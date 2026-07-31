@@ -1,0 +1,7 @@
+name,currentMin,currentMax,lawMin,lawMax,citation
+jumpApexHeight,1.57,1.58,1.6105,1.6705,v0^2/2g = 1.6405 +/-0.03
+jumpApexTime,0.38,0.39,0.3954,0.4294,v0/g = 0.4124 +/- one 60Hz tick
+jumpAirtime,0.79,0.81,0.7909,0.8589,flat airtime 0.8249 +/-0.034
+stallWindows,0,0,0,0,no stalls
+phaseResets,0,0,-999,999,diagnostic only
+substitutedEvents,0,0,0,0,no substitutions

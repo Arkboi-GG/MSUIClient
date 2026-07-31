@@ -1,0 +1,9 @@
+# current-tree bands are frozen from M2; vanilla bands cite SPEC13/benilla law
+name,currentMin,currentMax,lawMin,lawMax,citation
+maxSpeed,6.95,7.05,6.95,7.05,run speed 7.00 +/-0.05
+stopDistance,0,0.05,0,0.05,instant stop
+startDisplacementTicks,0,1,0,1,at most one tick
+startClipLatencyMs,0,16.667,0,16.667,vanilla intent response at most one tick
+stallWindows,0,0,0,0,no intent-moving Stand/rate-zero window over 150ms
+phaseResets,0,0,-999,999,diagnostic only; no vanilla pass band yet
+substitutedEvents,0,0,0,0,no substituted animation events
