@@ -823,3 +823,189 @@ portrait camera check passed
 3. Rule whether to proceed with the isolated Willem head/shoulder attachment fix.
 4. Rule whether the player Flags hardening belongs in 7B only if the named trace
    proves a collision, or should be accepted as preventive hardening separately.
+
+## SPEC 07 — revised Stage 7A NPC head-texture ruling packet (HARD STOP)
+
+Nico withdrew the named player-variant case and the cape case. The replacement
+Stage 7A symptom is extra-dressed humanoid NPC head texturing: clothing/armor from
+the baked body atlas appears on hair or scalp. This revision is report-only. No
+renderer, parser, batch tool, archive law, or game data was changed.
+
+### Revised stage status
+
+| Stage | Status | Result |
+|---|---|---|
+| Player case | Withdrawn | Removed from the active 7A ruling surface. |
+| Cape case | Withdrawn | No failing cape case exists; 7B's items-axis diff owns cape coverage. |
+| NPC head-texture trace | Complete | Willem plus a hair-bearing authored-clothing control prove two per-geoset binding faults. |
+| VMaNGOS mapping capability | Attempted read-only; server unavailable | Connection details and the zero-query result are recorded below. Installed DBC data supplied the trace mappings. |
+| Revised 7A boundary | **HARD STOP** | 7B/7C sequencing is recorded, but none is implemented. |
+
+### Files changed in revised 7A
+
+| File | Change |
+|---|---|
+| `SPEC_TOOLKIT_REPORT_2026-07-30.md` | Appended this revised diagnosis and ruling packet. |
+
+Temporary read-only trace programs were created under the Windows temporary
+directory, executed, and removed. The repository's diagnostic and production
+sources are unchanged. The pre-existing `vantages.json` change and untracked
+`SPEC_TOOLKIT_07_CHARACTER_VARIANTS.md` remain untouched.
+
+### Symbol verification and commit correlation
+
+| Symbol / behavior | Current location | Provenance / finding |
+|---|---|---|
+| NPC batch preparation | `MSUIClient/World/Units/CreatureRenderer.cs:1163-1211` | Every batch independently calls the common texture resolver, but supplies no geoset/region context. |
+| NPC texture resolution | `MSUIClient/World/Units/CreatureRenderer.cs:1386-1428` | Type 1 always prefers the baked NPC atlas. Type 6 has no branch and falls through to the display's creature texture array, which is empty for the traced character-model NPCs. |
+| Player head exception | `MSUIClient/World/Units/CharacterRenderer.cs:3154-3169` | Type-1 hair/scalp/ear pieces switch from the dressed atlas to `_bareSkin` per draw. There is no creature equivalent. |
+| Player CharSections hair binding | `MSUIClient/World/Units/CharacterRenderer.cs:919-1088` | Resolves the type-6 hair-mesh BLP by race/sex/style/color, including the literal-1 fallback. There is no creature equivalent. |
+| Shared geoset selection | `MSUIClient/Formats/CharacterGeosets.cs:80-151` | Correctly selects the NPC's hair/scalp and equipment geosets; selection is not the texture fault. |
+| CharSections lookup | `MSUIClient/Formats/DbcReader.cs:220-284` | The needed NPC hair BLP is locally available through the existing table parser. |
+
+`git blame` places both `CreatureRenderer.ResolveBatchTexture`'s uniform type-1
+baked-atlas law and `NpcBodySkinCandidates` in `d055c654` (2026-07-27). The same
+commit added the player draw-time exception that prevents hair/scalp/ears from
+sampling the dressed atlas. Thus the correct distinction existed for players in
+the introducing commit but was omitted from the new NPC renderer. `13de8f5`
+(2026-07-30) added asynchronous NPC appearance preparation and reused the same
+resolver, preserving the omission in both synchronous and asynchronous paths;
+neighboring portrait/catalog commits did not alter this binding law.
+
+Benilla independently separates these materials for both players and NPCs:
+
+- `crates/benilla/src/entities/attach/char_skin.rs:24-102` gives an NPC a baked
+  body atlas but retains its race/sex/hair selectors in the same `CharLook`.
+- `crates/benilla/src/entities/attach/char_skin.rs:373-402` binds the hair mesh
+  from `CharSections::hair_mesh_texture`, explicitly for players and NPCs.
+- `crates/benilla-formats/src/models/m2_batches.rs:45-70` classifies M2 type 1 as
+  Body and type 6 as Hair; neither is a creature skin-variation slot.
+
+### Per-geoset trace
+
+#### A. Willem scalp control — display 2072 / extra 675
+
+Willem's authored helm currently forces hair selection to the bare scalp geoset
+1, while the separate 7C-1 attachment omission leaves that scalp visible.
+
+| Batch | Geoset | Region | M2 texture type | Current resolved texture | Expected texture class |
+|---:|---:|---|---:|---|---|
+| 0 | 0 | body/base head atlas | 1 | `Textures\\BakedNpcTextures\\c5c3858a5d86e950a1c2f0f43c9dc69f.blp` | Body may use the baked dressed atlas. |
+| 12 | 1 | bare scalp | 1 | `Textures\\BakedNpcTextures\\c5c3858a5d86e950a1c2f0f43c9dc69f.blp` | Undressed/bare head-skin atlas, matching the player head exception. |
+
+This confirms the reported scalp half of the hypothesis: the visible scalp is
+bound to the authored-clothing baked composite. 7C-1 will conceal it under the
+helm, but does not correct this law for the wider NPC cohort.
+
+#### B. Hair-bearing authored-clothing control — display 3340 / extra 54
+
+The installed DBCs supplied a direct positive control without a database lookup:
+Human male, hair style/color `3/9`, facial hair `2`, no authored helm, authored
+chest/pants/boots/wrist equipment, bake
+`a924d87d84c0c55e898c596f6dbecb6d.blp`. Its visible hair geoset is 4.
+
+| Batch | Geoset | Region | M2 texture type | Current resolved texture | Expected resolved texture |
+|---:|---:|---|---:|---|---|
+| 0 | 0 | body/base head atlas | 1 | `Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp` | Body may use the baked dressed atlas. |
+| 15 | 4 | selected hair mesh | 6 | `NONE` | `Character\\Human\\Hair02_09.blp` from `CharSections` variation 3/color 9. |
+| 18 | 4 | selected hair/scalp under-pass | 1 | `Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp` | Undressed/bare head-skin atlas. |
+
+The HumanMale M2 has three runtime texture references (`type 1`, `type 6`, and
+`type 2`); its 56 batches distribute as type1×34, type6×12, type2×10. The selected
+hair geoset deliberately has both a type-6 hair pass and a type-1 under-pass.
+The current NPC resolver loses that distinction.
+
+### Revised root-cause ruling
+
+The hypothesis is **confirmed and refined into two adjacent H3 omissions**:
+
+1. **Dressed-atlas leak:** `CreatureRenderer` binds the baked full-body/dressed
+   type-1 atlas uniformly. It lacks the player renderer's per-geoset exception
+   for hair/scalp/ears, so the selected hair under-pass samples clothing pixels.
+2. **Missing hair sheet:** type 6 is not treated as a character runtime hair
+   slot. For character-model NPCs the fallback creature texture array is empty,
+   so a real `CharSections` hair BLP resolves as `NONE`.
+
+Both are never-correct behavior introduced in `d055c654`; `13de8f5` propagated
+them into async preparation. This is not H1 archive precedence and not a recent
+content-row change.
+
+The smallest prospective 7C-2 fix, **not implemented**, is to carry batch geoset
+id/region into NPC appearance binding, prepare an equipment-free CharSections
+head/body composite from the extra row for type-1 head pieces, and bind type 6
+from race/sex/hair-style/hair-color using the existing literal-1 fallback. The
+baked NPC atlas remains the type-1 source for ordinary body/clothing geosets.
+The 7B CSV must expose this choice as strings rather than infer it from pixels.
+
+### Read-only VMaNGOS connection record
+
+| Field | Value used |
+|---|---|
+| Configuration source | `C:\\Users\\nico\\source\\repos\\MangosSuperUI\\MangosSuperUI\\appsettings.Development.json` → `ConnectionStrings:Mangos` |
+| Server / port | `localhost:3306` |
+| User / database | `root` / `mangos` |
+| Password | Read from the local configuration at runtime; deliberately not copied into this report or console output. |
+| Intended statements | Parameterized `SELECT * FROM creature_template WHERE entry=@entry` and `SELECT * FROM creature WHERE id=@entry`, with `entry=823`; no write statements existed. |
+| Result | Connection timed out before opening. **Zero SQL statements executed and zero database rows read.** |
+
+The installed `CreatureDisplayInfo.dbc` / `CreatureDisplayInfoExtra.dbc` mappings
+therefore remain the provenance for displays 2072 and 3340 in this packet. The
+capability grant is recorded for future read-only diagnoses when the local server
+is available; it does not authorize database writes.
+
+### Revised console evidence
+
+```text
+[npc-geoset-trace] display=2072 extra=675 model=Character\\Human\\Male\\HumanMale.m2
+[npc-geoset-trace] batch=12 geoset=1 region=hair/scalp textureIndex=0 type=1 resolved='Textures\\BakedNpcTextures\\c5c3858a5d86e950a1c2f0f43c9dc69f.blp'
+[npc-extra-candidate] extra=54 displays=3340 hair=3/9 facial=2 bake=a924d87d84c0c55e898c596f6dbecb6d.blp equipment=0/0/0/5345/0/5346/5347/3897/0/0
+[npc-hair-trace] display=3340 extra=54 hair=3/9 expectedHair='Character\\Human\\Hair02_09.blp'
+[npc-hair-trace] batch=15 geoset=4 type=6 current='NONE' expected='Character\\Human\\Hair02_09.blp'
+[npc-hair-trace] batch=18 geoset=4 type=1 current='Textures\\BakedNpcTextures\\a924d87d84c0c55e898c596f6dbecb6d.blp' expected='bare/head-skin atlas'
+[vmangos-readonly] connection localhost:3306/mangos timed out before query execution
+```
+
+### Ordered next stages (recorded, not started)
+
+1. **7B NPC-extras axis first.** Its CSV must include per-geoset resolved-texture
+   string columns (including the exact texture bound to hair), plus NPC-extras
+   contact sheets and full `--diff` evidence.
+2. **7B items axis second.** This owns capes wholesale; cape wrongness surfaces
+   as diffs rather than a named 7A case.
+3. **7B reduced player sweep third.** The withdrawn named-player case adds no
+   separate 7A fix.
+4. **7C-1 Willem attachment fix.** GO in principle, but only after 7B; acceptance
+   requires before/after NPC-extras cohort sweep, full `--diff`, and standard
+   gates.
+5. **7C-2 NPC hair/head texture fix.** This trace has landed. Implementation
+   remains blocked pending Nico's explicit ruling after review.
+
+### Mandatory gates
+
+```text
+dotnet build MSUIClient.sln -c Debug
+Build succeeded. 1 Warning(s), 0 Error(s).
+The warning is the pre-existing CA2014 at Engine/UI/GlueAdditive.cs:141.
+
+dotnet run --project tools\\combat-wire-check\\MSUICombatWireCheck.csproj -c Release
+combat/movement/targeting/wire foundation checks passed
+
+dotnet run --project tools\\portrait-camera-check\\MSUIPortraitCameraCheck.csproj -c Release -- GameData\\Data
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+DwarfMale inside=1224; HumanMale inside=1289; Wolf inside=56
+portrait camera check passed
+```
+
+### Revised deviations and ruling boundary
+
+1. The authorized local database connection was unavailable; the attempted
+   read-only connection and its zero-query outcome are recorded rather than
+   substituting an external database.
+2. Display 3340 was selected from installed DBC rows as the required hair +
+   authored-clothing cohort member. No renderer instrumentation was retained.
+3. No contact sheet, 7B sweep, CSV schema change, full diff, or 7C fix was begun.
+
+**HARD STOP.** Nico's role resumes at reviewing the future 7B NPC-extras contact
+sheets/CSV and issuing the 7C rulings. The immediate ruling requested from this
+packet is whether the refined two-part 7C-2 boundary is accepted for later work.
