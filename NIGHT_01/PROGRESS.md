@@ -34,3 +34,9 @@ Format: `<local time> | <item id> | <status> | <one-line result> | <evidence/com
 2026-08-01 00:00 local | 4-5 | SHELVED-BLOCKED | innkeeper/hearth flow blocked by gossip and cast-gate prerequisites | live-runs/N4-world-triage-20260801-000000.md
 2026-08-01 00:00 local | 4-6 | SHELVED-BLOCKED | taxi protocol/state/UI/runner family absent; F3-F6 untouched | live-runs/N4-world-triage-20260801-000000.md
 2026-08-01 00:00 local | 4-7 | SHELVED-BLOCKED | move-audit passes but portal/instance/water batch protocol sets are absent | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:10 local | 5-1 | SHELVED-RULING | pane slice requires an I17 committed baseline/cohort, authority reserved to Nico; no partial implementation started | live-runs/N5-housekeeping-triage-20260801-002000.md
+2026-08-01 00:10 local | 5-2 | SHELVED-RULING | keybind slice requires vanilla default acceptance-baseline data, authority reserved to Nico; no partial implementation started | live-runs/N5-housekeeping-triage-20260801-002000.md
+2026-08-01 00:10 local | 5-3 | CLOSED-FINDING | first IntentOff failure reproduced as audit trace-start/setup-cluster normalization artifact, not a new production transition defect | live-runs/N5-3-intentoff-20260801-001000.md
+2026-08-01 00:10 local | 5-4 | SHELVED-BLOCKED | exact Benilla launch invocation and working directory are absent; night law forbids a later interactive ask | live-runs/N5-housekeeping-triage-20260801-002000.md
+2026-08-01 00:15 local | 5-5 | SHELVED-BLOCKED | two fresh backpedal traces pass mechanics; present runner cannot produce the required contact sheet | live-runs/N5-5-backpedal-20260801-001500.md
+2026-08-01 00:20 local | 5-6 | CLOSED-FINDING | all 73 deferred entries require Nico's perceptual classification; source lists preserved and freshly hashed | live-runs/N5-housekeeping-triage-20260801-002000.md

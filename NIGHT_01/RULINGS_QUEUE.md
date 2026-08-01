@@ -49,3 +49,106 @@ Format per entry:
 - Options: (A) implement gossip after Q5, then game objects/rest/rez/hearth/taxi; define portal/instance/water sets separately; (B) prioritize only the environment sets; (C) accept current absence.
 - Agent recommendation: A — gossip is the routing root for most interaction items, while 4-7 needs explicit additive protocol definitions rather than treating move-audit alone as complete coverage.
 - Manifest: `live-runs/manifests/N4-20260801-000000.sha256`, SHA-256 `8d8a3801bd610b3c306fbdd8e0edf2103ae17a8c0f57f9aff8a838123e7946ea`.
+
+## Q8 — 5-3 — choose combat-audit trace-start/setup-cluster normalization law
+- Evidence: `live-runs/N5-3-intentoff-20260801-001000.md` and its two verdict CSVs.
+- Options: (A) initialize from `TraceStart.intentOn` and treat same-timestamp setup as normalization; (B) retain strict Off initialization; (C) require traces to omit setup-cluster `IntentOff`.
+- Agent recommendation: A, with a dedicated regression fixture; the raw trace already states initial intent and production pairing checks pass.
+
+## Q9 — 5-1 — authorize Slice P baseline/cohort creation
+- Evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`; `GAMEPLAY_FOUNDATION_PLAN_2.md` I16/I17.
+- Options: (A) authorize I16 then I17 baseline/cohort in a dedicated order; (B) I16 instrument only; (C) defer panes.
+- Agent recommendation: A; keep the layout instrument and its acceptance baseline in one reviewable work order.
+
+## Q10 — 5-2 — authorize the vanilla keybind default acceptance baseline
+- Evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`; `GAMEPLAY_FOUNDATION_PLAN_2.md` I18.
+- Options: (A) approve sourced vanilla defaults then execute store/matrix/menu; (B) store only; (C) defer keybinds.
+- Agent recommendation: A; the defaults are the matrix oracle and should be ruled before feature work.
+
+## Q11 — 5-4 — provide Benilla's exact launch invocation and working directory
+- Evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`; I14 requires Stage A first.
+- Options: (A) record the exact invocation in SETUP.md for a follow-on Stage B run; (B) downgrade Benilla to eyeball-only reference.
+- Agent recommendation: A if scripted input is available; otherwise B exactly as I14 permits.
+
+## Q12 — 5-5 — authorize a backpedal frame-capture/contact-sheet instrument
+- Evidence: `live-runs/N5-5-backpedal-20260801-001500.md`; repeated trace CSVs and verdict CSV.
+- Options: (A) add bounded deterministic frame capture/contact-sheet output, then Nico judges; (B) accept mechanical movement evidence alone.
+- Agent recommendation: A; the trace passes mechanics but cannot substitute for the requested animation evidence.
+
+## Q13 — 5-6 — perceptually review deferred portrait and item entries
+- Evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md` and its fresh hashes.
+- Options: review each row below against a captured/rendered batch; no list edit is implied by this queue.
+- Agent recommendation: build the batch first, then rule only from its contact sheets.
+- creature:860 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:1921 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:2429 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:5850 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:6352 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:8810 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:8811 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:12750 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:12929 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:13489 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:15791 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:15792 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:15866 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:15882 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- creature:15900 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:3560 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:3862 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:5304 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:5590 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:6087 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:7891 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:8015 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:8017 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:9420 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:12594 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:12872 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:15028 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:15361 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:15676 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:16043 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:16421 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:17731 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:17754 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:17994 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:19427 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:19430 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:19952 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:21233 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:23129 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:23327 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:25488 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:30348 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:31342 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:32123 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:32130 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:32594 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:32596 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33213 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33619 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33645 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33646 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33677 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33756 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33757 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33758 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:33785 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34003 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34004 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34775 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34785 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34975 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:34980 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35176 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35820 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35822 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35864 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35923 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:35960 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:36085 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:67218 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:67219 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:67220 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- item:helm:67221 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
