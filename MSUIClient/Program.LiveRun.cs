@@ -330,6 +330,14 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateRestXpFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "death-rez":
+                    if (p[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase)) { ObserveDeathRez(); ObserveCorpseStore(); Log(true, line); }
+                    else if (p[1].Equals("repop", StringComparison.OrdinalIgnoreCase)) Log(RequestRepop(), line);
+                    else if (p[1].Equals("reclaim", StringComparison.OrdinalIgnoreCase)) Log(ReclaimCorpse(), line);
+                    else if (p[1].Equals("accept", StringComparison.OrdinalIgnoreCase)) Log(AnswerResurrect(true), line);
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateDeathRezFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "character":
                     if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
                     else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))

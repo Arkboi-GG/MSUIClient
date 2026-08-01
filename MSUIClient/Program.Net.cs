@@ -196,6 +196,7 @@ public sealed partial class GameLoop
             ResetLoot();
             ResetGameObjects();
             ResetRestXp();
+            ResetDeathRez();
             ResetGossip();
             ResetMail();
             ResetAuction();
@@ -611,6 +612,12 @@ public sealed partial class GameLoop
                     case Op.SMSG_LEVELUP_INFO:
                         ApplyLevelUpInfo(body);
                         break;
+                    case Op.SMSG_RESURRECT_REQUEST:
+                        ApplyResurrectRequest(body);
+                        break;
+                    case Op.SMSG_CORPSE_RECLAIM_DELAY:
+                        ApplyCorpseReclaimDelay(body);
+                        break;
                     case Op.SMSG_ATTACKSWING_NOTINRANGE:
                     case Op.SMSG_ATTACKSWING_BADFACING:
                     case Op.SMSG_ATTACKSWING_NOTSTANDING:
@@ -670,7 +677,8 @@ public sealed partial class GameLoop
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
         _entities.Apply(u);
-        if (u.Guid == _net?.PlayerGuid) { ObserveQuestLog(); ObserveRestXp(); }
+        if (u.Guid == _net?.PlayerGuid) { ObserveQuestLog(); ObserveRestXp(); ObserveDeathRez(); }
+        if (u.Type == ObjectTypeId.Corpse || (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity corpse) && corpse.Type == ObjectTypeId.Corpse)) ObserveCorpseStore();
         ObserveAuraObjectUpdate(u.Guid, aurasBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)

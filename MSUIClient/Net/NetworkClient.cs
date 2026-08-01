@@ -299,6 +299,10 @@ public sealed class NetworkClient : IDisposable
         try { _session.GossipHello(guid); return true; } catch { return false; }
     }
     public bool GameObjectUse(ulong guid) => InWorld(s => s.GameObjectUse(guid));
+    public bool RepopRequest() => InWorld(s => s.RepopRequest());
+    public bool ReclaimCorpse(ulong guid) => InWorld(s => s.ReclaimCorpse(guid));
+    public bool SpiritHealerActivate(ulong guid) => InWorld(s => s.SpiritHealerActivate(guid));
+    public bool ResurrectResponse(ulong guid, bool accept) => InWorld(s => s.ResurrectResponse(guid, accept));
     public bool PageTextQuery(uint pageId) => InWorld(s => s.PageTextQuery(pageId));
     public bool GossipSelect(ulong guid, uint listId, string? code = null)
     {

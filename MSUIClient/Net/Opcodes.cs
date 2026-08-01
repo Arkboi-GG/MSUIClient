@@ -238,6 +238,14 @@ public enum Op : ushort
     SMSG_PLAY_SPELL_VISUAL       = 0x01F3,
     SMSG_CANCEL_AUTO_REPEAT      = 0x029C,
 
+    // --- Death / resurrection ---
+    CMSG_REPOP_REQUEST           = 0x015A,
+    SMSG_RESURRECT_REQUEST       = 0x015B,
+    CMSG_RESURRECT_RESPONSE      = 0x015C,
+    CMSG_RECLAIM_CORPSE          = 0x01D2,
+    CMSG_SPIRIT_HEALER_ACTIVATE  = 0x021C,
+    SMSG_CORPSE_RECLAIM_DELAY    = 0x0269,
+
     // --- Loot (solo corpse loot family; values verified vs vmangos Opcodes_1_12_1.h
     //     via benilla-protocol opcode.rs: 264, 349-355, 357-358) ---
     CMSG_AUTOSTORE_LOOT_ITEM     = 0x0108,

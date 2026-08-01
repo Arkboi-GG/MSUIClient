@@ -531,3 +531,17 @@ Status: `CLOSED-PASS`
 - Normal/rested enter/leave, bonus accumulation/consumption, doubled kill XP, and quest XP
   leaving the rested pool untouched were replayed through the same verdict/UI paths.
   Evidence: `live-runs/N1C-4-3-rest-xp-20260801-140000.md`.
+
+## NIGHT_01C 4-4 — death / resurrection completion — 2026-08-01 14:10 local
+
+Status: `CLOSED-PASS`
+
+- Built repop, corpse reclaim and timer, spirit-healer activation, resurrect-request/response,
+  durability-loss verdicts, corpse-store discovery, dialog/UI, and runner cells.
+- Final protocol passed 26/26. TEST died (health 2609→0), GM was turned OFF, empty-body
+  `CMSG_REPOP_REQUEST` was sent, the server created corpse `F101000000010127`, returned an
+  exact 30,000 ms reclaim delay, applied ghost aura 8326, and teleported to the graveyard.
+  `.revive` then removed ghost state. Delivered `.gps` controls bracketed the flow.
+- Spirit healer sickness/durability, timed reclaim, and a named resurrect offer with accept/
+  decline exact bodies were replayed through production paths. Evidence:
+  `live-runs/N1C-4-4-death-rez-20260801-141000.md`.

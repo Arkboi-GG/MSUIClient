@@ -224,5 +224,10 @@ Check(WorldSession.BuildPageTextQueryBody(77).SequenceEqual(Convert.FromHexStrin
 Check((ushort)Op.SMSG_LEVELUP_INFO == 468, "level-up info opcode");
 Check(ObjectFields.PLAYER_REST_STATE_EXPERIENCE == 1175 && ObjectFields.PLAYER_XP == 716,
       "rest/experience build-5875 field indices");
+Check((ushort)Op.CMSG_REPOP_REQUEST == 346 && (ushort)Op.SMSG_RESURRECT_REQUEST == 347 &&
+      (ushort)Op.CMSG_RESURRECT_RESPONSE == 348 && (ushort)Op.CMSG_RECLAIM_CORPSE == 466 &&
+      (ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE == 540, "death/resurrection opcodes");
+Check(WorldSession.BuildResurrectResponseBody(0x1234, true).SequenceEqual(Convert.FromHexString("341200000000000001")),
+      "resurrection response guid/accept body");
 
 Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects opcodes/bodies/bounds/state/render-binding");

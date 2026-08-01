@@ -365,6 +365,11 @@ public sealed class WorldSession : IDisposable
 
     public void GossipHello(ulong guid) => SendFullGuid(Op.CMSG_GOSSIP_HELLO, guid);
     public void GameObjectUse(ulong guid) => SendFullGuid(Op.CMSG_GAMEOBJ_USE, guid);
+    public void RepopRequest() => SendPacket((ushort)Op.CMSG_REPOP_REQUEST, ReadOnlySpan<byte>.Empty);
+    public void ReclaimCorpse(ulong corpseGuid) => SendPacket((ushort)Op.CMSG_RECLAIM_CORPSE, BuildGuidBody(corpseGuid));
+    public void SpiritHealerActivate(ulong healerGuid) => SendPacket((ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE, BuildGuidBody(healerGuid));
+    public void ResurrectResponse(ulong casterGuid, bool accept)
+        => SendPacket((ushort)Op.CMSG_RESURRECT_RESPONSE, BuildResurrectResponseBody(casterGuid, accept));
     public void PageTextQuery(uint pageId)
     {
         var w = new PacketWriter(4); w.WriteU32(pageId);
@@ -372,6 +377,10 @@ public sealed class WorldSession : IDisposable
     }
 
     public static byte[] BuildGameObjectUseBody(ulong guid) => BuildGuidBody(guid);
+    public static byte[] BuildReclaimCorpseBody(ulong guid) => BuildGuidBody(guid);
+    public static byte[] BuildSpiritHealerBody(ulong guid) => BuildGuidBody(guid);
+    public static byte[] BuildResurrectResponseBody(ulong guid, bool accept)
+    { var w = new PacketWriter(9); w.WriteU64(guid); w.WriteU8(accept ? (byte)1 : (byte)0); return w.ToArray(); }
     public static byte[] BuildPageTextQueryBody(uint pageId)
     {
         var w = new PacketWriter(4); w.WriteU32(pageId); return w.ToArray();
