@@ -134,3 +134,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 10/43 with 33 NOT-DRAWN. Exact set: `live-runs/N2-0-4-1-game-menu-20260801-223000/game-menu-diff.csv`.
 - Work: derive title font, backdrop nine-slice properties, every button texture state/font/color/layer, and implement every absent reference element.
 - Review: `live-runs/N2-0-4-1-game-menu-20260801-223000/game-menu-contact.png`.
+
+## Q24 — 4-2 — options NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 2/180 with 178 NOT-DRAWN. Exact set: `live-runs/N2-0-4-2-options-20260801-224500/options-diff.csv`.
+- Work: rebuild the vanilla 450x665 video/sound/interface tabs, group boxes, dropdowns, sliders, checks, labels, reset/default/okay/cancel buttons, and instrument all real control draws.
+- Review: `live-runs/N2-0-4-2-options-20260801-224500/options-contact.png`.

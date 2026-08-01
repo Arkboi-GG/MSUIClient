@@ -58,3 +58,5 @@
 2026-08-01 22:15 local | 4-1 | OPEN | game-menu corrected full-reference parity is the first system-UI item | NIGHT_02/4_SYSTEM_UI.md
 2026-08-01 22:30 local | 4-1 | CLOSED-FINDING | legacy declarations replaced with draw-derived root/header/button evidence; coverage 10/43 with 33 NOT-DRAWN | live-runs/N2-0-4-1-game-menu-20260801-223000/N2-0-4-1-game-menu-20260801-223000.md
 2026-08-01 22:30 local | 4-2 | OPEN | options-frame parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
+2026-08-01 22:45 local | 4-2 | CLOSED-FINDING | live video-options modal captured with draw-derived root/header; coverage 2/180 with 178 NOT-DRAWN | live-runs/N2-0-4-2-options-20260801-224500/N2-0-4-2-options-20260801-224500.md
+2026-08-01 22:45 local | 4-3 | OPEN | keybindings parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md

@@ -225,7 +225,8 @@ public sealed partial class GameLoop
             var max = min + ImGui.GetWindowSize();
             var dl = ImGui.GetWindowDrawList();
             BeginUiParityFrame(min);
-            CollectUiParityDraw("GameMenuFrame","Frame",min,size,"",
+            string parityRoot=_uiParityPanel=="options"?"OptionsFrame":"GameMenuFrame";
+            CollectUiParityDraw(parityRoot,"Frame",min,size,"",
                 new("",0,"IMGUI_HOST","CENTER","","",0,0));
 
             // THE FRAME IS DRAWN OUTSIDE ImGui's CLIP RECT, SO THE CLIP RECT HAS
@@ -249,8 +250,9 @@ public sealed partial class GameLoop
             _skin?.DrawBackdrop(dl, min, max, WowSkin.Dialog);
             _skin?.HeaderPlaque(dl, min, size.X, PageTitle());
             Vector2 headerMin=min+new Vector2((size.X-256f*S)*.5f,-12f*S),headerSize=new Vector2(256f,64f)*S;
-            CollectUiParityDraw("GameMenuFrameHeader","Texture",headerMin,headerSize,"GameMenuFrame",
-                new(@"Interface\DialogFrame\UI-DialogBox-Header",0xffffffff,"IMGUI_IMAGE","TOP","GameMenuFrame","TOP",0,12));
+            string parityHeader=_uiParityPanel=="options"?"OptionsFrameHeader":"GameMenuFrameHeader";
+            CollectUiParityDraw(parityHeader,"Texture",headerMin,headerSize,parityRoot,
+                new(@"Interface\DialogFrame\UI-DialogBox-Header",0xffffffff,"IMGUI_IMAGE","TOP",parityRoot,"TOP",0,12));
             dl.PopClipRect();
 
             // The plaque hangs 12 above the frame and its VISIBLE metal ends about

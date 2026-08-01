@@ -233,3 +233,9 @@ Evidence: `live-runs/N2-0-3-14-trade-20260801-221500/N2-0-3-14-trade-20260801-22
 Coverage: 10/43 with 33 NOT-DRAWN. All accepted root/header/button rows now
 derive from the real draw variables rather than legacy metadata copies.
 Evidence: `live-runs/N2-0-4-1-game-menu-20260801-223000/N2-0-4-1-game-menu-20260801-223000.md`.
+
+## 4-2 Options — CLOSED-FINDING
+
+Coverage: 2/180 with 178 NOT-DRAWN. The live video-options modal now emits
+draw-derived host/header evidence against the full vanilla OptionsFrame.
+Evidence: `live-runs/N2-0-4-2-options-20260801-224500/N2-0-4-2-options-20260801-224500.md`.
