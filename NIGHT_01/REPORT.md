@@ -301,3 +301,21 @@ move-audit-check PASS.
 3. The queued first `IntentOff` reproduces as combat-audit trace-start/setup-cluster
    normalization, not a new production pairing failure; both fresh backpedal traces
    pass mechanics, with visual judgment correctly left to Nico.
+
+## NIGHT_01B 1-1 — amended entry-symbol W1
+
+Status: `SHELVED-BLOCKED` under the item-1-1-only interactive-wait clause; the
+autonomous build queue continues.
+
+```text
+PREDICTED: one concurrent gated attack reaches entry-symbol discrimination
+ACTUAL: symbols/return resolved and armed; W1F was concurrent but fresh-spawn
+        observation failed, the mechanical gate refused, and no attack was sent
+RESULT: NO CAUSAL VERDICT; no-gdb-hit outcome is not promoted
+```
+
+Full attempt and hygiene reconciliation:
+`live-runs/N1B-11-entry-symbol-wait-20260801-083000.md`.
+
+Boundary gates: Debug build PASS (0 warnings / 0 errors), combat-wire PASS,
+portrait-camera PASS (10,534 / 1,224 / 1,289 / 56), move-audit-check PASS.

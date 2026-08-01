@@ -152,3 +152,9 @@ Format per entry:
 - item:helm:67219 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
 - item:helm:67220 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
 - item:helm:67221 — needs-Nico — evidence: `live-runs/N5-housekeeping-triage-20260801-002000.md`
+
+### NIGHT_01B append-only ruling reconciliation
+
+- Q1 is ruled by `1B_RESUME_ORDER.md`: entry-symbol W1 is authorized; it is not a pending decision.
+- Q5, Q6, and Q7 are struck: missing client families are authorized build work, not rulings or blockers.
+- Q2, Q3, Q4, Q8, Q9, Q10, Q11, Q12, and Q13 retain their prior status unless a later per-item packet supersedes them.

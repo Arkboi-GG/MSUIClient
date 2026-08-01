@@ -1,0 +1,766 @@
+MSUI Client — VMaNGOS 1.12.1 (build 5875)
+
+[config] file      C:\Users\nico\source\repos\MSUIClient\MSUIClient\client-config.json
+[config] repo root C:\Users\nico\source\repos\MSUIClient
+[config] 15 MPQ archive(s) in C:\Users\nico\source\repos\MSUIClient\GameData\Data
+[config] WARNING C:\Users\nico\source\repos\MSUIClient\GameData\vmaps has no .vmtile or .vmo files — ignoring
+[start] map 0 (Azeroth) at (-8950.0, -132.5, 83.5)
+[settings] C:\Users\nico\source\repos\MSUIClient\settings.json  preset 'Fair', 0 saved preset(s)
+[settings] window 1600x900 vsync off msaa 1x aniso 5x ui 1.80x
+[ui-font] Fonts\FRIZQT__.TTF from fonts.MPQ, 62,316 bytes
+[startup] window created            0.04s
+[display] VSync requested off, window reports off
+[ui] scale 1.80, font msui-Fonts_FRIZQT__.TTF at 22px
+[gl] Intel(R) Iris(R) Xe Graphics
+[gl] 3.3.0 - Build 32.0.101.7077
+[input] 1 keyboard(s), 1 mouse/mice
+[display] MSAA requested 1x, framebuffer reports 2x; anisotropy 5x
+[startup] GL + input + UI           0.05s
+[mpq] priority: patch-4.MPQ > patch-2.MPQ > patch.MPQ > terrain.MPQ > model.MPQ > backup.MPQ > base.MPQ > dbc.MPQ > fonts.MPQ > interface.MPQ > misc.MPQ > sound.MPQ > speech.MPQ > texture.MPQ > wmo.MPQ
+[mpq] mounted 15 archive(s), held open (parallel reads)
+[stream] 8 CPU asset worker(s), 2 reserved for terrain ADTs, on 20 logical core(s)
+[stream] dedicated shared-context GPU uploader ready
+[shader] terrain compiled and linked
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[hitch] recorder armed - threshold 25 ms, window 180 frames, cooldown 3s, cap 40
+[shader] wmo compiled and linked
+[shader] water compiled and linked
+[shader] underwater compiled and linked
+[liquid-tex] water: 30 frame(s) 256x256 from 'XTextures\river\lake_a.N.blp'
+[liquid-tex] ocean: 30 frame(s) 256x256 from 'XTextures\ocean\ocean_h.N.blp'
+[liquid-tex] slime: 30 frame(s) 256x256 from 'XTextures\slime\slime.N.blp'
+[liquid-tex] magma: 30 frame(s) 256x256 from 'XTextures\lava\lava.N.blp'
+[wake] XTextures\splash\wake.blp 128x128, max alpha 255
+[shader] sky compiled and linked
+[shader] grass compiled and linked
+[dbc] GroundEffectDoodad: 443 record(s), 3 field(s), 12 bytes; 443 with a model path
+[dbc] GroundEffectTexture: 12742 record(s), 7 field(s), 28 bytes; 681 effect(s) with resolvable doodads
+[shader] particle compiled and linked
+[shader] portal_surface compiled and linked
+[dbc] Light: 374 record(s), 12 field(s), 48 bytes; 374 zone(s), 19 map default(s)
+[dbc] LightParams: 426 record(s), 9 field(s), 36 bytes; 426 usable
+[dbc] LightIntBand: 7668 record(s), 34 field(s), 136 bytes; 6695 band(s) with keys
+[dbc] LightFloatBand: 2556 record(s), 34 field(s), 136 bytes; 2424 band(s) with keys
+[light] loaded: 374 zone(s), 426 params, 7668 int band(s), 2556 float band(s)
+[shader] doodad compiled and linked
+[mpq] 131 read(s), 127 found, 4 not present, 15 archive(s) still open
+[shader] character compiled and linked
+[shader] attached compiled and linked
+[character] Character\Human\Male\HumanMale.m2: 3,159 verts, 3,773 tris, 56 geoset(s), 119 bone(s), 143 sequence(s)
+[anim] KeyBoneLookup has 27 entries; 21 bone(s) carry a key-bone ID
+[anim] key bones: 1:key22(p-1,y2.21)  3:key23(p-1,y1.40)  18:key26(p0,y1.22)  20:key4(p18,y1.21)  21:key5(p18,y1.16)  49:key2(p22,y1.70)  50:key3(p22,y1.70)  64:key6(p48,y1.84)  65:key0(p49,y1.63)  66:key1(p50,y1.63)  72:key25(p63,y1.43)  77:key7(p64,y1.84)  90:key21(p64,y1.80)  91:key18(p64,y1.80)  92:key24(p64,y1.84)  100:key16(p95,y0.90)  101:key17(p95,y0.98)  102:key11(p97,y0.90)  103:key12(p97,y0.98)  113:key20(p95,y0.90)  114:key19(p97,y0.90)
+[anim] torso yaw applies at bone 20, parent 18, subtree holds 79 of 119 bone(s)
+[anim] lower-body twist applied at bone 21 (via bone.KeyBoneId Waist), parent 18, pivot height 1.16, subtree holds 20 of 119 bone(s)
+[character] clips: Stand 2.67s/53b move 0.00, Walk 1.00s/44b move 2.50, Run 0.67s/44b move 6.94, CombatWound 1.00s/33b move 0.00, ShuffleLeft 0.50s/17b move 0.00, ShuffleRight 0.50s/17b move 0.00, WalkBackwards 1.00s/44b move 2.50, AttackUnarmed 1.00s/37b move 0.00, Attack1H 1.00s/34b move 0.00, Attack2H 1.33s/44b move 0.00, Attack2HL 1.33s/38b move 0.00, Anim20 1.00s/44b move 0.00, Anim21 1.00s/34b move 0.00, Anim22 1.00s/38b move 0.00, Anim23 1.00s/39b move 0.00, Anim24 1.00s/26b move 0.00, ReadyUnarmed 1.00s/41b move 0.00, Ready1H 1.00s/40b move 0.00, Ready2H 1.33s/37b move 0.00, Ready2HL 1.33s/39b move 0.00, Dodge 1.00s/34b move 0.00, JumpStart 0.83s/45b move 0.00, Jump 1.00s/42b move 0.00, JumpEnd 1.00s/39b move 0.00, Fall 1.00s/39b move 0.00, Anim85 1.00s/42b move 0.00, Anim87 1.00s/33b move 0.00, Anim88 1.00s/35b move 0.00, JumpLandRun 0.83s/43b move 6.94
+[character] no usable RunRight (id 92) in this model
+[character] no usable RunLeft (id 93) in this model
+[character] no usable Anim117 (id 117) in this model
+[dbc] CharSections: 3671 row(s)
+[dbc] CharHairGeosets: 145 mapping(s)
+[character] face lower 'Character\Human\Male\HumanMaleFaceLower00_00.blp' upper 'Character\Human\Male\HumanMaleFaceUpper00_00.blp'
+[character] facial-hair lower 'Character\Human\FacialLowerHair00_00.blp' upper 'Character\Human\FacialUpperHair00_00.blp' (brows/underlay, hair-coloured)
+[character] scalp lower 'Character\Human\ScalpLowerHair02_00.blp' upper 'Character\Human\ScalpUpperHair02_00.blp' (the hairline)
+[character] body skin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] overlay Character\Human\Male\HumanMaleFaceLower00_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\Male\HumanMaleFaceUpper00_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\FacialLowerHair00_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\FacialUpperHair00_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\ScalpLowerHair02_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\ScalpUpperHair02_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] composited 6/6 appearance overlay(s) onto the skin
+[character] texslot 0: type=1 file='' -> BodySkin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] texslot 1: type=6 file='' -> Bound Character\Human\Hair02_00.blp
+[character] texslot 2: type=2 file='' -> Unbound
+[character] 1 texture slot(s) unbound - tick 'Magenta unbound' to see which geosets they are
+[character] render list: 56 batch(es) -> 56 draw(s), 0 layered submesh(es), 0 fallback draw(s)
+[dbc] ItemDisplayInfo: 38481 record(s), 23 field(s), 92 bytes each, 38481 indexed
+[attach] character offers 34 point(s): 0(bone 98) 1(bone 104) 2(bone 105) 3(bone 106) 4(bone 107) 5(bone 83) 6(bone 84) 7(bone 85) 8(bone 86) 9(bone 27) 10(bone 28) 11(bone 87) 12(bone 55) 13(bone 88) 14(bone 89) 15(bone 56) 16(bone 57) 17(bone 90) 18(bone 1) 19(bone 19) 20(bone 2) 21(bone 108) 22(bone 109) 26(bone 58) 27(bone 59) 28(bone 60) 29(bone 3) 30(bone 61) 31(bone 62) 32(bone 29) 33(bone 30) 34(bone 63) 35(bone 110) 36(bone 111)
+[character] 11 visible batch(es), no unintended overlapping index ranges
+[character] draw split: 11 opaque, 0 blended
+[character] HEAD geo0 cat0 var0 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'  <- BASE BODY (its head samples the dressed atlas)
+[character] HEAD geo702 cat7 var2 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type6 fill=Bound src='Character\Human\Hair02_00.blp'
+[character] geosets 11/56 visible (hair style 9 -> variant 10, DBC): c0=[0,10,10] c1=[101] c2=[201] c3=[301] c4=[401] c5=[501] c7=[702] c13=[1301] c15=[1501]
+[attach] 0 model(s) mounted
+[equip] Breastplate of Might (display 31021, slot 5) -> body: tex 0:'Plate_RaidWarrior_A_01Blue_Sleeve_AU' 3:'Plate_RaidWarrior_A_01Blue_Chest_TU' 4:'Plate_RaidWarrior_A_01Blue_Chest_TL'
+[equip] Legplates of Might (display 31023, slot 7) -> body: tex 5:'Plate_RaidWarrior_A_01Blue_Pant_LU' 6:'Plate_RaidWarrior_A_01Blue_Pant_LL'
+[equip] Sabatons of Might (display 31025, slot 8) -> body: tex 6:'Plate_RaidWarrior_A_01Blue_Boot_LL' 7:'Plate_RaidWarrior_A_01Blue_Boot_FO'  geoset [3,0,0]
+[equip] Gauntlets of Might (display 31022, slot 10) -> body: tex 1:'Plate_RaidWarrior_A_01Blue_Glove_AL' 2:'Plate_RaidWarrior_A_01Blue_Glove_HA'  geoset [3,0,0]
+[equip] Bracers of Might (display 31020, slot 9) -> body: tex 1:'Plate_RaidWarrior_A_01Blue_Bracer_AL'
+[equip] Belt of Might (display 31019, slot 6) -> body: tex 5:'Plate_RaidWarrior_A_01Blue_Belt_LU'
+[equip] Tabard of the Scarlet Crusade (display 15817, slot 19) -> body: tex 3:'Tabard_A_01Crusader_Chest_TU' 4:'Tabard_A_01Crusader_Chest_TL'  geoset [1,0,0]
+[equip] Cape texture test (display 13963, slot 16) -> body: modelTex 'Cape_Mage_A_01Black'  geoset [1,0,0]
+[equip] Helm of Might (display 31260, slot 1) -> attachment: model 'Helm_Plate_RaidWarrior_A_01.mdx'  modelTex 'Helm_Plate_RaidWarrior_A_01Blue'  helmVis 247/247
+[equip] Pauldrons of Might (display 31024, slot 3) -> attachment: model 'LShoulder_Plate_RaidWarrior_A_01.mdx'  modelTex 'Shoulder_Plate_RaidWarrior_A_01Blue'
+[equip] Quel'Serrar (display 30994, slot 21) -> attachment: model 'Sword_1H_Long_D_03.mdx'  modelTex 'Sword_1H_Long_D_03_V01'
+[equip] Aegis of the Scarlet Commander (display 18751, slot 14) -> attachment: model 'Shield_Crest_B_03.mdx'  modelTex 'Shield_Crest_B_03Crusade'
+[equip] 4 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[character] cloak 'Cape texture test' -> type-2 slot(s): Item\ObjectComponents\Cape\Cape_Mage_A_01Black.blp
+[equip] LegUpperTexture resolves as: Item\TextureComponents\LegUpperTexture\Plate_RaidWarrior_A_01Blue_Pant_LU_U.blp
+[equip] LegLowerTexture resolves as: Item\TextureComponents\LegLowerTexture\Plate_RaidWarrior_A_01Blue_Pant_LL_U.blp
+[equip] ArmUpperTexture resolves as: Item\TextureComponents\ArmUpperTexture\Plate_RaidWarrior_A_01Blue_Sleeve_AU_U.blp
+[equip] TorsoUpperTexture resolves as: Item\TextureComponents\TorsoUpperTexture\Plate_RaidWarrior_A_01Blue_Chest_TU_M.blp
+[equip] TorsoLowerTexture resolves as: Item\TextureComponents\TorsoLowerTexture\Plate_RaidWarrior_A_01Blue_Chest_TL_M.blp
+[equip] FootTexture resolves as: Item\TextureComponents\FootTexture\Plate_RaidWarrior_A_01Blue_Boot_FO_U.blp
+[equip] ArmLowerTexture resolves as: Item\TextureComponents\ArmLowerTexture\Plate_RaidWarrior_A_01Blue_Bracer_AL_U.blp
+[equip] HandTexture resolves as: Item\TextureComponents\HandTexture\Plate_RaidWarrior_A_01Blue_Glove_HA_U.blp
+[equip] atlas composite: 13 region(s) painted, 0 texture(s) not found
+[character] 13 visible batch(es), no unintended overlapping index ranges
+[character] draw split: 13 opaque, 0 blended
+[character] HEAD geo0 cat0 var0 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'  <- BASE BODY (its head samples the dressed atlas)
+[character] HEAD geo702 cat7 var2 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type6 fill=Bound src='Character\Human\Hair02_00.blp'
+[character] geosets 13/56 visible (hair style 9 -> variant 10, DBC): c0=[0,10,10] c1=[101] c2=[201] c3=[301] c4=[404] c5=[504] c7=[702] c12=[1202] c13=[1301] c15=[1502,1502]
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] Helm of Might: Item\ObjectComponents\Head\Helm_Plate_RaidWarrior_A_01_HuM.m2 on attachment 11
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] Pauldrons of Might (L): Item\ObjectComponents\Shoulder\LShoulder_Plate_RaidWarrior_A_01.m2 on attachment 6
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] Pauldrons of Might (R): Item\ObjectComponents\Shoulder\RShoulder_Plate_RaidWarrior_A_01.m2 on attachment 5
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] Quel'Serrar: Item\ObjectComponents\Weapon\Sword_1H_Long_D_03.m2 on attachment 1
+[attach] Aegis of the Scarlet Commander: Item\ObjectComponents\Shield\Shield_Crest_B_03.m2 on attachment 0
+[attach] 5 model(s) mounted
+[shader] collision compiled and linked
+[ui-skin] 50/50 resolved from the MPQs
+[shader] glue_additive compiled and linked
+[shader] glue_text compiled and linked
+[glue-add] additive overlay ready
+[display] VSync off
+[settings] applied to the live renderers
+[startup] shell ready in 0.85s - streaming the world in behind the loading screen
+[glue] light rig: ambient (0.12,0.08,0.08), 3 diffuse light(s), sun dir (-0.60,0.00,0.60)
+[glue]   light 0: point color (1.69,1.00,0.38) posdir (-3.12,0.87,-0.43)
+[glue]   light 1: point color (0.25,0.39,0.26) posdir (2.72,-2.05,-4.71)
+[glue]   light 2: dir   color (0.30,0.44,0.79) posdir (0.00,1.00,-0.00)
+[glue]   batch sm8 blend4 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\SWORDGRADIENT.BLP'
+[glue]   batch sm9 blend4 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\SWORDGRADIENT2.BLP'
+[glue]   batch sm10 blend0 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\MM_SKY_01.BLP'
+[glue]   batch sm11 blend0 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\AERIEPEAK01.BLP'
+[glue]   batch sm12 blend4 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\EYES2.BLP'
+[glue]   batch sm13 blend0 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\DARKPORTAL_STATUE_03.BLP'
+[glue]   batch sm14 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\GRADIENT.BLP'
+[glue]   batch sm15 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\MM_CLOUDS_01.BLP'
+[glue]   batch sm20 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\ELWYNNGRASS1SKIN.BLP'
+[glue]   batch sm21 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_MAINMENU\ROCKSHADOW.BLP'
+[glue]   batch sm16 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_SCOURGE\MM_CLOUDS_02.BLP'
+[glue]   batch sm17 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_SCOURGE\MM_CLOUDS_02.BLP'
+[glue] UI_MainMenu loaded: 22 batch(es), 4 colour + 3 uv track(s), 3 light(s), 28 emitter(s), fov 1.50, fog on
+[shader] particle compiled and linked
+[shader] portal_surface compiled and linked
+[dbc] CreatureDisplayInfo: 10534 record(s), 48B each, 10534 indexed
+[dbc] CreatureModelData: 430 record(s), 64B each, 430 indexed
+[dbc] CreatureDisplayInfoExtra: 6939 record(s), 76B each, 6939 indexed
+[shader] creature compiled and linked
+[dbc] ItemDisplayInfo: 38481 record(s), 23 field(s), 92 bytes each, 38481 indexed
+[dbc] CharSections: 3671 row(s)
+[dbc] CharHairGeosets: 145 mapping(s)
+[dbc] CharacterFacialHairStyles: 136 style(s)
+[dbc] HelmetGeosetVisData: 16 row(s)
+[creature] renderer ready (10534 display rows, 430 models, 6939 extended-npc rows, geosets=on)
+[shader] selection_ring compiled and linked
+[actions] spell catalog ready (22357 rows)
+[spell-fx] SpellVisual/Kit/EffectName chain ready
+[shader] spell-effect-mesh compiled and linked
+[dbc] ItemDisplayInfo: 38481 record(s), 23 field(s), 92 bytes each, 38481 indexed
+[target] FactionTemplate.dbc loaded (314 rows)
+[net] auto-login as nico
+[startup] game load callback       1.21s
+[net] ConnectingRealm: connecting to realmd 192.168.0.2:3724
+[foliage] scattered 0 grass instance(s) over 0 model(s); 0 model(s) loaded, 0 missing
+[foliage]   0.5 ms over 0 cell(s), 0 candidate(s) rolled, 0 kept
+[net] ConnectingWorld: connecting to world 192.168.0.2:8085 (Barrens Chat)
+[shader] glue compiled and linked
+[shader] glue: uniform 'uLightAtten[0]' not found (optimised out?)
+[shader] glue: uniform 'uLightAtten[1]' not found (optimised out?)
+[shader] glue: uniform 'uLightAtten[2]' not found (optimised out?)
+[net] Authenticating: requesting character list
+[net] EnteringWorld: entering world as Test (L20)
+[net] InWorld: in world: Test - map 0 at (-8970, -132, 83)
+[net] entering world: map 0 at (-8970, -132, 83) - loading
+[verdict:combat] time=0.333 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=86;hex=0A0000000000000000000000004400000057656C636F6D6520746F20576F726C64206F66205761726372616674210A506174636820312E31323A204472756D73206F6620576172206973206E6F77206C697665210000
+[verdict:combat] time=0.335 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=14;hex=474D206D6F6465206973204F4E00
+[verdict:combat] time=0.335 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=31;hex=596F7520617265206E6F7720696E76697369626C65202872616E6B20362900
+[glue] light rig: ambient (0.27,0.27,0.27), 2 diffuse light(s), sun dir (0.75,0.00,0.67)
+[glue]   light 0: dir   color (1.04,0.88,0.60) posdir (0.65,0.50,0.58)
+[glue]   light 1: dir   color (0.20,0.35,0.44) posdir (0.46,0.67,-0.59)
+[glue]   batch sm1 blend2 lit   texAnim0 tex 'INTERFACE\GLUES\MODELS\UI_TAUREN\GROUNDSHADOW.BLP'
+[glue]   batch sm2 blend2 lit   texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_HUMAN\STREET 02.BLP'
+[glue]   batch sm2 blend2 lit   texAnim0 tex 'INTERFACE\GLUES\MODELS\UI_TAUREN\GROUNDSHADOW.BLP'
+[glue]   batch sm11 blend0 unlit texAnim-1 tex 'DUNGEONS\TEXTURES\WINDOWS\MM_STRMWND_WINDOWS_01.BLP'
+[glue]   batch sm16 blend2 lit   texAnim-1 tex 'WORLD\GENERIC\HUMAN\PASSIVE DOODADS\STORMWIND\ELWYNNTREETALLCANOPY_NEW01.BLP'
+[glue]   batch sm17 blend2 lit   texAnim-1 tex 'WORLD\GENERIC\HUMAN\PASSIVE DOODADS\STORMWIND\ELWYNNTREETALLCANOPY_NEW01.BLP'
+[glue]   batch sm20 blend0 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_HUMAN\CAUSTIC02.BLP'
+[glue]   batch sm26 blend0 unlit texAnim-1 tex 'DUNGEONS\TEXTURES\DOODADS\STORMWINDLAMPGLASS.BLP'
+[glue]   batch sm24 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_HUMAN\GRADIENT5CIRCLE.BLP'
+[glue]   batch sm22 blend0 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_HUMAN\MM_SKY_02.BLP'
+[glue]   batch sm23 blend2 unlit texAnim-1 tex 'INTERFACE\GLUES\MODELS\UI_HUMAN\MM_CLOUDS_03.BLP'
+[glue] UI_Human loaded: 29 batch(es), 1 colour + 2 uv track(s), 2 light(s), 0 emitter(s), fov 1.40, fog off
+[booth] character-select background: UI_Human
+[shader] character compiled and linked
+[character] Character\Human\Male\HumanMale.m2: 3,159 verts, 3,773 tris, 56 geoset(s), 119 bone(s), 143 sequence(s)
+[anim] KeyBoneLookup has 27 entries; 21 bone(s) carry a key-bone ID
+[anim] key bones: 1:key22(p-1,y2.21)  3:key23(p-1,y1.40)  18:key26(p0,y1.22)  20:key4(p18,y1.21)  21:key5(p18,y1.16)  49:key2(p22,y1.70)  50:key3(p22,y1.70)  64:key6(p48,y1.84)  65:key0(p49,y1.63)  66:key1(p50,y1.63)  72:key25(p63,y1.43)  77:key7(p64,y1.84)  90:key21(p64,y1.80)  91:key18(p64,y1.80)  92:key24(p64,y1.84)  100:key16(p95,y0.90)  101:key17(p95,y0.98)  102:key11(p97,y0.90)  103:key12(p97,y0.98)  113:key20(p95,y0.90)  114:key19(p97,y0.90)
+[anim] torso yaw applies at bone 20, parent 18, subtree holds 79 of 119 bone(s)
+[anim] lower-body twist applied at bone 21 (via bone.KeyBoneId Waist), parent 18, pivot height 1.16, subtree holds 20 of 119 bone(s)
+[character] clips: Stand 2.67s/53b move 0.00, Walk 1.00s/44b move 2.50, Run 0.67s/44b move 6.94, CombatWound 1.00s/33b move 0.00, ShuffleLeft 0.50s/17b move 0.00, ShuffleRight 0.50s/17b move 0.00, WalkBackwards 1.00s/44b move 2.50, AttackUnarmed 1.00s/37b move 0.00, Attack1H 1.00s/34b move 0.00, Attack2H 1.33s/44b move 0.00, Attack2HL 1.33s/38b move 0.00, Anim20 1.00s/44b move 0.00, Anim21 1.00s/34b move 0.00, Anim22 1.00s/38b move 0.00, Anim23 1.00s/39b move 0.00, Anim24 1.00s/26b move 0.00, ReadyUnarmed 1.00s/41b move 0.00, Ready1H 1.00s/40b move 0.00, Ready2H 1.33s/37b move 0.00, Ready2HL 1.33s/39b move 0.00, Dodge 1.00s/34b move 0.00, JumpStart 0.83s/45b move 0.00, Jump 1.00s/42b move 0.00, JumpEnd 1.00s/39b move 0.00, Fall 1.00s/39b move 0.00, Anim85 1.00s/42b move 0.00, Anim87 1.00s/33b move 0.00, Anim88 1.00s/35b move 0.00, JumpLandRun 0.83s/43b move 6.94
+[character] no usable RunRight (id 92) in this model
+[character] no usable RunLeft (id 93) in this model
+[character] no usable Anim117 (id 117) in this model
+[dbc] CharSections: 3671 row(s)
+[dbc] CharHairGeosets: 145 mapping(s)
+[character] face lower 'Character\Human\Male\HumanMaleFaceLower00_00.blp' upper 'Character\Human\Male\HumanMaleFaceUpper00_00.blp'
+[character] facial-hair lower 'Character\Human\FacialLowerHair00_00.blp' upper 'Character\Human\FacialUpperHair00_00.blp' (brows/underlay, hair-coloured)
+[character] scalp lower 'Character\Human\ScalpLowerHair02_00.blp' upper 'Character\Human\ScalpUpperHair02_00.blp' (the hairline)
+[character] body skin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] overlay Character\Human\Male\HumanMaleFaceLower00_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\Male\HumanMaleFaceUpper00_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\FacialLowerHair00_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\FacialUpperHair00_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\ScalpLowerHair02_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\ScalpUpperHair02_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] composited 6/6 appearance overlay(s) onto the skin
+[character] texslot 0: type=1 file='' -> BodySkin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] texslot 1: type=6 file='' -> Bound Character\Human\Hair02_00.blp
+[character] texslot 2: type=2 file='' -> Unbound
+[character] 1 texture slot(s) unbound - tick 'Magenta unbound' to see which geosets they are
+[character] render list: 56 batch(es) -> 56 draw(s), 0 layered submesh(es), 0 fallback draw(s)
+[dbc] ItemDisplayInfo: 38481 record(s), 23 field(s), 92 bytes each, 38481 indexed
+[attach] character offers 34 point(s): 0(bone 98) 1(bone 104) 2(bone 105) 3(bone 106) 4(bone 107) 5(bone 83) 6(bone 84) 7(bone 85) 8(bone 86) 9(bone 27) 10(bone 28) 11(bone 87) 12(bone 55) 13(bone 88) 14(bone 89) 15(bone 56) 16(bone 57) 17(bone 90) 18(bone 1) 19(bone 19) 20(bone 2) 21(bone 108) 22(bone 109) 26(bone 58) 27(bone 59) 28(bone 60) 29(bone 3) 30(bone 61) 31(bone 62) 32(bone 29) 33(bone 30) 34(bone 63) 35(bone 110) 36(bone 111)
+[character] 11 visible batch(es), no unintended overlapping index ranges
+[character] draw split: 11 opaque, 0 blended
+[character] HEAD geo0 cat0 var0 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'  <- BASE BODY (its head samples the dressed atlas)
+[character] HEAD geo702 cat7 var2 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type6 fill=Bound src='Character\Human\Hair02_00.blp'
+[character] geosets 11/56 visible (hair style 9 -> variant 10, DBC): c0=[0,10,10] c1=[101] c2=[201] c3=[301] c4=[401] c5=[501] c7=[702] c13=[1301] c15=[1501]
+[attach] 0 model(s) mounted
+[character] face lower 'Character\Human\Male\HumanMaleFaceLower02_00.blp' upper 'Character\Human\Male\HumanMaleFaceUpper02_00.blp'
+[character] facial-hair lower 'Character\Human\FacialLowerHair08_04.blp' upper 'Character\Human\FacialUpperHair08_04.blp' (brows/underlay, hair-coloured)
+[character] scalp lower 'Character\Human\ScalpLowerHair02_04.blp' upper 'Character\Human\ScalpUpperHair02_04.blp' (the hairline)
+[character] body skin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] overlay Character\Human\Male\HumanMaleFaceLower02_00.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\Male\HumanMaleFaceUpper02_00.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\FacialLowerHair08_04.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\FacialUpperHair08_04.blp -> face Upper (0,160,128,32) from 128x32
+[character] overlay Character\Human\ScalpLowerHair02_04.blp -> face Lower (0,192,128,64) from 128x64
+[character] overlay Character\Human\ScalpUpperHair02_04.blp -> face Upper (0,160,128,32) from 128x32
+[character] composited 6/6 appearance overlay(s) onto the skin
+[character] texslot 0: type=1 file='' -> BodySkin Character\Human\Male\HumanMaleSkin00_00.blp
+[character] texslot 1: type=6 file='' -> Bound Character\Human\Hair02_04.blp
+[character] texslot 2: type=2 file='' -> Unbound
+[character] 1 texture slot(s) unbound - tick 'Magenta unbound' to see which geosets they are
+[equip] slot3 (display 9891, slot 4) -> body: tex 3:'Leather_A_05Yellow_Chest_TU' 4:'Leather_A_05Yellow_Chest_TL'
+[equip] slot6 (display 9892, slot 7) -> body: tex 5:'Leather_A_05Yellow_Pant_LU' 6:'Leather_A_05Yellow_Pant_LL'
+[equip] slot7 (display 10141, slot 8) -> body: tex 6:'Leather_A_05Yellow_Boot_LL' 7:'Leather_A_05Yellow_Boot_FO'
+[equip] slot15 (display 1542, slot 21) -> attachment: model 'Sword_1H_Short_A_02.mdx'  modelTex 'Sword_1H_Short_A_02Rusty'
+[equip] slot16 (display 18730, slot 14) -> attachment: model 'Shield_Round_A_01.mdx'  modelTex 'Buckler_Damaged_A_01Purple'
+[equip] 2 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[equip] TorsoUpperTexture resolves as: Item\TextureComponents\TorsoUpperTexture\Leather_A_05Yellow_Chest_TU_M.blp
+[equip] TorsoLowerTexture resolves as: Item\TextureComponents\TorsoLowerTexture\Leather_A_05Yellow_Chest_TL_M.blp
+[equip] LegUpperTexture resolves as: Item\TextureComponents\LegUpperTexture\Leather_A_05Yellow_Pant_LU_M.blp
+[equip] LegLowerTexture resolves as: Item\TextureComponents\LegLowerTexture\Leather_A_05Yellow_Pant_LL_M.blp
+[equip] FootTexture resolves as: Item\TextureComponents\FootTexture\Leather_A_05Yellow_Boot_FO_M.blp
+[equip] atlas composite: 6 region(s) painted, 0 texture(s) not found
+[character] 11 visible batch(es), no unintended overlapping index ranges
+[character] draw split: 11 opaque, 0 blended
+[character] HEAD geo0 cat0 var0 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'  <- BASE BODY (its head samples the dressed atlas)
+[character] HEAD geo702 cat7 var2 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type1 fill=BodySkin src='Character\Human\Male\HumanMaleSkin00_00.blp'
+[character] HEAD geo10 cat0 var10 slot=type6 fill=Bound src='Character\Human\Hair02_04.blp'
+[character] geosets 11/56 visible (hair style 9 -> variant 10, DBC): c0=[0,10,10] c1=[101] c2=[201] c3=[301] c4=[401] c5=[501] c7=[702] c13=[1301] c15=[1501]
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] slot15: Item\ObjectComponents\Weapon\Sword_1H_Short_A_02.m2 on attachment 1
+[attach] slot16: Item\ObjectComponents\Shield\Shield_Round_A_01.m2 on attachment 0
+[attach] 2 model(s) mounted
+[booth] character built + cached: Test - Human Male (5 equipped)
+[verdict:action] time=0.507 slot=0 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.508 slot=1 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=2 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=3 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=4 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=5 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=6 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.509 slot=7 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.510 slot=8 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.510 slot=9 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.510 slot=10 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:action] time=0.510 slot=11 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[verdict:combat] time=0.518 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Welcome_to_World_of_Warcraft!Patch_1.12:_Drums_of_War_is_now_live!
+[shader] loading_screen compiled and linked
+[shader] loading_screen_bg compiled and linked
+[dbc] Map: 44 record(s), 42 field(s), 168 bytes; 44 map(s) with a directory
+[dbc] LoadingScreens: 40 record(s); 40 screen(s) catalogued
+[load] loading-screen art Interface\Glues\LoadingScreens\LoadScreenEasternKingdom.blp (512x512) for map 0
+[load] streaming world behind loading screen (centre tile [32,48], radius 1)
+[character] adopted cached character-select avatar
+[character] player model reused: Human Male (5 equipped)
+[net] creature entry 69 display 604 L2 at (-9029, -163, 79)
+[net] creature entry 299 display 447 L1 at (-9029, -143, 83)
+[net] creature entry 299 display 447 L1 at (-8997, -137, 83)
+[net] creature entry 299 display 447 L1 at (-8983, -152, 81)
+[net] creature entry 721 display 328 L1 at (-8957, -160, 82)
+[net] creature entry 823 display 2072 L18 at (-8934, -137, 83)
+[net] creature entry 721 display 328 L1 at (-8932, -139, 83)
+[net] creature entry 197 display 1859 L20 at (-8903, -163, 82)
+[net] creature entry 1642 display 3167 L55 at (-9035, -101, 88)
+[net] creature entry 1642 display 3257 L55 at (-9048, -101, 88)
+[net] creature entry 299 display 447 L1 at (-9028, -111, 88)
+[net] creature entry 78 display 3275 L5 at (-8909, -104, 82)
+[net] creature entry 152 display 3277 L5 at (-8902, -113, 82)
+[net] creature entry 11940 display 11898 L5 at (-8908, -109, 82)
+[net] creature entry 299 display 447 L1 at (-8869, -116, 81)
+[net] creature entry 1213 display 3278 L5 at (-8898, -120, 82)
+[net] creature entry 190 display 3276 L5 at (-8898, -115, 82)
+[net] creature entry 1642 display 3257 L55 at (-9008, -68, 87)
+[net] creature entry 1642 display 3167 L55 at (-9000, -86, 86)
+[net] creature entry 721 display 328 L1 at (-9028, -84, 88)
+[net] creature entry 299 display 447 L1 at (-8979, -81, 87)
+[net] creature entry 299 display 447 L1 at (-8987, -72, 88)
+[net] creature entry 299 display 447 L1 at (-8949, -83, 88)
+[net] creature entry 299 display 447 L1 at (-8884, -80, 85)
+[net] creature entry 952 display 3317 L50 at (-8902, -182, 113)
+[net] creature entry 459 display 3345 L5 at (-8927, -196, 81)
+[net] creature entry 299 display 447 L1 at (-8927, -60, 89)
+[net] creature entry 299 display 447 L1 at (-8918, -49, 88)
+[net] creature entry 6491 display 5233 L60 at (-8946, -183, 80)
+[net] creature entry 5403 display 2410 L2 at (-8934, -167, 81)
+[net] creature entry 299 display 447 L1 at (-8937, -53, 90)
+[net] creature entry 299 display 447 L1 at (-8954, -49, 92)
+[net] creature entry 69 display 604 L2 at (-8989, -172, 78)
+[net] creature entry 299 display 447 L1 at (-8982, -176, 77)
+[net] creature entry 299 display 447 L1 at (-8984, -53, 91)
+[net] creature entry 69 display 604 L2 at (-9018, -196, 75)
+[net] creature entry 69 display 604 L2 at (-9042, -179, 76)
+[net] creature entry 69 display 604 L2 at (-8958, -229, 78)
+[net] creature entry 69 display 604 L2 at (-8983, -218, 74)
+[verdict:combat] time=0.589 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_ON
+[verdict:combat] time=0.589 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=You_are_now_invisible_(rank_6)
+[terrain] tile [33,47] texture Tileset\The Blasted Lands\BlastedLandsBlack.blp is 8x8, expected 256x256 — skipped
+[terrain] tile [32,46] texture Tileset\The Blasted Lands\BlastedLandsBlack.blp is 8x8, expected 256x256 — skipped
+[gpu-upload] terrain [31,47] completed in 22ms off-thread
+[gpu-upload] terrain [30,48] completed in 10ms off-thread
+[terrain] tile [34,47] texture Tileset\The Blasted Lands\BlastedLandsBlack.blp is 8x8, expected 256x256 — skipped
+[terrain] tile [33,46] texture Tileset\The Blasted Lands\BlastedLandsBlack.blp is 8x8, expected 256x256 — skipped
+[gpu-upload] terrain [31,48] completed in 20ms off-thread
+[terrain] tile [34,46] texture Tileset\The Blasted Lands\BlastedLandsBlack.blp is 8x8, expected 256x256 — skipped
+[gpu-upload] terrain [32,47] completed in 11ms off-thread
+[gpu-upload] terrain [31,46] completed in 12ms off-thread
+[gpu-upload] terrain [33,48] completed in 15ms off-thread
+[gpu-upload] terrain [30,47] completed in 12ms off-thread
+[gpu-upload] terrain [33,47] completed in 11ms off-thread
+[gpu-upload] terrain [32,48] completed in 10ms off-thread
+[gpu-upload] terrain [32,46] completed in 10ms off-thread
+[gpu-upload] terrain [30,46] completed in 9ms off-thread
+[gpu-upload] terrain [31,49] completed in 9ms off-thread
+[gpu-upload] terrain [32,49] completed in 9ms off-thread
+[gpu-upload] terrain [33,49] completed in 8ms off-thread
+[terrain] tile [32,48] adopted: 37120 verts, 65472 tris, 16 hole cells, z 61.3..277.0
+[terrain] tile [31,48] adopted: 37120 verts, 65456 tris, 20 hole cells, z 37.6..384.1
+[terrain] tile [32,47] adopted: 37120 verts, 65536 tris, 0 hole cells, z 119.1..369.7
+[terrain] tile [32,49] adopted: 37120 verts, 65520 tris, 4 hole cells, z 40.2..146.8
+[terrain] tile [33,48] adopted: 37120 verts, 65536 tris, 0 hole cells, z 47.5..396.5
+[terrain] tile [31,47] adopted: 37120 verts, 65536 tris, 0 hole cells, z 59.5..382.1
+[terrain] tile [31,49] adopted: 37120 verts, 65440 tris, 24 hole cells, z 32.5..174.0
+[terrain] tile [33,47] adopted: 37120 verts, 65536 tris, 0 hole cells, z 122.4..322.9
+[terrain] tile [33,49] adopted: 37120 verts, 65472 tris, 16 hole cells, z 37.4..195.1
+[gpu-upload] terrain [34,48] completed in 8ms off-thread
+[gpu-upload] terrain [34,47] completed in 10ms off-thread
+[gpu-upload] terrain [33,46] completed in 10ms off-thread
+[gpu-upload] terrain [34,46] completed in 9ms off-thread
+[gpu-upload] terrain [34,49] completed in 9ms off-thread
+[gpu-upload] terrain [31,50] completed in 10ms off-thread
+[gpu-upload] terrain [30,50] completed in 12ms off-thread
+[gpu-upload] terrain [30,49] completed in 11ms off-thread
+[gpu-upload] terrain [33,50] completed in 14ms off-thread
+[gpu-upload] terrain [34,50] completed in 10ms off-thread
+[gpu-upload] terrain [32,50] completed in 9ms off-thread
+[wmo-preload] abbeygate02.wmo prepared over 1 group(s), 0.12s, 14 queued, 3 in flight
+[wmo-preload] abbeygate01.wmo prepared over 1 group(s), 0.12s, 13 queued, 3 in flight
+[wmo-preload] redridge_stable.wmo prepared over 1 group(s), 0.12s, 12 queued, 3 in flight
+[gpu-upload] nsabbey.wmo completed in 12ms off-thread
+[wmo-preload] elwynnwidebridge.wmo prepared over 1 group(s), 0.01s, 11 queued, 3 in flight
+[wmo-preload] nsabbey.wmo prepared over 14 group(s), 0.13s, 10 queued, 3 in flight
+[wmo-preload] animalden.wmo prepared over 2 group(s), 0.02s, 9 queued, 3 in flight
+[wmo-preload] farm.wmo prepared over 2 group(s), 0.03s, 8 queued, 3 in flight
+[gpu-upload] md_goldmine.wmo completed in 12ms off-thread
+[wmo-preload] humantwostory.wmo prepared over 6 group(s), 0.05s, 7 queued, 3 in flight
+[wmo-preload] md_goldmine.wmo prepared over 10 group(s), 0.06s, 6 queued, 3 in flight
+[wmo-preload] westfallfarmhouseburnt.wmo prepared over 1 group(s), 0.01s, 5 queued, 3 in flight
+[wmo-preload] wallpost01.wmo prepared over 1 group(s), 0.02s, 4 queued, 3 in flight
+[wmo-preload] goldshireblacksmith.wmo prepared over 2 group(s), 0.04s, 3 queued, 3 in flight
+[wmo-preload] md_spidermine.wmo prepared over 12 group(s), 0.07s, 2 queued, 3 in flight
+[wmo-preload] wallpiece01.wmo prepared over 1 group(s), 0.01s, 1 queued, 3 in flight
+[wmo-preload] goldshireinn.wmo prepared over 12 group(s), 0.07s, 0 queued, 3 in flight
+[wmo-preload] magetower.wmo prepared over 5 group(s), 0.07s, 0 queued, 2 in flight
+[gpu-upload] blackrock.wmo completed in 30ms off-thread
+[wmo-preload] blackrock.wmo prepared over 45 group(s), 0.22s, 0 queued, 1 in flight
+[gpu-upload] stormwind.wmo completed in 130ms off-thread
+[wmo-lod] stormwind.wmo: 17 distance-only shell group(s)
+[wmo-preload] stormwind.wmo prepared over 306 group(s), 0.94s, 0 queued, 0 in flight
+[wmo] OFF-CENTRE stormwind.wmo: geometry centre (-8730,711,204) vs MODF centre (-8762,641,204), 77.2 yd apart
+[wmo] OFF-CENTRE blackrock.wmo: geometry centre (-7533,-1117,270) vs MODF centre (-7531,-1131,238), 35.6 yd apart
+[wmo] 27 placement(s), 18 model(s), 277 texture(s), 1,197,517 triangles, 0.0s
+[liquid] 7 tile(s) with water built, 7 resident
+[doodad] building interiors: 1443/2028 placement(s) (585 model(s) unavailable) in 0.0s
+[load] doodad placement outdoor 24.83 ms, interior 17.76 ms
+[stream] object residency [32,48] radius 768 yd
+[collision] 27 building(s) + 2612 doodad(s), 481,071 triangles expanded in 184ms off-thread (800,497 detail excluded)
+[collision-async] BVH 186,875 nodes over 481,071 triangles, 0.46s off-thread
+[collision-async] bounds X -9591..-7051  Y -1393..1220  Z 30..411
+[dbc] Map: 44 record(s), 42 field(s), 168 bytes; 44 map(s) with a directory
+[dbc] AreaTrigger: 432 record(s), 10 field(s), 40 bytes; 352 sphere(s), 80 box(es) over 39 map(s)
+[teleport] 115 destination(s) from areatrigger_teleport.tsv (6 superseded by a later patch)
+[instances] 44 map(s), 44 with a WDT (21 global-WMO, 23 terrain)
+[verify] PASS — tile [32,48] sampled 83.31, expected 83.31, delta -0.00
+[game] world ready in 2.27s - 9 terrain, 27 WMO, 4831 doodad placement(s), WMO 22 / M2 0 outer-ring still streaming
+[creature-lifecycle] F1300002D1013848 enqueue world-render Creature\Rabbit\Rabbit.m2
+[creature-lifecycle] F130000337013846 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000012B013849 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F1300002D101384B enqueue world-render Creature\Rabbit\Rabbit.m2
+[creature-lifecycle] F13000012B013842 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000151B013847 enqueue world-render Creature\RidingHorse\RidingHorse.m2
+[creature-lifecycle] F13000012B01391D enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F130000045013859 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B013841 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000195B015407 enqueue world-render Creature\spirithealer\SpiritHealer.m2
+[creature-lifecycle] F13000012B013840 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F130002EA401384D enqueue world-render Character\Human\Female\HumanFemale.m2
+[creature-lifecycle] F13000004E013851 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000066A01384C enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000009801384E enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F1300000C5013862 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000012B01384A enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F1300004BD013850 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F1300000BE01384F enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000012B013838 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F1300001CB01385E enqueue world-render Character\Human\Female\HumanFemale.m2
+[creature-lifecycle] F130000045013925 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B01383F enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F1300003B8013860 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000066A013837 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000066A01383C enqueue world-render Character\Human\Female\HumanFemale.m2
+[creature-lifecycle] F13000012B013855 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000004501391C enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F1300002D1013926 enqueue world-render Creature\Rabbit\Rabbit.m2
+[creature-lifecycle] F13000012B01383E enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F130000045013985 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B01383D enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F130000045013924 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B013858 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B013843 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000066A013836 enqueue world-render Character\Human\Female\HumanFemale.m2
+[creature-lifecycle] F13000004501390D enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B013845 enqueue world-render Creature\Wolf\Wolf.m2
+[creature-lifecycle] F13000012B013857 enqueue world-render Creature\Wolf\Wolf.m2
+[anim] KeyBoneLookup has 27 entries; 4 bone(s) carry a key-bone ID
+[anim] key bones: 1:key22(p-1,y0.66)  14:key26(p0,y0.22)  20:key6(p16,y0.21)  31:key21(p20,y0.08)
+[anim] no hips or low-spine bone found - lower-body twist unavailable. Pick one from the table above with 'Twist bone (hips)' in the HUD.
+[anim] KeyBoneLookup has 27 entries; 8 bone(s) carry a key-bone ID
+[anim] key bones: 0:key26(p-1,y1.32)  1:key22(p-1,y2.36)  22:key5(p19,y1.32)  29:key6(p25,y1.22)  47:key7(p29,y1.04)  49:key21(p29,y1.03)  51:key24(p29,y1.22)  59:key25(p50,y1.36)
+[anim] no low-spine bone - the torso half of the strafe is unavailable
+[anim] lower-body twist applied at bone 22 (via bone.KeyBoneId Waist), parent 19, pivot height 1.32, subtree holds 21 of 64 bone(s)
+[anim] KeyBoneLookup has 1 entries; 0 bone(s) carry a key-bone ID
+[anim] no hips or low-spine bone found - lower-body twist unavailable. Pick one from the table above with 'Twist bone (hips)' in the HUD.
+[portrait] player bake ready (subject=42355, rgb=0..255, alpha=202..255, camera=authored, pieces=11)
+[anim] KeyBoneLookup has 27 entries; 21 bone(s) carry a key-bone ID
+[anim] key bones: 1:key22(p-1,y2.21)  3:key23(p-1,y1.40)  18:key26(p0,y1.22)  20:key4(p18,y1.21)  21:key5(p18,y1.16)  49:key2(p22,y1.70)  50:key3(p22,y1.70)  64:key6(p48,y1.84)  65:key0(p49,y1.63)  66:key1(p50,y1.63)  72:key25(p63,y1.43)  77:key7(p64,y1.84)  90:key21(p64,y1.80)  91:key18(p64,y1.80)  92:key24(p64,y1.84)  100:key16(p95,y0.90)  101:key17(p95,y0.98)  102:key11(p97,y0.90)  103:key12(p97,y0.98)  113:key20(p95,y0.90)  114:key19(p97,y0.90)
+[anim] torso yaw applies at bone 20, parent 18, subtree holds 79 of 119 bone(s)
+[anim] lower-body twist applied at bone 21 (via bone.KeyBoneId Waist), parent 18, pivot height 1.16, subtree holds 20 of 119 bone(s)
+[anim] KeyBoneLookup has 27 entries; 21 bone(s) carry a key-bone ID
+[anim] key bones: 1:key22(p-1,y2.14)  4:key23(p-1,y1.18)  20:key26(p0,y1.22)  21:key4(p20,y1.21)  22:key5(p20,y1.16)  50:key2(p23,y1.62)  51:key3(p23,y1.62)  63:key6(p44,y1.71)  64:key0(p50,y1.58)  65:key1(p51,y1.58)  71:key25(p60,y1.44)  76:key7(p63,y1.73)  87:key21(p63,y1.71)  88:key18(p63,y1.71)  89:key24(p63,y1.71)  99:key16(p94,y0.91)  100:key17(p94,y0.96)  101:key11(p96,y0.91)  102:key12(p96,y0.95)  110:key20(p94,y0.90)  111:key19(p96,y0.91)
+[anim] torso yaw applies at bone 21, parent 20, subtree holds 78 of 117 bone(s)
+[anim] lower-body twist applied at bone 22 (via bone.KeyBoneId Waist), parent 20, pivot height 1.16, subtree holds 18 of 117 bone(s)
+[equip] NPC head (display 14964, slot 1) -> attachment: model 'Helm_Plate_B_01Stormwind.mdx'  modelTex 'Helm_Plate_B_01Stormwind'  helmVis 248/306
+[equip] NPC shoulders (display 7541, slot 3) -> attachment: model 'LShoulder_Plate_B_01.mdx'  modelTex 'Shoulder_Plate_B_01Stormwind'
+[equip] virtual weapon 0 (display 7483, slot 13) -> attachment: model 'Sword_1H_Long_A_02.mdx'  modelTex 'Sword_1H_Long_A_02Brown'
+[equip] virtual weapon 1 (display 2080, slot 14) -> attachment: model 'Shield_Crest_B_01.mdx'  modelTex 'Shield_Crest_B_01Gold'
+[equip] virtual weapon 2 (display 10671, slot 26) -> attachment: model 'Bow_2H_Crossbow_A_01.mdx'  modelTex 'Bow_2H_Crossbow_A_01Silver'
+[equip] 5 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[attach] NPC head: Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2 on attachment 11
+[attach] NPC shoulders (L): Item\ObjectComponents\Shoulder\LShoulder_Plate_B_01.m2 on attachment 6
+[attach] NPC shoulders (R): Item\ObjectComponents\Shoulder\RShoulder_Plate_B_01.m2 on attachment 5
+[attach] suppressed 1 overlapping effect pass(es)
+[attach] virtual weapon 0: Item\ObjectComponents\Weapon\Sword_1H_Long_A_02.m2 on attachment 1
+[attach] virtual weapon 1: Item\ObjectComponents\Shield\Shield_Crest_B_01.m2 on attachment 0
+[attach] virtual weapon 2: Item\ObjectComponents\Weapon\Bow_2H_Crossbow_A_01.m2 on attachment 1
+[attach] 6 model(s) mounted
+[equip] NPC head (display 14964, slot 1) -> attachment: model 'Helm_Plate_B_01Stormwind.mdx'  modelTex 'Helm_Plate_B_01Stormwind'  helmVis 248/306
+[equip] NPC shoulders (display 7541, slot 3) -> attachment: model 'LShoulder_Plate_B_01.mdx'  modelTex 'Shoulder_Plate_B_01Stormwind'
+[equip] virtual weapon 0 (display 7483, slot 13) -> attachment: model 'Sword_1H_Long_A_02.mdx'  modelTex 'Sword_1H_Long_A_02Brown'
+[equip] virtual weapon 1 (display 2080, slot 14) -> attachment: model 'Shield_Crest_B_01.mdx'  modelTex 'Shield_Crest_B_01Gold'
+[equip] virtual weapon 2 (display 10671, slot 26) -> attachment: model 'Bow_2H_Crossbow_A_01.mdx'  modelTex 'Bow_2H_Crossbow_A_01Silver'
+[equip] 5 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[attach] NPC head: Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuM.m2 on attachment 11
+[attach] NPC shoulders (L): Item\ObjectComponents\Shoulder\LShoulder_Plate_B_01.m2 on attachment 6
+[attach] NPC shoulders (R): Item\ObjectComponents\Shoulder\RShoulder_Plate_B_01.m2 on attachment 5
+[attach] virtual weapon 0: Item\ObjectComponents\Weapon\Sword_1H_Long_A_02.m2 on attachment 1
+[attach] virtual weapon 1: Item\ObjectComponents\Shield\Shield_Crest_B_01.m2 on attachment 0
+[attach] virtual weapon 2: Item\ObjectComponents\Weapon\Bow_2H_Crossbow_A_01.m2 on attachment 1
+[attach] 6 model(s) mounted
+[equip] NPC head (display 14964, slot 1) -> attachment: model 'Helm_Plate_B_01Stormwind.mdx'  modelTex 'Helm_Plate_B_01Stormwind'  helmVis 248/306
+[equip] NPC shoulders (display 7541, slot 3) -> attachment: model 'LShoulder_Plate_B_01.mdx'  modelTex 'Shoulder_Plate_B_01Stormwind'
+[equip] virtual weapon 0 (display 7483, slot 13) -> attachment: model 'Sword_1H_Long_A_02.mdx'  modelTex 'Sword_1H_Long_A_02Brown'
+[equip] virtual weapon 1 (display 2080, slot 14) -> attachment: model 'Shield_Crest_B_01.mdx'  modelTex 'Shield_Crest_B_01Gold'
+[equip] virtual weapon 2 (display 10671, slot 26) -> attachment: model 'Bow_2H_Crossbow_A_01.mdx'  modelTex 'Bow_2H_Crossbow_A_01Silver'
+[equip] 5 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[attach] NPC head: Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuF.m2 on attachment 11
+[attach] NPC shoulders (L): Item\ObjectComponents\Shoulder\LShoulder_Plate_B_01.m2 on attachment 6
+[attach] NPC shoulders (R): Item\ObjectComponents\Shoulder\RShoulder_Plate_B_01.m2 on attachment 5
+[attach] virtual weapon 0: Item\ObjectComponents\Weapon\Sword_1H_Long_A_02.m2 on attachment 1
+[attach] virtual weapon 1: Item\ObjectComponents\Shield\Shield_Crest_B_01.m2 on attachment 0
+[attach] virtual weapon 2: Item\ObjectComponents\Weapon\Bow_2H_Crossbow_A_01.m2 on attachment 1
+[attach] 6 model(s) mounted
+[equip] NPC head (display 14964, slot 1) -> attachment: model 'Helm_Plate_B_01Stormwind.mdx'  modelTex 'Helm_Plate_B_01Stormwind'  helmVis 248/306
+[equip] NPC shoulders (display 7541, slot 3) -> attachment: model 'LShoulder_Plate_B_01.mdx'  modelTex 'Shoulder_Plate_B_01Stormwind'
+[equip] virtual weapon 0 (display 7483, slot 13) -> attachment: model 'Sword_1H_Long_A_02.mdx'  modelTex 'Sword_1H_Long_A_02Brown'
+[equip] virtual weapon 1 (display 2080, slot 14) -> attachment: model 'Shield_Crest_B_01.mdx'  modelTex 'Shield_Crest_B_01Gold'
+[equip] virtual weapon 2 (display 10671, slot 26) -> attachment: model 'Bow_2H_Crossbow_A_01.mdx'  modelTex 'Bow_2H_Crossbow_A_01Silver'
+[equip] 5 piece(s) are separate M2 models (helm, shoulders, weapons, shield) and need the attachment path, which is not built yet
+[attach] NPC head: Item\ObjectComponents\Head\Helm_Plate_B_01Stormwind_HuF.m2 on attachment 11
+[attach] NPC shoulders (L): Item\ObjectComponents\Shoulder\LShoulder_Plate_B_01.m2 on attachment 6
+[attach] NPC shoulders (R): Item\ObjectComponents\Shoulder\RShoulder_Plate_B_01.m2 on attachment 5
+[attach] virtual weapon 0: Item\ObjectComponents\Weapon\Sword_1H_Long_A_02.m2 on attachment 1
+[attach] virtual weapon 1: Item\ObjectComponents\Shield\Shield_Crest_B_01.m2 on attachment 0
+[attach] virtual weapon 2: Item\ObjectComponents\Weapon\Bow_2H_Crossbow_A_01.m2 on attachment 1
+[attach] 6 model(s) mounted
+[light] coordinate convention detected: flip, swapped: X=H-z, Y=H-x - nearest 735 yd, 6.1x clearer than the runner-up
+[light]      raw (x,y,z) - the original guess   containing   0  nearest     28705 yd (light 29)
+[light]      y-up only: X=x, Y=z, Z=y           containing   0  nearest     28817 yd (light 29)
+[light]   -> flip, swapped: X=H-z, Y=H-x        containing   0  nearest       735 yd (light 77)
+[light]      flip, direct:  X=H-x, Y=H-z        containing   0  nearest      4502 yd (light 47)
+[light]      offset, swapped: X=z-H, Y=x-H      containing   0  nearest      6125 yd (light 49)
+[light]      offset, direct:  X=x-H, Y=z-H      containing   0  nearest      7594 yd (light 28)
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[verdict:combat] time=3.407 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=44;hex=00000000070000002E676F2078797A202D383934392E3935202D3133322E3439332038332E35333132203000
+[verdict:combat] time=3.407 event=GmCommand cause=live-bootstrap target=0x0000000000000000 detail=sent=True;text=.go_xyz_-8949.95_-132.493_83.5312_0
+[hitch] hitch-32-48-1: 39 ms frame at [32,48] (-8970,-132,83) -> update-unmeasured   (window p50 1 p95 6 ms)
+[hitch]   update 30.5 (move 3.1 resid 1.1 preload 1.0 [discover 0.3 demand 0.5 finalize 0.3] adopt 0.0 collAccept 0.0 collSnap 0.0 unmeasured 18.3)  render 7.0  present 0.3  hud 1.2  imguiFlush 0.3  input 0.0  unaccounted 0.1
+[hitch]   render split: world 3.0 = terrain 0.4 + wmo 0.5 + doodad 1.0 + foliage 0.0 [rescatter 0.0 + draw 0.0]   | liquid 0.1  character 0.2  creature 3.7 [load 0.0, 0 load(s), 4 cached]  selection 0.0  spellFx 0.0  debug 0.0
+[hitch]   doodad 1.0 = cull 0.5 + instanceUpload 0.1 + drawSubmit 0.4 + unmeasured 0.1   (54 model(s) uploaded, 0 first-touch)
+[hitch]   doodad cull: 4831 instance(s) over 164 model(s) = 98 ns/instance (~50-100 is normal arithmetic; 1000+ is memory, not maths)
+[hitch]   GPU (delayed): total 2.1 = terrain 1.3 + wmo 0.5 + doodad 0.3 + character 0.0
+[hitch]   uploads: 0 in flight, 0 completed during the frame  (imguiFlush 0.3 ms, gpu 2.1 ms)
+[hitch]   GC: pause 4.3 ms of 39 ms frame  gen0 2 gen1 1 gen2 0  allocated 16.43 MB this frame
+[hitch]   thread: 91.1M cycles over 39 ms = 2.32 M/ms  (~4-5 = running and spinning; <1 = blocked or descheduled)
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[load] timeline wrote C:\Users\nico\source\repos\MSUIClient\dumps\load-azeroth-50.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[wmo-preload] redridgedocks02.wmo prepared over 1 group(s), 0.14s, 18 queued, 3 in flight
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[verdict:combat] time=3.546 event=TeleportWire cause=server-receive target=0x0000000000000000 detail=opcode=0x00C7;bytes=34;hex=01010000000000000000E1D96304CDD70BC6357E04C3F90FA742EA4331400F000000
+[verdict:combat] time=3.547 event=TeleportApplied cause=server-authoritative target=0x0000000000000001 detail=counter=0;position=-8949.95|-132.493|83.5312;orientation=2.7697701;movementTime=73652705;flags=0x00000000
+[verdict:combat] time=3.547 event=TeleportWire cause=client-send target=0x0000000000000000 detail=opcode=0x00C7;bytes=16;hex=010000000000000000000000DB0D0000
+[vantage] 241 saved vantage(s) in C:\Users\nico\source\repos\MSUIClient\vantages.json
+[verdict:combat] time=3.558 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=13;hex=00000000070000002E67707300
+[verdict:combat] time=3.558 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gps
+[protocol] 1,PASS,gm .gps
+[foliage] scattered 0 grass instance(s) over 0 model(s); 0 model(s) loaded, 0 missing
+[foliage]   2.6 ms over 648 cell(s), 1711 candidate(s) rolled, 0 kept  (0 tile(s), 566 model reference(s) deferred)
+[wmo-preload] silo.wmo prepared over 1 group(s), 0.18s, 17 queued, 3 in flight
+[foliage] scattered 0 grass instance(s) over 0 model(s); 0 model(s) loaded, 0 missing
+[foliage]   2.3 ms over 648 cell(s), 1711 candidate(s) rolled, 0 kept  (0 tile(s), 566 model reference(s) deferred)
+[foliage] scattered 0 grass instance(s) over 0 model(s); 0 model(s) loaded, 0 missing
+[foliage]   1.5 ms over 648 cell(s), 1711 candidate(s) rolled, 0 kept  (0 tile(s), 566 model reference(s) deferred)
+[foliage] scattered 424 grass instance(s) over 6 model(s); 6 model(s) loaded, 0 missing
+[foliage]   2.4 ms over 648 cell(s), 1711 candidate(s) rolled, 424 kept  (0 tile(s), 142 model reference(s) deferred)
+[foliage] scattered 424 grass instance(s) over 6 model(s); 6 model(s) loaded, 0 missing
+[foliage]   1.9 ms over 648 cell(s), 1711 candidate(s) rolled, 424 kept  (0 tile(s), 142 model reference(s) deferred)
+[foliage] scattered 424 grass instance(s) over 6 model(s); 6 model(s) loaded, 0 missing
+[foliage]   1.7 ms over 648 cell(s), 1711 candidate(s) rolled, 424 kept  (0 tile(s), 142 model reference(s) deferred)
+[foliage] scattered 566 grass instance(s) over 10 model(s); 10 model(s) loaded, 0 missing
+[foliage]   1.8 ms over 648 cell(s), 1711 candidate(s) rolled, 566 kept
+[wmo-preload] barn.wmo prepared over 3 group(s), 0.26s, 16 queued, 3 in flight
+[verdict:combat] time=3.660 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=34;hex=0A00000000000000000000000010000000596F7520617265204F5554646F6F720000
+[verdict:combat] time=3.660 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=97;hex=0A0000000000000000000000004F0000004D61703A203020284561737465726E204B696E67646F6D7329205A6F6E653A2031322028456C77796E6E20466F726573742920417265613A203920284E6F72746873686972652056616C6C6579290000
+[verdict:combat] time=3.660 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=84;hex=0A00000000000000000000000042000000583A202D383934392E39353031393520593A202D3133322E343932393936205A3A2038332E353239353236204F7269656E746174696F6E3A20322E3736393737300000
+[verdict:combat] time=3.661 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=54;hex=0A00000000000000000000000024000000677269645B33322C34385D63656C6C5B31322C335D20496E7374616E636549443A20300000
+[verdict:combat] time=3.661 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=53;hex=0A00000000000000000000000023000000205A6F6E65583A2034382E303535303233205A6F6E65593A2034332E3635323233330000
+[verdict:combat] time=3.661 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=89;hex=0A0000000000000000000000004700000047726F756E645A3A2038332E35333038333820466C6F6F725A3A2038332E353330383338204861766520686569676874206461746120284D61703A203120564D61703A2031290000
+[net] creature entry 196 display 3251 L3 at (-8869, -163, 81)
+[net] creature entry 299 display 447 L1 at (-8851, -133, 81)
+[net] creature entry 299 display 447 L1 at (-8864, -108, 81)
+[net] creature entry 299 display 447 L1 at (-8879, -79, 84)
+[net] creature entry 299 display 447 L1 at (-8866, -94, 82)
+[net] creature entry 951 display 3253 L27 at (-8875, -186, 82)
+[net] creature entry 299 display 447 L1 at (-8885, -66, 85)
+[net] creature entry 299 display 447 L1 at (-8919, -36, 92)
+[net] creature entry 925 display 3346 L5 at (-8915, -215, 82)
+[creature-lifecycle] F1300000C4013863 enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000039D01385F enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F1300003B7013861 enqueue world-render Character\Human\Male\HumanMale.m2
+[net] creature entry 6373 display 5087 L8 at (-8928, -202, 81)
+[net] creature entry 911 display 3343 L5 at (-8918, -208, 82)
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=You_are_OUTdoor
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Map:_0_(Eastern_Kingdoms)_Zone:_12_(Elwynn_Forest)_Area:_9_(Northshire_Valley)
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=X:_-8949.950195_Y:_-132.492996_Z:_83.529526_Orientation:_2.769770
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=grid[32,48]cell[12,3]_InstanceID:_0
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=_ZoneX:_48.055023_ZoneY:_43.652233
+[verdict:combat] time=3.678 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GroundZ:_83.530838_FloorZ:_83.530838_Have_height_data_(Map:_1_VMap:_1)
+[protocol] 2,PASS,waitfor detail=Map:_0_
+[protocol] 3,PASS,wait 20
+[creature-lifecycle] F140000018000029 enqueue world-render Creature\Imp\Imp.m2
+[creature-lifecycle] F1300018E501385D enqueue world-render Character\Human\Male\HumanMale.m2
+[creature-lifecycle] F13000038F01385C enqueue world-render Character\Human\Male\HumanMale.m2
+[wmo-preload] stable.wmo prepared over 1 group(s), 0.13s, 15 queued, 3 in flight
+[wmo-preload] guardtower.wmo prepared over 2 group(s), 0.14s, 14 queued, 3 in flight
+[wmo-preload] md_mushroomden.wmo prepared over 2 group(s), 0.12s, 13 queued, 3 in flight
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[preload-discovery] tile [30,48], 15 outer tile(s) remaining
+[wmo-preload] elwynnlionbridge.wmo prepared over 1 group(s), 0.09s, 12 queued, 3 in flight
+[preload-discovery] tile [32,46], 14 outer tile(s) remaining
+[wmo-preload] lumbermill.wmo prepared over 1 group(s), 0.08s, 11 queued, 3 in flight
+[preload-discovery] tile [32,50], 13 outer tile(s) remaining
+[wmo-preload] duskworldtree.wmo prepared over 1 group(s), 0.08s, 10 queued, 3 in flight
+[preload-discovery] tile [34,48], 12 outer tile(s) remaining
+[wmo-preload] moonbrook_human_farm.wmo prepared over 2 group(s), 0.11s, 9 queued, 3 in flight
+[wmo-preload] altarofstorms.wmo prepared over 1 group(s), 0.08s, 8 queued, 3 in flight
+[preload-discovery] tile [30,47], 11 outer tile(s) remaining
+[preload-discovery] tile [30,49], 10 outer tile(s) remaining
+[wmo-preload] trollburrow.wmo prepared over 2 group(s), 0.08s, 7 queued, 3 in flight
+[preload-discovery] tile [31,46], 9 outer tile(s) remaining
+[wmo-preload] md_goldmine_varianta.wmo prepared over 22 group(s), 0.83s, 6 queued, 3 in flight
+[wmo-preload] orcblacksmith.wmo prepared over 1 group(s), 0.06s, 5 queued, 3 in flight
+[preload-discovery] tile [31,50], 8 outer tile(s) remaining
+[preload-discovery] tile [33,46], 7 outer tile(s) remaining
+[wmo-preload] wetlandsfootbridge01.wmo prepared over 1 group(s), 0.06s, 4 queued, 3 in flight
+[preload-discovery] tile [33,50], 6 outer tile(s) remaining
+[preload-discovery] tile [34,47], 5 outer tile(s) remaining
+[wmo-preload] westfall_humantwostory.wmo prepared over 6 group(s), 0.20s, 3 queued, 3 in flight
+[wmo-preload] human_barracks.wmo prepared over 28 group(s), 0.89s, 2 queued, 3 in flight
+[wmo-preload] md_cavetunnel01.wmo prepared over 4 group(s), 0.14s, 1 queued, 3 in flight
+[wmo-preload] md_crypt_c.wmo prepared over 13 group(s), 0.40s, 0 queued, 3 in flight
+[preload-discovery] tile [34,49], 4 outer tile(s) remaining
+[wmo-preload] greatwall_tower_01.wmo prepared over 1 group(s), 0.03s, 0 queued, 2 in flight
+[wmo-preload] blackrock2.wmo prepared over 1 group(s), 0.04s, 0 queued, 1 in flight
+[preload-discovery] tile [30,46], 3 outer tile(s) remaining
+[preload-discovery] tile [30,50], 2 outer tile(s) remaining
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[wmo-preload] blackrockorcfortress.wmo prepared over 21 group(s), 0.15s, 0 queued, 0 in flight
+[preload-discovery] tile [34,46], 1 outer tile(s) remaining
+[preload-discovery] tile [34,50], 0 outer tile(s) remaining
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[hitch] hitch-32-48-2: 142 ms frame at [32,48] (-8950,-132,84) -> swap-and-events   (window p50 4 p95 6 ms)
+[hitch]   update 0.2 (move 0.0 resid 0.0 preload 0.0 [discover 0.0 demand 0.0 finalize 0.0] adopt 0.0 collAccept 0.0 collSnap 0.0 unmeasured 0.1)  render 3.3  present 138.1  hud 0.5  imguiFlush 0.2  input 0.0  unaccounted 0.1
+[hitch]   render split: world 2.1 = terrain 0.3 + wmo 0.4 + doodad 0.8 + foliage 0.1 [rescatter 0.0 + draw 0.1]   | liquid 0.1  character 0.2  creature 0.9 [load 0.0, 0 load(s), 4 cached]  selection 0.0  spellFx 0.0  debug 0.0
+[hitch]   doodad 0.8 = cull 0.3 + instanceUpload 0.2 + drawSubmit 0.3 + unmeasured 0.0   (54 model(s) uploaded, 0 first-touch)
+[hitch]   doodad cull: 4831 instance(s) over 164 model(s) = 60 ns/instance (~50-100 is normal arithmetic; 1000+ is memory, not maths)
+[hitch]   GPU (delayed): total 2.0 = terrain 1.3 + wmo 0.4 + doodad 0.3 + character 0.0
+[hitch]   uploads: 0 in flight, 0 completed during the frame  (imguiFlush 0.2 ms, gpu 2.0 ms)
+[hitch]   GC: pause 0.0 ms of 142 ms frame  gen0 0 gen1 0 gen2 0  allocated 0.14 MB this frame
+[hitch]   thread: 20.3M cycles over 142 ms = 0.14 M/ms  (~4-5 = running and spinning; <1 = blocked or descheduled)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[verdict:combat] time=23.679 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=39;hex=00000000070000002E676F2078797A202D38393730202D3133322E3439332038332E3533203000
+[verdict:combat] time=23.680 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.go_xyz_-8970_-132.493_83.53_0
+[protocol] 4,PASS,gm .go xyz -8970 -132.493 83.53 0
+[protocol] 5,PASS,wait 0.5
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[verdict:combat] time=24.189 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=16;hex=00000000070000002E676D206F666600
+[verdict:combat] time=24.190 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_off
+[protocol] 6,PASS,gm .gm off
+[protocol] 7,PASS,wait 0.3
+[verdict:combat] time=24.501 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=12;hex=00000000070000002E676D00
+[verdict:combat] time=24.503 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm
+[protocol] 8,PASS,gm .gm
+[protocol] 9,PASS,wait 0.3
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[verdict:combat] time=24.809 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=18;hex=00000000070000002E6469736D6F756E7400
+[verdict:combat] time=24.810 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.dismount
+[protocol] 10,PASS,gm .dismount
+[protocol] 11,PASS,wait 0.2
+[verdict:combat] time=25.014 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=25;hex=00000000070000002E636F6D62617473746F70205445535400
+[verdict:combat] time=25.015 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.combatstop_TEST
+[protocol] 12,PASS,gm .combatstop TEST
+[protocol] 13,PASS,wait 0.2
+[verdict:combat] time=25.223 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=25;hex=00000000070000002E6E706320737061776E20616464203600
+[verdict:combat] time=25.224 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.npc_spawn_add_6
+[protocol] 14,PASS,gm .npc spawn add 6
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[protocol] 15,FAIL,select spawn:1 guid=0x0000000000000000
+[protocol] 16,FAIL,assert event=SpawnObserved
+[protocol] 17,PASS,socket-trace start NIGHT01B-W1E path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-NIGHT01B-W1E-20260801-082035.csv
+[verdict:combat] time=30.294 event=TraceStart cause=operator target=0x0000000000000000 detail=server-authoritative_swing_timing;_client_range/arc_gates_absent
+[protocol] 18,PASS,trace start NIGHT01B-W1E
+[verdict:combat] time=30.305 event=SocketFlush cause=post-encryption-socket-write target=0x0000000000000000 detail=opcode=0x0095;bytes=19;sha256=219bb7a25c5621cc77fad50f367adcfea7b6e66fb084d7b767a2d6766e182eca;flushed=true;hex=CBBF88345C3100000000070000002E67707300
+[verdict:combat] time=30.306 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=13;hex=00000000070000002E67707300
+[verdict:combat] time=30.307 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gps
+[protocol] 19,PASS,gm .gps
+[protocol] 20,FAIL,attack start gate=REFUSED
+[protocol] 21,FAIL,assert event=AttackPreconditionGatePass
+[protocol] 22,PASS,assert event=SocketFlush cause=post-encryption-socket-write
+[protocol] 23,FAIL,assert event=AttackSwingSend
+[verdict:combat] time=30.341 event=SocketFlush cause=post-encryption-socket-write target=0x0000000000000000 detail=opcode=0x01DC;bytes=14;sha256=800c18b9e5c4d42019f3bd2a0045295769f9c406ffca95d0fb0bc34c9496c115;flushed=true;hex=AD90DE9420240300000004000000
+[protocol] 24,PASS,waitfor detail=Map:_0_
+[protocol] 25,PASS,wait 0.5
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[protocol] 26,PASS,attack stop
+[socket-trace] wrote 2 rows to C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-NIGHT01B-W1E-20260801-082035.csv
+[protocol] 27,PASS,socket-trace stop
+[combat-trace] wrote 4 rows to C:\Users\nico\source\repos\MSUIClient\dumps\combattrace-NIGHT01B-W1E-20260801-082035.csv
+[protocol] 28,PASS,trace stop
+[verdict:combat] time=30.877 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=15;hex=00000000070000002E676D206F6E00
+[verdict:combat] time=30.877 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_on
+[protocol] 29,PASS,gm .gm on
+[protocol] 30,PASS,wait 0.2
+[verdict:combat] time=31.086 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=26;hex=00000000070000002E6E706320737061776E2064656C65746500
+[verdict:combat] time=31.088 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.npc_spawn_delete
+[protocol] 31,PASS,gm .npc spawn delete
+[protocol] 32,PASS,wait 0.5
+[doodad-cull] placed 4831, drawn 338, dist-culled 3524, frustum-culled 969, drawDist 341 (slider 341, visCap 500)
+[protocol] 33,FAIL,waitgone spawn:1 guid=0x0000000000000000 descriptorPresent=True
+[verdict:combat] time=31.603 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=16;hex=00000000070000002E676D206F666600
+[verdict:combat] time=31.603 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_off
+[protocol] 34,PASS,gm .gm off
+[live-run] PROTOCOL_DONE failures=6; log=C:\Users\nico\source\repos\MSUIClient\live-runs\W1f-entry-symbol-20260801-082000\client\runner-20260801-082008.csv; verdicts=C:\Users\nico\source\repos\MSUIClient\live-runs\W1f-entry-symbol-20260801-082000\client\verdicts-20260801-082008.txt
+[terrain] unloaded 9 tile(s)
