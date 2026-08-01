@@ -82,6 +82,20 @@ static int Extract(string[] args)
 
     var rows = new List<Row>();
     AddElement(root.Element, rootName, "", root.Path, root.Supplier, "", "", named, rows, panel);
+    if (o.TryGetValue("root-size", out string? rootSize))
+    {
+        string[] dimensions = rootSize.Split('x', StringSplitOptions.TrimEntries);
+        if (dimensions.Length != 2 || !F(dimensions[0], out _) || !F(dimensions[1], out _))
+            throw new InvalidDataException("--root-size must be WIDTHxHEIGHT");
+        rows[0].X = "0"; rows[0].Y = "0"; rows[0].Width = dimensions[0]; rows[0].Height = dimensions[1];
+    }
+    var occurrences = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    foreach (Row row in rows)
+    {
+        occurrences.TryGetValue(row.Element, out int occurrence);
+        occurrences[row.Element] = ++occurrence;
+        if (occurrence > 1) row.Element += $"#{occurrence}";
+    }
     Resolve(rows);
     if (o.TryGetValue("elements", out string? elements) && elements.Length > 0)
     {
