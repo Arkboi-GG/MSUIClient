@@ -43,3 +43,5 @@
 2026-08-01 20:30 local | 3-8 | OPEN | mail parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 20:45 local | 3-8 | CLOSED-FINDING | real mailbox wire opened, replay-labelled populated list captured in the shipped shell; coverage 6/76 with 70 NOT-DRAWN | live-runs/N2-0-3-8-mail-20260801-204500/N2-0-3-8-mail-20260801-204500.md
 2026-08-01 20:45 local | 3-9 | OPEN | auction-house parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 21:00 local | 3-9 | CLOSED-FINDING | real auctioneer wire plus replay-labelled populated results captured in shipped 768x447 shell; coverage 7/225 with 218 NOT-DRAWN | live-runs/N2-0-3-9-auction-20260801-210000/N2-0-3-9-auction-20260801-210000.md
+2026-08-01 21:00 local | 3-10 | OPEN | loot-window parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

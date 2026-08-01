@@ -92,3 +92,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 6/76 with 70 NOT-DRAWN. Exact set: `live-runs/N2-0-3-8-mail-20260801-204500/mail-diff.csv`.
 - Work: derive inbox rows, tabs, pagination, detail/compose states, attachments, money, fonts, and buttons and implement every absent reference element.
 - Review: `live-runs/N2-0-3-8-mail-20260801-204500/mail-contact.png`.
+
+## Q17 — 3-9 — auction NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 7/225 with 218 NOT-DRAWN. Exact set: `live-runs/N2-0-3-9-auction-20260801-210000/auction-diff.csv`.
+- Work: derive browse/bid/auctions tabs, search, filters, list columns/rows, pagination, money, and buttons and implement every absent reference element.
+- Review: `live-runs/N2-0-3-9-auction-20260801-210000/auction-contact.png`.

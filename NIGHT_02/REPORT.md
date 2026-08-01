@@ -191,3 +191,9 @@ Coverage: 6/76 with 70 NOT-DRAWN. The real mailbox request was accepted; the
 populated state is explicitly REPLAYED from the build-5875 packet shape inside
 the newly original-art shell. Evidence:
 `live-runs/N2-0-3-8-mail-20260801-204500/N2-0-3-8-mail-20260801-204500.md`.
+
+## 3-9 Auction house — CLOSED-FINDING
+
+Coverage: 7/225 with 218 NOT-DRAWN. A temporary auctioneer supplied the real
+wire-open/browse path; the populated fixture remains explicitly REPLAYED.
+Evidence: `live-runs/N2-0-3-9-auction-20260801-210000/N2-0-3-9-auction-20260801-210000.md`.

@@ -161,9 +161,20 @@ public sealed partial class GameLoop
 
     private void DrawAuctionFrame()
     {
-        if (!_auctionOpen) return; ImGui.SetNextWindowPos(new Vector2(300, 70), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(720, 500), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Auction House##auction", ref _auctionOpen)) { ImGui.End(); return; }
+        if (!_auctionOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(768,447);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if (!ImGui.Begin("##auction",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="auction"){BeginUiParityFrame(origin,s);CollectUiParityDraw("AuctionFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset)[] art=[
+            ("AuctionFrameTopLeft",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-TopLeft",new(0,0)),
+            ("AuctionFrameTop",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-Top",new(256,0)),
+            ("AuctionFrameTopRight",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-TopRight",new(512,0)),
+            ("AuctionFrameBotLeft",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-BotLeft",new(0,256)),
+            ("AuctionFrameBot",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-Bot",new(256,256)),
+            ("AuctionFrameBotRight",@"Interface\AuctionFrame\UI-AuctionFrame-Browse-BotRight",new(512,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s,sz=new Vector2(256)*s;DrawArt(dl,r.Path,m,new(256,256),s);if(_uiParityArmed&&_uiParityPanel=="auction")CollectUiParityDraw(r.Element,"Texture",m,sz,"AuctionFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","AuctionFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(65,45)*s);
+        ImGui.BeginChild("##auction-content",new Vector2(640,340)*s,false);
         ImGui.InputText("Search", _auctionSearch, (uint)_auctionSearch.Length); ImGui.SameLine();
         if (ImGui.Button("Browse")) BrowseAuctions(0, ReadBuffer(_auctionSearch)); ImGui.SameLine();
         if (ImGui.Button("My Auctions")) RequestOwnerAuctions();
@@ -183,6 +194,8 @@ public sealed partial class GameLoop
         if (_config.DevTools && ImGui.Button("Copy auction evidence"))
             CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
                 .Where(v => v.Family == "auction").Select(v => $"[verdict:interface] {v.ToLine()}")));
+        ImGui.EndChild();Vector2 close=origin+new Vector2(739,8)*s;DrawImageButton(dl,"##auction-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_auctionOpen=false;
+        if(_uiParityArmed&&_uiParityPanel=="auction")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }
