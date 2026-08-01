@@ -37,3 +37,9 @@ Format per entry:
 - Options: (A) a follow-on ordered implementation run, priority vendor → quest → loot; (B) select one interface only; (C) leave the interface families absent.
 - Agent recommendation: A — each item needs a full packet/state/UI/fixture/instrument loop; completing them as separate root causes is safer than partial overnight opcode additions.
 - Manifest: `live-runs/manifests/N2-20260731-234000.sha256`, SHA-256 `ea5bfd3e2a2fffeae5b03cb46fd96be315b82d510dfd7fa283dfc330a8957f87`.
+
+## Q6 — 3-1..3-8 — authorize a cast-precondition/result-instrument work order before spell behavior sweeps
+- Evidence: `live-runs/N3-spell-triage-20260731-235000.md`.
+- Options: (A) first build the Z0-style target/GCD/resource gate, named cast-result law, and roster CSV runner; (B) select one spell item without the shared batch; (C) accept current partial spell foundations.
+- Agent recommendation: A — it is the smallest shared root cause and prevents every later spell conclusion from being contaminated by send-precondition drift.
+- Manifest: `live-runs/manifests/N3-20260731-235000.sha256`, SHA-256 `68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`.

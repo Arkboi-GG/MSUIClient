@@ -73,6 +73,14 @@ all 23 entries recomputed exactly. Boundary gates: Debug build 0 warnings /
 0 errors, combat-wire PASS (established CA2014 only), portrait-camera 10,534 /
 1,224 / 1,289 / 56, move-audit-check PASS.
 
+### Append-only association correction — Tier 0-3
+
+The N3 manifest line rendered earlier beside the N2 section because an append
+anchor was not unique. It belongs to the `3-1 through 3-8` section:
+`live-runs/manifests/N3-20260731-235000.sha256`, SHA-256
+`68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`;
+all five entries recomputed exactly. No prior report bytes are retracted.
+
 ## 1-3 — attack-error text display readiness
 
 Status: `CLOSED-PASS`
@@ -121,9 +129,34 @@ follow-on ordered vendor → quest → loot work order.
 Boundary gates: build PASS (established CA2014 only, 0 errors), combat-wire
 PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56, move-audit-check PASS.
 
+Manifest: `live-runs/manifests/N3-20260731-235000.sha256`, SHA-256
+`68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`;
+all five entries recomputed exactly.
+
 Manifest: `live-runs/manifests/N2-20260731-234000.sha256`, SHA-256
 `ea5bfd3e2a2fffeae5b03cb46fd96be315b82d510dfd7fa283dfc330a8957f87`;
 all four entries recomputed exactly.
+
+## 3-1 through 3-8 — spell-system triage
+
+Statuses: all eight items `SHELVED-BLOCKED`.
+
+### Actual versus predicted
+
+```text
+PREDICTED: spell items begin with target/self + GCD + resource pre-send truth
+ACTUAL: substantial cast/bar/channel/aura/visual foundations exist, but the
+        mandatory mechanical gate, named result law, and roster batch do not
+RESULT: all behavior/display sweeps shelved before send-precondition contamination
+```
+
+The per-item foundation map is
+`live-runs/N3-spell-triage-20260731-235000.md`. Q6 recommends one shared
+cast-precondition/result-instrument work order before re-entering the tree.
+
+Boundary gates: build PASS (established CA2014 only, 0 errors), combat-wire
+PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56, move-audit-check PASS.
+
 
 
 ## 1-4 — combat regression pack
@@ -155,3 +188,10 @@ Manifest: `live-runs/manifests/N1-14-20260731-232500.sha256`, SHA-256
 all seven entries recomputed exactly. Boundary gates: Debug build 0 warnings /
 0 errors, combat-wire PASS (established CA2014 only), portrait-camera 10,534 /
 1,224 / 1,289 / 56, move-audit-check PASS.
+
+### Tier 0-3 manifest pointer (append-only)
+
+The Tier 0-3 spell triage manifest is
+`live-runs/manifests/N3-20260731-235000.sha256`, SHA-256
+`68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`;
+all five entries recomputed exactly.

@@ -19,3 +19,11 @@ Format: `<local time> | <item id> | <status> | <one-line result> | <evidence/com
 2026-07-31 23:40 local | 2-10 | SHELVED-BLOCKED | whole tabard flow shelved; transaction family absent and render judgment perceptual | live-runs/N2-interface-triage-20260731-234000.md
 2026-07-31 23:40 local | 2-11 | SHELVED-BLOCKED | whole talents flow shelved; only point display exists | live-runs/N2-interface-triage-20260731-234000.md
 2026-07-31 23:40 local | 2-12 | SHELVED-BLOCKED | local sheet/inventory exists but full scripted transaction and DB cross-check loop does not | live-runs/N2-interface-triage-20260731-234000.md
+2026-07-31 23:50 local | 3-1 | SHELVED-BLOCKED | cast wire exists but mandatory target/GCD/resource pre-send gate, named result law, roster batch, and CSV are absent | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-2 | SHELVED-BLOCKED | cast bar foundation lacks complete server-time/pushback/cancel batch verdict | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-3 | SHELVED-BLOCKED | standing cast hooks lack renderer-state batch and contact sheet | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-4 | SHELVED-BLOCKED | movement cancel hooks lack gated legality/interrupt/blend matrix | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-5 | SHELVED-BLOCKED | channel opcode/bar foundation lacks full timing/tick/animation batch | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-6 | SHELVED-BLOCKED | aura stacks display but duration/cancel/instrument flow absent | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-7 | SHELVED-BLOCKED | visual supplier exists but known-spell STRING sweep/contact sheet absent | live-runs/N3-spell-triage-20260731-235000.md
+2026-07-31 23:50 local | 3-8 | SHELVED-BLOCKED | cast failures collapse to generic labels; named reason-to-text display law absent | live-runs/N3-spell-triage-20260731-235000.md
