@@ -5,6 +5,9 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private sealed record UiParityDrawTrace(string TexturePath, uint Color, string DrawLayer,
+        string Point, string RelativeTo, string RelativePoint, float OffsetX, float OffsetY,
+        string FontPath = "", float FontSize = 0);
     private sealed record UiParityActualRow(string[] Values);
     private readonly List<UiParityActualRow> _uiParityRows = [];
     private bool _uiParityArmed;
@@ -66,7 +69,32 @@ public sealed partial class GameLoop
             unsized ? "" : N(size.X / logicalScale), unsized ? "" : N(size.Y / logicalScale), point, relativeTo, relativePoint, offsetX, offsetY,
             texture, font, fontPath, fontSize, color, layer, strata, bgFile, edgeFile, tileSize,
             edgeSize, insets, texCoords, "MSUI:actual-draw-path", assets, fontSource];
-        _uiParityRows.Add(new([.. values, "DRAWN-INSTRUMENTED"]));
+        // Legacy declarations contain call-site copies of reference metadata. Preserve their
+        // measured geometry, but never accept those declarations as evidence.
+        _uiParityRows.Add(new([.. values.Take(8), "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+            "MSUI:legacy-geometry-only", "", "", "DRAWN-NOT-INSTRUMENTED"]));
+    }
+
+    private void CollectUiParityDraw(string element, string type, Vector2 min, Vector2 size,
+        string parent, UiParityDrawTrace trace)
+    {
+        if (!_uiParityArmed || _uiParityFrameSeen) return;
+        static string N(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
+        static string Norm(string path) => path.Length == 0 || path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? path : path + ".blp";
+        float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
+        Vector2 relative = element is "PlayerFrame" or "TargetFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
+        string texture = Norm(trace.TexturePath);
+        string asset = texture.Length == 0 ? "" : _mpq?.ReadFileWithSupplier(texture) is { } hit
+            ? $"{hit.Supplier}:{texture}" : $"MISSING:{texture}";
+        string fontSource = trace.FontPath.Length == 0 ? "" : _mpq?.ReadFileWithSupplier(trace.FontPath) is { } fontHit
+            ? $"{fontHit.Supplier}:{trace.FontPath}" : $"MISSING:{trace.FontPath}";
+        uint c = trace.Color;
+        string color = c == 0 ? "" : $"#{c & 0xff:X2}{(c >> 8) & 0xff:X2}{(c >> 16) & 0xff:X2}{(c >> 24) & 0xff:X2}";
+        string[] values = [_uiParityPanel, element, type, parent, N(relative.X), N(relative.Y), N(size.X/logicalScale), N(size.Y/logicalScale),
+            trace.Point, trace.RelativeTo, trace.RelativePoint, N(trace.OffsetX), N(trace.OffsetY), texture, "", trace.FontPath,
+            trace.FontSize > 0 ? N(trace.FontSize) : "", color, trace.DrawLayer, "IMGUI_WINDOW", "", "", "", "", "", "",
+            "MSUI:derived-from-draw-variables", asset, fontSource, "DRAWN-INSTRUMENTED"];
+        _uiParityRows.Add(new(values));
     }
 
     private void ClassifyUiParity(string element, string type, string parent, string coverage)

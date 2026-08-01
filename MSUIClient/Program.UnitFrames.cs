@@ -33,42 +33,44 @@ public sealed partial class GameLoop
 
         string parityPanel = playerFrame ? "player-frame" : "target-frame";
         if (_uiParityArmed && _uiParityPanel == parityPanel)
-        {
-            string root = playerFrame ? "PlayerFrame" : "TargetFrame";
             BeginUiParityFrame(p, s);
-            CollectUiParity(root, "Button", p, size * s, parent: "", point: "TOPLEFT",
-                offsetX: playerFrame ? "-19" : "250", offsetY: "-4",
-                strata: playerFrame ? "BACKGROUND" : "LOW");
-            CollectUiParity(playerFrame ? "PlayerFrameBackground" : "TargetFrameBackground", "Texture",
-                p + new Vector2(playerFrame ? 106f : 7f, 22f) * s, new Vector2(119f, 41f) * s,
-                parent: root, point: playerFrame ? "TOPLEFT" : "TOPRIGHT",
-                offsetX: playerFrame ? "106" : "-106", offsetY: "-22", layer: "BACKGROUND",
-                strata: playerFrame ? "BACKGROUND" : "LOW");
-            CollectUiParity(playerFrame ? "PlayerPortrait" : "TargetPortrait", "Texture",
-                p + new Vector2(playerFrame ? 42f : 126f, 12f) * s, new Vector2(64f) * s,
-                parent: root, point: playerFrame ? "TOPLEFT" : "TOPRIGHT",
-                offsetX: playerFrame ? "42" : "-42", offsetY: "-12",
-                layer: playerFrame ? "ARTWORK" : "BORDER", strata: playerFrame ? "BACKGROUND" : "LOW");
-        }
+
+        string root = playerFrame ? "PlayerFrame" : "TargetFrame";
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+            CollectUiParityDraw(root, "Button", p, size * s, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", authoredOrigin.X, authoredOrigin.Y));
 
         float barX = playerFrame ? 106f : 7f;
         Vector2 troughMin = p + new Vector2(barX, 22) * s;
-        dl.AddRectFilled(troughMin, troughMin + new Vector2(119, 41) * s, 0x80000000);
+        const uint troughColor = 0x80000000;
+        Vector2 troughSize = new Vector2(119, 41) * s;
+        dl.AddRectFilled(troughMin, troughMin + troughSize, troughColor);
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+            CollectUiParityDraw(playerFrame ? "PlayerFrameBackground" : "TargetFrameBackground", "Texture",
+                troughMin, troughSize, root, new("", troughColor, "IMGUI_RECT_FILLED", "TOPLEFT", root, "TOPLEFT", barX, -22));
 
         if (!playerFrame)
         {
-            uint plate = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame-LevelBackground");
+            string platePath = @"Interface\TargetingFrame\UI-TargetingFrame-LevelBackground";
+            uint plate = _gameplayArt.Handle(platePath);
             if (plate != 0)
             {
                 uint tint = ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead);
                 dl.AddImage((nint)plate, troughMin, troughMin + new Vector2(119, 19) * s,
                     Vector2.Zero, Vector2.One, tint);
+                if (_uiParityArmed && _uiParityPanel == parityPanel)
+                    CollectUiParityDraw("TargetFrameNameBackground", "Texture", troughMin, new Vector2(119, 19) * s,
+                        root, new(platePath, tint, "IMGUI_IMAGE", "TOPRIGHT", root, "TOPRIGHT", -106, -22));
             }
         }
 
         float portraitX = playerFrame ? 42f : 126f;
         Vector2 portraitMin = p + new Vector2(portraitX, 12) * s;
         DrawUnitPortraitImage(dl, unit, portraitMin, 64f * s, portraitTexture, playerFrame);
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+            CollectUiParityDraw(playerFrame ? "PlayerPortrait" : "TargetPortrait", "Texture", portraitMin,
+                new Vector2(64) * s, root, new("", 0xffffffff, "IMGUI_IMAGE", playerFrame ? "TOPLEFT" : "TOPRIGHT",
+                    root, playerFrame ? "TOPLEFT" : "TOPRIGHT", playerFrame ? 42 : -42, -12));
 
         DrawVanillaStatusBar(dl, p + new Vector2(barX, 41) * s, new Vector2(119, 12) * s,
             unit.HealthFraction, new Vector4(0, 1, 0, 1));
@@ -76,20 +78,36 @@ public sealed partial class GameLoop
             DrawVanillaStatusBar(dl, p + new Vector2(barX, 52) * s, new Vector2(119, 12) * s,
                 unit.PowerFraction, PowerColor(unit.Fields.PowerType));
 
-        uint frame = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-TargetingFrame");
+        string framePath = @"Interface\TargetingFrame\UI-TargetingFrame";
+        uint frame = _gameplayArt.Handle(framePath);
         if (frame != 0)
         {
             Vector2 uv0 = playerFrame ? new Vector2(1f, 0) : new Vector2(0.09375f, 0);
             Vector2 uv1 = playerFrame ? new Vector2(0.09375f, 0.78125f) : new Vector2(1f, 0.78125f);
             dl.AddImage((nint)frame, p, p + size * s, uv0, uv1);
+            if (_uiParityArmed && _uiParityPanel == parityPanel)
+                CollectUiParityDraw(playerFrame ? "PlayerFrameTexture" : "TargetFrameTexture", "Texture", p,
+                    size * s, playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
+                    new(framePath, 0xffffffff, "IMGUI_IMAGE", "ANCHOR:ABSOLUTE", "", "", authoredOrigin.X, authoredOrigin.Y));
         }
 
         Vector2 nameCenter = p + new Vector2(playerFrame ? 166 : 66, 31) * s;
-        DrawUnitFrameText(dl, nameCenter, name, 10f * s, UiGoldU32());
+        uint nameColor = UiGoldU32();
+        (Vector2 nameMin, Vector2 nameSize) = DrawUnitFrameText(dl, nameCenter, name, 10f * s, nameColor);
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+            CollectUiParityDraw(playerFrame ? "PlayerName" : "TargetName", "FontString", nameMin, nameSize,
+                playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
+                new("", nameColor, "IMGUI_TEXT", "ANCHOR:ABSOLUTE", "", "", nameMin.X / s, nameMin.Y / s, "", 10));
         Vector2 levelCenter = p + new Vector2(playerFrame ? 53 : 179, 66) * s;
         if (unit.Level > 0)
-            DrawUnitFrameText(dl, levelCenter, unit.Level.ToString(), 10f * s,
-                playerFrame ? UiGoldU32() : ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead));
+        {
+            uint levelColor = playerFrame ? UiGoldU32() : ReactionColorU32(reaction, unit.IsPlayer, unit.IsDead);
+            (Vector2 levelMin, Vector2 levelSize) = DrawUnitFrameText(dl, levelCenter, unit.Level.ToString(), 10f * s, levelColor);
+            if (_uiParityArmed && _uiParityPanel == parityPanel)
+                CollectUiParityDraw(playerFrame ? "PlayerLevelText" : "TargetLevelText", "FontString", levelMin, levelSize,
+                    playerFrame ? "PlayerFrame/Frame/Frame" : "TargetFrameTextureFrame",
+                    new("", levelColor, "IMGUI_TEXT", "ANCHOR:ABSOLUTE", "", "", levelMin.X / s, levelMin.Y / s, "", 10));
+        }
         else if (!playerFrame)
             DrawArt(dl, @"Interface\TargetingFrame\UI-TargetingFrame-Skull",
                 levelCenter - new Vector2(8) * s, new Vector2(16), s);
@@ -102,11 +120,25 @@ public sealed partial class GameLoop
                 ImGui.ColorConvertFloat4ToU32(new Vector4(1, 0.12f, 0.08f,
                     Math.Clamp(combatFlash / 0.35f, 0, 1))), 48, 2f * s);
         if (!playerFrame) DrawTargetAuras(dl, unit, p, s);
-        if (_uiParityArmed && _uiParityPanel == parityPanel) MarkUiParityFrameComplete();
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+        {
+            string[] absent = playerFrame
+                ? ["PlayerFrame/Frame", "PlayerFrame/Frame/Frame", "PlayerFrameHealthBarText", "PlayerFrameManaBarText",
+                    "PlayerStatusTexture", "PlayerAttackBackground", "PlayerPVPIcon", "PlayerHitIndicator", "PlayerLeaderIcon",
+                    "PlayerMasterIcon", "PlayerRestIcon", "PlayerAttackIcon", "PlayerPVPIconHitArea", "PlayerStatusGlow",
+                    "PlayerRestGlow", "PlayerAttackGlow", "PlayerPlayTime", "PlayerPlayTimeIcon", "PlayerFrameDropDown",
+                    "PlayerFrameGroupIndicator", "PlayerFrameGroupIndicatorLeft", "PlayerFrameGroupIndicatorRight",
+                    "PlayerFrameGroupIndicatorMiddle", "PlayerFrameGroupIndicatorText"]
+                : ["TargetFrameTextureFrame", "TargetDeadText", "TargetHighLevelTexture", "TargetLeaderIcon", "TargetPVPIcon",
+                    "TargetRaidTargetIcon", "TargetFrameDropDown", .. Enumerable.Range(1,16).Select(i=>$"TargetFrameDebuff{i}"),
+                    .. Enumerable.Range(1,5).Select(i=>$"TargetFrameBuff{i}")];
+            foreach (string element in absent) ClassifyUiParity(element, "", root, "NOT-DRAWN");
+            MarkUiParityFrameComplete();
+        }
         ImGui.End();
     }
 
-    private static void DrawUnitFrameText(ImDrawListPtr dl, Vector2 center,
+    private static (Vector2 Min, Vector2 Size) DrawUnitFrameText(ImDrawListPtr dl, Vector2 center,
         string text, float size, uint color)
     {
         ImFontPtr font = ImGui.GetFont();
@@ -118,6 +150,7 @@ public sealed partial class GameLoop
             ImGui.ColorConvertFloat4ToU32(GlueTune.ShadowColor), text);
         WowSkin.OutlineText(dl, font, size, pos, text);
         dl.AddText(font, size, pos, color, text);
+        return (pos, measured);
     }
 
     private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 frameMin, float scale)
