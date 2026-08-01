@@ -1,0 +1,65 @@
+﻿[solution-build] exit=0
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\Users\nico\source\repos\MSUIClient\MSUIClient\Engine\UI\GlueAdditive.cs(141,28): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [C:\Users\nico\source\repos\MSUIClient\MSUIClient\MSUIClient.csproj]
+  MSUIClient -> C:\Users\nico\source\repos\MSUIClient\MSUIClient\bin\Release\net8.0\MSUIClient.dll
+  ui-parity -> C:\Users\nico\source\repos\MSUIClient\tools\ui-parity\bin\Release\net8.0\ui-parity.dll
+
+Build succeeded.
+
+C:\Users\nico\source\repos\MSUIClient\MSUIClient\Engine\UI\GlueAdditive.cs(141,28): warning CA2014: Potential stack overflow. Move the stackalloc out of the loop. (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2014) [C:\Users\nico\source\repos\MSUIClient\MSUIClient\MSUIClient.csproj]
+    1 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:03.66
+[combat-wire] exit=0
+combat/movement/targeting/wire foundation checks passed
+[interface-wire] exit=0
+[equip] atlas composite: 0 region(s) painted, 0 texture(s) not found
+interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding
+[portrait-camera] exit=0
+[camera-check] portrait tuning defaults are float-bit identical
+[camera-check] MPQ archive ordering assertions passed
+[mpq] priority: patch-4.MPQ > patch-2.MPQ > patch.MPQ > terrain.MPQ > model.MPQ > backup.MPQ > base.MPQ > dbc.MPQ > fonts.MPQ > interface.MPQ > misc.MPQ > sound.MPQ > speech.MPQ > texture.MPQ > wmo.MPQ
+[mpq] mounted 15 archive(s), held open (parallel reads)
+[dbc] CreatureDisplayInfo: 10534 record(s), 48B each, 10534 indexed
+[dbc] CreatureModelData: 430 record(s), 64B each, 430 indexed
+[camera-check] portrait specimens=10534, wolfFilterMatches=94
+[camera-check] data=C:\Users\nico\source\repos\MSUIClient\GameData\Data
+[camera-check] archive-chain=patch-4.MPQ > patch-2.MPQ > patch.MPQ > terrain.MPQ > model.MPQ > backup.MPQ > base.MPQ > dbc.MPQ > fonts.MPQ > interface.MPQ > misc.MPQ > sound.MPQ > speech.MPQ > texture.MPQ > wmo.MPQ
+[camera-check] model=Character\Dwarf\Male\DwarfMale.m2 archive=patch.MPQ bytes=2134688 sharedBytesMatch=True
+[camera-check] header version=256 cameras=count@0x124=2,offset@0x128=0x209050 cameraLookup=count@0x12C=2,offset@0x130=0x209290 lookup0=0 cameraStride=124 selectedCameraOffset=0x209050
+[camera-check] camera type=0 fov=0.785398 far=27.7778 near=0.2222 positionBase=(0.7090,-0.4023,1.4289) targetBase=(0.0377,0.0378,1.2988)
+[camera-check] positionTrack at=0x209060 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x209150 keys=1@0x209160
+[camera-check] targetTrack at=0x209088 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x209190 keys=1@0x2091A0
+[camera-check] rollTrack at=0x2090B0 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x2091D0 keys=1@0x2091E0
+[camera-check] staticKeys position=(0.0000,0.0000,0.0000) target=(0.0000,0.0000,0.0000) roll=0.000000
+[camera-check] parsed version=256 portraitCamera=present
+Character\Dwarf\Male\DwarfMale.m2: vertices=3246, inFront=3246, inside=1224
+  eye=<0.70897704, 1.4288946, 0.40228903>, target=<0.037710767, 1.2988147, -0.03781255>, fov=0.785398, clip=0.2222..27.8, ndc=<-3.7888055, -8.082168>..<1.5278674, 1.7800847>
+  transformed renderer path inside=1224
+[camera-check] model=Character\Human\Male\HumanMale.m2 archive=patch.MPQ bytes=2577936 sharedBytesMatch=True
+[camera-check] header version=256 cameras=count@0x124=2,offset@0x128=0x2753C0 cameraLookup=count@0x12C=2,offset@0x130=0x275600 lookup0=0 cameraStride=124 selectedCameraOffset=0x2753C0
+[camera-check] camera type=0 fov=0.785398 far=27.7778 near=0.2222 positionBase=(0.6335,-0.3879,1.8867) targetBase=(0.0627,0.0343,1.8636)
+[camera-check] positionTrack at=0x2753D0 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x2754C0 keys=1@0x2754D0
+[camera-check] targetTrack at=0x2753F8 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x275500 keys=1@0x275510
+[camera-check] rollTrack at=0x275420 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0x275540 keys=1@0x275550
+[camera-check] staticKeys position=(0.0000,0.0000,0.0000) target=(0.0000,0.0000,0.0000) roll=0.000000
+[camera-check] parsed version=256 portraitCamera=present
+Character\Human\Male\HumanMale.m2: vertices=3159, inFront=3159, inside=1289
+  eye=<0.63348544, 1.8867365, 0.38786522>, target=<0.06266755, 1.8635687, -0.034264676>, fov=0.785398, clip=0.2222..27.8, ndc=<-5.5523305, -15.814167>..<1.6291562, 1.029981>
+  transformed renderer path inside=1289
+[camera-check] model=Creature\Wolf\Wolf.m2 archive=patch.MPQ bytes=714000 sharedBytesMatch=True
+[camera-check] header version=256 cameras=count@0x124=2,offset@0x128=0xAE2C0 cameraLookup=count@0x12C=2,offset@0x130=0xAE500 lookup0=0 cameraStride=124 selectedCameraOffset=0xAE2C0
+[camera-check] camera type=0 fov=0.950022 far=27.7778 near=0.2222 positionBase=(1.6927,0.7238,0.8837) targetBase=(1.1204,-0.1595,0.8769)
+[camera-check] positionTrack at=0xAE2D0 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0xAE3C0 keys=1@0xAE3D0
+[camera-check] targetTrack at=0xAE2F8 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0xAE400 keys=1@0xAE410
+[camera-check] rollTrack at=0xAE320 interpolation=0 globalSequence=-1 ranges=0@0x0 times=1@0xAE440 keys=1@0xAE450
+[camera-check] staticKeys position=(0.0000,0.0000,0.0000) target=(0.0000,0.0000,0.0000) roll=0.000000
+[camera-check] parsed version=256 portraitCamera=present
+Creature\Wolf\Wolf.m2: vertices=557, inFront=557, inside=56
+  eye=<1.692682, 0.8837225, -0.72383404>, target=<1.1204089, 0.8768545, 0.15948357>, fov=0.950022, clip=0.2222..27.8, ndc=<-1.4589515, -3.5339744>..<4.284607, 2.8211513>
+  transformed renderer path inside=56
+portrait camera check passed
+[move-audit] exit=0
+move-audit-check passed

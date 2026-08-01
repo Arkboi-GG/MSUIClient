@@ -81,3 +81,7 @@
 2026-08-02 01:00 local | 5-5 | OPEN | final full-UI contact batch is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
 2026-08-02 01:15 local | 5-5 | CLOSED-FINDING | assembled five labeled atlas pages indexing all 34 representative docs 2-4 contact sheets for one perceptual pass | live-runs/N2-0-5-5-final-contact-batch-20260802-011500/N2-0-5-5-final-contact-batch-20260802-011500.md
 2026-08-02 01:15 local | 5-6 | OPEN | hygiene, manifests, final gates, and end packet are the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
+2026-08-02 01:30 local | 5-6 | CLOSED-PASS | 44 prior run directories validate, seven legacy missing manifests added, one malformed legacy manifest corrected additively, zero raw-art dumps, final gates green | live-runs/N2-0-5-6-hygiene-end-20260802-013000/N2-0-5-6-hygiene-end-20260802-013000.md
+2026-08-02 01:30 local | 0-2 | CLOSED-FINDING | all nine core-HUD items exhausted with two leaf PASS and eight corrected post-pilot finding worklists retained | NIGHT_02/2_CORE_HUD.md
+2026-08-02 01:30 local | 0-5 | CLOSED-FINDING | all six polish items exhausted; immutable audits, five-page contact batch, validated manifests, final gates, and end packet complete | NIGHT_02/5_POLISH.md
+2026-08-02 01:30 local | NIGHT_02 | CLOSED-FINDING | run exhausted: 37 leaf items, 3 PASS, 34 FINDING, zero missing-asset blockers, 34 queued rulings | NIGHT_02/REPORT.md

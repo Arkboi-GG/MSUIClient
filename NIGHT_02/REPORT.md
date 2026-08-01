@@ -300,3 +300,66 @@ Evidence: `live-runs/N2-0-5-4-backdrop-audit-20260802-010000/N2-0-5-4-backdrop-a
 Five labeled atlas pages cover all 34 representative docs 2–4 contact sheets.
 The index preserves each original immutable sheet path for full-resolution
 review. Evidence: `live-runs/N2-0-5-5-final-contact-batch-20260802-011500/N2-0-5-5-final-contact-batch-20260802-011500.md`.
+
+## End-of-run packet — 2026-08-02
+
+Build status: BUILT + all five required gates PASS. The run exhausted 37 leaf
+items: 3 CLOSED-PASS and 34 CLOSED-FINDING. There are 34 consolidated ruling
+entries and zero SHELVED-BLOCKED/missing-asset items.
+
+| Item | Status | Mechanical result |
+|---|---|---|
+| 0-1 harness | PASS | 77/77 proof rows PASS |
+| 2-1 unit frames | FINDING | player 6/30; target 7/35 corrected draw truth |
+| 2-2 party | FINDING | representative cohort PASS; 33 absent states |
+| 2-3 action bars | FINDING | representative cohort PASS; conditional inventory remains |
+| 2-4 cast bar | FINDING | 28/28 active cohort PASS; 2 absent states |
+| 2-5 buffs/debuffs | FINDING | 28/28 cohort PASS; 101 absent states |
+| 2-6 minimap | FINDING | 91/91 visible PASS; 8 absent states |
+| 2-7 chat | FINDING | 63/63 main cohort PASS; 25 absent states |
+| 2-8 XP/reputation | FINDING | rep 84/84 and XP 35/35 visible PASS; 4 absent states |
+| 2-9 backpack | PASS | 56/56 runtime cohort PASS |
+| 3-1 character | FINDING | shell 1/13; paperdoll 5/127 |
+| 3-2 spellbook | FINDING | 6/160 |
+| 3-3 talents | FINDING | 9/31 |
+| 3-4 quest log | FINDING | 6/43 |
+| 3-5 merchant | FINDING | 5/124 |
+| 3-6 trainer | FINDING | 5/111 |
+| 3-7 bank | FINDING | 5/59 |
+| 3-8 mail | FINDING | 6/76 |
+| 3-9 auction | FINDING | 7/225 |
+| 3-10 loot | FINDING | 4/20 |
+| 3-11 guild | FINDING | 1/63 |
+| 3-12 gossip | FINDING | 6/23 |
+| 3-13 taxi | FINDING | 5/12 |
+| 3-14 trade | FINDING | 5/129 |
+| 4-1 game menu | FINDING | 10/43 |
+| 4-2 options | FINDING | 2/180 |
+| 4-3 keybindings | FINDING | 7/249 |
+| 4-4 macro | FINDING | 6/158 |
+| 4-5 tooltip | FINDING | 1/1 coverage; 3 metadata deltas |
+| 4-6 UI errors | FINDING | 2/2 coverage; 5 style/metadata deltas |
+| 4-7 popup/cursor | FINDING | popup 5/17; carried-item cursor path present |
+| 5-1 font audit | FINDING | 375 rows; 3 PASS, 11 DELTA, 290 NOT-DRAWN, 71 NO-VERDICT |
+| 5-2 color audit | FINDING | 30 constants; 14 PASS, 2 DELTA, 14 NOT-DRAWN |
+| 5-3 layer audit | FINDING | 2,047 rows; 67 PASS, 107 DELTA, 1,635 NOT-DRAWN, 238 NO-VERDICT |
+| 5-4 backdrop audit | FINDING | 19 rows; 4 DELTA, 15 NOT-DRAWN |
+| 5-5 contact batch | FINDING | 34 panels on 5 pages; perceptual sign-off queued |
+| 5-6 hygiene | PASS | 44/44 prior directories validate; zero raw-art dumps |
+
+Missing assets: none. No art was fabricated, approximated, or downloaded.
+
+Final gates: solution build PASS (0 errors), combat-wire PASS, interface-wire
+PASS, portrait-camera PASS, and move-audit PASS.
+
+The three largest remaining parity gaps are: (1) the full conditional element
+inventory is still predominantly NOT-DRAWN in the large windows, especially
+options, keybindings, auction, spellbook, and macro; (2) draw-derived evidence
+does not yet carry named font objects, authored strata/layers, or backdrop
+nine-slice metadata broadly enough to close otherwise-real draws; and (3)
+several populated dynamic states remain replay-labelled or lack authoritative
+wire paths, notably trade and taxi plus the expanded mail/auction/guild views.
+
+Headline review: `live-runs/N2-0-5-5-final-contact-batch-20260802-011500/`.
+Hygiene proof: `live-runs/N2-0-5-6-hygiene-end-20260802-013000/`.
+Main implementation report: `SPEC_TOOLKIT_REPORT_2026-08-02.md`.
