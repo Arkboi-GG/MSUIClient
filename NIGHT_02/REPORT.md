@@ -106,3 +106,10 @@ complete reputation inventory passes 84/84 mechanical verdicts; the visible XP
 cohort passes 35/35 while its full inventory retains four conditional presence
 findings. Evidence:
 `live-runs/N2-0-2-8-xp-reputation-20260801-175000/N2-0-2-8-xp-reputation-20260801-175000.md`.
+
+## 2-9 Bags / backpack — CLOSED-PASS
+
+The runtime container layout was corrected to the shipped bottom-right anchor
+chain, with the original backpack background, quickslot rings, close button,
+and 12px title. The runtime cohort passes 56/56 mechanical verdicts. Evidence:
+`live-runs/N2-0-2-9-backpack-20260801-181000/N2-0-2-9-backpack-20260801-181000.md`.

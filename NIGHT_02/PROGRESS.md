@@ -21,3 +21,5 @@
 2026-08-01 17:35 local | 2-8 | OPEN | XP/reputation-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 17:50 local | 2-8 | CLOSED-FINDING | added exact conditional reputation-watch bar with 84/84 PASS and recaptured live XP at 35/35 visible PASS; full XP inventory retains four conditional presence deltas | live-runs/N2-0-2-8-xp-reputation-20260801-175000/N2-0-2-8-xp-reputation-20260801-175000.md
 2026-08-01 17:50 local | 2-9 | OPEN | bag/backpack parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 18:10 local | 2-9 | CLOSED-PASS | corrected backpack slot-chain direction/position, title font, and shipped close button; runtime cohort is 56/56 PASS with original MPQ art | live-runs/N2-0-2-9-backpack-20260801-181000/N2-0-2-9-backpack-20260801-181000.md
+2026-08-01 18:10 local | 2-9P | OPEN | binding pilot instrument-truth correction precedes every doc-3 item | NIGHT_02/RULINGS_QUEUE.md

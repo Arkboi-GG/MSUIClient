@@ -214,6 +214,28 @@ public sealed partial class GameLoop
         Vector2 frameMin = new(display.X - frameSize.X * scale, display.Y - (70f + frameSize.Y) * scale);
         Vector2 windowMin = frameMin - new Vector2(64f, 0) * scale;
 
+        if (_uiParityArmed && _uiParityPanel == "backpack")
+        {
+            BeginUiParityFrame(frameMin, scale);
+            CollectUiParity("ContainerFrame1", "Frame", frameMin, frameSize * scale, parent: "",
+                point: "BOTTOMRIGHT", relativeTo: "UIParent", relativePoint: "BOTTOMRIGHT", offsetX: "0", offsetY: "70", strata: "MEDIUM");
+            CollectUiParity("ContainerFrame1BackgroundTop", "Texture", windowMin, new Vector2(256) * scale,
+                parent: "ContainerFrame1", point: "TOPRIGHT", relativeTo: "ContainerFrame1", relativePoint: "TOPRIGHT",
+                offsetX: "0", offsetY: "0", texture: @"Interface\ContainerFrame\UI-BackpackBackground", layer: "ARTWORK", strata: "MEDIUM", texCoords: "0,1,0,1");
+            CollectUiParity("ContainerFrame1Portrait", "Texture", frameMin + new Vector2(7, 5) * scale,
+                new Vector2(40) * scale, parent: "ContainerFrame1", point: "TOPLEFT", relativeTo: "ContainerFrame1",
+                relativePoint: "TOPLEFT", offsetX: "7", offsetY: "-5", texture: @"Interface\Buttons\Button-Backpack-Up", layer: "BACKGROUND", strata: "MEDIUM");
+            CollectUiParity("ContainerFrame1Name", "FontString", frameMin + new Vector2(47, 10) * scale,
+                new Vector2(112, 12) * scale, parent: "ContainerFrame1", point: "TOPLEFT", relativeTo: "ContainerFrame1",
+                relativePoint: "TOPLEFT", offsetX: "47", offsetY: "-10", font: "GameFontHighlight", fontPath: @"Fonts\FRIZQT__.TTF",
+                fontSize: "12", color: "1,1,1,1", layer: "ARTWORK", strata: "MEDIUM");
+            CollectUiParity("ContainerFrame1CloseButton", "Button", frameMin + new Vector2(160, 1) * scale,
+                new Vector2(32) * scale, parent: "ContainerFrame1", point: "TOPRIGHT", relativeTo: "ContainerFrame1",
+                relativePoint: "TOPRIGHT", offsetX: "0", offsetY: "-1", strata: "MEDIUM");
+            CollectUiParity("ContainerFrame1CloseButton/NormalTexture", "NormalTexture", frameMin + new Vector2(160, 1) * scale,
+                new Vector2(32) * scale, parent: "ContainerFrame1CloseButton", texture: @"Interface\Buttons\UI-Panel-MinimizeButton-Up", strata: "MEDIUM");
+        }
+
         ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(256f, 256f) * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -233,16 +255,33 @@ public sealed partial class GameLoop
         if (background != 0)
             dl.AddImage((nint)background, windowMin, windowMin + new Vector2(256f) * scale);
 
-        dl.AddText(ImGui.GetFont(), 13f * scale, frameMin + new Vector2(47f, 10f) * scale,
+        dl.AddText(ImGui.GetFont(), 12f * scale, frameMin + new Vector2(47f, 10f) * scale,
             0xffffffff, "Backpack");
+
+        Vector2 closeMin = frameMin + new Vector2(160, 1) * scale;
+        uint close = _gameplayArt.Handle(@"Interface\Buttons\UI-Panel-MinimizeButton-Up");
+        if (close != 0) dl.AddImage((nint)close, closeMin, closeMin + new Vector2(32) * scale);
+        ImGui.SetCursorScreenPos(closeMin);
+        ImGui.InvisibleButton("##backpack-close", new Vector2(32) * scale);
+        if (ImGui.IsItemClicked()) _backpackOpen = false;
 
         for (int gameSlot = 0; gameSlot < 16; gameSlot++)
         {
-            // Slot 1 appears top-left; the authored anchor chain itself grows bottom-right upward.
             int row = gameSlot / 4;
             int col = gameSlot % 4;
-            Vector2 slotMin = frameMin + new Vector2(14f + col * 42f, 45f + row * 41f) * scale;
+            // ContainerFrame.lua anchors item 1 at BOTTOMRIGHT(-12,30), then chains
+            // right-to-left and bottom-to-top at 5px/4px gaps.
+            Vector2 slotMin = frameMin + new Vector2(143f - col * 42f, 173f - row * 41f) * scale;
             Vector2 slotMax = slotMin + new Vector2(37f) * scale;
+            if (_uiParityArmed && _uiParityPanel == "backpack" && gameSlot == 0)
+            {
+                CollectUiParity("ContainerFrame1Item1", "Button", slotMin, new Vector2(37) * scale,
+                    parent: "ContainerFrame1", point: "BOTTOMRIGHT", relativeTo: "ContainerFrame1", relativePoint: "BOTTOMRIGHT",
+                    offsetX: "-12", offsetY: "30", strata: "MEDIUM");
+                CollectUiParity("ContainerFrame1Item1NormalTexture", "NormalTexture", slotMin - new Vector2(13, 14) * scale,
+                    new Vector2(64) * scale, parent: "ContainerFrame1Item1", point: "CENTER", relativeTo: "ContainerFrame1Item1",
+                    relativePoint: "CENTER", offsetX: "0", offsetY: "-1", texture: @"Interface\Buttons\UI-Quickslot2", strata: "MEDIUM");
+            }
             ulong guid = player.Fields.PlayerBackpackSlot(gameSlot);
             WorldEntity? instance = guid != 0 && _entities.TryGet(guid, out WorldEntity found) ? found : null;
             ItemTemplate? template = null;
@@ -284,6 +323,7 @@ public sealed partial class GameLoop
         }
 
         DrawMoney(dl, frameMin, player.Fields.Coinage, scale);
+        if (_uiParityArmed && _uiParityPanel == "backpack") MarkUiParityFrameComplete();
         ImGui.End();
 
     }
