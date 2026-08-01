@@ -277,3 +277,9 @@ runtime attach path. Evidence: `live-runs/N2-0-4-7-static-popup-20260802-000000/
 The touched-reference sweep contains 375 text rows: 3 PASS, 11 DELTA, 290
 NOT-DRAWN, and 71 without a comparable draw verdict. The immutable CSV is the
 exact remediation list. Evidence: `live-runs/N2-0-5-1-font-audit-20260802-001500/N2-0-5-1-font-audit-20260802-001500.md`.
+
+## 5-2 Color-constant audit — CLOSED-FINDING
+
+Thirty constants audited; four power-type approximations corrected to exact
+vanilla values. Fourteen PASS, two DELTA, and fourteen NOT-DRAWN remain.
+Evidence: `live-runs/N2-0-5-2-color-audit-20260802-003000/N2-0-5-2-color-audit-20260802-003000.md`.

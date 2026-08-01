@@ -73,3 +73,5 @@
 2026-08-02 00:00 local | 5-1 | OPEN | font-object audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
 2026-08-02 00:15 local | 5-1 | CLOSED-FINDING | full touched-reference font sweep emitted 375 rows: 3 PASS, 11 DELTA, 290 NOT-DRAWN, 71 without a comparable draw verdict | live-runs/N2-0-5-1-font-audit-20260802-001500/N2-0-5-1-font-audit-20260802-001500.md
 2026-08-02 00:15 local | 5-2 | OPEN | color-constant audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
+2026-08-02 00:30 local | 5-2 | CLOSED-FINDING | audited 30 constants and corrected four power colors; 14 PASS, 2 DELTA, 14 NOT-DRAWN remain exact | live-runs/N2-0-5-2-color-audit-20260802-003000/N2-0-5-2-color-audit-20260802-003000.md
+2026-08-02 00:30 local | 5-3 | OPEN | strata and draw-layer audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md

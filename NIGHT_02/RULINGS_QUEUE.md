@@ -176,3 +176,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Exact audit: `live-runs/N2-0-5-1-font-audit-20260802-001500/font-object-audit.csv`.
 - Counts: 375 rows; 3 PASS, 11 DELTA, 290 NOT-DRAWN, 71 NO-VERDICT.
 - Work: implement every absent text draw, expose named font-object identity from the real draw path, then resolve each remaining size/object delta without reference-metadata copying.
+
+## Q31 — 5-2 — color-constant audit findings
+
+- Exact audit: `live-runs/N2-0-5-2-color-audit-20260802-003000/color-constant-audit.csv`.
+- Counts: 30 constants; 14 PASS, 2 DELTA, 14 NOT-DRAWN after correcting mana, rage, energy, and happiness.
+- Work: implement class and quest-difficulty color consumers; resolve the epic rounding and dead-NPC gray byte deltas.

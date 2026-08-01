@@ -170,11 +170,11 @@ public sealed partial class GameLoop
 
     private static Vector4 PowerColor(byte powerType) => powerType switch
     {
-        1 => new Vector4(0.95f, 0.08f, 0.05f, 1f), // rage
+        1 => new Vector4(1.00f, 0.00f, 0.00f, 1f), // rage
         2 => new Vector4(1.00f, 0.50f, 0.25f, 1f), // focus
-        3 => new Vector4(1.00f, 0.85f, 0.05f, 1f), // energy
-        4 => new Vector4(0.00f, 0.75f, 1.00f, 1f), // happiness
-        _ => new Vector4(0.05f, 0.30f, 0.95f, 1f), // mana
+        3 => new Vector4(1.00f, 1.00f, 0.00f, 1f), // energy
+        4 => new Vector4(0.00f, 1.00f, 1.00f, 1f), // happiness
+        _ => new Vector4(0.00f, 0.00f, 1.00f, 1f), // mana
     };
 
     private static void PushUnitFrameBorder(float flash)

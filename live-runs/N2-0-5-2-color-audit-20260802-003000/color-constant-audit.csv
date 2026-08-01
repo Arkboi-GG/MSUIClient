@@ -1,0 +1,31 @@
+category,name,expected,actual,verdict,reference,implementation
+power,mana,#0000FFFF,#0000FFFF,PASS,build-5875 PowerBarColor,Program.CombatFeedback.cs
+power,rage,#FF0000FF,#FF0000FF,PASS,build-5875 PowerBarColor,Program.CombatFeedback.cs
+power,focus,#FF8040FF,#FF8040FF,PASS,build-5875 PowerBarColor,Program.CombatFeedback.cs
+power,energy,#FFFF00FF,#FFFF00FF,PASS,build-5875 PowerBarColor,Program.CombatFeedback.cs
+power,happiness,#00FFFFFF,#00FFFFFF,PASS,build-5875 PowerBarColor,Program.CombatFeedback.cs
+item-quality,poor,#9E9E9EFF,#9E9E9EFF,PASS,GetItemQualityColor(0),Program.Inventory.cs
+item-quality,common,#FFFFFFFF,#FFFFFFFF,PASS,GetItemQualityColor(1),Program.Inventory.cs
+item-quality,uncommon,#1EFF00FF,#1EFF00FF,PASS,GetItemQualityColor(2),Program.Inventory.cs
+item-quality,rare,#0070DEFF,#0070DEFF,PASS,GetItemQualityColor(3),Program.Inventory.cs
+item-quality,epic,#A335EEFF,#A336EDFF,DELTA,GetItemQualityColor(4),Program.Inventory.cs
+item-quality,legendary,#FF8000FF,#FF8000FF,PASS,GetItemQualityColor(5),Program.Inventory.cs
+item-quality,artifact,#E6CC80FF,#E6CC80FF,PASS,GetItemQualityColor(6),Program.Inventory.cs
+reaction,hostile,#FF0000FF,#FF0000FF,PASS,build-5875 faction reaction,Program.UnitFrames.cs
+reaction,neutral,#FFFF00FF,#FFFF00FF,PASS,build-5875 faction reaction,Program.UnitFrames.cs
+reaction,friendly,#00FF00FF,#00FF00FF,PASS,build-5875 faction reaction,Program.UnitFrames.cs
+reaction,dead-npc,#808080FF,#7F7F7FFF,DELTA,build-5875 faction reaction,Program.UnitFrames.cs
+class,DRUID,#FF7D0AFF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,HUNTER,#ABD473FF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,MAGE,#69CCF0FF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,PALADIN,#F58CBAFF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,PRIEST,#FFFFFFFF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,ROGUE,#FFF569FF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,SHAMAN,#0070DEFF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,WARLOCK,#9482C9FF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+class,WARRIOR,#C79C6EFF,NOT-IMPLEMENTED,NOT-DRAWN,RAID_CLASS_COLORS,
+quest-difficulty,very-difficult,#FF1A1AFF,NOT-IMPLEMENTED,NOT-DRAWN,GetQuestDifficultyColor,
+quest-difficulty,difficult,#FF8040FF,NOT-IMPLEMENTED,NOT-DRAWN,GetQuestDifficultyColor,
+quest-difficulty,standard,#FFFF00FF,NOT-IMPLEMENTED,NOT-DRAWN,GetQuestDifficultyColor,
+quest-difficulty,easy,#40BF40FF,NOT-IMPLEMENTED,NOT-DRAWN,GetQuestDifficultyColor,
+quest-difficulty,trivial,#808080FF,NOT-IMPLEMENTED,NOT-DRAWN,GetQuestDifficultyColor,
