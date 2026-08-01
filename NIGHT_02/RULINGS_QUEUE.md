@@ -140,3 +140,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 2/180 with 178 NOT-DRAWN. Exact set: `live-runs/N2-0-4-2-options-20260801-224500/options-diff.csv`.
 - Work: rebuild the vanilla 450x665 video/sound/interface tabs, group boxes, dropdowns, sliders, checks, labels, reset/default/okay/cancel buttons, and instrument all real control draws.
 - Review: `live-runs/N2-0-4-2-options-20260801-224500/options-contact.png`.
+
+## Q25 — 4-3 — keybindings NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 7/249 with 242 NOT-DRAWN. Exact set: `live-runs/N2-0-4-3-keybindings-20260801-230000/keybindings-diff.csv`.
+- Work: implement editable binding state/persistence, categories, every binding row/label/button state, defaults/account-character scope, okay/cancel, header/font, and remaining vanilla elements.
+- Review: `live-runs/N2-0-4-3-keybindings-20260801-230000/keybindings-contact.png`.

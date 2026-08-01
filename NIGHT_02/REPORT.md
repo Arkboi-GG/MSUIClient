@@ -239,3 +239,9 @@ Evidence: `live-runs/N2-0-4-1-game-menu-20260801-223000/N2-0-4-1-game-menu-20260
 Coverage: 2/180 with 178 NOT-DRAWN. The live video-options modal now emits
 draw-derived host/header evidence against the full vanilla OptionsFrame.
 Evidence: `live-runs/N2-0-4-2-options-20260801-224500/N2-0-4-2-options-20260801-224500.md`.
+
+## 4-3 Keybindings — CLOSED-FINDING
+
+Coverage: 7/249 with 242 NOT-DRAWN. The previously disabled/missing UI now has
+a menu route, shipped shell, category/binding list, and close actions.
+Evidence: `live-runs/N2-0-4-3-keybindings-20260801-230000/N2-0-4-3-keybindings-20260801-230000.md`.

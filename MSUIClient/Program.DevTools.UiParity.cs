@@ -20,7 +20,7 @@ public sealed partial class GameLoop
 
     private void ArmUiParityCapture(string panel)
     {
-        if (!_config.DevTools || panel is not ("game-menu" or "options" or "player-frame" or "target-frame" or "party-frame" or
+        if (!_config.DevTools || panel is not ("game-menu" or "options" or "keybindings" or "player-frame" or "target-frame" or "party-frame" or
             "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade")) return;
         _uiParityPanel = panel;
         // Captures isolate the requested gameplay panel from persistent wire-opened utility
@@ -36,6 +36,7 @@ public sealed partial class GameLoop
         if (panel == "talent-frame") _talentOpen = true;
         if (panel == "quest-log") _questLogOpen = true;
         if (panel == "trade") _tradeOpen = true;
+        if (panel == "keybindings") _keybindingsOpen = true;
         if (panel == "cast-bar")
         {
             _castBarPhase = CastBarPhase.Casting;
@@ -91,7 +92,7 @@ public sealed partial class GameLoop
         static string N(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
         static string Norm(string path) => path.Length == 0 || path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? path : path + ".blp";
         float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
-        Vector2 relative = element is "GameMenuFrame" or "OptionsFrame" or "PlayerFrame" or "TargetFrame" or "CharacterFrame" or "PaperDollFrame" or "SpellBookFrame" or "TalentFrame" or "QuestLogFrame" or "MerchantFrame" or "ClassTrainerFrame" or "BankFrame" or "MailFrame" or "AuctionFrame" or "LootFrame" or "GuildFrame" or "GossipFrame" or "TaxiFrame" or "TradeFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
+        Vector2 relative = element is "GameMenuFrame" or "OptionsFrame" or "KeyBindingFrame" or "PlayerFrame" or "TargetFrame" or "CharacterFrame" or "PaperDollFrame" or "SpellBookFrame" or "TalentFrame" or "QuestLogFrame" or "MerchantFrame" or "ClassTrainerFrame" or "BankFrame" or "MailFrame" or "AuctionFrame" or "LootFrame" or "GuildFrame" or "GossipFrame" or "TaxiFrame" or "TradeFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
         string texture = Norm(trace.TexturePath);
         string asset = texture.Length == 0 ? "" : _mpq?.ReadFileWithSupplier(texture) is { } hit
             ? $"{hit.Supplier}:{texture}" : $"MISSING:{texture}";

@@ -380,9 +380,7 @@ public sealed partial class GameLoop
         Row("GameMenuButtonUIOptions", "Interface Options", 70.5f, "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
             true, () => Go(MenuPage.Controls));
         Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
-            false, () => { },
-            "Rebindable keys are not built yet. The current binds are listed under\n" +
-            "Camera and Controls.");
+            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();_keybindingsOpen=true; });
         Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
             false, () => { }, "Macro creation is not built yet.");
         Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
