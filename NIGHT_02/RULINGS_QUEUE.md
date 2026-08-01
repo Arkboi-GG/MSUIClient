@@ -170,3 +170,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Coverage: 5/17 with 12 NOT-DRAWN; exact set: `live-runs/N2-0-4-7-static-popup-20260802-000000/static-popup-diff.csv`.
 - Work: instrument close-button texture states and all dialog-button texture states, capture dynamic Lua button placement, expose backdrop metadata/strata, and add an item-cursor reference specification when one is locatable in shipped reference data.
 - Review: `live-runs/N2-0-4-7-static-popup-20260802-000000/static-popup-contact.png`.
+
+## Q30 — 5-1 — font-object audit findings
+
+- Exact audit: `live-runs/N2-0-5-1-font-audit-20260802-001500/font-object-audit.csv`.
+- Counts: 375 rows; 3 PASS, 11 DELTA, 290 NOT-DRAWN, 71 NO-VERDICT.
+- Work: implement every absent text draw, expose named font-object identity from the real draw path, then resolve each remaining size/object delta without reference-metadata copying.

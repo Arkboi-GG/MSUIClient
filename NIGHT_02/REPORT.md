@@ -271,3 +271,9 @@ Coverage: 5/17 with 12 NOT-DRAWN. The shipped dialog backdrop, alert icon,
 FRIZQT message, and two original dialog buttons now have a deterministic real
 draw. The pre-existing carried-item cursor draw remains the authoritative
 runtime attach path. Evidence: `live-runs/N2-0-4-7-static-popup-20260802-000000/N2-0-4-7-static-popup-20260802-000000.md`.
+
+## 5-1 Font-object audit — CLOSED-FINDING
+
+The touched-reference sweep contains 375 text rows: 3 PASS, 11 DELTA, 290
+NOT-DRAWN, and 71 without a comparable draw verdict. The immutable CSV is the
+exact remediation list. Evidence: `live-runs/N2-0-5-1-font-audit-20260802-001500/N2-0-5-1-font-audit-20260802-001500.md`.

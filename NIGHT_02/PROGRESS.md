@@ -71,3 +71,5 @@
 2026-08-02 00:00 local | 4-7 | CLOSED-FINDING | original dialog backdrop, alert, and buttons captured after preserved compile-failure attempt; coverage 5/17 with 12 NOT-DRAWN | live-runs/N2-0-4-7-static-popup-20260802-000000/N2-0-4-7-static-popup-20260802-000000.md
 2026-08-02 00:00 local | 0-4 | CLOSED-FINDING | all seven system-UI items have committed increments, immutable outputs, exact diffs, contacts, queues, manifests, and passing gates | NIGHT_02/4_SYSTEM_UI.md
 2026-08-02 00:00 local | 5-1 | OPEN | font-object audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
+2026-08-02 00:15 local | 5-1 | CLOSED-FINDING | full touched-reference font sweep emitted 375 rows: 3 PASS, 11 DELTA, 290 NOT-DRAWN, 71 without a comparable draw verdict | live-runs/N2-0-5-1-font-audit-20260802-001500/N2-0-5-1-font-audit-20260802-001500.md
+2026-08-02 00:15 local | 5-2 | OPEN | color-constant audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
