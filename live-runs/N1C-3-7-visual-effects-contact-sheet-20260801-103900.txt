@@ -1,0 +1,15 @@
+row,school,stage,path
+1,physical,precast,dumps/gameplay-n1c-effect-v3-physical-precast.png
+1,physical,cast,dumps/gameplay-n1c-effect-v3-physical-cast.png
+2,fire,precast,dumps/gameplay-n1c-effect-v3-fire-precast.png
+2,fire,cast,dumps/gameplay-n1c-effect-v3-fire-cast.png
+3,frost,precast,dumps/gameplay-n1c-effect-v3-frost-precast.png
+3,frost,cast,dumps/gameplay-n1c-effect-v3-frost-cast.png
+4,arcane,precast,dumps/gameplay-n1c-effect-v3-arcane-precast.png
+4,arcane,cast,dumps/gameplay-n1c-effect-v3-arcane-cast.png
+5,holy,precast,dumps/gameplay-n1c-effect-v3-holy-precast.png
+5,holy,cast,dumps/gameplay-n1c-effect-v3-holy-cast.png
+6,nature,precast,dumps/gameplay-n1c-effect-v3-nature-precast.png
+6,nature,cast,dumps/gameplay-n1c-effect-v3-nature-cast.png
+7,shadow,precast,dumps/gameplay-n1c-effect-v3-shadow-precast.png
+7,shadow,cast,dumps/gameplay-n1c-effect-v3-shadow-cast.png

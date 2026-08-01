@@ -371,3 +371,11 @@ right-click cancel, target debuff display, and build-5875 aura opcodes are built
 The instrument exposed and the fix handles duration-before-slot-replacement
 ordering. A GM-off Fortitude apply/timer/cancel/remove run passed 33/33.
 Evidence: `live-runs/N1C-3-6-auras-20260801-103200.md`.
+
+## NIGHT_01C 3-7 — visual-effect presence sweep
+
+`CLOSED-FINDING`: exact DBC stage-kit rendering and a full 67-row TEST known
+spell supplier sweep are built. Forty spells resolve model suppliers; twelve
+visual chains contain no model and fifteen spells have no visual chain. The
+fresh seven-school contact sheet is queued Q18 for perceptual judgment.
+Evidence: `live-runs/N1C-3-7-visual-effect-sweep-20260801-104100.md`.

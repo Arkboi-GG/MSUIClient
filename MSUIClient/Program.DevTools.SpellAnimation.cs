@@ -5,6 +5,35 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private uint _presentedEffectSpell;
+
+    private bool PresentSpellEffect(uint spellId, string stage)
+    {
+        if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true ||
+            _spellVisualCatalog?.TryGetStages(info.VisualId, out SpellVisualStages stages) != true ||
+            _net is null || _spellEffects is null) return false;
+        uint kitId = stage.ToLowerInvariant() switch
+        {
+            "precast" => stages.Precast,
+            "cast" => stages.Cast,
+            "impact" => stages.Impact,
+            "state" => stages.State,
+            "channel" => stages.Channel,
+            _ => 0,
+        };
+        if (kitId == 0 || !_spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit)) return false;
+        if (_presentedEffectSpell != 0) _spellEffects.Reap(_net.PlayerGuid, _presentedEffectSpell);
+        _presentedEffectSpell = spellId;
+        _spellEffects.SpawnKit(_net.PlayerGuid, spellId, kit,
+            persistent: stage is "precast" or "state" or "channel", NowSeconds());
+        if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
+            stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
+            _character?.BeginSpellVisual(kit.AnimationId);
+        else _character?.ReleaseSpellVisual(kit.AnimationId);
+        EmitSpellAnimation(info, stage.ToUpperInvariant(), kitId, kit.AnimationId, "DBC_EFFECT_SUPPLIER");
+        return true;
+    }
+
     private bool PresentSpellAnimation(uint spellId, string stage, string source)
     {
         if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true || _character is null)

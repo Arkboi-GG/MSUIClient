@@ -1,0 +1,14 @@
+time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
+0.626,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
+2.923,"Test",1464,"Slam",PHYSICAL,PRECAST,43,56,56,56,BakedOnDemand,"Anim56",False,False,True,"Stand","none","none","Anim56",1.0000,DBC_EFFECT_SUPPLIER
+6.175,"Test",1464,"Slam",PHYSICAL,CAST,1664,58,58,58,BakedOnDemand,"Anim58",False,False,True,"Anim56","none","Anim58","none",1.0000,DBC_EFFECT_SUPPLIER
+9.044,"Test",133,"Fireball",FIRE,PRECAST,30,51,51,51,BakedOnDemand,"Anim51",False,False,True,"Anim58","none","Anim58","Anim51",1.0000,DBC_EFFECT_SUPPLIER
+11.868,"Test",133,"Fireball",FIRE,CAST,38,53,53,53,BakedOnDemand,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER
+14.778,"Test",116,"Frostbolt",FROST,PRECAST,194,51,51,51,Exact,"Anim51",False,False,True,"Stand","Anim53","none","Anim51",0.1375,DBC_EFFECT_SUPPLIER
+17.682,"Test",116,"Frostbolt",FROST,CAST,202,53,53,53,Exact,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER
+26.413,"Test",635,"Holy Light",HOLY,PRECAST,99,52,52,52,BakedOnDemand,"Anim52",False,False,True,"Stand","none","none","Anim52",1.0000,DBC_EFFECT_SUPPLIER
+29.350,"Test",635,"Holy Light",HOLY,CAST,270,54,54,54,BakedOnDemand,"Anim54",False,False,True,"Anim52","none","Anim54","none",1.0000,DBC_EFFECT_SUPPLIER
+32.319,"Test",5185,"Healing Touch",NATURE,PRECAST,100,52,52,52,Exact,"Anim52",False,False,True,"Stand","Anim54","none","Anim52",0.1348,DBC_EFFECT_SUPPLIER
+35.271,"Test",5185,"Healing Touch",NATURE,CAST,183,54,54,54,Exact,"Anim54",False,False,True,"Anim52","none","Anim54","none",1.0000,DBC_EFFECT_SUPPLIER
+38.225,"Test",686,"Shadow Bolt",SHADOW,PRECAST,114,51,51,51,Exact,"Anim51",False,False,True,"Stand","Anim54","none","Anim51",0.1708,DBC_EFFECT_SUPPLIER
+41.197,"Test",686,"Shadow Bolt",SHADOW,CAST,118,53,53,53,Exact,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER

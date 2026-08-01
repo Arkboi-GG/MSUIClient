@@ -1,0 +1,16 @@
+time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
+0.529,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
+2.851,"Test",1464,"Slam",PHYSICAL,PRECAST,43,56,56,56,BakedOnDemand,"Anim56",False,False,True,"Stand","none","none","Anim56",1.0000,DBC_EFFECT_SUPPLIER
+5.927,"Test",1464,"Slam",PHYSICAL,CAST,1664,58,58,58,BakedOnDemand,"Anim58",False,False,True,"Anim56","none","Anim58","none",1.0000,DBC_EFFECT_SUPPLIER
+8.808,"Test",133,"Fireball",FIRE,PRECAST,30,51,51,51,BakedOnDemand,"Anim51",False,False,True,"Anim58","none","Anim58","Anim51",1.0000,DBC_EFFECT_SUPPLIER
+11.627,"Test",133,"Fireball",FIRE,CAST,38,53,53,53,BakedOnDemand,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER
+14.437,"Test",116,"Frostbolt",FROST,PRECAST,194,51,51,51,Exact,"Anim51",False,False,True,"Stand","Anim53","none","Anim51",0.1437,DBC_EFFECT_SUPPLIER
+17.267,"Test",116,"Frostbolt",FROST,CAST,202,53,53,53,Exact,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER
+20.105,"Test",1449,"Arcane Explosion",ARCANE,PRECAST,266,52,52,52,BakedOnDemand,"Anim52",False,True,True,"Stand","Anim53","none","Anim52",0.1312,DBC_EFFECT_SUPPLIER
+22.910,"Test",1449,"Arcane Explosion",ARCANE,CAST,1004,54,54,54,BakedOnDemand,"Anim54",False,True,True,"Anim52","none","Anim54","none",1.0000,DBC_EFFECT_SUPPLIER
+26.110,"Test",635,"Holy Light",HOLY,PRECAST,99,52,52,52,Exact,"Anim52",False,False,True,"Stand","Anim54","none","Anim52",0.1532,DBC_EFFECT_SUPPLIER
+28.934,"Test",635,"Holy Light",HOLY,CAST,270,54,54,54,Exact,"Anim54",False,False,True,"Anim52","none","Anim54","none",1.0000,DBC_EFFECT_SUPPLIER
+31.783,"Test",5185,"Healing Touch",NATURE,PRECAST,100,52,52,52,Exact,"Anim52",False,False,True,"Stand","Anim54","none","Anim52",0.1375,DBC_EFFECT_SUPPLIER
+34.627,"Test",5185,"Healing Touch",NATURE,CAST,183,54,54,54,Exact,"Anim54",False,False,True,"Anim52","none","Anim54","none",1.0000,DBC_EFFECT_SUPPLIER
+37.501,"Test",686,"Shadow Bolt",SHADOW,PRECAST,114,51,51,51,Exact,"Anim51",False,False,True,"Stand","Anim54","none","Anim51",0.1332,DBC_EFFECT_SUPPLIER
+40.360,"Test",686,"Shadow Bolt",SHADOW,CAST,118,53,53,53,Exact,"Anim53",False,False,True,"Anim51","none","Anim53","none",1.0000,DBC_EFFECT_SUPPLIER

@@ -1,0 +1,65 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\visual-effect-school-sweep.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm off
+4,PASS,spellbook known=67
+5,FAIL,spell-effect 1464 precast
+6,PASS,wait 0.5
+7,PASS,dump n1c-effect-physical-precast
+8,PASS,wait 0.5
+9,FAIL,spell-effect 1464 cast
+10,PASS,wait 0.5
+11,PASS,dump n1c-effect-physical-cast
+12,PASS,wait 0.5
+13,PASS,spell-effect 133 precast
+14,PASS,wait 0.5
+15,PASS,dump n1c-effect-fire-precast
+16,PASS,wait 0.5
+17,PASS,spell-effect 133 cast
+18,PASS,wait 0.5
+19,PASS,dump n1c-effect-fire-cast
+20,PASS,wait 0.5
+21,PASS,spell-effect 116 precast
+22,PASS,wait 0.5
+23,PASS,dump n1c-effect-frost-precast
+24,PASS,wait 0.5
+25,PASS,spell-effect 116 cast
+26,PASS,wait 0.5
+27,PASS,dump n1c-effect-frost-cast
+28,PASS,wait 0.5
+29,FAIL,spell-effect 5143 precast
+30,PASS,wait 0.5
+31,PASS,dump n1c-effect-arcane-precast
+32,PASS,wait 0.5
+33,FAIL,spell-effect 5143 cast
+34,PASS,wait 0.5
+35,PASS,dump n1c-effect-arcane-cast
+36,PASS,wait 0.5
+37,PASS,spell-effect 635 precast
+38,PASS,wait 0.5
+39,PASS,dump n1c-effect-holy-precast
+40,PASS,wait 0.5
+41,PASS,spell-effect 635 cast
+42,PASS,wait 0.5
+43,PASS,dump n1c-effect-holy-cast
+44,PASS,wait 0.5
+45,PASS,spell-effect 5185 precast
+46,PASS,wait 0.5
+47,PASS,dump n1c-effect-nature-precast
+48,PASS,wait 0.5
+49,PASS,spell-effect 5185 cast
+50,PASS,wait 0.5
+51,PASS,dump n1c-effect-nature-cast
+52,PASS,wait 0.5
+53,PASS,spell-effect 686 precast
+54,PASS,wait 0.5
+55,PASS,dump n1c-effect-shadow-precast
+56,PASS,wait 0.5
+57,PASS,spell-effect 686 cast
+58,PASS,wait 0.5
+59,PASS,dump n1c-effect-shadow-cast
+60,PASS,wait 0.5
+61,PASS,gm .gps
+62,PASS,waitfor GmChatResponse
+63,PASS,gm .gm off

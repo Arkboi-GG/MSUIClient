@@ -1,0 +1,1 @@
+time,character,spell_id,name,event,duration_ms,remaining_ms,tick_index,tick_delta_ms,tick_kind,amount,moving,animation_state,source

@@ -1,0 +1,63 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm off
+spellbook
+spell-effect 1464 precast
+wait 0.5
+dump n1c-effect-v3-physical-precast
+wait 0.5
+spell-effect 1464 cast
+wait 0.5
+dump n1c-effect-v3-physical-cast
+wait 0.5
+spell-effect 133 precast
+wait 0.5
+dump n1c-effect-v3-fire-precast
+wait 0.5
+spell-effect 133 cast
+wait 0.5
+dump n1c-effect-v3-fire-cast
+wait 0.5
+spell-effect 116 precast
+wait 0.5
+dump n1c-effect-v3-frost-precast
+wait 0.5
+spell-effect 116 cast
+wait 0.5
+dump n1c-effect-v3-frost-cast
+wait 0.5
+spell-effect 1449 precast
+wait 0.5
+dump n1c-effect-v3-arcane-precast
+wait 0.5
+spell-effect 1449 cast
+wait 0.5
+dump n1c-effect-v3-arcane-cast
+wait 0.5
+spell-effect 635 precast
+wait 0.5
+dump n1c-effect-v3-holy-precast
+wait 0.5
+spell-effect 635 cast
+wait 0.5
+dump n1c-effect-v3-holy-cast
+wait 0.5
+spell-effect 5185 precast
+wait 0.5
+dump n1c-effect-v3-nature-precast
+wait 0.5
+spell-effect 5185 cast
+wait 0.5
+dump n1c-effect-v3-nature-cast
+wait 0.5
+spell-effect 686 precast
+wait 0.5
+dump n1c-effect-v3-shadow-precast
+wait 0.5
+spell-effect 686 cast
+wait 0.5
+dump n1c-effect-v3-shadow-cast
+wait 0.5
+gm .gps
+waitfor GmChatResponse 3
+gm .gm off

@@ -201,3 +201,16 @@ Format per entry:
 - Mechanical result: exact renderer IDs, moving/legality matrix, and nontrivial
   cross-fade weights pass; the former hard-cut root cause is removed.
 - Agent recommendation: accept the mechanics and rule only on visual feel.
+
+## Q18 — 3-7 — spell effect perceptual pass
+- Decision needed: judge the labeled seven-school precast/cast effect frames for
+  visual quality and whether the authored empty physical/utility stages are
+  acceptable vanilla data rather than candidates for client substitution.
+- Evidence:
+  `live-runs/N1C-3-7-visual-effects-contact-sheet-20260801-103900.png`
+  with its adjacent `.txt` index and
+  `live-runs/N1C-3-7-visual-effect-sweep-20260801-104100.md`.
+- Mechanical result: 40/67 known spells resolve exact model suppliers, while 12
+  resolve model-empty chains and 15 have no visual chain; the renderer fabricates
+  nothing for authored absence.
+- Agent recommendation: accept exact supplier binding and rule only on art/feel.

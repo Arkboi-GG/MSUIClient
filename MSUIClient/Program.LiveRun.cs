@@ -273,6 +273,11 @@ public sealed partial class GameLoop
                     Log(animation.Length == 3 &&
                         PresentSpellAnimation(uint.Parse(animation[1], CultureInfo.InvariantCulture), animation[2], "SYNTHETIC_DBC_RENDERER"), line);
                     break;
+                case "spell-effect":
+                    string[] effect = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    Log(effect.Length == 3 && PresentSpellEffect(
+                        uint.Parse(effect[1], CultureInfo.InvariantCulture), effect[2]), line);
+                    break;
                 case "spell-animation-sample":
                     string[] animationSample = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     Log(animationSample.Length == 3 &&
