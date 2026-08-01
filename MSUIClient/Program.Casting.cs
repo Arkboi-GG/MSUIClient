@@ -177,6 +177,8 @@ public sealed partial class GameLoop
              channel.MovementInterruptsChannel))
         {
             EmitCastBarVerdict("CANCEL_SEND", _castBarSpell, cancelSource: "MOVEMENT_CHANNEL");
+            EmitChannelVerdict("CANCEL", remainingMs: (uint)Math.Max(0,
+                (_castBarEnds - NowSeconds()) * 1000.0), source: "MOVEMENT_CHANNEL");
             _net.CancelChannelling(_castBarSpell);
             return; // channel owns the one movement-cancel edge
         }
@@ -266,6 +268,7 @@ public sealed partial class GameLoop
                 _castBarFinishedAt = NowSeconds();
                 _castBarDisplayUntil = _castBarFinishedAt + 1.0 / 6.0 + 1.0 / 1.5;
                 EmitCastBarVerdict("CHANNEL_STOP", _castBarSpell);
+                EmitChannelVerdict("STOP", source: "MSG_CHANNEL_UPDATE");
             }
             _character?.CancelSpellVisual();
             if (_net is not null) _spellEffects?.Reap(_net.PlayerGuid, _castBarSpell);
@@ -273,11 +276,13 @@ public sealed partial class GameLoop
         }
         _castBarEnds = NowSeconds() + remainingMs / 1000.0;
         EmitCastBarVerdict("CHANNEL_UPDATE", _castBarSpell, remainingMs);
+        EmitChannelVerdict("UPDATE", remainingMs: remainingMs, source: "MSG_CHANNEL_UPDATE");
     }
 
     private void BeginChannel(uint spellId, uint durationMs)
     {
         BeginCastBar(spellId, durationMs, channel: true);
+        EmitChannelVerdict("START", durationMs, durationMs, source: "MSG_CHANNEL_START");
         uint visual = _spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0;
         ushort? animation = ResolveSpellKit(visual, static s => s.Channel)?.AnimationId;
         _character?.BeginSpellVisual(animation);

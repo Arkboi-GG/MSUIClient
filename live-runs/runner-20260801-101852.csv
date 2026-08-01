@@ -1,0 +1,31 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\channel-live-movement-cancel.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .modify mana 1000
+5,PASS,wait 1
+6,PASS,gm .cooldown clear
+7,PASS,wait 1
+8,PASS,gm .npc spawn add 6
+9,PASS,anchor spawn:1 guid=0xF13000000604A2A9 position=-8949.95|-132.493|83.529526
+10,PASS,wait 1
+11,PASS,select spawn:1 guid=0xF13000000604A2A9
+12,PASS,gm .gm off
+13,PASS,wire-trace start path=dumps/wire-20260801-101856.wlog
+14,PASS,socket-trace start n1c-channel-movement-cancel-fresh path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-channel-movement-cancel-fresh-20260801-101856.csv
+15,PASS,cast 689
+16,FAIL,waitspell MSG_CHANNEL_START timeout
+17,PASS,wait 1
+18,PASS,press W
+19,PASS,wait 0.5
+20,PASS,release W
+21,PASS,wait 1
+22,PASS,socket-trace stop
+23,PASS,wire-trace stop
+24,PASS,gm .gps
+25,PASS,waitfor GmChatResponse
+26,PASS,gm .gm on
+27,PASS,wait 1
+28,PASS,gm .npc spawn delete
+29,PASS,gm .gm off

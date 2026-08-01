@@ -267,6 +267,24 @@ public sealed partial class GameLoop
                         SampleSpellAnimation(uint.Parse(animationSample[1], CultureInfo.InvariantCulture),
                             animationSample[2], "RENDERER_POST_TICK"), line);
                     break;
+                case "channel-simulate":
+                    string[] channelStart = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    uint simulatedSpell = uint.Parse(channelStart[1], CultureInfo.InvariantCulture);
+                    uint simulatedDuration = uint.Parse(channelStart[2], CultureInfo.InvariantCulture);
+                    BeginChannel(simulatedSpell, simulatedDuration);
+                    Log(true, line);
+                    break;
+                case "channel-update":
+                    UpdateChannel(uint.Parse(p[1], CultureInfo.InvariantCulture));
+                    Log(true, line);
+                    break;
+                case "channel-tick":
+                    string[] channelTick = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    EmitChannelVerdict("TICK", remainingMs: (uint)Math.Max(0,
+                        (_castBarEnds - NowSeconds()) * 1000.0), tickKind: channelTick[1].ToUpperInvariant(),
+                        amount: uint.Parse(channelTick[2], CultureInfo.InvariantCulture), source: "SYNTHETIC_WIRE_REPLAY");
+                    Log(true, line);
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":
@@ -433,8 +451,10 @@ public sealed partial class GameLoop
         WriteCastBarCsv(castBarCsv);
         string spellAnimationCsv=Path.Combine(dir,$"spell-animation-{_liveStamp}.csv");
         WriteSpellAnimationCsv(spellAnimationCsv);
+        string spellChannelCsv=Path.Combine(dir,$"spell-channel-{_liveStamp}.csv");
+        WriteSpellChannelCsv(spellChannelCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
     }
 
@@ -485,6 +505,21 @@ public sealed partial class GameLoop
                 v.MovementInterrupts, Csv(v.BaseAnimation), Csv(v.PreviousBaseAnimation),
                 Csv(v.ActionAnimation), Csv(v.HoldAnimation),
                 v.BlendWeight.ToString("F4", CultureInfo.InvariantCulture), v.Source));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteSpellChannelCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,spell_id,name,event,duration_ms,remaining_ms,tick_index,tick_delta_ms,tick_kind,amount,moving,animation_state,source"
+        };
+        foreach (ChannelSpellVerdict v in _verdicts.Snapshot("spell-channel").OfType<ChannelSpellVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
+                Csv(v.Character), v.SpellId, Csv(v.SpellName), v.Event, v.DurationMs,
+                v.RemainingMs, v.TickIndex, v.TickDeltaMs.ToString("F3", CultureInfo.InvariantCulture),
+                v.TickKind, v.Amount, v.Moving, Csv(v.AnimationState), v.Source));
         File.WriteAllLines(path, lines);
     }
 

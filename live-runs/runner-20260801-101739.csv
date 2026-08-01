@@ -1,0 +1,47 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\channel-live-authoritative.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .modify mana 1000
+5,PASS,wait 1
+6,PASS,gm .cooldown clear
+7,PASS,wait 1
+8,PASS,gm .npc spawn add 6
+9,PASS,anchor spawn:1 guid=0xF13000000604A2A8 position=-8949.95|-132.493|83.529526
+10,PASS,wait 1
+11,PASS,select spawn:1 guid=0xF13000000604A2A8
+12,PASS,gm .gm off
+13,PASS,wire-trace start path=dumps/wire-20260801-101742.wlog
+14,PASS,socket-trace start n1c-channel-natural path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-channel-natural-20260801-101742.csv
+15,PASS,cast 689
+16,PASS,waitspell MSG_CHANNEL_START
+17,PASS,wait 6
+18,PASS,socket-trace stop
+19,PASS,wire-trace stop
+20,PASS,gm .gps
+21,PASS,waitfor GmChatResponse
+22,PASS,gm .gm on
+23,PASS,gm .modify mana 1000
+24,PASS,wait 1
+25,PASS,gm .cooldown clear
+26,PASS,wait 1
+27,PASS,select spawn:1 guid=0xF13000000604A2A8
+28,PASS,gm .gm off
+29,PASS,wire-trace start path=dumps/wire-20260801-101750.wlog
+30,PASS,socket-trace start n1c-channel-movement-cancel path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-channel-movement-cancel-20260801-101750.csv
+31,PASS,cast 689
+32,FAIL,waitspell MSG_CHANNEL_START timeout
+33,PASS,wait 1
+34,PASS,press W
+35,PASS,wait 0.5
+36,PASS,release W
+37,PASS,wait 1
+38,PASS,socket-trace stop
+39,PASS,wire-trace stop
+40,PASS,gm .gps
+41,PASS,waitfor GmChatResponse
+42,PASS,gm .gm on
+43,PASS,wait 1
+44,PASS,gm .npc spawn delete
+45,PASS,gm .gm off

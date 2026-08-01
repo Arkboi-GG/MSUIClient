@@ -1,0 +1,5 @@
+time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
+0.580,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
+6.187,"Test",689,"Drain Life",SHADOW,PRECAST,0,-1,-1,-1,Missing,"Stand",False,False,True,"Stand","none","none","none",1.0000,SERVER_START
+6.188,"Test",689,"Drain Life",SHADOW,CAST,341,124,124,124,BakedOnDemand,"Anim124",False,False,True,"Stand","none","Anim124","none",1.0000,SERVER_GO
+6.190,"Test",689,"Drain Life",SHADOW,CHANNEL,402,124,124,124,Exact,"Anim124",False,False,True,"Stand","none","Anim124","Anim124",1.0000,SERVER_CHANNEL

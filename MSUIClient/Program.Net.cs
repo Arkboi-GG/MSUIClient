@@ -438,7 +438,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.MSG_CHANNEL_START:
                         {
-                            var r = new PacketReader(body); BeginChannel(r.ReadU32(), r.ReadU32());
+                            var r = new PacketReader(body); uint spell = r.ReadU32(); uint duration = r.ReadU32();
+                            EmitSpellServerResult(spell, "MSG_CHANNEL_START");
+                            BeginChannel(spell, duration);
                         }
                         break;
                     case Op.MSG_CHANNEL_UPDATE:
@@ -483,6 +485,7 @@ public sealed partial class GameLoop
                         CombatEvent combatEvent = _combat.Apply(
                             CombatPacketParser.Parse((Op)opcode, body), _entities);
                         ObserveCombatReceive((Op)opcode, combatEvent);
+                        ObserveChannelCombat(combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
                     case Op.SMSG_ATTACKSWING_NOTINRANGE:

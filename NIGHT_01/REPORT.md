@@ -355,3 +355,11 @@ adjacent `.gps` control was delivered. Registered once as
 creating `Nbwarhuman`; stale-character deletion was not permitted, so the
 remaining class representatives were not fabricated around. Evidence:
 `live-runs/N1C-3-1-spell-wire-20260801-093000.md`.
+
+## NIGHT_01C 3-5 — channeled spells
+
+`CLOSED-PASS`: the channel verdict/CSV family, cast-bar lifecycle, renderer loop,
+periodic tick observation, and movement cancellation are built. A GM-off Drain
+Life passed its mechanical pre-send gate and the server returned start, update,
+four periodic damage ticks at approximately one-second intervals, and stop.
+Evidence: `live-runs/N1C-3-5-channeled-spells-20260801-102000.md`.

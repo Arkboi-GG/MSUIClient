@@ -1,0 +1,7 @@
+time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
+0.512,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+13.688,"Test",1,689,"Drain Life",SHADOW,CAST,PRE_SEND_PASS,"Anim124","Spells\Lifetap_State_Chest.mdx",UNIT,True,True,MANA,1000,55,0xF13000000604A2A7,True
+13.728,"Test",1,689,"Drain Life",SHADOW,CHANNEL,SMSG_SPELL_START,"Anim124","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
+13.728,"Test",1,689,"Drain Life",SHADOW,CHANNEL,SMSG_SPELL_GO,"Anim124","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
+13.728,"Test",1,689,"Drain Life",SHADOW,CAST,MSG_CHANNEL_START,"Anim124","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
+13.729,"Test",0,689,"Drain Life",SHADOW,CHANNEL,BLOCKED-BY:F-SILENT-INTERACT,"Anim124","Spells\Lifetap_State_Chest.mdx",LIVE_LEG,True,True,NONE,0,0,0x0000000000000000,False

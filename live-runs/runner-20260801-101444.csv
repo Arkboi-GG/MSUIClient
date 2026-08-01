@@ -1,0 +1,51 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\channel-lifecycle-and-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,wait 1
+5,PASS,channel-simulate 689 5000
+6,PASS,wait 1
+7,PASS,channel-tick DAMAGE 10
+8,PASS,channel-update 4000
+9,PASS,wait 1
+10,PASS,channel-tick DAMAGE 11
+11,PASS,channel-update 3000
+12,PASS,wait 1
+13,PASS,channel-tick DAMAGE 12
+14,PASS,channel-update 2000
+15,PASS,wait 1
+16,PASS,channel-tick DAMAGE 13
+17,PASS,channel-update 1000
+18,PASS,wait 1
+19,PASS,channel-tick DAMAGE 14
+20,PASS,channel-update 0
+21,PASS,channel-simulate 689 5000
+22,PASS,wait 0.5
+23,PASS,press W
+24,PASS,wait 0.5
+25,PASS,release W
+26,PASS,gm .learn 689
+27,PASS,waitfor GmChatResponse
+28,PASS,gm .modify mana 1000
+29,PASS,wait 1
+30,PASS,gm .cooldown clear
+31,PASS,wait 1
+32,PASS,gm .npc spawn add 6
+33,PASS,anchor spawn:1 guid=0xF13000000604A2A7 position=-8948.23|-129.39603|83.41629
+34,PASS,wait 1
+35,PASS,select spawn:1 guid=0xF13000000604A2A7
+36,PASS,gm .gm off
+37,PASS,wire-trace start path=dumps/wire-20260801-101454.wlog
+38,PASS,socket-trace start n1c-channel-drain-life path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-channel-drain-life-20260801-101454.csv
+39,PASS,cast 689
+40,PASS,waitspell MSG_CHANNEL_START
+41,PASS,spell-blocked F-SILENT-INTERACT
+42,PASS,socket-trace stop
+43,PASS,wire-trace stop
+44,PASS,gm .gps
+45,PASS,waitfor GmChatResponse
+46,PASS,gm .gm on
+47,PASS,wait 1
+48,PASS,gm .npc spawn delete
+49,PASS,gm .gm off
