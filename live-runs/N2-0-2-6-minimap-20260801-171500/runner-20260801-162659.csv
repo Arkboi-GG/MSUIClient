@@ -1,0 +1,8 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-6-minimap-20260801-171500\minimap-tracking.protocol
+1,PASS,gm .nameaura 2383 Test 3600
+2,PASS,wait 1
+3,PASS,ui-parity minimap
+4,PASS,wait 2
+5,PASS,gm .unaura 2383
+6,PASS,wait 1

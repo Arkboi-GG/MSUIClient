@@ -416,7 +416,7 @@ static int Contact(string[] args)
 }
 
 static bool IsDrawable(XElement e) => e.Name.LocalName is "Frame" or "Button" or "CheckButton" or
-    "StatusBar" or "Slider" or "EditBox" or "Model" or "Texture" or "FontString" or
+    "StatusBar" or "Slider" or "EditBox" or "Model" or "Minimap" or "Texture" or "FontString" or
     "NormalTexture" or "PushedTexture" or "DisabledTexture" or "HighlightTexture" or "CheckedTexture";
 static string A(XElement? e, string name) => (string?)e?.Attribute(name) ?? "";
 static string Expand(string value, string instance, string parent) => value.Replace("$parent", parent.Length > 0 ? parent : instance, StringComparison.OrdinalIgnoreCase);

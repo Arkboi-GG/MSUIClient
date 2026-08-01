@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-6-minimap-20260801-171500\minimap.protocol
+1,PASS,ui-parity minimap
+2,PASS,wait 2

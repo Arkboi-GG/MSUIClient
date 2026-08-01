@@ -77,3 +77,13 @@ through verified VMaNGOS GM syntax. The populated representative cohort passes
 28/28 mechanical verdicts; the complete conditional/template inventory retains
 101 presence findings. Evidence:
 `live-runs/N2-0-2-5-buff-frame-20260801-165500/N2-0-2-5-buff-frame-20260801-165500.md`.
+
+## 2-6 Minimap — CLOSED-FINDING
+
+The previously absent minimap is now a functional build-5875 frame backed by
+the shipped translated minimap tile, original border/button art, player-position
+UV selection, zoom controls, zone label, and tracking-aura presentation. TEST
+Find Herbs exercised the tracking path. The visible normal state passes 91/91
+mechanical verdicts; the complete state inventory retains eight conditional
+button-texture presence findings. Evidence:
+`live-runs/N2-0-2-6-minimap-20260801-171500/N2-0-2-6-minimap-20260801-171500.md`.
