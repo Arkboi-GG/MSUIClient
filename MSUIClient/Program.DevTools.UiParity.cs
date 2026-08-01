@@ -21,7 +21,7 @@ public sealed partial class GameLoop
     private void ArmUiParityCapture(string panel)
     {
         if (!_config.DevTools || panel is not ("game-menu" or "player-frame" or "target-frame" or "party-frame" or
-            "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack")) return;
+            "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "character-frame")) return;
         _uiParityPanel = panel;
         // Captures isolate the requested gameplay panel from persistent wire-opened utility
         // windows; this changes capture presentation only, never the panel draw path.
@@ -30,6 +30,7 @@ public sealed partial class GameLoop
         _uiParityRows.Clear(); _uiParityArmed = true; _uiParityFrameSeen = false; _uiParityPresentedFrames = 0;
         if (panel == "game-menu") OpenSettings();
         if (panel == "backpack") _backpackOpen = true;
+        if (panel == "character-frame") { _characterOpen = true; _characterTab = 0; _paperDollDirty = true; }
         if (panel == "cast-bar")
         {
             _castBarPhase = CastBarPhase.Casting;
@@ -85,7 +86,7 @@ public sealed partial class GameLoop
         static string N(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
         static string Norm(string path) => path.Length == 0 || path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? path : path + ".blp";
         float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
-        Vector2 relative = element is "PlayerFrame" or "TargetFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
+        Vector2 relative = element is "PlayerFrame" or "TargetFrame" or "CharacterFrame" or "PaperDollFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
         string texture = Norm(trace.TexturePath);
         string asset = texture.Length == 0 ? "" : _mpq?.ReadFileWithSupplier(texture) is { } hit
             ? $"{hit.Supplier}:{texture}" : $"MISSING:{texture}";

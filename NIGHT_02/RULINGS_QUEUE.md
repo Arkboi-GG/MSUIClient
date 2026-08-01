@@ -44,3 +44,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 
 - Corrected coverage: reputation 0/12 with zero NOT-DRAWN and 12 DRAWN-NOT-INSTRUMENTED; XP 0/9 with four NOT-DRAWN and five DRAWN-NOT-INSTRUMENTED. Exact sets: `reputation-bar-corrected-diff.csv` and `xp-bar-corrected-diff.csv`.
 - Review: both contact sheets in `live-runs/N2-0-2-8-xp-reputation-20260801-175000/`.
+
+## Q9 — 3-1 — character-sheet NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: CharacterFrame shell 1/13 with 12 NOT-DRAWN; PaperDollFrame 5/127 with 122 NOT-DRAWN. Exact sets: `character-frame-diff.csv` and `paperdoll-diff2.csv`.
+- Work: instrument and implement the absent header, slot, stat, model, resistance, and tab elements using the existing functional draw path.
+- Review: `live-runs/N2-0-3-1-character-frame-20260801-190000/paperdoll-contact2.png`.

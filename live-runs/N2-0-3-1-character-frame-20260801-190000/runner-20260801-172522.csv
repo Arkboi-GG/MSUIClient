@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-1-character-frame-20260801-190000\character-frame.protocol
+1,PASS,ui-parity character-frame
+2,PASS,wait 2

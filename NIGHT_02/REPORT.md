@@ -139,3 +139,10 @@ entry in `NIGHT_02/RULINGS_QUEUE.md`. Player/target reference rendering now
 resolves implicit fill regions and mirrored texcoords, producing nonblank
 shipped-art contact sheets. Evidence:
 `live-runs/N2-0-2-9P-instrument-truth-20260801-183000/N2-0-2-9P-instrument-truth-20260801-183000.md`.
+
+## 3-1 Character sheet — CLOSED-FINDING
+
+Coverage: CharacterFrame 1/13 with 12 NOT-DRAWN; PaperDollFrame 5/127 with
+122 NOT-DRAWN. The full shipped-art reference and real populated paperdoll now
+render side by side; all exact gaps are queued. Evidence:
+`live-runs/N2-0-3-1-character-frame-20260801-190000/N2-0-3-1-character-frame-20260801-190000.md`.

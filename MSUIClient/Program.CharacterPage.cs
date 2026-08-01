@@ -66,6 +66,14 @@ public sealed partial class GameLoop
                                  ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##character-page", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if (_uiParityArmed && _uiParityPanel == "character-frame")
+        {
+            BeginUiParityFrame(origin, scale);
+            CollectUiParityDraw("CharacterFrame", "Frame", origin, size * scale, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", origin.X / scale, origin.Y / scale));
+            CollectUiParityDraw("PaperDollFrame", "Frame", origin, new Vector2(384, 512) * scale, "CharacterFrame",
+                new("", 0, "IMGUI_HOST", "TOPLEFT", "CharacterFrame", "TOPLEFT", 0, 0));
+        }
         if (_characterTab == 0) DrawPaperDollBackground(dl, origin, scale);
         else DrawSkillBackground(dl, origin, scale);
 
@@ -74,15 +82,27 @@ public sealed partial class GameLoop
 
         DrawCharacterHeader(dl, origin, scale, player);
         DrawCharacterTabs(dl, origin, scale);
+        if (_uiParityArmed && _uiParityPanel == "character-frame") MarkUiParityFrameComplete();
         ImGui.End();
     }
 
     private void DrawPaperDollBackground(ImDrawListPtr dl, Vector2 p, float s)
     {
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-L1", p, new(256, 256), s);
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-R1", p + new Vector2(256, 0) * s, new(128, 256), s);
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-BottomLeft", p + new Vector2(0, 256) * s, new(256, 256), s);
-        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-BottomRight", p + new Vector2(256, 256) * s, new(128, 256), s);
+        (string Element, string Path, Vector2 Offset, Vector2 Size)[] regions =
+        [
+            ("PaperDollFrame/Texture", @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-L1", Vector2.Zero, new(256,256)),
+            ("PaperDollFrame/Texture#2", @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-R1", new(256,0), new(128,256)),
+            ("PaperDollFrame/Texture#3", @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-BottomLeft", new(0,256), new(256,256)),
+            ("PaperDollFrame/Texture#4", @"Interface\PaperDollInfoFrame\UI-Character-CharacterTab-BottomRight", new(256,256), new(128,256)),
+        ];
+        foreach (var region in regions)
+        {
+            Vector2 min = p + region.Offset * s;
+            DrawArt(dl, region.Path, min, region.Size, s);
+            if (_uiParityArmed && _uiParityPanel == "character-frame")
+                CollectUiParityDraw(region.Element, "Texture", min, region.Size * s, "PaperDollFrame",
+                    new(region.Path, 0xffffffff, "IMGUI_IMAGE", "TOPLEFT", "PaperDollFrame", "TOPLEFT", region.Offset.X, -region.Offset.Y));
+        }
     }
 
     private void DrawSkillBackground(ImDrawListPtr dl, Vector2 p, float s)
