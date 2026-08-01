@@ -1,0 +1,17 @@
+# selection_rule=every passive spell known at level 60, untalented; excluded from cast cells
+spell_id,name
+81,"Dodge"
+203,"Unarmed"
+204,"Defense"
+227,"Staves"
+522,"SPELLDEFENSE (DND)"
+668,"Language Common"
+2382,"Generic"
+3050,"Detect"
+5009,"Wands"
+9078,"Cloth"
+9125,"Generic"
+20597,"Sword Specialization"
+20598,"The Human Spirit"
+20599,"Diplomacy"
+20864,"Mace Specialization"

@@ -1,0 +1,9 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-cohort-snapshot.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm off
+4,PASS,wait 1
+5,PASS,spellbook snapshot known=174
+6,PASS,gm .gps
+7,PASS,waitfor GmChatResponse

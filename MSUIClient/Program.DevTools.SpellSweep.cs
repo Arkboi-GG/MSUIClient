@@ -12,14 +12,14 @@ public sealed partial class GameLoop
         int count = 0;
         foreach (uint spellId in _actions.KnownSpells.OrderBy(x => x))
         {
-            if (!_spellCatalog.TryGet(spellId, out SpellInfo spell) || spell.Passive) continue;
-            EmitSpellInventoryRow(spell);
-            count++;
+            if (!_spellCatalog.TryGet(spellId, out SpellInfo spell)) continue;
+            EmitSpellInventoryRow(spell, spell.Passive ? "ROSTER_PASSIVE" : "ROSTER_KNOWN");
+            if (!spell.Passive) count++;
         }
         return count;
     }
 
-    private void EmitSpellInventoryRow(in SpellInfo spell)
+    private void EmitSpellInventoryRow(in SpellInfo spell, string result)
     {
         byte classId = 0;
         uint power = 0;
@@ -28,7 +28,7 @@ public sealed partial class GameLoop
         { classId = player.Fields.Bytes0.Class; power = player.Fields.Power(powerType); }
         var verdict = new SpellSweepVerdict(NowSeconds(), _net?.PlayerName ?? "", classId,
             spell.Id, spell.Name, SchoolName(spell.School), spell.AutoRepeat ? "AUTO_REPEAT" :
-            spell.OnNextSwing ? "NEXT_SWING" : "CAST", "ROSTER_KNOWN",
+            spell.OnNextSwing ? "NEXT_SWING" : spell.Passive ? "PASSIVE" : "CAST", result,
             _character?.CurrentAnimation ?? "none", SpellEffectCheck(spell), "UNBOUND",
             true, true, PowerName(powerType), power, spell.ManaCost, 0, false);
         _verdicts.Add(verdict);

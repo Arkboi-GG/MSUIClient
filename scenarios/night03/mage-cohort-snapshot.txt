@@ -1,0 +1,7 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm off
+wait 1
+spellbook snapshot
+gm .gps
+waitfor GmChatResponse 3
