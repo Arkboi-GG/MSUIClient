@@ -188,3 +188,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Exact audit: `live-runs/N2-0-5-3-layer-audit-20260802-004500/strata-layer-audit.csv`.
 - Counts: 2,047 rows; 67 PASS, 107 DELTA, 1,635 NOT-DRAWN, 238 NO-VERDICT.
 - Work: extend real draw evidence beyond generic ImGui host/window labels and implement the absent reference draws in authored strata/layer order.
+
+## Q33 — 5-4 — backdrop / nine-slice audit findings
+
+- Exact audit: `live-runs/N2-0-5-4-backdrop-audit-20260802-010000/backdrop-nine-slice-audit.csv`.
+- Counts: 19 reference backdrops; 4 DELTA, 15 NOT-DRAWN.
+- Work: carry real background/edge path, tile size, edge size, and insets through draw-derived evidence; implement all absent backdrops with the cited shipped assets.

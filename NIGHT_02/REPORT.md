@@ -288,3 +288,9 @@ Evidence: `live-runs/N2-0-5-2-color-audit-20260802-003000/N2-0-5-2-color-audit-2
 
 The full touched-reference sweep contains 2,047 rows: 67 PASS, 107 DELTA,
 1,635 NOT-DRAWN, and 238 NO-VERDICT. Evidence: `live-runs/N2-0-5-3-layer-audit-20260802-004500/N2-0-5-3-layer-audit-20260802-004500.md`.
+
+## 5-4 Backdrop / nine-slice audit — CLOSED-FINDING
+
+All 19 touched-reference backdrops were audited: 4 DELTA and 15 NOT-DRAWN.
+Every expected edge/background path retains its exact MPQ supplier.
+Evidence: `live-runs/N2-0-5-4-backdrop-audit-20260802-010000/N2-0-5-4-backdrop-audit-20260802-010000.md`.
