@@ -40,3 +40,4 @@ Format: `<local time> | <item id> | <status> | <one-line result> | <evidence/com
 2026-08-01 00:10 local | 5-4 | SHELVED-BLOCKED | exact Benilla launch invocation and working directory are absent; night law forbids a later interactive ask | live-runs/N5-housekeeping-triage-20260801-002000.md
 2026-08-01 00:15 local | 5-5 | SHELVED-BLOCKED | two fresh backpedal traces pass mechanics; present runner cannot produce the required contact sheet | live-runs/N5-5-backpedal-20260801-001500.md
 2026-08-01 00:20 local | 5-6 | CLOSED-FINDING | all 73 deferred entries require Nico's perceptual classification; source lists preserved and freshly hashed | live-runs/N5-housekeeping-triage-20260801-002000.md
+2026-08-01 00:30 local | 5-7 | CLOSED-PASS | all 10 night manifests recompute, no raw capture survives, relay is closed, four gates pass, and every item has a terminal status | live-runs/N5-7-night-hygiene-20260801-003000.md

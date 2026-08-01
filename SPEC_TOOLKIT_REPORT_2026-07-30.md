@@ -3501,6 +3501,8 @@ ACTUAL build: PASS, 0 errors, established CA2014 warning only
 ACTUAL combat-wire: PASS
 ACTUAL portrait-camera: PASS, 10,534 specimens; 1,224 / 1,289 / 56 controls
 ACTUAL move-audit: PASS
+
+NIGHT_01 autonomous run end packet: `NIGHT_01/REPORT.md` (Tier 0-5 final status table, 13-item rulings queue, and run-dated manifests).
 RESULT: PASS
 
 PREDICTED travel-laptop config: dedicated TEST values recoverable locally
@@ -4253,3 +4255,5 @@ W1-W3 are not started. SPEC-21 P3/P4 remain queued.
 
 **HARD STOP - SPEC-25 stops at W0 with `PTRACE_ATTACH_DENIED`. A new Nico
 ruling is required before any ptrace-policy or root-mediated attach path.**
+
+Append-only end pointer (superseding the earlier non-tail placement): NIGHT_01 autonomous run packet is `NIGHT_01/REPORT.md`.

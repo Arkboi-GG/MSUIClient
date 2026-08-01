@@ -220,3 +220,84 @@ The Tier 0-3 spell triage manifest is
 `live-runs/manifests/N3-20260731-235000.sha256`, SHA-256
 `68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`;
 all five entries recomputed exactly.
+
+## Tier 0-5 — housekeeping and end-of-run packet
+
+### Actual versus predicted
+
+```text
+PREDICTED: finish mechanically authorized housekeeping, shelve authority/tool
+           boundaries, classify every deferred row, and close with clean evidence
+ACTUAL: audit normalization classified; repeated backpedal mechanics pass; pane,
+        keybind, Benilla, and contact-sheet dependencies shelved; all 73 deferred
+        rows classified needs-Nico; 10 manifests and four gates pass
+RESULT: Tier-0 tree exhausted without behavior, law, baseline, or list changes
+```
+
+Evidence:
+
+- `live-runs/N5-3-intentoff-20260801-001000.md`
+- `live-runs/N5-5-backpedal-20260801-001500.md`
+- `live-runs/N5-housekeeping-triage-20260801-002000.md`
+- `live-runs/N5-7-night-hygiene-20260801-003000.md`
+- final manifest: `live-runs/manifests/N5-final-20260801-003000.sha256`
+
+### Full final status table
+
+| Item | Final status |
+|---|---|
+| 1-1 | SHELVED-BLOCKED |
+| 1-2 | SHELVED-BLOCKED |
+| 1-3 | CLOSED-PASS |
+| 1-4 | CLOSED-PASS |
+| 2-1 | SHELVED-BLOCKED |
+| 2-2 | SHELVED-BLOCKED |
+| 2-3 | SHELVED-BLOCKED |
+| 2-4 | SHELVED-BLOCKED |
+| 2-5 | SHELVED-BLOCKED |
+| 2-6 | SHELVED-BLOCKED |
+| 2-7 | SHELVED-BLOCKED |
+| 2-8 | SHELVED-BLOCKED |
+| 2-9 | SHELVED-BLOCKED |
+| 2-10 | SHELVED-BLOCKED |
+| 2-11 | SHELVED-BLOCKED |
+| 2-12 | SHELVED-BLOCKED |
+| 3-1 | SHELVED-BLOCKED |
+| 3-2 | SHELVED-BLOCKED |
+| 3-3 | SHELVED-BLOCKED |
+| 3-4 | SHELVED-BLOCKED |
+| 3-5 | SHELVED-BLOCKED |
+| 3-6 | SHELVED-BLOCKED |
+| 3-7 | SHELVED-BLOCKED |
+| 3-8 | SHELVED-BLOCKED |
+| 4-1 | SHELVED-BLOCKED |
+| 4-2 | SHELVED-BLOCKED |
+| 4-3 | SHELVED-BLOCKED |
+| 4-4 | SHELVED-BLOCKED |
+| 4-5 | SHELVED-BLOCKED |
+| 4-6 | SHELVED-BLOCKED |
+| 4-7 | SHELVED-BLOCKED |
+| 5-1 | SHELVED-RULING |
+| 5-2 | SHELVED-RULING |
+| 5-3 | CLOSED-FINDING |
+| 5-4 | SHELVED-BLOCKED |
+| 5-5 | SHELVED-BLOCKED |
+| 5-6 | CLOSED-FINDING |
+| 5-7 | CLOSED-PASS |
+
+Rulings queue: **13** numbered decisions. Run commits: **11** including this final
+packet. Four gates: PASS at every recorded stage boundary; final build 0 warnings /
+0 errors, combat-wire PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56, and
+move-audit-check PASS.
+
+### Three most important findings
+
+1. The exact server discard predicate cannot be trusted from the deployed mangosd:
+   sudo attach works, but its line table is absent; Q1 recommends Build-ID-matched
+   debug information without altering the running binary.
+2. The fresh-target combat regression protocol is reusable and passes 31/31, while
+   the server still provides no player swing; attack-error display is ready for all
+   five real server opcodes and intentionally synthesizes nothing.
+3. The queued first `IntentOff` reproduces as combat-audit trace-start/setup-cluster
+   normalization, not a new production pairing failure; both fresh backpedal traces
+   pass mechanics, with visual judgment correctly left to Nico.
