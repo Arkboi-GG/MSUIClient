@@ -4104,3 +4104,32 @@ and 1,224 / 1,289 / 56 controls, and move-audit PASS.
 No server code, DB, persistent config, combat behavior, error display, or F3-F6
 change occurred. Causal selection is deferred to Z3 as ordered; SPEC-21 P3/P4
 remain queued.
+
+## Z2 - conditional netsh fallback not entered
+
+### Actual versus predicted
+
+```text
+PREDICTED entry: only if healthy Z1 omits BOTH run-local payload substrings
+ACTUAL: Z1 retained the exact attack substring and the server ACKed its range
+RESULT: Z2_NOT_ENTERED_CONDITION_FALSE
+
+PREDICTED fallback activity when condition false: none
+ACTUAL: no netsh trace, no second scenario, no raw capture
+RESULT: PASS; CAPTURE_ENGINE_EXHAUSTED does not apply
+```
+
+The stage disposition is recorded in
+`live-runs/Z2-netsh-not-entered-20260731-204450.md`, SHA-256
+`bb22f73ef44de3d15247e17b76b77807d438ad5823f0aa264a323c8bcc8f7aed`.
+The three-file manifest is
+`live-runs/manifests/Z2-20260731-204450.sha256`, SHA-256
+`6f9d12aabdd8c8a51c797e6af1a8e5a1f0e2ed825a4690d8785cbb8914591bf1`;
+all entries recomputed exactly at the boundary.
+
+Z2 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No capture or product/server/configuration mutation occurred. Z3 remains the
+required causal selection and hard-stop packet; SPEC-21 P3/P4 remain queued.
