@@ -3851,3 +3851,54 @@ of the three check executables contended on their shared Release output; the
 required sequential rerun passed and no product defect was inferred.
 
 SPEC-21 P3/P4 remain queued.
+
+## Y1 - bounded pktmon capture (not promoted)
+
+### Actual versus predicted
+
+```text
+PREDICTED one bounded filtered capture: <=60 s, no packet/event loss
+ACTUAL: 44.7 s, 44 packets, zero drops, zero ETW events lost
+RESULT: capture lifecycle PASS
+
+PREDICTED identical accepted X1 precondition: GM off, alive, flags zero, distance zero
+ACTUAL report=act: GM off, present/visible/alive 100/100, dynamicFlags zero,
+                   but unitFlags=0x00080000 and distance=9.533476 yd
+RESULT: INVALID ATTACK PRECONDITION; run retained and not promoted
+
+PREDICTED payload matching: this run's 19-byte .gps and 14-byte attack substrings
+ACTUAL: both flushed=true (40 ms apart), but neither substring occurs in any frame
+ACTUAL capture view: client TCP sequence advances with only ACK-only NIC records;
+                     no client payload-bearing record and no covering server ACK
+RESULT: CAPTURE/FILTER DEFECT; no transit causal row selected
+
+PREDICTED raw cleanup: no ETL/PCAP/pcapng survives
+ACTUAL: ETL and pcapng deleted by relay; full formatted packet text and relay/control
+        files deleted after the extracted frame block was frozen
+RESULT: cleanup PASS; pktmon stopped and all filters removed
+```
+
+This is not evidence that the attack was absent from the wire. The extracted
+ACK-only records contain a 14-byte client sequence advance, but SPEC-23 requires
+the post-encryption write as a TCP payload byte-substring, and sequence arithmetic
+cannot substitute for that frame match. ACK coverage is therefore unmeasured.
+No retransmission annotation or RST appeared in this defective capture view.
+
+The invalid target state is independently disqualifying. The runner's earlier
+`within3=true` assertion passed, but the random-motion spawn moved before the
+report=act attack path. No second attempt was made after observing the prescribed
+single repeat.
+
+Full extracted evidence is in
+`live-runs/Y1-wire-capture-20260731-200303.md`, SHA-256
+`f4c923d873db8ff9ffced67029637d4dfeb43d019a4803f1a848d5b773e32c0a`.
+The seven-file manifest is
+`live-runs/manifests/Y1-20260731-200303.sha256`, SHA-256
+`526d918f30ccaca068704dfff982095d0349724729681b6df91feb53d2315172`.
+
+No server code, DB, persistent config, combat behavior, error display, or F3-F6
+change occurred. SPEC-21 P3/P4 remain queued.
+
+Y1 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.

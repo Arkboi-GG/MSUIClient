@@ -1,0 +1,1149 @@
+[combat] time=0.272 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=86;hex=0A0000000000000000000000004400000057656C636F6D6520746F20576F726C64206F66205761726372616674210A506174636820312E31323A204472756D73206F6620576172206973206E6F77206C697665210000
+[combat] time=0.274 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=14;hex=474D206D6F6465206973204F4E00
+[combat] time=0.274 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=31;hex=596F7520617265206E6F7720696E76697369626C65202872616E6B20362900
+[action] time=0.481 slot=0 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.482 slot=1 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.482 slot=2 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.482 slot=3 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.482 slot=4 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.482 slot=5 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=6 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=7 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=8 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=9 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=10 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[action] time=0.483 slot=11 spell=0 usable=Unusable range=NoCheck pushed=False hover=False checked=False flashing=False grid=False equipped=False cost=0 power=0 baseMana=0 rangeIndex=0 min=0.00 max=0.00 dist=-1.00 stack=0
+[combat] time=0.498 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Welcome_to_World_of_Warcraft!Patch_1.12:_Drums_of_War_is_now_live!
+[combat] time=0.616 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_ON
+[combat] time=0.616 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=You_are_now_invisible_(rank_6)
+[portrait] time=8.493 subject=Player outcome=Ready camera=Authored authoredRetried=False subjectPx=42355 rgb=0..255 alpha=202..255 pieces=11 displayId=0 bindPoseHeight=2.0352 eyeHeight=0.0000 distance=0.0000 fovyDeg=27.0000 near=0.2222
+[anim] time=8.993 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.993 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.994 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.994 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.995 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.995 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=8.995 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=8.996 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.008 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.009 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.009 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.009 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.009 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.009 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.010 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.010 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.010 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.012 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.012 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.012 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.024 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.024 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.025 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.027 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.027 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.027 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.044 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.045 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.045 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.045 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.045 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.045 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.046 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.046 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.046 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.047 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.047 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.048 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.181 unit=player track=0 requested=0 played=0 kind=Exact
+[combat] time=9.242 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=44;hex=00000000070000002E676F2078797A202D383934392E3935202D3133322E3439332038332E35333132203000
+[combat] time=9.243 event=GmCommand cause=live-bootstrap target=0x0000000000000000 detail=sent=True;text=.go_xyz_-8949.95_-132.493_83.5312_0
+[anim] time=9.255 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.255 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.255 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.256 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.258 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.258 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.258 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=9.304 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=16;hex=00000000070000002E676D206F666600
+[combat] time=9.304 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_off
+[anim] time=9.313 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.314 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.314 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.314 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.314 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.314 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.315 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.315 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.315 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.317 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.335 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.336 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.336 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=9.347 event=TeleportWire cause=server-receive target=0x0000000000000000 detail=opcode=0x00C7;bytes=34;hex=01010000000000000000D71FC701CDD70BC6357E04C3F90FA74276BE2F402F000000
+[anim] time=9.355 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.355 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.355 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.356 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.356 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.356 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.356 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.356 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.357 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.357 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=9.365 event=TeleportApplied cause=server-authoritative target=0x0000000000000001 detail=counter=0;position=-8949.95|-132.493|83.5312;orientation=2.7459998;movementTime=29827031;flags=0x00000000
+[combat] time=9.366 event=TeleportWire cause=client-send target=0x0000000000000000 detail=opcode=0x00C7;bytes=16;hex=01000000000000000000000096240000
+[anim] time=9.383 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.383 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.383 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.384 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.398 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.399 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.399 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.399 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.399 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.400 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.400 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.400 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.400 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.400 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.413 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.414 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.414 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.414 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.414 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.415 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.415 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.415 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.415 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.415 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.429 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.429 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.429 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.430 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.443 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.443 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.444 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.445 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=9.446 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=33;hex=0A0000000000000000000000000F000000474D206D6F6465206973204F46460000
+[combat] time=9.446 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=15;hex=474D206D6F6465206973204F464600
+[combat] time=9.451 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_OFF
+[combat] time=9.451 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_OFF
+[anim] time=9.460 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.460 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.461 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.461 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.461 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.461 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.461 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.462 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.462 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.462 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.476 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.477 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.491 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.491 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.504 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.504 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.515 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.516 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.527 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.527 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.539 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.539 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.557 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.557 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.573 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.573 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.585 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.585 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.597 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.597 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.611 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.611 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.624 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.624 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.638 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.638 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.658 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.658 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.671 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.671 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.683 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.683 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.695 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.695 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.707 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.707 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.720 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.720 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.732 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.732 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.757 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.757 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.787 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.787 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.800 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.800 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.813 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.813 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.829 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.830 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=9.835 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=12;hex=00000000070000002E676D00
+[combat] time=9.835 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm
+[anim] time=9.846 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.846 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.859 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.874 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.874 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.888 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.888 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.902 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.902 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.916 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.917 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.931 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.932 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.948 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.949 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=9.960 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=15;hex=474D206D6F6465206973204F464600
+[anim] time=9.963 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.963 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=9.970 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_OFF
+[anim] time=9.981 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.981 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=9.998 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=9.998 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.015 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.015 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.030 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.030 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.044 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.044 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.057 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.058 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.073 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.073 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.089 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.089 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.120 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.120 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.137 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.137 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.154 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.154 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.170 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.170 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.184 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.184 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.199 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.199 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.214 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.214 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.226 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.226 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.239 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.239 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.253 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.253 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.267 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.267 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.285 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.285 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.300 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.300 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.324 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.324 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.341 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.341 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.353 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.353 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=10.359 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=18;hex=00000000070000002E6469736D6F756E7400
+[combat] time=10.360 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.dismount
+[anim] time=10.369 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.369 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.386 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.387 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.400 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.400 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.417 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.417 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.433 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.433 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.449 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.449 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.465 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.465 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=10.485 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=61;hex=0A0000000000000000000000002B000000596F7520617265206E6F74206D6F756E74656420736F20796F752063616E2774206469736D6F756E742E0000
+[anim] time=10.486 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.487 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=10.493 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=You_are_not_mounted_so_you_can't_dismount.
+[anim] time=10.507 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.507 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.534 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.534 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.555 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.555 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.572 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.572 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.588 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.588 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.607 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.607 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.646 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.646 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.672 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.672 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.692 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.692 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.714 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.715 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.738 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.739 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.759 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.759 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.783 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.783 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.796 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.796 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.817 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.818 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.837 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.837 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.852 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.852 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.894 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.894 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=10.905 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=25;hex=00000000070000002E636F6D62617473746F70205445535400
+[combat] time=10.905 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.combatstop_TEST
+[anim] time=10.926 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.926 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.944 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.944 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.959 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.959 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.973 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.973 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=10.987 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=10.987 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.004 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.004 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.020 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.020 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.047 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.047 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.067 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.068 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.087 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.087 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.102 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.102 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.116 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.116 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.135 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.135 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.149 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.149 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.162 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.162 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.177 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.177 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.193 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.193 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.210 unit=creature:328 track=0 requested=4 played=4 kind=BakedOnDemand
+[anim] time=11.211 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.211 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.211 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.227 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.228 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.246 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.246 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.262 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.262 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.277 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.277 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.292 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.292 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.307 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.307 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.322 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.323 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.339 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.340 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.360 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.360 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.376 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.376 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.391 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.391 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.406 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.406 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.422 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.422 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=11.445 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=25;hex=00000000070000002E6E706320737061776E20616464203600
+[combat] time=11.445 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.npc_spawn_add_6
+[anim] time=11.465 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.465 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.481 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.481 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.499 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.499 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.514 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.514 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.528 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.528 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.542 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.542 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.561 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.561 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.572 unit=creature:3167 track=0 requested=0 played=0 kind=BakedOnDemand
+[anim] time=11.572 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.572 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.605 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.605 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.605 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.619 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.619 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.634 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.634 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.653 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.653 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.665 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.665 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.677 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.677 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.689 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.689 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.701 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.701 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.712 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.713 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.740 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.740 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.753 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.753 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.765 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.765 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.781 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.781 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.796 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.796 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.812 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.812 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.826 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.826 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.839 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.839 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.839 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=11.868 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.868 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=11.881 event=SpawnObserved cause=post-command-entity-delta target=0xF13000000604A28D detail=entry=6;distance=0;within3=true;position=-8949.95|-132.493|83.529526
+[anim] time=11.891 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=11.891 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=11.911 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=62;hex=0B070000008DA20406000030F10E0000004B6F626F6C64205665726D696E004C38016A060030F112000000596969656565656521204D652072756E210000
+[portrait] time=11.917 subject=Target outcome=NotDrawn camera=Authored authoredRetried=False subjectPx=0 rgb=10..14 alpha=255..255 pieces=-1 displayId=10913 bindPoseHeight=1.1373 eyeHeight=0.0000 distance=0.0000 fovyDeg=39.2823 near=0.1556
+[combat] time=12.918 event=AttackStartReceive cause=server target=0xF13000000604A28D detail=attacker=0xF13000066A01384C
+[anim] time=12.975 unit=creature:10913 track=0 requested=0 played=0 kind=BakedOnDemand
+[anim] time=12.977 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=12.978 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=12.978 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=12.978 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[portrait] time=12.996 subject=Target outcome=Ready camera=Authored authoredRetried=False subjectPx=46779 rgb=0..255 alpha=128..255 pieces=-1 displayId=10913 bindPoseHeight=1.1373 eyeHeight=0.0000 distance=0.0000 fovyDeg=39.2823 near=0.1556
+[combat] time=13.003 event=AttackStartReceive cause=server target=0xF13000066A01384C detail=attacker=0xF13000000604A28D
+[combat] time=13.023 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=��|0�|Kobold_Vermin|L8j|0�|Yiieeeee!_Me_run!
+[combat] time=13.026 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=18;hex=00000000070000002E6E706320696E666F00
+[combat] time=13.026 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.npc_info
+[anim] time=13.034 unit=creature:10913 track=0 requested=25 played=0 kind=Fallback
+[anim] time=13.034 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.035 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.035 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.035 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.049 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.050 unit=creature:3167 track=0 requested=5 played=5 kind=BakedOnDemand
+[anim] time=13.050 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.050 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.051 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.064 unit=creature:10913 track=0 requested=5 played=5 kind=BakedOnDemand
+[anim] time=13.064 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.064 unit=creature:3167 track=0 requested=5 played=5 kind=Exact
+[anim] time=13.064 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.064 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.065 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.081 unit=creature:10913 track=0 requested=5 played=5 kind=Exact
+[anim] time=13.082 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.083 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.102 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.102 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.165 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.165 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=13.195 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=69;hex=0A00000000000000000000000033000000506C617965722073656C65637465643A2043726561747572652028456E7472793A203620477569643A20333033373537292E0000
+[combat] time=13.195 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=31;hex=0A0000000000000000000000000D00000046616374696F6E3A2032352E0000
+[combat] time=13.195 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=31;hex=0A0000000000000000000000000D0000006E7063466C6167733A20302E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=28;hex=0A0000000000000000000000000A000000456E7472793A20362E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=52;hex=0A00000000000000000000000022000000446973706C617949443A20313039313320284E61746976653A203130393133292E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=28;hex=0A0000000000000000000000000A0000004C6576656C3A20322E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=34;hex=0A0000000000000000000000001000000045717569706D656E7449643A20362E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=63;hex=0A0000000000000000000000002D0000004865616C7468202862617365293A2032392E20286D6178293A2035352E202863757272656E74293A2035352E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=33;hex=0A0000000000000000000000000F000000496E6861626974547970653A20310000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=38;hex=0A00000000000000000000000014000000556E697420466C6167733A203532343238382E0000
+[combat] time=13.196 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=36;hex=0A0000000000000000000000001200000044796E616D696320466C6167733A20302E0000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=40;hex=0A0000000000000000000000001600000046616374696F6E2054656D706C6174653A2032352E0000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=48;hex=0A0000000000000000000000001E000000537061776E54696D653A2046756C6C3A3235732052656D61696E3A30730000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=52;hex=0A000000000000000000000000220000004C6F6F743A2036205069636B706F636B65743A203620536B696E6E696E673A20300000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=28;hex=0A0000000000000000000000000A00000041726D6F723A2032310000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=32;hex=0A0000000000000000000000000E000000496E7374616E636549443A20300000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=64;hex=0A0000000000000000000000002E000000506F736974696F6E3A202D383934352E333633323831202D3132372E3630363330302038332E3337353032332E0000
+[combat] time=13.197 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=47;hex=0A0000000000000000000000001D00000041494E616D653A204576656E744149205363726970744E616D653A200000
+[combat] time=13.198 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=62;hex=0A0000000000000000000000002C000000416374697665206F626A6563743A20302E205669736962696C697479204D6F6469666965723A20302E30300000
+[anim] time=13.206 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.206 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Player_selected:_Creature_(Entry:_6_Guid:_303757).
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Faction:_25.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=npcFlags:_0.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Entry:_6.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=DisplayID:_10913_(Native:_10913).
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Level:_2.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=EquipmentId:_6.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Health_(base):_29._(max):_55._(current):_55.
+[combat] time=13.212 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=InhabitType:_1
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Unit_Flags:_524288.
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Dynamic_Flags:_0.
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Faction_Template:_25.
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=SpawnTime:_Full:25s_Remain:0s
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Loot:_6_Pickpocket:_6_Skinning:_0
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Armor:_21
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=InstanceID:_0
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Position:_-8945.363281_-127.606300_83.375023.
+[combat] time=13.213 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=AIName:_EventAI_ScriptName:_
+[combat] time=13.214 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Active_object:_0._Visibility_Modifier:_0.00
+[anim] time=13.229 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.229 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.251 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.252 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.270 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.270 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.285 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.285 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.302 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.302 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.356 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.356 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.381 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.381 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.406 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.406 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.421 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.421 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.444 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.445 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.460 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.460 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.475 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.475 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.489 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.489 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.502 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.502 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.516 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.516 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.529 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.529 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.542 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=13.542 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=13.561 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=13.572 event=TraceStart cause=operator target=0x0000000000000000 detail=server-authoritative_swing_timing;_client_range/arc_gates_absent
+[combat] time=13.594 event=SocketFlush cause=post-encryption-socket-write target=0x0000000000000000 detail=opcode=0x0095;bytes=19;sha256=f807d96fc7e2dbbe57157febbe900469e1653394135e3b3cc8c21a2f3ee48b64;flushed=true;hex=58A0735BCC6500000000070000002E67707300
+[combat] time=13.611 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=13;hex=00000000070000002E67707300
+[combat] time=13.612 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gps
+[combat] time=13.630 event=AttackPrecondition cause=live-send-path target=0xF13000000604A28D detail=player=0x0000000000000001;position=-8949.95|-132.493|83.529526;gmMode=false;gmSource=server-response;present=true;visible=true;alive=True;health=100;maxHealth=100;unitFlags=0x00080000;dynamicFlags=0x00000000;faction=25;entry=6;distance=9.533476;targetPosition=-8943.447|-125.52841|83.22354
+[combat] time=13.633 event=SocketFlush cause=post-encryption-socket-write target=0x0000000000000000 detail=opcode=0x0141;bytes=14;sha256=bb0b351f85d00cfa07fd95d3e1ef1d8c56c45d6213dcf98a828df65e2294868f;flushed=true;hex=2889088A38538DA20406000030F1
+[combat] time=13.634 event=AttackSwingSend cause=network-session-send target=0xF13000000604A28D detail=CMSG_ATTACKSWING
+[combat] time=13.635 event=IntentOn cause=user-start target=0xF13000000604A28D detail=local_attack_latch_edge
+[combat] time=13.683 event=AttackStopReceive cause=server target=0xF13000066A01384C detail=attacker=0xF13000000604A28D_victimDied=False
+[combat] time=13.684 event=IntentOff cause=server-stop target=0xF13000000604A28D detail=local_attack_latch_edge
+[combat] time=13.692 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=34;hex=0A00000000000000000000000010000000596F7520617265204F5554646F6F720000
+[combat] time=13.692 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=97;hex=0A0000000000000000000000004F0000004D61703A203020284561737465726E204B696E67646F6D7329205A6F6E653A2031322028456C77796E6E20466F726573742920417265613A203920284E6F72746873686972652056616C6C6579290000
+[combat] time=13.692 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=84;hex=0A00000000000000000000000042000000583A202D383934342E30383339383420593A202D3132362E323434303236205A3A2038332E343032383730204F7269656E746174696F6E3A20302E3831373435310000
+[combat] time=13.692 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=54;hex=0A00000000000000000000000024000000677269645B33322C34385D63656C6C5B31322C335D20496E7374616E636549443A20300000
+[combat] time=13.693 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=53;hex=0A00000000000000000000000023000000205A6F6E65583A2034372E383734393737205A6F6E65593A2034332E3339383738380000
+[combat] time=13.693 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=89;hex=0A0000000000000000000000004700000047726F756E645A3A2038332E34313431303120466C6F6F725A3A2038332E343134313031204861766520686569676874206461746120284D61703A203120564D61703A2031290000
+[combat] time=13.720 event=AttackStopReceive cause=server target=0xF13000000604A28D detail=attacker=0xF13000066A01384C_victimDied=False
+[anim] time=13.732 unit=creature:10913 track=0 requested=0 played=0 kind=Exact
+[combat] time=13.738 event=ForeignSwingReceive cause=server-swing target=0xF13000000604A28D detail=attacker=0xF13000066A01384C_damage=151_hitInfo=0x00008002
+[anim] time=13.757 unit=creature:10913 track=1 requested=1 played=1 kind=BakedOnDemand
+[anim] time=13.760 unit=creature:3167 track=1 requested=16 played=16 kind=BakedOnDemand
+[anim] time=13.779 unit=creature:3167 track=1 requested=16 played=16 kind=Exact
+[anim] time=13.779 unit=creature:10913 track=1 requested=1 played=1 kind=Exact
+[combat] time=13.784 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=You_are_OUTdoor
+[combat] time=13.784 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Map:_0_(Eastern_Kingdoms)_Zone:_12_(Elwynn_Forest)_Area:_9_(Northshire_Valley)
+[combat] time=13.785 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=X:_-8944.083984_Y:_-126.244026_Z:_83.402870_Orientation:_0.817451
+[combat] time=13.785 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=grid[32,48]cell[12,3]_InstanceID:_0
+[combat] time=13.785 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=_ZoneX:_47.874977_ZoneY:_43.398788
+[combat] time=13.785 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GroundZ:_83.414101_FloorZ:_83.414101_Have_height_data_(Map:_1_VMap:_1)
+[anim] time=14.938 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=14.949 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=14.950 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=14.964 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=14.964 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=14.977 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=14.978 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=14.988 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=14.989 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=14.998 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=14.999 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.011 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.011 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.023 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.024 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.035 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.035 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.049 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.050 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.065 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.065 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.080 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.081 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.092 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=15.843 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=15.856 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.207 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.208 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.595 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.596 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.606 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.607 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.802 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.814 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.814 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.827 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.827 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.840 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.840 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.853 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.853 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.866 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.866 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.879 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.880 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.893 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.893 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.906 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.906 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.921 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.921 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.935 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.935 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[combat] time=16.939 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=15;hex=00000000070000002E676D206F6E00
+[combat] time=16.939 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_on
+[anim] time=16.950 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.950 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.965 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.965 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.978 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.978 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=16.993 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=16.993 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.008 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.008 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.023 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.023 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.037 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[combat] time=17.051 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=32;hex=0A0000000000000000000000000E000000474D206D6F6465206973204F4E0000
+[combat] time=17.051 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x01CB;bytes=14;hex=474D206D6F6465206973204F4E00
+[combat] time=17.057 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_ON
+[combat] time=17.057 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=GM_mode_is_ON
+[anim] time=17.082 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.088 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.089 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.104 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.104 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.105 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.105 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.108 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.108 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.122 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.122 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.123 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.123 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.125 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.126 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.139 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.139 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.140 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.140 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.144 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.144 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.157 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.157 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.158 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.158 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.161 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.162 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.177 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.177 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.178 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.178 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.181 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.181 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.201 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.201 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.202 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.203 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.205 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.205 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.221 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.222 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.222 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.223 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.225 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.225 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.239 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.239 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.240 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.241 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.243 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.243 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.256 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.257 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.257 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.258 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.260 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.260 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.273 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.273 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.273 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.274 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.276 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.276 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.288 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.289 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.289 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.289 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.292 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.292 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.305 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.305 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.305 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.306 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.308 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.308 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.322 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.322 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.322 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.323 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.325 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.325 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.338 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.338 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.339 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.339 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.342 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.342 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.356 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.356 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.357 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.357 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.360 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.360 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.370 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.370 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.370 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.371 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.371 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.372 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.375 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.375 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.394 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.395 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.395 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.396 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.399 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.400 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.400 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.400 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.428 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.428 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.429 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.429 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.432 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.432 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.432 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.433 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.447 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.447 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.447 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.447 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.449 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.450 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.450 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.450 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.463 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.463 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.464 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.464 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.466 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.466 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.467 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.467 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[combat] time=17.472 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=26;hex=00000000070000002E6E706320737061776E2064656C65746500
+[combat] time=17.472 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.npc_spawn_delete
+[anim] time=17.481 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.481 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.482 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.482 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.484 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.484 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.485 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.485 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.501 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.501 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.502 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.502 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.504 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.504 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.505 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.505 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.518 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.519 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.519 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.520 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.521 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.522 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.522 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.522 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.535 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.535 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.536 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.536 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.538 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.538 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.539 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.539 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.550 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.550 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.551 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.551 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.553 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.553 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.554 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.554 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.565 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.565 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.566 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.566 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.568 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.568 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.569 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.569 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.582 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.582 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.583 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.583 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.585 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.585 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.585 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.586 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[combat] time=17.596 event=GmChatWire cause=server-receive target=0x0000000000000000 detail=opcode=0x0096;bytes=35;hex=0A0000000000000000000000001100000043726561747572652052656D6F7665640000
+[anim] time=17.598 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.598 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.599 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.599 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.601 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.601 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.601 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.601 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[combat] time=17.605 event=GmChatResponse cause=server-chat target=0x0000000000000000 detail=Creature_Removed
+[anim] time=17.614 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.614 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.614 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.615 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.616 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.617 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.617 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.617 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.628 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.628 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.629 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.629 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.631 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.631 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.631 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.632 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.643 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.643 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.643 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.644 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.645 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.646 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.646 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.646 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.657 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.658 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.658 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.658 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.660 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.660 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.661 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.661 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.670 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.670 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.670 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.670 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.671 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.672 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.672 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.672 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.679 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.679 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.680 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.680 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.681 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.681 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.681 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.681 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.688 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.688 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.689 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.690 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.692 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.692 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.692 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.692 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.708 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.708 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.709 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.709 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.715 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.715 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.716 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.716 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.730 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.730 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.730 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.731 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.733 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.733 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.734 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.734 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.750 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.750 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.750 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.751 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.752 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.753 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.753 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.753 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.765 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.766 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.766 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.766 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.768 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.768 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.769 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.769 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.780 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.780 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.781 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.781 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.783 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.783 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.783 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.784 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.784 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.795 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.795 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.796 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.796 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.796 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.798 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.798 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.798 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.799 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.799 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.810 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.810 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.810 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.810 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.811 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.811 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.814 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.814 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.814 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.815 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.827 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.827 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.828 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.828 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.828 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.828 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.831 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.831 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.832 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.832 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.844 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.844 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.844 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.844 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.844 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.845 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.846 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.846 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.848 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.848 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.861 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.861 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.862 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.862 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.862 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.862 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.864 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.866 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.867 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.867 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.879 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.879 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.880 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.880 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.880 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.880 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.882 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.883 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.883 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.884 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.896 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.896 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.896 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.896 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.897 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.897 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.898 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.899 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.899 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.899 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.913 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.913 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.914 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.914 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.914 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.914 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.916 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.916 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.917 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.917 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.930 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.930 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.931 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.931 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.931 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.931 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.933 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.933 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.934 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.934 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.946 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.946 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.946 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.946 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.947 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.947 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.949 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.949 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.950 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.950 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.962 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.962 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.962 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.962 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.963 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.963 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.964 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.965 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.965 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.965 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.978 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.979 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.979 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.979 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.980 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.980 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.981 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.982 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.982 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.982 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.997 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.997 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.997 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.998 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=17.998 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=17.998 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.000 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.000 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.001 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.001 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.015 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.015 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.015 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.016 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.016 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.016 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.016 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.016 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.018 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.019 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.020 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.020 unit=creature:3167 track=0 requested=0 played=0 kind=Exact
+[combat] time=18.025 event=GmChatWire cause=client-send target=0x0000000000000000 detail=opcode=0x0095;bytes=16;hex=00000000070000002E676D206F666600
+[combat] time=18.025 event=GmCommand cause=protocol-runner target=0x0000000000000000 detail=sent=True;text=.gm_off
+[anim] time=18.035 unit=creature:328 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.035 unit=creature:3167 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.035 unit=creature:328 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.036 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.036 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.036 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.036 unit=creature:447 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.036 unit=creature:447 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.038 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.038 unit=creature:604 track=0 requested=0 played=0 kind=Exact
+[anim] time=18.039 unit=creature:604 track=0 requested=4 played=4 kind=Exact
+[anim] time=18.039 unit=creature:3167 track=0 requested=0 played=0 kind=Exact

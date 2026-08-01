@@ -1,0 +1,73 @@
+﻿SPEC-23 temporary elevated capture relay
+[net session]
+There are no entries in the list.
+
+exit=0
+[high integrity SID]
+Mandatory Label\High Mandatory Level                          Label            S-1-16-12288                                                                
+exit=0
+[pktmon status before]
+
+Packet Monitor is not running.
+exit=0
+[pktmon filter remove preflight]
+Removed all filters.
+exit=0
+[pktmon filter add]
+Filter added.
+exit=0
+[pktmon filter list]
+Packet Filters:
+     # Name      Protocol IP Address  Port 
+     - ----      -------- ----------  ---- 
+     1 SPEC23-Y1 TCP      192.168.0.2 8085 
+exit=0
+[pktmon start]
+
+Logger Parameters:
+    Logger name:        PktMon
+    Logging mode:       Circular
+    Log file:           C:\Users\nico\source\repos\MSUIClient\live-runs\Y1-wire-20260731-200303\wire-20260731-200303.etl
+    Max file size:      32 MB
+    Memory used:        640 MB
+
+Collected Data:
+    Packet counters, packet capture
+
+Capture Type:
+    All packets
+
+Monitored Components:
+    Network adapters
+
+Packet Filters:
+     # Name      Protocol IP Address  Port 
+     - ----      -------- ----------  ---- 
+     1 SPEC23-Y1 TCP      192.168.0.2 8085 
+exit=0
+[pktmon stop]
+Flushing logs...
+Merging metadata...
+Log file: C:\Users\nico\source\repos\MSUIClient\live-runs\Y1-wire-20260731-200303\wire-20260731-200303.etl (No events lost)
+exit=0
+[pktmon etl2pcap]
+Processing...
+
+Packets total:       44
+Packet drop count:   0
+Packets formatted:   44
+Formatted file:      C:\Users\nico\source\repos\MSUIClient\live-runs\Y1-wire-20260731-200303\wire-20260731-200303.pcapng
+exit=0
+[pktmon etl2txt]
+Processing...
+
+Events formatted:    47
+Formatted file:      C:\Users\nico\source\repos\MSUIClient\live-runs\Y1-wire-20260731-200303\wire-20260731-200303.txt
+exit=0
+[pktmon filter remove cleanup]
+Removed all filters.
+exit=0
+[pktmon status after]
+
+Packet Monitor is not running.
+exit=0
