@@ -236,3 +236,13 @@ Format per entry:
   index, and `live-runs/N1C-5-5-backpedal-evidence-20260801-150000.md`.
 - Mechanical result: max speed 4.5, stop distance 0, stalls 0, hard cuts 0, substitutions 0.
 - Agent recommendation: accept the mechanics; rule only on visual gait quality.
+
+## Q21 — 5-7 — manifest scope law
+
+- Decision needed: require future per-item manifests to hash immutable evidence artifacts only,
+  or explicitly split `evidence.sha256` from a source-at-commit identity file.
+- Evidence: `live-runs/N1C-5-7-manifest-audit-20260801-151000.csv` and
+  `live-runs/N1C-5-7-final-hygiene-20260801-152000.md`.
+- Finding: 20/42 NIGHT manifests recompute; all 22 stale manifests have no missing/malformed path
+  but include source or append-only ledgers changed by later required commits.
+- Agent recommendation: immutable evidence-only SHA-256 manifests plus the Git commit id for source.

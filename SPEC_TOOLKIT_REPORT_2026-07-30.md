@@ -4257,3 +4257,6 @@ W1-W3 are not started. SPEC-21 P3/P4 remain queued.
 ruling is required before any ptrace-policy or root-mediated attach path.**
 
 Append-only end pointer (superseding the earlier non-tail placement): NIGHT_01 autonomous run packet is `NIGHT_01/REPORT.md`.
+NIGHT_01 final packet (1B + 1C amendments): `NIGHT_01/REPORT.md` section
+"2026-08-01 15:20 local — item 5-7 final hygiene and end packet"; primary final evidence:
+`live-runs/N1C-5-7-final-hygiene-20260801-152000.md`.

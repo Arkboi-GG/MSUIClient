@@ -585,3 +585,62 @@ The fresh 365-tick trace passes max speed 4.5, zero stop distance, zero stalls, 
 zero substitutions against both current and vanilla bands. A six-frame idle/onset/stride/settle
 contact sheet now supplies the missing perceptual evidence; visual judgment is queued Q20.
 Evidence: `live-runs/N1C-5-5-backpedal-evidence-20260801-150000.md`.
+## 2026-08-01 15:20 local — item 5-7 final hygiene and end packet
+
+Status: `CLOSED-FINDING`
+
+The tree/raw/relay checks pass and all final gates are green. The corrected checksum audit finds
+20/42 manifests fully recompute and 22 stale with zero missing/malformed paths; stale manifests
+hash mutable source or append-only ledgers changed by later required commits. No evidence path was
+overwritten. The 484 untracked raw/abandoned diagnostics were preserved recoverably under ignored
+`dumps/archived-night01-untracked-20260801-151000/`, leaving a clean tree. Q21 carries the manifest
+scope ruling. Evidence: `live-runs/N1C-5-7-final-hygiene-20260801-152000.md`.
+
+### Final status table — all 38 items
+
+| Item | Final status | Item | Final status |
+|---|---|---|---|
+| 1-1 | SHELVED-BLOCKED | 1-2 | SHELVED-BLOCKED |
+| 1-3 | CLOSED-PASS | 1-4 | CLOSED-PASS |
+| 2-1 | CLOSED-FINDING | 2-2 | CLOSED-PASS |
+| 2-3 | CLOSED-FINDING | 2-4 | CLOSED-PASS |
+| 2-5 | CLOSED-PASS | 2-6 | CLOSED-FINDING |
+| 2-7 | CLOSED-FINDING | 2-8 | CLOSED-PASS |
+| 2-9 | CLOSED-PASS | 2-10 | CLOSED-FINDING |
+| 2-11 | CLOSED-FINDING | 2-12 | CLOSED-PASS |
+| 3-1 | CLOSED-FINDING | 3-2 | CLOSED-FINDING |
+| 3-3 | CLOSED-FINDING | 3-4 | CLOSED-FINDING |
+| 3-5 | CLOSED-PASS | 3-6 | CLOSED-PASS |
+| 3-7 | CLOSED-FINDING | 3-8 | CLOSED-PASS |
+| 4-1 | CLOSED-FINDING | 4-2 | CLOSED-FINDING |
+| 4-3 | CLOSED-PASS | 4-4 | CLOSED-PASS |
+| 4-5 | CLOSED-FINDING | 4-6 | CLOSED-FINDING |
+| 4-7 | CLOSED-PASS | 5-1 | SHELVED-RULING |
+| 5-2 | SHELVED-RULING | 5-3 | CLOSED-FINDING |
+| 5-4 | SHELVED-RULING | 5-5 | CLOSED-FINDING |
+| 5-6 | CLOSED-FINDING | 5-7 | CLOSED-FINDING |
+
+Totals: 14 `CLOSED-PASS`, 19 `CLOSED-FINDING`, 3 `SHELVED-RULING`, 2
+`SHELVED-BLOCKED`. Rulings queue: 21 numbered entries (including superseded/struck entries retained
+by append-only law). Commits: 47 NIGHT commits including this final packet; 207 repository commits
+after it.
+
+### Final gates
+
+- Debug build: PASS, one pre-existing CA2014 warning, 0 errors.
+- Combat wire: PASS.
+- Interface wire: PASS.
+- Portrait camera: PASS, 10,534 specimens; controls 1,224 / 1,289 / 56.
+- Move audit: PASS, all 8 current-tree scenario sets.
+
+### Three most important findings
+
+1. `F-SILENT-INTERACT` is one cross-opcode server-admission/dispatch finding: attack, gossip,
+   vendor, and later interaction requests can flush without a response while `.gps`, teleport,
+   death, trainer purchase, loot, crafting, spell, and other server flows remain healthy.
+2. The spell flagship now has mechanical send gates, named outcomes, cast/channel/aura/error
+   instrumentation, and renderer/effect batches. Of 67 TEST-known spells, 40 resolve model
+   suppliers, 12 resolve model-empty authored chains, and 15 have no visual chain; perceptual
+   judgments remain queued from contact sheets.
+3. Per-item SHA-256 manifests must not hash later-mutated source or append-only ledgers: 22/42 are
+   stale for that design reason even though no referenced path is missing or malformed.
