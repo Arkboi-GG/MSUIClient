@@ -396,3 +396,13 @@ built. A GM-off novice-warrior flow passed 28/28: five services decoded, service
 6674 purchased for 10 copper, server success arrived, and learned spell 6673
 appeared in the client spellbook with an independent `ADDED` delta. Evidence:
 `live-runs/N1C-2-2-trainer-20260801-111500.md`.
+
+## NIGHT_01C 2-3 — questing
+
+`CLOSED-FINDING`: the build-5875 quest protocol, bounded parsers, log/objective/
+economy state, quest UI, verdicts, runner, and byte gate are built. Four GM-off
+acceptance scenarios pass 100/100 checks in aggregate, including accept,
+kill/item objectives, completion, exact reward XP/money, reward choice, and
+abandon. Quest-giver hello/list is the single
+`BLOCKED-BY:F-SILENT-INTERACT` row; direct details and the remaining lifecycle
+pass. Evidence: `live-runs/N1C-2-3-questing-20260801-113500.md`.

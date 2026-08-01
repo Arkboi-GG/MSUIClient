@@ -1,0 +1,26 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .npc spawn add 197
+wait 2
+select entry-nearest:197
+anchor selected
+gm .gm off
+quest status
+probe-interface quest status 4
+quest query 7
+probe-interface quest details 4
+quest accept
+wait 2
+assert family=quest step=log outcome=ADDED
+quest inspect-log
+quest abandon 7
+wait 2
+assert family=quest step=log outcome=REMOVED
+quest inspect-log
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+select entry-nearest:197
+gm .npc spawn delete
+gm .gm off

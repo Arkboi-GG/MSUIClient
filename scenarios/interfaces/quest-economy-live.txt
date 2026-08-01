@@ -1,0 +1,27 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .npc spawn add 197
+wait 2
+select entry-nearest:197
+anchor selected
+gm .quest add 7 Dfsgfds
+wait 1
+gm .quest complete 7 Dfsgfds
+wait 1
+gm .gm off
+quest query 7
+probe-interface quest details 4
+quest complete
+probe-interface quest offer 4
+quest choose 0
+wait 3
+assert family=quest step=reward outcome=COMPLETED
+assert family=quest step=economy outcome=VERIFIED
+assert family=quest step=log outcome=REMOVED
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+select entry-nearest:197
+gm .npc spawn delete
+gm .gm off

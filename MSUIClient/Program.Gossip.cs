@@ -176,7 +176,8 @@ public sealed partial class GameLoop
             if (ImGui.Selectable($"> {option.Text}##gossip-option-{i}")) SelectGossipOption(i);
         }
         foreach (GossipQuest quest in _gossipMenu.Quests)
-            ImGui.BulletText($"[{quest.Level}] {quest.Title}");
+            if (ImGui.Selectable($"[{quest.Level}] {quest.Title}##gossip-quest-{quest.QuestId}"))
+                RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
 
         ImGui.SetCursorPosY(MathF.Max(ImGui.GetCursorPosY(), size.Y / s - 48f));
         if (ImGui.Button("Close##gossip")) ResetGossip();

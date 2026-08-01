@@ -396,6 +396,41 @@ public sealed partial class GameLoop
                     case Op.SMSG_TRAINER_BUY_FAILED:
                         ApplyTrainerFailure(body);
                         break;
+                    case Op.SMSG_QUESTGIVER_STATUS:
+                        ApplyQuestStatus(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_QUEST_LIST:
+                        ApplyQuestList(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_QUEST_DETAILS:
+                        ApplyQuestDetails(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_REQUEST_ITEMS:
+                        ApplyQuestRequestItems(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_OFFER_REWARD:
+                        ApplyQuestOffer(body);
+                        break;
+                    case Op.SMSG_QUESTUPDATE_ADD_KILL:
+                        ApplyQuestKill(body);
+                        break;
+                    case Op.SMSG_QUESTUPDATE_ADD_ITEM:
+                        ApplyQuestItem(body);
+                        break;
+                    case Op.SMSG_QUESTUPDATE_COMPLETE:
+                        ApplyQuestObjectiveComplete(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_QUEST_COMPLETE:
+                        ApplyQuestComplete(body);
+                        break;
+                    case Op.SMSG_QUESTGIVER_QUEST_INVALID:
+                    case Op.SMSG_QUESTGIVER_QUEST_FAILED:
+                    case Op.SMSG_QUESTUPDATE_FAILED:
+                    case Op.SMSG_QUESTUPDATE_FAILEDTIMER:
+                    case Op.SMSG_QUESTLOG_FULL:
+                        EmitInterface("quest", "error", "RECEIVED", _selectionGuid,
+                            $"opcode=0x{opcode:X4};bytes={body.Length};hex={Convert.ToHexString(body)}");
+                        break;
                     case Op.SMSG_BUY_ITEM:
                     case Op.SMSG_BUY_FAILED:
                     case Op.SMSG_SELL_ITEM:
@@ -558,6 +593,7 @@ public sealed partial class GameLoop
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
         _entities.Apply(u);
+        if (u.Guid == _net?.PlayerGuid) ObserveQuestLog();
         ObserveAuraObjectUpdate(u.Guid, aurasBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)

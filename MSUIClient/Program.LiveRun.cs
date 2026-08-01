@@ -175,6 +175,7 @@ public sealed partial class GameLoop
                     bool self=p[1].Equals("self",StringComparison.OrdinalIgnoreCase);
                     bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
                     bool npcFlagNearest=p[1].StartsWith("npc-flag-nearest:",StringComparison.OrdinalIgnoreCase);
+                    bool entryNearest=p[1].StartsWith("entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     int ordinal=self||anchor||npcFlagNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
@@ -182,6 +183,7 @@ public sealed partial class GameLoop
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
                     bool spawned=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
                     ulong guid=self?_net?.PlayerGuid??0:npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
+                        entryNearest?LiveEntryNearestGuid(ordinal):
                         anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
                         wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
                         wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
@@ -265,6 +267,25 @@ public sealed partial class GameLoop
                         Log(BuyTrainerSpell(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else if (p[1].Equals("buy-first", StringComparison.OrdinalIgnoreCase))
                         Log(BuyFirstAvailableTrainerSpell(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "quest":
+                    if (p[1].Equals("status", StringComparison.OrdinalIgnoreCase))
+                        Log(RequestQuestStatus(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
+                    else if (p[1].Equals("hello", StringComparison.OrdinalIgnoreCase))
+                        Log(RequestQuestHello(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
+                    else if (p[1].Equals("query", StringComparison.OrdinalIgnoreCase))
+                        Log(RequestQuestDetails(_selectionGuid, uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("accept", StringComparison.OrdinalIgnoreCase)) Log(AcceptQuest(), line);
+                    else if (p[1].Equals("complete", StringComparison.OrdinalIgnoreCase)) Log(RequestQuestCompletion(), line);
+                    else if (p[1].Equals("request-reward", StringComparison.OrdinalIgnoreCase)) Log(RequestQuestReward(), line);
+                    else if (p[1].Equals("choose", StringComparison.OrdinalIgnoreCase))
+                        Log(ChooseQuestReward(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("abandon", StringComparison.OrdinalIgnoreCase))
+                        Log(AbandonQuest(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("inspect-log", StringComparison.OrdinalIgnoreCase)) Log(InspectQuestLog(), line);
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
+                    { SimulateQuestFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "interface-blocked":
@@ -484,6 +505,17 @@ public sealed partial class GameLoop
         float distance=Vector3.Distance(selected.Position,_controller.Position);
         EmitInterface("gossip","npc-flag-observed","PASS",selected.Guid,
             $"class={flagName.ToLowerInvariant()};entry={selected.Entry};npcFlags=0x{selected.NpcFlags:X8};distance={distance:R}");
+        return selected.Guid;
+    }
+    private ulong LiveEntryNearestGuid(int entry)
+    {
+        if (_controller is null || entry <= 0) return 0;
+        WorldEntity? selected = _entities.Units.Where(x => x.IsCreature && !x.IsDead && x.Entry == (uint)entry)
+            .OrderBy(x => Vector3.Distance(x.Position, _controller.Position)).ThenBy(x => x.Guid).FirstOrDefault();
+        if (selected is null) return 0;
+        float distance = Vector3.Distance(selected.Position, _controller.Position);
+        EmitCombat("EntryObserved", "object-store-entry-nearest", selected.Guid,
+            $"entry={entry};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
         return selected.Guid;
     }
     private void RefreshLiveSpawnIdentities()

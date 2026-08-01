@@ -1,0 +1,28 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\quest-accept-abandon-exact-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .npc spawn add 197
+5,PASS,wait 2
+6,PASS,select entry-nearest:197 guid=0xF1300000C504A2B4
+7,PASS,anchor selected guid=0xF1300000C504A2B4 position=-8949.95|-132.493|83.529526
+8,PASS,gm .gm off
+9,PASS,quest status guid=0xF1300000C504A2B4
+10,PASS,probe-interface quest status response
+11,PASS,quest query 7
+12,PASS,probe-interface quest details response
+13,PASS,quest accept
+14,PASS,wait 2
+15,PASS,assert family=quest step=log outcome=ADDED
+16,PASS,quest inspect-log
+17,PASS,quest abandon 7
+18,PASS,wait 2
+19,PASS,assert family=quest step=log outcome=REMOVED
+20,PASS,quest inspect-log
+21,PASS,gm .gps
+22,PASS,waitfor GmChatResponse
+23,PASS,gm .gm on
+24,PASS,select entry-nearest:197 guid=0xF1300000C504A2B4
+25,PASS,gm .npc spawn delete
+26,PASS,gm .gm off

@@ -68,6 +68,7 @@ public sealed class ObjectFields
     public const ushort CONTAINER_NUM_SLOTS = 48;
     public const ushort CONTAINER_SLOT_1 = 50;
 
+    public const ushort PLAYER_QUEST_LOG_1_1 = 198;
     public const ushort PLAYER_INV_SLOT_HEAD = 486;
     public const ushort PLAYER_PACK_SLOT_1 = 532;
     public const ushort PLAYER_BANK_SLOT_1 = 564;
@@ -246,6 +247,16 @@ public sealed class ObjectFields
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
+    public IEnumerable<(byte Slot, uint QuestId, uint Counters, uint Timer)> QuestLog()
+    {
+        for (byte slot = 0; slot < 20; slot++)
+        {
+            ushort first = (ushort)(PLAYER_QUEST_LOG_1_1 + slot * 3);
+            uint questId = GetU32(first) ?? 0;
+            if (questId != 0)
+                yield return (slot, questId, GetU32((ushort)(first + 1)) ?? 0, GetU32((ushort)(first + 2)) ?? 0);
+        }
+    }
     public int Stat(int index) => index is >= 0 and < 5 ? GetI32((ushort)(UNIT_STAT0 + index)) ?? 0 : 0;
     public int StatPositive(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_POSSTAT0 + index)) ?? 0) : 0;
     public int StatNegative(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_NEGSTAT0 + index)) ?? 0) : 0;

@@ -74,4 +74,24 @@ Check(trainer.TrainerGuid == trainerGuid && trainer.Spells.Count == 1 &&
       trainer.Spells[0].ServiceSpellId == 6673 && trainer.Spells[0].Cost == 100 &&
       trainer.Spells[0].RequiredLevel == 1 && trainer.Greeting == "Train", "trainer list 38-byte row shape");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer opcodes/bodies/bounds");
+Check((ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY == 386 && (ushort)Op.SMSG_QUESTGIVER_STATUS == 387 &&
+      (ushort)Op.CMSG_QUESTGIVER_HELLO == 388 && (ushort)Op.SMSG_QUESTGIVER_QUEST_LIST == 389 &&
+      (ushort)Op.CMSG_QUESTGIVER_QUERY_QUEST == 390 && (ushort)Op.SMSG_QUESTGIVER_QUEST_DETAILS == 392 &&
+      (ushort)Op.CMSG_QUESTGIVER_ACCEPT_QUEST == 393 && (ushort)Op.SMSG_QUESTGIVER_QUEST_COMPLETE == 401 &&
+      (ushort)Op.SMSG_QUESTUPDATE_ADD_KILL == 409, "quest opcodes");
+Check(WorldSession.BuildQuestGuidBody(trainerGuid, 7)
+      .SequenceEqual(Convert.FromHexString("0100008F030030F107000000")), "quest guid plus id body");
+var questDetailsWriter = new PacketWriter(); questDetailsWriter.WriteU64(trainerGuid); questDetailsWriter.WriteU32(7);
+questDetailsWriter.WriteCString("A Quest"); questDetailsWriter.WriteCString("Details"); questDetailsWriter.WriteCString("Objectives");
+questDetailsWriter.WriteU32(0); questDetailsWriter.WriteU32(1); questDetailsWriter.WriteU32(117);
+questDetailsWriter.WriteU32(5); questDetailsWriter.WriteU32(1); questDetailsWriter.WriteU32(0);
+questDetailsWriter.WriteI32(50); questDetailsWriter.WriteU32(0); questDetailsWriter.WriteU32(0);
+QuestDetails questDetails = QuestPackets.ParseDetails(questDetailsWriter.ToArray());
+Check(questDetails.QuestId == 7 && questDetails.Title == "A Quest" && questDetails.ChoiceRewards.Count == 1 &&
+      questDetails.ChoiceRewards[0].ItemId == 117 && questDetails.Money == 50, "quest detail variable rows");
+var killWriter = new PacketWriter(); killWriter.WriteU32(7); killWriter.WriteU32(6); killWriter.WriteU32(4);
+killWriter.WriteU32(10); killWriter.WriteU64(trainerGuid);
+Check(QuestPackets.ParseKill(killWriter.ToArray()) == new QuestKillUpdate(7, 6, 4, 10, trainerGuid),
+      "quest kill objective shape");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest opcodes/bodies/bounds");

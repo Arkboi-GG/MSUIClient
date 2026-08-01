@@ -1,0 +1,29 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\quest-economy-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .npc spawn add 197
+5,PASS,wait 2
+6,PASS,select entry-nearest:197 guid=0xF1300000C504A2B4
+7,PASS,anchor selected guid=0xF1300000C504A2B4 position=-8949.95|-132.493|83.529526
+8,PASS,gm .quest add 7 Dfsgfds
+9,PASS,wait 1
+10,PASS,gm .quest complete 7 Dfsgfds
+11,PASS,wait 1
+12,PASS,gm .gm off
+13,PASS,quest query 7
+14,PASS,probe-interface quest details response
+15,PASS,quest complete
+16,PASS,probe-interface quest offer response
+17,PASS,quest choose 0
+18,PASS,wait 3
+19,PASS,assert family=quest step=reward outcome=COMPLETED
+20,PASS,assert family=quest step=economy outcome=VERIFIED
+21,PASS,assert family=quest step=log outcome=REMOVED
+22,PASS,gm .gps
+23,PASS,waitfor GmChatResponse
+24,PASS,gm .gm on
+25,PASS,select entry-nearest:197 guid=0xF1300000C504A2B4
+26,PASS,gm .npc spawn delete
+27,PASS,gm .gm off

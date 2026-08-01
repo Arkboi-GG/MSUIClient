@@ -390,6 +390,23 @@ public sealed class WorldSession : IDisposable
     public static byte[] BuildTrainerBuyBody(ulong guid, uint spellId)
     { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(spellId); return w.ToArray(); }
 
+    public void QuestgiverStatus(ulong guid) => SendPacket((ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY, BuildGuidBody(guid));
+    public void QuestgiverHello(ulong guid) => SendPacket((ushort)Op.CMSG_QUESTGIVER_HELLO, BuildGuidBody(guid));
+    public void QuestgiverQuery(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_QUERY_QUEST, BuildQuestGuidBody(guid, questId));
+    public void QuestgiverAccept(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_ACCEPT_QUEST, BuildQuestGuidBody(guid, questId));
+    public void QuestgiverComplete(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_COMPLETE_QUEST, BuildQuestGuidBody(guid, questId));
+    public void QuestgiverRequestReward(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_REQUEST_REWARD, BuildQuestGuidBody(guid, questId));
+    public void QuestgiverChooseReward(ulong guid, uint questId, uint choice)
+    { var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(questId); w.WriteU32(choice); SendPacket((ushort)Op.CMSG_QUESTGIVER_CHOOSE_REWARD, w.AsSpan()); }
+    public void QuestLogRemove(byte slot)
+    { var w = new PacketWriter(1); w.WriteU8(slot); SendPacket((ushort)Op.CMSG_QUESTLOG_REMOVE_QUEST, w.AsSpan()); }
+
+    public static byte[] BuildQuestGuidBody(ulong guid, uint questId)
+    { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(questId); return w.ToArray(); }
+
+    private static byte[] BuildGuidBody(ulong guid)
+    { var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray(); }
+
     public void NpcTextQuery(uint textId, ulong guid)
     {
         var w = new PacketWriter(12);

@@ -313,6 +313,20 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.TrainerBuySpell(guid, spellId); return true; } catch { return false; }
     }
+    public bool QuestgiverStatus(ulong guid) => InWorld(s => s.QuestgiverStatus(guid));
+    public bool QuestgiverHello(ulong guid) => InWorld(s => s.QuestgiverHello(guid));
+    public bool QuestgiverQuery(ulong guid, uint questId) => InWorld(s => s.QuestgiverQuery(guid, questId));
+    public bool QuestgiverAccept(ulong guid, uint questId) => InWorld(s => s.QuestgiverAccept(guid, questId));
+    public bool QuestgiverComplete(ulong guid, uint questId) => InWorld(s => s.QuestgiverComplete(guid, questId));
+    public bool QuestgiverRequestReward(ulong guid, uint questId) => InWorld(s => s.QuestgiverRequestReward(guid, questId));
+    public bool QuestgiverChooseReward(ulong guid, uint questId, uint choice) => InWorld(s => s.QuestgiverChooseReward(guid, questId, choice));
+    public bool QuestLogRemove(byte slot) => InWorld(s => s.QuestLogRemove(slot));
+
+    private bool InWorld(Action<WorldSession> send)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { send(_session); return true; } catch { return false; }
+    }
     public bool NpcTextQuery(uint textId, ulong guid)
     {
         if (State != NetState.InWorld || _session is null) return false;
