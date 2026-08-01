@@ -154,18 +154,49 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
         ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
-        int shown = 0;
+        Vector2 logicalDisplay = display / s;
+        Vector2 frameMin = new(logicalDisplay.X - 255f, 13f);
+        Vector2 framePhysical = frameMin * s;
+        if (_uiParityArmed && _uiParityPanel == "buff-frame")
+        {
+            BeginUiParityFrame(framePhysical, s);
+            CollectUiParity("BuffFrame", "Frame", framePhysical, new Vector2(50) * s,
+                parent: "", point: "TOPRIGHT", relativeTo: "UIParent", relativePoint: "TOPRIGHT",
+                offsetX: "-205", offsetY: "-13", strata: "LOW");
+        }
+        int shown = 0, buffShown = 0, debuffShown = 0;
         foreach (var aura in player.Fields.Auras())
         {
             if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
             uint icon = _gameplayArt.Handle(spell.IconPath);
             if (icon == 0) continue;
-            int col = shown % 12, row = shown / 12;
-            Vector2 max = new(display.X - (8 + col * 34) * s, (8 + row * 34) * s + 30 * s);
+            bool harmful = aura.Slot >= 32;
+            int cohort = harmful ? debuffShown++ : buffShown++;
+            if (harmful ? cohort >= 8 : cohort >= 16) continue;
+            int col = cohort % 8, row = harmful ? 2 : cohort / 8;
+            Vector2 max = new((logicalDisplay.X - 205f - col * 35f) * s,
+                (13f + row * 35f + 30f) * s);
             Vector2 min = max - new Vector2(30) * s;
+            if (_uiParityArmed && _uiParityPanel == "buff-frame" && shown == 0)
+            {
+                CollectUiParity("BuffButton0", "Button", min, new Vector2(30) * s,
+                    parent: "BuffFrame", point: "TOPRIGHT", offsetX: "0", offsetY: "0", strata: "LOW");
+                CollectUiParity("BuffButton0Icon", "Texture", min, new Vector2(30) * s,
+                    parent: "BuffButton0", layer: "BACKGROUND", strata: "LOW");
+                CollectUiParity("BuffButton0Duration", "FontString", max, Vector2.Zero,
+                    parent: "BuffFrame", point: "TOP", font: "BuffButtonDurationTemplate",
+                    fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "10", color: "#FFD100FF",
+                    layer: "ARTWORK", strata: "LOW");
+            }
             dl.AddImage((nint)icon, min, max);
-            dl.AddRect(min, max, aura.Slot < 32 ? 0xff40d0ffu : 0xff4040ffu,
-                0, ImDrawFlags.None, MathF.Max(1, s));
+            if (harmful)
+            {
+                uint border = _gameplayArt.Handle(@"Interface\Buttons\UI-Debuff-Overlays");
+                if (border != 0)
+                    dl.AddImage((nint)border, min - new Vector2(1.5f, 1f) * s,
+                        max + new Vector2(1.5f, 1f) * s,
+                        new Vector2(.296875f, 0), new Vector2(.5703125f, .515625f));
+            }
             if (aura.Stacks > 1)
                 dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
             if (_playerAuraDurations.TryGetValue(aura.Slot, out var timer))
@@ -179,6 +210,7 @@ public sealed partial class GameLoop
                 CancelPlayerAura(new AuraSnapshot(aura.Slot, aura.SpellId, aura.Flags, aura.Stacks), "UI_RIGHT_CLICK");
             if (++shown >= 24) break;
         }
+        if (_uiParityArmed && _uiParityPanel == "buff-frame" && shown > 0) MarkUiParityFrameComplete();
     }
 
     private void DrawUnitPortraitImage(ImDrawListPtr dl, WorldEntity unit, Vector2 min, float size,

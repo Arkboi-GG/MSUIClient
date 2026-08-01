@@ -1,0 +1,6 @@
+gm .nameaura 1459 Test 3600
+wait 1
+ui-parity buff-frame
+wait 2
+gm .unaura 1459
+wait 1

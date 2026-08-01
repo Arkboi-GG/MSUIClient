@@ -1,0 +1,5 @@
+"panel","element","type","parent","x","y","width","height","point","relativeTo","relativePoint","offsetX","offsetY","texture","font","fontPath","fontSize","color","layer","strata","bgFile","edgeFile","tileSize","edgeSize","insets","texCoords","source","assetSource","fontSource"
+"buff-frame","BuffFrame","Frame","","0","0","50","50","TOPRIGHT","UIParent","TOPRIGHT","-205","-13","","","","","","","LOW","","","","","","","patch.MPQ:Interface\FrameXML\BuffFrame.xml","",""
+"buff-frame","BuffButton0Duration","FontString","BuffFrame","","","","","TOP","","","","","","BuffButtonDurationTemplate","Fonts\FRIZQT__.TTF","10","#FFD100FF","ARTWORK","LOW","","","","","","","patch.MPQ:Interface\FrameXML\BuffFrame.xml","","fonts.MPQ:Fonts\FRIZQT__.TTF"
+"buff-frame","BuffButton0","Button","BuffFrame","20","0","30","30","TOPRIGHT","","","0","0","","","","","","","LOW","","","","","","","patch.MPQ:Interface\FrameXML\BuffFrame.xml","",""
+"buff-frame","BuffButton0Icon","Texture","BuffButton0","20","0","30","30","","","","","","","","","","","BACKGROUND","LOW","","","","","","","patch.MPQ:Interface\FrameXML\BuffFrame.xml","",""

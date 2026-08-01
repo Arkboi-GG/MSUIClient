@@ -13,3 +13,5 @@
 2026-08-01 16:25 local | 2-4 | OPEN | cast-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 16:40 local | 2-4 | CLOSED-FINDING | corrected cast bar from 49px too high and text from 14px too high; active cast geometry/assets/font/spark cohort is 28/28 PASS, full inventory retains two conditional presence deltas | live-runs/N2-0-2-4-cast-bar-20260801-164000/N2-0-2-4-cast-bar-20260801-164000.md
 2026-08-01 16:40 local | 2-5 | OPEN | buff/debuff-frame parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 16:55 local | 2-5 | CLOSED-FINDING | corrected frame anchor, 8-column wrap, harmful-row placement, and shipped debuff overlay; populated representative cohort is 28/28 PASS while full template inventory retains 101 presence deltas | live-runs/N2-0-2-5-buff-frame-20260801-165500/N2-0-2-5-buff-frame-20260801-165500.md
+2026-08-01 16:55 local | 2-6 | OPEN | minimap parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md

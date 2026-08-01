@@ -67,3 +67,13 @@ capture passes 28/28 representative verdicts. The full six-row inventory retains
 two conditional presence deltas (background color quad and success flash).
 Evidence:
 `live-runs/N2-0-2-4-cast-bar-20260801-164000/N2-0-2-4-cast-bar-20260801-164000.md`.
+
+## 2-5 Buff/debuff frame — CLOSED-FINDING
+
+The player aura family now uses the build-5875 top-right anchor, 30px icons,
+8-column/35px wrapping, a dedicated harmful third row, and the original shipped
+debuff overlay crop. TEST self-provision applied and removed Arcane Intellect
+through verified VMaNGOS GM syntax. The populated representative cohort passes
+28/28 mechanical verdicts; the complete conditional/template inventory retains
+101 presence findings. Evidence:
+`live-runs/N2-0-2-5-buff-frame-20260801-165500/N2-0-2-5-buff-frame-20260801-165500.md`.
