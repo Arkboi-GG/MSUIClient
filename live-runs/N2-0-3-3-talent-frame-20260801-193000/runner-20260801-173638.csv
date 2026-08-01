@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-3-talent-frame-20260801-193000\talent-frame.protocol
+1,PASS,ui-parity talent-frame
+2,PASS,wait 2

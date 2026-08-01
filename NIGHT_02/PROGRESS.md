@@ -31,3 +31,5 @@
 2026-08-01 19:00 local | 3-2 | OPEN | spellbook parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 19:15 local | 3-2 | CLOSED-FINDING | draw-derived root/five shipped-art regions cover 6/160 with 154 NOT-DRAWN; exact worklist and populated contact queued | live-runs/N2-0-3-2-spellbook-20260801-191500/N2-0-3-2-spellbook-20260801-191500.md
 2026-08-01 19:15 local | 3-3 | OPEN | talent-frame parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 19:30 local | 3-3 | CLOSED-FINDING | replaced generic window with shipped 384x512 shell and class tree art; coverage 9/31 with 22 NOT-DRAWN | live-runs/N2-0-3-3-talent-frame-20260801-193000/N2-0-3-3-talent-frame-20260801-193000.md
+2026-08-01 19:30 local | 3-4 | OPEN | quest-log parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

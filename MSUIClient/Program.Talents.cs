@@ -154,26 +154,42 @@ public sealed partial class GameLoop
 
     private void DrawTalentFrame()
     {
-        if (!_talentOpen || _talents is null) return;
+        if (!_talentOpen || _talents is null || _gameplayArt is null) return;
         byte cls = _net is not null && _entities.TryGet(_net.PlayerGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
         TalentTabInfo[] tabs = _talents.TabsForClass(cls).ToArray();
-        ImGui.SetNextWindowPos(new Vector2(230, 55), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(720, 580), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin($"Talents - {ClassName(cls)}##talents", ref _talentOpen)) { ImGui.End(); return; }
-        ImGui.TextUnformatted($"Talent Points: {TalentPoints()}"); ImGui.SameLine();
+        if (tabs.Length > 0 && tabs.All(x => x.Id != _talentSelectedTab)) _talentSelectedTab = tabs[0].Id;
+        float s=GameplayUiScale(); Vector2 origin=new(0,8*s), logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
+        if(!ImGui.Begin("##talents",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();
+        if(_uiParityArmed&&_uiParityPanel=="talent-frame") { BeginUiParityFrame(origin,s); CollectUiParityDraw("TalentFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8)); }
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] shell=[
+            ("TalentFrame/Texture",@"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",new(2,1),new(256,256)),
+            ("TalentFrame/Texture#2",@"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",new(258,1),new(128,256)),
+            ("TalentFrame/Texture#3",@"Interface\TalentFrame\UI-TalentFrame-BotLeft",new(2,257),new(256,256)),
+            ("TalentFrame/Texture#4",@"Interface\TalentFrame\UI-TalentFrame-BotRight",new(258,257),new(128,256))];
+        foreach(var r in shell){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="talent-frame")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"TalentFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","TalentFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        TalentTabInfo active=tabs.FirstOrDefault(x=>x.Id==_talentSelectedTab); string file=string.IsNullOrWhiteSpace(active.Background)?"MageFire":active.Background;
+        (string Element,string Suffix,Vector2 Offset,Vector2 Size)[] tree=[
+            ("TalentFrameBackgroundTopLeft","TopLeft",new(23,77),new(256,256)),("TalentFrameBackgroundTopRight","TopRight",new(279,77),new(64,256)),
+            ("TalentFrameBackgroundBottomLeft","BottomLeft",new(23,333),new(256,128)),("TalentFrameBackgroundBottomRight","BottomRight",new(279,333),new(64,128))];
+        foreach(var r in tree){string path=$@"Interface\TalentFrame\{file}-{r.Suffix}";Vector2 m=origin+r.Offset*s;DrawArt(dl,path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="talent-frame")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"TalentFrame",new(path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","TalentFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(30,48)*s); ImGui.TextUnformatted($"Talent Points: {TalentPoints()}");
         if (_talentWipeTrainer != 0) ImGui.TextUnformatted($"  Unlearn cost: {MoneyText(_talentWipeCost)}");
         foreach (TalentTabInfo tab in tabs)
         { ImGui.SameLine(); if (ImGui.Button($"{tab.Name}##tab-{tab.Id}")) _talentSelectedTab = tab.Id; }
-        ImGui.Separator();
+        ImGui.SetCursorScreenPos(origin+new Vector2(35,90)*s);
         foreach (TalentInfo talent in _talents.TalentsForTab(_talentSelectedTab))
         {
-            int rank = TalentRank(talent); string name = _spellCatalog?.TryGet(talent.RankSpells.FirstOrDefault(), out SpellInfo s) == true ? s.Name : $"Talent {talent.Id}";
+            int rank = TalentRank(talent); string name = _spellCatalog?.TryGet(talent.RankSpells.FirstOrDefault(), out SpellInfo spellInfo) == true ? spellInfo.Name : $"Talent {talent.Id}";
             TalentEligible(talent, out string reason);
             ImGui.TextUnformatted($"Tier {talent.Row + 1}, Column {talent.Column + 1}: {name}  {rank}/{talent.RankSpells.Length}");
             ImGui.SameLine(); if (ImGui.SmallButton($"+##talent-{talent.Id}")) SpendTalent(talent.Id);
             if (!reason.Equals("pass", StringComparison.Ordinal)) { ImGui.SameLine(); ImGui.TextDisabled(reason); }
         }
         if (_talentWipeTrainer != 0 && ImGui.Button($"Unlearn talents ({MoneyText(_talentWipeCost)})")) ConfirmTalentWipe();
+        Vector2 close=origin+new Vector2(324,10)*s; DrawImageButton(dl,"##talent-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight"); if(ImGui.IsItemClicked())_talentOpen=false;
+        if(_uiParityArmed&&_uiParityPanel=="talent-frame")MarkUiParityFrameComplete();
         ImGui.End();
     }
 

@@ -152,3 +152,9 @@ render side by side; all exact gaps are queued. Evidence:
 Coverage: 6/160 with 154 NOT-DRAWN. The full shipped-art reference and real
 known-spell state render side by side; the exact worklist is queued. Evidence:
 `live-runs/N2-0-3-2-spellbook-20260801-191500/N2-0-3-2-spellbook-20260801-191500.md`.
+
+## 3-3 Talent frame — CLOSED-FINDING
+
+Coverage: 9/31 with 22 NOT-DRAWN. The generic utility window was replaced by
+the shipped 384x512 shell and live class-tree background. Evidence:
+`live-runs/N2-0-3-3-talent-frame-20260801-193000/N2-0-3-3-talent-frame-20260801-193000.md`.
