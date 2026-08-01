@@ -14,9 +14,10 @@ ClientConfig config;
 try { config = ClientConfig.Load(args[0]); }
 catch (Exception exception) { Console.Error.WriteLine(exception.Message); return 2; }
 if (!config.Server.Enabled ||
-    !string.Equals(config.Server.Character, "TEST", StringComparison.OrdinalIgnoreCase))
+    (!string.IsNullOrWhiteSpace(config.Server.Character) &&
+     !string.Equals(config.Server.Character, "TEST", StringComparison.OrdinalIgnoreCase)))
 {
-    Console.Error.WriteLine("spell roster provisioning requires the config bound to dedicated character TEST");
+    Console.Error.WriteLine("spell roster provisioning requires a character-select config or the legacy dedicated TEST character");
     return 3;
 }
 
@@ -121,23 +122,16 @@ foreach (RosterSpec spec in required)
     string result = "PRESENT";
     if (character is null)
     {
-        character = net.Characters.FirstOrDefault(c => c.Class == spec.Class);
-        if (character is not null)
-        {
-            method = "existing-equivalent";
-            result = "PRESENT_EQUIVALENT";
-        }
-        else
-        {
-            method = "CMSG_CHAR_CREATE";
-            net.CreateCharacter(new CharCreateParams(spec.Name, spec.Race, spec.Class, 0,
-                Skin: 0, Face: 0, HairStyle: 0, HairColor: 0, FacialHair: 0));
-            byte code = await WaitCreate(net, TimeSpan.FromSeconds(30));
-            result = code == 0x2E ? "CREATED" : $"REFUSED_0x{code:X2}";
-            character = net.Characters.FirstOrDefault(c =>
-                c.Name.Equals(spec.Name, StringComparison.OrdinalIgnoreCase));
-            if (code != 0x2E || character is null) failures++;
-        }
+        method = "CMSG_CHAR_CREATE";
+        net.CreateCharacter(new CharCreateParams(spec.Name, spec.Race, spec.Class, 0,
+            Skin: 0, Face: 0, HairStyle: 0, HairColor: 0, FacialHair: 0));
+        byte code = await WaitCreate(net, TimeSpan.FromSeconds(30));
+        result = code == 0x2E ? "CREATED" : $"REFUSED_0x{code:X2}";
+        character = net.Characters.FirstOrDefault(c =>
+            c.Name.Equals(spec.Name, StringComparison.OrdinalIgnoreCase));
+        if (code != 0x2E || character is null) failures++;
+        else if (ledgerPath is not null)
+            AppendCreatedLedger(Path.GetFullPath(ledgerPath), spec, character, method);
     }
     rows.Add(string.Join(',', Csv(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)),
         Csv(spec.Name), Csv(character?.Name ?? ""), spec.Class, Csv(spec.ClassName), spec.Race, Csv(spec.RaceName),
@@ -213,6 +207,16 @@ static async Task<byte> WaitDelete(NetworkClient net, TimeSpan timeout)
 }
 
 static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+static void AppendCreatedLedger(string ledgerPath, RosterSpec spec, Character character, string method)
+{
+    string[] existing = File.ReadAllLines(ledgerPath);
+    if (existing.Skip(1).Any(line => line.Split(',')[0].Trim('"')
+        .Equals(spec.Name, StringComparison.OrdinalIgnoreCase))) return;
+    string row = string.Join(',', Csv(spec.Name), Csv(spec.RaceName), Csv(spec.ClassName),
+        Csv(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)), "", "1", "AGENT_CREATED",
+        Csv(method), Csv("pending in-world verification"));
+    File.AppendAllText(ledgerPath, row + "\n", new UTF8Encoding(false));
+}
 static string? OptionValue(string[] values, string option)
 {
     for (int i = 0; i + 1 < values.Length; i++)
