@@ -59,6 +59,7 @@ public sealed partial class GameLoop
                 EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
             CompleteCastBar(packet.SpellId);
+            ObserveProfessionSpellGo(packet.SpellId);
             if (info is { } completed)
             {
                 uint cooldown = Math.Max(completed.RecoveryMs, completed.CategoryRecoveryMs);

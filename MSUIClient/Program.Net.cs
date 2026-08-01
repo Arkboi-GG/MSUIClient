@@ -365,6 +365,7 @@ public sealed partial class GameLoop
                             uint learned = spellReader.ReadU16();
                             _actions.Learn(learned);
                             ObserveTrainerLearned(learned);
+                            ObserveProfessionLearned(learned);
                         }
                         break;
                     case Op.SMSG_SUPERCEDED_SPELL:

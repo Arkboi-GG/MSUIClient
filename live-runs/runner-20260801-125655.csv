@@ -1,0 +1,32 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\profession-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,select self guid=0x0000000000000001
+5,PASS,gm .unlearn 2330
+6,PASS,wait 1
+7,PASS,profession snapshot
+8,PASS,gm .learn 2330
+9,PASS,gm .setskill 171 1 300
+10,PASS,wait 3
+11,PASS,profession open Alchemy
+12,PASS,assert family=profession step=open outcome=OPEN
+13,PASS,assert family=profession step=recipe-list outcome=COMPLETE
+14,PASS,gm .gm on
+15,PASS,profession provision-first
+16,PASS,wait 2
+17,PASS,profession inspect
+18,PASS,gm .gm off
+19,PASS,profession craft-first
+20,PASS,waitfor family=profession step=craft outcome=SUCCESS
+21,PASS,waitfor family=profession step=skill-up outcome=INCREASED
+22,PASS,assert family=profession step=craft-send outcome=SENT
+23,PASS,assert family=profession step=craft outcome=SUCCESS
+24,PASS,profession simulate
+25,PASS,assert family=profession step=skill-colors outcome=VERIFIED
+26,PASS,assert family=profession step=learned-recipe outcome=DELTA
+27,PASS,dump n1c-profession-ui
+28,PASS,wait 2
+29,PASS,gm .gps
+30,PASS,waitfor GmChatResponse

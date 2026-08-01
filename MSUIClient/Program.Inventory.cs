@@ -36,6 +36,7 @@ public sealed partial class GameLoop
         InitBank();
         InitMail();
         InitAuction();
+        InitProfessions();
     }
 
     private void UpdateInventoryInput(bool typing)
@@ -55,6 +56,7 @@ public sealed partial class GameLoop
         SyncLiveEquipmentModel();
         ObserveInventoryTransition();
         ObserveBankTransition();
+        ObserveProfessionSkillTransition();
     }
 
     private void ObserveInventoryTransition()

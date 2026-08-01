@@ -455,3 +455,13 @@ the realm disallows GM trades. Runtime replay verified two exact rows,
 pagination, lifecycle successes, notifications, and mail-refresh interplay. The
 scenario passed 39/39. Evidence:
 `live-runs/N1C-2-7-auction-20260801-124300.md`.
+
+## NIGHT_01C 2-8 — crafting and professions
+
+`CLOSED-PASS`: learned tradeskill activation, DBC recipe/reagent/product joins,
+live inventory counts, skill-range colors, craft sends, cast-bar linkage,
+server skill-up observation, learned-recipe deltas, UI, runner, and gates are
+built. The GM-off Alchemy leg decoded three recipes, crafted Elixir of Lion's
+Strength through a 3,000 ms server cast, created item 2454, and independently
+observed Alchemy increase 1→2. The scenario passed 30/30. Evidence:
+`live-runs/N1C-2-8-professions-20260801-125800.md`.

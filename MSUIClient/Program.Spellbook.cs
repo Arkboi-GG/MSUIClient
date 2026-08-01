@@ -124,7 +124,7 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton($"##spell-{id}", new Vector2(145, 37) * s);
         if (ImGui.IsItemActivated()) { _pressedSpellId = id; _spellPressPosition = ImGui.GetIO().MousePos; }
-        if (clicked && _draggingSpellId == 0) TryCast(id);
+        if (clicked && _draggingSpellId == 0 && !TryOpenProfession(id)) TryCast(id);
         if (ImGui.IsItemHovered())
         {
             ImGui.BeginTooltip();

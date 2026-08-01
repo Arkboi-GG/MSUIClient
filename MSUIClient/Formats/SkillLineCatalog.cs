@@ -3,6 +3,8 @@ namespace MSUIClient.Formats;
 public readonly record struct SkillLineInfo(uint Id, uint CategoryId, string Name,
     string Description, string IconPath);
 public readonly record struct SkillCategoryInfo(uint Id, string Name, uint DisplayOrder);
+public readonly record struct SkillRecipeInfo(uint SpellId, uint SkillLineId, uint Minimum,
+    uint TrivialLow, uint TrivialHigh);
 
 /// <summary>Names, categories, descriptions and icons from the client's build-5875 DBCs.</summary>
 public sealed class SkillLineCatalog
@@ -14,10 +16,15 @@ public sealed class SkillLineCatalog
     private readonly Dictionary<uint, SkillLineInfo> _lines = new();
     private readonly Dictionary<uint, SkillCategoryInfo> _categories = new();
     private readonly Dictionary<uint, uint> _spellLines = new();
+    private readonly Dictionary<uint, SkillRecipeInfo> _recipes = new();
+    private readonly Dictionary<uint, List<SkillRecipeInfo>> _recipesByLine = new();
 
     public bool TryGet(uint id, out SkillLineInfo line) => _lines.TryGetValue(id, out line);
     public bool TryGetCategory(uint id, out SkillCategoryInfo category) => _categories.TryGetValue(id, out category);
     public uint SpellLine(uint spellId) => _spellLines.GetValueOrDefault(spellId);
+    public bool TryGetRecipe(uint spellId, out SkillRecipeInfo recipe) => _recipes.TryGetValue(spellId, out recipe);
+    public IReadOnlyList<SkillRecipeInfo> Recipes(uint skillLineId) =>
+        _recipesByLine.TryGetValue(skillLineId, out List<SkillRecipeInfo>? recipes) ? recipes : [];
 
     public static SkillLineCatalog? Load(MpqMount mpq)
     {
@@ -48,7 +55,15 @@ public sealed class SkillLineCatalog
             for (int row = 0; row < abilities.RecordCount; row++)
             {
                 uint spell = abilities.GetUInt(row, 2);
-                if (spell != 0) result._spellLines.TryAdd(spell, abilities.GetUInt(row, 1));
+                if (spell == 0) continue;
+                uint line = abilities.GetUInt(row, 1);
+                result._spellLines.TryAdd(spell, line);
+                var recipe = new SkillRecipeInfo(spell, line, abilities.GetUInt(row, 7),
+                    abilities.GetUInt(row, 11), abilities.GetUInt(row, 10));
+                result._recipes[spell] = recipe;
+                if (!result._recipesByLine.TryGetValue(line, out List<SkillRecipeInfo>? list))
+                    result._recipesByLine[line] = list = [];
+                list.Add(recipe);
             }
         return result;
     }

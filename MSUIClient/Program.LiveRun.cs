@@ -361,6 +361,26 @@ public sealed partial class GameLoop
                             uint.Parse(auction[4], CultureInfo.InvariantCulture), uint.Parse(auction[5], CultureInfo.InvariantCulture)), line);
                     else Log(false, $"unknown {line}");
                     break;
+                case "profession":
+                    string[] profession = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (profession.Length == 2 && profession[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase))
+                    { SnapshotProfessionRecipes(); Log(true, line); }
+                    else if (profession.Length == 2 && profession[1].Equals("diagnose", StringComparison.OrdinalIgnoreCase))
+                    { DiagnoseProfessionLines(); Log(true, line); }
+                    else if (profession.Length == 2 && profession[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                        Log(OpenFirstProfession(), line);
+                    else if (profession.Length > 2 && profession[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                        Log(OpenProfessionNamed(string.Join(' ', profession.Skip(2))), line);
+                    else if (profession.Length == 2 && profession[1].Equals("inspect", StringComparison.OrdinalIgnoreCase))
+                    { EmitProfessionRecipeSnapshot(); Log(_professionOpen, line); }
+                    else if (profession.Length == 2 && profession[1].Equals("provision-first", StringComparison.OrdinalIgnoreCase))
+                        Log(ProvisionFirstProfessionRecipe(), line);
+                    else if (profession.Length == 2 && profession[1].Equals("craft-first", StringComparison.OrdinalIgnoreCase))
+                        Log(CraftProfessionRecipe(0), line);
+                    else if (profession.Length == 2 && profession[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
+                    { SimulateProfessionFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

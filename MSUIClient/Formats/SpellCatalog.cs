@@ -23,6 +23,7 @@ public readonly record struct SpellInfo(
 
 /// <summary>One SpellRange.dbc row: min/max in yards; flags bit0 marks the melee row.</summary>
 public readonly record struct SpellRangeRow(float Min, float Max, bool Melee);
+public readonly record struct SpellReagent(uint ItemId, uint Count);
 
 public sealed class SpellCatalog
 {
@@ -33,10 +34,15 @@ public sealed class SpellCatalog
     private readonly Dictionary<uint, SpellRangeRow> _ranges = new();
     private readonly Dictionary<uint, int> _castTimes = new();
     private readonly Dictionary<uint, int> _durations = new();
+    private readonly Dictionary<uint, SpellReagent[]> _reagents = new();
+    private readonly Dictionary<uint, uint> _createdItems = new();
 
     public int Count => _spells.Count;
     public bool TryGet(uint id, out SpellInfo spell) => _spells.TryGetValue(id, out spell);
     public bool TryGetRange(uint rangeIndex, out SpellRangeRow range) => _ranges.TryGetValue(rangeIndex, out range);
+    public IReadOnlyList<SpellReagent> Reagents(uint spellId) =>
+        _reagents.TryGetValue(spellId, out SpellReagent[]? reagents) ? reagents : [];
+    public uint CreatedItem(uint spellId) => _createdItems.GetValueOrDefault(spellId);
 
     public static SpellCatalog? Load(MpqMount mpq)
     {
@@ -98,6 +104,17 @@ public sealed class SpellCatalog
                 spells.GetUInt(row, 36), spells.GetUInt(row, 1), castTimeIndex,
                 result._castTimes.GetValueOrDefault(castTimeIndex), durationIndex,
                 result._durations.GetValueOrDefault(durationIndex));
+            var reagents = new List<SpellReagent>(8);
+            for (int i = 0; i < 8; i++)
+            {
+                int item = spells.GetInt(row, 41 + i);
+                int count = spells.GetInt(row, 49 + i);
+                if (item > 0 && count > 0) reagents.Add(new((uint)item, (uint)count));
+            }
+            if (reagents.Count > 0) result._reagents[id] = reagents.ToArray();
+            for (int i = 0; i < 3; i++)
+                if (spells.GetUInt(row, 61 + i) == 24 && spells.GetUInt(row, 103 + i) != 0)
+                { result._createdItems[id] = spells.GetUInt(row, 103 + i); break; }
         }
         return result;
     }

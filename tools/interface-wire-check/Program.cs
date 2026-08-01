@@ -1,3 +1,4 @@
+using MSUIClient;
 using MSUIClient.Net;
 
 static void Check(bool condition, string message)
@@ -166,5 +167,9 @@ var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerG
 Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
       browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
       "auction browse page/search/filter order");
+Check(GameLoop.ProfessionSkillColor(1, 25, 70) == "orange" &&
+      GameLoop.ProfessionSkillColor(30, 25, 70) == "yellow" &&
+      GameLoop.ProfessionSkillColor(60, 25, 70) == "green" &&
+      GameLoop.ProfessionSkillColor(70, 25, 70) == "gray", "profession skill-up range colors");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction opcodes/bodies/bounds/state");
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession opcodes/bodies/bounds/state");
