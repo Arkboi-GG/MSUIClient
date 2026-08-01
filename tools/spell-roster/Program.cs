@@ -4,9 +4,9 @@ using System.Text;
 using MSUIClient;
 using MSUIClient.Net;
 
-if (args.Length is < 1 or > 3)
+if (args.Length < 1)
 {
-    Console.Error.WriteLine("usage: spell-roster <client-config.json> [output.csv] [--inspect-only|--reconcile]");
+    Console.Error.WriteLine("usage: spell-roster <client-config.json> [output.csv] [--inspect-only|--reconcile] [--ledger <night-roster.csv>] [--fence-self-test <output.txt>]");
     return 2;
 }
 
@@ -27,7 +27,20 @@ if (args.Length >= 2 && args[1].StartsWith("--", StringComparison.Ordinal))
     output = Path.Combine(config.RepoRoot, "live-runs", $"spell-roster-{stamp}.csv");
 bool inspectOnly = args.Any(x => x.Equals("--inspect-only", StringComparison.OrdinalIgnoreCase));
 bool reconcile = args.Any(x => x.Equals("--reconcile", StringComparison.OrdinalIgnoreCase));
+string? ledgerPath = OptionValue(args, "--ledger");
+string? fenceTestOutput = OptionValue(args, "--fence-self-test");
 Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+
+if (fenceTestOutput is not null)
+{
+    if (ledgerPath is null) { Console.Error.WriteLine("--fence-self-test requires --ledger"); return 2; }
+    RosterDeletionFence selfTestFence = RosterDeletionFence.Load(Path.GetFullPath(ledgerPath));
+    bool allowed = selfTestFence.Authorize("TEST", out string reason);
+    string result = $"target=TEST,expected=REFUSED_PREFIX,actual={reason},delete_called=false,result={(allowed ? "FAIL" : "PASS")}\n";
+    File.WriteAllText(Path.GetFullPath(fenceTestOutput), result, new UTF8Encoding(false));
+    Console.Write(result);
+    return allowed ? 1 : 0;
+}
 
 RosterSpec[] required =
 [
@@ -64,6 +77,12 @@ if (inspectOnly)
 }
 if (reconcile)
 {
+    if (ledgerPath is null)
+    {
+        Console.Error.WriteLine("--reconcile refused: --ledger is mandatory under the NIGHT_03 deletion fence");
+        return 4;
+    }
+    RosterDeletionFence deletionFence = RosterDeletionFence.Load(Path.GetFullPath(ledgerPath));
     var keep = new HashSet<ulong>();
     Character? test = net.Characters.FirstOrDefault(c => c.Name.Equals("TEST", StringComparison.OrdinalIgnoreCase));
     if (test is not null) keep.Add(test.Guid);
@@ -76,6 +95,14 @@ if (reconcile)
     }
     foreach (Character stale in net.Characters.Where(c => !keep.Contains(c.Guid)).ToArray())
     {
+        if (!deletionFence.Authorize(stale.Name, out string fenceReason))
+        {
+            rows.Add(string.Join(',', Csv(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)),
+                "\"\"", Csv(stale.Name), stale.Class, "\"\"", "", "\"\"", stale.Race,
+                "DELETE_FENCE", fenceReason, $"0x{stale.Guid:X16}", stale.Level));
+            Console.WriteLine($"[spell-roster] preserve {stale.Name} {fenceReason}");
+            continue;
+        }
         net.DeleteCharacter(stale.Guid);
         byte code = await WaitDelete(net, TimeSpan.FromSeconds(30));
         string deleteResult = code == 0x39 ? "DELETED" : $"REFUSED_0x{code:X2}";
@@ -186,4 +213,10 @@ static async Task<byte> WaitDelete(NetworkClient net, TimeSpan timeout)
 }
 
 static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+static string? OptionValue(string[] values, string option)
+{
+    for (int i = 0; i + 1 < values.Length; i++)
+        if (values[i].Equals(option, StringComparison.OrdinalIgnoreCase)) return values[i + 1];
+    return null;
+}
 readonly record struct RosterSpec(string Name, byte Class, string ClassName, byte Race, string RaceName);
