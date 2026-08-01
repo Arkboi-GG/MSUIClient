@@ -108,12 +108,12 @@ public sealed partial class GameLoop
         if (_actions.IsOnCooldown(spellId, now) || now < _globalCooldownUntil)
         {
             EmitCastVerdict(spellId, CastTargetReason.CooldownOrGlobalCooldown, 0, sent: false);
-            RefuseCast("Spell is not ready yet.");
+            RefuseCast(spellId, "LOCAL_COOLDOWN", "Spell is not ready yet.");
             return;
         }
         if (!spell.AutoRepeat && !spell.OnNextSwing && _pendingCastSpell != 0)
         {
-            if (_pendingCastSpell != spellId) RefuseCast("Another action is in progress");
+            if (_pendingCastSpell != spellId) RefuseCast(spellId, "LOCAL_SPELL_IN_PROGRESS", "Another action is in progress");
             EmitCastVerdict(spellId, CastTargetReason.PendingCast, 0, sent: false);
             return;
         }
@@ -122,7 +122,7 @@ public sealed partial class GameLoop
             if (caster.Fields.MountDisplayId != 0 && (spell.Attributes & 0x0100_0000u) == 0)
             {
                 EmitCastVerdict(spellId, CastTargetReason.Mounted, 0, sent: false);
-                RefuseCast("You are mounted");
+                RefuseCast(spellId, "LOCAL_MOUNTED", "You are mounted");
                 return;
             }
         }
@@ -132,20 +132,21 @@ public sealed partial class GameLoop
         if (targetVerdict.Kind == CastTargetKind.Refused)
         {
             EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: false);
-            RefuseCast(_selectionGuid == 0 ? "You have no target." : "Invalid target");
+            RefuseCast(spellId, targetVerdict.Reason.ToString(),
+                _selectionGuid == 0 ? "You have no target." : "Invalid target");
             return;
         }
         if (target == _selectionGuid && target != _net.PlayerGuid &&
             CastRangeRefusal(spell) is { } rangeFailure)
         {
             EmitCastVerdict(spellId, rangeFailure.Reason, target, sent: false);
-            RefuseCast(rangeFailure.Text);
+            RefuseCast(spellId, $"LOCAL_{rangeFailure.Reason}", rangeFailure.Text);
             return;
         }
         if (!SpellResourceGate(spell, out _, out _))
         {
             EmitCastVerdict(spellId, CastTargetReason.NotEnoughPower, target, sent: false);
-            RefuseCast("Not enough power");
+            RefuseCast(spellId, "LOCAL_NO_POWER", $"Not enough {PowerName((byte)spell.PowerType).ToLowerInvariant()}");
             return;
         }
         bool sent = _net.CastSpell(spellId, target);
@@ -161,7 +162,8 @@ public sealed partial class GameLoop
         }
     }
 
-    private void RefuseCast(string text) => PushCenterText(text, CenterCombatTextStyle.Damage);
+    private void RefuseCast(uint spellId, string reason, string text) =>
+        ShowSpellError(spellId, reason, text, "LOCAL_GATE");
 
     private (string Text, CastTargetReason Reason)? CastRangeRefusal(in SpellInfo spell)
     {

@@ -126,6 +126,13 @@ Check(SpellCastResultNames.Name(0x23) == "SPELL_FAILED_INTERRUPTED" &&
       SpellCastResultNames.Name(0x59) == "SPELL_FAILED_OUT_OF_RANGE" &&
       SpellCastResultNames.Name(0xFE) == "SPELL_FAILED_0xFE",
       "cast-result reasons are stable strings with an exact-byte fallback");
+Check(SpellCastResultNames.Name(0x2F) == "SPELL_FAILED_LINE_OF_SIGHT" &&
+      SpellCastResultNames.Text(0x2F) == "Target not in line of sight" &&
+      SpellCastResultNames.Text(0x4D, "RAGE") == "Not enough rage" &&
+      SpellCastResultNames.Text(0x59) == "Out of range." &&
+      SpellCastResultNames.Text(0x17) == "" &&
+      SpellCastResultNames.Text(0xFE) == "Spell failed.",
+      "cast-result reason-to-display-text law");
 Check((TargetSpell(0, 1) with { CastTimeMs = 1500 }).CastClassification == "CAST_TIME" &&
       (TargetSpell(0, 1) with { ChannelInterruptFlags = 8 }).CastClassification == "CHANNEL" &&
       TargetSpell(0, 1).CastClassification == "INSTANT",

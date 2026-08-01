@@ -379,3 +379,11 @@ spell supplier sweep are built. Forty spells resolve model suppliers; twelve
 visual chains contain no model and fifteen spells have no visual chain. The
 fresh seven-school contact sheet is queued Q18 for perceptual judgment.
 Evidence: `live-runs/N1C-3-7-visual-effect-sweep-20260801-104100.md`.
+
+## NIGHT_01C 3-8 — spell errors
+
+`CLOSED-PASS`: server and local cast refusals now share a named, copyable red
+error feed and `spell-error` CSV. LOS, power, range, `DONT_REPORT`, and unknown
+fallback mappings pass; GM-off live zero-mana and out-of-range Fireball legs
+were displayed and mechanically recorded. Evidence:
+`live-runs/N1C-3-8-spell-errors-20260801-104600.md`.

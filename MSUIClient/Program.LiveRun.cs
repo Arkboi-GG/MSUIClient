@@ -268,6 +268,13 @@ public sealed partial class GameLoop
                     EmitSpellBlocked(_liveLastCastSpell, p[1]);
                     Log(true, line);
                     break;
+                case "spell-failure":
+                    string[] failure = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    ApplySpellCastFailureResult(
+                        uint.Parse(failure[1], CultureInfo.InvariantCulture),
+                        Convert.ToByte(failure[2], 16));
+                    Log(true, line);
+                    break;
                 case "spell-animation":
                     string[] animation = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     Log(animation.Length == 3 &&
@@ -472,8 +479,10 @@ public sealed partial class GameLoop
         WriteSpellChannelCsv(spellChannelCsv);
         string spellAuraCsv=Path.Combine(dir,$"spell-aura-{_liveStamp}.csv");
         WriteSpellAuraCsv(spellAuraCsv);
+        string spellErrorCsv=Path.Combine(dir,$"spell-error-{_liveStamp}.csv");
+        WriteSpellErrorCsv(spellErrorCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}; errors={spellErrorCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
     }
 
@@ -553,6 +562,20 @@ public sealed partial class GameLoop
             lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
                 Csv(v.Character), $"0x{v.UnitGuid:X16}", v.Slot, v.SpellId, Csv(v.SpellName), v.Event,
                 v.Helpful, v.Cancelable, v.Stacks, v.DurationMs, v.RemainingMs, v.Display, v.Source));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteSpellErrorCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,spell_id,name,reason,display_text,displayed,source"
+        };
+        foreach (SpellErrorVerdict v in _verdicts.Snapshot("spell-error").OfType<SpellErrorVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
+                Csv(v.Character), v.SpellId, Csv(v.SpellName), v.Reason,
+                Csv(v.DisplayText), v.Displayed, v.Source));
         File.WriteAllLines(path, lines);
     }
 

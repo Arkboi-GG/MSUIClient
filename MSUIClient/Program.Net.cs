@@ -420,11 +420,7 @@ public sealed partial class GameLoop
                         {
                             var result = SpellPacketParser.ParseResult(body);
                             if (result.Status == 2)
-                            {
-                                EmitSpellServerResult(result.SpellId, SpellCastResultNames.Name(result.Reason));
-                                ApplySpellFailure(_net.PlayerGuid, result.SpellId,
-                                    result.Reason is 0x23 or 0x24 ? "INTERRUPTED" : "FAILED");
-                            }
+                                ApplySpellCastFailureResult(result.SpellId, result.Reason);
                         }
                         break;
                     case Op.SMSG_SPELL_FAILED_OTHER:
