@@ -929,7 +929,12 @@ public sealed partial class GameLoop
         if (!_config.Server.Enabled || _net is null) return;
 
         NetState st = _net.State;
-        if (st == NetState.InWorld) { DrawCombatHud(); DrawInWorldPanel(); return; }
+        if (st == NetState.InWorld)
+        {
+            DrawCombatHud();
+            if (!_uiParityArmed) DrawInWorldPanel();
+            return;
+        }
 
         // The login screen is full-bleed glue chrome and owns its own full-screen window; the
         // connecting / character-select dialogs stay as centered panels for now.

@@ -17,3 +17,5 @@
 2026-08-01 16:55 local | 2-6 | OPEN | minimap parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 17:15 local | 2-6 | CLOSED-FINDING | built missing live minimap from shipped translated map tile and FrameXML art; visible normal state is 91/91 PASS while full button-state inventory retains eight presence deltas | live-runs/N2-0-2-6-minimap-20260801-171500/N2-0-2-6-minimap-20260801-171500.md
 2026-08-01 17:15 local | 2-7 | OPEN | chat-frame parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 17:35 local | 2-7 | CLOSED-FINDING | built missing live chat receive/display, scroll, tab, and edit presentation from shipped specs/art; visible main cohort is 63/63 PASS while full main inventory retains 25 state/resize presence deltas | live-runs/N2-0-2-7-chat-frame-20260801-173500/N2-0-2-7-chat-frame-20260801-173500.md
+2026-08-01 17:35 local | 2-8 | OPEN | XP/reputation-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md

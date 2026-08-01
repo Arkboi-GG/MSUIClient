@@ -18,7 +18,7 @@ public sealed partial class GameLoop
     private void ArmUiParityCapture(string panel)
     {
         if (!_config.DevTools || panel is not ("game-menu" or "player-frame" or "target-frame" or "party-frame" or
-            "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap")) return;
+            "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame")) return;
         _uiParityPanel = panel;
         _uiParityStamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         _uiParityRows.Clear(); _uiParityArmed = true; _uiParityFrameSeen = false; _uiParityPresentedFrames = 0;
@@ -58,7 +58,7 @@ public sealed partial class GameLoop
             ? $"{fontHit.Supplier}:{fontPath}" : "";
         float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
         Vector2 relative = element is "GameMenuFrame" or "PlayerFrame" or "TargetFrame" or "PartyMemberFrame1" or
-            "MainMenuBar" or "ActionButton1" or "MultiBarBottomLeft" or "CastingBarFrame" or "BuffFrame" or "MinimapCluster"
+            "MainMenuBar" or "ActionButton1" or "MultiBarBottomLeft" or "CastingBarFrame" or "BuffFrame" or "MinimapCluster" or "ChatFrame1"
             ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
         bool unsized = size == Vector2.Zero;
         string[] values = [_uiParityPanel, element, type, parent, unsized ? "" : N(relative.X), unsized ? "" : N(relative.Y),

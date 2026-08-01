@@ -87,3 +87,13 @@ Find Herbs exercised the tracking path. The visible normal state passes 91/91
 mechanical verdicts; the complete state inventory retains eight conditional
 button-texture presence findings. Evidence:
 `live-runs/N2-0-2-6-minimap-20260801-171500/N2-0-2-6-minimap-20260801-171500.md`.
+
+## 2-7 Chat frame — CLOSED-FINDING
+
+The absent gameplay chat frame now receives server chat/notifications into a
+bounded message display and draws the build-5875 main frame, zero-alpha default
+background state, scroll controls, General tab, and edit presentation from
+shipped art. A real TEST `.gps` response populated the capture. The visible main
+cohort passes 63/63 mechanical verdicts; the full main inventory retains 25
+resize/alternate-state presence findings. Evidence:
+`live-runs/N2-0-2-7-chat-frame-20260801-173500/N2-0-2-7-chat-frame-20260801-173500.md`.

@@ -9,6 +9,7 @@ const string TemplatesXml = @"Interface\FrameXML\UIPanelTemplates.xml";
 const string FontsXml = @"Interface\FrameXML\Fonts.xml";
 const string ActionButtonTemplatesXml = @"Interface\FrameXML\ActionButtonTemplate.xml";
 const string ActionBarFrameXml = @"Interface\FrameXML\ActionBarFrame.xml";
+const string ChatFrameXml = @"Interface\FrameXML\ChatFrame.xml";
 
 if (args.Length == 0)
 {
@@ -54,7 +55,7 @@ static int Extract(string[] args)
     string xmlPath = o.GetValueOrDefault("xml", DefaultXml);
     using var mpq = new MpqMount(data);
     var documents = new List<(string Path, string Supplier, XDocument Doc)>();
-    var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, ActionButtonTemplatesXml, ActionBarFrameXml, xmlPath }
+    var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, ActionButtonTemplatesXml, ActionBarFrameXml, ChatFrameXml, xmlPath }
         .Distinct(StringComparer.OrdinalIgnoreCase));
     var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     while (pending.TryDequeue(out string? path))

@@ -86,6 +86,7 @@ public sealed partial class GameLoop
             .Select(x=>new string(x.Where(ch=>!char.IsControl(ch)).ToArray())).Where(x=>x.Length>1));
         if(text.Contains("GM mode is ON",StringComparison.OrdinalIgnoreCase)) _serverGmMode=true;
         else if(text.Contains("GM mode is OFF",StringComparison.OrdinalIgnoreCase)) _serverGmMode=false;
+        AddChatMessage(text);
         EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
     }
 
