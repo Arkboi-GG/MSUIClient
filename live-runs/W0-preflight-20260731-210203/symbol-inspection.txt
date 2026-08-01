@@ -1,0 +1,17 @@
+SPEC-25 W0 read-only offline symbol inspection
+Binary: /home/wowvmangos/vmangos/run/bin/mangosd
+Build ID: 3b2ebaf2c157cf5ed3592a4056ecb6e8d7a628c1
+
+The binary is not stripped. Loading the binary without attaching resolved these
+non-debugging symbols:
+
+0x0000000000997fb0  WorldSession::HandleAttackSwingOpcode(WorldPackets::Combat::AttackSwing const&)
+0x00000000007286f0  Unit::Attack(Unit*, bool)
+0x000000000075ecb0  WorldSession::AllowPacket(unsigned short)
+0x0000000000763bc0  WorldSocket::DoRecvIncomingData()
+0x0000000000768fa0  WorldSocket::_HandleCompleteReceivedPacket(std::unique_ptr<WorldPacket, std::default_delete<WorldPacket> >)
+
+Classification: function symbols are recoverable, but they are reported as
+`Non-debugging symbols`; source-line mapping could not be trusted without an
+attach and address/source resolution. This is not the primary W0 blocker because
+ptrace attachment was already explicitly denied.

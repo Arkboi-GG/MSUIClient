@@ -1,0 +1,32 @@
+SPEC-25 W0 read-only SSH preflight
+Run date: 2026-07-31 America/New_York
+
+Authentication:
+KEY_AUTH_OK (explicit dedicated travel-laptop key, IdentitiesOnly, BatchMode,
+PasswordAuthentication=no)
+
+gdb:
+/usr/bin/gdb
+
+Process discovery:
+576686 /usr/bin/SCREEN -DmS mangosd /home/wowvmangos/vmangos/run/bin/mangosd
+576688 /home/wowvmangos/vmangos/run/bin/mangosd
+
+Owner/process line:
+576688 wowvmangos mangosd-main /home/wowvmangos/vmangos/run/bin/mangosd
+
+Executable:
+/home/wowvmangos/vmangos/run/bin/mangosd
+
+ptrace policy:
+/proc/sys/kernel/yama/ptrace_scope = 1
+
+Binary metadata:
+/home/wowvmangos/vmangos/run/bin/mangosd: ELF 64-bit LSB pie executable,
+x86-64, dynamically linked, BuildID[sha1]=3b2ebaf2c157cf5ed3592a4056ecb6e8d7a628c1,
+for GNU/Linux 3.2.0, not stripped
+
+Notes:
+- The process comm name is mangosd-main, so `pgrep -xo mangosd` returned no PID;
+  read-only full-command discovery identified PID 576688.
+- No sysctl, process, binary, configuration, package, or database mutation occurred.

@@ -4198,3 +4198,58 @@ change occurred. The live-run `vantages.json` rewrite was restored exactly.
 **HARD STOP - SPEC-24 Z0-Z3 is complete at
 `SERVER_PREHANDLER_OR_UNLOGGED_PREDICATE_PROVEN`. Deeper server instrumentation
 requires Nico's option-3 ruling.**
+
+## W0 - gdb/ptrace preflight HARD STOP
+
+### Actual versus predicted
+
+```text
+PREDICTED repository: clean at 114a7c9 or descendant except supplied SPEC-25
+ACTUAL: HEAD 114a7c9; only SPEC-25 was untracked
+RESULT: PASS; order preserved in the W0 commit
+
+PREDICTED four gates: green
+ACTUAL build: PASS, established CA2014 warning only, zero errors
+ACTUAL combat-wire: PASS
+ACTUAL portrait-camera: PASS, 10,534 specimens; 1,224 / 1,289 / 56 controls
+ACTUAL move-audit: PASS
+RESULT: PASS
+
+PREDICTED connectivity: key-only SSH + read-only RA
+ACTUAL SSH: KEY_AUTH_OK with the dedicated key, password auth disabled
+ACTUAL RA: authenticated server info; core responsive after dry-run failure
+RESULT: PASS
+
+PREDICTED server tools/process: gdb present; mangosd owned by wowvmangos
+ACTUAL: /usr/bin/gdb; PID 576688; owner wowvmangos; deployed executable path
+RESULT: PASS
+
+PREDICTED ptrace: same-user dry attach succeeds
+ACTUAL: ptrace_scope=1; gdb reported "Could not attach to process" and exited 1
+RESULT: PTRACE_ATTACH_DENIED; mandatory HARD STOP
+
+PREDICTED symbols: candidate functions recoverable
+ACTUAL: binary not stripped; offline gdb resolved HandleAttackSwingOpcode,
+        Unit::Attack, WorldSession::AllowPacket, and WorldSocket symbols as
+        non-debugging symbols; source-line verification remains blocked
+RESULT: symbols present, but W1 cannot lawfully begin without attach
+```
+
+The full hard-stop packet is
+`live-runs/W0-ptrace-hard-stop-20260731-210203.md`, SHA-256
+`94151e04734cd63442ab53e3a7504a18cdd22e4e4e8f70f812b55979f78cbcba`.
+The verbatim denial is
+`live-runs/W0-preflight-20260731-210203/gdb-attach-dry-run.txt`, SHA-256
+`d9c8adc913617293de08afeb822d9d584b8e1bfa1815a86a068fba7bc4ea9f15`.
+The six-file manifest is
+`live-runs/manifests/W0-20260731-210203.sha256`, SHA-256
+`d39cb4757e9ccfd496610f4ce60486eeb9d4e73b6529eefd21ad90014663b2ce`;
+all entries recomputed exactly at the boundary.
+
+No sysctl/root/sudo retry, package installation, server mutation, capture,
+debug-console change, client scenario, or attack occurred. The failed attach
+never paused the server; a subsequent RA probe proved it remained responsive.
+W1-W3 are not started. SPEC-21 P3/P4 remain queued.
+
+**HARD STOP - SPEC-25 stops at W0 with `PTRACE_ATTACH_DENIED`. A new Nico
+ruling is required before any ptrace-policy or root-mediated attach path.**
