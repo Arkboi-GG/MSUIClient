@@ -3809,3 +3809,45 @@ P3/P4 or deeper server instrumentation.**
 X4 final boundary gates passed sequentially: Debug build with only the
 established CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534
 specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## Y0 - elevated capture-relay preflight
+
+### Actual versus predicted
+
+```text
+PREDICTED direct elevation: net session PASS + High Mandatory Level
+ACTUAL direct process: ELEVATION_ABSENT; no UAC retry loop was attempted
+
+PREDICTED authorized relay: elevation and pktmon driver access PASS
+ACTUAL: net session exit=0; S-1-16-12288 present; pktmon status exit=0
+RESULT: elevated capture-control boundary PASS
+
+PREDICTED filter: one TCP filter for 192.168.0.2:8085
+ACTUAL: exactly SPEC23-Y1 / TCP / 192.168.0.2 / 8085
+RESULT: bounded filter PASS
+
+PREDICTED repo/connectivity: 2c71edb descendant, gates, SSH, RA PASS
+ACTUAL: HEAD 2c71edb; supplied SPEC-23 preserved; KEY_AUTH_OK; RA server info PASS
+RESULT: Y0 PASS; Y1 authorized
+```
+
+Nico explicitly authorized the temporary elevated relay as the SPEC-23 Y0
+workaround. It is hardcoded to this repository/run, the one world endpoint,
+pktmon capture lifecycle/conversion, and deletion of this order's raw files; it
+has no arbitrary command channel. No install, service, firewall, server, DB,
+persistent config, combat, error-display, or F3-F6 change occurred.
+
+The full Y0 packet is
+`live-runs/Y0-elevated-relay-20260731-200401.md`, SHA-256
+`4a54bb911f5214e00062dce85e8a42c0b0faf26552b28f3e3d3f7aff4b40cf10`.
+The four-file manifest is
+`live-runs/manifests/Y0-20260731-200401.sha256`, SHA-256
+`3223a0380a303cea00abd6925c06ea34a602b570ccf3f64676e28ecaf04d0064`.
+
+Y0 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS. A first parallel launch
+of the three check executables contended on their shared Release output; the
+required sequential rerun passed and no product defect was inferred.
+
+SPEC-21 P3/P4 remain queued.
