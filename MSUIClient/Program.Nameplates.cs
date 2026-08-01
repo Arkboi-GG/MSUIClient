@@ -29,6 +29,8 @@ public sealed partial class GameLoop
     {
         _vplateUnits.Clear();
         _vplateHits.Clear();
+        // Foreground draw-list content otherwise paints above DIALOG-strata frames.
+        if (SettingsModalOpen) return;
         DrawEnemyPlates();
 
         foreach (WorldEntity unit in _entities.Units)

@@ -108,3 +108,11 @@ variant-batch/baseline/items/*
 !variant-batch/baseline/items/verdicts.csv
 __pycache__/
 *.pyc
+
+# NIGHT_02 parity-harness development captures superseded by the immutable
+# 20260801-153500 proof packet. Retained locally; not acceptance evidence.
+live-runs/N2-0-1-parity-harness-20260801-151500/
+live-runs/N2-0-1-parity-harness-20260801-151900/
+live-runs/N2-0-1-parity-harness-20260801-152400/
+live-runs/N2-0-1-parity-harness-20260801-153000/
+live-runs/N2-0-1-parity-harness-20260801-160000/

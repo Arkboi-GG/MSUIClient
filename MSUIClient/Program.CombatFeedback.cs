@@ -183,6 +183,7 @@ public sealed partial class GameLoop
 
     private void DrawFloatingCombatText()
     {
+        if (SettingsModalOpen) return;
         Vector2 display = ImGui.GetIO().DisplaySize;
         float diagonal = MathF.Sqrt(display.X * display.X + display.Y * display.Y);
         ImDrawListPtr draw = ImGui.GetForegroundDrawList();
@@ -227,6 +228,7 @@ public sealed partial class GameLoop
 
     private void DrawCenterCombatText()
     {
+        if (SettingsModalOpen) return;
         Vector2 display = ImGui.GetIO().DisplaySize;
         ImDrawListPtr draw = ImGui.GetForegroundDrawList();
         ImFontPtr font = ImGui.GetFont();

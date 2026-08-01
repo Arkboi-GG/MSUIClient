@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MSUIClient", "MSUIClient\MSUIClient.csproj", "{7B3E1A42-9C15-4D8E-B6A1-2F0C5E9D3A71}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ui-parity", "tools\ui-parity\ui-parity.csproj", "{C4F2E719-1A0D-4B42-961D-FA1E0B7BC27A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{7B3E1A42-9C15-4D8E-B6A1-2F0C5E9D3A71}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7B3E1A42-9C15-4D8E-B6A1-2F0C5E9D3A71}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7B3E1A42-9C15-4D8E-B6A1-2F0C5E9D3A71}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4F2E719-1A0D-4B42-961D-FA1E0B7BC27A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4F2E719-1A0D-4B42-961D-FA1E0B7BC27A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4F2E719-1A0D-4B42-961D-FA1E0B7BC27A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4F2E719-1A0D-4B42-961D-FA1E0B7BC27A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

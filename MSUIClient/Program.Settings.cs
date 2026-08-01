@@ -224,6 +224,11 @@ public sealed partial class GameLoop
             var min = ImGui.GetWindowPos();
             var max = min + ImGui.GetWindowSize();
             var dl = ImGui.GetWindowDrawList();
+            BeginUiParityFrame(min);
+            CollectUiParity("GameMenuFrame", "Frame", min, size, parent: "", point: "CENTER",
+                bgFile: @"Interface\DialogFrame\UI-DialogBox-Background",
+                edgeFile: @"Interface\DialogFrame\UI-DialogBox-Border", tileSize: "32", edgeSize: "32",
+                insets: "11|12|12|11");
 
             // THE FRAME IS DRAWN OUTSIDE ImGui's CLIP RECT, SO THE CLIP RECT HAS
             // TO GO. Begin() leaves the window's clip rectangle inset
@@ -245,6 +250,14 @@ public sealed partial class GameLoop
             dl.PushClipRectFullScreen();
             _skin?.DrawBackdrop(dl, min, max, WowSkin.Dialog);
             _skin?.HeaderPlaque(dl, min, size.X, PageTitle());
+            CollectUiParity("GameMenuFrameHeader", "Texture",
+                min + new Vector2((size.X - 256f * S) * .5f, -12f * S), new Vector2(256f, 64f) * S,
+                point: "TOP", offsetX: "0", offsetY: "12",
+                texture: @"Interface\DialogFrame\UI-DialogBox-Header", layer: "ARTWORK");
+            CollectUiParity("GameMenuFrame/FontString", "FontString", min, Vector2.Zero,
+                point: "TOP", relativeTo: "GameMenuFrameHeader", offsetX: "0", offsetY: "-14",
+                font: "GameFontNormal", fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "12",
+                color: "#FFD100FF", layer: "ARTWORK");
             dl.PopClipRect();
 
             // The plaque hangs 12 above the frame and its VISIBLE metal ends about
@@ -260,6 +273,7 @@ public sealed partial class GameLoop
                 case MenuPage.Controls: DrawControlsPage(size); break;
                 case MenuPage.Streaming: DrawStreamingPage(size); break;
             }
+            MarkUiParityFrameComplete();
 
             // Spent HERE, inside Begin/End, because that is the only scope in
             // which CloseCurrentPopup is legal. Consumed after the page has
@@ -330,12 +344,8 @@ public sealed partial class GameLoop
     {
         if (_menuPage == MenuPage.GameMenu)
         {
-            // 30 above the first button, seven 21-tall buttons at 1px gaps, two
-            // 8px separators before Exit and Return, and the window's own bottom
-            // padding. Vanilla's own frame is 195x226 with the same seven rows.
-            const int buttons = 7;
-            float h = (30f + buttons * (WowSkin.MenuButton.Y + 1f) + 16f + 24f) * S;
-            return new Vector2(195f * S, MathF.Min(h, display.Y * 0.9f));
+            // patch.MPQ's build-5875 GameMenuFrame.xml is authoritative: 195x246.
+            return new Vector2(195f, 246f) * S;
         }
 
         // Vanilla's OptionsFrame is 450 wide. Ours is 540 because this client
@@ -355,44 +365,48 @@ public sealed partial class GameLoop
         var button = WowSkin.MenuButton * S;
         float x = (size.X - button.X) * 0.5f;
 
-        // GameMenuFrame stacks its buttons at a 1px gap. ImGui's own ItemSpacing
-        // would add six more per row and the frame would not close around them,
-        // so the spacing IS the gap here rather than something to compensate for.
-        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(0f, 1f * S));
-
-        void Row(string label, bool enabled, Action onClick, string? tip = null)
+        void Row(string id, string label, float y, string point, string relativeTo,
+            string relativePoint, string offsetY, bool enabled, Action onClick, string? tip = null)
         {
-            ImGui.SetCursorPosX(x);
+            ImGui.SetCursorPos(new Vector2(x, y * S));
+            Vector2 actualMin = ImGui.GetCursorScreenPos();
+            CollectUiParity(id, "Button", actualMin, button, point: point, relativeTo: relativeTo,
+                relativePoint: relativePoint, offsetX: "0", offsetY: offsetY,
+                texture: @"Interface\Buttons\UI-Panel-Button-Up", font: "GameFontHighlight",
+                fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "12", color: "#FFFFFFFF");
             if (Button(label, button, enabled)) onClick();
             if (tip is not null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
         }
 
-        Row("Video Options", true, () => Go(MenuPage.Video));
-        Row("Camera and Controls", true, () => Go(MenuPage.Controls));
-        Row("Streaming", true, () => Go(MenuPage.Streaming));
-        Row("Sound Options", false, () => { },
+        Row("GameMenuButtonOptions", "Video Options", 26.5f, "CENTER", "", "TOP", "-37",
+            true, () => Go(MenuPage.Video));
+        Row("GameMenuButtonSoundOptions", "Sound Options", 48.5f, "TOP", "GameMenuButtonOptions", "BOTTOM", "-1",
+            false, () => { },
             "There is no sound subsystem yet - this button exists so the menu does\n" +
             "not change shape when there is.");
-        Row("Key Bindings", false, () => { },
+        Row("GameMenuButtonUIOptions", "Interface Options", 70.5f, "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
+            true, () => Go(MenuPage.Controls));
+        Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
+            false, () => { },
             "Rebindable keys are not built yet. The current binds are listed under\n" +
             "Camera and Controls.");
-
-        ImGui.Dummy(new Vector2(1f, 8f * S));
+        Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
+            false, () => { }, "Macro creation is not built yet.");
+        Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
+            false, () => { }, "Character logout is not built yet.");
 
         // NOT _window.Close() - that runs the whole teardown synchronously and
         // the rest of this ImGui frame then draws into freed memory. Flag it and
         // let Update act between frames. See ConsumeQuitRequest.
-        Row("Exit Game", true, () => _quitRequested = true);
-
-        ImGui.Dummy(new Vector2(1f, 8f * S));
-        Row("Return to Game", true, () =>
+        Row("GameMenuButtonQuit", "Exit Game", 158.5f, "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
+            true, () => _quitRequested = true);
+        Row("GameMenuButtonContinue", "Return to Game", 195.5f, "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
         {
             CommitSettings();
             _settingsOpen = false;
             ImGui.CloseCurrentPopup();
         });
 
-        ImGui.PopStyleVar();
     }
 
     private void Go(MenuPage page)

@@ -573,6 +573,7 @@ public sealed partial class GameLoop
                     else { StopSocketTrace(); Log(true,line); }
                     break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
+                case "ui-parity": ArmUiParityCapture(p[1]); Log(_uiParityArmed,line); break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "waitdeath":

@@ -1713,6 +1713,7 @@ public sealed partial class GameLoop
     {
         _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: true);
         FinishGameplayDump();
+        FinishUiParityCapture();
     }
 
 

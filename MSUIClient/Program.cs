@@ -2128,9 +2128,16 @@ public sealed partial class GameLoop : IDisposable
         // in a shipping build where all the developer tooling is off. Moving this
         // call after the DevTools check would reproduce exactly the seam
         // violation the handbook already records against UpdateLightProbe.
-        DrawSettingsModal();
-
         NetHud(); // Phase 2 network status window (draws only when server.enabled)
+
+        // A modal DIALOG frame owns the foreground. Do not submit developer windows
+        // behind its translucent backdrop; vanilla shows the world, not diagnostics,
+        // through UI-DialogBox-Background.
+        if (SettingsModalOpen || _escapePressed)
+        {
+            DrawSettingsModal();
+            return;
+        }
 
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
