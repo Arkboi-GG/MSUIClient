@@ -1,0 +1,2 @@
+gm .gps
+waitfor detail=Map:_0_ 5

@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\W0b-post-detach-health-20260731-223316.txt
+1,PASS,gm .gps
+2,PASS,waitfor detail=Map:_0_
