@@ -16,6 +16,7 @@ public sealed partial class GameLoop
 
     private bool _gameplayDumpRequested;
     private bool _gameplayDumpArmed;
+    private string? _gameplayDumpDirectoryOverride;
     private readonly List<GameplayLayoutRow> _gameplayDumpLayout = [];
     private readonly List<ActionButtonVerdict> _gameplayDumpVisibleActions = [];
 
@@ -56,8 +57,10 @@ public sealed partial class GameLoop
         string fileName = $"gameplay-{name}";
         string relativeJson = Path.Combine("dumps", fileName + ".json").Replace('\\', '/');
         string relativePng = Path.Combine("dumps", fileName + ".png").Replace('\\', '/');
-        string jsonPath = Path.Combine(_config.RepoRoot, relativeJson);
-        string pngPath = Path.Combine(_config.RepoRoot, relativePng);
+        string jsonPath = _gameplayDumpDirectoryOverride is null ? Path.Combine(_config.RepoRoot, relativeJson) :
+            Path.Combine(_gameplayDumpDirectoryOverride, fileName + ".json");
+        string pngPath = _gameplayDumpDirectoryOverride is null ? Path.Combine(_config.RepoRoot, relativePng) :
+            Path.Combine(_gameplayDumpDirectoryOverride, fileName + ".png");
 
         try
         {
@@ -83,6 +86,7 @@ public sealed partial class GameLoop
         }
         finally
         {
+            _gameplayDumpDirectoryOverride = null;
             _gameplayDumpLayout.Clear();
             _gameplayDumpVisibleActions.Clear();
         }

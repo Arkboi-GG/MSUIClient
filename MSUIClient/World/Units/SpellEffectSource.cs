@@ -43,6 +43,12 @@ public sealed class SpellEffectSource
 
     public SpellEffectSource(MpqMount mpq) => _mpq = mpq;
     public int ActiveCount => _instances.Count;
+    public IReadOnlyList<string> ActiveModelPaths(uint spell) => _instances
+        .Where(instance => instance.Spell == spell)
+        .Select(instance => instance.Asset.Path)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     public void SpawnKit(ulong unit, uint spell, SpellVisualKitInfo kit, bool persistent,
         double now, double lifetime = 1.25)

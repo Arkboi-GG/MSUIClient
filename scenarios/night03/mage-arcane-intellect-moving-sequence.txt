@@ -1,0 +1,43 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .cooldown clear
+wait 1
+gm .gm off
+wait 1
+press W
+wait 0.20
+animation-sequence start 1459 moving
+cast 1459
+wait 0.05
+animation-sequence sample n3-mage-1459-moving-00
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-01
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-02
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-03
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-04
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-05
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-06
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-07
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-08
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-09
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-10
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-11
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-12
+wait 0.10
+animation-sequence sample n3-mage-1459-moving-13
+animation-sequence stop
+release W
+aura present 1459
+gm .gps
+waitfor GmChatResponse 3

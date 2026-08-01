@@ -21,6 +21,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellStart(SpellStartPacket packet)
     {
+        MarkAnimationSequenceStage(packet.SpellId, "PRECAST");
         if (_net is not null && packet.Caster == _net.PlayerGuid)
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
@@ -42,6 +43,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellGo(SpellGoPacket packet)
     {
+        MarkAnimationSequenceStage(packet.SpellId, "CAST");
         double now = NowSeconds();
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
         SpellVisualKitInfo? kit = ResolveSpellKit(info?.VisualId ?? 0, static s => s.Cast);

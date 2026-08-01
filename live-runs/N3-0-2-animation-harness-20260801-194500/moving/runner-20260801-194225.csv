@@ -1,0 +1,45 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-arcane-intellect-moving-sequence.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .cooldown clear
+4,PASS,wait 1
+5,PASS,gm .gm off
+6,PASS,wait 1
+7,PASS,press W
+8,PASS,wait 0.20
+9,PASS,animation-sequence start 1459 moving
+10,PASS,cast 1459
+11,PASS,wait 0.05
+12,PASS,animation-sequence sample n3-mage-1459-moving-00
+13,PASS,wait 0.10
+14,PASS,animation-sequence sample n3-mage-1459-moving-01
+15,PASS,wait 0.10
+16,PASS,animation-sequence sample n3-mage-1459-moving-02
+17,PASS,wait 0.10
+18,PASS,animation-sequence sample n3-mage-1459-moving-03
+19,PASS,wait 0.10
+20,PASS,animation-sequence sample n3-mage-1459-moving-04
+21,PASS,wait 0.10
+22,PASS,animation-sequence sample n3-mage-1459-moving-05
+23,PASS,wait 0.10
+24,PASS,animation-sequence sample n3-mage-1459-moving-06
+25,PASS,wait 0.10
+26,PASS,animation-sequence sample n3-mage-1459-moving-07
+27,PASS,wait 0.10
+28,PASS,animation-sequence sample n3-mage-1459-moving-08
+29,PASS,wait 0.10
+30,PASS,animation-sequence sample n3-mage-1459-moving-09
+31,PASS,wait 0.10
+32,PASS,animation-sequence sample n3-mage-1459-moving-10
+33,PASS,wait 0.10
+34,PASS,animation-sequence sample n3-mage-1459-moving-11
+35,PASS,wait 0.10
+36,PASS,animation-sequence sample n3-mage-1459-moving-12
+37,PASS,wait 0.10
+38,PASS,animation-sequence sample n3-mage-1459-moving-13
+39,PASS,animation-sequence stop
+40,PASS,release W
+41,PASS,aura present 1459
+42,PASS,gm .gps
+43,PASS,waitfor GmChatResponse

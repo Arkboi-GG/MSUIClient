@@ -544,6 +544,16 @@ public sealed partial class GameLoop
                         SampleSpellAnimation(uint.Parse(animationSample[1], CultureInfo.InvariantCulture),
                             animationSample[2], "RENDERER_POST_TICK"), line);
                     break;
+                case "animation-sequence":
+                    string[] sequence = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (sequence.Length == 4 && sequence[1].Equals("start", StringComparison.OrdinalIgnoreCase))
+                        Log(BeginAnimationSequence(uint.Parse(sequence[2], CultureInfo.InvariantCulture), sequence[3]), line);
+                    else if (sequence.Length == 3 && sequence[1].Equals("sample", StringComparison.OrdinalIgnoreCase))
+                        Log(SampleAnimationSequence(sequence[2]), line);
+                    else if (sequence.Length == 2 && sequence[1].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                        Log(EndAnimationSequence(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "channel-simulate":
                     string[] channelStart = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     uint simulatedSpell = uint.Parse(channelStart[1], CultureInfo.InvariantCulture);
@@ -774,6 +784,8 @@ public sealed partial class GameLoop
         WriteCastBarCsv(castBarCsv);
         string spellAnimationCsv=Path.Combine(dir,$"spell-animation-{_liveStamp}.csv");
         WriteSpellAnimationCsv(spellAnimationCsv);
+        string spellAnimationSequenceCsv=Path.Combine(dir,$"spell-animation-sequence-{_liveStamp}.csv");
+        WriteSpellAnimationSequenceCsv(spellAnimationSequenceCsv);
         string spellChannelCsv=Path.Combine(dir,$"spell-channel-{_liveStamp}.csv");
         WriteSpellChannelCsv(spellChannelCsv);
         string spellAuraCsv=Path.Combine(dir,$"spell-aura-{_liveStamp}.csv");
@@ -832,6 +844,24 @@ public sealed partial class GameLoop
                 v.MovementInterrupts, Csv(v.BaseAnimation), Csv(v.PreviousBaseAnimation),
                 Csv(v.ActionAnimation), Csv(v.HoldAnimation),
                 v.BlendWeight.ToString("F4", CultureInfo.InvariantCulture), v.Source));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteSpellAnimationSequenceCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,spell_id,cell,row_kind,coverage,sample_index,frame,actual_stage,expected_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,moving,active_models,asset_sources,animation_verdict,blend_verdict,gm_mode,source"
+        };
+        foreach (SpellAnimationSequenceVerdict v in _verdicts.Snapshot("spell-animation-sequence").OfType<SpellAnimationSequenceVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture), Csv(v.Character),
+                v.SpellId, v.Cell, v.RowKind, v.Coverage, v.SampleIndex, Csv(v.Frame), v.ActualStage,
+                v.ExpectedAnimationId, v.RequestedAnimationId, v.PlayedAnimationId, v.Resolution,
+                Csv(v.RendererState), Csv(v.BaseAnimation), Csv(v.PreviousBaseAnimation),
+                Csv(v.ActionAnimation), Csv(v.HoldAnimation), v.BlendWeight.ToString("F4", CultureInfo.InvariantCulture),
+                v.Moving, Csv(v.ActiveModels), Csv(v.AssetSources), v.AnimationVerdict, v.BlendVerdict,
+                v.GmMode, v.Source));
         File.WriteAllLines(path, lines);
     }
 
