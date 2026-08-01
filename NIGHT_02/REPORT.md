@@ -42,3 +42,16 @@ FrameXML inventory retains 33 presence deltas for conditional debuff, pet, leade
 disconnect, and anonymous wrapper rows; pet-member stats wire support remains the
 material functional gap. Evidence:
 `live-runs/N2-0-2-2-party-frames-20260801-160500/N2-0-2-2-party-frames-20260801-160500.md`.
+
+## 2026-08-01 16:25 local — item 2-3 action bars
+
+Status: `CLOSED-FINDING`
+
+Corrected the main quickslot ring's FrameXML Y conversion and hotkey font box,
+then added functional bottom-left, bottom-right, right, and left multi-action
+bars using the shipped action-slot mappings and 42px pitch. Real TEST captures
+pass 98/98 main-bar, 28/28 action-button, and 35/35 representative multi-bar
+verdicts. Full inventories retain 7, 6, and 116 presence deltas respectively
+for conditional controls and the unenumerated remaining repeated buttons.
+Evidence:
+`live-runs/N2-0-2-3-action-bars-20260801-162500/N2-0-2-3-action-bars-20260801-162500.md`.

@@ -225,6 +225,56 @@ public sealed partial class GameLoop
             barMin, new Vector2(1024f, 53f) * scale);
         ImDrawListPtr bg = ImGui.GetBackgroundDrawList();
 
+        if (_uiParityArmed && _uiParityPanel == "action-bar")
+        {
+            BeginUiParityFrame(barMin, scale);
+            CollectUiParity("MainMenuBar", "Frame", barMin, new Vector2(1024, 53) * scale,
+                parent: "", point: "BOTTOM", strata: "");
+            CollectUiParity("MainMenuExpBar", "StatusBar", barMin, new Vector2(1024, 13) * scale,
+                parent: "MainMenuBar", point: "TOP", texture: @"Interface\TargetingFrame\UI-StatusBar",
+                strata: "");
+            (string Name, float X, string Tex)[] xp =
+            [
+                ("MainMenuXPBarTexture0", 0, "0|0.79296875|1.0|0.83203125"),
+                ("MainMenuXPBarTexture1", 256, "0|0.54296875|1.0|0.58203125"),
+                ("MainMenuXPBarTexture2", 512, "0|0.29296875|1.0|0.33203125"),
+                ("MainMenuXPBarTexture3", 768, "0|0.04296875|1.0|0.08203125"),
+            ];
+            foreach (var row in xp)
+                CollectUiParity(row.Name, "Texture", barMin + new Vector2(row.X, 0) * scale,
+                    new Vector2(256, 10) * scale, parent: "MainMenuExpBar", point: "BOTTOM",
+                    offsetX: (row.X - 384).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    offsetY: "3", texture: @"Interface\MainMenuBar\UI-MainMenuBar-Dwarf",
+                    layer: "OVERLAY", strata: "", texCoords: row.Tex);
+            (string Name, float X, string Tex)[] art =
+            [
+                ("MainMenuBarTexture0", 0, "0|0.83203125|1.0|1.0"),
+                ("MainMenuBarTexture1", 256, "0|0.58203125|1.0|0.75"),
+                ("MainMenuBarTexture2", 512, "0|0.33203125|1.0|0.5"),
+                ("MainMenuBarTexture3", 768, "0|0.08203125|1.0|0.25"),
+            ];
+            foreach (var row in art)
+                CollectUiParity(row.Name, "Texture", barMin + new Vector2(row.X, 10) * scale,
+                    new Vector2(256, 43) * scale, parent: "MainMenuBarArtFrame", point: "BOTTOM",
+                    offsetX: (row.X - 384).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    offsetY: "0", texture: @"Interface\MainMenuBar\UI-MainMenuBar-Dwarf",
+                    layer: "ARTWORK", strata: "", texCoords: row.Tex);
+            CollectUiParity("MainMenuBarLeftEndCap", "Texture", barMin + new Vector2(-96, -75) * scale,
+                new Vector2(128) * scale, parent: "MainMenuBarArtFrame", point: "BOTTOM", offsetX: "-544",
+                offsetY: "0", texture: @"Interface\MainMenuBar\UI-MainMenuBar-EndCap-Dwarf",
+                layer: "OVERLAY", strata: "");
+            CollectUiParity("MainMenuBarRightEndCap", "Texture", barMin + new Vector2(992, -75) * scale,
+                new Vector2(128) * scale, parent: "MainMenuBarArtFrame", point: "BOTTOM", offsetX: "544",
+                offsetY: "0", texture: @"Interface\MainMenuBar\UI-MainMenuBar-EndCap-Dwarf",
+                layer: "OVERLAY", strata: "", texCoords: "1.0|0.0|0.0|1.0");
+            CollectUiParity("MainMenuBarPerformanceBarFrame", "Frame", barMin + new Vector2(781, -1) * scale,
+                new Vector2(16, 64) * scale, parent: "MainMenuBar", point: "BOTTOMRIGHT", offsetX: "-227",
+                offsetY: "-10", strata: "LOW");
+            CollectUiParity("MainMenuBarPerformanceBar", "Texture", barMin + new Vector2(777, -1) * scale,
+                new Vector2(20, 66) * scale, parent: "MainMenuBarPerformanceBarFrame", point: "TOPRIGHT",
+                texture: @"Interface\MainMenuBar\UI-MainMenuBar-PerformanceBar", layer: "BACKGROUND", strata: "LOW");
+        }
+
         // FrameXML child order: XP and the LOW-strata latency meter sit beneath the dwarf art.
         DrawExpBar(bg, barMin, scale);
         DrawPerformanceMeter(bg, barMin, scale, display);
@@ -260,6 +310,24 @@ public sealed partial class GameLoop
             CollectGameplayLayout($"action-slot-{i + 1}", 8f + 42f * i, 728f, 36f, 36f,
                 buttonMin, buttonMax - buttonMin);
             ActionSlot? slot = _actions[wireSlot];
+
+            if (i == 0 && _uiParityArmed && _uiParityPanel == "action-button")
+            {
+                BeginUiParityFrame(buttonMin, scale);
+                CollectUiParity("ActionButton1", "CheckButton", buttonMin, new Vector2(36) * scale,
+                    parent: "", point: "BOTTOMLEFT", offsetX: "8", offsetY: "4",
+                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "");
+                CollectUiParity("ActionButton1Icon", "Texture", buttonMin, new Vector2(36) * scale,
+                    parent: "ActionButton1", layer: "BACKGROUND", strata: "");
+                CollectUiParity("ActionButton1HotKey", "FontString", buttonMin + new Vector2(-2, 2) * scale,
+                    new Vector2(36, 10) * scale, parent: "ActionButton1", point: "TOPLEFT", offsetX: "-2",
+                    offsetY: "-2", font: "NumberFontNormalSmallGray", fontPath: @"Fonts\ARIALN.TTF",
+                    fontSize: "12", color: "#999999FF", layer: "ARTWORK", strata: "");
+                CollectUiParity("ActionButton1NormalTexture", "NormalTexture",
+                    buttonMin + new Vector2(-15, -14) * scale, new Vector2(66) * scale,
+                    parent: "ActionButton1", point: "CENTER", offsetX: "0", offsetY: "-1",
+                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "");
+            }
 
             ImGui.SetCursorScreenPos(buttonMin);
             bool clicked = ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin);
@@ -384,7 +452,11 @@ public sealed partial class GameLoop
             ChangeActionPage(-1);
         ImGui.End();
 
+        DrawMultiActionBars(display, barMin, scale);
         DrawMicroMenu(barMin, scale);
+
+        if (_uiParityArmed && _uiParityPanel is "action-bar" or "action-button")
+            MarkUiParityFrameComplete();
 
         if (_draggingActionSlot >= 0 && _actions[_draggingActionSlot] is { } dragged)
         {
@@ -420,6 +492,93 @@ public sealed partial class GameLoop
             _pressedActionSlot = -1;
             _draggingActionSlot = -1;
         }
+    }
+
+    private void DrawMultiActionBars(Vector2 display, Vector2 barMin, float scale)
+    {
+        bool proof = _uiParityArmed && _uiParityPanel == "multi-action-bar";
+        (string Name, int FirstSlot, bool Vertical, Vector2 Origin)[] bars =
+        [
+            ("MultiBarBottomLeft", 60, false,
+                new Vector2(barMin.X + 8 * scale, display.Y - 95 * scale)),
+            ("MultiBarBottomRight", 48, false,
+                new Vector2(barMin.X + 518 * scale, display.Y - 95 * scale)),
+            ("MultiBarRight", 24, true,
+                new Vector2(display.X - 45 * scale, display.Y - 598 * scale)),
+            ("MultiBarLeft", 36, true,
+                new Vector2(display.X - 88 * scale, display.Y - 598 * scale)),
+        ];
+        foreach (var bar in bars)
+        {
+            bool populated = Enumerable.Range(bar.FirstSlot, 12).Any(slot => _actions[slot] is not null);
+            if (!populated && !(proof && bar.Name == "MultiBarBottomLeft")) continue;
+            DrawMultiActionBar(bar.Name, bar.FirstSlot, bar.Vertical, bar.Origin, scale, proof);
+        }
+    }
+
+    private void DrawMultiActionBar(string name, int firstSlot, bool vertical,
+        Vector2 origin, float scale, bool proof)
+    {
+        if (_gameplayArt is null) return;
+        Vector2 logicalSize = vertical ? new Vector2(38, 500) : new Vector2(500, 38);
+        ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoBringToFrontOnFocus;
+        if (!ImGui.Begin($"##{name}", flags)) { ImGui.End(); return; }
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
+
+        if (proof && name == "MultiBarBottomLeft")
+        {
+            BeginUiParityFrame(origin, scale);
+            CollectUiParity(name, "Frame", origin, logicalSize * scale, parent: "",
+                point: "BOTTOMLEFT", relativeTo: "ActionButton1", relativePoint: "TOPLEFT",
+                offsetX: "0", offsetY: "17", strata: "HIGH");
+        }
+
+        for (int i = 0; i < 12; i++)
+        {
+            Vector2 buttonMin = origin + (vertical
+                ? new Vector2(2, i * 42)
+                : new Vector2(i * 42, 2)) * scale;
+            Vector2 buttonMax = buttonMin + new Vector2(36) * scale;
+            int slotNumber = firstSlot + i;
+            string button = name + "Button" + (i + 1);
+            if (proof && name == "MultiBarBottomLeft" && i == 0)
+            {
+                CollectUiParity(button, "CheckButton", buttonMin, new Vector2(36) * scale,
+                    parent: name, point: "BOTTOMLEFT", offsetX: "0", offsetY: "0",
+                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "HIGH");
+                CollectUiParity(button + "Icon", "Texture", buttonMin, new Vector2(36) * scale,
+                    parent: button, layer: "BACKGROUND", strata: "HIGH");
+                CollectUiParity(button + "HotKey", "FontString", buttonMin + new Vector2(-2, 2) * scale,
+                    new Vector2(36, 10) * scale, parent: button, point: "TOPLEFT", offsetX: "-2",
+                    offsetY: "-2", font: "NumberFontNormalSmallGray", fontPath: @"Fonts\ARIALN.TTF",
+                    fontSize: "12", color: "#999999FF", layer: "ARTWORK", strata: "HIGH");
+                CollectUiParity(button + "NormalTexture", "NormalTexture",
+                    buttonMin + new Vector2(-15, -14) * scale, new Vector2(66) * scale,
+                    parent: button, point: "CENTER", offsetX: "0", offsetY: "-1",
+                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "HIGH");
+            }
+
+            ImGui.SetCursorScreenPos(buttonMin);
+            if (ImGui.InvisibleButton($"##{name}-{i}", buttonMax - buttonMin)) UseAction(slotNumber);
+            if (_actions[slotNumber] is { } action)
+            {
+                string iconPath = action.Kind == ActionSlot.Spell &&
+                    _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true
+                        ? spell.IconPath
+                        : action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
+                            ? item.IconPath : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                uint icon = _gameplayArt.Handle(iconPath);
+                if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax);
+            }
+            DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
+        }
+        if (proof && name == "MultiBarBottomLeft") MarkUiParityFrameComplete();
+        ImGui.End();
     }
 
     private void DrawMicroMenu(Vector2 barMin, float scale)
@@ -698,7 +857,8 @@ public sealed partial class GameLoop
         uint ring = _gameplayArt!.Handle(art);
         if (ring == 0) return;
         // NormalTexture is 66x66, centered on the 36x36 button with a (0,-1) offset.
-        Vector2 center = (buttonMin + buttonMax) * 0.5f + new Vector2(0, -scale);
+        // FrameXML Y is up: its -1 anchor offset moves the texture one pixel down in screen space.
+        Vector2 center = (buttonMin + buttonMax) * 0.5f + new Vector2(0, scale);
         Vector2 half = new(33f * scale);
         dl.AddImage((nint)ring, center - half, center + half, Vector2.Zero, Vector2.One, tint);
     }
@@ -708,11 +868,11 @@ public sealed partial class GameLoop
     private static void DrawActionText(ImDrawListPtr dl, Vector2 buttonMin, string text, float scale,
         uint color)
     {
-        float size = 11f * scale;
+        float size = 12f * scale;
         ImFontPtr font = ImGui.GetFont();
         // This binding has no CalcTextSizeA; scale the base measure instead (see WowSkin.cs).
         float width = ImGui.CalcTextSize(text).X * (size / Math.Max(1f, ImGui.GetFontSize()));
-        Vector2 pos = buttonMin + new Vector2(34f * scale - width, 1f * scale);
+        Vector2 pos = buttonMin + new Vector2(34f * scale - width, 2f * scale);
         dl.AddText(font, size, pos + Vector2.One * scale, 0xff000000, text);
         dl.AddText(font, size, pos, color, text);
     }

@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-3-action-bars-20260801-162500\action-button.protocol
+1,PASS,ui-parity action-button
+2,PASS,wait 2

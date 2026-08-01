@@ -1,0 +1,3 @@
+time,character,unit_guid,slot,spell_id,name,event,helpful,cancelable,stacks,duration_ms,remaining_ms,display,source
+0.545,"Test",0x0000000000000001,0,2457,"Battle Stance",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
+0.547,"Test",0x0000000000000001,1,16380,"Greater Invisibility",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT

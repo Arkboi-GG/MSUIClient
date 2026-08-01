@@ -7,6 +7,8 @@ using SkiaSharp;
 const string DefaultXml = @"Interface\FrameXML\GameMenuFrame.xml";
 const string TemplatesXml = @"Interface\FrameXML\UIPanelTemplates.xml";
 const string FontsXml = @"Interface\FrameXML\Fonts.xml";
+const string ActionButtonTemplatesXml = @"Interface\FrameXML\ActionButtonTemplate.xml";
+const string ActionBarFrameXml = @"Interface\FrameXML\ActionBarFrame.xml";
 
 if (args.Length == 0)
 {
@@ -52,7 +54,7 @@ static int Extract(string[] args)
     string xmlPath = o.GetValueOrDefault("xml", DefaultXml);
     using var mpq = new MpqMount(data);
     var documents = new List<(string Path, string Supplier, XDocument Doc)>();
-    var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, xmlPath }
+    var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, ActionButtonTemplatesXml, ActionBarFrameXml, xmlPath }
         .Distinct(StringComparer.OrdinalIgnoreCase));
     var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     while (pending.TryDequeue(out string? path))
@@ -122,7 +124,13 @@ static void AddElement(XElement element, string instanceName, string parentName,
     chain.Add((element, sourcePath, supplier));
 
     XElement? size = chain.Select(x => x.E.ElementAny("Size")?.ElementAny("AbsDimension")).LastOrDefault(x => x is not null);
-    XElement? anchor = chain.SelectMany(x => x.E.ElementAny("Anchors")?.ElementsAny("Anchor") ?? []).LastOrDefault();
+    XElement? anchorsNode = chain.Select(x => x.E.ElementAny("Anchors")).LastOrDefault(x => x is not null);
+    XElement[] anchors = anchorsNode?.ElementsAny("Anchor").ToArray() ?? [];
+    XElement? anchor = anchors.LastOrDefault();
+    XElement? fillTopLeft = anchors.FirstOrDefault(x => A(x, "point").Equals("TOPLEFT", StringComparison.OrdinalIgnoreCase));
+    bool fillParent = size is null && fillTopLeft is not null &&
+        anchors.Any(x => A(x, "point").Equals("BOTTOMRIGHT", StringComparison.OrdinalIgnoreCase));
+    if (fillParent) anchor = fillTopLeft;
     string layer = inheritedLayer;
     XElement? layerParent = element.Ancestors().FirstOrDefault(x => x.Name.LocalName == "Layer");
     if (layerParent is not null) layer = (string?)layerParent.Attribute("level") ?? layer;
@@ -140,7 +148,7 @@ static void AddElement(XElement element, string instanceName, string parentName,
     var row = new Row
     {
         Panel = panel, Element = instanceName, Type = kind, Parent = parentName,
-        Width = A(size, "x"), Height = A(size, "y"), Point = A(anchor, "point"),
+        Width = fillParent ? "__FILL__" : A(size, "x"), Height = fillParent ? "__FILL__" : A(size, "y"), Point = A(anchor, "point"),
         RelativeTo = Expand(A(anchor, "relativeTo"), instanceName, parentName),
         RelativePoint = A(anchor, "relativePoint"), OffsetX = A(anchor?.ElementAny("Offset")?.ElementAny("AbsDimension"), "x"),
         OffsetY = A(anchor?.ElementAny("Offset")?.ElementAny("AbsDimension"), "y"),
@@ -266,6 +274,12 @@ static void ResolveOne(Row row, Dictionary<string, Row> rows, HashSet<string> se
     if (!F(parent.X, out float px) || !F(parent.Y, out float py) || !F(parent.Width, out float pw) || !F(parent.Height, out float ph)) return;
     // FrameXML's setAllPoints="true" wrappers omit Size and Anchors entirely.
     // They inherit their parent's rectangle and are common around texture/name layers.
+    if (row.Width == "__FILL__" && row.Height == "__FILL__")
+    {
+        F(row.OffsetX, out float fillX); F(row.OffsetY, out float fillY);
+        row.X = N(px + fillX); row.Y = N(py - fillY); row.Width = N(pw); row.Height = N(ph);
+        return;
+    }
     if (!F(row.Width, out float w) || !F(row.Height, out float h))
     {
         if (row.Width.Length == 0 && row.Height.Length == 0 && row.Point.Length == 0)
@@ -400,7 +414,8 @@ static int Contact(string[] args)
 }
 
 static bool IsDrawable(XElement e) => e.Name.LocalName is "Frame" or "Button" or "CheckButton" or
-    "StatusBar" or "Slider" or "EditBox" or "Texture" or "FontString";
+    "StatusBar" or "Slider" or "EditBox" or "Model" or "Texture" or "FontString" or
+    "NormalTexture" or "PushedTexture" or "DisabledTexture" or "HighlightTexture" or "CheckedTexture";
 static string A(XElement? e, string name) => (string?)e?.Attribute(name) ?? "";
 static string Expand(string value, string instance, string parent) => value.Replace("$parent", parent.Length > 0 ? parent : instance, StringComparison.OrdinalIgnoreCase);
 static string NormalizeTexture(string value) => value.Length == 0 ? "" : value.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? value : value + ".blp";

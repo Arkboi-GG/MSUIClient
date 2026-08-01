@@ -9,3 +9,5 @@
 2026-08-01 15:55 local | 2-2 | OPEN | party-frame family is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 16:05 local | 2-2 | CLOSED-FINDING | added build-5875 group-roster wire parsing and original-art party renderer; representative member/pet-anchor cohort is 42/42 PASS, full conditional/template inventory retains 33 presence deltas | live-runs/N2-0-2-2-party-frames-20260801-160500/N2-0-2-2-party-frames-20260801-160500.md
 2026-08-01 16:05 local | 2-3 | OPEN | action-bar family is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 16:25 local | 2-3 | CLOSED-FINDING | corrected quickslot anchor/font geometry, added populated/proof bottom and side multi-bars, and passed 161 representative verdicts with zero deltas; full conditional inventories retain presence findings | live-runs/N2-0-2-3-action-bars-20260801-162500/N2-0-2-3-action-bars-20260801-162500.md
+2026-08-01 16:25 local | 2-4 | OPEN | cast-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
