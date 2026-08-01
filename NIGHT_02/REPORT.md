@@ -294,3 +294,9 @@ The full touched-reference sweep contains 2,047 rows: 67 PASS, 107 DELTA,
 All 19 touched-reference backdrops were audited: 4 DELTA and 15 NOT-DRAWN.
 Every expected edge/background path retains its exact MPQ supplier.
 Evidence: `live-runs/N2-0-5-4-backdrop-audit-20260802-010000/N2-0-5-4-backdrop-audit-20260802-010000.md`.
+
+## 5-5 Final full-UI contact batch — CLOSED-FINDING
+
+Five labeled atlas pages cover all 34 representative docs 2–4 contact sheets.
+The index preserves each original immutable sheet path for full-resolution
+review. Evidence: `live-runs/N2-0-5-5-final-contact-batch-20260802-011500/N2-0-5-5-final-contact-batch-20260802-011500.md`.

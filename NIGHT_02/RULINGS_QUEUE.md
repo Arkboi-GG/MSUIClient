@@ -194,3 +194,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Exact audit: `live-runs/N2-0-5-4-backdrop-audit-20260802-010000/backdrop-nine-slice-audit.csv`.
 - Counts: 19 reference backdrops; 4 DELTA, 15 NOT-DRAWN.
 - Work: carry real background/edge path, tile size, edge size, and insets through draw-derived evidence; implement all absent backdrops with the cited shipped assets.
+
+## Q34 — 5-5 — SINGLE final perceptual sign-off pass
+
+- Headline set: `live-runs/N2-0-5-5-final-contact-batch-20260802-011500/contact-batch-page-01.png` through `contact-batch-page-05.png`.
+- Full-resolution index: `live-runs/N2-0-5-5-final-contact-batch-20260802-011500/contact-index.csv` (34 panels, every docs 2–4 panel represented once).
+- This is the run's one consolidated perceptual-review queue entry; mechanical findings remain authoritative and non-blocking.

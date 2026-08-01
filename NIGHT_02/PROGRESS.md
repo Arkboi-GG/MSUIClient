@@ -79,3 +79,5 @@
 2026-08-02 00:45 local | 5-4 | OPEN | backdrop and nine-slice audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
 2026-08-02 01:00 local | 5-4 | CLOSED-FINDING | audited all 19 touched-reference backdrops: 4 DELTA and 15 NOT-DRAWN; exact MPQ suppliers retained per row | live-runs/N2-0-5-4-backdrop-audit-20260802-010000/N2-0-5-4-backdrop-audit-20260802-010000.md
 2026-08-02 01:00 local | 5-5 | OPEN | final full-UI contact batch is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
+2026-08-02 01:15 local | 5-5 | CLOSED-FINDING | assembled five labeled atlas pages indexing all 34 representative docs 2-4 contact sheets for one perceptual pass | live-runs/N2-0-5-5-final-contact-batch-20260802-011500/N2-0-5-5-final-contact-batch-20260802-011500.md
+2026-08-02 01:15 local | 5-6 | OPEN | hygiene, manifests, final gates, and end packet are the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
