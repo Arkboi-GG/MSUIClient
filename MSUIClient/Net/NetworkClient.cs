@@ -341,10 +341,10 @@ public sealed class NetworkClient : IDisposable
     public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }
     public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) { try { _session?.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot); } catch { } }
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
-    public void Loot(ulong guid) { try { _session?.Loot(guid); } catch { } }
-    public void LootMoney() { try { _session?.LootMoney(); } catch { } }
-    public void LootRelease(ulong guid) { try { _session?.LootRelease(guid); } catch { } }
-    public void AutostoreLootItem(byte lootSlot) { try { _session?.AutostoreLootItem(lootSlot); } catch { } }
+    public bool Loot(ulong guid) => InWorld(s => s.Loot(guid));
+    public bool LootMoney() => InWorld(s => s.LootMoney());
+    public bool LootRelease(ulong guid) => InWorld(s => s.LootRelease(guid));
+    public bool AutostoreLootItem(byte lootSlot) => InWorld(s => s.AutostoreLootItem(lootSlot));
 
     // --- worker ---------------------------------------------------------------------------------
 

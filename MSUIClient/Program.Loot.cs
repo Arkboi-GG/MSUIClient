@@ -16,6 +16,9 @@ public sealed partial class GameLoop
     private Vector3 _lootOpenedAt;
     private int _lootPage = 1;
     private readonly List<(uint Entry, uint Count, int TriesLeft)> _pendingReceives = new();
+    private uint _lootMoneyBefore;
+    private uint _lootMoneyExpected;
+    private bool _lootMoneyPending;
 
     private const int LootRowsPerFrame = 4;
 
@@ -25,16 +28,28 @@ public sealed partial class GameLoop
         _lootPendingGuid = 0;
         _lootPage = 1;
         _pendingReceives.Clear();
+        _lootMoneyPending = false;
     }
 
     /// <summary>Right-click on a dead, lootable corpse. The kneel plays optimistically at the
     /// send (the reference arms its loot latch at the CMSG_LOOT send site, 0x5df253).</summary>
-    private void RequestLoot(ulong guid)
+    private bool RequestLoot(ulong guid)
     {
-        if (_net is null) return;
+        bool eligible = _entities.TryGet(guid, out WorldEntity source) && source.IsCreature &&
+                        source.IsDead && source.Fields.Lootable;
+        if (_net is null || !eligible)
+        {
+            EmitInterface("loot", "request", "REFUSED", guid,
+                $"inWorld={_net?.IsInWorld == true};entity={source is not null};dead={source?.IsDead == true};lootable={source?.Fields.Lootable == true}");
+            return false;
+        }
         _lootPendingGuid = guid;
-        _net.Loot(guid);
+        bool sent = _net.Loot(guid);
+        EmitInterface("loot", "request", sent ? "SENT" : "SEND_FAILED", guid,
+            $"dead={source.IsDead};lootable={source.Fields.Lootable};body={Convert.ToHexString(WorldSession.BuildLootGuidBody(guid))}");
+        if (!sent) { _lootPendingGuid = 0; return false; }
         _character?.TriggerOneShot(50); // EmoteLoot: the kneel dip
+        return true;
     }
 
     private void ApplyLootResponse(byte[] body)
@@ -45,12 +60,17 @@ public sealed partial class GameLoop
             // The error shape. Refusals surface as the red error text the 1.12 client shows.
             ShowUiError(LootPackets.ErrorText(error));
             if (_lootPendingGuid == guid) _lootPendingGuid = 0;
+            EmitInterface("loot", "response", "REFUSED", guid, $"error={error};text={SanitizeEvidence(LootPackets.ErrorText(error))}");
             return;
         }
         _loot.Open(guid, lootType, gold, items);
         _lootPage = 1;
         _lootPendingGuid = 0;
         if (_controller is not null) _lootOpenedAt = _controller.Position;
+        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            _lootMoneyBefore = player.Fields.Coinage;
+        EmitInterface("loot", "response", items.Count == 0 && gold == 0 ? "EMPTY" : "OPEN", guid,
+            $"type={lootType};money={gold};items={items.Count};slots={string.Join(',', items.Select(i => i.Slot))}");
         // Ask for every row's template once so names/quality colors resolve; icons come
         // straight off the wire displayInfoId and never wait.
         if (_items is not null && _net is not null)
@@ -62,9 +82,15 @@ public sealed partial class GameLoop
     {
         if (body.Length < 1) return;
         _loot.RemoveSlot(body[0]);
+        EmitInterface("loot", "item", "REMOVED", _loot.Source, $"slot={body[0]};remaining={_loot.Items.Count}");
     }
 
-    private void ApplyLootClearMoney() => _loot.ClearMoney();
+    private void ApplyLootClearMoney()
+    {
+        uint cleared = _loot.Gold;
+        _loot.ClearMoney();
+        EmitInterface("loot", "money", "CLEARED", _loot.Source, $"amount={cleared};remainingItems={_loot.Items.Count}");
+    }
 
     private void ApplyLootReleaseResponse(byte[] body)
     {
@@ -74,6 +100,7 @@ public sealed partial class GameLoop
         ulong guid = BitConverter.ToUInt64(body, 0);
         if (_loot.Source == guid) _loot.Clear();
         if (_lootPendingGuid == guid) _lootPendingGuid = 0;
+        EmitInterface("loot", "release", "RELEASED", guid, "guidMatched=true");
     }
 
     /// <summary>SMSG_ITEM_PUSH_RESULT — the one reliable "it landed" signal for solo loot.
@@ -96,6 +123,7 @@ public sealed partial class GameLoop
         if (entry == 0) return;
         if (_items is not null) _items.Require(entry, 0, _net);
         _pendingReceives.Add((entry, Math.Max(1, count), 120));
+        EmitInterface("loot", "item", "RECEIVED", player, $"item={entry};count={Math.Max(1, count)}");
     }
 
     /// <summary>Escape closes the loot window before it reaches the game menu.</summary>
@@ -109,8 +137,45 @@ public sealed partial class GameLoop
     private void ReleaseLoot()
     {
         if (!_loot.IsOpen) return;
-        _net?.LootRelease(_loot.Source);
+        ulong source = _loot.Source;
+        bool sent = _net?.LootRelease(source) == true;
+        EmitInterface("loot", "release", sent ? "SENT" : "SEND_FAILED", source,
+            $"body={Convert.ToHexString(WorldSession.BuildLootGuidBody(source))}");
         _loot.Clear(); // optimistic; SMSG_LOOT_RELEASE_RESPONSE clears again idempotently
+    }
+
+    private bool TakeLootMoney()
+    {
+        if (_net is null || !_loot.IsOpen || _loot.Gold == 0) return false;
+        if (_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) _lootMoneyBefore = player.Fields.Coinage;
+        _lootMoneyExpected = _loot.Gold;
+        _lootMoneyPending = _net.LootMoney();
+        EmitInterface("loot", "money", _lootMoneyPending ? "SENT" : "SEND_FAILED", _loot.Source,
+            $"amount={_lootMoneyExpected};moneyBefore={_lootMoneyBefore};body=EMPTY");
+        return _lootMoneyPending;
+    }
+
+    private bool TakeFirstLootItem()
+    {
+        if (_net is null || !_loot.IsOpen || _loot.Items.Count == 0) return false;
+        byte slot = _loot.Items[0].Slot;
+        bool sent = _net.AutostoreLootItem(slot);
+        EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,
+            $"slot={slot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(slot))}");
+        return sent;
+    }
+
+    private void SimulateLootFlow(bool empty = false)
+    {
+        ulong guid = _net?.PlayerGuid ?? 0xF130000006000001ul;
+        var w = new PacketWriter(); w.WriteU64(guid); w.WriteU8(1); w.WriteU32(empty ? 0u : 37u);
+        w.WriteU8(empty ? (byte)0 : (byte)2);
+        if (!empty)
+            foreach ((byte slot, uint item, uint count, uint display) in new[] { ((byte)0, 117u, 2u, 789u), ((byte)3, 159u, 1u, 790u) })
+            { w.WriteU8(slot); w.WriteU32(item); w.WriteU32(count); w.WriteU32(display); w.WriteU32(0); w.WriteU32(0); w.WriteU8(0); }
+        ApplyLootResponse(w.ToArray());
+        EmitInterface("loot", empty ? "simulate-empty" : "simulate", empty ? "EMPTY" : "OPEN", guid,
+            empty ? "money=0;items=0;autoRelease=false" : "money=37;items=2;wireSlots=0,3");
     }
 
     /// <summary>Per-frame loot upkeep, called from the HUD pass.</summary>
@@ -129,6 +194,14 @@ public sealed partial class GameLoop
             }
             else if (tries <= 0) _pendingReceives.RemoveAt(i);
             else _pendingReceives[i] = (entry, count, tries - 1);
+        }
+
+        if (_lootMoneyPending && _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player) &&
+            player.Fields.Coinage >= _lootMoneyBefore + _lootMoneyExpected)
+        {
+            EmitInterface("loot", "economy", "VERIFIED", _net.PlayerGuid,
+                $"money={_lootMoneyBefore}->{player.Fields.Coinage};expected={_lootMoneyExpected}");
+            _lootMoneyPending = false;
         }
 
         if (!_loot.IsOpen) return;
@@ -285,8 +358,13 @@ public sealed partial class GameLoop
                 DrawItemTooltip(template, row.Count);
         }
         if (!clicked || _net is null) return;
-        if (row.IsCoin) _net.LootMoney();
-        else _net.AutostoreLootItem(row.WireSlot); // the row leaves via SMSG_LOOT_REMOVED
+        if (row.IsCoin) TakeLootMoney();
+        else
+        {
+            bool sent = _net.AutostoreLootItem(row.WireSlot);
+            EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,
+                $"slot={row.WireSlot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(row.WireSlot))}");
+        }
     }
 
     private void DrawLootPagerButton(ImDrawListPtr dl, Vector2 min, float s, bool up, bool enabled)

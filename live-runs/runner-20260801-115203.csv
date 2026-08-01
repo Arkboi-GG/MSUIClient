@@ -1,0 +1,9 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\loot-empty-simulated-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,loot simulate-empty
+4,PASS,assert family=loot step=response outcome=EMPTY
+5,PASS,assert family=loot step=simulate-empty outcome=EMPTY
+6,PASS,loot release
+7,PASS,assert family=loot step=release outcome=SENT

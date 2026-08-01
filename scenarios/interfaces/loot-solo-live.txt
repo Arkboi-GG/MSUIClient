@@ -1,0 +1,36 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .go xyz -9017.324 -216.39986 70.6723 0
+wait 2
+gm .npc spawn add 3229
+select entry-nearest:3229
+anchor selected
+gm .damage 99999
+wait 1
+gm .gm off
+select anchor
+wire-trace start
+socket-trace start n1c-loot-solo
+loot request
+probe-interface loot response 4
+assert family=loot step=response outcome=OPEN
+dump n1c-loot-ui
+wait 2
+loot item-first
+wait 3
+assert family=loot step=item outcome=RECEIVED
+assert family=loot step=item outcome=REMOVED
+loot money
+wait 3
+assert family=loot step=money outcome=CLEARED
+assert family=loot step=economy outcome=VERIFIED
+assert family=loot step=release outcome=SENT
+socket-trace stop
+wire-trace stop
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+select anchor
+gm .npc spawn delete
+gm .gm off

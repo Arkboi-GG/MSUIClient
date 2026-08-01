@@ -461,22 +461,27 @@ public sealed class WorldSession : IDisposable
 
     /// <summary>CMSG_LOOT — request a corpse's loot window. Body = the full 8-byte guid
     /// (vmangos Server/Packets/Loot.cpp:8-11; GameObjects use CMSG_GAMEOBJ_USE instead).</summary>
-    public void Loot(ulong guid) => SendFullGuid(Op.CMSG_LOOT, guid);
+    public void Loot(ulong guid) => SendPacket((ushort)Op.CMSG_LOOT, BuildLootGuidBody(guid));
 
     /// <summary>CMSG_LOOT_MONEY — take the whole coin pile. Empty body.</summary>
     public void LootMoney() => SendPacket((ushort)Op.CMSG_LOOT_MONEY, ReadOnlySpan<byte>.Empty);
 
     /// <summary>CMSG_LOOT_RELEASE — close the loot session on the server. Full guid body.</summary>
-    public void LootRelease(ulong guid) => SendFullGuid(Op.CMSG_LOOT_RELEASE, guid);
+    public void LootRelease(ulong guid) => SendPacket((ushort)Op.CMSG_LOOT_RELEASE, BuildLootGuidBody(guid));
 
     /// <summary>CMSG_AUTOSTORE_LOOT_ITEM — one u8: the 0-based WIRE loot slot; the server
     /// places the item into the first free bag slot (no destination on the wire).</summary>
     public void AutostoreLootItem(byte lootSlot)
     {
-        var w = new PacketWriter(1);
-        w.WriteU8(lootSlot);
-        SendPacket((ushort)Op.CMSG_AUTOSTORE_LOOT_ITEM, w.AsSpan());
+        SendPacket((ushort)Op.CMSG_AUTOSTORE_LOOT_ITEM, BuildAutostoreLootBody(lootSlot));
     }
+
+    public static byte[] BuildLootGuidBody(ulong guid)
+    {
+        var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray();
+    }
+
+    public static byte[] BuildAutostoreLootBody(byte lootSlot) => [lootSlot];
 
     public void WorldportAck() => SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);
 

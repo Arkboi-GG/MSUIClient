@@ -288,6 +288,18 @@ public sealed partial class GameLoop
                     { SimulateQuestFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "loot":
+                    if (p[1].Equals("request", StringComparison.OrdinalIgnoreCase)) Log(RequestLoot(_selectionGuid), line);
+                    else if (p[1].Equals("money", StringComparison.OrdinalIgnoreCase)) Log(TakeLootMoney(), line);
+                    else if (p[1].Equals("item-first", StringComparison.OrdinalIgnoreCase)) Log(TakeFirstLootItem(), line);
+                    else if (p[1].Equals("release", StringComparison.OrdinalIgnoreCase))
+                    { bool wasOpen = _loot.IsOpen; ReleaseLoot(); Log(wasOpen, line); }
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
+                    { SimulateLootFlow(); Log(true, line); }
+                    else if (p[1].Equals("simulate-empty", StringComparison.OrdinalIgnoreCase))
+                    { SimulateLootFlow(empty: true); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

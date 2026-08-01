@@ -1,0 +1,38 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\loot-solo-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .go xyz -9017.324 -216.39986 70.6723 0
+5,PASS,wait 2
+6,PASS,gm .npc spawn add 3229
+7,PASS,select entry-nearest:3229 guid=0xF130000C9D04A2BB
+8,PASS,anchor selected guid=0xF130000C9D04A2BB position=-9017.324|-216.39986|70.6723
+9,PASS,gm .damage 99999
+10,PASS,wait 1
+11,PASS,gm .gm off
+12,PASS,select anchor guid=0xF130000C9D04A2BB
+13,PASS,wire-trace start path=dumps/wire-20260801-115032.wlog
+14,PASS,socket-trace start n1c-loot-solo path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-loot-solo-20260801-115032.csv
+15,PASS,loot request
+16,PASS,probe-interface loot response response
+17,PASS,assert family=loot step=response outcome=OPEN
+18,PASS,dump n1c-loot-ui
+19,PASS,wait 2
+20,PASS,loot item-first
+21,PASS,wait 3
+22,PASS,assert family=loot step=item outcome=RECEIVED
+23,PASS,assert family=loot step=item outcome=REMOVED
+24,PASS,loot money
+25,PASS,wait 3
+26,PASS,assert family=loot step=money outcome=CLEARED
+27,PASS,assert family=loot step=economy outcome=VERIFIED
+28,PASS,assert family=loot step=release outcome=SENT
+29,PASS,socket-trace stop
+30,PASS,wire-trace stop
+31,PASS,gm .gps
+32,PASS,waitfor GmChatResponse
+33,PASS,gm .gm on
+34,PASS,select anchor guid=0xF130000C9D04A2BB
+35,PASS,gm .npc spawn delete
+36,PASS,gm .gm off

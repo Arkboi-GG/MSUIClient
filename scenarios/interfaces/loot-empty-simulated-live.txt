@@ -1,0 +1,7 @@
+gm .gps
+waitfor GmChatResponse 3
+loot simulate-empty
+assert family=loot step=response outcome=EMPTY
+assert family=loot step=simulate-empty outcome=EMPTY
+loot release
+assert family=loot step=release outcome=SENT

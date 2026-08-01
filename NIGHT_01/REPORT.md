@@ -406,3 +406,12 @@ kill/item objectives, completion, exact reward XP/money, reward choice, and
 abandon. Quest-giver hello/list is the single
 `BLOCKED-BY:F-SILENT-INTERACT` row; direct details and the remaining lifecycle
 pass. Evidence: `live-runs/N1C-2-3-questing-20260801-113500.md`.
+
+## NIGHT_01C 2-4 — loot
+
+`CLOSED-PASS`: copyable loot send/response/item/money/economy/release verdicts,
+exact bodies, runner actions, empty-state handling, and the expanded byte/state
+gate are built. An isolated, GM-provisioned and GM-off live corpse flow passed
+36/36: guaranteed item 4951 landed, 5 copper cleared, the purse moved exactly
+28→33, and release completed. The independent empty-state runtime replay passed
+7/7. Evidence: `live-runs/N1C-2-4-loot-20260801-115500.md`.

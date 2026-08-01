@@ -94,4 +94,28 @@ killWriter.WriteU32(10); killWriter.WriteU64(trainerGuid);
 Check(QuestPackets.ParseKill(killWriter.ToArray()) == new QuestKillUpdate(7, 6, 4, 10, trainerGuid),
       "quest kill objective shape");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest opcodes/bodies/bounds");
+Check((ushort)Op.CMSG_AUTOSTORE_LOOT_ITEM == 264 && (ushort)Op.CMSG_LOOT == 349 &&
+      (ushort)Op.CMSG_LOOT_MONEY == 350 && (ushort)Op.CMSG_LOOT_RELEASE == 351 &&
+      (ushort)Op.SMSG_LOOT_RESPONSE == 352 && (ushort)Op.SMSG_LOOT_RELEASE_RESPONSE == 353 &&
+      (ushort)Op.SMSG_LOOT_REMOVED == 354 && (ushort)Op.SMSG_LOOT_CLEAR_MONEY == 357 &&
+      (ushort)Op.SMSG_ITEM_PUSH_RESULT == 358, "loot opcodes");
+ulong lootGuid = 0xF130000006000001ul;
+Check(WorldSession.BuildLootGuidBody(lootGuid).SequenceEqual(Convert.FromHexString("01000006000030F1")),
+      "loot/release full guid body");
+Check(WorldSession.BuildAutostoreLootBody(3).SequenceEqual(new byte[] { 3 }), "loot slot body");
+var lootWriter = new PacketWriter(); lootWriter.WriteU64(lootGuid); lootWriter.WriteU8(1);
+lootWriter.WriteU32(37); lootWriter.WriteU8(1); lootWriter.WriteU8(3); lootWriter.WriteU32(117);
+lootWriter.WriteU32(2); lootWriter.WriteU32(789); lootWriter.WriteU32(0); lootWriter.WriteU32(0); lootWriter.WriteU8(0);
+var loot = LootPackets.ParseResponse(lootWriter.ToArray());
+Check(loot.Guid == lootGuid && loot.LootType == 1 && loot.Gold == 37 && loot.Items.Count == 1 &&
+      loot.Items[0] == new LootItem(3, 117, 2, 789, 0, 0), "loot response row shape");
+var lootState = new LootState(); lootState.Open(lootGuid, 1, 37, loot.Items);
+lootState.ClearMoney(); Check(!lootState.TakeAutoRelease(), "money clear retains item");
+lootState.RemoveSlot(3); Check(lootState.TakeAutoRelease(), "last row arms auto release once");
+Check(!lootState.TakeAutoRelease(), "auto release edge is one-shot");
+var emptyLootWriter = new PacketWriter(); emptyLootWriter.WriteU64(lootGuid); emptyLootWriter.WriteU8(1);
+emptyLootWriter.WriteU32(0); emptyLootWriter.WriteU8(0);
+var emptyLoot = LootPackets.ParseResponse(emptyLootWriter.ToArray());
+Check(emptyLoot.Gold == 0 && emptyLoot.Items.Count == 0, "empty corpse response shape");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot opcodes/bodies/bounds/state");
