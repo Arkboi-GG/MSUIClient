@@ -1,0 +1,10 @@
+gm .gm on
+gm .help npc spawn add
+gm .npc spawn add 911
+select spawn:1
+trainer open
+wait 2
+ui-parity trainer
+wait 2
+gm .npc spawn delete
+gm .gm off

@@ -109,11 +109,14 @@ public sealed partial class GameLoop
 
     private void DrawTrainerFrame()
     {
-        if (_trainer is null) return;
-        float scale = GameplayUiScale();
-        ImGui.SetNextWindowSize(new Vector2(470, 470) * scale, ImGuiCond.Always);
-        if (!ImGui.Begin("Trainer##trainer", ImGuiWindowFlags.NoResize)) { ImGui.End(); return; }
-        ImGui.TextWrapped(_trainer.Greeting); ImGui.Separator();
+        if (_trainer is null||_gameplayArt is null) return;
+        float scale=GameplayUiScale();Vector2 origin=new(0,8*scale),logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*scale,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if(!ImGui.Begin("##trainer",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="trainer"){BeginUiParityFrame(origin,scale);CollectUiParityDraw("ClassTrainerFrame","Frame",origin,logicalSize*scale,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[("ClassTrainerFrame/Texture",@"Interface\ClassTrainerFrame\UI-ClassTrainer-TopLeft",Vector2.Zero,new(256,256)),("ClassTrainerFrame/Texture#2",@"Interface\ClassTrainerFrame\UI-ClassTrainer-TopRight",new(256,0),new(128,256)),("ClassTrainerFrameBottomLeft",@"Interface\ClassTrainerFrame\UI-ClassTrainer-BotLeft",new(0,256),new(256,256)),("ClassTrainerFrameBottomRight",@"Interface\ClassTrainerFrame\UI-ClassTrainer-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*scale;DrawArt(dl,r.Path,m,r.Size,scale);if(_uiParityArmed&&_uiParityPanel=="trainer")CollectUiParityDraw(r.Element,"Texture",m,r.Size*scale,"ClassTrainerFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","ClassTrainerFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(30,75)*scale);ImGui.BeginChild("##trainer-list",new Vector2(310,350)*scale,false);ImGui.TextWrapped(_trainer.Greeting);ImGui.Separator();
         uint money = 0;
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)) money = player.Fields.Coinage;
         foreach (TrainerSpell row in _trainer.Spells)
@@ -128,7 +131,9 @@ public sealed partial class GameLoop
             ImGui.EndDisabled();
             if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Requires level {row.RequiredLevel}; skill {row.RequiredSkill}:{row.RequiredSkillValue}");
         }
-        if (ImGui.Button("Close##trainer")) _trainer = null;
+        ImGui.EndChild();
+        Vector2 close=origin+new Vector2(322,8)*scale;DrawImageButton(dl,"##trainer-close",close,new Vector2(32)*scale,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_trainer=null;
+        if(_uiParityArmed&&_uiParityPanel=="trainer")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }

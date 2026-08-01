@@ -74,3 +74,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 5/124 with 119 NOT-DRAWN. Exact set: `live-runs/N2-0-3-5-merchant-20260801-200000/merchant-diff.csv`.
 - Work: derive item-grid, buyback, currency, paging, tab, and button evidence from the populated vendor draw path.
 - Review: `live-runs/N2-0-3-5-merchant-20260801-200000/merchant-contact.png`.
+
+## Q14 — 3-6 — trainer NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 5/111 with 106 NOT-DRAWN. Exact set: `live-runs/N2-0-3-6-trainer-20260801-201500/trainer-diff.csv`.
+- Work: derive service rows/filter/cost/button evidence and implement every absent reference element.
+- Review: `live-runs/N2-0-3-6-trainer-20260801-201500/trainer-contact.png`.

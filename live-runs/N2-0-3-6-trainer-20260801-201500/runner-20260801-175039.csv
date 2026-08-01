@@ -1,0 +1,13 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-6-trainer-20260801-201500\trainer-final.protocol
+1,PASS,gm .gm on
+2,PASS,gm .npc spawn add 911
+3,PASS,select spawn:1 guid=0xF13000038F04A2D0
+4,PASS,gm .gm off
+5,PASS,trainer open guid=0xF13000038F04A2D0
+6,PASS,wait 2
+7,PASS,ui-parity trainer
+8,PASS,wait 2
+9,PASS,gm .gm on
+10,PASS,gm .npc spawn delete
+11,PASS,gm .gm off

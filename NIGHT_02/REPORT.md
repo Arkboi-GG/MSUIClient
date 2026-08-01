@@ -171,3 +171,9 @@ the exact queued worklist. Evidence:
 Coverage: 5/124 with 119 NOT-DRAWN. A real in-range Stormwind vendor populated
 the newly original-art merchant shell. Evidence:
 `live-runs/N2-0-3-5-merchant-20260801-200000/N2-0-3-5-merchant-20260801-200000.md`.
+
+## 3-6 Trainer — CLOSED-FINDING
+
+Coverage: 5/111 with 106 NOT-DRAWN. A temporary real class trainer populated
+the newly original-art trainer shell and was deleted after capture. Evidence:
+`live-runs/N2-0-3-6-trainer-20260801-201500/N2-0-3-6-trainer-20260801-201500.md`.

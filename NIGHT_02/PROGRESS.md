@@ -37,3 +37,5 @@
 2026-08-01 19:45 local | 3-5 | OPEN | merchant parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 20:00 local | 3-5 | CLOSED-FINDING | built original merchant shell and captured a real populated Stormwind vendor; coverage 5/124 with 119 NOT-DRAWN | live-runs/N2-0-3-5-merchant-20260801-200000/N2-0-3-5-merchant-20260801-200000.md
 2026-08-01 20:00 local | 3-6 | OPEN | trainer parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 20:15 local | 3-6 | CLOSED-FINDING | built original trainer shell and captured an authoritative temporary class-trainer list; coverage 5/111 with 106 NOT-DRAWN | live-runs/N2-0-3-6-trainer-20260801-201500/N2-0-3-6-trainer-20260801-201500.md
+2026-08-01 20:15 local | 3-7 | OPEN | bank parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
