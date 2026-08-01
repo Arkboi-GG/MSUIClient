@@ -198,6 +198,19 @@ public sealed class MpqMount : IDisposable
         }
     }
 
+    public (byte[] Data, string Supplier)? ReadFileFromSupplier(string internalPath, string supplier)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            var selected = _archives.FirstOrDefault(x => x.Name.Equals(supplier, StringComparison.OrdinalIgnoreCase));
+            if (selected.Archive is null) return null;
+            byte[]? data = selected.Archive.ReadFile(internalPath);
+            return data is null ? null : (data, selected.Name);
+        }
+        finally { _lock.ExitReadLock(); }
+    }
+
     private readonly record struct PatchName(string Locale, int? Number);
 
     private static PatchName? ParsePatchName(string fileName)

@@ -53,6 +53,7 @@ static int Extract(string[] args)
     string panel = o.GetValueOrDefault("panel", "game-menu");
     string rootName = o.GetValueOrDefault("root", "GameMenuFrame");
     string xmlPath = o.GetValueOrDefault("xml", DefaultXml);
+    string xmlSupplier = o.GetValueOrDefault("xml-supplier", "");
     using var mpq = new MpqMount(data);
     var documents = new List<(string Path, string Supplier, XDocument Doc)>();
     var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, ActionButtonTemplatesXml, ActionBarFrameXml, ChatFrameXml, xmlPath }
@@ -62,7 +63,9 @@ static int Extract(string[] args)
     {
         path = path.Replace('/', '\\');
         if (!loaded.Add(path)) continue;
-        var hit = mpq.ReadFileWithSupplier(path) ?? throw new FileNotFoundException(path);
+        var hit = path.Equals(xmlPath, StringComparison.OrdinalIgnoreCase) && xmlSupplier.Length > 0
+            ? mpq.ReadFileFromSupplier(path, xmlSupplier) ?? throw new FileNotFoundException($"{xmlSupplier}:{path}")
+            : mpq.ReadFileWithSupplier(path) ?? throw new FileNotFoundException(path);
         var doc = XDocument.Parse(Encoding.UTF8.GetString(hit.Data));
         documents.Add((path, hit.Supplier, doc));
         string directory = Path.GetDirectoryName(path) ?? "";
