@@ -87,6 +87,11 @@ Check(teleportAck.Length == 16, "teleport ack body size");
 Check(teleportAck.AsSpan(0, 12).SequenceEqual(Hex("f0debc9a7856341207000000")),
     "teleport ack full-guid/counter layout");
 Check(new PacketReader(teleportAck, 12, 4).ReadU32() != 0, "teleport ack client time");
+Check(WorldSession.BuildCastSpellBody(6673, 0).SequenceEqual(Hex("111a00000000")),
+      "implicit-self cast body is spell id plus zero target mask");
+Check(WorldSession.BuildCastSpellBody(133, 0xF13000004500002Aul)
+          .SequenceEqual(Hex("850000000200c92a4530f1")),
+      "unit cast body uses TARGET_FLAG_UNIT plus packed guid");
 
 var hostile = new FactionTemplateRow { Faction = 1, EnemyGroupMask = 4 };
 var monster = new FactionTemplateRow { Faction = 2, GroupMask = 4 };

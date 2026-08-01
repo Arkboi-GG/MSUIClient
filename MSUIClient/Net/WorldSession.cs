@@ -284,11 +284,17 @@ public sealed class WorldSession : IDisposable
 
     public void CastSpell(uint spellId, ulong targetGuid)
     {
+        byte[] body = BuildCastSpellBody(spellId, targetGuid);
+        SendPacket((ushort)Op.CMSG_CAST_SPELL, body);
+    }
+
+    public static byte[] BuildCastSpellBody(uint spellId, ulong targetGuid)
+    {
         var w = new PacketWriter(targetGuid == 0 ? 6 : 14);
         w.WriteU32(spellId);
         w.WriteU16(targetGuid == 0 ? (ushort)0 : (ushort)0x0002); // TARGET_FLAG_SELF / UNIT
         if (targetGuid != 0) w.WritePackedGuid(targetGuid);
-        SendPacket((ushort)Op.CMSG_CAST_SPELL, w.AsSpan());
+        return w.ToArray();
     }
 
     public void CancelCast(uint spellId)

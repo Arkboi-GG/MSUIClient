@@ -1,0 +1,21 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\test-warrior-battle-shout.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .modify rage 1000
+4,PASS,wait 1
+5,PASS,gm .cooldown clear
+6,PASS,wait 1
+7,PASS,gm .gm off
+8,PASS,wait 1
+9,PASS,wire-trace start path=dumps/wire-20260801-092558.wlog
+10,PASS,socket-trace start n1c-spell-self path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-spell-self-20260801-092558.csv
+11,PASS,aura absent 6673
+12,PASS,cast 6673
+13,FAIL,waitspell SMSG_SPELL_GO timeout
+14,PASS,wait 1
+15,FAIL,aura present 6673
+16,PASS,socket-trace stop
+17,PASS,wire-trace stop
+18,PASS,gm .gps
+19,PASS,waitfor GmChatResponse

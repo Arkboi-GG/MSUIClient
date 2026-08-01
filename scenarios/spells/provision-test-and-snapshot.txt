@@ -1,6 +1,6 @@
 gm .gps
 waitfor GmChatResponse 3
-gm .level 60
+gm .character level Test 60
 wait 1
 gm .learn all_myclass
 wait 1

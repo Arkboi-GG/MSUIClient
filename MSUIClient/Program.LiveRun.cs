@@ -50,6 +50,10 @@ public sealed partial class GameLoop
     private double _liveWaitUntil;
     private string? _liveWaitPattern;
     private double _liveWaitTimeout;
+    private string? _liveSpellWaitResult;
+    private double _liveSpellWaitTimeout;
+    private int _liveSpellWaitAfter;
+    private uint _liveLastCastSpell;
     private readonly List<string> _liveLog = [];
     private string _liveStamp = "";
     private readonly List<ulong> _liveSpawnGuids = [];
@@ -106,6 +110,17 @@ public sealed partial class GameLoop
         }
         double now=NowSeconds();
         if (_liveWaitUntil>now) return;
+        if (_liveSpellWaitResult is not null)
+        {
+            bool foundSpell = _verdicts.Snapshot("spell-sweep").OfType<SpellSweepVerdict>()
+                .Skip(_liveSpellWaitAfter).Any(v => v.SpellId == _liveLastCastSpell &&
+                    v.Result.Equals(_liveSpellWaitResult, StringComparison.OrdinalIgnoreCase));
+            if (foundSpell)
+            { Log(true,$"waitspell {_liveSpellWaitResult}"); _liveSpellWaitResult=null; _liveStep++; }
+            else if (now>=_liveSpellWaitTimeout)
+            { Log(false,$"waitspell {_liveSpellWaitResult} timeout"); _liveSpellWaitResult=null; _liveStep++; }
+            else return;
+        }
         if (_liveWaitPattern is not null)
         {
             if (VerdictLines().Any(x=>x.Contains(_liveWaitPattern,StringComparison.OrdinalIgnoreCase)))
@@ -221,7 +236,19 @@ public sealed partial class GameLoop
                     uint castSpell = uint.Parse(p[1], CultureInfo.InvariantCulture);
                     int beforeCast = _verdicts.Snapshot("spell-sweep").Count;
                     TryCast(castSpell);
+                    _liveLastCastSpell = castSpell;
+                    _liveSpellWaitAfter = _verdicts.Snapshot("spell-sweep").Count;
                     Log(_verdicts.Snapshot("spell-sweep").Count > beforeCast, line);
+                    break;
+                case "waitspell":
+                    string[] spellWait = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    _liveSpellWaitResult = spellWait[1];
+                    _liveSpellWaitTimeout = now + double.Parse(spellWait[2], CultureInfo.InvariantCulture);
+                    return;
+                case "aura":
+                    bool expectedAura = p[1].Equals("present", StringComparison.OrdinalIgnoreCase);
+                    uint auraSpell = uint.Parse(p[2], CultureInfo.InvariantCulture);
+                    Log(EmitAuraEffectCheck(auraSpell, expectedAura), line);
                     break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;

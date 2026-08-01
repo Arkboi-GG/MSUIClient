@@ -167,3 +167,15 @@ Format per entry:
   `dumps/wire-20260801-083715.txt` / `.wlog`.
 - Agent recommendation: fold the gossip opcode into the next already-authorized
   server dispatch discrimination rather than instrument or modify the server here.
+
+## Q15 — F-SILENT-INTERACT — one cross-opcode server-silence ruling
+- Decision needed: after NIGHT_01 completes its client increments, authorize one
+  shared server admission/dispatch diagnosis; do not diagnose these item-by-item.
+- Evidence: `live-runs/N1B-4-1-gossip-20260801-084200.md`,
+  `live-runs/N1B-2-1-vendor-20260801-085100.md`, and
+  `live-runs/N1C-3-1-spell-wire-20260801-093000.md`.
+- Registered family: flushed attack, gossip, vendor, and now GM-off
+  implicit-self cast opcodes were silent while delivered `.gps` controls proved
+  the session alive.
+- Agent recommendation: one shared entry-symbol trace; keep server code/config/
+  restarts out of this client run.

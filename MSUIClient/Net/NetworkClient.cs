@@ -277,7 +277,11 @@ public sealed class NetworkClient : IDisposable
         try { _session.SendChatSay(text, Player?.FactionLanguage ?? 0); return true; } catch { return false; }
     }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
-    public void CastSpell(uint spellId, ulong targetGuid) { try { _session?.CastSpell(spellId, targetGuid); } catch { } }
+    public bool CastSpell(uint spellId, ulong targetGuid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.CastSpell(spellId, targetGuid); return true; } catch { return false; }
+    }
     public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
     public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
     public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }

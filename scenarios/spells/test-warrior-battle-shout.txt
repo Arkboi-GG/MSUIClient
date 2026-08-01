@@ -1,0 +1,19 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .modify rage 1000
+wait 1
+gm .cooldown clear
+wait 1
+gm .gm off
+wait 1
+wire-trace start
+socket-trace start n1c-spell-self
+aura absent 6673
+cast 6673
+waitspell SMSG_SPELL_GO 4
+wait 1
+aura present 6673
+socket-trace stop
+wire-trace stop
+gm .gps
+waitfor GmChatResponse 3

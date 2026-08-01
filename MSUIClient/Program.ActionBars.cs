@@ -148,8 +148,9 @@ public sealed partial class GameLoop
             RefuseCast("Not enough power");
             return;
         }
-        _net.CastSpell(spellId, target);
-        EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: true);
+        bool sent = _net.CastSpell(spellId, target);
+        EmitCastVerdict(spellId, targetVerdict.Reason, target, sent);
+        if (!sent) return;
         if (spell.AutoRepeat) _autoRepeatSpell = spellId;
         else if (spell.OnNextSwing) _queuedMeleeSpell = spellId;
         else _pendingCastSpell = spellId;

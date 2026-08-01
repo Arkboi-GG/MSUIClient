@@ -95,6 +95,24 @@ public sealed partial class GameLoop
         Console.WriteLine($"[verdict:spell-sweep] {verdict.ToLine()}");
     }
 
+    private bool EmitAuraEffectCheck(uint spellId, bool expectedPresent)
+    {
+        WorldEntity? player = null;
+        bool hasPlayer = _net is not null && _entities.TryGet(_net.PlayerGuid, out player);
+        bool present = hasPlayer && player!.Fields.Auras().Any(a => a.SpellId == spellId);
+        byte classId = hasPlayer ? player!.Fields.Bytes0.Class : (byte)0;
+        SpellInfo? info = _spellCatalog?.TryGet(spellId, out SpellInfo found) == true ? found : null;
+        var verdict = new SpellSweepVerdict(NowSeconds(), _net?.PlayerName ?? "", classId, spellId,
+            info?.Name ?? $"Spell {spellId}", SchoolName(info?.School ?? 0), "EFFECT_CHECK",
+            present ? "AURA_PRESENT" : "AURA_ABSENT", _character?.CurrentAnimation ?? "none",
+            "PLAYER_DESCRIPTOR_AURA", "SELF", true, true, "NONE", 0, 0,
+            _net?.PlayerGuid ?? 0, false);
+        _verdicts.Add(verdict);
+        Console.WriteLine($"[verdict:spell-sweep] {verdict.ToLine()}");
+        return present == expectedPresent;
+    }
+
+
     private string SpellEffectCheck(SpellInfo? info)
     {
         if (info is not { VisualId: > 0 } spell || _spellVisualCatalog is null ||

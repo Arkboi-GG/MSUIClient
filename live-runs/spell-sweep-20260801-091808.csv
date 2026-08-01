@@ -1,0 +1,69 @@
+time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
+0.557,"Test",1,8326,"Ghost",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Spells\Ghost_state.mdx",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+0.581,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+4.714,"Test",1,23695,"Improved Hamstring",PHYSICAL,CAST,SPELL_FAILED_DONT_REPORT,"Stand","NO_VISUAL",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+8.607,"Test",1,71,"Defensive Stance",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","spells\defensivestance_impact_head.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,355,"Taunt",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Taunt_Head.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,676,"Disarm",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Disarm_Impact_Chest.mdx|Spells\BloodLust_State_Hand.mdx",UNBOUND,True,True,RAGE,198,200,0x0000000000000000,False
+8.607,"Test",1,871,"Shield Wall",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\DefensiveStance_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,1161,"Challenging Shout",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ChallengingShout_Cast_Base.mdx|Spells\Taunt_Head.mdx",UNBOUND,True,True,RAGE,198,50,0x0000000000000000,False
+8.607,"Test",1,1672,"Shield Bash",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ShieldBash_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,1680,"Whirlwind",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Whirlwind_State_Base.mdx|Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,250,0x0000000000000000,False
+8.607,"Test",1,1719,"Recklessness",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Eviscerate_Cast_Hands.mdx|Spells\Recklessness_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,2457,"Battle Stance",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","spells\battlestance_impact_head.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,2458,"Berserker Stance",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","spells\berzerkerstance_impact_head.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,2479,"Honorless Target",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,2565,"Shield Block",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ShieldWall_Impact_Base.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,2687,"Bloodrage",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,POWER_254,0,0,0x0000000000000000,False
+8.607,"Test",1,3365,"Opening",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,5246,"Intimidating Shout",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\IntimidatingShout_Cast_Base.mdx|Spells\Fear_State_Head.mdx|spells\fear_state_base.mdx",UNBOUND,True,True,RAGE,198,250,0x0000000000000000,False
+8.607,"Test",1,6233,"Closing",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,6246,"Closing",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,6247,"Opening",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,6477,"Opening",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,6478,"Opening",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,6554,"Pummel",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Kick_Chest_Impact.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,6603,"Attack",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,7266,"Duel",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,7267,"Grovel",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,7355,"Stuck",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,7373,"Hamstring",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Maim_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,8386,"Attacking",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,11556,"Demoralizing Shout",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\DemoralizingShout_Cast_Base.mdx|Spells\DemoralizingShout_Impact_Head.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,11574,"Rend",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\BloodyExplosion.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,11578,"Charge",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ChargeTrail.mdx|Spells\DustCloud_Land.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,11581,"Thunder Clap",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Lightning_Cast_Hand.mdx|Spells\LightningBolt_Impact_Chest.mdx|Spells\Slow_Impact_Base.mdx",UNBOUND,True,True,RAGE,198,200,0x0000000000000000,False
+8.607,"Test",1,11585,"Overpower",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,50,0x0000000000000000,False
+8.607,"Test",1,11597,"Sunder Armor",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Sunder_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,150,0x0000000000000000,False
+8.607,"Test",1,11605,"Slam",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Slam_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,150,0x0000000000000000,False
+8.607,"Test",1,12292,"Sweeping Strikes",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Holy_Precast_Low_Hand.mdx|Spells\InnerFire_Base.mdx",UNBOUND,True,True,RAGE,198,300,0x0000000000000000,False
+8.607,"Test",1,12323,"Piercing Howl",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\DemoralizingShout_Cast_Base.mdx|spells\piercinghowl_impact_head.mdx|Spells\Slow_Impact_Base.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,12328,"Death Wish",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","spells\deathwish_state_hand.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,12809,"Concussion Blow",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Slam_Impact_Chest.mdx|Spells\StunSwirl_State_Head.mdx",UNBOUND,True,True,RAGE,198,150,0x0000000000000000,False
+8.607,"Test",1,12975,"Last Stand",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,18499,"Berserker Rage",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\BeastRageCaster.mdx|Spells\BloodLust_State_Hand.mdx",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,20560,"Mocking Blow",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,20569,"Cleave",PHYSICAL,NEXT_SWING,ROSTER_KNOWN,"Stand","Spells\Cleave_Cast_Base.mdx|Spells\Cleave_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,200,0x0000000000000000,False
+8.607,"Test",1,20600,"Perception",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","spells\presenceofmind_cast_base.mdx",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,20617,"Intercept",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ChargeTrail.mdx|Spells\DustCloud_Land.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,20647,"Execute",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,1,0x0000000000000000,False
+8.607,"Test",1,20662,"Execute",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\BloodLust_State_Hand.mdx|Spells\BloodyExplosion.mdx",UNBOUND,True,True,RAGE,198,150,0x0000000000000000,False
+8.607,"Test",1,21553,"Mortal Strike",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,300,0x0000000000000000,False
+8.607,"Test",1,21651,"Opening",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,21652,"Closing",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,22027,"Remove Insignia",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,22810,"Opening - No Text",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","VISUAL_CHAIN_NO_MODEL",UNBOUND,True,True,MANA,0,0,0x0000000000000000,False
+8.607,"Test",1,23880,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23885,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23886,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23887,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23888,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23889,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23890,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23891,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","NO_VISUAL",UNBOUND,True,True,RAGE,198,0,0x0000000000000000,False
+8.607,"Test",1,23894,"Bloodthirst",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\BloodyExplosion.mdx",UNBOUND,True,True,RAGE,198,300,0x0000000000000000,False
+8.607,"Test",1,23925,"Shield Slam",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\ShieldBash_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,200,0x0000000000000000,False
+8.607,"Test",1,25286,"Heroic Strike",PHYSICAL,NEXT_SWING,ROSTER_KNOWN,"Stand","Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,150,0x0000000000000000,False
+8.607,"Test",1,25288,"Revenge",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\Strike_Impact_Chest.mdx",UNBOUND,True,True,RAGE,198,50,0x0000000000000000,False
+8.607,"Test",1,25289,"Battle Shout",PHYSICAL,CAST,ROSTER_KNOWN,"Stand","Spells\BattleShout_Cast_Base.mdx",UNBOUND,True,True,RAGE,198,100,0x0000000000000000,False
+8.607,"Test",1,26188,"Thunderstomp",NATURE,CAST,ROSTER_KNOWN,"Stand","Spells\Lightning_Cast_Hand.mdx|Spells\LightningBolt_Impact_Chest.mdx|Spells\Slow_Impact_Base.mdx",UNBOUND,True,True,POWER_2,0,60,0x0000000000000000,False

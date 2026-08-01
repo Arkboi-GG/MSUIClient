@@ -342,3 +342,16 @@ packet-backed merchant UI built; byte gate passes. A 12/12 live runner flushed
 the exact vendor list CMSG but the bounded wire log contains no server vendor
 response, so no unsafe buy/sell/buyback was attempted. Evidence:
 `live-runs/N1B-2-1-vendor-20260801-085100.md`.
+
+## NIGHT_01C 3-1 — cast correctness and spell sweep
+
+`CLOSED-FINDING`: spell pre-send gate, named-result channel, known-spell CSV,
+renderer-state/effect STRING columns, roster provisioner, sequence-scoped runner,
+and descriptor aura check are built. TEST/Warrior produced 65 non-passive known
+spell rows. A GM-off rank-1 Battle Shout flushed exact body
+`11 1A 00 00 00 00`, but received no spell response and applied no aura; the
+adjacent `.gps` control was delivered. Registered once as
+`BLOCKED-BY:F-SILENT-INTERACT`. The account reached its 10-character cap after
+creating `Nbwarhuman`; stale-character deletion was not permitted, so the
+remaining class representatives were not fabricated around. Evidence:
+`live-runs/N1C-3-1-spell-wire-20260801-093000.md`.
