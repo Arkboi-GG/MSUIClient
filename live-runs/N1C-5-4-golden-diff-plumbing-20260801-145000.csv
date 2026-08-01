@@ -1,0 +1,17 @@
+name,msui,benilla,delta
+gravity,0,0,0
+hardCuts,0,0,0
+jumpAirtime,0,0,0
+jumpApexHeight,0,0,0
+jumpApexTime,0,0,0
+jumpVelocity,0,0,0
+maxSpeed,4.5,4.5,0
+predictedAirtime,0,0,0
+predictedApex,0,0,0
+predictedApexTime,0,0,0
+stallWindows,0,0,0
+startClipLatencyMs,0,0,0
+startDisplacementTicks,1,1,0
+stopDistance,0,0,0
+substitutedEvents,0,0,0
+turnRate,0,0,0

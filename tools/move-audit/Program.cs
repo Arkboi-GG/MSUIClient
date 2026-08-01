@@ -10,11 +10,29 @@ static class MoveAudit
     static int Main(string[] args)
     {
         if (args.Length == 3 && args[0] == "--check") return Check(args[1], args[2]);
-        if (args.Length is < 1 or > 3) { Console.Error.WriteLine("usage: move-audit <trace.csv> [expected.csv] [verdicts.csv] | --check <baseline-dir> <expected-dir>"); return 2; }
+        if (args.Length == 4 && args[0] == "--golden-diff") return GoldenDiff(args[1], args[2], args[3]);
+        if (args.Length is < 1 or > 3) { Console.Error.WriteLine("usage: move-audit <trace.csv> [expected.csv] [verdicts.csv] | --check <baseline-dir> <expected-dir> | --golden-diff <msui-trace.csv> <benilla-trace.csv> <diff.csv>"); return 2; }
         var metrics = Measure(args[0]);
         if (args.Length == 1) { foreach (var m in metrics) Console.WriteLine($"{m.Key},{F(m.Value)}"); return 0; }
         string output = args.Length == 3 ? args[2] : Path.Combine(Path.GetDirectoryName(args[0])!, Path.GetFileNameWithoutExtension(args[0]) + "-verdicts.csv");
         return Audit(metrics, args[1], output, currentOnly: false);
+    }
+
+    static int GoldenDiff(string currentTrace, string goldenTrace, string output)
+    {
+        Dictionary<string,double> current = Measure(currentTrace), golden = Measure(goldenTrace);
+        var lines = new List<string> { "name,msui,benilla,delta" };
+        foreach (string name in current.Keys.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            if (!golden.TryGetValue(name, out double reference))
+                throw new InvalidDataException($"golden trace did not produce metric {name}");
+            lines.Add(string.Join(',', name, F(current[name]), F(reference), F(current[name] - reference)));
+        }
+        string? directory = Path.GetDirectoryName(Path.GetFullPath(output));
+        if (directory is not null) Directory.CreateDirectory(directory);
+        File.WriteAllLines(output, lines);
+        Console.WriteLine($"golden diff wrote {lines.Count - 1} metric row(s): {output}");
+        return 0;
     }
 
     static int Check(string baseline, string expected)

@@ -570,3 +570,11 @@ validation; 33 instance rows passed arrival-plan/catalog checks; and five reside
 recorded current renderer state. The live protocol passed 8/8 with zero portal or instance errors
 and delivered `.gps` controls. No F3–F6 behavior changed. Evidence:
 `live-runs/N1C-4-7-environment-audit-20260801-144000.md`.
+## 2026-08-01 14:50 local — item 5-4 Benilla golden traces
+
+Implemented and controlled a 16-metric MSUI-versus-Benilla golden-diff output. The actual Stage B
+launch was attempted at the recorded checkout: the recorded PowerShell launcher is absent, `cargo`
+is unavailable, and the checkout contains neither scripted input nor a trace dumper. No golden was
+fabricated. Existing Q11 therefore remains `SHELVED-RULING`; recommendation is the I14-authorized
+eyeball-only downgrade while analytic bands remain primary. Evidence:
+`live-runs/N1C-5-4-benilla-goldens-20260801-145000.md`.
