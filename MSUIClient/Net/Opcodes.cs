@@ -211,6 +211,7 @@ public enum Op : ushort
     SMSG_SPELLHEALLOG            = 0x0150,
     SMSG_SPELLENERGIZELOG        = 0x0151,
     SMSG_LOG_XPGAIN              = 0x01D0,
+    SMSG_LEVELUP_INFO            = 0x01D4,
     SMSG_ENVIRONMENTALDAMAGELOG  = 0x01FC,
     SMSG_SPELLLOGMISS            = 0x024B,
     SMSG_PERIODICAURALOG         = 0x024E,

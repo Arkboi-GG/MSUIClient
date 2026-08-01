@@ -577,6 +577,14 @@ public sealed partial class GameLoop
         Vector2 size = new(GameplayBarWidth * scale, 13f * scale);
         dl.AddRectFilled(barMin, barMin + size, 0x80000000u);
         DrawVanillaStatusBar(dl, barMin, size, fraction, new Vector4(0.58f, 0f, 0.55f, 1f));
+        uint rested = player.Fields.RestStateExperience;
+        if (maximum > 0 && rested > 0)
+        {
+            float restedFraction = Math.Clamp((float)(current + Math.Min(rested, maximum)) / maximum, fraction, 1f);
+            Vector2 restedMin = new(barMin.X + size.X * fraction, barMin.Y);
+            Vector2 restedMax = new(barMin.X + size.X * restedFraction, barMin.Y + size.Y);
+            dl.AddRectFilled(restedMin, restedMax, 0xB0B06000u);
+        }
 
         uint dwarf = _gameplayArt.Handle(@"Interface\MainMenuBar\UI-MainMenuBar-Dwarf.blp");
         if (dwarf != 0)
@@ -602,6 +610,7 @@ public sealed partial class GameLoop
         {
             ImGui.BeginTooltip();
             ImGui.TextUnformatted($"Experience: {current} / {maximum}");
+            ImGui.TextUnformatted($"Rested bonus: {rested} ({RestStateName(player.Fields.RestState)})");
             ImGui.EndTooltip();
         }
     }

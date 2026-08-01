@@ -324,6 +324,12 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateGameObjectFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "rest-xp":
+                    if (p[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase))
+                    { RestSnapshot? rs = CurrentRestSnapshot(); if (rs is not null) { EmitRestSnapshot("CAPTURED", rs.Value); _restXpOpen = true; } Log(rs is not null, line); }
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateRestXpFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "character":
                     if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
                     else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))

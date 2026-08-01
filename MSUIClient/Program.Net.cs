@@ -195,6 +195,7 @@ public sealed partial class GameLoop
             ResetCombatFeedback();
             ResetLoot();
             ResetGameObjects();
+            ResetRestXp();
             ResetGossip();
             ResetMail();
             ResetAuction();
@@ -607,6 +608,9 @@ public sealed partial class GameLoop
                         ObserveChannelCombat(combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
+                    case Op.SMSG_LEVELUP_INFO:
+                        ApplyLevelUpInfo(body);
+                        break;
                     case Op.SMSG_ATTACKSWING_NOTINRANGE:
                     case Op.SMSG_ATTACKSWING_BADFACING:
                     case Op.SMSG_ATTACKSWING_NOTSTANDING:
@@ -666,7 +670,7 @@ public sealed partial class GameLoop
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
         _entities.Apply(u);
-        if (u.Guid == _net?.PlayerGuid) ObserveQuestLog();
+        if (u.Guid == _net?.PlayerGuid) { ObserveQuestLog(); ObserveRestXp(); }
         ObserveAuraObjectUpdate(u.Guid, aurasBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)

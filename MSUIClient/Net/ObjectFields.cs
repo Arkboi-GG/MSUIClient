@@ -79,6 +79,7 @@ public sealed class ObjectFields
     public const ushort PLAYER_SKILL_INFO_1_1 = 718;
     public const ushort PLAYER_CHARACTER_POINTS1 = 1102;
     public const ushort PLAYER_CHARACTER_POINTS2 = 1103;
+    public const ushort PLAYER_REST_STATE_EXPERIENCE = 1175;
     public const ushort PLAYER_COINAGE = 1176;
     public const ushort PLAYER_POSSTAT0 = 1177;
     public const ushort PLAYER_NEGSTAT0 = 1182;
@@ -247,6 +248,8 @@ public sealed class ObjectFields
     public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
     public uint Experience => GetU32(PLAYER_XP) ?? 0;
     public uint NextLevelExperience => GetU32(PLAYER_NEXT_LEVEL_XP) ?? 0;
+    public uint RestStateExperience => GetU32(PLAYER_REST_STATE_EXPERIENCE) ?? 0;
+    public byte RestState => (byte)((GetU32(PLAYER_BYTES_2) ?? 0) >> 24);
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;

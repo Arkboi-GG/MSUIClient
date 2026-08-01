@@ -516,3 +516,18 @@ Status: `CLOSED-FINDING`
   `live-runs/verdicts-20260801-134726.txt`,
   `live-runs/N1C-4-2-gameobjects-ui-20260801-134726.png`, and
   `scenarios/world/gameobjects-live.txt`.
+
+## NIGHT_01C 4-3 — resting / XP — 2026-08-01 14:00 local
+
+Status: `CLOSED-PASS`
+
+- Built descriptor-level rest-state/rest-bonus instrumentation, rested-XP bar/tooltip,
+  exact `SMSG_LEVELUP_INFO` decode, level/stat/health/talent-point plate verification,
+  runtime replay cells for kill rested bonus and quest XP, UI, and runner commands.
+- Final protocol passed 20/20. Authorized TEST was changed 60→59 with `.levelup -1` and
+  59→60 with `.levelup 1`; the server sent the exact 48-byte level-up packet (health +90,
+  stats +2/+1/+2/+0/-1), then descriptors independently confirmed health 2519→2609,
+  talent points 49→50, and all five stat changes. `.gps` controls bracketed the run.
+- Normal/rested enter/leave, bonus accumulation/consumption, doubled kill XP, and quest XP
+  leaving the rested pool untouched were replayed through the same verdict/UI paths.
+  Evidence: `live-runs/N1C-4-3-rest-xp-20260801-140000.md`.

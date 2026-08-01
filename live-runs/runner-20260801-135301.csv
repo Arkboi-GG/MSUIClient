@@ -1,0 +1,22 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\world\rest-xp-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,rest-xp snapshot
+4,PASS,gm .gm on
+5,PASS,gm .levelup -1
+6,PASS,wait 2
+7,PASS,rest-xp snapshot
+8,PASS,gm .levelup 1
+9,PASS,wait 3
+10,PASS,rest-xp snapshot
+11,PASS,rest-xp simulate
+12,PASS,assert family=rest-xp step=level-up-info outcome=DECODED
+13,PASS,assert family=rest-xp step=kill-xp outcome=BONUS_VERIFIED
+14,PASS,assert family=rest-xp step=quest-xp outcome=VERIFIED
+15,PASS,assert family=rest-xp step=level-plates outcome=UPDATED
+16,PASS,dump n1c-rest-xp-ui
+17,PASS,wait 2
+18,PASS,gm .gm off
+19,PASS,gm .gps
+20,PASS,waitfor GmChatResponse
