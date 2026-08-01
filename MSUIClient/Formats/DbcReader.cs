@@ -1245,6 +1245,24 @@ public sealed class LoadingScreenTable
     }
 }
 
+/// <summary>Build-5875 BankBagSlotPrices.dbc: id + copper price.</summary>
+public sealed class BankBagSlotPriceTable
+{
+    public const string MpqPath = @"DBFilesClient\BankBagSlotPrices.dbc";
+    private readonly Dictionary<int, uint> _prices = [];
+    public uint Price(int oneBasedSlot) => _prices.GetValueOrDefault(oneBasedSlot);
+
+    public static BankBagSlotPriceTable? Parse(byte[] data)
+    {
+        DbcFile? dbc = DbcFile.Parse(data);
+        if (dbc is null || dbc.FieldCount < 2) return null;
+        var table = new BankBagSlotPriceTable();
+        for (int row = 0; row < dbc.RecordCount; row++)
+            table._prices[dbc.GetInt(row, 0)] = dbc.GetUInt(row, 1);
+        return table;
+    }
+}
+
 // ============================================================================
 // AREA TRIGGERS — AreaTrigger.dbc.
 //

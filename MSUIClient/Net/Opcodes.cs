@@ -101,6 +101,10 @@ public enum Op : ushort
     CMSG_TRAINER_BUY_SPELL        = 0x01B2,
     SMSG_TRAINER_BUY_SUCCEEDED    = 0x01B3,
     SMSG_TRAINER_BUY_FAILED       = 0x01B4,
+    CMSG_BANKER_ACTIVATE          = 0x01B7,
+    SMSG_SHOW_BANK                = 0x01B8,
+    CMSG_BUY_BANK_SLOT            = 0x01B9,
+    SMSG_BUY_BANK_SLOT_RESULT     = 0x01BA,
 
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,

@@ -247,6 +247,7 @@ public sealed class ObjectFields
     public uint TalentPoints => GetU32(PLAYER_CHARACTER_POINTS1) ?? 0;
     public uint FreeProfessions => GetU32(PLAYER_CHARACTER_POINTS2) ?? 0;
     public uint Coinage => GetU32(PLAYER_COINAGE) ?? 0;
+    public byte BankBagSlotCount => (byte)((GetU32(PLAYER_BYTES_2) ?? 0) >> 16);
     public IEnumerable<(byte Slot, uint QuestId, uint Counters, uint Timer)> QuestLog()
     {
         for (byte slot = 0; slot < 20; slot++)

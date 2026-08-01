@@ -384,6 +384,14 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_TRAINER_BUY_SPELL, BuildTrainerBuyBody(guid, spellId));
     }
 
+    public void BankerActivate(ulong guid)
+        => SendPacket((ushort)Op.CMSG_BANKER_ACTIVATE, BuildBankGuidBody(guid));
+
+    public void BuyBankSlot(ulong guid)
+        => SendPacket((ushort)Op.CMSG_BUY_BANK_SLOT, BuildBankGuidBody(guid));
+
+    public static byte[] BuildBankGuidBody(ulong guid) => BuildGuidBody(guid);
+
     public static byte[] BuildTrainerListBody(ulong guid)
     { var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray(); }
 

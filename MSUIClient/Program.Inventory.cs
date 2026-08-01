@@ -33,6 +33,7 @@ public sealed partial class GameLoop
         }
         catch (Exception ex) { Console.WriteLine($"[items] display catalog failed: {ex.Message}"); }
         _items = new ItemTemplateCache(displays);
+        InitBank();
     }
 
     private void UpdateInventoryInput(bool typing)
@@ -51,6 +52,7 @@ public sealed partial class GameLoop
                 _items.Require(entity.Entry, entity.Guid, _net);
         SyncLiveEquipmentModel();
         ObserveInventoryTransition();
+        ObserveBankTransition();
     }
 
     private void ObserveInventoryTransition()

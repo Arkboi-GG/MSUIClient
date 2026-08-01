@@ -396,6 +396,12 @@ public sealed partial class GameLoop
                     case Op.SMSG_TRAINER_BUY_FAILED:
                         ApplyTrainerFailure(body);
                         break;
+                    case Op.SMSG_SHOW_BANK:
+                        ApplyShowBank(body);
+                        break;
+                    case Op.SMSG_BUY_BANK_SLOT_RESULT:
+                        ApplyBuyBankSlotResult(body);
+                        break;
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);
                         break;

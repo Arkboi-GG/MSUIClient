@@ -313,6 +313,15 @@ public sealed partial class GameLoop
                         Log(UnequipSlot(int.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else Log(false, $"unknown {line}");
                     break;
+                case "bank":
+                    if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestBank(_selectionGuid), line);
+                    else if (p[1].Equals("deposit-entry", StringComparison.OrdinalIgnoreCase))
+                        Log(DepositBankEntry(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("withdraw-entry", StringComparison.OrdinalIgnoreCase))
+                        Log(WithdrawBankEntry(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("buy-slot", StringComparison.OrdinalIgnoreCase)) Log(BuyNextBankSlot(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

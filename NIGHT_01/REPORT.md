@@ -424,3 +424,12 @@ live flow passed 25/25: Worn Shortsword matched the read-only DB row and wire
 template, retained durability 20/20, moved backpack→main hand→backpack, and the
 server-authoritative displayed damage changed from 4.94–6.94 to 4.14–4.14 after
 unequip. Evidence: `live-runs/N1C-2-12-character-inventory-20260801-120500.md`.
+
+## NIGHT_01C 2-5 — bank
+
+`CLOSED-PASS`: exact banker activation, deposit/withdraw, DBC price, purchase,
+bank state/UI, runner, and byte-gate families are built. The GM-off live flow
+passed 31/31: bank open returned, one item moved backpack→bank→backpack with
+exact swap bodies, and a 10,000-copper bag-slot purchase changed money and the
+server-authoritative slot count from 1→2. Evidence:
+`live-runs/N1C-2-5-bank-20260801-121500.md`.

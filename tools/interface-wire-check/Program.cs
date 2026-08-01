@@ -125,4 +125,10 @@ Check(WorldSession.BuildSwapInventoryBody(15, 25).SequenceEqual(Convert.FromHexS
 Check(WorldSession.BuildSwapItemsBody(255, 25, 19, 2).SequenceEqual(Convert.FromHexString("FF191302")),
       "swap bag destination/source body");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory opcodes/bodies/bounds/state");
+Check((ushort)Op.CMSG_BANKER_ACTIVATE == 439 && (ushort)Op.SMSG_SHOW_BANK == 440 &&
+      (ushort)Op.CMSG_BUY_BANK_SLOT == 441 && (ushort)Op.SMSG_BUY_BANK_SLOT_RESULT == 442,
+      "bank opcodes");
+Check(WorldSession.BuildBankGuidBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "bank open/purchase full guid body");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank opcodes/bodies/bounds/state");
