@@ -245,3 +245,9 @@ Evidence: `live-runs/N2-0-4-2-options-20260801-224500/N2-0-4-2-options-20260801-
 Coverage: 7/249 with 242 NOT-DRAWN. The previously disabled/missing UI now has
 a menu route, shipped shell, category/binding list, and close actions.
 Evidence: `live-runs/N2-0-4-3-keybindings-20260801-230000/N2-0-4-3-keybindings-20260801-230000.md`.
+
+## 4-4 Macro UI — CLOSED-FINDING
+
+Coverage: 6/158 with 152 NOT-DRAWN. The previously missing macro frame now has
+a menu route, shipped shell, slot grid, name/body editors, and local actions.
+Evidence: `live-runs/N2-0-4-4-macro-20260801-231500/N2-0-4-4-macro-20260801-231500.md`.

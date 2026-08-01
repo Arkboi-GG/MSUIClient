@@ -62,3 +62,5 @@
 2026-08-01 22:45 local | 4-3 | OPEN | keybindings parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
 2026-08-01 23:00 local | 4-3 | CLOSED-FINDING | previously absent keybindings UI built, menu-enabled, and captured with shipped six-region shell; coverage 7/249 with 242 NOT-DRAWN | live-runs/N2-0-4-3-keybindings-20260801-230000/N2-0-4-3-keybindings-20260801-230000.md
 2026-08-01 23:00 local | 4-4 | OPEN | macro UI parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
+2026-08-01 23:15 local | 4-4 | CLOSED-FINDING | previously absent macro UI built, menu-enabled, and captured after preserved build-failure attempt; coverage 6/158 with 152 NOT-DRAWN | live-runs/N2-0-4-4-macro-20260801-231500/N2-0-4-4-macro-20260801-231500.md
+2026-08-01 23:15 local | 4-5 | OPEN | GameTooltip parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md

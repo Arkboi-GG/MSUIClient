@@ -146,3 +146,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 7/249 with 242 NOT-DRAWN. Exact set: `live-runs/N2-0-4-3-keybindings-20260801-230000/keybindings-diff.csv`.
 - Work: implement editable binding state/persistence, categories, every binding row/label/button state, defaults/account-character scope, okay/cancel, header/font, and remaining vanilla elements.
 - Review: `live-runs/N2-0-4-3-keybindings-20260801-230000/keybindings-contact.png`.
+
+## Q26 — 4-4 — macro NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 6/158 with 152 NOT-DRAWN. Exact set: `live-runs/N2-0-4-4-macro-20260801-231500/macro-diff.csv`.
+- Work: persist and execute macros, implement account/character tabs, complete icon selector/grid, selected icon/name/body/limit, buttons, fonts, separators, and every absent reference element.
+- Review: `live-runs/N2-0-4-4-macro-20260801-231500/macro-contact.png`.

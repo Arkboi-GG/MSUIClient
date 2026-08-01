@@ -382,7 +382,7 @@ public sealed partial class GameLoop
         Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
             true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();_keybindingsOpen=true; });
         Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
-            false, () => { }, "Macro creation is not built yet.");
+            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();_macroOpen=true; });
         Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
             false, () => { }, "Character logout is not built yet.");
 
