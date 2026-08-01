@@ -197,3 +197,9 @@ the newly original-art shell. Evidence:
 Coverage: 7/225 with 218 NOT-DRAWN. A temporary auctioneer supplied the real
 wire-open/browse path; the populated fixture remains explicitly REPLAYED.
 Evidence: `live-runs/N2-0-3-9-auction-20260801-210000/N2-0-3-9-auction-20260801-210000.md`.
+
+## 3-10 Loot — CLOSED-FINDING
+
+Coverage: 4/20 with 16 NOT-DRAWN. The already original-art loot frame was
+instrumented and captured against an authoritative corpse-loot response.
+Evidence: `live-runs/N2-0-3-10-loot-20260801-211500/N2-0-3-10-loot-20260801-211500.md`.

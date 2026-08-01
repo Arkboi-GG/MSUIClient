@@ -255,11 +255,14 @@ public sealed partial class GameLoop
                                  ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##loot-frame", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if(_uiParityArmed&&_uiParityPanel=="loot"){BeginUiParityFrame(p,s);CollectUiParityDraw("LootFrame","Frame",p,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",16,116));}
 
         // Panel slab, the skull showing through its ring cut-out, and the title.
         DrawArt(dl, @"Interface\LootFrame\UI-LootPanel", p, new Vector2(256f, 256f), s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFrame/Texture","Texture",p,size,"LootFrame",new(@"Interface\LootFrame\UI-LootPanel",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",0,0));
         DrawArt(dl, @"Interface\TargetingFrame\TargetDead", p + new Vector2(10f, 8f) * s,
             new Vector2(58f, 58f), s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",p+new Vector2(10,8)*s,new Vector2(58)*s,"LootFrame",new(@"Interface\TargetingFrame\TargetDead",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",10,-8));
         DrawCenteredText(dl, p + new Vector2(116f, 26f) * s, "Items", 12f * s, 0xffffd100);
 
         List<LootRow> rows = BuildLootRows();
@@ -288,13 +291,14 @@ public sealed partial class GameLoop
         // Close button (UI-Panel-MinimizeButton, centered on TOPRIGHT (-81,-26)).
         Vector2 closeMin = p + new Vector2(175f - 16f, 26f - 16f) * s;
         DrawArt(dl, @"Interface\Buttons\UI-Panel-MinimizeButton-Up", closeMin, new Vector2(32f), s);
+        if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootCloseButton","Button",closeMin,new Vector2(32)*s,"LootFrame",new(@"Interface\Buttons\UI-Panel-MinimizeButton-Up",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",159,-10));
         ImGui.SetCursorScreenPos(closeMin + new Vector2(6f) * s);
         if (ImGui.InvisibleButton("##loot-close", new Vector2(20f) * s)) ReleaseLoot();
         else if (ImGui.IsItemHovered())
             DrawArt(dl, @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight", closeMin,
                 new Vector2(32f), s);
 
-        ImGui.End();
+        if(_uiParityArmed&&_uiParityPanel=="loot")MarkUiParityFrameComplete();ImGui.End();
     }
 
     private List<LootRow> BuildLootRows()

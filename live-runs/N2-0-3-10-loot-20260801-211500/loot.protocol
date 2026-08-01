@@ -1,0 +1,19 @@
+gm .gm on
+gm .go xyz -9017.324 -216.39986 70.6723 0
+wait 2
+gm .npc spawn add 3229
+select entry-nearest:3229
+anchor selected
+gm .damage 99999
+wait 1
+gm .gm off
+select anchor
+loot request
+wait 2
+ui-parity loot
+wait 2
+loot release
+gm .gm on
+select anchor
+gm .npc spawn delete
+gm .gm off

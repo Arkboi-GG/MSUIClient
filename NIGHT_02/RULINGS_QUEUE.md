@@ -98,3 +98,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 7/225 with 218 NOT-DRAWN. Exact set: `live-runs/N2-0-3-9-auction-20260801-210000/auction-diff.csv`.
 - Work: derive browse/bid/auctions tabs, search, filters, list columns/rows, pagination, money, and buttons and implement every absent reference element.
 - Review: `live-runs/N2-0-3-9-auction-20260801-210000/auction-contact.png`.
+
+## Q18 — 3-10 — loot NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 4/20 with 16 NOT-DRAWN. Exact set: `live-runs/N2-0-3-10-loot-20260801-211500/loot-diff.csv`.
+- Work: derive title, pager states, close states, and all populated item/coin row evidence and implement every absent reference element.
+- Review: `live-runs/N2-0-3-10-loot-20260801-211500/loot-contact.png`.
