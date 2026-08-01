@@ -4044,3 +4044,63 @@ its dependency build only), portrait-camera PASS with 10,534 specimens and
 No capture, server code, DB, persistent config, error display, or F3-F6 change
 occurred. The only combat-path change is the authorized DevTools-gated refusal.
 SPEC-21 P3/P4 remain queued.
+
+## Z1 - bounded all-components pktmon capture
+
+### Actual versus predicted
+
+```text
+PREDICTED elevated capture: endpoint filter, all components, full packet bytes, <=60 s
+ACTUAL: elevation and High integrity proved; monitored components=All; --pkt-size 0;
+        TCP 192.168.0.2:8085 filter; 38-second window; No events lost
+RESULT: PASS
+
+PREDICTED identical fresh-target scenario: gate pass, both writes flushed, <=2 s
+ACTUAL: attempt 1 GUID 0xF13000000604A28F; present/visible/alive 100/100;
+        flags exactly zero; GM off; distance 0; writes 0.008 s apart; runner 26/26
+RESULT: PASS
+
+PREDICTED run-local substring matching with component deduplication
+ACTUAL attack: exact 14-byte substring 92E386E4B7428FA20406000030F1 present;
+        one logical TCP segment, seq 817834466:817834480, retained across
+        components 88/39/40/41/42/14; no retransmission or RST
+ACTUAL chat: exact 19-byte substring absent from formatted capture, while the
+        delivered .gps response returned at client time 7.322
+RESULT: ATTACK_PRESENT_ON_WIRE; chat capture omission is not causal-row evidence
+
+PREDICTED server ACK accounting
+ACTUAL first covering server packet ACK=817834507 at 20:35:54.732850400,
+        585.233 ms after attack appearance and 27 bytes beyond attack end
+RESULT: ATTACK_ACKED
+
+PREDICTED Z2 entry only if both payloads absent
+ACTUAL: attack payload present
+RESULT: Z2 entry condition false; netsh fallback prohibited/skipped
+```
+
+Two pktmon drops were inbound `INET: duplicate segment` records roughly five
+seconds before the attack, with unrelated server ranges. Pktmon reported no ETW
+events lost. They neither retransmit nor discard the attack range.
+
+Full frame hex, ACK hex, transient-file hashes, and parsed accounting are in
+`live-runs/Z1-all-components-wire-capture-20260731-203313.md`, SHA-256
+`45e44bbc6615eaf3aa87ac0c90c9445e8ea5dd979d8b54b3d2457a73f54b5cb5`.
+The eight-file manifest is
+`live-runs/manifests/Z1-20260731-203313.sha256`, SHA-256
+`adc302a5ae81f23ab6c7a28db9eac9fbceabe23979f713ff22cd7d125582138a`;
+all entries recomputed exactly at the boundary.
+
+Before deletion, the transient ETL, PCAPNG, and formatted-text hashes were,
+respectively, `82c86670e0e20d60405c19caca84fc6861d1976da16fe86ff4dee8b251389711`,
+`45a5d4dff565d05625df064978803f04efe452fca93a383f1c688846a90195a7`,
+and `479d06d6b790b3023f830cdbb6ddfb813c934d4f8be507a5c26d53aad49ba8f6`.
+All three raw files were deleted. The filter was removed, pktmon was stopped,
+the elevated relay exited, and its helper/control files were deleted.
+
+Z1 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No server code, DB, persistent config, combat behavior, error display, or F3-F6
+change occurred. Causal selection is deferred to Z3 as ordered; SPEC-21 P3/P4
+remain queued.
