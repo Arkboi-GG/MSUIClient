@@ -554,6 +554,18 @@ public sealed class WorldSession : IDisposable
 
     public static byte[] BuildAutostoreLootBody(byte lootSlot) => [lootSlot];
 
+    public void GuildRoster() => SendPacket((ushort)Op.CMSG_GUILD_ROSTER, ReadOnlySpan<byte>.Empty);
+    public void GuildMotd(string text) => SendPacket((ushort)Op.CMSG_GUILD_MOTD, BuildCStringBody(text));
+    public void GuildPromote(string name) => SendPacket((ushort)Op.CMSG_GUILD_PROMOTE, BuildCStringBody(name));
+    public void GuildDemote(string name) => SendPacket((ushort)Op.CMSG_GUILD_DEMOTE, BuildCStringBody(name));
+    public void GuildLeave() => SendPacket((ushort)Op.CMSG_GUILD_LEAVE, ReadOnlySpan<byte>.Empty);
+    public void GuildDisband() => SendPacket((ushort)Op.CMSG_GUILD_DISBAND, ReadOnlySpan<byte>.Empty);
+    public static byte[] BuildCStringBody(string value)
+    {
+        var w = new PacketWriter(Encoding.UTF8.GetByteCount(value) + 1);
+        w.WriteCString(value); return w.ToArray();
+    }
+
     public void WorldportAck() => SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);
 
     /// <summary>

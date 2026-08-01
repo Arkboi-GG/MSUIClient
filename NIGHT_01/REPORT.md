@@ -465,3 +465,12 @@ built. The GM-off Alchemy leg decoded three recipes, crafted Elixir of Lion's
 Strength through a 3,000 ms server cast, created item 2454, and independently
 observed Alchemy increase 1→2. The scenario passed 30/30. Evidence:
 `live-runs/N1C-2-8-professions-20260801-125800.md`.
+
+## NIGHT_01C 2-9 — guild
+
+`CLOSED-PASS`: bounded roster/MOTD/member/rank state, exact MOTD/promote/
+demote/leave/disband sends, event/results, UI, runner, and byte gates are built.
+The isolated GM-created `MSUINight` guild passed GM-off live roster and MOTD
+mutation/re-read legs; a two-member runtime replay covered online/offline rows
+and all remaining lifecycle results. The scenario passed 30/30 and the guild
+was deleted afterward. Evidence: `live-runs/N1C-2-9-guild-20260801-130400.md`.

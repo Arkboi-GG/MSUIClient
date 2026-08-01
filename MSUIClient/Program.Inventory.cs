@@ -37,6 +37,7 @@ public sealed partial class GameLoop
         InitMail();
         InitAuction();
         InitProfessions();
+        InitGuild();
     }
 
     private void UpdateInventoryInput(bool typing)

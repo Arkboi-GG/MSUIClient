@@ -197,6 +197,7 @@ public sealed partial class GameLoop
             ResetGossip();
             ResetMail();
             ResetAuction();
+            ResetGuild();
             _creaturesLogged = 0;
             _pendingObjectParse = null;
             _pendingObjectUpdates = null;
@@ -433,6 +434,15 @@ public sealed partial class GameLoop
                     case Op.SMSG_AUCTION_OWNER_NOTIFICATION:
                     case Op.SMSG_AUCTION_REMOVED_NOTIFICATION:
                         ApplyAuctionNotification((Op)opcode, body);
+                        break;
+                    case Op.SMSG_GUILD_ROSTER:
+                        ApplyGuildRoster(body);
+                        break;
+                    case Op.SMSG_GUILD_EVENT:
+                        ApplyGuildEvent(body);
+                        break;
+                    case Op.SMSG_GUILD_COMMAND_RESULT:
+                        ApplyGuildCommandResult(body);
                         break;
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);

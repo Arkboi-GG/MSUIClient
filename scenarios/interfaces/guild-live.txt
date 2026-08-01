@@ -1,0 +1,30 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+select self
+gm .guild delete "MSUINight"
+gm .guild create Test "MSUINight"
+wait 2
+gm .gm off
+guild roster
+waitfor family=guild step=roster outcome=DECODED 5
+assert family=guild step=roster-send outcome=SENT
+guild motd Autonomous Night
+wait 2
+guild roster
+waitfor family=guild step=roster outcome=DECODED 5
+guild simulate
+assert family=guild step=roster outcome=DECODED
+assert family=guild step=motd outcome=SUCCESS
+assert family=guild step=promote outcome=SUCCESS
+assert family=guild step=demote outcome=SUCCESS
+assert family=guild step=leave outcome=SUCCESS
+assert family=guild step=disband outcome=SUCCESS
+assert family=guild step=rank-flow outcome=VERIFIED
+dump n1c-guild-ui
+wait 2
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .guild delete "MSUINight"
+gm .gm off

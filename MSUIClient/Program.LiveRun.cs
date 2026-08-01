@@ -381,6 +381,17 @@ public sealed partial class GameLoop
                     { SimulateProfessionFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "guild":
+                    string[] guild = line.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+                    if (guild.Length == 2 && guild[1].Equals("roster", StringComparison.OrdinalIgnoreCase)) Log(RequestGuildRoster(), line);
+                    else if (guild.Length == 3 && guild[1].Equals("motd", StringComparison.OrdinalIgnoreCase)) Log(SetGuildMotd(guild[2]), line);
+                    else if (guild.Length == 3 && guild[1].Equals("promote", StringComparison.OrdinalIgnoreCase)) Log(PromoteGuildMember(guild[2]), line);
+                    else if (guild.Length == 3 && guild[1].Equals("demote", StringComparison.OrdinalIgnoreCase)) Log(DemoteGuildMember(guild[2]), line);
+                    else if (guild.Length == 2 && guild[1].Equals("leave", StringComparison.OrdinalIgnoreCase)) Log(LeaveGuild(), line);
+                    else if (guild.Length == 2 && guild[1].Equals("disband", StringComparison.OrdinalIgnoreCase)) Log(DisbandGuild(), line);
+                    else if (guild.Length == 2 && guild[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateGuildFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

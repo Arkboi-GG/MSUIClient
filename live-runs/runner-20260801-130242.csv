@@ -1,0 +1,32 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\guild-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,select self guid=0x0000000000000001
+5,PASS,gm .guild delete "MSUINight"
+6,PASS,gm .guild create Test "MSUINight"
+7,PASS,wait 2
+8,PASS,gm .gm off
+9,PASS,guild roster
+10,PASS,waitfor family=guild step=roster outcome=DECODED
+11,PASS,assert family=guild step=roster-send outcome=SENT
+12,PASS,guild motd Autonomous Night
+13,PASS,wait 2
+14,PASS,guild roster
+15,PASS,waitfor family=guild step=roster outcome=DECODED
+16,PASS,guild simulate
+17,PASS,assert family=guild step=roster outcome=DECODED
+18,PASS,assert family=guild step=motd outcome=SUCCESS
+19,PASS,assert family=guild step=promote outcome=SUCCESS
+20,PASS,assert family=guild step=demote outcome=SUCCESS
+21,PASS,assert family=guild step=leave outcome=SUCCESS
+22,PASS,assert family=guild step=disband outcome=SUCCESS
+23,PASS,assert family=guild step=rank-flow outcome=VERIFIED
+24,PASS,dump n1c-guild-ui
+25,PASS,wait 2
+26,PASS,gm .gps
+27,PASS,waitfor GmChatResponse
+28,PASS,gm .gm on
+29,PASS,gm .guild delete "MSUINight"
+30,PASS,gm .gm off

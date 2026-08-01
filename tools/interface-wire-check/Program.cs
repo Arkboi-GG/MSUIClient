@@ -171,5 +171,11 @@ Check(GameLoop.ProfessionSkillColor(1, 25, 70) == "orange" &&
       GameLoop.ProfessionSkillColor(30, 25, 70) == "yellow" &&
       GameLoop.ProfessionSkillColor(60, 25, 70) == "green" &&
       GameLoop.ProfessionSkillColor(70, 25, 70) == "gray", "profession skill-up range colors");
+Check((ushort)Op.CMSG_GUILD_ROSTER == 137 && (ushort)Op.SMSG_GUILD_ROSTER == 138 &&
+      (ushort)Op.CMSG_GUILD_PROMOTE == 139 && (ushort)Op.CMSG_GUILD_DEMOTE == 140 &&
+      (ushort)Op.CMSG_GUILD_LEAVE == 141 && (ushort)Op.CMSG_GUILD_DISBAND == 143 &&
+      (ushort)Op.CMSG_GUILD_MOTD == 145 && (ushort)Op.SMSG_GUILD_EVENT == 146 &&
+      (ushort)Op.SMSG_GUILD_COMMAND_RESULT == 147, "guild opcodes");
+Check(WorldSession.BuildCStringBody("Night").SequenceEqual(Convert.FromHexString("4E6967687400")), "guild CString bodies");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession opcodes/bodies/bounds/state");
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild opcodes/bodies/bounds/state");

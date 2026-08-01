@@ -138,6 +138,27 @@ public enum Op : ushort
     SMSG_AUCTION_BIDDER_LIST_RESULT = 0x0265,
     SMSG_AUCTION_REMOVED_NOTIFICATION = 0x028D,
 
+    // --- Guild ---
+    CMSG_GUILD_QUERY              = 0x0054,
+    SMSG_GUILD_QUERY_RESPONSE     = 0x0055,
+    CMSG_GUILD_CREATE             = 0x0081,
+    CMSG_GUILD_INVITE             = 0x0082,
+    SMSG_GUILD_INVITE             = 0x0083,
+    CMSG_GUILD_ACCEPT             = 0x0084,
+    CMSG_GUILD_DECLINE            = 0x0085,
+    SMSG_GUILD_INFO               = 0x0088,
+    CMSG_GUILD_ROSTER             = 0x0089,
+    SMSG_GUILD_ROSTER             = 0x008A,
+    CMSG_GUILD_PROMOTE            = 0x008B,
+    CMSG_GUILD_DEMOTE             = 0x008C,
+    CMSG_GUILD_LEAVE              = 0x008D,
+    CMSG_GUILD_REMOVE             = 0x008E,
+    CMSG_GUILD_DISBAND            = 0x008F,
+    CMSG_GUILD_LEADER             = 0x0090,
+    CMSG_GUILD_MOTD               = 0x0091,
+    SMSG_GUILD_EVENT              = 0x0092,
+    SMSG_GUILD_COMMAND_RESULT     = 0x0093,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,
