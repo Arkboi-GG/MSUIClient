@@ -376,6 +376,10 @@ static int Crop(string[] args)
 static int Diff(string[] args)
 {
     var o = Options(args); string expectedPath = Need(o, "expected"), actualPath = Need(o, "actual"), output = Need(o, "out");
+    string selectionPath = Need(o, "selection");
+    string[] selection = File.ReadAllLines(selectionPath).Select(x => x.Trim()).Where(x => x.Length > 0 && !x.StartsWith('#')).ToArray();
+    if (!selection.Contains("scope=all-reference-elements", StringComparer.OrdinalIgnoreCase))
+        throw new InvalidDataException("selection rule must declare scope=all-reference-elements; post-hoc element enumerations are forbidden");
     List<Row> expected = ReadRows(expectedPath), actual = ReadRows(actualPath);
     var e = expected.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
     var a = actual.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
@@ -404,7 +408,7 @@ static int Diff(string[] args)
         }
     }
     File.WriteAllLines(output, lines);
-    Console.WriteLine($"[ui-parity] coverage {instrumented}/{referenceCount} instrumented/reference; NOT-DRAWN {notDrawn}; diff {deltas} mechanical delta(s) across {lines.Count - 1} verdict rows");
+    Console.WriteLine($"[ui-parity] selection {Path.GetFileName(selectionPath)}; coverage {instrumented}/{referenceCount} instrumented/reference; NOT-DRAWN {notDrawn}; diff {deltas} mechanical delta(s) across {lines.Count - 1} verdict rows");
     return deltas == 0 ? 0 : 3;
 }
 

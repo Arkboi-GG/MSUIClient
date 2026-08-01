@@ -1,0 +1,8 @@
+# NIGHT_02 binding pilot selection rule
+# Committed before corrected diffs. Selection depends only on the extracted
+# reference inventory and cannot adapt to what MSUI happens to draw.
+scope=all-reference-elements
+states=all-extracted-default-and-conditional-template-states
+hover=include
+drag=include
+hidden=include
