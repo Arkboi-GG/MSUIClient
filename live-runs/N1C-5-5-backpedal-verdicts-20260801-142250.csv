@@ -1,0 +1,6 @@
+name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
+maxSpeed,4.5,4.45,4.55,PASS,4.45,4.55,PASS,backpedal 4.50 +/-0.05
+stopDistance,0,0,0.05,PASS,0,0.05,PASS,instant stop
+stallWindows,0,0,0,PASS,0,0,PASS,no stalls
+hardCuts,0,0,0,PASS,0,0,PASS,every transition exposes outgoing clipB and positive incoming blend ramp
+substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

@@ -578,3 +578,10 @@ is unavailable, and the checkout contains neither scripted input nor a trace dum
 fabricated. Existing Q11 therefore remains `SHELVED-RULING`; recommendation is the I14-authorized
 eyeball-only downgrade while analytic bands remain primary. Evidence:
 `live-runs/N1C-5-4-benilla-goldens-20260801-145000.md`.
+## 2026-08-01 15:00 local — item 5-5 backpedal evidence
+
+Added a reusable labeled frame-contact-sheet instrument and ran a 24/24 GM-off TEST protocol.
+The fresh 365-tick trace passes max speed 4.5, zero stop distance, zero stalls, zero hard cuts, and
+zero substitutions against both current and vanilla bands. A six-frame idle/onset/stride/settle
+contact sheet now supplies the missing perceptual evidence; visual judgment is queued Q20.
+Evidence: `live-runs/N1C-5-5-backpedal-evidence-20260801-150000.md`.

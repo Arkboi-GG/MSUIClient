@@ -1,0 +1,7 @@
+cell,label,path
+1,idle,dumps/gameplay-n1c-backpedal-idle.png
+2,onset,dumps/gameplay-n1c-backpedal-onset.png
+3,stride-a,dumps/gameplay-n1c-backpedal-stride-a.png
+4,stride-b,dumps/gameplay-n1c-backpedal-stride-b.png
+5,stride-c,dumps/gameplay-n1c-backpedal-stride-c.png
+6,settle,dumps/gameplay-n1c-backpedal-settle.png

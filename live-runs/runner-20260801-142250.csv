@@ -1,0 +1,26 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\world\backpedal-evidence-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm off
+4,PASS,wait 0.5
+5,PASS,dump n1c-backpedal-idle
+6,PASS,wait 0.3
+7,PASS,move-trace start N1C-5-5-backpedal-20260801-150000
+8,PASS,press S
+9,PASS,wait 0.15
+10,PASS,dump n1c-backpedal-onset
+11,PASS,wait 0.35
+12,PASS,dump n1c-backpedal-stride-a
+13,PASS,wait 0.4
+14,PASS,dump n1c-backpedal-stride-b
+15,PASS,wait 0.4
+16,PASS,dump n1c-backpedal-stride-c
+17,PASS,wait 0.4
+18,PASS,release S
+19,PASS,wait 0.25
+20,PASS,dump n1c-backpedal-settle
+21,PASS,wait 0.25
+22,PASS,move-trace stop
+23,PASS,gm .gps
+24,PASS,waitfor GmChatResponse

@@ -228,3 +228,11 @@ Format per entry:
   was server-authoritatively equipped in slot 18.
 - Agent recommendation: accept protocol, economy, and texture binding; rule
   only on the composed art and seam from the two images.
+## Q20 — 5-5 — backpedal gait perceptual pass
+
+- Decision needed: judge the labeled idle, onset, three stride phases, and settle frames for pose,
+  foot placement, and whether the backward gait reads naturally.
+- Evidence: `live-runs/N1C-5-5-backpedal-contact-sheet-20260801-142250.png`, adjacent `.txt`
+  index, and `live-runs/N1C-5-5-backpedal-evidence-20260801-150000.md`.
+- Mechanical result: max speed 4.5, stop distance 0, stalls 0, hard cuts 0, substitutions 0.
+- Agent recommendation: accept the mechanics; rule only on visual gait quality.
