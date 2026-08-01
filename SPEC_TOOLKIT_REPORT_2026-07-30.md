@@ -3902,3 +3902,45 @@ change occurred. SPEC-21 P3/P4 remain queued.
 Y1 boundary gates passed sequentially: Debug build with only the established
 CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
 and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## Y2 - transit decision: capture/filter defect
+
+### Actual versus predicted
+
+```text
+PREDICTED present+ACKed+silent: freeze server pre-handler/unlogged predicate
+ACTUAL: neither payload substring captured; ACK coverage unmeasured
+RESULT: NOT SELECTED
+
+PREDICTED chat present + attack absent/unACKed: characterize client/LAN anomaly
+ACTUAL: chat payload also absent from the packet view
+RESULT: NOT SELECTED
+
+PREDICTED neither payload present: capture/filter defect, no causal row
+ACTUAL: neither payload present in 44 zero-loss NIC-component packets
+RESULT: CAPTURE_FILTER_DEFECT; HARD STOP causal selection
+
+PREDICTED accepted target: flags zero and distance zero
+ACTUAL: unitFlags=0x00080000 and distance=9.533476 yd
+RESULT: SCENARIO_PRECONDITION_DRIFT; independent non-promotion reason
+```
+
+The 14-byte client sequence advance is not a payload frame and is not promoted
+to on-wire or ACK evidence. The X3 server candidates remain frozen but
+unentered: `WorldSocket.cpp:98-183`, `WorldSession.cpp:277-331,518-549,
+1250-1313`, `Opcodes.cpp:398-401`, `CombatHandler.cpp:32-62`, and
+`Unit.cpp:4721-4804`. SPEC-22 option 3 therefore remains gated.
+
+The complete decision is
+`live-runs/Y2-wire-decision-20260731-201900.md`, SHA-256
+`3697f3289ca076a17c86b24d6b3ea27e63a1ca0b6726cf39ab10ce5e201cb461`.
+The four-file manifest is
+`live-runs/manifests/Y2-20260731-201900.sha256`, SHA-256
+`e4af3df51ee375600ad33d283183d5f1202b2b312892423a2438e2db46f87e67`.
+
+No repeat or fix was attempted. No server code, DB, persistent config, combat
+behavior, error display, or F3-F6 change occurred. SPEC-21 P3/P4 remain queued.
+
+Y2 boundary gates passed sequentially: Debug build with only the established
+CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
+and 1,224 / 1,289 / 56 controls, and move-audit PASS.
