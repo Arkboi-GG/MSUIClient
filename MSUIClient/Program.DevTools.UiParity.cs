@@ -66,6 +66,14 @@ public sealed partial class GameLoop
             unsized ? "" : N(size.X / logicalScale), unsized ? "" : N(size.Y / logicalScale), point, relativeTo, relativePoint, offsetX, offsetY,
             texture, font, fontPath, fontSize, color, layer, strata, bgFile, edgeFile, tileSize,
             edgeSize, insets, texCoords, "MSUI:actual-draw-path", assets, fontSource];
+        _uiParityRows.Add(new([.. values, "DRAWN-INSTRUMENTED"]));
+    }
+
+    private void ClassifyUiParity(string element, string type, string parent, string coverage)
+    {
+        if (!_uiParityArmed || _uiParityFrameSeen || coverage is not ("DRAWN-NOT-INSTRUMENTED" or "NOT-DRAWN")) return;
+        string[] values = [_uiParityPanel, element, type, parent, "", "", "", "", "", "", "", "", "",
+            "", "", "", "", "", "", "", "", "", "", "", "", "", "MSUI:panel-draw-walk", "", "", coverage];
         _uiParityRows.Add(new(values));
     }
 
@@ -86,7 +94,7 @@ public sealed partial class GameLoop
         Directory.CreateDirectory(dir);
         string stem = $"ui-parity-{_uiParityPanel}-{_uiParityStamp}";
         string csv = Path.Combine(dir, stem + "-actual.csv"), png = Path.Combine(dir, stem + "-actual.png");
-        const string header = "panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource";
+        const string header = "panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage";
         static string Csv(IEnumerable<string> values) => string.Join(',', values.Select(v => '"' + v.Replace("\"", "\"\"") + '"'));
         File.WriteAllLines(csv, new[] { header }.Concat(_uiParityRows.Select(r => Csv(r.Values))));
         TrySaveGameplayScreenshot(png);

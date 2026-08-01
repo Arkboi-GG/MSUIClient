@@ -380,12 +380,18 @@ static int Diff(string[] args)
     var e = expected.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
     var a = actual.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
     var lines = new List<string> { "panel,element,field,expected,actual,verdict" };
+    int instrumented = 0, notDrawn = 0, referenceCount = e.Count;
     int deltas = 0;
     foreach (string name in e.Keys.Union(a.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
     {
         e.TryGetValue(name, out Row? er); a.TryGetValue(name, out Row? ar);
-        Add("presence", er is null ? "ABSENT" : "PRESENT", ar is null ? "ABSENT" : "PRESENT");
+        string coverage = ar?.Coverage ?? (er is null ? "" : "NOT-DRAWN");
+        if (er is not null && coverage == "DRAWN-INSTRUMENTED") instrumented++;
+        if (er is not null && coverage == "NOT-DRAWN") notDrawn++;
+        Add("coverage", er is null ? "NOT-REFERENCE" : "DRAWN-INSTRUMENTED", coverage);
+        Add("presence", er is null ? "ABSENT" : "PRESENT", ar is null || coverage == "NOT-DRAWN" ? "ABSENT" : "PRESENT");
         if (er is null || ar is null) continue;
+        if (coverage != "DRAWN-INSTRUMENTED") continue;
         Add("geometry", $"{er.X}|{er.Y}|{er.Width}|{er.Height}", $"{ar.X}|{ar.Y}|{ar.Width}|{ar.Height}");
         Add("anchor", $"{er.Point}|{er.RelativeTo}|{er.RelativePoint}|{er.OffsetX}|{er.OffsetY}", $"{ar.Point}|{ar.RelativeTo}|{ar.RelativePoint}|{ar.OffsetX}|{ar.OffsetY}");
         Add("texture-path", $"{er.Texture}|{er.BgFile}|{er.EdgeFile}", $"{ar.Texture}|{ar.BgFile}|{ar.EdgeFile}");
@@ -398,7 +404,7 @@ static int Diff(string[] args)
         }
     }
     File.WriteAllLines(output, lines);
-    Console.WriteLine($"[ui-parity] diff {deltas} mechanical delta(s) across {lines.Count - 1} verdict rows");
+    Console.WriteLine($"[ui-parity] coverage {instrumented}/{referenceCount} instrumented/reference; NOT-DRAWN {notDrawn}; diff {deltas} mechanical delta(s) across {lines.Count - 1} verdict rows");
     return deltas == 0 ? 0 : 3;
 }
 
@@ -446,13 +452,13 @@ static List<Row> ReadRows(string path) => File.ReadLines(path).Skip(1).Where(x =
 
 sealed class Row
 {
-    public const string Header = "panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource";
-    public string Panel="",Element="",Type="",Parent="",X="",Y="",Width="",Height="",Point="",RelativeTo="",RelativePoint="",OffsetX="",OffsetY="",Texture="",Font="",FontPath="",FontSize="",Color="",Layer="",Strata="",BgFile="",EdgeFile="",TileSize="",EdgeSize="",Insets="",TexCoords="",Source="",AssetSource="",FontSource="";
-    public string ToCsv() => Join(Panel,Element,Type,Parent,X,Y,Width,Height,Point,RelativeTo,RelativePoint,OffsetX,OffsetY,Texture,Font,FontPath,FontSize,Color,Layer,Strata,BgFile,EdgeFile,TileSize,EdgeSize,Insets,TexCoords,Source,AssetSource,FontSource);
+    public const string Header = "panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage";
+    public string Panel="",Element="",Type="",Parent="",X="",Y="",Width="",Height="",Point="",RelativeTo="",RelativePoint="",OffsetX="",OffsetY="",Texture="",Font="",FontPath="",FontSize="",Color="",Layer="",Strata="",BgFile="",EdgeFile="",TileSize="",EdgeSize="",Insets="",TexCoords="",Source="",AssetSource="",FontSource="",Coverage="";
+    public string ToCsv() => Join(Panel,Element,Type,Parent,X,Y,Width,Height,Point,RelativeTo,RelativePoint,OffsetX,OffsetY,Texture,Font,FontPath,FontSize,Color,Layer,Strata,BgFile,EdgeFile,TileSize,EdgeSize,Insets,TexCoords,Source,AssetSource,FontSource,Coverage);
     public static Row FromCsv(string line)
     {
-        string[] v=ParseCsv(line).ToArray(); if(v.Length!=29) throw new InvalidDataException($"expected 29 columns, got {v.Length}");
-        return new Row{Panel=v[0],Element=v[1],Type=v[2],Parent=v[3],X=v[4],Y=v[5],Width=v[6],Height=v[7],Point=v[8],RelativeTo=v[9],RelativePoint=v[10],OffsetX=v[11],OffsetY=v[12],Texture=v[13],Font=v[14],FontPath=v[15],FontSize=v[16],Color=v[17],Layer=v[18],Strata=v[19],BgFile=v[20],EdgeFile=v[21],TileSize=v[22],EdgeSize=v[23],Insets=v[24],TexCoords=v[25],Source=v[26],AssetSource=v[27],FontSource=v[28]};
+        string[] v=ParseCsv(line).ToArray(); if(v.Length is not (29 or 30)) throw new InvalidDataException($"expected 29 or 30 columns, got {v.Length}");
+        return new Row{Panel=v[0],Element=v[1],Type=v[2],Parent=v[3],X=v[4],Y=v[5],Width=v[6],Height=v[7],Point=v[8],RelativeTo=v[9],RelativePoint=v[10],OffsetX=v[11],OffsetY=v[12],Texture=v[13],Font=v[14],FontPath=v[15],FontSize=v[16],Color=v[17],Layer=v[18],Strata=v[19],BgFile=v[20],EdgeFile=v[21],TileSize=v[22],EdgeSize=v[23],Insets=v[24],TexCoords=v[25],Source=v[26],AssetSource=v[27],FontSource=v[28],Coverage=v.Length==30?v[29]:""};
     }
     static IEnumerable<string> ParseCsv(string line)
     {
