@@ -11,5 +11,6 @@
 *.md      text eol=lf
 
 *.png binary
+live-runs/**/*.csv binary
 *.mpq binary
 *.blp binary
