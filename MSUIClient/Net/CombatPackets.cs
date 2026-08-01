@@ -258,3 +258,18 @@ public static class CombatPacketParser
         return new CombatXpGain(victim, total, baseXp, kill);
     }
 }
+
+/// <summary>Build-5875 attack refusal opcodes are payload-free; the opcode is the law.</summary>
+public static class CombatAttackErrorText
+{
+    public static string ForOpcode(Op opcode) => opcode switch
+    {
+        Op.SMSG_ATTACKSWING_NOTINRANGE => "You are too far away!",
+        Op.SMSG_ATTACKSWING_BADFACING => "You are facing the wrong way!",
+        Op.SMSG_ATTACKSWING_NOTSTANDING => "You must be standing to attack!",
+        Op.SMSG_ATTACKSWING_DEADTARGET => "Your target is dead!",
+        Op.SMSG_ATTACKSWING_CANT_ATTACK => "You can't attack that target!",
+        _ => throw new ArgumentOutOfRangeException(nameof(opcode), opcode,
+            "not an attack-error opcode"),
+    };
+}

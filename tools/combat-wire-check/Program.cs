@@ -29,6 +29,18 @@ var start = (CombatAttackStarted)CombatPacketParser.Parse(
     Hex("01000000000000002a000045000030f1"));
 Check(start.Attacker == 1 && start.Victim == 0xF130_0000_4500_002Aul, "attack-start GUID layout");
 
+var attackErrors = new Dictionary<Op, string>
+{
+    [Op.SMSG_ATTACKSWING_NOTINRANGE] = "You are too far away!",
+    [Op.SMSG_ATTACKSWING_BADFACING] = "You are facing the wrong way!",
+    [Op.SMSG_ATTACKSWING_NOTSTANDING] = "You must be standing to attack!",
+    [Op.SMSG_ATTACKSWING_DEADTARGET] = "Your target is dead!",
+    [Op.SMSG_ATTACKSWING_CANT_ATTACK] = "You can't attack that target!",
+};
+foreach ((Op opcode, string expected) in attackErrors)
+    Check(CombatAttackErrorText.ForOpcode(opcode) == expected,
+        $"copyable attack-error text for {opcode}");
+
 var spell = (CombatSpellDamage)CombatPacketParser.Parse(
     Op.SMSG_SPELLNONMELEEDAMAGELOG,
     Hex("c92a4530f1 0101 85000000 f4010000 03 32000000 ecffffff 00 00 0a000000 02000000 00"));

@@ -25,3 +25,9 @@ Format per entry:
 - Options: (A) authorize named diagnostic gate profiles for GM-on/range/facing cells; (B) accept safe gate-refusal evidence for those cells; (C) redesign the discriminators without constructing non-Z0 packets.
 - Agent recommendation: C first, then A only if a redesigned mechanically clean discriminator is impossible; never silently weaken the accepted gate.
 - Manifest: `live-runs/manifests/N1-12-20260731-230000.sha256`, SHA-256 `c4e9133908d07ec06426c6b8fc626f913a61d39971097db676432603b8d6b1e6`.
+
+## Q4 — 1-3 — decide whether the client should synthesize attack errors when the server sends none
+- Evidence: `live-runs/N1-13-attack-error-display-20260731-231500.md`; item 1-2 combat/socket traces.
+- Options: (A) keep server-authoritative display only; (B) authorize a client combat-behavior rule that synthesizes an error after silence; (C) revisit after Q1 exact server discrimination.
+- Agent recommendation: A now, C diagnostically — the display path is ready for every real server opcode; inventing a timeout error would conceal the unresolved server discard and change combat behavior.
+- Manifest: `live-runs/manifests/N1-13-20260731-231500.sha256`, SHA-256 `91eca7d61b6973d262bc3e4770020ecf6b35138b10a00060b578a675b9af5624`.

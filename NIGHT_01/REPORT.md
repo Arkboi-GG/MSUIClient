@@ -72,3 +72,29 @@ Manifest: `live-runs/manifests/N1-12-20260731-230000.sha256`, SHA-256
 all 23 entries recomputed exactly. Boundary gates: Debug build 0 warnings /
 0 errors, combat-wire PASS (established CA2014 only), portrait-camera 10,534 /
 1,224 / 1,289 / 56, move-audit-check PASS.
+
+## 1-3 — attack-error text display readiness
+
+Status: `CLOSED-PASS`
+
+### Actual versus predicted
+
+```text
+PREDICTED: five server attack-error opcodes reach visible and copyable text
+ACTUAL: exact opcode-to-text law added; receive path uses the existing red center
+        text and a copyable combat verdict with opcode, byte count, GUID, and text
+RESULT: PASS by combat-wire assertions
+
+PREDICTED: verify a live error returned during 1-2
+ACTUAL: the server returned no attack-error opcode in those runs
+RESULT: NO_DATA; Q4 preserves the no-synthetic-error ruling
+```
+
+No packet construction, combat state, or server behavior changed. Evidence:
+`live-runs/N1-13-attack-error-display-20260731-231500.md`.
+
+Manifest: `live-runs/manifests/N1-13-20260731-231500.sha256`, SHA-256
+`91eca7d61b6973d262bc3e4770020ecf6b35138b10a00060b578a675b9af5624`;
+all four entries recomputed exactly. Boundary gates: build PASS (established
+CA2014 only), combat-wire PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56,
+move-audit-check PASS.

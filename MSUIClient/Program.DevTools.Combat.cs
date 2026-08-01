@@ -71,9 +71,13 @@ public sealed partial class GameLoop
         EmitCombat(evt, cause, target, detail, opcode);
     }
 
-    private void ObserveCombatError(Op opcode, byte[] body) =>
+    private void ObserveCombatError(Op opcode, byte[] body)
+    {
+        string text = CombatAttackErrorText.ForOpcode(opcode);
+        ShowUiError(text);
         EmitCombat("AttackErrorReceive", "server-law", _attackTargetGuid,
-            $"opcode={opcode} value=0x{(ushort)opcode:X4} bytes={body.Length}", opcode);
+            $"opcode={opcode} value=0x{(ushort)opcode:X4} bytes={body.Length} text={text}", opcode);
+    }
 
     private void ObserveGmChatResponse(byte[] body)
     {
