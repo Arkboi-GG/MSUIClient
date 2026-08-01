@@ -152,3 +152,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 6/158 with 152 NOT-DRAWN. Exact set: `live-runs/N2-0-4-4-macro-20260801-231500/macro-diff.csv`.
 - Work: persist and execute macros, implement account/character tabs, complete icon selector/grid, selected icon/name/body/limit, buttons, fonts, separators, and every absent reference element.
 - Review: `live-runs/N2-0-4-4-macro-20260801-231500/macro-contact.png`.
+
+## Q27 — 4-5 — tooltip mechanical findings and perceptual review
+
+- Coverage: 1/1; exact verdicts: `live-runs/N2-0-4-5-tooltip-20260801-233000/tooltip-diff.csv`.
+- Work: route ubiquitous tooltip call sites through the dedicated shipped-art path and extend draw evidence to carry backdrop paths plus TOOLTIP strata without copying reference declarations.
+- Review: `live-runs/N2-0-4-5-tooltip-20260801-233000/tooltip-contact.png`.

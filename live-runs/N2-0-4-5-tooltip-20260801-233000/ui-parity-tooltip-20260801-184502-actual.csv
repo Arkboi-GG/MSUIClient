@@ -1,0 +1,2 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"tooltip","GameTooltip","GameTooltip","","0","0","220","80","ANCHOR:ABSOLUTE","","","100","100","","","","","","IMGUI_HOST","IMGUI_WINDOW","","","","","","","MSUI:derived-from-draw-variables","","","DRAWN-INSTRUMENTED"

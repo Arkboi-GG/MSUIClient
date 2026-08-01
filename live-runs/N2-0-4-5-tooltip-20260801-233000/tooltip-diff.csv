@@ -1,0 +1,9 @@
+panel,element,field,expected,actual,verdict
+"tooltip","GameTooltip","coverage","DRAWN-INSTRUMENTED","DRAWN-INSTRUMENTED","PASS"
+"tooltip","GameTooltip","presence","PRESENT","PRESENT","PASS"
+"tooltip","GameTooltip","geometry","0|0|220|80","0|0|220|80","PASS"
+"tooltip","GameTooltip","anchor","||||","ANCHOR:ABSOLUTE|||100|100","DELTA"
+"tooltip","GameTooltip","texture-path","|Interface\Tooltips\UI-Tooltip-Background.blp|Interface\Tooltips\UI-Tooltip-Border.blp","||","DELTA"
+"tooltip","GameTooltip","font","|","|","PASS"
+"tooltip","GameTooltip","color","","","PASS"
+"tooltip","GameTooltip","layer","TOOLTIP|","IMGUI_WINDOW|IMGUI_HOST","DELTA"

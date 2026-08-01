@@ -251,3 +251,10 @@ Evidence: `live-runs/N2-0-4-3-keybindings-20260801-230000/N2-0-4-3-keybindings-2
 Coverage: 6/158 with 152 NOT-DRAWN. The previously missing macro frame now has
 a menu route, shipped shell, slot grid, name/body editors, and local actions.
 Evidence: `live-runs/N2-0-4-4-macro-20260801-231500/N2-0-4-4-macro-20260801-231500.md`.
+
+## 4-5 GameTooltip — CLOSED-FINDING
+
+Coverage: 1/1. A deterministic tooltip specimen now draws through the shipped
+tooltip nine-slice and emits draw-derived root evidence. Three mechanical
+deltas remain: anchor metadata, backdrop-path evidence, and strata/layer.
+Evidence: `live-runs/N2-0-4-5-tooltip-20260801-233000/N2-0-4-5-tooltip-20260801-233000.md`.
