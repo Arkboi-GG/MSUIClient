@@ -4,6 +4,7 @@ public static class SpellCastResultNames
 {
     private static readonly IReadOnlyDictionary<byte, string> Known = new Dictionary<byte, string>
     {
+        [0x13] = "SPELL_FAILED_CASTER_DEAD",
         [0x17] = "SPELL_FAILED_DONT_REPORT",
         [0x23] = "SPELL_FAILED_INTERRUPTED",
         [0x24] = "SPELL_FAILED_INTERRUPTED_COMBAT",

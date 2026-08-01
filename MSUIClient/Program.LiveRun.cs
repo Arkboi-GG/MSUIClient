@@ -154,11 +154,13 @@ public sealed partial class GameLoop
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
                     bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
+                    bool spawned=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
                     ulong guid=npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
                         anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
                         wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
                         wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
-                    if(guid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
+                    bool unavailable=guid==0||(spawned&&!_entities.TryGet(guid,out _));
+                    if(unavailable&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
                     {
                         if(_liveSelectWaitStarted==0) _liveSelectWaitStarted=now;
                         _liveWaitUntil=now+0.05;
@@ -249,6 +251,10 @@ public sealed partial class GameLoop
                     bool expectedAura = p[1].Equals("present", StringComparison.OrdinalIgnoreCase);
                     uint auraSpell = uint.Parse(p[2], CultureInfo.InvariantCulture);
                     Log(EmitAuraEffectCheck(auraSpell, expectedAura), line);
+                    break;
+                case "spell-blocked":
+                    EmitSpellBlocked(_liveLastCastSpell, p[1]);
+                    Log(true, line);
                     break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;

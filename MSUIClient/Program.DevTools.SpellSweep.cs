@@ -112,6 +112,18 @@ public sealed partial class GameLoop
         return present == expectedPresent;
     }
 
+    private void EmitSpellBlocked(uint spellId, string finding)
+    {
+        SpellInfo? info = _spellCatalog?.TryGet(spellId, out SpellInfo found) == true ? found : null;
+        var verdict = new SpellSweepVerdict(NowSeconds(), _net?.PlayerName ?? "", 0, spellId,
+            info?.Name ?? $"Spell {spellId}", SchoolName(info?.School ?? 0),
+            info?.CastClassification ?? "UNKNOWN", $"BLOCKED-BY:{finding}",
+            _character?.CurrentAnimation ?? "none", SpellEffectCheck(info), "LIVE_LEG",
+            true, true, "NONE", 0, 0, 0, false);
+        _verdicts.Add(verdict);
+        Console.WriteLine($"[verdict:spell-sweep] {verdict.ToLine()}");
+    }
+
 
     private string SpellEffectCheck(SpellInfo? info)
     {

@@ -1,0 +1,6 @@
+time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
+0.589,"Test",1,8326,"Ghost",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Spells\Ghost_state.mdx",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+0.598,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
+7.710,"Test",1,11605,"Slam",PHYSICAL,CAST,PRE_SEND_PASS,"Stand","Spells\Slam_Impact_Chest.mdx",UNIT,True,True,RAGE,10000,150,0xF13000000604A29F,True
+7.808,"Test",1,11605,"Slam",PHYSICAL,CAST,SPELL_FAILED_0x13,"Stand","Spells\Slam_Impact_Chest.mdx",SERVER,False,False,RAGE,10000,0,0x0000000000000000,True
+11.715,"Test",0,11605,"Slam",PHYSICAL,CAST_TIME,BLOCKED-BY:F-SILENT-INTERACT,"Stand","Spells\Slam_Impact_Chest.mdx",LIVE_LEG,True,True,NONE,0,0,0x0000000000000000,False
