@@ -53,6 +53,10 @@ public sealed partial class GameLoop
     private string? _liveSpellWaitResult;
     private double _liveSpellWaitTimeout;
     private int _liveSpellWaitAfter;
+    private string? _liveInterfaceWaitFamily;
+    private string? _liveInterfaceWaitStep;
+    private double _liveInterfaceWaitTimeout;
+    private int _liveInterfaceWaitAfter;
     private uint _liveLastCastSpell;
     private readonly List<string> _liveLog = [];
     private string _liveStamp = "";
@@ -121,6 +125,27 @@ public sealed partial class GameLoop
             { Log(false,$"waitspell {_liveSpellWaitResult} timeout"); _liveSpellWaitResult=null; _liveStep++; }
             else return;
         }
+        if (_liveInterfaceWaitFamily is not null)
+        {
+            bool found = _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
+                .Skip(_liveInterfaceWaitAfter).Any(v =>
+                    v.Family.Equals(_liveInterfaceWaitFamily, StringComparison.OrdinalIgnoreCase) &&
+                    v.Step.Equals(_liveInterfaceWaitStep, StringComparison.OrdinalIgnoreCase) &&
+                    v.Outcome is not "SENT" and not "SEND_FAILED");
+            if (found)
+            {
+                Log(true, $"probe-interface {_liveInterfaceWaitFamily} {_liveInterfaceWaitStep} response");
+                _liveInterfaceWaitFamily = null; _liveInterfaceWaitStep = null; _liveStep++;
+            }
+            else if (now >= _liveInterfaceWaitTimeout)
+            {
+                EmitInterface(_liveInterfaceWaitFamily, _liveInterfaceWaitStep!,
+                    "BLOCKED-BY:F-SILENT-INTERACT", _selectionGuid, "boundedWaitExpired=true");
+                Log(true, $"probe-interface {_liveInterfaceWaitFamily} {_liveInterfaceWaitStep} blocked");
+                _liveInterfaceWaitFamily = null; _liveInterfaceWaitStep = null; _liveStep++;
+            }
+            else return;
+        }
         if (_liveWaitPattern is not null)
         {
             if (VerdictLines().Any(x=>x.Contains(_liveWaitPattern,StringComparison.OrdinalIgnoreCase)))
@@ -147,15 +172,16 @@ public sealed partial class GameLoop
                 case "assert": Log(VerdictLines().Any(x=>x.Contains(line[7..],StringComparison.OrdinalIgnoreCase)),line); break;
                 case "select":
                     RefreshLiveSpawnIdentities();
+                    bool self=p[1].Equals("self",StringComparison.OrdinalIgnoreCase);
                     bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
                     bool npcFlagNearest=p[1].StartsWith("npc-flag-nearest:",StringComparison.OrdinalIgnoreCase);
-                    int ordinal=anchor||npcFlagNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    int ordinal=self||anchor||npcFlagNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
                     bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
                     bool spawned=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
-                    ulong guid=npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
+                    ulong guid=self?_net?.PlayerGuid??0:npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
                         anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
                         wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
                         wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
@@ -230,6 +256,22 @@ public sealed partial class GameLoop
                         Log(RequestVendor(_selectionGuid),$"{line} guid=0x{_selectionGuid:X16}");
                     else Log(false,$"unknown {line}");
                     break;
+                case "trainer":
+                    if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                        Log(RequestTrainer(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
+                    { SimulateTrainerList(); Log(true, line); }
+                    else if (p[1].Equals("buy", StringComparison.OrdinalIgnoreCase))
+                        Log(BuyTrainerSpell(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].Equals("buy-first", StringComparison.OrdinalIgnoreCase))
+                        Log(BuyFirstAvailableTrainerSpell(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "interface-blocked":
+                    string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
+                    EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");
+                    Log(true, line);
+                    break;
                 case "spellbook":
                     int known = EmitKnownSpellInventory();
                     Log(known > 0, $"{line} known={known}");
@@ -246,6 +288,13 @@ public sealed partial class GameLoop
                     string[] spellWait = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     _liveSpellWaitResult = spellWait[1];
                     _liveSpellWaitTimeout = now + double.Parse(spellWait[2], CultureInfo.InvariantCulture);
+                    return;
+                case "probe-interface":
+                    string[] interfaceProbe = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    _liveInterfaceWaitFamily = interfaceProbe[1];
+                    _liveInterfaceWaitStep = interfaceProbe[2];
+                    _liveInterfaceWaitTimeout = now + double.Parse(interfaceProbe[3], CultureInfo.InvariantCulture);
+                    _liveInterfaceWaitAfter = _verdicts.Snapshot("interface").Count;
                     return;
                 case "aura":
                     bool expectedAura = p[1].Equals("present", StringComparison.OrdinalIgnoreCase);

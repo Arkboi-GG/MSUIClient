@@ -360,7 +360,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_LEARNED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
-                            _actions.Learn(spellReader.ReadU16());
+                            uint learned = spellReader.ReadU16();
+                            _actions.Learn(learned);
+                            ObserveTrainerLearned(learned);
                         }
                         break;
                     case Op.SMSG_SUPERCEDED_SPELL:
@@ -384,6 +386,15 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_LIST_INVENTORY:
                         ApplyVendorList(body);
+                        break;
+                    case Op.SMSG_TRAINER_LIST:
+                        ApplyTrainerList(body);
+                        break;
+                    case Op.SMSG_TRAINER_BUY_SUCCEEDED:
+                        ApplyTrainerSuccess(body);
+                        break;
+                    case Op.SMSG_TRAINER_BUY_FAILED:
+                        ApplyTrainerFailure(body);
                         break;
                     case Op.SMSG_BUY_ITEM:
                     case Op.SMSG_BUY_FAILED:

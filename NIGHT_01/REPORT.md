@@ -387,3 +387,12 @@ error feed and `spell-error` CSV. LOS, power, range, `DONT_REPORT`, and unknown
 fallback mappings pass; GM-off live zero-mana and out-of-range Fireball legs
 were displayed and mechanically recorded. Evidence:
 `live-runs/N1C-3-8-spell-errors-20260801-104600.md`.
+
+## NIGHT_01C 2-2 — trainer
+
+`CLOSED-PASS`: exact trainer list/buy protocol, bounded 38-byte row parser,
+availability/cost UI, copyable verdicts, and roster-safe runner support are
+built. A GM-off novice-warrior flow passed 28/28: five services decoded, service
+6674 purchased for 10 copper, server success arrived, and learned spell 6673
+appeared in the client spellbook with an independent `ADDED` delta. Evidence:
+`live-runs/N1C-2-2-trainer-20260801-111500.md`.

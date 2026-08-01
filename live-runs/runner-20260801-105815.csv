@@ -1,0 +1,27 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\trainer-list-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .npc spawn add 911
+5,PASS,anchor spawn:1 guid=0xF13000038F04A2AB position=-8949.95|-132.493|83.529526
+6,PASS,wait 2
+7,PASS,select spawn:1 guid=0xF13000038F04A2AB
+8,PASS,trainer simulate
+9,PASS,wait 1
+10,PASS,dump n1c-trainer-ui
+11,PASS,wait 1
+12,PASS,gm .gm off
+13,PASS,wire-trace start path=dumps/wire-20260801-105821.wlog
+14,PASS,socket-trace start n1c-trainer-list path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-trainer-list-20260801-105821.csv
+15,PASS,trainer open guid=0xF13000038F04A2AB
+16,PASS,probe-interface trainer list response
+17,PASS,socket-trace stop
+18,PASS,wire-trace stop
+19,PASS,gm .gps
+20,PASS,waitfor GmChatResponse
+21,PASS,gm .gm on
+22,PASS,wait 1
+23,PASS,select spawn:1 guid=0xF13000038F04A2AB
+24,PASS,gm .npc spawn delete
+25,PASS,gm .gm off

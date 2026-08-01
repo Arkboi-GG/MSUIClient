@@ -54,4 +54,24 @@ Check(vendor.VendorGuid==0xF1300004FB013746ul&&vendor.Items.Count==1&&
       vendor.Items[0].ItemId==117&&vendor.Items[0].Price==25&&vendor.Items[0].BuyCount==5,
       "vendor list row shape");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor opcodes/bodies/bounds");
+Check((ushort)Op.CMSG_TRAINER_LIST == 432 && (ushort)Op.SMSG_TRAINER_LIST == 433 &&
+      (ushort)Op.CMSG_TRAINER_BUY_SPELL == 434 && (ushort)Op.SMSG_TRAINER_BUY_SUCCEEDED == 435 &&
+      (ushort)Op.SMSG_TRAINER_BUY_FAILED == 436, "trainer opcodes");
+ulong trainerGuid = 0xF13000038F000001ul;
+Check(WorldSession.BuildTrainerListBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "trainer list request full guid");
+Check(WorldSession.BuildTrainerBuyBody(trainerGuid, 6673)
+          .SequenceEqual(Convert.FromHexString("0100008F030030F1111A0000")),
+      "trainer buy request full guid plus service spell");
+var trainerWriter = new PacketWriter();
+trainerWriter.WriteU64(trainerGuid); trainerWriter.WriteU32(0); trainerWriter.WriteU32(1);
+trainerWriter.WriteU32(6673); trainerWriter.WriteU8(0); trainerWriter.WriteU32(100);
+trainerWriter.WriteU32(0); trainerWriter.WriteU32(0); trainerWriter.WriteU8(1);
+for (int i = 0; i < 5; i++) trainerWriter.WriteU32(0);
+trainerWriter.WriteCString("Train");
+TrainerList trainer = TrainerPackets.ParseList(trainerWriter.ToArray());
+Check(trainer.TrainerGuid == trainerGuid && trainer.Spells.Count == 1 &&
+      trainer.Spells[0].ServiceSpellId == 6673 && trainer.Spells[0].Cost == 100 &&
+      trainer.Spells[0].RequiredLevel == 1 && trainer.Greeting == "Train", "trainer list 38-byte row shape");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer opcodes/bodies/bounds");

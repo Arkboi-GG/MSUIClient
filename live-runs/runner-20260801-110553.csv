@@ -1,0 +1,30 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\trainer-learn-roster-warrior-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,select self guid=0x000000000000021D
+5,PASS,gm .modify money 100000
+6,PASS,wait 1
+7,PASS,gm .npc spawn add 911
+8,PASS,anchor spawn:1 guid=0xF13000038F04A2AD position=-8949.95|-132.493|83.529526
+9,PASS,wait 2
+10,PASS,select spawn:1 guid=0xF13000038F04A2AD
+11,PASS,gm .gm off
+12,PASS,wire-trace start path=dumps/wire-20260801-110556.wlog
+13,PASS,socket-trace start n1c-trainer-learn-roster-warrior path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-trainer-learn-roster-warrior-20260801-110556.csv
+14,PASS,trainer open guid=0xF13000038F04A2AD
+15,PASS,probe-interface trainer list response
+16,PASS,trainer buy-first
+17,PASS,wait 3
+18,PASS,assert family=trainer step=buy outcome=SUCCEEDED
+19,PASS,assert family=trainer step=spellbook-delta outcome=ADDED
+20,PASS,socket-trace stop
+21,PASS,wire-trace stop
+22,PASS,gm .gps
+23,PASS,waitfor GmChatResponse
+24,PASS,gm .gm on
+25,PASS,wait 1
+26,PASS,select spawn:1 guid=0xF13000038F04A2AD
+27,PASS,gm .npc spawn delete
+28,PASS,gm .gm off

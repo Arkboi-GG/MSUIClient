@@ -1,0 +1,28 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+select self
+gm .modify money 100000
+wait 1
+gm .npc spawn add 911
+anchor spawn:1
+wait 2
+select spawn:1
+gm .gm off
+wire-trace start
+socket-trace start n1c-trainer-learn-roster-warrior
+trainer open
+probe-interface trainer list 4
+trainer buy-first
+wait 3
+assert family=trainer step=buy outcome=SUCCEEDED
+assert family=trainer step=spellbook-delta outcome=ADDED
+socket-trace stop
+wire-trace stop
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+wait 1
+select spawn:1
+gm .npc spawn delete
+gm .gm off

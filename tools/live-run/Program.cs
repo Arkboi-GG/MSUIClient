@@ -9,8 +9,8 @@ using JsonDocument doc=JsonDocument.Parse(File.ReadAllText(config));
 JsonElement server=doc.RootElement.GetProperty("server");
 string host=doc.RootElement.GetProperty("realmdHost").GetString() ?? "";
 int port=doc.RootElement.GetProperty("realmdPort").GetInt32();
-string account=server.GetProperty("account").GetString() ?? "";
-string character=server.GetProperty("character").GetString() ?? "";
+string configuredCharacter=server.GetProperty("character").GetString() ?? "";
+string character=configuredCharacter;
 for(int i=1;i<args.Length-1;i++) if(args[i]=="--character") character=args[i+1];
 string root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","..","..","..",".."));
 string output=Path.Combine(root,"live-runs"); Directory.CreateDirectory(output);
@@ -24,14 +24,14 @@ catch (Exception ex)
     File.WriteAllText(Path.Combine(output,$"bootstrap-preflight-{stamp}.sha256"),$"{hash}  {Path.GetFileName(artifact)}\n");
     Console.Error.WriteLine($"[live-run] SERVER_UNREACHABLE {host}:{port}; artifact={artifact}"); return 4;
 }
-if (!character.Equals("TEST",StringComparison.OrdinalIgnoreCase))
+if (!configuredCharacter.Equals("TEST",StringComparison.OrdinalIgnoreCase))
 {
     string artifact=Path.Combine(output,$"bootstrap-refused-{stamp}.json");
     File.WriteAllText(artifact,JsonSerializer.Serialize(new { result="REFUSED_NON_TEST_ACCOUNT",
-        requirement="dedicated character must be TEST" },new JsonSerializerOptions{WriteIndented=true}));
+        requirement="dedicated configuration must be bound to TEST", character },new JsonSerializerOptions{WriteIndented=true}));
     string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(artifact))).ToLowerInvariant();
     File.WriteAllText(Path.Combine(output,$"bootstrap-refused-{stamp}.sha256"),$"{hash}  {Path.GetFileName(artifact)}\n");
-    Console.Error.WriteLine($"[live-run] REFUSED_NON_TEST_CHARACTER; artifact={artifact}"); return 3;
+    Console.Error.WriteLine($"[live-run] REFUSED_NON_TEST_ACCOUNT; artifact={artifact}"); return 3;
 }
 var psi=new ProcessStartInfo("dotnet") { UseShellExecute=false, WorkingDirectory=root };
 foreach(string value in new[]{"run","--no-restore","--project",Path.Combine(root,"MSUIClient","MSUIClient.csproj"),"--",config,"--live-bootstrap"}) psi.ArgumentList.Add(value);

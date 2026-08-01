@@ -71,6 +71,13 @@ public enum Op : ushort
     SMSG_BUY_FAILED               = 0x01A5,
     CMSG_BUYBACK_ITEM             = 0x0290,
 
+    // --- Trainer ---
+    CMSG_TRAINER_LIST             = 0x01B0,
+    SMSG_TRAINER_LIST             = 0x01B1,
+    CMSG_TRAINER_BUY_SPELL        = 0x01B2,
+    SMSG_TRAINER_BUY_SUCCEEDED    = 0x01B3,
+    SMSG_TRAINER_BUY_FAILED       = 0x01B4,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,

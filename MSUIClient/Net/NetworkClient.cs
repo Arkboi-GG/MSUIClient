@@ -303,6 +303,16 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.GossipSelect(guid, listId, code); return true; } catch { return false; }
     }
+    public bool TrainerList(ulong guid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.TrainerList(guid); return true; } catch { return false; }
+    }
+    public bool TrainerBuySpell(ulong guid, uint spellId)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.TrainerBuySpell(guid, spellId); return true; } catch { return false; }
+    }
     public bool NpcTextQuery(uint textId, ulong guid)
     {
         if (State != NetState.InWorld || _session is null) return false;

@@ -374,6 +374,22 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_GOSSIP_SELECT_OPTION, w.AsSpan());
     }
 
+    public void TrainerList(ulong guid)
+    {
+        SendPacket((ushort)Op.CMSG_TRAINER_LIST, BuildTrainerListBody(guid));
+    }
+
+    public void TrainerBuySpell(ulong guid, uint spellId)
+    {
+        SendPacket((ushort)Op.CMSG_TRAINER_BUY_SPELL, BuildTrainerBuyBody(guid, spellId));
+    }
+
+    public static byte[] BuildTrainerListBody(ulong guid)
+    { var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray(); }
+
+    public static byte[] BuildTrainerBuyBody(ulong guid, uint spellId)
+    { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(spellId); return w.ToArray(); }
+
     public void NpcTextQuery(uint textId, ulong guid)
     {
         var w = new PacketWriter(12);
