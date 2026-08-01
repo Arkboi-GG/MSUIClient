@@ -62,3 +62,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 9/31 with 22 NOT-DRAWN. Exact set: `live-runs/N2-0-3-3-talent-frame-20260801-193000/talent-frame-diff.csv`.
 - Work: instrument/implement portrait, point header, buttons, tabs, and the runtime talent buttons/arrows omitted by the static shell inventory.
 - Review: `live-runs/N2-0-3-3-talent-frame-20260801-193000/talent-frame-contact.png`.
+
+## Q12 — 3-4 — quest-log NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 6/43 with 37 NOT-DRAWN. Exact set: `live-runs/N2-0-3-4-quest-log-20260801-194500/quest-log-diff.csv`.
+- Work: build live quest-log population and derive list/detail/objective/reward/button evidence for the shipped shell.
+- Review: `live-runs/N2-0-3-4-quest-log-20260801-194500/quest-log-contact.png`.

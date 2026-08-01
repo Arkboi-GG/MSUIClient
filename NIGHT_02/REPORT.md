@@ -158,3 +158,10 @@ known-spell state render side by side; the exact worklist is queued. Evidence:
 Coverage: 9/31 with 22 NOT-DRAWN. The generic utility window was replaced by
 the shipped 384x512 shell and live class-tree background. Evidence:
 `live-runs/N2-0-3-3-talent-frame-20260801-193000/N2-0-3-3-talent-frame-20260801-193000.md`.
+
+## 3-4 Quest log — CLOSED-FINDING
+
+Coverage: 6/43 with 37 NOT-DRAWN. The absent gameplay quest-log shell was
+built with the five original regions; live list/detail population remains in
+the exact queued worklist. Evidence:
+`live-runs/N2-0-3-4-quest-log-20260801-194500/N2-0-3-4-quest-log-20260801-194500.md`.

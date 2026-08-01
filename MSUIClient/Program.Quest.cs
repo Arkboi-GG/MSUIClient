@@ -10,6 +10,7 @@ public sealed partial class GameLoop
     private QuestDetails? _questDetails;
     private QuestOffer? _questOffer;
     private QuestRequestItems? _questRequestItems;
+    private bool _questLogOpen;
     private readonly Dictionary<uint, string> _questProgress = [];
     private HashSet<uint> _questLogSnapshot = [];
     private uint _questXpBefore;
@@ -197,9 +198,20 @@ public sealed partial class GameLoop
 
     private void DrawQuestFrame()
     {
-        if (_questList is null && _questDetails is null && _questOffer is null && _questRequestItems is null) return;
-        float s = GameplayUiScale(); ImGui.SetNextWindowSize(new Vector2(500, 540) * s, ImGuiCond.Always);
-        if (!ImGui.Begin("Quest Log##quest", ImGuiWindowFlags.NoResize)) { ImGui.End(); return; }
+        if (!_questLogOpen && _questList is null && _questDetails is null && _questOffer is null && _questRequestItems is null) return;
+        float s=GameplayUiScale(); Vector2 origin=new(0,8*s), logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
+        if (!ImGui.Begin("##quest", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();
+        if(_uiParityArmed&&_uiParityPanel=="quest-log"){BeginUiParityFrame(origin,s);CollectUiParityDraw("QuestLogFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
+            ("QuestLogFrame/Texture",@"Interface\QuestFrame\UI-QuestLog-BookIcon",new(4,4),new(64,64)),
+            ("QuestLogFrame/Texture#2",@"Interface\QuestFrame\UI-QuestLog-TopLeft",Vector2.Zero,new(256,256)),
+            ("QuestLogFrame/Texture#3",@"Interface\QuestFrame\UI-QuestLog-TopRight",new(256,0),new(128,256)),
+            ("QuestLogFrame/Texture#4",@"Interface\QuestFrame\UI-QuestLog-BotLeft",new(0,256),new(256,256)),
+            ("QuestLogFrame/Texture#5",@"Interface\QuestFrame\UI-QuestLog-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="quest-log")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"QuestLogFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","QuestLogFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(30,75)*s); ImGui.BeginChild("##quest-content",new Vector2(320,350)*s,false);
         if (_questList is not null)
         {
             ImGui.TextWrapped(_questList.Greeting);
@@ -225,6 +237,8 @@ public sealed partial class GameLoop
             for (int i = 0; i < Math.Max(1, _questOffer.ChoiceRewards.Count); i++)
                 if (ImGui.Button($"Complete quest{(_questOffer.ChoiceRewards.Count > 1 ? $" (reward {i + 1})" : "")}##quest-reward-{i}")) ChooseQuestReward((uint)i);
         }
+        ImGui.EndChild();
+        if(_uiParityArmed&&_uiParityPanel=="quest-log")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }
