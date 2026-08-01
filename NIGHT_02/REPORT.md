@@ -55,3 +55,15 @@ verdicts. Full inventories retain 7, 6, and 116 presence deltas respectively
 for conditional controls and the unenumerated remaining repeated buttons.
 Evidence:
 `live-runs/N2-0-2-3-action-bars-20260801-162500/N2-0-2-3-action-bars-20260801-162500.md`.
+
+## 2026-08-01 16:40 local — item 2-4 cast bar
+
+Status: `CLOSED-FINDING`
+
+Mechanical extraction found the cast bar 49 logical pixels too high and its
+label 14 pixels too high. Both were corrected to the shipped bottom-55 root and
+TOP+5 label geometry; the spark is now half-pixel exact. A real active-cast
+capture passes 28/28 representative verdicts. The full six-row inventory retains
+two conditional presence deltas (background color quad and success flash).
+Evidence:
+`live-runs/N2-0-2-4-cast-bar-20260801-164000/N2-0-2-4-cast-bar-20260801-164000.md`.

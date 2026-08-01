@@ -134,6 +134,8 @@ static void AddElement(XElement element, string instanceName, string parentName,
     string layer = inheritedLayer;
     XElement? layerParent = element.Ancestors().FirstOrDefault(x => x.Name.LocalName == "Layer");
     if (layerParent is not null) layer = (string?)layerParent.Attribute("level") ?? layer;
+    if (layer.Length == 0)
+        layer = chain.Select(x => A(x.E, "drawLayer")).LastOrDefault(x => x.Length > 0) ?? "";
     string strata = chain.Select(x => (string?)x.E.Attribute("frameStrata")).LastOrDefault(x => !string.IsNullOrEmpty(x)) ?? inheritedStrata;
     string texture = TextureOf(chain, named);
     string font = FontOf(chain);

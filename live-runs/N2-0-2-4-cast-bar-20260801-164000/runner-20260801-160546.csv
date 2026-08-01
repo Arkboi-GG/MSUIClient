@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-4-cast-bar-20260801-164000\cast-bar.protocol
+1,PASS,ui-parity cast-bar
+2,PASS,wait 2

@@ -11,3 +11,5 @@
 2026-08-01 16:05 local | 2-3 | OPEN | action-bar family is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 16:25 local | 2-3 | CLOSED-FINDING | corrected quickslot anchor/font geometry, added populated/proof bottom and side multi-bars, and passed 161 representative verdicts with zero deltas; full conditional inventories retain presence findings | live-runs/N2-0-2-3-action-bars-20260801-162500/N2-0-2-3-action-bars-20260801-162500.md
 2026-08-01 16:25 local | 2-4 | OPEN | cast-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 16:40 local | 2-4 | CLOSED-FINDING | corrected cast bar from 49px too high and text from 14px too high; active cast geometry/assets/font/spark cohort is 28/28 PASS, full inventory retains two conditional presence deltas | live-runs/N2-0-2-4-cast-bar-20260801-164000/N2-0-2-4-cast-bar-20260801-164000.md
+2026-08-01 16:40 local | 2-5 | OPEN | buff/debuff-frame parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
