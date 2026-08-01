@@ -1,0 +1,5 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"cast-bar","CastingBarFrame","StatusBar","","0","0","195","13","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"cast-bar","CastingBarText","FontString","CastingBarFrame","5","-5","185","16","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"cast-bar","CastingBarBorder","Texture","CastingBarFrame","-30.5","-28","256","64","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"cast-bar","CastingBarSpark","Texture","CastingBarFrame","81.5","-9.5","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"

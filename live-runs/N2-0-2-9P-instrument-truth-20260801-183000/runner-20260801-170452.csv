@@ -1,0 +1,6 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-9P-instrument-truth-20260801-183000\target-frame.protocol
+1,FAIL,select wild-hostile:1 guid=0x0000000000000000
+2,PASS,wait 1
+3,PASS,ui-parity target-frame
+4,PASS,wait 2

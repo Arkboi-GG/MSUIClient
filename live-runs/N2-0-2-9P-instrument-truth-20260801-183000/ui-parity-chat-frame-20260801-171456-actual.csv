@@ -1,0 +1,10 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"chat-frame","ChatFrame1","ScrollingMessageFrame","","0","0","430","120","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1/FontString","FontString","ChatFrame1","0","0","430","120","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1Background","Texture","ChatFrame1","-2","-3","430","120","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1UpButton","Button","ChatFrame1","-32","30","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1UpButton/NormalTexture","NormalTexture","ChatFrame1UpButton","-32","30","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1DownButton","Button","ChatFrame1","-32","62","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1DownButton/NormalTexture","NormalTexture","ChatFrame1DownButton","-32","62","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1BottomButton","Button","ChatFrame1","-32","92","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"chat-frame","ChatFrame1BottomButton/NormalTexture","NormalTexture","ChatFrame1BottomButton","-32","92","32","32","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"

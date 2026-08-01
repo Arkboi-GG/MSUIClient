@@ -23,3 +23,7 @@
 2026-08-01 17:50 local | 2-9 | OPEN | bag/backpack parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 18:10 local | 2-9 | CLOSED-PASS | corrected backpack slot-chain direction/position, title font, and shipped close button; runtime cohort is 56/56 PASS with original MPQ art | live-runs/N2-0-2-9-backpack-20260801-181000/N2-0-2-9-backpack-20260801-181000.md
 2026-08-01 18:10 local | 2-9P | OPEN | binding pilot instrument-truth correction precedes every doc-3 item | NIGHT_02/RULINGS_QUEUE.md
+2026-08-01 18:45 local | 2-1 | REOPENED | pilot rejected declared metadata, post-hoc cohorts, ambiguous absence, and blank unit-frame references | live-runs/N2-0-2-9P-instrument-truth-20260801-183000/
+2026-08-01 18:45 local | 2-1 | CLOSED-FINDING | corrected draw-derived capture covers player 6/30 (24 NOT-DRAWN) and target 7/35 (28 NOT-DRAWN); exact worklists and nonblank contacts are queued | live-runs/N2-0-2-9P-instrument-truth-20260801-183000/N2-0-2-9P-instrument-truth-20260801-183000.md
+2026-08-01 18:45 local | 2-9P | CLOSED-FINDING | three-state coverage, draw-derived unit evidence, precommitted full-reference selection, corrected reference rendering, stable CSV hashes, retroactive queues, and 2-1..2-8 corrected diffs committed | live-runs/N2-0-2-9P-instrument-truth-20260801-183000/N2-0-2-9P-instrument-truth-20260801-183000.md
+2026-08-01 18:45 local | 3-1 | OPEN | character-sheet parity is the first doc-3 item after the binding pilot correction | NIGHT_02/3_WINDOWS.md

@@ -1,0 +1,5 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"buff-frame","BuffFrame","Frame","","0","0","50","50","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"buff-frame","BuffButton0","Button","BuffFrame","20","0","30","30","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"buff-frame","BuffButton0Icon","Texture","BuffButton0","20","0","30","30","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"buff-frame","BuffButton0Duration","FontString","BuffFrame","","","","","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"

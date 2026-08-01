@@ -113,3 +113,29 @@ The runtime container layout was corrected to the shipped bottom-right anchor
 chain, with the original backpack background, quickslot rings, close button,
 and 12px title. The runtime cohort passes 56/56 mechanical verdicts. Evidence:
 `live-runs/N2-0-2-9-backpack-20260801-181000/N2-0-2-9-backpack-20260801-181000.md`.
+
+## Binding pilot correction — instrument truth before doc 3
+
+The earlier PASS counts are withdrawn. They compared call-site declarations
+against the reference and used post-hoc subsets. The corrected differ requires
+a precommitted `scope=all-reference-elements` rule and reports coverage before
+verdicts. Legacy rows are DRAWN-NOT-INSTRUMENTED, never PASS.
+
+- 2-1: player before 3/30, after 6/30 with 24 NOT-DRAWN; target before 3/35,
+  after 7/35 with 28 NOT-DRAWN. Draw-derived rows expose 68 and 80 deltas.
+- 2-2: before 6/39; after 0/39 with 33 NOT-DRAWN and six instrument-debt rows.
+- 2-3: main before 14/21, after 0/21 with 7 NOT-DRAWN; button before 4/10,
+  after 0/10 with 6 NOT-DRAWN; multibar before 5/121, after 0/121 with 116 NOT-DRAWN.
+- 2-4: before 4/6; after 0/6 with 2 NOT-DRAWN.
+- 2-5: before 4/105; after 0/105 with 101 NOT-DRAWN. Reference rendering is
+  SHELVED-BLOCKED on the exact missing aura-spell-to-SpellIcon runtime-state hook.
+- 2-6: before 13/21; after 0/21 with 8 NOT-DRAWN.
+- 2-7: before 9/34; after 0/34 with 25 NOT-DRAWN.
+- 2-8: reputation before 12/12, after 0/12 with zero NOT-DRAWN; XP before
+  5/9, after 0/9 with 4 NOT-DRAWN.
+
+Every NOT-DRAWN set and every claimed contact sheet now has an append-only
+entry in `NIGHT_02/RULINGS_QUEUE.md`. Player/target reference rendering now
+resolves implicit fill regions and mirrored texcoords, producing nonblank
+shipped-art contact sheets. Evidence:
+`live-runs/N2-0-2-9P-instrument-truth-20260801-183000/N2-0-2-9P-instrument-truth-20260801-183000.md`.

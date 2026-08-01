@@ -1,0 +1,9 @@
+gm .gm on
+gm .help npc spawn add
+wait 0.5
+gm .npc spawn add 6
+select spawn:1
+ui-parity target-frame
+wait 2
+gm .npc spawn delete
+gm .gm off

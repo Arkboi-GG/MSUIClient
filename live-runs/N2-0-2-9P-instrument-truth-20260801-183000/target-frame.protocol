@@ -1,0 +1,4 @@
+select wild-hostile:1
+wait 1
+ui-parity target-frame
+wait 2

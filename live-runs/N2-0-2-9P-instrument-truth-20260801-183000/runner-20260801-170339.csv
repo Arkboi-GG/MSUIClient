@@ -1,0 +1,6 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-9P-instrument-truth-20260801-183000\unit-frames.protocol
+1,PASS,ui-parity player-frame
+2,PASS,wait 2
+3,PASS,ui-parity target-frame
+4,PASS,wait 2

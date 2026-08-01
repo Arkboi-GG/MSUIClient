@@ -1,0 +1,7 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"party-frame","PartyMemberFrame1","Button","","0","0","128","53","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"party-frame","PartyMemberFrame1Portrait","Texture","PartyMemberFrame1","7","6","37","37","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"party-frame","PartyMemberFrame1/Frame/FrameTexture","Texture","PartyMemberFrame1/Frame/Frame","0","2","128","64","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"party-frame","PartyMemberFrame1HealthBar","StatusBar","PartyMemberFrame1","47","12","70","8","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"party-frame","PartyMemberFrame1ManaBar","StatusBar","PartyMemberFrame1","47","21","70","8","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
+"party-frame","PartyMemberFrame1PetFrame","Button","PartyMemberFrame1","20","47","64","26","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
