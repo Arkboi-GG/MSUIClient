@@ -227,20 +227,27 @@ public sealed partial class GameLoop
 
     private void DrawMailFrame()
     {
-        if (!_mailOpen) return;
-        ImGui.SetNextWindowPos(new Vector2(320, 80), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(690, 520), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Mailbox##mail", ref _mailOpen)) { ImGui.End(); return; }
-        if (ImGui.Button("Refresh")) RequestMail(_mailboxGuid); ImGui.SameLine(); ImGui.TextUnformatted($"Inbox: {_mail.Count}");
-        ImGui.BeginChild("mail-list", new Vector2(320, 250), true);
+        if (!_mailOpen || _gameplayArt is null) return;
+        float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if (!ImGui.Begin("##mail",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="mail"){BeginUiParityFrame(origin,s);CollectUiParityDraw("MailFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
+            ("MailFrame/Texture",@"Interface\MailFrame\Mail-Icon",new(10,8),new(58,58)),
+            ("MailFrameTopLeft",@"Interface\ItemTextFrame\UI-ItemText-TopLeft",Vector2.Zero,new(256,256)),
+            ("MailFrameTopRight",@"Interface\Spellbook\UI-SpellbookPanel-TopRight",new(256,0),new(128,256)),
+            ("MailFrameBotLeft",@"Interface\ItemTextFrame\UI-ItemText-BotLeft",new(0,256),new(256,256)),
+            ("MailFrameBotRight",@"Interface\Spellbook\UI-SpellbookPanel-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="mail")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"MailFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","MailFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(28,78)*s);ImGui.BeginChild("mail-list",new Vector2(305,315)*s,false);
         for (int i = 0; i < _mail.Count; i++)
         {
             MailRow row = _mail[i]; string marker = row.ItemEntry != 0 ? "item" : row.Money != 0 ? "money" : "letter";
             if (ImGui.Selectable($"{row.Subject} [{marker}]##mail-{row.Id}", _mailSelected == i)) _mailSelected = i;
             ImGui.TextDisabled($"Expires {FormatExpiry(row.ExpireDays)} · COD {FormatMoney(row.Cod)}");
         }
-        ImGui.EndChild(); ImGui.SameLine();
-        ImGui.BeginChild("mail-detail", new Vector2(335, 250), true);
+        ImGui.EndChild();ImGui.SetCursorScreenPos(origin+new Vector2(28,400)*s);
+        ImGui.BeginChild("mail-detail",new Vector2(305,65)*s,false);
         if (_mail.Count > 0)
         {
             MailRow row = _mail[Math.Clamp(_mailSelected, 0, _mail.Count - 1)];
@@ -253,16 +260,16 @@ public sealed partial class GameLoop
             if (ImGui.Button("Return")) ReturnMail(row.Id); ImGui.SameLine();
             if (row.Cod == 0 && ImGui.Button("Delete")) DeleteMail(row.Id);
         }
-        ImGui.EndChild(); ImGui.Separator(); ImGui.TextUnformatted("Compose");
-        ImGui.InputText("To", _mailRecipient, (uint)_mailRecipient.Length);
-        ImGui.InputText("Subject", _mailSubject, (uint)_mailSubject.Length);
-        ImGui.InputText("Body", _mailBody, (uint)_mailBody.Length);
-        ImGui.InputInt("Money (copper)", ref _mailMoneyInput); ImGui.InputInt("COD (copper)", ref _mailCodInput);
-        if (ImGui.Button("Send letter")) SendMailFlow(ReadBuffer(_mailRecipient), 0,
-            (uint)Math.Max(0, _mailMoneyInput), (uint)Math.Max(0, _mailCodInput));
-        if (_config.DevTools && ImGui.Button("Copy mail evidence"))
-            CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
-                .Where(v => v.Family == "mail").Select(v => $"[verdict:interface] {v.ToLine()}")));
+        ImGui.Separator();ImGui.TextUnformatted("Compose");
+        ImGui.InputText("To",_mailRecipient,(uint)_mailRecipient.Length);
+        ImGui.InputText("Subject",_mailSubject,(uint)_mailSubject.Length);
+        ImGui.InputText("Body",_mailBody,(uint)_mailBody.Length);
+        ImGui.InputInt("Money (copper)",ref _mailMoneyInput);ImGui.InputInt("COD (copper)",ref _mailCodInput);
+        if(ImGui.Button("Send letter"))SendMailFlow(ReadBuffer(_mailRecipient),0,(uint)Math.Max(0,_mailMoneyInput),(uint)Math.Max(0,_mailCodInput));
+        if(_config.DevTools&&ImGui.Button("Copy mail evidence"))CopyVerdictText(string.Join(Environment.NewLine,_verdicts.Snapshot("interface").OfType<InterfaceVerdict>().Where(v=>v.Family=="mail").Select(v=>$"[verdict:interface] {v.ToLine()}")));
+        ImGui.EndChild();
+        Vector2 close=origin+new Vector2(323,10)*s;DrawImageButton(dl,"##mail-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_mailOpen=false;
+        if(_uiParityArmed&&_uiParityPanel=="mail")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }

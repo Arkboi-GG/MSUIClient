@@ -184,3 +184,10 @@ Coverage: 5/59 with 54 NOT-DRAWN. A temporary real banker opened the
 authoritative bank state inside the newly original-art 384x512 shell and was
 deleted after capture. Evidence:
 `live-runs/N2-0-3-7-bank-20260801-203000/N2-0-3-7-bank-20260801-203000.md`.
+
+## 3-8 Mail — CLOSED-FINDING
+
+Coverage: 6/76 with 70 NOT-DRAWN. The real mailbox request was accepted; the
+populated state is explicitly REPLAYED from the build-5875 packet shape inside
+the newly original-art shell. Evidence:
+`live-runs/N2-0-3-8-mail-20260801-204500/N2-0-3-8-mail-20260801-204500.md`.
