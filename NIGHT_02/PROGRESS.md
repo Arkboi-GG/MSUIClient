@@ -39,3 +39,5 @@
 2026-08-01 20:00 local | 3-6 | OPEN | trainer parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 20:15 local | 3-6 | CLOSED-FINDING | built original trainer shell and captured an authoritative temporary class-trainer list; coverage 5/111 with 106 NOT-DRAWN | live-runs/N2-0-3-6-trainer-20260801-201500/N2-0-3-6-trainer-20260801-201500.md
 2026-08-01 20:15 local | 3-7 | OPEN | bank parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 20:30 local | 3-7 | CLOSED-FINDING | replaced the generic bank with the shipped shell and captured a real banker state; coverage 5/59 with 54 NOT-DRAWN | live-runs/N2-0-3-7-bank-20260801-203000/N2-0-3-7-bank-20260801-203000.md
+2026-08-01 20:30 local | 3-8 | OPEN | mail parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

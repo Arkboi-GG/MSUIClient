@@ -177,3 +177,10 @@ the newly original-art merchant shell. Evidence:
 Coverage: 5/111 with 106 NOT-DRAWN. A temporary real class trainer populated
 the newly original-art trainer shell and was deleted after capture. Evidence:
 `live-runs/N2-0-3-6-trainer-20260801-201500/N2-0-3-6-trainer-20260801-201500.md`.
+
+## 3-7 Bank — CLOSED-FINDING
+
+Coverage: 5/59 with 54 NOT-DRAWN. A temporary real banker opened the
+authoritative bank state inside the newly original-art 384x512 shell and was
+deleted after capture. Evidence:
+`live-runs/N2-0-3-7-bank-20260801-203000/N2-0-3-7-bank-20260801-203000.md`.

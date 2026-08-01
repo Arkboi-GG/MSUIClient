@@ -129,11 +129,19 @@ public sealed partial class GameLoop
 
     private void DrawBankFrame()
     {
-        if (!_bankOpen || _net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        ImGui.SetNextWindowPos(new Vector2(430, 90), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(510, 420), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Bank##bank", ref _bankOpen)) { ImGui.End(); return; }
-        ImGui.TextUnformatted($"Bank slots — {Enumerable.Range(0, 24).Count(i => player.Fields.PlayerBankSlot(i) != 0)}/24 occupied");
+        if (!_bankOpen || _net is null || _gameplayArt is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        float s=GameplayUiScale(); Vector2 origin=new(0,8*s), logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
+        if (!ImGui.Begin("##bank", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();
+        if(_uiParityArmed&&_uiParityPanel=="bank"){BeginUiParityFrame(origin,s);CollectUiParityDraw("BankFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
+            ("BankFrame/Texture",@"Interface\BankFrame\UI-BankFrame-TopLeft",Vector2.Zero,new(256,256)),
+            ("BankFrame/Texture#2",@"Interface\BankFrame\UI-BankFrame-TopRight",new(256,0),new(128,256)),
+            ("BankFrame/Texture#3",@"Interface\BankFrame\UI-BankFrame-BotLeft",new(0,256),new(256,256)),
+            ("BankFrame/Texture#4",@"Interface\BankFrame\UI-BankFrame-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="bank")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"BankFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","BankFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(35,75)*s); ImGui.BeginChild("##bank-slots",new Vector2(295,245)*s,false);
         for (int i = 0; i < 24; i++)
         {
             ulong guid = player.Fields.PlayerBankSlot(i);
@@ -146,7 +154,7 @@ public sealed partial class GameLoop
             }
             ImGui.Selectable(label + $"##bank-{i}");
         }
-        ImGui.Separator();
+        ImGui.EndChild(); ImGui.SetCursorScreenPos(origin+new Vector2(36,333)*s);
         byte count = player.Fields.BankBagSlotCount;
         uint price = _bankPrices?.Price(count + 1) ?? 0;
         ImGui.TextUnformatted($"Bag slots purchased: {count}/6 — next: {FormatMoney(price)}");
@@ -155,6 +163,8 @@ public sealed partial class GameLoop
         if (_config.DevTools && ImGui.Button("Copy bank evidence"))
             CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>()
                 .Where(v => v.Family == "bank").Select(v => $"[verdict:interface] {v.ToLine()}")));
+        Vector2 close=origin+new Vector2(324,10)*s;DrawImageButton(dl,"##bank-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_bankOpen=false;
+        if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }

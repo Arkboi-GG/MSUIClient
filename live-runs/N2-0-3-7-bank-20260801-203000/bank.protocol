@@ -1,0 +1,11 @@
+gm .gm on
+gm .npc spawn add 2455
+select spawn:1
+gm .gm off
+bank open
+wait 2
+ui-parity bank
+wait 2
+gm .gm on
+gm .npc spawn delete
+gm .gm off

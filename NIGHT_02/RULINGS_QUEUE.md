@@ -80,3 +80,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 5/111 with 106 NOT-DRAWN. Exact set: `live-runs/N2-0-3-6-trainer-20260801-201500/trainer-diff.csv`.
 - Work: derive service rows/filter/cost/button evidence and implement every absent reference element.
 - Review: `live-runs/N2-0-3-6-trainer-20260801-201500/trainer-contact.png`.
+
+## Q15 — 3-7 — bank NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 5/59 with 54 NOT-DRAWN. Exact set: `live-runs/N2-0-3-7-bank-20260801-203000/bank-diff.csv`.
+- Work: derive slot-grid, item, bag-slot, purchase, money, title, portrait, and button evidence and implement every absent reference element.
+- Review: `live-runs/N2-0-3-7-bank-20260801-203000/bank-contact.png`.
