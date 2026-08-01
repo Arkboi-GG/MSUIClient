@@ -164,3 +164,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Coverage: 2/2; exact verdicts: `live-runs/N2-0-4-6-ui-errors-20260801-234500/ui-errors-diff.csv`.
 - Work: expose ErrorFont object identity and HIGH strata in draw evidence, remove the empty child anchor metadata, and reconcile the gold FrameXML font-object default with the red error-feed runtime color law.
 - Review: `live-runs/N2-0-4-6-ui-errors-20260801-234500/ui-errors-contact.png`.
+
+## Q29 — 4-7 — StaticPopup NOT-DRAWN worklist and perceptual review
+
+- Coverage: 5/17 with 12 NOT-DRAWN; exact set: `live-runs/N2-0-4-7-static-popup-20260802-000000/static-popup-diff.csv`.
+- Work: instrument close-button texture states and all dialog-button texture states, capture dynamic Lua button placement, expose backdrop metadata/strata, and add an item-cursor reference specification when one is locatable in shipped reference data.
+- Review: `live-runs/N2-0-4-7-static-popup-20260802-000000/static-popup-contact.png`.

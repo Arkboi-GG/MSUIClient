@@ -68,3 +68,6 @@
 2026-08-01 23:30 local | 4-6 | OPEN | error and UI-message text parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
 2026-08-01 23:45 local | 4-6 | CLOSED-FINDING | built deterministic shipped-FRIZQT UIErrorsFrame specimen; coverage 2/2 with five exact metadata/style deltas | live-runs/N2-0-4-6-ui-errors-20260801-234500/N2-0-4-6-ui-errors-20260801-234500.md
 2026-08-01 23:45 local | 4-7 | OPEN | cursor and StaticPopup parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
+2026-08-02 00:00 local | 4-7 | CLOSED-FINDING | original dialog backdrop, alert, and buttons captured after preserved compile-failure attempt; coverage 5/17 with 12 NOT-DRAWN | live-runs/N2-0-4-7-static-popup-20260802-000000/N2-0-4-7-static-popup-20260802-000000.md
+2026-08-02 00:00 local | 0-4 | CLOSED-FINDING | all seven system-UI items have committed increments, immutable outputs, exact diffs, contacts, queues, manifests, and passing gates | NIGHT_02/4_SYSTEM_UI.md
+2026-08-02 00:00 local | 5-1 | OPEN | font-object audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md

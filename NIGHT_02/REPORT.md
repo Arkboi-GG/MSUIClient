@@ -264,3 +264,10 @@ Evidence: `live-runs/N2-0-4-5-tooltip-20260801-233000/N2-0-4-5-tooltip-20260801-
 Coverage: 2/2. The full 512x60 message frame and its shipped FRIZQT font draw
 are instrumented. Five exact metadata/style deltas remain in the verdict CSV.
 Evidence: `live-runs/N2-0-4-6-ui-errors-20260801-234500/N2-0-4-6-ui-errors-20260801-234500.md`.
+
+## 4-7 Cursor + dialog/popup — CLOSED-FINDING
+
+Coverage: 5/17 with 12 NOT-DRAWN. The shipped dialog backdrop, alert icon,
+FRIZQT message, and two original dialog buttons now have a deterministic real
+draw. The pre-existing carried-item cursor draw remains the authoritative
+runtime attach path. Evidence: `live-runs/N2-0-4-7-static-popup-20260802-000000/N2-0-4-7-static-popup-20260802-000000.md`.
