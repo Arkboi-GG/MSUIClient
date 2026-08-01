@@ -50,3 +50,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: CharacterFrame shell 1/13 with 12 NOT-DRAWN; PaperDollFrame 5/127 with 122 NOT-DRAWN. Exact sets: `character-frame-diff.csv` and `paperdoll-diff2.csv`.
 - Work: instrument and implement the absent header, slot, stat, model, resistance, and tab elements using the existing functional draw path.
 - Review: `live-runs/N2-0-3-1-character-frame-20260801-190000/paperdoll-contact2.png`.
+
+## Q10 — 3-2 — spellbook NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 6/160 with 154 NOT-DRAWN. Exact set: `live-runs/N2-0-3-2-spellbook-20260801-191500/spellbook-diff.csv`.
+- Work: derive the spell-button/tab/page evidence and implement every absent default/conditional reference element.
+- Review: `live-runs/N2-0-3-2-spellbook-20260801-191500/spellbook-contact.png`.

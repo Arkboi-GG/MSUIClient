@@ -29,3 +29,5 @@
 2026-08-01 18:45 local | 3-1 | OPEN | character-sheet parity is the first doc-3 item after the binding pilot correction | NIGHT_02/3_WINDOWS.md
 2026-08-01 19:00 local | 3-1 | CLOSED-FINDING | cross-file reference render is nonblank; shell coverage 1/13 (12 NOT-DRAWN), paperdoll 5/127 (122 NOT-DRAWN), exact sets queued | live-runs/N2-0-3-1-character-frame-20260801-190000/N2-0-3-1-character-frame-20260801-190000.md
 2026-08-01 19:00 local | 3-2 | OPEN | spellbook parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 19:15 local | 3-2 | CLOSED-FINDING | draw-derived root/five shipped-art regions cover 6/160 with 154 NOT-DRAWN; exact worklist and populated contact queued | live-runs/N2-0-3-2-spellbook-20260801-191500/N2-0-3-2-spellbook-20260801-191500.md
+2026-08-01 19:15 local | 3-3 | OPEN | talent-frame parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

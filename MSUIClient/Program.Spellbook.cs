@@ -38,6 +38,12 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav))
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        if (_uiParityArmed && _uiParityPanel == "spellbook")
+        {
+            BeginUiParityFrame(p, s);
+            CollectUiParityDraw("SpellBookFrame", "Frame", p, new Vector2(384,512) * s, "",
+                new("", 0, "IMGUI_HOST", "ANCHOR:ABSOLUTE", "", "", p.X/s, p.Y/s));
+        }
         DrawSpellbookArt(dl, p, s);
 
         var known = _actions.KnownSpells
@@ -77,6 +83,7 @@ public sealed partial class GameLoop
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _spellbookOpen = false;
+        if (_uiParityArmed && _uiParityPanel == "spellbook") MarkUiParityFrameComplete();
         ImGui.End();
 
         if (_pressedSpellId != 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
@@ -97,11 +104,22 @@ public sealed partial class GameLoop
 
     private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s)
     {
-        DrawArt(dl, @"Interface\Spellbook\UI-SpellbookPanel-TopLeft", p, new(256, 256), s);
-        DrawArt(dl, @"Interface\Spellbook\UI-SpellbookPanel-TopRight", p + new Vector2(256, 0) * s, new(128, 256), s);
-        DrawArt(dl, @"Interface\Spellbook\UI-SpellbookPanel-BotLeft", p + new Vector2(0, 256) * s, new(256, 256), s);
-        DrawArt(dl, @"Interface\Spellbook\UI-SpellbookPanel-BotRight", p + new Vector2(256, 256) * s, new(128, 256), s);
-        DrawArt(dl, @"Interface\Spellbook\Spellbook-Icon", p + new Vector2(10, 8) * s, new(58, 58), s);
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] regions =
+        [
+            ("SpellBookFrame/Texture#2", @"Interface\Spellbook\UI-SpellbookPanel-TopLeft", Vector2.Zero, new(256,256)),
+            ("SpellBookFrame/Texture#3", @"Interface\Spellbook\UI-SpellbookPanel-TopRight", new(256,0), new(128,256)),
+            ("SpellBookFrame/Texture#4", @"Interface\Spellbook\UI-SpellbookPanel-BotLeft", new(0,256), new(256,256)),
+            ("SpellBookFrame/Texture#5", @"Interface\Spellbook\UI-SpellbookPanel-BotRight", new(256,256), new(128,256)),
+            ("SpellBookFrame/Texture", @"Interface\Spellbook\Spellbook-Icon", new(10,8), new(58,58)),
+        ];
+        foreach(var region in regions)
+        {
+            Vector2 min=p+region.Offset*s;
+            DrawArt(dl,region.Path,min,region.Size,s);
+            if(_uiParityArmed&&_uiParityPanel=="spellbook")
+                CollectUiParityDraw(region.Element,"Texture",min,region.Size*s,"SpellBookFrame",
+                    new(region.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","SpellBookFrame","TOPLEFT",region.Offset.X,-region.Offset.Y));
+        }
         DrawCenteredText(dl, p + new Vector2(198, 26) * s, "Spellbook", 14f * s, 0xffffffff);
     }
 

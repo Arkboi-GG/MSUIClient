@@ -146,3 +146,9 @@ Coverage: CharacterFrame 1/13 with 12 NOT-DRAWN; PaperDollFrame 5/127 with
 122 NOT-DRAWN. The full shipped-art reference and real populated paperdoll now
 render side by side; all exact gaps are queued. Evidence:
 `live-runs/N2-0-3-1-character-frame-20260801-190000/N2-0-3-1-character-frame-20260801-190000.md`.
+
+## 3-2 Spellbook — CLOSED-FINDING
+
+Coverage: 6/160 with 154 NOT-DRAWN. The full shipped-art reference and real
+known-spell state render side by side; the exact worklist is queued. Evidence:
+`live-runs/N2-0-3-2-spellbook-20260801-191500/N2-0-3-2-spellbook-20260801-191500.md`.
