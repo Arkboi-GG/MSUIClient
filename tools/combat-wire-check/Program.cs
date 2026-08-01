@@ -139,6 +139,12 @@ Check((TargetSpell(0, 1) with { CastTimeMs = 1500 }).CastClassification == "CAST
       "DBC cast classification strings");
 
 var verdicts = new VerdictRing();
+Parallel.For(0, 10_000, i =>
+{
+    verdicts.Add(new CastVerdict(i, (uint)i, CastTargetReason.PendingCast, 0, 0, false));
+    if ((i & 7) == 0) _ = verdicts.SnapshotAll();
+});
+Check(verdicts.Snapshot("cast").Count == 128, "verdict ring concurrent add/snapshot remains bounded and non-null");
 verdicts.Add(Portrait(0));
 for (int i = 0; i < 1100; i++) verdicts.Add(Anim(i + 1));
 Check(verdicts.Snapshot("portrait").Count == 1,

@@ -185,11 +185,14 @@ public sealed class VerdictRing
     private sealed class ChannelRing(int capacity)
     {
         private readonly Stored?[] _items = new Stored?[capacity];
+        private readonly object _sync = new();
         private int _start;
         private int _count;
 
         public void Add(Stored item)
         {
+            lock (_sync)
+            {
             int index = (_start + _count) % _items.Length;
             if (_count == _items.Length)
             {
@@ -200,14 +203,18 @@ public sealed class VerdictRing
 
             _items[index] = item;
             _count++;
+            }
         }
 
         public Stored[] Snapshot()
         {
+            lock (_sync)
+            {
             var result = new Stored[_count];
             for (int i = 0; i < _count; i++)
                 result[i] = _items[(_start + i) % _items.Length]!.Value;
             return result;
+            }
         }
     }
 
@@ -239,7 +246,7 @@ public sealed class VerdictRing
 
         if (!_channels.TryGetValue(verdict.Channel, out ChannelRing? channel))
             throw new ArgumentException($"Unknown verdict channel '{verdict.Channel}'", nameof(verdict));
-        channel.Add(new Stored(_nextSequence++, verdict));
+        channel.Add(new Stored(Interlocked.Increment(ref _nextSequence), verdict));
     }
 
     public IReadOnlyList<IVerdict> Snapshot(string channel)
