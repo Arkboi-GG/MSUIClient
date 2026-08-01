@@ -179,3 +179,14 @@ Format per entry:
   the session alive.
 - Agent recommendation: one shared entry-symbol trace; keep server code/config/
   restarts out of this client run.
+
+## Q16 — 3-3 — standing spell animation perceptual pass
+- Decision needed: judge the labeled Physical, Fire, Frost, Arcane, Holy,
+  Nature, and Shadow precast/cast pairs for visual pose quality.
+- Evidence: `live-runs/N1C-3-3-standing-animation-contact-sheet-20260801-100100.png`
+  with its adjacent `.txt` index and
+  `live-runs/N1C-3-3-standing-animations-20260801-100300.md`.
+- Mechanical result: 14/14 authored animation IDs matched renderer requested
+  and played IDs with `Exact` or `BakedOnDemand` resolution.
+- Agent recommendation: accept the mechanical binding; rule only on pose/art
+  quality from the contact sheet.

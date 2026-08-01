@@ -1,0 +1,64 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\standing-animation-school-sweep-v2.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm off
+4,PASS,wait 1
+5,PASS,spell-animation 1464 precast
+6,PASS,wait 0.4
+7,PASS,dump n1c-anim-v2-physical-precast
+8,PASS,wait 0.4
+9,PASS,spell-animation 1464 cast
+10,PASS,wait 0.4
+11,PASS,dump n1c-anim-v2-physical-cast
+12,PASS,wait 0.4
+13,PASS,spell-animation 133 precast
+14,PASS,wait 0.4
+15,PASS,dump n1c-anim-v2-fire-precast
+16,PASS,wait 0.4
+17,PASS,spell-animation 133 cast
+18,PASS,wait 0.4
+19,PASS,dump n1c-anim-v2-fire-cast
+20,PASS,wait 0.4
+21,PASS,spell-animation 116 precast
+22,PASS,wait 0.4
+23,PASS,dump n1c-anim-v2-frost-precast
+24,PASS,wait 0.4
+25,PASS,spell-animation 116 cast
+26,PASS,wait 0.4
+27,PASS,dump n1c-anim-v2-frost-cast
+28,PASS,wait 0.4
+29,PASS,spell-animation 1449 precast
+30,PASS,wait 0.4
+31,PASS,dump n1c-anim-v2-arcane-precast
+32,PASS,wait 0.4
+33,PASS,spell-animation 1449 cast
+34,PASS,wait 0.4
+35,PASS,dump n1c-anim-v2-arcane-cast
+36,PASS,wait 0.4
+37,PASS,spell-animation 635 precast
+38,PASS,wait 0.4
+39,PASS,dump n1c-anim-v2-holy-precast
+40,PASS,wait 0.4
+41,PASS,spell-animation 635 cast
+42,PASS,wait 0.4
+43,PASS,dump n1c-anim-v2-holy-cast
+44,PASS,wait 0.4
+45,PASS,spell-animation 5185 precast
+46,PASS,wait 0.4
+47,PASS,dump n1c-anim-v2-nature-precast
+48,PASS,wait 0.4
+49,PASS,spell-animation 5185 cast
+50,PASS,wait 0.4
+51,PASS,dump n1c-anim-v2-nature-cast
+52,PASS,wait 0.4
+53,PASS,spell-animation 686 precast
+54,PASS,wait 0.4
+55,PASS,dump n1c-anim-v2-shadow-precast
+56,PASS,wait 0.4
+57,PASS,spell-animation 686 cast
+58,PASS,wait 0.4
+59,PASS,dump n1c-anim-v2-shadow-cast
+60,PASS,wait 0.4
+61,PASS,gm .gps
+62,PASS,waitfor GmChatResponse

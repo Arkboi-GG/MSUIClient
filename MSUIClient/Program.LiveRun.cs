@@ -256,6 +256,11 @@ public sealed partial class GameLoop
                     EmitSpellBlocked(_liveLastCastSpell, p[1]);
                     Log(true, line);
                     break;
+                case "spell-animation":
+                    string[] animation = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    Log(animation.Length == 3 &&
+                        PresentSpellAnimation(uint.Parse(animation[1], CultureInfo.InvariantCulture), animation[2], "SYNTHETIC_DBC_RENDERER"), line);
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":
@@ -420,8 +425,10 @@ public sealed partial class GameLoop
         WriteSpellSweepCsv(spellCsv);
         string castBarCsv=Path.Combine(dir,$"cast-bar-{_liveStamp}.csv");
         WriteCastBarCsv(castBarCsv);
+        string spellAnimationCsv=Path.Combine(dir,$"spell-animation-{_liveStamp}.csv");
+        WriteSpellAnimationCsv(spellAnimationCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
     }
 
@@ -454,6 +461,21 @@ public sealed partial class GameLoop
                 v.StartedAt.ToString("F3", CultureInfo.InvariantCulture),
                 v.EndsAt.ToString("F3", CultureInfo.InvariantCulture), v.PushbackTotalMs,
                 v.CancelSource, Csv(v.AnimationState)));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteSpellAnimationCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,source"
+        };
+        foreach (SpellAnimationVerdict v in _verdicts.Snapshot("spell-animation").OfType<SpellAnimationVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
+                Csv(v.Character), v.SpellId, Csv(v.SpellName), v.School, v.Stage, v.KitId,
+                v.AuthoredAnimationId, v.RequestedAnimationId, v.PlayedAnimationId,
+                v.Resolution, Csv(v.RendererState), v.Source));
         File.WriteAllLines(path, lines);
     }
 

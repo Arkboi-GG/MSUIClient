@@ -1,0 +1,62 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm off
+wait 1
+spell-animation 1464 precast
+wait 0.5
+dump n1c-anim-physical-precast
+wait 0.5
+spell-animation 1464 cast
+wait 0.5
+dump n1c-anim-physical-cast
+wait 0.5
+spell-animation 133 precast
+wait 0.5
+dump n1c-anim-fire-precast
+wait 0.5
+spell-animation 133 cast
+wait 0.5
+dump n1c-anim-fire-cast
+wait 0.5
+spell-animation 116 precast
+wait 0.5
+dump n1c-anim-frost-precast
+wait 0.5
+spell-animation 116 cast
+wait 0.5
+dump n1c-anim-frost-cast
+wait 0.5
+spell-animation 5143 precast
+wait 0.5
+dump n1c-anim-arcane-precast
+wait 0.5
+spell-animation 5143 cast
+wait 0.5
+dump n1c-anim-arcane-cast
+wait 0.5
+spell-animation 635 precast
+wait 0.5
+dump n1c-anim-holy-precast
+wait 0.5
+spell-animation 635 cast
+wait 0.5
+dump n1c-anim-holy-cast
+wait 0.5
+spell-animation 5185 precast
+wait 0.5
+dump n1c-anim-nature-precast
+wait 0.5
+spell-animation 5185 cast
+wait 0.5
+dump n1c-anim-nature-cast
+wait 0.5
+spell-animation 686 precast
+wait 0.5
+dump n1c-anim-shadow-precast
+wait 0.5
+spell-animation 686 cast
+wait 0.5
+dump n1c-anim-shadow-cast
+wait 0.5
+gm .gps
+waitfor GmChatResponse 3

@@ -309,6 +309,10 @@ public sealed partial class CharacterRenderer : IDisposable
     private M2Animator.Clip? _spellHold;
     public long CombatActionsTriggered { get; private set; }
     public string CurrentAnimation => _clip?.Name ?? "none";
+    public string CurrentActionAnimation => _combatAction?.Name ?? "none";
+    public string CurrentSpellHoldAnimation => _spellHold?.Name ?? "none";
+    public string CurrentPresentationAnimation =>
+        _spellHold?.Name ?? _combatAction?.Name ?? _clip?.Name ?? "none";
 
     public readonly record struct ClipTransition(
         long Sequence,

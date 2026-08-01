@@ -31,6 +31,8 @@ public sealed partial class GameLoop
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
             _character?.BeginSpellVisual(anim);
+            if (info is { } startedInfo)
+                EmitSpellAnimation(startedInfo, "PRECAST", SpellStageKitId(startedInfo.VisualId, "precast"), anim, "SERVER_START");
             if (info?.Ranged == true) SetVisualSheath(2);
             if (packet.CastTimeMs > 0 && info?.Ranged != true)
                 BeginCastBar(packet.SpellId, packet.CastTimeMs, channel: false);
@@ -53,6 +55,8 @@ public sealed partial class GameLoop
             if (_pendingCastSpell == packet.SpellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == packet.SpellId) _queuedMeleeSpell = 0;
             _character?.ReleaseSpellVisual(anim);
+            if (info is { } completedInfo)
+                EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
             CompleteCastBar(packet.SpellId);
             if (info is { } completed)
@@ -113,6 +117,12 @@ public sealed partial class GameLoop
             !_spellVisualCatalog.TryGetStages(visualId, out SpellVisualStages stages)) return null;
         uint kitId = stage(stages);
         return kitId != 0 && _spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit) ? kit : null;
+    }
+
+    private uint SpellStageKitId(uint visualId, string stage)
+    {
+        if (_spellVisualCatalog?.TryGetStages(visualId, out SpellVisualStages stages) != true) return 0;
+        return stage == "precast" ? stages.Precast : stage == "channel" ? stages.Channel : stages.Cast;
     }
 
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
@@ -271,6 +281,9 @@ public sealed partial class GameLoop
         uint visual = _spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0;
         ushort? animation = ResolveSpellKit(visual, static s => s.Channel)?.AnimationId;
         _character?.BeginSpellVisual(animation);
+        if (_spellCatalog?.TryGet(spellId, out SpellInfo channelInfo) == true &&
+            _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
+            EmitSpellAnimation(channelInfo, "CHANNEL", channelStages.Channel, animation, "SERVER_CHANNEL");
         if (ResolveSpellKit(visual, static s => s.Channel) is { } channelKit && _net is not null)
             _spellEffects?.SpawnKit(_net.PlayerGuid, spellId, channelKit, persistent: true, NowSeconds());
     }

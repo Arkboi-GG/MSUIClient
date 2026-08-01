@@ -1,0 +1,14 @@
+time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,source
+0.647,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",SERVER_GO
+4.884,"Test",1464,"Slam",PHYSICAL,PRECAST,43,56,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+8.217,"Test",1464,"Slam",PHYSICAL,CAST,1664,58,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+11.758,"Test",133,"Fireball",FIRE,PRECAST,30,51,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+15.030,"Test",133,"Fireball",FIRE,CAST,38,53,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+18.365,"Test",116,"Frostbolt",FROST,PRECAST,194,51,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+21.668,"Test",116,"Frostbolt",FROST,CAST,202,53,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+31.640,"Test",635,"Holy Light",HOLY,PRECAST,99,52,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+34.940,"Test",635,"Holy Light",HOLY,CAST,270,54,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+38.342,"Test",5185,"Healing Touch",NATURE,PRECAST,100,52,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+41.651,"Test",5185,"Healing Touch",NATURE,CAST,183,54,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+44.934,"Test",686,"Shadow Bolt",SHADOW,PRECAST,114,51,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
+48.199,"Test",686,"Shadow Bolt",SHADOW,CAST,118,53,0,0,Exact,"none",SYNTHETIC_DBC_RENDERER
