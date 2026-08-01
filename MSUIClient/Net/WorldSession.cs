@@ -392,6 +392,43 @@ public sealed class WorldSession : IDisposable
 
     public static byte[] BuildBankGuidBody(ulong guid) => BuildGuidBody(guid);
 
+    public void GetMailList(ulong mailboxGuid)
+        => SendPacket((ushort)Op.CMSG_GET_MAIL_LIST, BuildMailGuidBody(mailboxGuid));
+
+    public void SendMail(ulong mailboxGuid, string receiver, string subject, string body,
+        ulong itemGuid, uint money, uint cod)
+        => SendPacket((ushort)Op.CMSG_SEND_MAIL,
+            BuildSendMailBody(mailboxGuid, receiver, subject, body, itemGuid, money, cod));
+
+    public void MailTakeMoney(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_TAKE_MONEY, BuildMailActionBody(mailboxGuid, mailId));
+
+    public void MailTakeItem(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_TAKE_ITEM, BuildMailActionBody(mailboxGuid, mailId));
+
+    public void MailReturn(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_RETURN_TO_SENDER, BuildMailActionBody(mailboxGuid, mailId));
+
+    public void MailDelete(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_DELETE, BuildMailActionBody(mailboxGuid, mailId));
+
+    public static byte[] BuildMailGuidBody(ulong mailboxGuid) => BuildGuidBody(mailboxGuid);
+
+    public static byte[] BuildMailActionBody(ulong mailboxGuid, uint mailId)
+    { var w = new PacketWriter(12); w.WriteU64(mailboxGuid); w.WriteU32(mailId); return w.ToArray(); }
+
+    public static byte[] BuildSendMailBody(ulong mailboxGuid, string receiver, string subject, string body,
+        ulong itemGuid, uint money, uint cod)
+    {
+        var w = new PacketWriter(49 + receiver.Length + subject.Length + body.Length);
+        w.WriteU64(mailboxGuid); w.WriteCString(receiver); w.WriteCString(subject); w.WriteCString(body);
+        w.WriteU32(41); // normal stationery
+        w.WriteU32(0);  // package
+        w.WriteU64(itemGuid); w.WriteU32(money); w.WriteU32(cod);
+        w.WriteU64(0); w.WriteU8(0); // build-5875 trailing constants
+        return w.ToArray();
+    }
+
     public static byte[] BuildTrainerListBody(ulong guid)
     { var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray(); }
 

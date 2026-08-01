@@ -106,6 +106,22 @@ public enum Op : ushort
     CMSG_BUY_BANK_SLOT            = 0x01B9,
     SMSG_BUY_BANK_SLOT_RESULT     = 0x01BA,
 
+    // --- Mail ---
+    CMSG_SEND_MAIL                = 0x0238,
+    SMSG_SEND_MAIL_RESULT         = 0x0239,
+    CMSG_GET_MAIL_LIST            = 0x023A,
+    SMSG_MAIL_LIST_RESULT         = 0x023B,
+    CMSG_ITEM_TEXT_QUERY          = 0x0243,
+    SMSG_ITEM_TEXT_QUERY_RESPONSE = 0x0244,
+    CMSG_MAIL_TAKE_MONEY          = 0x0245,
+    CMSG_MAIL_TAKE_ITEM           = 0x0246,
+    CMSG_MAIL_MARK_AS_READ        = 0x0247,
+    CMSG_MAIL_RETURN_TO_SENDER    = 0x0248,
+    CMSG_MAIL_DELETE              = 0x0249,
+    CMSG_MAIL_CREATE_TEXT_ITEM    = 0x024A,
+    MSG_QUERY_NEXT_MAIL_TIME      = 0x0284,
+    SMSG_RECEIVED_MAIL            = 0x0285,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,

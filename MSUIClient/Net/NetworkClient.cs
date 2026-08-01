@@ -315,6 +315,13 @@ public sealed class NetworkClient : IDisposable
     }
     public bool BankerActivate(ulong guid) => InWorld(s => s.BankerActivate(guid));
     public bool BuyBankSlot(ulong guid) => InWorld(s => s.BuyBankSlot(guid));
+    public bool GetMailList(ulong guid) => InWorld(s => s.GetMailList(guid));
+    public bool SendMail(ulong guid, string receiver, string subject, string body, ulong item, uint money, uint cod)
+        => InWorld(s => s.SendMail(guid, receiver, subject, body, item, money, cod));
+    public bool MailTakeMoney(ulong guid, uint id) => InWorld(s => s.MailTakeMoney(guid, id));
+    public bool MailTakeItem(ulong guid, uint id) => InWorld(s => s.MailTakeItem(guid, id));
+    public bool MailReturn(ulong guid, uint id) => InWorld(s => s.MailReturn(guid, id));
+    public bool MailDelete(ulong guid, uint id) => InWorld(s => s.MailDelete(guid, id));
     public bool QuestgiverStatus(ulong guid) => InWorld(s => s.QuestgiverStatus(guid));
     public bool QuestgiverHello(ulong guid) => InWorld(s => s.QuestgiverHello(guid));
     public bool QuestgiverQuery(ulong guid, uint questId) => InWorld(s => s.QuestgiverQuery(guid, questId));

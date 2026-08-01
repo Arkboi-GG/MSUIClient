@@ -433,3 +433,13 @@ passed 31/31: bank open returned, one item moved backpack→bank→backpack with
 exact swap bodies, and a 10,000-copper bag-slot purchase changed money and the
 server-authoritative slot count from 1→2. Evidence:
 `live-runs/N1C-2-5-bank-20260801-121500.md`.
+
+## NIGHT_01C 2-6 — mail
+
+`CLOSED-FINDING`: exact send/list/take/return/delete wire, bounded inbox state,
+attachment/COD/money fields, expiry display, mailbox UI, verdicts, runner, and
+byte gates are built. The GM-off streamed-mailbox list request was server-silent
+with delivered `.gps`, recorded once as `BLOCKED-BY:F-SILENT-INTERACT`; the
+runtime replay passed all send, take-money, take-item/COD, return, delete, and
+expiry assertions. The scenario passed 24/24. Evidence:
+`live-runs/N1C-2-6-mail-20260801-123000.md`.

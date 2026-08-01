@@ -176,13 +176,17 @@ public sealed partial class GameLoop
                     bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
                     bool npcFlagNearest=p[1].StartsWith("npc-flag-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool entryNearest=p[1].StartsWith("entry-nearest:",StringComparison.OrdinalIgnoreCase);
-                    int ordinal=self||anchor||npcFlagNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    bool objectEntryNearest=p[1].StartsWith("object-entry-nearest:",StringComparison.OrdinalIgnoreCase);
+                    bool mailboxNearest=p[1].Equals("mailbox-nearest",StringComparison.OrdinalIgnoreCase);
+                    int ordinal=self||anchor||npcFlagNearest||mailboxNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
                     bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
                     bool spawned=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
                     ulong guid=self?_net?.PlayerGuid??0:npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
+                        mailboxNearest?LiveMailboxNearestGuid():
+                        objectEntryNearest?LiveObjectEntryNearestGuid(ordinal):
                         entryNearest?LiveEntryNearestGuid(ordinal):
                         anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
                         wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
@@ -320,6 +324,26 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("withdraw-entry", StringComparison.OrdinalIgnoreCase))
                         Log(WithdrawBankEntry(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else if (p[1].Equals("buy-slot", StringComparison.OrdinalIgnoreCase)) Log(BuyNextBankSlot(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "mail":
+                    string[] mail = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (mail[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestMail(_selectionGuid), line);
+                    else if (mail[1].Equals("send", StringComparison.OrdinalIgnoreCase) && mail.Length == 6)
+                        Log(SendMailFlow(mail[2], uint.Parse(mail[3], CultureInfo.InvariantCulture),
+                            uint.Parse(mail[4], CultureInfo.InvariantCulture), uint.Parse(mail[5], CultureInfo.InvariantCulture)), line);
+                    else if (mail[1].Equals("take-money-first", StringComparison.OrdinalIgnoreCase))
+                    { uint id = FirstMailId("money"); Log(id != 0 && TakeMailMoney(id), $"{line} id={id}"); }
+                    else if (mail[1].Equals("take-item-first", StringComparison.OrdinalIgnoreCase))
+                    { uint id = FirstMailId("item"); Log(id != 0 && TakeMailItem(id), $"{line} id={id}"); }
+                    else if (mail[1].Equals("return-first", StringComparison.OrdinalIgnoreCase))
+                    { uint id = FirstMailId("any"); Log(id != 0 && ReturnMail(id), $"{line} id={id}"); }
+                    else if (mail[1].Equals("delete-first", StringComparison.OrdinalIgnoreCase))
+                    { uint id = FirstMailId("deletable"); Log(id != 0 && DeleteMail(id), $"{line} id={id}"); }
+                    else if (mail[1].Equals("simulate-list", StringComparison.OrdinalIgnoreCase))
+                    { SimulateMailList(); Log(true, line); }
+                    else if (mail[1].Equals("simulate-actions", StringComparison.OrdinalIgnoreCase))
+                    { SimulateMailActions(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "interface-blocked":
@@ -550,6 +574,28 @@ public sealed partial class GameLoop
         float distance = Vector3.Distance(selected.Position, _controller.Position);
         EmitCombat("EntryObserved", "object-store-entry-nearest", selected.Guid,
             $"entry={entry};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
+        return selected.Guid;
+    }
+    private ulong LiveObjectEntryNearestGuid(int entry)
+    {
+        if (_controller is null || entry <= 0) return 0;
+        WorldEntity? selected = _entities.Entities.Values.Where(x => x.IsGameObject && x.Entry == (uint)entry)
+            .OrderBy(x => Vector3.Distance(x.Position, _controller.Position)).ThenBy(x => x.Guid).FirstOrDefault();
+        if (selected is null) return 0;
+        float distance = Vector3.Distance(selected.Position, _controller.Position);
+        EmitInterface("mail", "mailbox-observed", "PASS", selected.Guid,
+            $"entry={entry};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
+        return selected.Guid;
+    }
+    private ulong LiveMailboxNearestGuid()
+    {
+        if (_controller is null) return 0;
+        WorldEntity? selected = _entities.Entities.Values.Where(x => x.IsGameObject && x.GameObjectType == 19)
+            .OrderBy(x => Vector3.Distance(x.Position, _controller.Position)).ThenBy(x => x.Guid).FirstOrDefault();
+        if (selected is null) return 0;
+        float distance = Vector3.Distance(selected.Position, _controller.Position);
+        EmitInterface("mail", "mailbox-observed", "PASS", selected.Guid,
+            $"entry={selected.Entry};type={selected.GameObjectType};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
         return selected.Guid;
     }
     private void RefreshLiveSpawnIdentities()

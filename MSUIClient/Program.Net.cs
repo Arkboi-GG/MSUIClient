@@ -195,6 +195,7 @@ public sealed partial class GameLoop
             ResetCombatFeedback();
             ResetLoot();
             ResetGossip();
+            ResetMail();
             _creaturesLogged = 0;
             _pendingObjectParse = null;
             _pendingObjectUpdates = null;
@@ -401,6 +402,15 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_BUY_BANK_SLOT_RESULT:
                         ApplyBuyBankSlotResult(body);
+                        break;
+                    case Op.SMSG_MAIL_LIST_RESULT:
+                        ApplyMailList(body);
+                        break;
+                    case Op.SMSG_SEND_MAIL_RESULT:
+                        ApplyMailResult(body);
+                        break;
+                    case Op.SMSG_RECEIVED_MAIL:
+                        ApplyReceivedMail(body);
                         break;
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);

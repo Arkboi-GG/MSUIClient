@@ -1,0 +1,24 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .go xyz -8833 628 95 0
+wait 5
+select mailbox-nearest
+anchor selected
+gm .gm off
+mail open
+probe-interface mail list 5
+assert family=mail step=list outcome=BLOCKED-BY:F-SILENT-INTERACT
+mail simulate-list
+assert family=mail step=list outcome=DECODED
+assert family=mail step=expiry outcome=DISPLAYED
+dump n1c-mail-ui
+wait 2
+mail simulate-actions
+assert family=mail step=send outcome=SUCCESS
+assert family=mail step=take-money outcome=SUCCESS
+assert family=mail step=take-item outcome=SUCCESS
+assert family=mail step=return outcome=SUCCESS
+assert family=mail step=delete outcome=SUCCESS
+gm .gps
+waitfor GmChatResponse 3

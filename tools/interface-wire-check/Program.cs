@@ -131,4 +131,21 @@ Check((ushort)Op.CMSG_BANKER_ACTIVATE == 439 && (ushort)Op.SMSG_SHOW_BANK == 440
 Check(WorldSession.BuildBankGuidBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
       "bank open/purchase full guid body");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank opcodes/bodies/bounds/state");
+Check((ushort)Op.CMSG_SEND_MAIL == 568 && (ushort)Op.SMSG_SEND_MAIL_RESULT == 569 &&
+      (ushort)Op.CMSG_GET_MAIL_LIST == 570 && (ushort)Op.SMSG_MAIL_LIST_RESULT == 571 &&
+      (ushort)Op.CMSG_MAIL_TAKE_MONEY == 581 && (ushort)Op.CMSG_MAIL_TAKE_ITEM == 582 &&
+      (ushort)Op.CMSG_MAIL_RETURN_TO_SENDER == 584 && (ushort)Op.CMSG_MAIL_DELETE == 585,
+      "mail opcodes");
+Check(WorldSession.BuildMailGuidBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "mail list full guid body");
+Check(WorldSession.BuildMailActionBody(trainerGuid, 0x78563412)
+      .SequenceEqual(Convert.FromHexString("0100008F030030F112345678")), "mail action guid/id body");
+byte[] sendMail = WorldSession.BuildSendMailBody(trainerGuid, "Test", "Subject", "Body", 9, 100, 200);
+var mailReader = new PacketReader(sendMail);
+Check(mailReader.ReadU64() == trainerGuid && mailReader.ReadCString() == "Test" &&
+      mailReader.ReadCString() == "Subject" && mailReader.ReadCString() == "Body" &&
+      mailReader.ReadU32() == 41 && mailReader.ReadU32() == 0 && mailReader.ReadU64() == 9 &&
+      mailReader.ReadU32() == 100 && mailReader.ReadU32() == 200 && mailReader.ReadU64() == 0 &&
+      mailReader.ReadU8() == 0 && mailReader.Remaining == 0, "send mail body order and constants");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail opcodes/bodies/bounds/state");

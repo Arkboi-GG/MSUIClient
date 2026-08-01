@@ -60,6 +60,7 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXRANGEDDAMAGE = 172;
 
     public const ushort GAMEOBJECT_DISPLAYID = 8;
+    public const ushort GAMEOBJECT_TYPE_ID = 21;
 
     public const ushort ITEM_STACK_COUNT = 14;
     public const ushort ITEM_FLAGS = 21;
@@ -163,6 +164,7 @@ public sealed class ObjectFields
     public uint? Entry => GetU32(OBJECT_ENTRY);
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
+    public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
     public uint MountDisplayId => GetU32(UNIT_MOUNTDISPLAYID) ?? 0;
     public uint Health => GetU32(UNIT_HEALTH) ?? 0;
     public uint MaxHealth => GetU32(UNIT_MAXHEALTH) ?? 0;

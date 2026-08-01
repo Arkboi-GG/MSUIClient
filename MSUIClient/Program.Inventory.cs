@@ -34,6 +34,7 @@ public sealed partial class GameLoop
         catch (Exception ex) { Console.WriteLine($"[items] display catalog failed: {ex.Message}"); }
         _items = new ItemTemplateCache(displays);
         InitBank();
+        InitMail();
     }
 
     private void UpdateInventoryInput(bool typing)

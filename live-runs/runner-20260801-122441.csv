@@ -1,0 +1,26 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\mail-open-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .go xyz -8833 628 95 0
+5,PASS,wait 5
+6,PASS,select mailbox-nearest guid=0xF110023303006713
+7,PASS,anchor selected guid=0xF110023303006713 position=-8876.98|652.007|95.9927
+8,PASS,gm .gm off
+9,PASS,mail open
+10,PASS,probe-interface mail list blocked
+11,PASS,assert family=mail step=list outcome=BLOCKED-BY:F-SILENT-INTERACT
+12,PASS,mail simulate-list
+13,PASS,assert family=mail step=list outcome=DECODED
+14,PASS,assert family=mail step=expiry outcome=DISPLAYED
+15,PASS,dump n1c-mail-ui
+16,PASS,wait 2
+17,PASS,mail simulate-actions
+18,PASS,assert family=mail step=send outcome=SUCCESS
+19,PASS,assert family=mail step=take-money outcome=SUCCESS
+20,PASS,assert family=mail step=take-item outcome=SUCCESS
+21,PASS,assert family=mail step=return outcome=SUCCESS
+22,PASS,assert family=mail step=delete outcome=SUCCESS
+23,PASS,gm .gps
+24,PASS,waitfor GmChatResponse

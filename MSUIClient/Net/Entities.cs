@@ -34,6 +34,7 @@ public sealed class WorldEntity
     public bool InCombat => Fields.InCombat;
     public float Scale => Fields.Scale;
     public uint NpcFlags => Fields.NpcFlags;
+    public uint GameObjectType => Fields.GameObjectType;
 
     /// <summary>Auto-attack engagement bracketed by SMSG_ATTACKSTART/STOP.</summary>
     public bool Engaged { get; internal set; }
