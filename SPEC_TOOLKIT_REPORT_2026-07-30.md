@@ -3944,3 +3944,57 @@ behavior, error display, or F3-F6 change occurred. SPEC-21 P3/P4 remain queued.
 Y2 boundary gates passed sequentially: Debug build with only the established
 CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534 specimens
 and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## Y3 - attack wire-capture HARD STOP
+
+### Actual versus predicted
+
+```text
+PREDICTED causal transit verdict: server discard or client/LAN anomaly
+ACTUAL: neither run-specific payload substring appears in the captured frames
+ACTUAL ACK: unmeasured because there is no matched payload sequence range
+RESULT: CAPTURE_FILTER_DEFECT; no causal transit verdict
+
+PREDICTED identical accepted target
+ACTUAL: alive and GM-off, but unitFlags=0x00080000 and distance=9.533476 yd
+RESULT: SCENARIO_PRECONDITION_DRIFT; independent non-promotion reason
+
+PREDICTED option 3 eligibility: valid payload present + ACKed + server silent
+ACTUAL: payload presence and ACK not measured
+RESULT: option 3 remains gated; SPEC-21 P3/P4 remain queued
+```
+
+Prior-run reconciliation: SPEC-21 P2 remains valid negative logging evidence;
+SPEC-22 X1 remains valid accepted client socket-flush evidence; SPEC-22 X2-X4
+remain honest at the on-wire boundary. SPEC-23 proved elevation and bounded
+capture control but did not prove transit. The X3 server candidate table remains
+frozen and unentered.
+
+The recommended smallest next ruling is a new one-repeat order using pktmon
+all-components rather than NIC-only, with mechanical rejection before send
+unless the live target is alive, flags-zero, and distance-zero. The named netsh
+fallback is second if all-components pktmon still omits both payloads. Linux
+tcpdump remains excluded, and deeper server instrumentation remains gated.
+
+En-route housekeeping: **yes**, this implementing-agent work authored preflight
+commit `145db11` (`verification work`) under the configured `Yafrovon` identity.
+It is retroactively recorded as the SPEC-22 X0 document-preservation commit.
+
+The full hard-stop packet is
+`live-runs/Y3-attack-wire-hard-stop-20260731-202500.md`, SHA-256
+`f201b091790c026449836778080dc022a87102db7cbae9667639b4e3b199d5a6`.
+The four-file manifest is
+`live-runs/manifests/Y3-20260731-202500.sha256`, SHA-256
+`a8a007c83e21d67619fb1a02a26456b98ff7873c353d7d98197aecaed019705c`.
+
+The elevated relay exited; pktmon is stopped; all filters were removed; no raw
+ETL/PCAP/pcapng or relay/control file survives. No server code, DB, persistent
+config, combat behavior, error display, or F3-F6 behavior changed.
+
+**HARD STOP - SPEC-23 Y0-Y3 is complete at `CAPTURE_FILTER_DEFECT` plus
+`SCENARIO_PRECONDITION_DRIFT`. Nico's new ruling is required before another
+capture or option-3 instrumentation.**
+
+Y3 final boundary gates passed sequentially: Debug build with only the
+established CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534
+specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
