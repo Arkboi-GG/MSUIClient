@@ -334,6 +334,10 @@ public sealed class NetworkClient : IDisposable
     public bool GuildDemote(string name) => InWorld(s => s.GuildDemote(name));
     public bool GuildLeave() => InWorld(s => s.GuildLeave());
     public bool GuildDisband() => InWorld(s => s.GuildDisband());
+    public bool SaveGuildEmblem(ulong vendorGuid, uint emblemStyle, uint emblemColor,
+        uint borderStyle, uint borderColor, uint backgroundColor)
+        => InWorld(s => s.SaveGuildEmblem(vendorGuid, emblemStyle, emblemColor,
+            borderStyle, borderColor, backgroundColor));
     public bool QuestgiverStatus(ulong guid) => InWorld(s => s.QuestgiverStatus(guid));
     public bool QuestgiverHello(ulong guid) => InWorld(s => s.QuestgiverHello(guid));
     public bool QuestgiverQuery(ulong guid, uint questId) => InWorld(s => s.QuestgiverQuery(guid, questId));

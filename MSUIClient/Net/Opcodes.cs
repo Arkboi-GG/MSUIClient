@@ -158,6 +158,8 @@ public enum Op : ushort
     CMSG_GUILD_MOTD               = 0x0091,
     SMSG_GUILD_EVENT              = 0x0092,
     SMSG_GUILD_COMMAND_RESULT     = 0x0093,
+    MSG_SAVE_GUILD_EMBLEM         = 0x01F1,
+    SMSG_TABARDVENDOR_ACTIVATE    = 0x01F2,
 
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,

@@ -260,6 +260,9 @@ public sealed partial class GameLoop
                 case "vendor":
                     if(p[1].Equals("open",StringComparison.OrdinalIgnoreCase))
                         Log(RequestVendor(_selectionGuid),$"{line} guid=0x{_selectionGuid:X16}");
+                    else if (p[1].Equals("buy-entry", StringComparison.OrdinalIgnoreCase))
+                        Log(BuyVendorEntry(uint.Parse(p[2], CultureInfo.InvariantCulture),
+                            byte.Parse(p[3], CultureInfo.InvariantCulture)), line);
                     else Log(false,$"unknown {line}");
                     break;
                 case "trainer":
@@ -390,6 +393,22 @@ public sealed partial class GameLoop
                     else if (guild.Length == 2 && guild[1].Equals("leave", StringComparison.OrdinalIgnoreCase)) Log(LeaveGuild(), line);
                     else if (guild.Length == 2 && guild[1].Equals("disband", StringComparison.OrdinalIgnoreCase)) Log(DisbandGuild(), line);
                     else if (guild.Length == 2 && guild[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateGuildFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "tabard":
+                    string[] tabard = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (tabard.Length == 2 && tabard[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                        Log(RequestTabardDesigner(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
+                    else if (tabard.Length == 2 && tabard[1].Equals("close", StringComparison.OrdinalIgnoreCase))
+                    { _tabardOpen = false; Log(true, line); }
+                    else if (tabard.Length == 7 && tabard[1].Equals("save", StringComparison.OrdinalIgnoreCase))
+                        Log(SaveTabardDesign(uint.Parse(tabard[2], CultureInfo.InvariantCulture),
+                            uint.Parse(tabard[3], CultureInfo.InvariantCulture), uint.Parse(tabard[4], CultureInfo.InvariantCulture),
+                            uint.Parse(tabard[5], CultureInfo.InvariantCulture), uint.Parse(tabard[6], CultureInfo.InvariantCulture)), line);
+                    else if (tabard.Length == 7 && tabard[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
+                    { SimulateTabardFlow(uint.Parse(tabard[2], CultureInfo.InvariantCulture),
+                        uint.Parse(tabard[3], CultureInfo.InvariantCulture), uint.Parse(tabard[4], CultureInfo.InvariantCulture),
+                        uint.Parse(tabard[5], CultureInfo.InvariantCulture), uint.Parse(tabard[6], CultureInfo.InvariantCulture)); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "interface-blocked":
@@ -598,6 +617,7 @@ public sealed partial class GameLoop
             "innkeeper" => NpcInnkeeper,
             "banker" => NpcBanker,
             "auctioneer" => NpcAuctioneer,
+            "tabard" or "tabarddesigner" => NpcTabardDesigner,
             _ => 0,
         };
         if(flag==0) return 0;

@@ -198,6 +198,7 @@ public sealed partial class GameLoop
             ResetMail();
             ResetAuction();
             ResetGuild();
+            ResetTabard();
             _creaturesLogged = 0;
             _pendingObjectParse = null;
             _pendingObjectUpdates = null;
@@ -443,6 +444,12 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_GUILD_COMMAND_RESULT:
                         ApplyGuildCommandResult(body);
+                        break;
+                    case Op.SMSG_TABARDVENDOR_ACTIVATE:
+                        ApplyTabardVendorActivate(body);
+                        break;
+                    case Op.MSG_SAVE_GUILD_EMBLEM:
+                        ApplySaveGuildEmblemResult(body);
                         break;
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);

@@ -214,3 +214,17 @@ Format per entry:
   resolve model-empty chains and 15 have no visual chain; the renderer fabricates
   nothing for authored absence.
 - Agent recommendation: accept exact supplier binding and rule only on art/feel.
+
+## Q19 — 2-10 — guild tabard render perceptual pass
+
+- Decision needed: judge whether emblem 7/color 3/border 2/color 5/background
+  11 reads correctly on the equipped guild tabard, including the TU/TL seam and
+  paper-doll scale.
+- Evidence: `live-runs/N1C-2-10-tabard-designer-20260801-131845.png`,
+  `live-runs/N1C-2-10-tabard-character-20260801-131845.png`, and
+  `live-runs/N1C-2-10-tabard-20260801-132000.md`.
+- Mechanical result: the server accepted all five fields and charged exactly
+  10 gold; the renderer bound the six exact shipped MPQ layers and item 5976
+  was server-authoritatively equipped in slot 18.
+- Agent recommendation: accept protocol, economy, and texture binding; rule
+  only on the composed art and seam from the two images.

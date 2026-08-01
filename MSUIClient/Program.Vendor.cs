@@ -42,6 +42,16 @@ public sealed partial class GameLoop
             $"item={item};result={result};bytes={body.Length}");
     }
 
+    private bool BuyVendorEntry(uint entry, byte count)
+    {
+        if (_vendor is null || !_vendor.Items.Any(x => x.ItemId == entry))
+        { EmitInterface("vendor", "buy", "REFUSED-NOT-LISTED", 0, $"item={entry};count={count}"); return false; }
+        bool sent = _net?.BuyItem(_vendor.VendorGuid, entry, count) == true;
+        EmitInterface("vendor", "buy", sent ? "SENT" : "SEND_FAILED", _vendor.VendorGuid,
+            $"item={entry};count={count};body={Convert.ToHexString(WorldSession.BuildBuyItemBody(_vendor.VendorGuid, entry, count))}");
+        return sent;
+    }
+
     private void DrawVendorFrame()
     {
         if(_vendor is null) return;
@@ -53,8 +63,7 @@ public sealed partial class GameLoop
             string name=_items?.TryGet(row.ItemId,out ItemTemplate? t)==true&&t is not null?t.Name:$"Item {row.ItemId}";
             if(ImGui.Selectable($"{name}  {FormatMoney(row.Price)}##vendor-{row.Slot}"))
             {
-                bool sent=_net?.BuyItem(_vendor.VendorGuid,row.ItemId,1)==true;
-                EmitInterface("vendor","buy",sent?"SENT":"SEND_FAILED",_vendor.VendorGuid,$"item={row.ItemId};count=1;price={row.Price}");
+                BuyVendorEntry(row.ItemId, 1);
             }
         }
         if(ImGui.Button("Close##vendor")) _vendor=null;

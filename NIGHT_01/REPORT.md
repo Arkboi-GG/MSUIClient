@@ -474,3 +474,13 @@ The isolated GM-created `MSUINight` guild passed GM-off live roster and MOTD
 mutation/re-read legs; a two-member runtime replay covered online/offline rows
 and all remaining lifecycle results. The scenario passed 30/30 and the guild
 was deleted afterward. Evidence: `live-runs/N1C-2-9-guild-20260801-130400.md`.
+
+## NIGHT_01C 2-10 — guild tabard
+
+`CLOSED-FINDING`: exact designer/save/result/economy/UI/renderer/runner families
+are built. An isolated GM-created guild and entry-5193 designer completed the
+GM-off save with server result 0 and an independent 10-gold delta; item 5976
+equipped and six exact shipped MPQ layers rendered on the character. Designer
+activation retained the single registered `F-SILENT-INTERACT` row. The final
+scenario passed 40/40 and visual judgment is queued Q19. Evidence:
+`live-runs/N1C-2-10-tabard-20260801-132000.md`.

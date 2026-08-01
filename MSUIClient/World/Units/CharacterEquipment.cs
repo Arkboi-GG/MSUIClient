@@ -29,6 +29,10 @@ namespace MSUIClient.World.Units;
 /// </summary>
 public sealed class CharacterEquipment
 {
+    public readonly record struct GuildEmblemDesign(uint Style, uint Color, uint BorderStyle,
+        uint BorderColor, uint BackgroundColor);
+    public GuildEmblemDesign? GuildEmblem { get; set; }
+
     /// <summary>Vanilla InventoryType values, the ones that matter for dressing.</summary>
     public static class Slot
     {
@@ -207,8 +211,34 @@ public sealed class CharacterEquipment
             }
         }
 
+        if (GuildEmblem is { } emblem && _pieces.Any(p => p.InventoryType == Slot.Tabard))
+            PaintGuildEmblem(canvas, width, height, emblem, load);
+
         Console.WriteLine($"[equip] atlas composite: {painted} region(s) painted, {missing} texture(s) not found");
         return canvas;
+    }
+
+    private static void PaintGuildEmblem(byte[] canvas, int width, int height,
+        GuildEmblemDesign design, Func<string, (byte[] bgra, int w, int h)?> load)
+    {
+        foreach ((string suffix, int slot) in new[] { ("TU", 3), ("TL", 4) })
+        {
+            string[] paths =
+            [
+                $@"Textures\GuildEmblems\Background_{design.BackgroundColor:D2}_{suffix}_U.blp",
+                $@"Textures\GuildEmblems\Border_{design.BorderStyle:D2}_{design.BorderColor:D2}_{suffix}_U.blp",
+                $@"Textures\GuildEmblems\Emblem_{design.Style:D2}_{design.Color:D2}_{suffix}_U.blp",
+            ];
+            var region = SlotRegions[slot];
+            foreach (string path in paths)
+            {
+                var image = load(path); if (image is null) continue;
+                float sx = width / (float)AtlasSize, sy = height / (float)AtlasSize;
+                Blit(canvas, width, height, image.Value.bgra, image.Value.w, image.Value.h,
+                    (int)(region.X * sx), (int)(region.Y * sy),
+                    (int)(region.W * sx), (int)(region.H * sy));
+            }
+        }
     }
 
     /// <summary>

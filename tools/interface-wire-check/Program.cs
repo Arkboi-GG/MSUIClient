@@ -131,6 +131,8 @@ Check((ushort)Op.CMSG_BANKER_ACTIVATE == 439 && (ushort)Op.SMSG_SHOW_BANK == 440
       "bank opcodes");
 Check(WorldSession.BuildBankGuidBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
       "bank open/purchase full guid body");
+Check(WorldSession.BuildBuyItemBody(trainerGuid, 5976, 1)
+      .SequenceEqual(Convert.FromHexString("0100008F030030F1581700000100")), "vendor buy body");
 
 Check((ushort)Op.CMSG_SEND_MAIL == 568 && (ushort)Op.SMSG_SEND_MAIL_RESULT == 569 &&
       (ushort)Op.CMSG_GET_MAIL_LIST == 570 && (ushort)Op.SMSG_MAIL_LIST_RESULT == 571 &&
@@ -178,4 +180,29 @@ Check((ushort)Op.CMSG_GUILD_ROSTER == 137 && (ushort)Op.SMSG_GUILD_ROSTER == 138
       (ushort)Op.SMSG_GUILD_COMMAND_RESULT == 147, "guild opcodes");
 Check(WorldSession.BuildCStringBody("Night").SequenceEqual(Convert.FromHexString("4E6967687400")), "guild CString bodies");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild opcodes/bodies/bounds/state");
+Check((ushort)Op.MSG_SAVE_GUILD_EMBLEM == 497 && (ushort)Op.SMSG_TABARDVENDOR_ACTIVATE == 498,
+      "tabard opcodes");
+Check(WorldSession.BuildSaveGuildEmblemBody(trainerGuid, 7, 3, 2, 5, 11)
+      .SequenceEqual(Convert.FromHexString("0100008F030030F1070000000300000002000000050000000B000000")),
+      "tabard save vendor guid plus five u32 fields");
+var tabardEquipment = new MSUIClient.World.Units.CharacterEquipment
+{
+    GuildEmblem = new(7, 3, 2, 5, 11),
+};
+tabardEquipment.Add("Guild Tabard", 0, MSUIClient.World.Units.CharacterEquipment.Slot.Tabard);
+var tabardPaths = new List<string>();
+tabardEquipment.Composite(new byte[256 * 256 * 4], 256, 256, path =>
+{
+    tabardPaths.Add(path); return (new byte[128 * 64 * 4], 128, 64);
+});
+Check(tabardPaths.SequenceEqual(new[]
+{
+    @"Textures\GuildEmblems\Background_11_TU_U.blp",
+    @"Textures\GuildEmblems\Border_02_05_TU_U.blp",
+    @"Textures\GuildEmblems\Emblem_07_03_TU_U.blp",
+    @"Textures\GuildEmblems\Background_11_TL_U.blp",
+    @"Textures\GuildEmblems\Border_02_05_TL_U.blp",
+    @"Textures\GuildEmblems\Emblem_07_03_TL_U.blp",
+}), "tabard renderer binds exact six MPQ layers");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard opcodes/bodies/bounds/state/render-binding");

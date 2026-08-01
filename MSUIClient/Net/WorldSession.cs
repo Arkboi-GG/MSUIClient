@@ -487,9 +487,11 @@ public sealed class WorldSession : IDisposable
 
     public void ListInventory(ulong guid) => SendFullGuid(Op.CMSG_LIST_INVENTORY, guid);
     public void BuyItem(ulong vendorGuid, uint itemId, byte count)
+        => SendPacket((ushort)Op.CMSG_BUY_ITEM, BuildBuyItemBody(vendorGuid, itemId, count));
+    public static byte[] BuildBuyItemBody(ulong vendorGuid, uint itemId, byte count)
     {
         var w = new PacketWriter(14); w.WriteU64(vendorGuid); w.WriteU32(itemId);
-        w.WriteU8(count); w.WriteU8(0); SendPacket((ushort)Op.CMSG_BUY_ITEM, w.AsSpan());
+        w.WriteU8(count); w.WriteU8(0); return w.ToArray();
     }
     public void SellItem(ulong vendorGuid, ulong itemGuid, byte count)
     {
@@ -560,6 +562,18 @@ public sealed class WorldSession : IDisposable
     public void GuildDemote(string name) => SendPacket((ushort)Op.CMSG_GUILD_DEMOTE, BuildCStringBody(name));
     public void GuildLeave() => SendPacket((ushort)Op.CMSG_GUILD_LEAVE, ReadOnlySpan<byte>.Empty);
     public void GuildDisband() => SendPacket((ushort)Op.CMSG_GUILD_DISBAND, ReadOnlySpan<byte>.Empty);
+    public void SaveGuildEmblem(ulong vendorGuid, uint emblemStyle, uint emblemColor,
+        uint borderStyle, uint borderColor, uint backgroundColor)
+        => SendPacket((ushort)Op.MSG_SAVE_GUILD_EMBLEM,
+            BuildSaveGuildEmblemBody(vendorGuid, emblemStyle, emblemColor,
+                borderStyle, borderColor, backgroundColor));
+    public static byte[] BuildSaveGuildEmblemBody(ulong vendorGuid, uint emblemStyle,
+        uint emblemColor, uint borderStyle, uint borderColor, uint backgroundColor)
+    {
+        var w = new PacketWriter(28); w.WriteU64(vendorGuid); w.WriteU32(emblemStyle);
+        w.WriteU32(emblemColor); w.WriteU32(borderStyle); w.WriteU32(borderColor);
+        w.WriteU32(backgroundColor); return w.ToArray();
+    }
     public static byte[] BuildCStringBody(string value)
     {
         var w = new PacketWriter(Encoding.UTF8.GetByteCount(value) + 1);

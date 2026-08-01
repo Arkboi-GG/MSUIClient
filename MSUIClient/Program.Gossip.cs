@@ -14,8 +14,9 @@ public sealed partial class GameLoop
     private const uint NpcInnkeeper = 0x0000_0080;
     private const uint NpcBanker = 0x0000_0100;
     private const uint NpcAuctioneer = 0x0000_1000;
+    private const uint NpcTabardDesigner = 0x0000_0400;
     private const uint GossipNpcFlags = NpcQuestGiver | NpcVendor | NpcFlightMaster |
-        NpcTrainer | NpcInnkeeper | NpcBanker | NpcAuctioneer;
+        NpcTrainer | NpcInnkeeper | NpcBanker | NpcAuctioneer | NpcTabardDesigner;
     private const float GossipInteractDistance = 6f;
 
     private GossipMenu? _gossipMenu;

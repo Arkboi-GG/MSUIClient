@@ -38,6 +38,7 @@ public sealed partial class GameLoop
         InitAuction();
         InitProfessions();
         InitGuild();
+        InitTabard();
     }
 
     private void UpdateInventoryInput(bool typing)
@@ -154,7 +155,7 @@ public sealed partial class GameLoop
         }
         int signature = hash.ToHashCode();
         if (signature == _liveEquipmentSignature) return;
-        var equipment = new CharacterEquipment();
+        var equipment = new CharacterEquipment { GuildEmblem = _tabardDesign };
         foreach (var resolvedItem in resolved)
         {
             ItemTemplate item = resolvedItem.Item;

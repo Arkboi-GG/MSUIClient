@@ -1,0 +1,42 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\tabard-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,select self guid=0x0000000000000001
+5,PASS,gm .guild delete "MSUITabard"
+6,PASS,gm .guild create Test "MSUITabard"
+7,PASS,gm .modify money 200000
+8,PASS,gm .additem 5976 1
+9,PASS,gm .npc spawn add 5193
+10,PASS,wait 2
+11,PASS,select npc-flag-nearest:tabard guid=0xF13000144904A2C5
+12,PASS,gm .gm off
+13,PASS,character inspect
+14,PASS,tabard open guid=0xF13000144904A2C5
+15,PASS,wait 2
+16,PASS,interface-blocked tabard activate F-SILENT-INTERACT
+17,PASS,tabard save 7 3 2 5 11
+18,PASS,wait 3
+19,PASS,character inspect
+20,PASS,inventory equip-entry 5976
+21,PASS,wait 2
+22,PASS,tabard simulate 7 3 2 5 11
+23,PASS,character open
+24,PASS,assert family=tabard step=save-send outcome=SENT
+25,PASS,assert family=tabard step=save-result outcome=SUCCESS
+26,PASS,assert family=tabard step=render-binding outcome=VERIFIED
+27,PASS,assert family=inventory step=equipment outcome=EQUIPPED
+28,PASS,dump n1c-tabard-ui
+29,PASS,wait 2
+30,PASS,tabard close
+31,PASS,dump n1c-tabard-render
+32,PASS,wait 2
+33,PASS,gm .gps
+34,PASS,waitfor GmChatResponse
+35,PASS,gm .gm on
+36,PASS,select npc-flag-nearest:tabard guid=0xF13000144904A2C5
+37,PASS,gm .npc spawn delete
+38,PASS,select self guid=0x0000000000000001
+39,PASS,gm .guild delete "MSUITabard"
+40,PASS,gm .gm off
