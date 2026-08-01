@@ -309,6 +309,16 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_CANCEL_CHANNELLING, w.AsSpan());
     }
 
+    public void CancelAura(uint spellId)
+    {
+        SendPacket((ushort)Op.CMSG_CANCEL_AURA, BuildCancelAuraBody(spellId));
+    }
+
+    public static byte[] BuildCancelAuraBody(uint spellId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(spellId); return w.ToArray();
+    }
+
     public void CancelAutoRepeat()
         => SendPacket((ushort)Op.CMSG_CANCEL_AUTO_REPEAT_SPELL, ReadOnlySpan<byte>.Empty);
 

@@ -139,6 +139,15 @@ public sealed partial class GameLoop
                 0, ImDrawFlags.None, MathF.Max(1, s));
             if (aura.Stacks > 1)
                 dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
+            if (_playerAuraDurations.TryGetValue(aura.Slot, out var timer))
+            {
+                double remaining = Math.Max(0, timer.Expires - NowSeconds());
+                string text = remaining >= 60 ? $"{Math.Ceiling(remaining / 60)}m" : $"{Math.Ceiling(remaining)}s";
+                dl.AddText(new Vector2(min.X, max.Y + 1 * s), 0xffffffff, text);
+            }
+            if (ImGui.IsMouseHoveringRect(min, max, false) &&
+                ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+                CancelPlayerAura(new AuraSnapshot(aura.Slot, aura.SpellId, aura.Flags, aura.Stacks), "UI_RIGHT_CLICK");
             if (++shown >= 24) break;
         }
     }

@@ -284,6 +284,11 @@ public sealed class NetworkClient : IDisposable
     }
     public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
     public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
+    public bool CancelAura(uint spellId)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.CancelAura(spellId); return true; } catch { return false; }
+    }
     public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }
     public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }

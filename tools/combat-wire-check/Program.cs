@@ -92,6 +92,10 @@ Check(WorldSession.BuildCastSpellBody(6673, 0).SequenceEqual(Hex("111a00000000")
 Check(WorldSession.BuildCastSpellBody(133, 0xF13000004500002Aul)
           .SequenceEqual(Hex("850000000200c92a4530f1")),
       "unit cast body uses TARGET_FLAG_UNIT plus packed guid");
+Check((ushort)Op.CMSG_CANCEL_AURA == 0x0136 && (ushort)Op.SMSG_UPDATE_AURA_DURATION == 0x0137,
+      "build-5875 aura opcode pair");
+Check(WorldSession.BuildCancelAuraBody(6673).SequenceEqual(Hex("111a0000")),
+      "cancel aura body is the little-endian spell id, not the slot");
 
 var hostile = new FactionTemplateRow { Faction = 1, EnemyGroupMask = 4 };
 var monster = new FactionTemplateRow { Faction = 2, GroupMask = 4 };

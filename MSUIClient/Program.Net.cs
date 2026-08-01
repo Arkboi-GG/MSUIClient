@@ -6,6 +6,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Engine.UI;   // WowSkin (glue login chrome)
 using MSUIClient.Net;
+using MSUIClient.World;
 using MSUIClient.World.Units;
 using MSUIClient.Formats;   // AreaTableCatalog (roster zone names) + AdtTerrainReader
 
@@ -350,6 +351,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_ACTION_BUTTONS:
                         _actions.ApplyButtons(body);
                         break;
+                    case Op.SMSG_UPDATE_AURA_DURATION:
+                        ApplyAuraDuration(body);
+                        break;
                     case Op.SMSG_INITIAL_SPELLS:
                         _actions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
                         break;
@@ -536,6 +540,8 @@ public sealed partial class GameLoop
 
     private void ApplyUpdate(ObjectUpdate u, long receivedStamp)
     {
+        _entities.TryGet(u.Guid, out WorldEntity? auraUnitBefore);
+        Dictionary<byte, AuraSnapshot> aurasBefore = SnapshotAuras(auraUnitBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit)
             _creatureLifecycle.NoteSpawnPacket(
@@ -545,6 +551,7 @@ public sealed partial class GameLoop
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
         _entities.Apply(u);
+        ObserveAuraObjectUpdate(u.Guid, aurasBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
             u.Type == ObjectTypeId.Unit && _creaturesLogged < 50)
         {

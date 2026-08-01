@@ -1,0 +1,35 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\spells\aura-lifecycle-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,aura-simulate apply 0 1243 15 1 0
+5,PASS,aura-simulate duration 0 1243 15 1 120000
+6,PASS,aura-simulate stack 0 1243 15 3 120000
+7,PASS,aura-simulate cancel 0 1243 15 3 120000
+8,PASS,aura-simulate remove 0 1243 15 3 0
+9,PASS,aura-simulate apply 32 172 14 1 0
+10,PASS,aura-simulate stack 32 172 14 2 0
+11,PASS,aura-simulate cancel 32 172 14 2 0
+12,PASS,aura-simulate remove 32 172 14 2 0
+13,PASS,gm .learn 1243
+14,PASS,waitfor GmChatResponse
+15,PASS,gm .modify mana 1000
+16,PASS,wait 1
+17,PASS,gm .cooldown clear
+18,PASS,wait 1
+19,PASS,gm .gm off
+20,PASS,wire-trace start path=dumps/wire-20260801-102818.wlog
+21,PASS,socket-trace start n1c-aura-fortitude path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-n1c-aura-fortitude-20260801-102818.csv
+22,PASS,cast 1243
+23,PASS,waitspell SMSG_SPELL_GO
+24,PASS,wait 2
+25,PASS,aura present 1243
+26,PASS,aura-cancel 1243
+27,PASS,wait 2
+28,PASS,aura absent 1243
+29,PASS,socket-trace stop
+30,PASS,wire-trace stop
+31,PASS,gm .gps
+32,PASS,waitfor GmChatResponse
+33,PASS,gm .gm off

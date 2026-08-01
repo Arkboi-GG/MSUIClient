@@ -363,3 +363,11 @@ periodic tick observation, and movement cancellation are built. A GM-off Drain
 Life passed its mechanical pre-send gate and the server returned start, update,
 four periodic damage ticks at approximately one-second intervals, and stop.
 Evidence: `live-runs/N1C-3-5-channeled-spells-20260801-102000.md`.
+
+## NIGHT_01C 3-6 — auras, buffs, and debuffs
+
+`CLOSED-PASS`: aura apply/remove/stack/duration/cancel verdicts, player countdown,
+right-click cancel, target debuff display, and build-5875 aura opcodes are built.
+The instrument exposed and the fix handles duration-before-slot-replacement
+ordering. A GM-off Fortitude apply/timer/cancel/remove run passed 33/33.
+Evidence: `live-runs/N1C-3-6-auras-20260801-103200.md`.

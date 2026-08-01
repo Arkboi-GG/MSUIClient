@@ -1,0 +1,33 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+aura-simulate apply 0 1243 15 1 0
+aura-simulate duration 0 1243 15 1 120000
+aura-simulate stack 0 1243 15 3 120000
+aura-simulate cancel 0 1243 15 3 120000
+aura-simulate remove 0 1243 15 3 0
+aura-simulate apply 32 172 14 1 0
+aura-simulate stack 32 172 14 2 0
+aura-simulate cancel 32 172 14 2 0
+aura-simulate remove 32 172 14 2 0
+gm .learn 1243
+waitfor GmChatResponse 3
+gm .modify mana 1000
+wait 1
+gm .cooldown clear
+wait 1
+gm .gm off
+wire-trace start
+socket-trace start n1c-aura-fortitude
+cast 1243
+waitspell SMSG_SPELL_GO 4
+wait 2
+aura present 1243
+aura-cancel 1243
+wait 2
+aura absent 1243
+socket-trace stop
+wire-trace stop
+gm .gps
+waitfor GmChatResponse 3
+gm .gm off

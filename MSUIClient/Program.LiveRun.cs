@@ -252,6 +252,18 @@ public sealed partial class GameLoop
                     uint auraSpell = uint.Parse(p[2], CultureInfo.InvariantCulture);
                     Log(EmitAuraEffectCheck(auraSpell, expectedAura), line);
                     break;
+                case "aura-cancel":
+                    Log(TryCancelAuraBySpell(uint.Parse(p[1], CultureInfo.InvariantCulture), "PROTOCOL_RUNNER"), line);
+                    break;
+                case "aura-simulate":
+                    string[] auraSim = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    Log(auraSim.Length == 7 && SimulateAura(auraSim[1],
+                        byte.Parse(auraSim[2], CultureInfo.InvariantCulture),
+                        uint.Parse(auraSim[3], CultureInfo.InvariantCulture),
+                        byte.Parse(auraSim[4], CultureInfo.InvariantCulture),
+                        byte.Parse(auraSim[5], CultureInfo.InvariantCulture),
+                        uint.Parse(auraSim[6], CultureInfo.InvariantCulture)), line);
+                    break;
                 case "spell-blocked":
                     EmitSpellBlocked(_liveLastCastSpell, p[1]);
                     Log(true, line);
@@ -453,8 +465,10 @@ public sealed partial class GameLoop
         WriteSpellAnimationCsv(spellAnimationCsv);
         string spellChannelCsv=Path.Combine(dir,$"spell-channel-{_liveStamp}.csv");
         WriteSpellChannelCsv(spellChannelCsv);
+        string spellAuraCsv=Path.Combine(dir,$"spell-aura-{_liveStamp}.csv");
+        WriteSpellAuraCsv(spellAuraCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
     }
 
@@ -520,6 +534,20 @@ public sealed partial class GameLoop
                 Csv(v.Character), v.SpellId, Csv(v.SpellName), v.Event, v.DurationMs,
                 v.RemainingMs, v.TickIndex, v.TickDeltaMs.ToString("F3", CultureInfo.InvariantCulture),
                 v.TickKind, v.Amount, v.Moving, Csv(v.AnimationState), v.Source));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteSpellAuraCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,unit_guid,slot,spell_id,name,event,helpful,cancelable,stacks,duration_ms,remaining_ms,display,source"
+        };
+        foreach (AuraVerdict v in _verdicts.Snapshot("spell-aura").OfType<AuraVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
+                Csv(v.Character), $"0x{v.UnitGuid:X16}", v.Slot, v.SpellId, Csv(v.SpellName), v.Event,
+                v.Helpful, v.Cancelable, v.Stacks, v.DurationMs, v.RemainingMs, v.Display, v.Source));
         File.WriteAllLines(path, lines);
     }
 
