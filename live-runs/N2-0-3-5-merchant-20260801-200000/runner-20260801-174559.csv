@@ -1,0 +1,11 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-5-merchant-20260801-200000\merchant-final.protocol
+1,PASS,gm .tele stormwind
+2,PASS,wait 4
+3,PASS,gm .go xyz -8863.87 626.459 95.9895 0
+4,PASS,wait 2
+5,PASS,select npc-flag-nearest:vendor guid=0xF1300004FB013746
+6,PASS,vendor open guid=0xF1300004FB013746
+7,PASS,wait 2
+8,PASS,ui-parity merchant
+9,PASS,wait 2

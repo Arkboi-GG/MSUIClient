@@ -35,3 +35,5 @@
 2026-08-01 19:30 local | 3-4 | OPEN | quest-log parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 19:45 local | 3-4 | CLOSED-FINDING | built missing original-art quest-log shell; coverage 6/43 with 37 NOT-DRAWN and exact worklist queued | live-runs/N2-0-3-4-quest-log-20260801-194500/N2-0-3-4-quest-log-20260801-194500.md
 2026-08-01 19:45 local | 3-5 | OPEN | merchant parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 20:00 local | 3-5 | CLOSED-FINDING | built original merchant shell and captured a real populated Stormwind vendor; coverage 5/124 with 119 NOT-DRAWN | live-runs/N2-0-3-5-merchant-20260801-200000/N2-0-3-5-merchant-20260801-200000.md
+2026-08-01 20:00 local | 3-6 | OPEN | trainer parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

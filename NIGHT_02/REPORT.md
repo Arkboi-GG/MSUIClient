@@ -165,3 +165,9 @@ Coverage: 6/43 with 37 NOT-DRAWN. The absent gameplay quest-log shell was
 built with the five original regions; live list/detail population remains in
 the exact queued worklist. Evidence:
 `live-runs/N2-0-3-4-quest-log-20260801-194500/N2-0-3-4-quest-log-20260801-194500.md`.
+
+## 3-5 Merchant — CLOSED-FINDING
+
+Coverage: 5/124 with 119 NOT-DRAWN. A real in-range Stormwind vendor populated
+the newly original-art merchant shell. Evidence:
+`live-runs/N2-0-3-5-merchant-20260801-200000/N2-0-3-5-merchant-20260801-200000.md`.

@@ -54,10 +54,14 @@ public sealed partial class GameLoop
 
     private void DrawVendorFrame()
     {
-        if(_vendor is null) return;
-        ImGui.SetNextWindowSize(new Vector2(420,420)*GameplayUiScale(),ImGuiCond.Always);
-        if(!ImGui.Begin("Merchant##vendor",ImGuiWindowFlags.NoResize)) { ImGui.End(); return; }
-        ImGui.Text($"Items: {_vendor.Items.Count}"); ImGui.Separator();
+        if(_vendor is null||_gameplayArt is null) return;
+        float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if(!ImGui.Begin("##vendor",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="merchant"){BeginUiParityFrame(origin,s);CollectUiParityDraw("MerchantFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[("MerchantFrame/Texture",@"Interface\MerchantFrame\UI-Merchant-TopLeft",Vector2.Zero,new(256,256)),("MerchantFrame/Texture#2",@"Interface\MerchantFrame\UI-Merchant-TopRight",new(256,0),new(128,256)),("MerchantFrame/Texture#3",@"Interface\MerchantFrame\UI-Merchant-BotLeft",new(0,256),new(256,256)),("MerchantFrame/Texture#4",@"Interface\MerchantFrame\UI-Merchant-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="merchant")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"MerchantFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","MerchantFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(30,75)*s);ImGui.BeginChild("##vendor-items",new Vector2(310,340)*s,false);
         foreach(VendorItem row in _vendor.Items)
         {
             string name=_items?.TryGet(row.ItemId,out ItemTemplate? t)==true&&t is not null?t.Name:$"Item {row.ItemId}";
@@ -66,7 +70,9 @@ public sealed partial class GameLoop
                 BuyVendorEntry(row.ItemId, 1);
             }
         }
-        if(ImGui.Button("Close##vendor")) _vendor=null;
+        ImGui.EndChild();
+        Vector2 close=origin+new Vector2(322,8)*s;DrawImageButton(dl,"##vendor-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_vendor=null;
+        if(_uiParityArmed&&_uiParityPanel=="merchant")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }
