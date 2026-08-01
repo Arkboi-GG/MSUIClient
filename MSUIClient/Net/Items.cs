@@ -2,6 +2,9 @@ using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
+public readonly record struct ItemStat(uint Type, int Value);
+public readonly record struct ItemDamage(float Min, float Max, uint School);
+
 public sealed class ItemTemplate
 {
     public uint Entry;
@@ -25,7 +28,13 @@ public sealed class ItemTemplate
     public uint MaxCount;
     public uint Stackable;
     public uint ContainerSlots;
+    public List<ItemStat> Stats = [];
+    public List<ItemDamage> Damages = [];
+    public uint Armor;
+    public uint[] Resistances = new uint[6];
     public uint DelayMs;
+    public uint Bonding;
+    public string Description = "";
     public uint Material;
     public uint Sheath;
     public byte UseSpellIndex;
@@ -60,9 +69,18 @@ public sealed class ItemTemplate
         item.MaxCount = r.ReadU32();
         item.Stackable = r.ReadU32();
         item.ContainerSlots = r.ReadU32();
-        r.Skip(10 * 8);             // ItemStat[type,value]
-        r.Skip(5 * 12);             // Damage[min,max,school]
-        r.Skip(7 * 4);              // armor + six resistances
+        for (int i = 0; i < 10; i++)
+        {
+            uint type = r.ReadU32(); int value = r.ReadI32();
+            if (value != 0) item.Stats.Add(new ItemStat(type, value));
+        }
+        for (int i = 0; i < 5; i++)
+        {
+            float min = r.ReadF32(), max = r.ReadF32(); uint school = r.ReadU32();
+            if (min != 0 || max != 0) item.Damages.Add(new ItemDamage(min, max, school));
+        }
+        item.Armor = r.ReadU32();
+        for (int i = 0; i < item.Resistances.Length; i++) item.Resistances[i] = r.ReadU32();
         item.DelayMs = r.ReadU32();
         r.ReadU32(); r.ReadF32();   // ammo type, ranged range modifier
         bool foundUseSpell = false;
@@ -77,8 +95,8 @@ public sealed class ItemTemplate
                 foundUseSpell = true;
             }
         }
-        r.ReadU32();                // bonding
-        r.ReadCString();            // description
+        item.Bonding = r.ReadU32();
+        item.Description = r.ReadCString();
         r.Skip(5 * 4);              // page text/language/page material/start quest/lock
         item.Material = r.ReadU32();
         item.Sheath = r.ReadU32();

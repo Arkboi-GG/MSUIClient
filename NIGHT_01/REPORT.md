@@ -415,3 +415,12 @@ gate are built. An isolated, GM-provisioned and GM-off live corpse flow passed
 36/36: guaranteed item 4951 landed, 5 copper cleared, the purse moved exactly
 28→33, and release completed. The independent empty-state runtime replay passed
 7/7. Evidence: `live-runs/N1C-2-4-loot-20260801-115500.md`.
+
+## NIGHT_01C 2-12 — character sheet and inventory
+
+`CLOSED-PASS`: exact equip/swap bodies, server-location transitions, character
+stat/item STRING verdicts, and complete item tooltip fields are built. The GM-off
+live flow passed 25/25: Worn Shortsword matched the read-only DB row and wire
+template, retained durability 20/20, moved backpack→main hand→backpack, and the
+server-authoritative displayed damage changed from 4.94–6.94 to 4.14–4.14 after
+unequip. Evidence: `live-runs/N1C-2-12-character-inventory-20260801-120500.md`.

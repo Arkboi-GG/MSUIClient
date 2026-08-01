@@ -17,6 +17,10 @@ public sealed partial class GameLoop
     private int _carriedSlot = -1;
     private readonly bool[] _equippedBagOpen = new bool[4];
     private int _liveEquipmentSignature;
+    private InventoryTransition? _pendingInventoryTransition;
+
+    private sealed record InventoryTransition(string Kind, ulong ItemGuid, uint Entry, int SourceSlot,
+        int DestinationSlot, double SentAt);
 
     private void InitInventory()
     {
@@ -46,6 +50,83 @@ public sealed partial class GameLoop
             if (entity.Type is ObjectTypeId.Item or ObjectTypeId.Container)
                 _items.Require(entity.Entry, entity.Guid, _net);
         SyncLiveEquipmentModel();
+        ObserveInventoryTransition();
+    }
+
+    private void ObserveInventoryTransition()
+    {
+        if (_pendingInventoryTransition is not { } pending || _net is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        int equipped = Enumerable.Range(0, 19).FirstOrDefault(i => player.Fields.PlayerInventorySlot(i) == pending.ItemGuid, -1);
+        int backpack = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == pending.ItemGuid, -1);
+        bool complete = pending.Kind == "equip" ? equipped >= 0 : backpack >= 0;
+        if (complete)
+        {
+            EmitInterface("inventory", "equipment", pending.Kind == "equip" ? "EQUIPPED" : "UNEQUIPPED",
+                pending.ItemGuid, $"item={pending.Entry};from={pending.SourceSlot};equipped={equipped};backpack={backpack}");
+            _pendingInventoryTransition = null;
+        }
+        else if (NowSeconds() - pending.SentAt > 5)
+        {
+            EmitInterface("inventory", "equipment", "TIMEOUT", pending.ItemGuid,
+                $"kind={pending.Kind};item={pending.Entry};from={pending.SourceSlot};to={pending.DestinationSlot}");
+            _pendingInventoryTransition = null;
+        }
+    }
+
+    private bool EquipBackpackEntry(uint entry)
+    {
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        for (int slot = 0; slot < 16; slot++)
+        {
+            ulong guid = player.Fields.PlayerBackpackSlot(slot);
+            if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != entry) continue;
+            bool sent = _net.AutoEquipItem(255, (byte)(23 + slot));
+            EmitInterface("inventory", "equip-send", sent ? "SENT" : "SEND_FAILED", guid,
+                $"item={entry};bag=255;slot={23 + slot};body={Convert.ToHexString(WorldSession.BuildAutoEquipBody(255, (byte)(23 + slot)))}");
+            if (sent) _pendingInventoryTransition = new("equip", guid, entry, 23 + slot, -1, NowSeconds());
+            return sent;
+        }
+        EmitInterface("inventory", "equip-send", "REFUSED", 0, $"item={entry};reason=not-in-backpack");
+        return false;
+    }
+
+    private bool UnequipSlot(int slot)
+    {
+        if (_net is null || slot is < 0 or >= 19 || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        ulong guid = player.Fields.PlayerInventorySlot(slot);
+        if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item)) return false;
+        int empty = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == 0, -1);
+        if (empty < 0) { EmitInterface("inventory", "unequip-send", "REFUSED", guid, "reason=backpack-full"); return false; }
+        byte destination = (byte)(23 + empty);
+        bool sent = _net.SwapInventoryItems((byte)slot, destination);
+        EmitInterface("inventory", "unequip-send", sent ? "SENT" : "SEND_FAILED", guid,
+            $"item={item.Entry};from={slot};to={destination};body={Convert.ToHexString(WorldSession.BuildSwapInventoryBody((byte)slot, destination))}");
+        if (sent) _pendingInventoryTransition = new("unequip", guid, item.Entry, slot, destination, NowSeconds());
+        return sent;
+    }
+
+    private bool InspectCharacterInventory()
+    {
+        if (_net is null || _items is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        ObjectFields f = player.Fields;
+        EmitInterface("character", "stats", "WIRE-SNAPSHOT", _net.PlayerGuid,
+            $"level={player.Level};health={f.Health}/{f.MaxHealth};stats={string.Join(',', Enumerable.Range(0, 5).Select(f.Stat))};armor={f.Resistance(0)};attack={f.AttackPower};damage={f.MinDamage:R}-{f.MaxDamage:R};coin={f.Coinage}");
+        int equipped = 0, backpack = 0, resolved = 0;
+        foreach (int slot in Enumerable.Range(0, 19).Concat(Enumerable.Range(23, 16)))
+        {
+            ulong guid = slot < 19 ? f.PlayerInventorySlot(slot) : f.PlayerBackpackSlot(slot - 23);
+            if (guid == 0 || !_entities.TryGet(guid, out WorldEntity instance)) continue;
+            if (slot < 19) equipped++; else backpack++;
+            _items.Require(instance.Entry, guid, _net);
+            if (!_items.TryGet(instance.Entry, out ItemTemplate? item) || item is null) continue;
+            resolved++;
+            EmitInterface("inventory", "item-string", "VERIFIED", guid,
+                $"slot={slot};entry={item.Entry};name={SanitizeEvidence(item.Name)};quality={item.Quality};inventoryType={item.InventoryType};itemLevel={item.ItemLevel};requiredLevel={item.RequiredLevel};armor={item.Armor};stats={string.Join(',', item.Stats.Select(x => $"{x.Type}:{x.Value}"))};durability={instance.Fields.ItemDurability}/{instance.Fields.ItemMaxDurability}");
+        }
+        EmitInterface("inventory", "snapshot", "COMPLETE", _net.PlayerGuid,
+            $"equipped={equipped};backpack={backpack};resolved={resolved}");
+        return true;
     }
 
     private void SyncLiveEquipmentModel()
@@ -471,10 +552,19 @@ public sealed partial class GameLoop
         };
         ImGui.BeginTooltip();
         ImGui.TextColored(quality, item.Name);
+        if (item.Bonding == 1) ImGui.TextUnformatted("Binds when picked up");
+        else if (item.Bonding == 2) ImGui.TextUnformatted("Binds when equipped");
+        foreach (ItemDamage damage in item.Damages)
+            ImGui.TextUnformatted($"{damage.Min:0.#} - {damage.Max:0.#} Damage");
+        if (item.Armor > 0) ImGui.TextUnformatted($"{item.Armor} Armor");
+        string[] statNames = ["Mana", "Health", "Agility", "Strength", "Intellect", "Spirit", "Stamina"];
+        foreach (ItemStat stat in item.Stats)
+            ImGui.TextUnformatted($"{(stat.Value >= 0 ? "+" : "")}{stat.Value} {(stat.Type < statNames.Length ? statNames[stat.Type] : $"Stat {stat.Type}")}");
         if (item.RequiredLevel > 0) ImGui.TextUnformatted($"Requires Level {item.RequiredLevel}");
         if (item.ItemLevel > 0) ImGui.TextDisabled($"Item Level {item.ItemLevel}");
         if (maxDurability > 0) ImGui.TextUnformatted($"Durability {durability} / {maxDurability}");
         if (count > 1) ImGui.TextDisabled($"Stack: {count} / {Math.Max(1, item.Stackable)}");
+        if (!string.IsNullOrWhiteSpace(item.Description)) ImGui.TextColored(new Vector4(1f, .82f, 0f, 1f), item.Description);
         ImGui.EndTooltip();
     }
 

@@ -300,6 +300,19 @@ public sealed partial class GameLoop
                     { SimulateLootFlow(empty: true); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "character":
+                    if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
+                    else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                    { _characterOpen = true; _paperDollDirty = true; Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "inventory":
+                    if (p[1].StartsWith("equip-entry", StringComparison.OrdinalIgnoreCase))
+                        Log(EquipBackpackEntry(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else if (p[1].StartsWith("unequip-slot", StringComparison.OrdinalIgnoreCase))
+                        Log(UnequipSlot(int.Parse(p[2], CultureInfo.InvariantCulture)), line);
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

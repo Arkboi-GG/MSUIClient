@@ -337,9 +337,10 @@ public sealed class NetworkClient : IDisposable
     public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
-    public void AutoEquipItem(byte bag, byte slot) { try { _session?.AutoEquipItem(bag, slot); } catch { } }
-    public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }
-    public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) { try { _session?.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot); } catch { } }
+    public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
+    public bool SwapInventoryItems(byte sourceSlot, byte destinationSlot) => InWorld(s => s.SwapInventoryItems(sourceSlot, destinationSlot));
+    public bool SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
+        InWorld(s => s.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot));
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
     public bool Loot(ulong guid) => InWorld(s => s.Loot(guid));
     public bool LootMoney() => InWorld(s => s.LootMoney());

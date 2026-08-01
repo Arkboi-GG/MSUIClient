@@ -118,4 +118,11 @@ emptyLootWriter.WriteU32(0); emptyLootWriter.WriteU8(0);
 var emptyLoot = LootPackets.ParseResponse(emptyLootWriter.ToArray());
 Check(emptyLoot.Gold == 0 && emptyLoot.Items.Count == 0, "empty corpse response shape");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot opcodes/bodies/bounds/state");
+Check(WorldSession.BuildAutoEquipBody(255, 24).SequenceEqual(Convert.FromHexString("FF18")),
+      "autoequip bag/slot body");
+Check(WorldSession.BuildSwapInventoryBody(15, 25).SequenceEqual(Convert.FromHexString("0F19")),
+      "swap inventory source/destination body");
+Check(WorldSession.BuildSwapItemsBody(255, 25, 19, 2).SequenceEqual(Convert.FromHexString("FF191302")),
+      "swap bag destination/source body");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory opcodes/bodies/bounds/state");

@@ -441,23 +441,24 @@ public sealed class WorldSession : IDisposable
 
     public void AutoEquipItem(byte bag, byte slot)
     {
-        var w = new PacketWriter(2); w.WriteU8(bag); w.WriteU8(slot);
-        SendPacket((ushort)Op.CMSG_AUTOEQUIP_ITEM, w.AsSpan());
+        SendPacket((ushort)Op.CMSG_AUTOEQUIP_ITEM, BuildAutoEquipBody(bag, slot));
     }
 
     public void SwapInventoryItems(byte sourceSlot, byte destinationSlot)
     {
-        var w = new PacketWriter(2); w.WriteU8(sourceSlot); w.WriteU8(destinationSlot);
-        SendPacket((ushort)Op.CMSG_SWAP_INV_ITEM, w.AsSpan());
+        SendPacket((ushort)Op.CMSG_SWAP_INV_ITEM, BuildSwapInventoryBody(sourceSlot, destinationSlot));
     }
 
     public void SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot)
     {
-        var w = new PacketWriter(4);
-        w.WriteU8(destinationBag); w.WriteU8(destinationSlot);
-        w.WriteU8(sourceBag); w.WriteU8(sourceSlot);
-        SendPacket((ushort)Op.CMSG_SWAP_ITEM, w.AsSpan());
+        SendPacket((ushort)Op.CMSG_SWAP_ITEM,
+            BuildSwapItemsBody(destinationBag, destinationSlot, sourceBag, sourceSlot));
     }
+
+    public static byte[] BuildAutoEquipBody(byte bag, byte slot) => [bag, slot];
+    public static byte[] BuildSwapInventoryBody(byte sourceSlot, byte destinationSlot) => [sourceSlot, destinationSlot];
+    public static byte[] BuildSwapItemsBody(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
+        [destinationBag, destinationSlot, sourceBag, sourceSlot];
 
     /// <summary>CMSG_LOOT — request a corpse's loot window. Body = the full 8-byte guid
     /// (vmangos Server/Packets/Loot.cpp:8-11; GameObjects use CMSG_GAMEOBJ_USE instead).</summary>
