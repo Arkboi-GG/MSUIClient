@@ -150,8 +150,11 @@ public sealed partial class GameLoop
                     _liveSelectWaitStarted=0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
                 case "anchor":
+                    RefreshLiveSpawnIdentities();
                     int anchorOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
-                    ulong anchorGuid=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase)
+                    bool spawnedAnchor=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
+                    ulong anchorGuid=spawnedAnchor?LiveSpawnGuid(anchorOrdinal):
+                        p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase)
                         ?LiveWildEntryNearestGuid(anchorOrdinal):p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase)
                             ?LiveWildEntryGuid(anchorOrdinal):p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase)
                             ?LiveWildHostileGuid(anchorOrdinal):LiveWildGuid(anchorOrdinal);

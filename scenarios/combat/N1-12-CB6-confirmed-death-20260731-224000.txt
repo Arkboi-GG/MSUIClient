@@ -1,0 +1,27 @@
+gm .gm off
+wait 0.5
+gm .dismount
+wait 0.2
+gm .combatstop TEST
+wait 0.2
+gm .npc spawn add 6
+select spawn:1
+gm .npc set reactstate 0
+socket-trace start N1-12-CB6-confirmed-death-20260731-224000
+trace start N1-12-CB6-confirmed-death-20260731-224000
+attack start
+assert event=AttackPreconditionGatePass
+wait 0.2
+gm .die
+wait 0.5
+waitdeath spawn:1
+assert cause=target-death
+attack stop
+socket-trace stop
+trace stop
+gm .gm on
+wait 0.2
+gm .npc spawn delete
+wait 0.5
+waitgone spawn:1
+gm .gm off

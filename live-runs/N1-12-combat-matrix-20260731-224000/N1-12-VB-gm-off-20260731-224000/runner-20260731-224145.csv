@@ -1,0 +1,28 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\N1-12-VB-gm-off-20260731-224000.txt
+1,PASS,gm .gm off
+2,PASS,wait 0.5
+3,PASS,gm .gm
+4,PASS,wait 0.5
+5,PASS,gm .dismount
+6,PASS,wait 0.2
+7,PASS,gm .combatstop TEST
+8,PASS,wait 0.2
+9,PASS,gm .npc spawn add 6
+10,PASS,select spawn:1 guid=0xF13000000604A291
+11,PASS,gm .npc set reactstate 0
+12,PASS,socket-trace start N1-12-VB-gm-off-20260731-224000 path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-N1-12-VB-gm-off-20260731-224000-20260731-224146.csv
+13,PASS,trace start N1-12-VB-gm-off-20260731-224000
+14,PASS,gm .gps
+15,PASS,attack start gate=PASS
+16,PASS,assert event=AttackPreconditionGatePass
+17,PASS,wait 2
+18,PASS,attack stop
+19,PASS,socket-trace stop
+20,PASS,trace stop
+21,PASS,gm .gm on
+22,PASS,wait 0.2
+23,PASS,gm .npc spawn delete
+24,PASS,wait 0.5
+25,PASS,waitgone spawn:1 guid=0xF13000000604A291 descriptorPresent=False
+26,PASS,gm .gm off

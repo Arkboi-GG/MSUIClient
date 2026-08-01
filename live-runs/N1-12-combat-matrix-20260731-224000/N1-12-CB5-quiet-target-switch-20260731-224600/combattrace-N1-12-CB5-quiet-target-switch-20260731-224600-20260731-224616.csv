@@ -1,0 +1,166 @@
+row,t,dt,event,cause,intentOn,targetGuid,opcode,swingTimerOwner,weaponSpeedMs,rangeEligibility,arcEligibility,clientAction,distance,bearingDelta,facingDelta,clipId,clipName,clipTime,clipB,clipBTime,blendWeight,animChoice,detail
+0,0.000000,0.000000,TraceStart,operator,false,0x0000000000000000,,server,,unchecked,unchecked,none,-1,,,0,Stand,2.2730618,,,,0->0:Exact,server-authoritative swing timing; client range/arc gates absent
+1,0.000000,0.000000,AttackPrecondition,live-send-path,false,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2786367,,,,0->0:Exact,player=0x0000000000000001;position=-8970|-132.493|83.30938;gmMode=false;gmSource=server-response;present=true;visible=true;alive=true;health=100;maxHealth=100;unitFlags=0x00000000;dynamicFlags=0x00000000;faction=25;entry=6;distance=0;targetPosition=-8970|-132.493|83.30938
+2,0.000000,0.000000,AttackPreconditionGatePass,devtools-pre-send-gate,false,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2786367,,,,0->0:Exact,packetConstructed=true;epsilon=distanceSquared<=1e-6;reasons=none
+3,0.000000,0.000000,SocketFlush,post-encryption-socket-write,false,0x0000000000000000,CMSG_ATTACKSWING,server,,unchecked,unchecked,none,-1,,,0,Stand,2.2786367,,,,0->0:Exact,opcode=0x0141;bytes=14;sha256=b8431d95711b1d45638e7995311a575f2f33d840ebeb2cbeb2a56616f4e82a6c;flushed=true;hex=E3D4E9AE2B3C99A20406000030F1
+4,0.000000,0.000000,AttackSwingSend,network-session-send,false,0xF13000000604A299,CMSG_ATTACKSWING,server,,unchecked,unchecked,none,0,,,0,Stand,2.2786367,,,,0->0:Exact,CMSG_ATTACKSWING
+5,0.000000,0.000000,IntentOn,user-start,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2786367,,,,0->0:Exact,local attack latch edge
+6,0.004843,0.004843,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2834792,,,,0->0:Exact,none; server owns swing cadence
+7,0.009447,0.004605,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.288084,,,,0->0:Exact,none; server owns swing cadence
+8,0.013062,0.003614,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2916982,,,,0->0:Exact,none; server owns swing cadence
+9,0.016107,0.003045,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2947433,,,,0->0:Exact,none; server owns swing cadence
+10,0.018959,0.002852,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.2975955,,,,0->0:Exact,none; server owns swing cadence
+11,0.021615,0.002656,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3002515,,,,0->0:Exact,none; server owns swing cadence
+12,0.024340,0.002725,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3029768,,,,0->0:Exact,none; server owns swing cadence
+13,0.027955,0.003615,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3065915,,,,0->0:Exact,none; server owns swing cadence
+14,0.031080,0.003125,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3097162,,,,0->0:Exact,none; server owns swing cadence
+15,0.033871,0.002791,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3125072,,,,0->0:Exact,none; server owns swing cadence
+16,0.036701,0.002830,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3153377,,,,0->0:Exact,none; server owns swing cadence
+17,0.039406,0.002705,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3180423,,,,0->0:Exact,none; server owns swing cadence
+18,0.042079,0.002673,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3207157,,,,0->0:Exact,none; server owns swing cadence
+19,0.042079,0.000000,GmChatWire,server-receive,true,0x0000000000000000,,server,,unchecked,unchecked,none,-1,,,0,Stand,2.3207157,,,,0->0:Exact,opcode=0x0096;bytes=61;hex=0A0000000000000000000000002B0000005265616374207374617465206F66204B6F626F6C64205665726D696E207570646174656420746F20302E0000
+20,0.042079,0.000000,GmChatResponse,server-chat,true,0x0000000000000000,,server,,unchecked,unchecked,none,-1,,,0,Stand,2.3207157,,,,0->0:Exact,React state of Kobold Vermin updated to 0.
+21,0.045730,0.003651,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3243663,,,,0->0:Exact,none; server owns swing cadence
+22,0.048867,0.003137,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3275037,,,,0->0:Exact,none; server owns swing cadence
+23,0.051511,0.002644,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3301482,,,,0->0:Exact,none; server owns swing cadence
+24,0.054231,0.002720,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.332868,,,,0->0:Exact,none; server owns swing cadence
+25,0.056885,0.002653,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3355212,,,,0->0:Exact,none; server owns swing cadence
+26,0.059714,0.002830,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.338351,,,,0->0:Exact,none; server owns swing cadence
+27,0.063225,0.003511,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.341862,,,,0->0:Exact,none; server owns swing cadence
+28,0.066473,0.003248,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.34511,,,,0->0:Exact,none; server owns swing cadence
+29,0.069334,0.002860,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3479702,,,,0->0:Exact,none; server owns swing cadence
+30,0.072025,0.002691,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3506613,,,,0->0:Exact,none; server owns swing cadence
+31,0.074680,0.002656,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.353317,,,,0->0:Exact,none; server owns swing cadence
+32,0.078818,0.004138,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3574548,,,,0->0:Exact,none; server owns swing cadence
+33,0.082306,0.003488,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.360943,,,,0->0:Exact,none; server owns swing cadence
+34,0.085184,0.002878,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3638208,,,,0->0:Exact,none; server owns swing cadence
+35,0.088015,0.002831,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3666513,,,,0->0:Exact,none; server owns swing cadence
+36,0.090721,0.002706,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3693573,,,,0->0:Exact,none; server owns swing cadence
+37,0.093806,0.003085,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3724427,,,,0->0:Exact,none; server owns swing cadence
+38,0.096958,0.003151,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3755941,,,,0->0:Exact,none; server owns swing cadence
+39,0.100028,0.003071,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.378665,,,,0->0:Exact,none; server owns swing cadence
+40,0.102898,0.002869,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3815343,,,,0->0:Exact,none; server owns swing cadence
+41,0.105692,0.002795,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3843288,,,,0->0:Exact,none; server owns swing cadence
+42,0.108576,0.002884,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.3872125,,,,0->0:Exact,none; server owns swing cadence
+43,0.111856,0.003279,Tick,live-sample,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,none; server owns swing cadence
+44,0.111856,0.000000,TargetSwitch,selection-change,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,from=0xF13000000604A299 to=0xF13000000604A29A
+45,0.111856,0.000000,SocketFlush,post-encryption-socket-write,true,0x0000000000000000,CMSG_ATTACKSTOP,server,,unchecked,unchecked,none,-1,,,0,Stand,2.390492,,,,0->0:Exact,opcode=0x0142;bytes=6;sha256=68d3aedac501bf2090e15ae799f73a2f4c623ea57ddf7968bf857638f97561d8;flushed=true;hex=BF2FDBB6FDB8
+46,0.111856,0.000000,AttackStopSend,network-session-send,true,0x0000000000000000,CMSG_ATTACKSTOP,server,,unchecked,unchecked,none,-1,,,0,Stand,2.390492,,,,0->0:Exact,CMSG_ATTACKSTOP
+47,0.111856,0.000000,IntentOff,target-switch,true,0xF13000000604A299,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,local attack latch edge
+48,0.111856,0.000000,SocketFlush,post-encryption-socket-write,false,0x0000000000000000,CMSG_SET_SELECTION,server,,unchecked,unchecked,none,-1,,,0,Stand,2.390492,,,,0->0:Exact,opcode=0x013D;bytes=14;sha256=5857f3674c606f05eae6958a45ce8842e2c7dd3e29dcc1c5ee51583bd303eb25;flushed=true;hex=16B73F3D538D9AA20406000030F1
+49,0.111856,0.000000,AttackPrecondition,live-send-path,false,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,player=0x0000000000000001;position=-8970|-132.493|83.30938;gmMode=false;gmSource=server-response;present=true;visible=true;alive=true;health=100;maxHealth=100;unitFlags=0x00000000;dynamicFlags=0x00000000;faction=25;entry=6;distance=0;targetPosition=-8970|-132.493|83.30938
+50,0.111856,0.000000,AttackPreconditionGatePass,devtools-pre-send-gate,false,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,packetConstructed=true;epsilon=distanceSquared<=1e-6;reasons=none
+51,0.111856,0.000000,SocketFlush,post-encryption-socket-write,false,0x0000000000000000,CMSG_ATTACKSWING,server,,unchecked,unchecked,none,-1,,,0,Stand,2.390492,,,,0->0:Exact,opcode=0x0141;bytes=14;sha256=070c1b009140cbd743a3af385fbd3097921304a4e7b90abba1137e1c06bc15b0;flushed=true;hex=3C1CABB087709AA20406000030F1
+52,0.111856,0.000000,AttackSwingSend,network-session-send,false,0xF13000000604A29A,CMSG_ATTACKSWING,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,CMSG_ATTACKSWING
+53,0.111856,0.000000,IntentOn,target-switch,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.390492,,,,0->0:Exact,local attack latch edge
+54,0.117433,0.005577,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.396069,,,,0->0:Exact,none; server owns swing cadence
+55,0.121578,0.004145,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4002144,,,,0->0:Exact,none; server owns swing cadence
+56,0.125511,0.003934,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4041479,,,,0->0:Exact,none; server owns swing cadence
+57,0.128907,0.003396,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4075437,,,,0->0:Exact,none; server owns swing cadence
+58,0.131656,0.002748,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.410292,,,,0->0:Exact,none; server owns swing cadence
+59,0.134851,0.003196,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.413488,,,,0->0:Exact,none; server owns swing cadence
+60,0.137629,0.002777,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4162652,,,,0->0:Exact,none; server owns swing cadence
+61,0.140337,0.002708,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4189734,,,,0->0:Exact,none; server owns swing cadence
+62,0.143487,0.003150,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4221234,,,,0->0:Exact,none; server owns swing cadence
+63,0.146785,0.003299,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.425422,,,,0->0:Exact,none; server owns swing cadence
+64,0.149719,0.002934,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4283557,,,,0->0:Exact,none; server owns swing cadence
+65,0.152442,0.002723,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.431079,,,,0->0:Exact,none; server owns swing cadence
+66,0.155102,0.002660,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4337387,,,,0->0:Exact,none; server owns swing cadence
+67,0.157723,0.002621,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4363594,,,,0->0:Exact,none; server owns swing cadence
+68,0.161034,0.003311,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4396708,,,,0->0:Exact,none; server owns swing cadence
+69,0.164110,0.003076,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4427464,,,,0->0:Exact,none; server owns swing cadence
+70,0.166809,0.002699,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4454455,,,,0->0:Exact,none; server owns swing cadence
+71,0.169477,0.002667,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.448113,,,,0->0:Exact,none; server owns swing cadence
+72,0.172111,0.002634,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.450747,,,,0->0:Exact,none; server owns swing cadence
+73,0.174827,0.002716,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4534633,,,,0->0:Exact,none; server owns swing cadence
+74,0.180461,0.005634,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4590971,,,,0->0:Exact,none; server owns swing cadence
+75,0.183411,0.002951,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4620478,,,,0->0:Exact,none; server owns swing cadence
+76,0.186393,0.002982,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4650297,,,,0->0:Exact,none; server owns swing cadence
+77,0.189316,0.002922,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4679518,,,,0->0:Exact,none; server owns swing cadence
+78,0.192257,0.002942,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4708936,,,,0->0:Exact,none; server owns swing cadence
+79,0.196763,0.004506,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4753993,,,,0->0:Exact,none; server owns swing cadence
+80,0.199822,0.003059,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.478458,,,,0->0:Exact,none; server owns swing cadence
+81,0.202586,0.002764,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4812222,,,,0->0:Exact,none; server owns swing cadence
+82,0.205267,0.002681,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.483903,,,,0->0:Exact,none; server owns swing cadence
+83,0.208200,0.002934,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4868364,,,,0->0:Exact,none; server owns swing cadence
+84,0.212420,0.004219,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4910557,,,,0->0:Exact,none; server owns swing cadence
+85,0.215184,0.002764,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4938202,,,,0->0:Exact,none; server owns swing cadence
+86,0.217832,0.002647,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4964676,,,,0->0:Exact,none; server owns swing cadence
+87,0.220501,0.002669,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.4991372,,,,0->0:Exact,none; server owns swing cadence
+88,0.223660,0.003159,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.502296,,,,0->0:Exact,none; server owns swing cadence
+89,0.227153,0.003494,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5057898,,,,0->0:Exact,none; server owns swing cadence
+90,0.231099,0.003946,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5097353,,,,0->0:Exact,none; server owns swing cadence
+91,0.233883,0.002784,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5125194,,,,0->0:Exact,none; server owns swing cadence
+92,0.236753,0.002870,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5153897,,,,0->0:Exact,none; server owns swing cadence
+93,0.239564,0.002810,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5182002,,,,0->0:Exact,none; server owns swing cadence
+94,0.242374,0.002810,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5210102,,,,0->0:Exact,none; server owns swing cadence
+95,0.245882,0.003508,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5245183,,,,0->0:Exact,none; server owns swing cadence
+96,0.249139,0.003256,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5277746,,,,0->0:Exact,none; server owns swing cadence
+97,0.251939,0.002800,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5305746,,,,0->0:Exact,none; server owns swing cadence
+98,0.254653,0.002715,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5332894,,,,0->0:Exact,none; server owns swing cadence
+99,0.257358,0.002704,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5359938,,,,0->0:Exact,none; server owns swing cadence
+100,0.261055,0.003697,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5396912,,,,0->0:Exact,none; server owns swing cadence
+101,0.264170,0.003115,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5428061,,,,0->0:Exact,none; server owns swing cadence
+102,0.266906,0.002736,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5455422,,,,0->0:Exact,none; server owns swing cadence
+103,0.269749,0.002843,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5483847,,,,0->0:Exact,none; server owns swing cadence
+104,0.272456,0.002707,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.551092,,,,0->0:Exact,none; server owns swing cadence
+105,0.275230,0.002774,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5538654,,,,0->0:Exact,none; server owns swing cadence
+106,0.280141,0.004912,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5587769,,,,0->0:Exact,none; server owns swing cadence
+107,0.282931,0.002790,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.561567,,,,0->0:Exact,none; server owns swing cadence
+108,0.285722,0.002790,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5643573,,,,0->0:Exact,none; server owns swing cadence
+109,0.288534,0.002813,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5671701,,,,0->0:Exact,none; server owns swing cadence
+110,0.291309,0.002774,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5699444,,,,0->0:Exact,none; server owns swing cadence
+111,0.294891,0.003582,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5735266,,,,0->0:Exact,none; server owns swing cadence
+112,0.297969,0.003079,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.576605,,,,0->0:Exact,none; server owns swing cadence
+113,0.300789,0.002820,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.579425,,,,0->0:Exact,none; server owns swing cadence
+114,0.303529,0.002740,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.582165,,,,0->0:Exact,none; server owns swing cadence
+115,0.306235,0.002706,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5848713,,,,0->0:Exact,none; server owns swing cadence
+116,0.309091,0.002856,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.587727,,,,0->0:Exact,none; server owns swing cadence
+117,0.312551,0.003459,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5911865,,,,0->0:Exact,none; server owns swing cadence
+118,0.315524,0.002973,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5941598,,,,0->0:Exact,none; server owns swing cadence
+119,0.318237,0.002713,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5968726,,,,0->0:Exact,none; server owns swing cadence
+120,0.320973,0.002736,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.5996087,,,,0->0:Exact,none; server owns swing cadence
+121,0.323671,0.002698,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6023068,,,,0->0:Exact,none; server owns swing cadence
+122,0.326575,0.002904,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6052105,,,,0->0:Exact,none; server owns swing cadence
+123,0.329711,0.003137,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6083472,,,,0->0:Exact,none; server owns swing cadence
+124,0.332775,0.003063,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6114106,,,,0->0:Exact,none; server owns swing cadence
+125,0.335706,0.002932,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6143422,,,,0->0:Exact,none; server owns swing cadence
+126,0.338460,0.002754,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.617096,,,,0->0:Exact,none; server owns swing cadence
+127,0.341235,0.002775,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6198711,,,,0->0:Exact,none; server owns swing cadence
+128,0.345007,0.003771,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6236427,,,,0->0:Exact,none; server owns swing cadence
+129,0.348086,0.003079,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.626722,,,,0->0:Exact,none; server owns swing cadence
+130,0.351006,0.002919,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6296415,,,,0->0:Exact,none; server owns swing cadence
+131,0.353803,0.002797,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6324391,,,,0->0:Exact,none; server owns swing cadence
+132,0.356622,0.002819,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6352577,,,,0->0:Exact,none; server owns swing cadence
+133,0.359416,0.002794,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6380513,,,,0->0:Exact,none; server owns swing cadence
+134,0.363403,0.003988,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.642039,,,,0->0:Exact,none; server owns swing cadence
+135,0.366379,0.002975,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6450143,,,,0->0:Exact,none; server owns swing cadence
+136,0.369124,0.002745,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6477594,,,,0->0:Exact,none; server owns swing cadence
+137,0.371891,0.002767,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.650526,,,,0->0:Exact,none; server owns swing cadence
+138,0.374799,0.002909,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6534348,,,,0->0:Exact,none; server owns swing cadence
+139,0.379194,0.004394,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.657829,,,,0->0:Exact,none; server owns swing cadence
+140,0.382063,0.002869,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6606984,,,,0->0:Exact,none; server owns swing cadence
+141,0.384763,0.002701,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.663399,,,,0->0:Exact,none; server owns swing cadence
+142,0.387381,0.002618,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6660166,,,,0->0:Exact,none; server owns swing cadence
+143,0.390015,0.002634,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6686509,,,,0->0:Exact,none; server owns swing cadence
+144,0.392712,0.002696,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6713474,,,,0->0:Exact,none; server owns swing cadence
+145,0.396720,0.004008,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6753557,,,,0->0:Exact,none; server owns swing cadence
+146,0.399444,0.002724,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6780796,,,,0->0:Exact,none; server owns swing cadence
+147,0.402165,0.002720,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6808,,,,0->0:Exact,none; server owns swing cadence
+148,0.404797,0.002632,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6834326,,,,0->0:Exact,none; server owns swing cadence
+149,0.407467,0.002670,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6861029,,,,0->0:Exact,none; server owns swing cadence
+150,0.410734,0.003267,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.68937,,,,0->0:Exact,none; server owns swing cadence
+151,0.414023,0.003288,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6926584,,,,0->0:Exact,none; server owns swing cadence
+152,0.416782,0.002759,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6954176,,,,0->0:Exact,none; server owns swing cadence
+153,0.419559,0.002778,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.6981952,,,,0->0:Exact,none; server owns swing cadence
+154,0.422276,0.002717,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7009122,,,,0->0:Exact,none; server owns swing cadence
+155,0.424916,0.002639,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7035518,,,,0->0:Exact,none; server owns swing cadence
+156,0.428809,0.003894,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7074454,,,,0->0:Exact,none; server owns swing cadence
+157,0.431775,0.002966,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7104115,,,,0->0:Exact,none; server owns swing cadence
+158,0.434484,0.002708,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7131197,,,,0->0:Exact,none; server owns swing cadence
+159,0.437095,0.002611,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.715731,,,,0->0:Exact,none; server owns swing cadence
+160,0.439769,0.002674,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7184052,,,,0->0:Exact,none; server owns swing cadence
+161,0.439769,0.000000,AttackStartReceive,server,true,0xF13000000604A29A,SMSG_ATTACKSTART,server,,unchecked,unchecked,none,0,,,0,Stand,2.7184052,,,,0->0:Exact,attacker=0xF13000066A01384C
+162,0.442619,0.002850,Tick,live-sample,true,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7212553,,,,0->0:Exact,none; server owns swing cadence
+163,0.442619,0.000000,IntentOff,server-stop,false,0xF13000000604A29A,,server,,unchecked,unchecked,none,0,,,0,Stand,2.7212553,,,,0->0:Exact,local attack latch edge
+164,0.442619,0.000000,AttackStartReceive,server,false,0xF13000066A01384C,SMSG_ATTACKSTART,server,,unchecked,unchecked,none,34.043068,-2.189604,-2.189604,0,Stand,2.7212553,,,,0->0:Exact,attacker=0xF13000000604A29A
