@@ -334,3 +334,11 @@ RESULT: client increment accepted; server-silence finding frozen and queued
 Evidence: `live-runs/N1B-4-1-gossip-20260801-084200.md`. Boundary gates:
 Debug build PASS (0 warnings / 0 errors), combat-wire PASS, portrait-camera
 PASS (10,534 / 1,224 / 1,289 / 56), move-audit PASS, interface-wire PASS.
+
+## NIGHT_01B 2-1 — vendor
+
+`CLOSED-FINDING`: list/buy/sell/buyback protocol, state, verdicts, runner and
+packet-backed merchant UI built; byte gate passes. A 12/12 live runner flushed
+the exact vendor list CMSG but the bounded wire log contains no server vendor
+response, so no unsafe buy/sell/buyback was attempted. Evidence:
+`live-runs/N1B-2-1-vendor-20260801-085100.md`.

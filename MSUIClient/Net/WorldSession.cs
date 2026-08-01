@@ -366,6 +366,23 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_NPC_TEXT_QUERY, w.AsSpan());
     }
 
+    public void ListInventory(ulong guid) => SendFullGuid(Op.CMSG_LIST_INVENTORY, guid);
+    public void BuyItem(ulong vendorGuid, uint itemId, byte count)
+    {
+        var w = new PacketWriter(14); w.WriteU64(vendorGuid); w.WriteU32(itemId);
+        w.WriteU8(count); w.WriteU8(0); SendPacket((ushort)Op.CMSG_BUY_ITEM, w.AsSpan());
+    }
+    public void SellItem(ulong vendorGuid, ulong itemGuid, byte count)
+    {
+        var w = new PacketWriter(17); w.WriteU64(vendorGuid); w.WriteU64(itemGuid);
+        w.WriteU8(count); SendPacket((ushort)Op.CMSG_SELL_ITEM, w.AsSpan());
+    }
+    public void BuybackItem(ulong vendorGuid, uint slot)
+    {
+        var w = new PacketWriter(12); w.WriteU64(vendorGuid); w.WriteU32(slot);
+        SendPacket((ushort)Op.CMSG_BUYBACK_ITEM, w.AsSpan());
+    }
+
     public void UseItem(byte bag, byte slot, byte spellSlot)
     {
         var w = new PacketWriter(5);

@@ -299,6 +299,10 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.NpcTextQuery(textId, guid); return true; } catch { return false; }
     }
+    public bool ListInventory(ulong guid) { if (State!=NetState.InWorld||_session is null) return false; try { _session.ListInventory(guid); return true; } catch { return false; } }
+    public bool BuyItem(ulong vendor, uint item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuyItem(vendor,item,count); return true; } catch { return false; } }
+    public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
+    public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
     public void AutoEquipItem(byte bag, byte slot) { try { _session?.AutoEquipItem(bag, slot); } catch { } }
     public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }

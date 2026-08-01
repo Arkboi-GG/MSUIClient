@@ -60,6 +60,17 @@ public enum Op : ushort
     CMSG_NPC_TEXT_QUERY           = 0x017F,
     SMSG_NPC_TEXT_UPDATE          = 0x0180,
 
+    // --- Vendor ---
+    CMSG_LIST_INVENTORY           = 0x019E,
+    SMSG_LIST_INVENTORY           = 0x019F,
+    CMSG_SELL_ITEM                = 0x01A0,
+    SMSG_SELL_ITEM                = 0x01A1,
+    CMSG_BUY_ITEM                 = 0x01A2,
+    CMSG_BUY_ITEM_IN_SLOT         = 0x01A3,
+    SMSG_BUY_ITEM                 = 0x01A4,
+    SMSG_BUY_FAILED               = 0x01A5,
+    CMSG_BUYBACK_ITEM             = 0x0290,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,

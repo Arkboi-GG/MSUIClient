@@ -11,6 +11,10 @@ Check((ushort)Op.SMSG_GOSSIP_MESSAGE == 381, "SMSG_GOSSIP_MESSAGE opcode");
 Check((ushort)Op.SMSG_GOSSIP_COMPLETE == 382, "SMSG_GOSSIP_COMPLETE opcode");
 Check((ushort)Op.CMSG_NPC_TEXT_QUERY == 383, "CMSG_NPC_TEXT_QUERY opcode");
 Check((ushort)Op.SMSG_NPC_TEXT_UPDATE == 384, "SMSG_NPC_TEXT_UPDATE opcode");
+Check((ushort)Op.CMSG_LIST_INVENTORY == 414 && (ushort)Op.SMSG_LIST_INVENTORY == 415,
+    "vendor list opcodes");
+Check((ushort)Op.CMSG_SELL_ITEM == 416 && (ushort)Op.CMSG_BUY_ITEM == 418 &&
+      (ushort)Op.CMSG_BUYBACK_ITEM == 656, "vendor transaction opcodes");
 
 byte[] menuBytes = Convert.FromHexString(
     "463701FB040030F17B0000000100000000000000030042726F77736500" +
@@ -42,4 +46,12 @@ try
 }
 catch (InvalidDataException ex) when (ex.Message.Contains("exceeds 15")) { }
 
-Console.WriteLine("interface wire checks passed: gossip opcodes/menu/options/quests/text/bounds");
+var vendorWriter=new PacketWriter();
+vendorWriter.WriteU64(0xF1300004FB013746ul); vendorWriter.WriteU8(1);
+foreach(uint value in new uint[]{1,117,1234,uint.MaxValue,25,0,5}) vendorWriter.WriteU32(value);
+VendorInventory vendor=VendorPackets.ParseList(vendorWriter.ToArray());
+Check(vendor.VendorGuid==0xF1300004FB013746ul&&vendor.Items.Count==1&&
+      vendor.Items[0].ItemId==117&&vendor.Items[0].Price==25&&vendor.Items[0].BuyCount==5,
+      "vendor list row shape");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor opcodes/bodies/bounds");

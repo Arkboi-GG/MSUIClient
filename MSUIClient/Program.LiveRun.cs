@@ -208,6 +208,11 @@ public sealed partial class GameLoop
                         Log(SelectGossipOption(option), line);
                     }
                     break;
+                case "vendor":
+                    if(p[1].Equals("open",StringComparison.OrdinalIgnoreCase))
+                        Log(RequestVendor(_selectionGuid),$"{line} guid=0x{_selectionGuid:X16}");
+                    else Log(false,$"unknown {line}");
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":

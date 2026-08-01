@@ -378,6 +378,14 @@ public sealed partial class GameLoop
                     case Op.SMSG_NPC_TEXT_UPDATE:
                         ApplyNpcText(body);
                         break;
+                    case Op.SMSG_LIST_INVENTORY:
+                        ApplyVendorList(body);
+                        break;
+                    case Op.SMSG_BUY_ITEM:
+                    case Op.SMSG_BUY_FAILED:
+                    case Op.SMSG_SELL_ITEM:
+                        ApplyVendorResult((Op)opcode,body);
+                        break;
                     case Op.SMSG_NAME_QUERY_RESPONSE:
                         {
                             var r = new PacketReader(body);
