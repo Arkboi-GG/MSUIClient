@@ -209,3 +209,9 @@ Evidence: `live-runs/N2-0-3-10-loot-20260801-211500/N2-0-3-10-loot-20260801-2115
 Coverage: 1/63 with 62 NOT-DRAWN. A real temporary TEST-account guild supplied
 the authoritative roster before the explicitly replay-labelled expanded state.
 Evidence: `live-runs/N2-0-3-11-guild-20260801-213000/N2-0-3-11-guild-20260801-213000.md`.
+
+## 3-12 Gossip — CLOSED-FINDING
+
+Coverage: 6/23 with 17 NOT-DRAWN. The shipped quest-greeting shell was
+captured from a real in-range Stormwind vendor gossip menu. Evidence:
+`live-runs/N2-0-3-12-gossip-20260801-214500/N2-0-3-12-gossip-20260801-214500.md`.

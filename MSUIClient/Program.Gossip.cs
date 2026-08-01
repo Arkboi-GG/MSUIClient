@@ -152,13 +152,21 @@ public sealed partial class GameLoop
     {
         if (_gossipMenu is null) return;
         float s = GameplayUiScale();
-        Vector2 size = new Vector2(380f, 390f) * s;
-        Vector2 p = new(18f * s, MathF.Max(12f, (ImGui.GetIO().DisplaySize.Y - size.Y) * .48f));
+        Vector2 size = new Vector2(384f, 512f) * s;
+        Vector2 p = new(0,8f*s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
-        ImGuiWindowFlags flags = ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize |
-            ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings;
-        if (!ImGui.Begin("Gossip##gossip-frame", flags)) { ImGui.End(); return; }
+        ImGui.SetNextWindowBgAlpha(0);ImGuiWindowFlags flags=ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav;
+        if (!ImGui.Begin("##gossip-frame", flags)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="gossip"){BeginUiParityFrame(p,s);CollectUiParityDraw("GossipFrame","Frame",p,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
+            ("GossipFrameGreetingPanel/Texture",@"Interface\QuestFrame\UI-QuestGreeting-TopLeft",Vector2.Zero,new(256,256)),
+            ("GossipFrameGreetingPanel/Texture#2",@"Interface\QuestFrame\UI-QuestGreeting-TopRight",new(256,0),new(128,256)),
+            ("GossipFrameGreetingPanel/Texture#3",@"Interface\QuestFrame\UI-QuestGreeting-BotLeft",new(0,256),new(256,256)),
+            ("GossipFrameGreetingPanel/Texture#4",@"Interface\QuestFrame\UI-QuestGreeting-BotRight",new(256,256),new(128,256)),
+            ("GossipFrameGreetingPanel/Texture#5",@"Interface\QuestFrame\UI-Quest-BotLeftPatch",new(22,380),new(128,64))];
+        foreach(var r in art){Vector2 m=p+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="gossip")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"GossipFrameGreetingPanel",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","GossipFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(p+new Vector2(28,72)*s);ImGui.BeginChild("##gossip-content",new Vector2(305,365)*s,false);
 
         string sourceName = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity source)
             ? source.IsPlayer
@@ -180,7 +188,7 @@ public sealed partial class GameLoop
             if (ImGui.Selectable($"[{quest.Level}] {quest.Title}##gossip-quest-{quest.QuestId}"))
                 RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
 
-        ImGui.SetCursorPosY(MathF.Max(ImGui.GetCursorPosY(), size.Y / s - 48f));
+        ImGui.SetCursorPosY(MathF.Max(ImGui.GetCursorPosY(),300));
         if (ImGui.Button("Close##gossip")) ResetGossip();
         if (_config.DevTools)
         {
@@ -193,6 +201,7 @@ public sealed partial class GameLoop
                 CopyVerdictText(text);
             }
         }
-        ImGui.End();
+        ImGui.EndChild();Vector2 close=p+new Vector2(326,14)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
+        if(_uiParityArmed&&_uiParityPanel=="gossip")MarkUiParityFrameComplete();ImGui.End();
     }
 }

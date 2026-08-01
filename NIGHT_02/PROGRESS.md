@@ -49,3 +49,5 @@
 2026-08-01 21:15 local | 3-11 | OPEN | guild parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 21:30 local | 3-11 | CLOSED-FINDING | real one-member roster plus replay-labelled expanded roster captured in FriendsFrame shell; coverage 1/63 with 62 NOT-DRAWN | live-runs/N2-0-3-11-guild-20260801-213000/N2-0-3-11-guild-20260801-213000.md
 2026-08-01 21:30 local | 3-12 | OPEN | gossip parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 21:45 local | 3-12 | CLOSED-FINDING | shipped gossip shell captured from an authoritative in-range Stormwind vendor menu after two preserved range-failure attempts; coverage 6/23 with 17 NOT-DRAWN | live-runs/N2-0-3-12-gossip-20260801-214500/N2-0-3-12-gossip-20260801-214500.md
+2026-08-01 21:45 local | 3-13 | OPEN | taxi parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

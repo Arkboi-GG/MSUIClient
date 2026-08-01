@@ -1,0 +1,15 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-12-gossip-20260801-214500\gossip-final3.protocol
+1,PASS,gm .gm on
+2,PASS,gm .tele stormwind
+3,PASS,wait 4
+4,PASS,select npc-flag-nearest:vendor guid=0xF1300004FB013746
+5,PASS,anchor selected guid=0xF1300004FB013746 position=-8863.87|626.459|95.9895
+6,PASS,wait 3
+7,PASS,select anchor guid=0xF1300004FB013746
+8,PASS,gm .gm off
+9,PASS,interact gossip guid=0xF1300004FB013746
+10,PASS,wait 2
+11,PASS,ui-parity gossip
+12,PASS,wait 2
+13,PASS,gossip close

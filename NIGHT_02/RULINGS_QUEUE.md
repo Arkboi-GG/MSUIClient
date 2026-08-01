@@ -110,3 +110,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 1/63 with 62 NOT-DRAWN. Exact set: `live-runs/N2-0-3-11-guild-20260801-213000/guild-diff.csv`.
 - Work: derive roster columns/rows, totals, MOTD/info tabs, rank controls, notes, filters, and every absent embedded GuildFrame reference element.
 - Review: `live-runs/N2-0-3-11-guild-20260801-213000/guild-contact.png`.
+
+## Q20 — 3-12 — gossip NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 6/23 with 17 NOT-DRAWN. Exact set: `live-runs/N2-0-3-12-gossip-20260801-214500/gossip-diff.csv`.
+- Work: derive portrait/name/greeting material, option icons/rows, greeting text, close/goodbye states, and every absent reference element.
+- Review: `live-runs/N2-0-3-12-gossip-20260801-214500/gossip-contact.png`.
