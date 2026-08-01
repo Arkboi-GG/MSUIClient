@@ -10,7 +10,7 @@ const string FontsXml = @"Interface\FrameXML\Fonts.xml";
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("usage: ui-parity extract|render|diff|contact ...");
+    Console.Error.WriteLine("usage: ui-parity source|extract|render|diff|crop|contact ...");
     return 2;
 }
 
@@ -18,6 +18,7 @@ try
 {
     return args[0].ToLowerInvariant() switch
     {
+        "source" => Source(args[1..]),
         "extract" => Extract(args[1..]),
         "render" => Render(args[1..]),
         "diff" => Diff(args[1..]),
@@ -32,6 +33,16 @@ catch (Exception ex)
     return 1;
 }
 
+static int Source(string[] args)
+{
+    var o = Options(args);
+    string data = Need(o, "data"), path = Need(o, "path");
+    using var mpq = new MpqMount(data);
+    var hit = mpq.ReadFileWithSupplier(path) ?? throw new FileNotFoundException(path);
+    Console.Write(Encoding.UTF8.GetString(hit.Data));
+    return 0;
+}
+
 static int Extract(string[] args)
 {
     var o = Options(args);
@@ -41,10 +52,22 @@ static int Extract(string[] args)
     string xmlPath = o.GetValueOrDefault("xml", DefaultXml);
     using var mpq = new MpqMount(data);
     var documents = new List<(string Path, string Supplier, XDocument Doc)>();
-    foreach (string path in new[] { FontsXml, TemplatesXml, xmlPath }.Distinct(StringComparer.OrdinalIgnoreCase))
+    var pending = new Queue<string>(new[] { FontsXml, TemplatesXml, xmlPath }
+        .Distinct(StringComparer.OrdinalIgnoreCase));
+    var loaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    while (pending.TryDequeue(out string? path))
     {
+        path = path.Replace('/', '\\');
+        if (!loaded.Add(path)) continue;
         var hit = mpq.ReadFileWithSupplier(path) ?? throw new FileNotFoundException(path);
-        documents.Add((path, hit.Supplier, XDocument.Parse(Encoding.UTF8.GetString(hit.Data))));
+        var doc = XDocument.Parse(Encoding.UTF8.GetString(hit.Data));
+        documents.Add((path, hit.Supplier, doc));
+        string directory = Path.GetDirectoryName(path) ?? "";
+        foreach (XElement include in doc.Descendants().Where(e => e.Name.LocalName == "Include"))
+        {
+            string file = (string?)include.Attribute("file") ?? "";
+            if (file.Length > 0) pending.Enqueue(Path.Combine(directory, file));
+        }
     }
 
     var named = documents.SelectMany(d => d.Doc.Descendants()
@@ -57,6 +80,12 @@ static int Extract(string[] args)
     var rows = new List<Row>();
     AddElement(root.Element, rootName, "", root.Path, root.Supplier, "", "", named, rows, panel);
     Resolve(rows);
+    if (o.TryGetValue("elements", out string? elements) && elements.Length > 0)
+    {
+        var include = elements.Split('|', StringSplitOptions.RemoveEmptyEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        rows.RemoveAll(row => !include.Contains(row.Element));
+    }
     foreach (Row row in rows)
     {
         row.AssetSource = string.Join('|', new[] { row.Texture, row.BgFile, row.EdgeFile }
@@ -125,7 +154,8 @@ static void AddElement(XElement element, string instanceName, string parentName,
     };
     rows.Add(row);
 
-    foreach (XElement child in element.Elements())
+    foreach (var childSource in chain)
+    foreach (XElement child in childSource.E.Elements())
     {
         if (child.Name.LocalName == "Frames")
         {
@@ -134,7 +164,7 @@ static void AddElement(XElement element, string instanceName, string parentName,
             {
                 string rawName = (string?)nested.Attribute("name") ?? $"{instanceName}/{nested.Name.LocalName}";
                 string name = Expand(rawName, instanceName, instanceName);
-                AddElement(nested, name, instanceName, sourcePath, supplier, layer, strata, named, rows, panel);
+                AddElement(nested, name, instanceName, childSource.Path, childSource.Supplier, layer, strata, named, rows, panel);
             }
         }
         else if (child.Name.LocalName == "Layers")
@@ -145,14 +175,15 @@ static void AddElement(XElement element, string instanceName, string parentName,
             {
                 string rawName = (string?)nested.Attribute("name") ?? $"{instanceName}/{nested.Name.LocalName}";
                 string name = Expand(rawName, instanceName, instanceName);
-                AddElement(nested, name, instanceName, sourcePath, supplier,
+                AddElement(nested, name, instanceName, childSource.Path, childSource.Supplier,
                     A(layerNode, "level"), strata, named, rows, panel);
             }
         }
         else if (IsDrawable(child) && !A(child, "hidden").Equals("true", StringComparison.OrdinalIgnoreCase))
         {
             string rawName = (string?)child.Attribute("name") ?? $"{instanceName}/{child.Name.LocalName}";
-            AddElement(child, Expand(rawName, instanceName, instanceName), instanceName, sourcePath, supplier, layer, strata, named, rows, panel);
+            AddElement(child, Expand(rawName, instanceName, instanceName), instanceName,
+                childSource.Path, childSource.Supplier, layer, strata, named, rows, panel);
         }
     }
 }
@@ -173,7 +204,7 @@ static string TextureOf(List<(XElement E, string Path, string Supplier)> chain,
     {
         string direct = ResolveTexture(item.E, new(StringComparer.OrdinalIgnoreCase));
         if (direct.Length > 0) return direct;
-        foreach (string childName in new[] { "NormalTexture", "Texture" })
+        foreach (string childName in new[] { "NormalTexture", "BarTexture", "Texture" })
         {
             XElement? child = item.E.ElementAny(childName);
             if (child is null) continue;
@@ -232,8 +263,17 @@ static void ResolveOne(Row row, Dictionary<string, Row> rows, HashSet<string> se
     string relative = row.RelativeTo.Length > 0 ? row.RelativeTo : row.Parent;
     if (!rows.TryGetValue(relative, out Row? parent)) return;
     ResolveOne(parent, rows, seen);
-    if (!F(parent.X, out float px) || !F(parent.Y, out float py) || !F(parent.Width, out float pw) || !F(parent.Height, out float ph) ||
-        !F(row.Width, out float w) || !F(row.Height, out float h)) return;
+    if (!F(parent.X, out float px) || !F(parent.Y, out float py) || !F(parent.Width, out float pw) || !F(parent.Height, out float ph)) return;
+    // FrameXML's setAllPoints="true" wrappers omit Size and Anchors entirely.
+    // They inherit their parent's rectangle and are common around texture/name layers.
+    if (!F(row.Width, out float w) || !F(row.Height, out float h))
+    {
+        if (row.Width.Length == 0 && row.Height.Length == 0 && row.Point.Length == 0)
+        {
+            row.X = N(px); row.Y = N(py); row.Width = N(pw); row.Height = N(ph);
+        }
+        return;
+    }
     string point = row.Point.Length == 0 ? "CENTER" : row.Point;
     string relativePoint = row.RelativePoint.Length == 0 ? point : row.RelativePoint;
     (float rx, float ry) = Anchor(px, py, pw, ph, relativePoint);
@@ -359,7 +399,8 @@ static int Contact(string[] args)
     Console.WriteLine($"[ui-parity] contact sheet {output}"); return 0;
 }
 
-static bool IsDrawable(XElement e) => e.Name.LocalName is "Frame" or "Button" or "CheckButton" or "Texture" or "FontString";
+static bool IsDrawable(XElement e) => e.Name.LocalName is "Frame" or "Button" or "CheckButton" or
+    "StatusBar" or "Slider" or "EditBox" or "Texture" or "FontString";
 static string A(XElement? e, string name) => (string?)e?.Attribute(name) ?? "";
 static string Expand(string value, string instance, string parent) => value.Replace("$parent", parent.Length > 0 ? parent : instance, StringComparison.OrdinalIgnoreCase);
 static string NormalizeTexture(string value) => value.Length == 0 ? "" : value.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? value : value + ".blp";

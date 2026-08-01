@@ -37,6 +37,7 @@ public enum Op : ushort
     SMSG_TRIGGER_CINEMATIC       = 0x00FA,
     CMSG_COMPLETE_CINEMATIC      = 0x00FC,
     SMSG_TUTORIAL_FLAGS          = 0x00FD,
+    SMSG_GROUP_LIST              = 0x007D,
     CMSG_MOVE_WORLDPORT_ACK      = 0x00DC,
 
     // --- Object updates ---

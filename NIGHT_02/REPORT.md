@@ -29,3 +29,16 @@ reference cohorts retain 9 player and 28 target presence deltas, chiefly conditi
 template rows plus unenumerated existing frame/text draws, so the item is not claimed
 as parity PASS. Evidence:
 `live-runs/N2-0-2-1-unit-frames-20260801-155500/N2-0-2-1-unit-frames-20260801-155500.md`.
+
+## 2026-08-01 16:05 local — item 2-2 party frames
+
+Status: `CLOSED-FINDING`
+
+Implemented the missing build-5875 `SMSG_GROUP_LIST` consumer and a party-member
+renderer at the shipped 128x53 / 83px-stack geometry. The shipped include chain
+is now resolved mechanically by the harness. A real TEST-character draw capture
+passes all 42 representative geometry/anchor/texture/layer verdicts. The complete
+FrameXML inventory retains 33 presence deltas for conditional debuff, pet, leader,
+disconnect, and anonymous wrapper rows; pet-member stats wire support remains the
+material functional gap. Evidence:
+`live-runs/N2-0-2-2-party-frames-20260801-160500/N2-0-2-2-party-frames-20260801-160500.md`.

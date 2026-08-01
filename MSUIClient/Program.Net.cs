@@ -291,6 +291,9 @@ public sealed partial class GameLoop
             {
                 switch ((Op)opcode)
                 {
+                    case Op.SMSG_GROUP_LIST:
+                        ApplyPartyRoster(body);
+                        break;
                     case Op.MSG_MOVE_TELEPORT_ACK:
                         {
                             // Build 5875 server->client same-map teleport:

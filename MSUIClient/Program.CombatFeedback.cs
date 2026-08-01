@@ -116,6 +116,7 @@ public sealed partial class GameLoop
         DrawWorldUnitNames();
         DrawPlayerFrame();
         DrawTargetFrame();
+        DrawPartyFrames();
         DrawPlayerAuraBar();
         DrawCenterCombatText();
         DrawCastingBar();
