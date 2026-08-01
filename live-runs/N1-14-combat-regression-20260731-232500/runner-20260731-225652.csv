@@ -1,0 +1,33 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\combat-regression-fresh-target.txt
+1,PASS,gm .go xyz -8970 -132.493 83.53 0
+2,PASS,wait 0.5
+3,PASS,gm .gm off
+4,PASS,wait 0.3
+5,PASS,gm .gm
+6,PASS,wait 0.3
+7,PASS,gm .dismount
+8,PASS,wait 0.2
+9,PASS,gm .combatstop TEST
+10,PASS,wait 0.2
+11,PASS,gm .npc spawn add 6
+12,PASS,select spawn:1 guid=0xF13000000604A29C
+13,PASS,assert event=SpawnObserved
+14,PASS,socket-trace start combat-regression-fresh-target path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-combat-regression-fresh-target-20260731-225653.csv
+15,PASS,trace start combat-regression-fresh-target
+16,PASS,gm .gps
+17,PASS,attack start gate=PASS
+18,PASS,assert event=AttackPreconditionGatePass
+19,PASS,assert event=SocketFlush cause=post-encryption-socket-write
+20,PASS,assert event=AttackSwingSend
+21,PASS,waitfor detail=Map:_0_
+22,PASS,wait 0.5
+23,PASS,attack stop
+24,PASS,socket-trace stop
+25,PASS,trace stop
+26,PASS,gm .gm on
+27,PASS,wait 0.2
+28,PASS,gm .npc spawn delete
+29,PASS,wait 0.5
+30,PASS,waitgone spawn:1 guid=0xF13000000604A29C descriptorPresent=False
+31,PASS,gm .gm off

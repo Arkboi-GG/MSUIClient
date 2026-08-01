@@ -98,3 +98,33 @@ Manifest: `live-runs/manifests/N1-13-20260731-231500.sha256`, SHA-256
 all four entries recomputed exactly. Boundary gates: build PASS (established
 CA2014 only), combat-wire PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56,
 move-audit-check PASS.
+
+## 1-4 — combat regression pack
+
+Status: `CLOSED-PASS`
+
+### Actual versus predicted
+
+```text
+PREDICTED: repeatable X1/Z0/Z1 protocol with fresh identity, delivered chat
+           control, gated attack, post-encryption socket evidence, and cleanup
+ACTUAL: 31/31 steps PASS; control-to-attack delta 0.013 s; exact Z0 gate PASS;
+        14-byte 0x0141 write flushed; delivered .gps response; cleanup PASS
+RESULT: PASS
+
+PREDICTED: transition/pairing regression audit
+ACTUAL: legal transitions and send pairing PASS; cadence/one-shot NO_DATA because
+        the unresolved server path still supplies no player swing
+RESULT: PASS / NO_DATA
+```
+
+The committed baseline is `scenarios/combat/combat-regression-fresh-target.txt`;
+the dated packet is
+`live-runs/N1-14-combat-regression-packet-20260731-232500.md`. It changes no
+combat behavior and regenerates no cohort/baseline data.
+
+Manifest: `live-runs/manifests/N1-14-20260731-232500.sha256`, SHA-256
+`5064f6d273be318275e2bc702f8ecc6e4d607200352fbe991f3364f0fc02c725`;
+all seven entries recomputed exactly. Boundary gates: Debug build 0 warnings /
+0 errors, combat-wire PASS (established CA2014 only), portrait-camera 10,534 /
+1,224 / 1,289 / 56, move-audit-check PASS.
