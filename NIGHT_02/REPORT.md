@@ -258,3 +258,9 @@ Coverage: 1/1. A deterministic tooltip specimen now draws through the shipped
 tooltip nine-slice and emits draw-derived root evidence. Three mechanical
 deltas remain: anchor metadata, backdrop-path evidence, and strata/layer.
 Evidence: `live-runs/N2-0-4-5-tooltip-20260801-233000/N2-0-4-5-tooltip-20260801-233000.md`.
+
+## 4-6 Error / UI-message text — CLOSED-FINDING
+
+Coverage: 2/2. The full 512x60 message frame and its shipped FRIZQT font draw
+are instrumented. Five exact metadata/style deltas remain in the verdict CSV.
+Evidence: `live-runs/N2-0-4-6-ui-errors-20260801-234500/N2-0-4-6-ui-errors-20260801-234500.md`.

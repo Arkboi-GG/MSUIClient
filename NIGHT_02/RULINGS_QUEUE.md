@@ -158,3 +158,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Coverage: 1/1; exact verdicts: `live-runs/N2-0-4-5-tooltip-20260801-233000/tooltip-diff.csv`.
 - Work: route ubiquitous tooltip call sites through the dedicated shipped-art path and extend draw evidence to carry backdrop paths plus TOOLTIP strata without copying reference declarations.
 - Review: `live-runs/N2-0-4-5-tooltip-20260801-233000/tooltip-contact.png`.
+
+## Q28 — 4-6 — UIErrorsFrame mechanical findings and perceptual review
+
+- Coverage: 2/2; exact verdicts: `live-runs/N2-0-4-6-ui-errors-20260801-234500/ui-errors-diff.csv`.
+- Work: expose ErrorFont object identity and HIGH strata in draw evidence, remove the empty child anchor metadata, and reconcile the gold FrameXML font-object default with the red error-feed runtime color law.
+- Review: `live-runs/N2-0-4-6-ui-errors-20260801-234500/ui-errors-contact.png`.

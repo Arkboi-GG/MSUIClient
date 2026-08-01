@@ -66,3 +66,5 @@
 2026-08-01 23:15 local | 4-5 | OPEN | GameTooltip parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
 2026-08-01 23:30 local | 4-5 | CLOSED-FINDING | dedicated shipped-art tooltip specimen captured; coverage 1/1 with anchor, backdrop-evidence, and layer deltas retained | live-runs/N2-0-4-5-tooltip-20260801-233000/N2-0-4-5-tooltip-20260801-233000.md
 2026-08-01 23:30 local | 4-6 | OPEN | error and UI-message text parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md
+2026-08-01 23:45 local | 4-6 | CLOSED-FINDING | built deterministic shipped-FRIZQT UIErrorsFrame specimen; coverage 2/2 with five exact metadata/style deltas | live-runs/N2-0-4-6-ui-errors-20260801-234500/N2-0-4-6-ui-errors-20260801-234500.md
+2026-08-01 23:45 local | 4-7 | OPEN | cursor and StaticPopup parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md

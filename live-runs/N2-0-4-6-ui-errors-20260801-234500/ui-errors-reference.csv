@@ -1,0 +1,3 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
+"ui-errors","UIErrorsFrame","MessageFrame","","0","0","512","60","TOP","","","0","-96","","","","","","","HIGH","","","","","","","interface.MPQ:Interface\FrameXML\UIErrorsFrame.xml","","",""
+"ui-errors","UIErrorsFrame/FontString","FontString","UIErrorsFrame","0","0","512","60","","","","","","","ErrorFont","Fonts\FRIZQT__.TTF","16","#FFD100FF","","HIGH","","","","","","","interface.MPQ:Interface\FrameXML\UIErrorsFrame.xml","","fonts.MPQ:Fonts\FRIZQT__.TTF",""

@@ -142,6 +142,7 @@ public sealed partial class GameLoop
         DrawKeybindingsFrame();
         DrawMacroFrame();
         DrawTooltipParityFrame();
+        DrawUiErrorsParityFrame();
         DrawTabardFrame();
         DrawTalentFrame();
         DrawInventory();
