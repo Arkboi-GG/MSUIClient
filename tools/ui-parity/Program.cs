@@ -311,6 +311,19 @@ static int Render(string[] args)
 {
     var o = Options(args); string data = Need(o, "data"), spec = Need(o, "spec"), output = Need(o, "out");
     List<Row> rows = ReadRows(spec); Row root = rows[0];
+    var byName = rows.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
+    foreach (Row row in rows.Where(r => r.Texture.Length > 0 && (!F(r.Width, out _) || !F(r.Height, out _))))
+    {
+        // FrameXML layer regions without explicit anchors/sizes fill their owning frame.
+        // Resolve that authored ownership here so shipped chrome cannot disappear from
+        // the perceptual reference merely because its texture row is implicit.
+        Row? owner = row.Parent.Length > 0 && byName.TryGetValue(row.Parent, out Row? direct) ? direct : null;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (owner is not null && seen.Add(owner.Element) && (!F(owner.Width, out _) || !F(owner.Height, out _)))
+            owner = owner.Parent.Length > 0 && byName.TryGetValue(owner.Parent, out Row? next) ? next : null;
+        if (owner is not null && F(owner.X, out _) && F(owner.Y, out _) && F(owner.Width, out _) && F(owner.Height, out _))
+        { row.X = owner.X; row.Y = owner.Y; row.Width = owner.Width; row.Height = owner.Height; }
+    }
     var placed = rows.Where(r => F(r.X,out _) && F(r.Y,out _) && F(r.Width,out _) && F(r.Height,out _)).ToArray();
     float minX=Math.Min(0,placed.Min(r=>Parse(r.X,0))), minY=Math.Min(0,placed.Min(r=>Parse(r.Y,0)));
     float maxX=Math.Max(Parse(root.Width,256),placed.Max(r=>Parse(r.X,0)+Parse(r.Width,0)));
@@ -345,7 +358,13 @@ static int Render(string[] args)
             string[] tc = row.TexCoords.Split('|');
             if (tc.Length == 4 && tc.All(v => F(v, out _)))
                 src = new(Parse(tc[0],0)*art.Width, Parse(tc[1],0)*art.Height, Parse(tc[2],1)*art.Width, Parse(tc[3],1)*art.Height);
+            bool flipX = src.Left > src.Right, flipY = src.Top > src.Bottom;
+            src = new SKRect(Math.Min(src.Left, src.Right), Math.Min(src.Top, src.Bottom), Math.Max(src.Left, src.Right), Math.Max(src.Top, src.Bottom));
+            canvas.Save();
+            if (flipX) { canvas.Translate(2 * x + w, 0); canvas.Scale(-1, 1); }
+            if (flipY) { canvas.Translate(0, 2 * y + h); canvas.Scale(1, -1); }
             canvas.DrawBitmap(art, src, new SKRect(x, y, x + w, y + h));
+            canvas.Restore();
         }
     }
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
