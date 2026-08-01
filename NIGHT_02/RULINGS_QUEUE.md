@@ -182,3 +182,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Exact audit: `live-runs/N2-0-5-2-color-audit-20260802-003000/color-constant-audit.csv`.
 - Counts: 30 constants; 14 PASS, 2 DELTA, 14 NOT-DRAWN after correcting mana, rage, energy, and happiness.
 - Work: implement class and quest-difficulty color consumers; resolve the epic rounding and dead-NPC gray byte deltas.
+
+## Q32 — 5-3 — strata / draw-layer audit findings
+
+- Exact audit: `live-runs/N2-0-5-3-layer-audit-20260802-004500/strata-layer-audit.csv`.
+- Counts: 2,047 rows; 67 PASS, 107 DELTA, 1,635 NOT-DRAWN, 238 NO-VERDICT.
+- Work: extend real draw evidence beyond generic ImGui host/window labels and implement the absent reference draws in authored strata/layer order.

@@ -283,3 +283,8 @@ exact remediation list. Evidence: `live-runs/N2-0-5-1-font-audit-20260802-001500
 Thirty constants audited; four power-type approximations corrected to exact
 vanilla values. Fourteen PASS, two DELTA, and fourteen NOT-DRAWN remain.
 Evidence: `live-runs/N2-0-5-2-color-audit-20260802-003000/N2-0-5-2-color-audit-20260802-003000.md`.
+
+## 5-3 Strata / layer audit — CLOSED-FINDING
+
+The full touched-reference sweep contains 2,047 rows: 67 PASS, 107 DELTA,
+1,635 NOT-DRAWN, and 238 NO-VERDICT. Evidence: `live-runs/N2-0-5-3-layer-audit-20260802-004500/N2-0-5-3-layer-audit-20260802-004500.md`.

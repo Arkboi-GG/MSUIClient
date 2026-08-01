@@ -75,3 +75,5 @@
 2026-08-02 00:15 local | 5-2 | OPEN | color-constant audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
 2026-08-02 00:30 local | 5-2 | CLOSED-FINDING | audited 30 constants and corrected four power colors; 14 PASS, 2 DELTA, 14 NOT-DRAWN remain exact | live-runs/N2-0-5-2-color-audit-20260802-003000/N2-0-5-2-color-audit-20260802-003000.md
 2026-08-02 00:30 local | 5-3 | OPEN | strata and draw-layer audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
+2026-08-02 00:45 local | 5-3 | CLOSED-FINDING | full touched-reference strata/layer sweep emitted 2,047 rows: 67 PASS, 107 DELTA, 1,635 NOT-DRAWN, 238 NO-VERDICT | live-runs/N2-0-5-3-layer-audit-20260802-004500/N2-0-5-3-layer-audit-20260802-004500.md
+2026-08-02 00:45 local | 5-4 | OPEN | backdrop and nine-slice audit is the first open cross-cutting polish item | NIGHT_02/5_POLISH.md
