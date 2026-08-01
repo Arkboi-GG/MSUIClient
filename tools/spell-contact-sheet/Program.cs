@@ -1,13 +1,14 @@
 using SkiaSharp;
 
-if (args.Length != 2)
+if (args.Length is < 2 or > 3)
 {
-    Console.Error.WriteLine("usage: spell-contact-sheet <repo-root> <output.png>");
+    Console.Error.WriteLine("usage: spell-contact-sheet <repo-root> <output.png> [capture-prefix]");
     return 2;
 }
 
 string root = Path.GetFullPath(args[0]);
 string output = Path.GetFullPath(args[1]);
+string prefix = args.Length == 3 ? args[2] : "n1c-anim-v2";
 string[] schools = ["physical", "fire", "frost", "arcane", "holy", "nature", "shadow"];
 const int cellWidth = 600, cellHeight = 338, labelHeight = 38;
 using var sheet = new SKBitmap(cellWidth * 2, (cellHeight + labelHeight) * schools.Length,
@@ -23,7 +24,7 @@ for (int row = 0; row < schools.Length; row++)
     for (int col = 0; col < 2; col++)
     {
         string stage = col == 0 ? "precast" : "cast";
-        string relative = $"dumps/gameplay-n1c-anim-v2-{schools[row]}-{stage}.png";
+        string relative = $"dumps/gameplay-{prefix}-{schools[row]}-{stage}.png";
         string path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
         using SKBitmap source = SKBitmap.Decode(path) ?? throw new InvalidDataException(path);
         float y = row * (cellHeight + labelHeight);

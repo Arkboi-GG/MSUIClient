@@ -1,0 +1,15 @@
+row,school,stage,path
+1,physical,precast,dumps/gameplay-n1c-anim-moving-fixed-physical-precast.png
+1,physical,cast,dumps/gameplay-n1c-anim-moving-fixed-physical-cast.png
+2,fire,precast,dumps/gameplay-n1c-anim-moving-fixed-fire-precast.png
+2,fire,cast,dumps/gameplay-n1c-anim-moving-fixed-fire-cast.png
+3,frost,precast,dumps/gameplay-n1c-anim-moving-fixed-frost-precast.png
+3,frost,cast,dumps/gameplay-n1c-anim-moving-fixed-frost-cast.png
+4,arcane,precast,dumps/gameplay-n1c-anim-moving-fixed-arcane-precast.png
+4,arcane,cast,dumps/gameplay-n1c-anim-moving-fixed-arcane-cast.png
+5,holy,precast,dumps/gameplay-n1c-anim-moving-fixed-holy-precast.png
+5,holy,cast,dumps/gameplay-n1c-anim-moving-fixed-holy-cast.png
+6,nature,precast,dumps/gameplay-n1c-anim-moving-fixed-nature-precast.png
+6,nature,cast,dumps/gameplay-n1c-anim-moving-fixed-nature-cast.png
+7,shadow,precast,dumps/gameplay-n1c-anim-moving-fixed-shadow-precast.png
+7,shadow,cast,dumps/gameplay-n1c-anim-moving-fixed-shadow-cast.png

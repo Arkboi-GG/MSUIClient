@@ -1,0 +1,10 @@
+time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
+0.596,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
+5.496,"Test",1449,"Arcane Explosion",ARCANE,PRECAST,266,52,52,52,BakedOnDemand,"Anim52",True,True,True,"Run","none","none","Anim52",1.0000,SYNTHETIC_DBC_RENDERER
+5.531,"Test",1449,"Arcane Explosion",ARCANE,PRECAST,266,52,52,52,BakedOnDemand,"Anim52",True,True,True,"Anim52","Run","none","Anim52",0.2344,RENDERER_POST_TICK
+7.912,"Test",1449,"Arcane Explosion",ARCANE,CAST,1004,54,54,54,BakedOnDemand,"Anim54",True,True,True,"Anim52","none","Anim54","none",1.0000,SYNTHETIC_DBC_RENDERER
+7.947,"Test",1449,"Arcane Explosion",ARCANE,CAST,1004,54,54,54,BakedOnDemand,"Anim54",True,True,True,"Anim54","Anim52","Anim54","none",0.7065,RENDERER_POST_TICK
+10.107,"Test",133,"Fireball",FIRE,PRECAST,30,51,51,51,BakedOnDemand,"Anim51",True,False,True,"Anim54","none","Anim54","Anim51",1.0000,SYNTHETIC_DBC_RENDERER
+10.142,"Test",133,"Fireball",FIRE,PRECAST,30,51,51,51,BakedOnDemand,"Anim51",True,False,True,"Anim54","none","Anim54","Anim51",1.0000,RENDERER_POST_TICK
+12.375,"Test",133,"Fireball",FIRE,CAST,38,53,53,53,BakedOnDemand,"Anim53",True,False,True,"Anim54","none","Anim53","none",1.0000,SYNTHETIC_DBC_RENDERER
+12.409,"Test",133,"Fireball",FIRE,CAST,38,53,53,53,BakedOnDemand,"Anim53",True,False,True,"Anim53","Anim54","Anim53","none",0.6939,RENDERER_POST_TICK

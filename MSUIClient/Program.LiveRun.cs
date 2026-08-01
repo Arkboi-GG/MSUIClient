@@ -261,6 +261,12 @@ public sealed partial class GameLoop
                     Log(animation.Length == 3 &&
                         PresentSpellAnimation(uint.Parse(animation[1], CultureInfo.InvariantCulture), animation[2], "SYNTHETIC_DBC_RENDERER"), line);
                     break;
+                case "spell-animation-sample":
+                    string[] animationSample = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    Log(animationSample.Length == 3 &&
+                        SampleSpellAnimation(uint.Parse(animationSample[1], CultureInfo.InvariantCulture),
+                            animationSample[2], "RENDERER_POST_TICK"), line);
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":
@@ -469,13 +475,16 @@ public sealed partial class GameLoop
         static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
         var lines = new List<string>
         {
-            "time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,source"
+            "time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source"
         };
         foreach (SpellAnimationVerdict v in _verdicts.Snapshot("spell-animation").OfType<SpellAnimationVerdict>())
             lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture),
                 Csv(v.Character), v.SpellId, Csv(v.SpellName), v.School, v.Stage, v.KitId,
                 v.AuthoredAnimationId, v.RequestedAnimationId, v.PlayedAnimationId,
-                v.Resolution, Csv(v.RendererState), v.Source));
+                v.Resolution, Csv(v.RendererState), v.Moving, v.LegalWhileMoving,
+                v.MovementInterrupts, Csv(v.BaseAnimation), Csv(v.PreviousBaseAnimation),
+                Csv(v.ActionAnimation), Csv(v.HoldAnimation),
+                v.BlendWeight.ToString("F4", CultureInfo.InvariantCulture), v.Source));
         File.WriteAllLines(path, lines);
     }
 

@@ -313,6 +313,10 @@ public sealed partial class CharacterRenderer : IDisposable
     public string CurrentSpellHoldAnimation => _spellHold?.Name ?? "none";
     public string CurrentPresentationAnimation =>
         _spellHold?.Name ?? _combatAction?.Name ?? _clip?.Name ?? "none";
+    public string CurrentBaseAnimation => _clip?.Name ?? "none";
+    public string PreviousBaseAnimation => _previousClip?.Name ?? "none";
+    public float CurrentBlendWeight => _blendDuration <= 0f
+        ? 1f : 1f - Math.Clamp(_blendRemaining / _blendDuration, 0f, 1f);
 
     public readonly record struct ClipTransition(
         long Sequence,
@@ -2490,19 +2494,17 @@ public sealed partial class CharacterRenderer : IDisposable
 
     private void RestartCombatActionFor(M2Animator.Clip clip)
     {
-        _clip = null;
-        _clipTime = 0f;
-        _previousClip = null;
-        _blendRemaining = 0f;
+        // Preserve the outgoing locomotion pose. ChooseClip/SwitchClip owns the
+        // next-frame transition and will cross-fade Run/Walk into this action.
+        // Clearing _clip here discarded the only source pose and made moving
+        // spell casts hard-cut even though the mixer supports cross-fades.
+        if (ReferenceEquals(_clip, clip)) _clipTime = 0f;
     }
 
     private void RestartCombatAction()
     {
         if (_combatAction is null) return;
-        _clip = null;
-        _clipTime = 0f;
-        _previousClip = null;
-        _blendRemaining = 0f;
+        if (ReferenceEquals(_clip, _combatAction)) _clipTime = 0f;
     }
 
     /// <summary>

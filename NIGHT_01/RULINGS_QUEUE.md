@@ -190,3 +190,14 @@ Format per entry:
   and played IDs with `Exact` or `BakedOnDemand` resolution.
 - Agent recommendation: accept the mechanical binding; rule only on pose/art
   quality from the contact sheet.
+
+## Q17 — 3-4 — moving spell animation perceptual pass
+- Decision needed: judge the final post-fix seven-school moving precast/cast
+  pairs, including whether the locomotion-to-spell transition looks natural.
+- Evidence:
+  `live-runs/N1C-3-4-moving-animation-fixed-contact-sheet-20260801-101100.png`
+  with its adjacent `.txt` index and
+  `live-runs/N1C-3-4-moving-animations-20260801-101300.md`.
+- Mechanical result: exact renderer IDs, moving/legality matrix, and nontrivial
+  cross-fade weights pass; the former hard-cut root cause is removed.
+- Agent recommendation: accept the mechanics and rule only on visual feel.
