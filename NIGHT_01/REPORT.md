@@ -99,6 +99,33 @@ all four entries recomputed exactly. Boundary gates: build PASS (established
 CA2014 only), combat-wire PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56,
 move-audit-check PASS.
 
+## 2-1 through 2-12 — gameplay interfaces triage
+
+Statuses: all twelve items `SHELVED-BLOCKED` under the parent document's
+whole-item time-pressure rule.
+
+### Actual versus predicted
+
+```text
+PREDICTED: each item enters a complete wire → instrument → live fixture → UI loop
+ACTUAL: ten interface protocol/state/UI/runner families are absent; loot and
+        character/inventory are partial foundations but cannot meet their entire
+        live acceptance without mixing root causes or the blocked attack path
+RESULT: every item shelved whole; no transaction or partial opcode fix attempted
+```
+
+The per-item table, vendor server file:line map, and recommendation are in
+`live-runs/N2-interface-triage-20260731-234000.md`. Q5 recommends a dedicated
+follow-on ordered vendor → quest → loot work order.
+
+Boundary gates: build PASS (established CA2014 only, 0 errors), combat-wire
+PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56, move-audit-check PASS.
+
+Manifest: `live-runs/manifests/N2-20260731-234000.sha256`, SHA-256
+`ea5bfd3e2a2fffeae5b03cb46fd96be315b82d510dfd7fa283dfc330a8957f87`;
+all four entries recomputed exactly.
+
+
 ## 1-4 — combat regression pack
 
 Status: `CLOSED-PASS`

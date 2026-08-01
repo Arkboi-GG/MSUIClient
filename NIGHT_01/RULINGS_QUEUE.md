@@ -31,3 +31,9 @@ Format per entry:
 - Options: (A) keep server-authoritative display only; (B) authorize a client combat-behavior rule that synthesizes an error after silence; (C) revisit after Q1 exact server discrimination.
 - Agent recommendation: A now, C diagnostically — the display path is ready for every real server opcode; inventing a timeout error would conceal the unresolved server discard and change combat behavior.
 - Manifest: `live-runs/manifests/N1-13-20260731-231500.sha256`, SHA-256 `91eca7d61b6973d262bc3e4770020ecf6b35138b10a00060b578a675b9af5624`.
+
+## Q5 — 2-1..2-12 — authorize a dedicated gameplay-interfaces work order
+- Evidence: `live-runs/N2-interface-triage-20260731-234000.md`; `NIGHT_01/SUB_2-0_interface-triage.md`.
+- Options: (A) a follow-on ordered implementation run, priority vendor → quest → loot; (B) select one interface only; (C) leave the interface families absent.
+- Agent recommendation: A — each item needs a full packet/state/UI/fixture/instrument loop; completing them as separate root causes is safer than partial overnight opcode additions.
+- Manifest: `live-runs/manifests/N2-20260731-234000.sha256`, SHA-256 `ea5bfd3e2a2fffeae5b03cb46fd96be315b82d510dfd7fa283dfc330a8957f87`.
