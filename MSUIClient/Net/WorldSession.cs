@@ -347,6 +347,25 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_ITEM_QUERY_SINGLE, w.AsSpan());
     }
 
+    public void GossipHello(ulong guid) => SendFullGuid(Op.CMSG_GOSSIP_HELLO, guid);
+
+    public void GossipSelect(ulong guid, uint listId, string? code = null)
+    {
+        var w = new PacketWriter(16 + (code?.Length ?? 0));
+        w.WriteFullGuid(guid);
+        w.WriteU32(listId);
+        if (!string.IsNullOrEmpty(code)) w.WriteCString(code);
+        SendPacket((ushort)Op.CMSG_GOSSIP_SELECT_OPTION, w.AsSpan());
+    }
+
+    public void NpcTextQuery(uint textId, ulong guid)
+    {
+        var w = new PacketWriter(12);
+        w.WriteU32(textId);
+        w.WriteFullGuid(guid);
+        SendPacket((ushort)Op.CMSG_NPC_TEXT_QUERY, w.AsSpan());
+    }
+
     public void UseItem(byte bag, byte slot, byte spellSlot)
     {
         var w = new PacketWriter(5);

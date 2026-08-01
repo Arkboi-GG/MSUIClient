@@ -80,6 +80,12 @@ public sealed partial class GameLoop
                     CommitSelection(picked, beginAttack: false);
                     if (corpse.IsCreature && corpse.Fields.Lootable) RequestLoot(picked);
                 }
+                else if (_entities.TryGet(picked, out WorldEntity npc) &&
+                         npc.IsCreature && (npc.NpcFlags & GossipNpcFlags) != 0)
+                {
+                    CommitSelection(picked, beginAttack: false);
+                    RequestGossip(picked);
+                }
                 else CommitSelection(picked, beginAttack: true); // empty right preserves
             }
         }

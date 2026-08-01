@@ -193,6 +193,7 @@ public sealed partial class GameLoop
             ResetTargeting();
             ResetCombatFeedback();
             ResetLoot();
+            ResetGossip();
             _creaturesLogged = 0;
             _pendingObjectParse = null;
             _pendingObjectUpdates = null;
@@ -366,6 +367,16 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_ITEM_QUERY_SINGLE_RESPONSE:
                         _items?.Apply(body);
+                        break;
+                    case Op.SMSG_GOSSIP_MESSAGE:
+                        ApplyGossipMenu(body);
+                        break;
+                    case Op.SMSG_GOSSIP_COMPLETE:
+                        EmitInterface("gossip", "complete", "RECEIVED", _gossipMenu?.SourceGuid ?? 0, "serverClosed=true");
+                        ResetGossip();
+                        break;
+                    case Op.SMSG_NPC_TEXT_UPDATE:
+                        ApplyNpcText(body);
                         break;
                     case Op.SMSG_NAME_QUERY_RESPONSE:
                         {

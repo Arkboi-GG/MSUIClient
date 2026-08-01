@@ -284,6 +284,21 @@ public sealed class NetworkClient : IDisposable
     public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }
     public void ItemQuery(uint entry, ulong guid) { try { _session?.ItemQuery(entry, guid); } catch { } }
+    public bool GossipHello(ulong guid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.GossipHello(guid); return true; } catch { return false; }
+    }
+    public bool GossipSelect(ulong guid, uint listId, string? code = null)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.GossipSelect(guid, listId, code); return true; } catch { return false; }
+    }
+    public bool NpcTextQuery(uint textId, ulong guid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.NpcTextQuery(textId, guid); return true; } catch { return false; }
+    }
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
     public void AutoEquipItem(byte bag, byte slot) { try { _session?.AutoEquipItem(bag, slot); } catch { } }
     public void SwapInventoryItems(byte sourceSlot, byte destinationSlot) { try { _session?.SwapInventoryItems(sourceSlot, destinationSlot); } catch { } }

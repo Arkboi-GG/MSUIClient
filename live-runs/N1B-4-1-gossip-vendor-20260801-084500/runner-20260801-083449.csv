@@ -1,0 +1,13 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\N1B-4-1-gossip-vendor-20260801-084500.txt
+1,PASS,gm .gps
+2,PASS,waitfor event=GmChatResponse
+3,PASS,gm .tele stormwind
+4,PASS,wait 4
+5,PASS,select npc-flag-nearest:vendor guid=0xF1300004FB013746
+6,PASS,anchor selected guid=0xF1300004FB013746 position=-8863.87|626.459|95.9895
+7,PASS,wait 2
+8,PASS,interact gossip guid=0xF1300004FB013746
+9,FAIL,waitfor family=gossip step=menu outcome=DECODED timeout
+10,FAIL,assert family=gossip step=text outcome=DECODED
+11,PASS,gossip close

@@ -133,12 +133,14 @@ public sealed partial class GameLoop
                 case "select":
                     RefreshLiveSpawnIdentities();
                     bool anchor=p[1].Equals("anchor",StringComparison.OrdinalIgnoreCase);
-                    int ordinal=anchor?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    bool npcFlagNearest=p[1].StartsWith("npc-flag-nearest:",StringComparison.OrdinalIgnoreCase);
+                    int ordinal=anchor||npcFlagNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool wildEntry=p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase);
                     bool wildHostile=p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase);
                     bool wild=p[1].StartsWith("wild:",StringComparison.OrdinalIgnoreCase);
-                    ulong guid=anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
+                    ulong guid=npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
+                        anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
                         wildEntryNearest?LiveWildEntryNearestGuid(ordinal):wildEntry?LiveWildEntryGuid(ordinal):wildHostile?LiveWildHostileGuid(ordinal):
                         wild?LiveWildGuid(ordinal):LiveSpawnGuid(ordinal);
                     if(guid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
@@ -151,9 +153,10 @@ public sealed partial class GameLoop
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
                 case "anchor":
                     RefreshLiveSpawnIdentities();
-                    int anchorOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
+                    bool selectedAnchor=p[1].Equals("selected",StringComparison.OrdinalIgnoreCase);
+                    int anchorOrdinal=selectedAnchor?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool spawnedAnchor=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
-                    ulong anchorGuid=spawnedAnchor?LiveSpawnGuid(anchorOrdinal):
+                    ulong anchorGuid=selectedAnchor?_selectionGuid:spawnedAnchor?LiveSpawnGuid(anchorOrdinal):
                         p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase)
                         ?LiveWildEntryNearestGuid(anchorOrdinal):p[1].StartsWith("wild-entry:",StringComparison.OrdinalIgnoreCase)
                             ?LiveWildEntryGuid(anchorOrdinal):p[1].StartsWith("wild-hostile:",StringComparison.OrdinalIgnoreCase)
@@ -186,6 +189,24 @@ public sealed partial class GameLoop
                             $"{line} gate={(_lastAttackPreconditionGatePassed==true?"PASS":"REFUSED")}");
                     }
                     else { StopAttack("user-cancel"); Log(true,line); }
+                    break;
+                case "interact":
+                    Log(p[1].Equals("gossip", StringComparison.OrdinalIgnoreCase) && RequestGossip(_selectionGuid),
+                        $"{line} guid=0x{_selectionGuid:X16}");
+                    break;
+                case "gossip":
+                    if (p[1].Equals("close", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ResetGossip();
+                        Log(true, line);
+                    }
+                    else if (!p[1].Equals("select", StringComparison.OrdinalIgnoreCase))
+                        Log(false, $"unknown {line}");
+                    else
+                    {
+                        int option = int.Parse(p[2], CultureInfo.InvariantCulture);
+                        Log(SelectGossipOption(option), line);
+                    }
                     break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
@@ -289,6 +310,31 @@ public sealed partial class GameLoop
             $"reaction=Hostile;flags=0x{selected.Unit.Fields.UnitFlags:X8};position="+
             $"{selected.Unit.Position.X:R}|{selected.Unit.Position.Y:R}|{selected.Unit.Position.Z:R}");
         return selected.Unit.Guid;
+    }
+    private ulong LiveNpcFlagNearestGuid(string flagName)
+    {
+        if(_controller is null) return 0;
+        uint flag=flagName.ToLowerInvariant() switch
+        {
+            "vendor" => NpcVendor,
+            "trainer" => NpcTrainer,
+            "quest" or "questgiver" => NpcQuestGiver,
+            "flightmaster" => NpcFlightMaster,
+            "innkeeper" => NpcInnkeeper,
+            "banker" => NpcBanker,
+            "auctioneer" => NpcAuctioneer,
+            _ => 0,
+        };
+        if(flag==0) return 0;
+        WorldEntity? selected=_entities.Units
+            .Where(x=>x.IsCreature&&!x.IsDead&&(x.NpcFlags&flag)!=0)
+            .OrderBy(x=>Vector3.Distance(x.Position,_controller.Position)).ThenBy(x=>x.Guid)
+            .FirstOrDefault();
+        if(selected is null) return 0;
+        float distance=Vector3.Distance(selected.Position,_controller.Position);
+        EmitInterface("gossip","npc-flag-observed","PASS",selected.Guid,
+            $"class={flagName.ToLowerInvariant()};entry={selected.Entry};npcFlags=0x{selected.NpcFlags:X8};distance={distance:R}");
+        return selected.Guid;
     }
     private void RefreshLiveSpawnIdentities()
     {

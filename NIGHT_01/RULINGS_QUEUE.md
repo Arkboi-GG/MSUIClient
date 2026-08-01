@@ -158,3 +158,12 @@ Format per entry:
 - Q1 is ruled by `1B_RESUME_ORDER.md`: entry-symbol W1 is authorized; it is not a pending decision.
 - Q5, Q6, and Q7 are struck: missing client families are authorized build work, not rulings or blockers.
 - Q2, Q3, Q4, Q8, Q9, Q10, Q11, Q12, and Q13 retain their prior status unless a later per-item packet supersedes them.
+
+## Q14 — 4-1 — discriminate cross-opcode server silence before interface live acceptance
+- Decision needed: authorize one observation-only server entry-symbol trace for
+  `CMSG_GOSSIP_HELLO`, or accept client byte/wire correctness while shelving live
+  gossip/service acceptance behind the existing server-dispatch root cause.
+- Evidence: `live-runs/N1B-4-1-gossip-20260801-084200.md`; bounded wire log
+  `dumps/wire-20260801-083715.txt` / `.wlog`.
+- Agent recommendation: fold the gossip opcode into the next already-authorized
+  server dispatch discrimination rather than instrument or modify the server here.

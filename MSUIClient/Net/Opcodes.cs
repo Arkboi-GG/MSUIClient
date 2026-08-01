@@ -52,6 +52,14 @@ public enum Op : ushort
     CMSG_ITEM_QUERY_SINGLE       = 0x0056,
     SMSG_ITEM_QUERY_SINGLE_RESPONSE = 0x0058,
 
+    // --- NPC gossip (1.12.1 Opcodes_1_12_1.h:380-385) ---
+    CMSG_GOSSIP_HELLO             = 0x017B,
+    CMSG_GOSSIP_SELECT_OPTION     = 0x017C,
+    SMSG_GOSSIP_MESSAGE           = 0x017D,
+    SMSG_GOSSIP_COMPLETE          = 0x017E,
+    CMSG_NPC_TEXT_QUERY           = 0x017F,
+    SMSG_NPC_TEXT_UPDATE          = 0x0180,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,

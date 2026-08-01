@@ -319,3 +319,18 @@ Full attempt and hygiene reconciliation:
 
 Boundary gates: Debug build PASS (0 warnings / 0 errors), combat-wire PASS,
 portrait-camera PASS (10,534 / 1,224 / 1,289 / 56), move-audit-check PASS.
+
+## NIGHT_01B 4-1 — gossip
+
+Status: `CLOSED-FINDING`.
+
+```text
+PREDICTED: build and live-prove the missing gossip decode/route/text family
+ACTUAL: client family and byte checker complete; live vendor + quest hello sends
+        received no server gossip/service response in bounded observation
+RESULT: client increment accepted; server-silence finding frozen and queued
+```
+
+Evidence: `live-runs/N1B-4-1-gossip-20260801-084200.md`. Boundary gates:
+Debug build PASS (0 warnings / 0 errors), combat-wire PASS, portrait-camera
+PASS (10,534 / 1,224 / 1,289 / 56), move-audit PASS, interface-wire PASS.
