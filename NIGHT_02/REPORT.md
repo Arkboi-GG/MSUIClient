@@ -227,3 +227,9 @@ Evidence: `live-runs/N2-0-3-13-taxi-20260801-220000/N2-0-3-13-taxi-20260801-2200
 Coverage: 5/129 with 124 NOT-DRAWN. The client had no trade window; the
 committed increment builds the shipped shell and a real empty-state draw path.
 Evidence: `live-runs/N2-0-3-14-trade-20260801-221500/N2-0-3-14-trade-20260801-221500.md`.
+
+## 4-1 Game menu — CLOSED-FINDING
+
+Coverage: 10/43 with 33 NOT-DRAWN. All accepted root/header/button rows now
+derive from the real draw variables rather than legacy metadata copies.
+Evidence: `live-runs/N2-0-4-1-game-menu-20260801-223000/N2-0-4-1-game-menu-20260801-223000.md`.

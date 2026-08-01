@@ -225,10 +225,8 @@ public sealed partial class GameLoop
             var max = min + ImGui.GetWindowSize();
             var dl = ImGui.GetWindowDrawList();
             BeginUiParityFrame(min);
-            CollectUiParity("GameMenuFrame", "Frame", min, size, parent: "", point: "CENTER",
-                bgFile: @"Interface\DialogFrame\UI-DialogBox-Background",
-                edgeFile: @"Interface\DialogFrame\UI-DialogBox-Border", tileSize: "32", edgeSize: "32",
-                insets: "11|12|12|11");
+            CollectUiParityDraw("GameMenuFrame","Frame",min,size,"",
+                new("",0,"IMGUI_HOST","CENTER","","",0,0));
 
             // THE FRAME IS DRAWN OUTSIDE ImGui's CLIP RECT, SO THE CLIP RECT HAS
             // TO GO. Begin() leaves the window's clip rectangle inset
@@ -250,14 +248,9 @@ public sealed partial class GameLoop
             dl.PushClipRectFullScreen();
             _skin?.DrawBackdrop(dl, min, max, WowSkin.Dialog);
             _skin?.HeaderPlaque(dl, min, size.X, PageTitle());
-            CollectUiParity("GameMenuFrameHeader", "Texture",
-                min + new Vector2((size.X - 256f * S) * .5f, -12f * S), new Vector2(256f, 64f) * S,
-                point: "TOP", offsetX: "0", offsetY: "12",
-                texture: @"Interface\DialogFrame\UI-DialogBox-Header", layer: "ARTWORK");
-            CollectUiParity("GameMenuFrame/FontString", "FontString", min, Vector2.Zero,
-                point: "TOP", relativeTo: "GameMenuFrameHeader", offsetX: "0", offsetY: "-14",
-                font: "GameFontNormal", fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "12",
-                color: "#FFD100FF", layer: "ARTWORK");
+            Vector2 headerMin=min+new Vector2((size.X-256f*S)*.5f,-12f*S),headerSize=new Vector2(256f,64f)*S;
+            CollectUiParityDraw("GameMenuFrameHeader","Texture",headerMin,headerSize,"GameMenuFrame",
+                new(@"Interface\DialogFrame\UI-DialogBox-Header",0xffffffff,"IMGUI_IMAGE","TOP","GameMenuFrame","TOP",0,12));
             dl.PopClipRect();
 
             // The plaque hangs 12 above the frame and its VISIBLE metal ends about
@@ -370,10 +363,8 @@ public sealed partial class GameLoop
         {
             ImGui.SetCursorPos(new Vector2(x, y * S));
             Vector2 actualMin = ImGui.GetCursorScreenPos();
-            CollectUiParity(id, "Button", actualMin, button, point: point, relativeTo: relativeTo,
-                relativePoint: relativePoint, offsetX: "0", offsetY: offsetY,
-                texture: @"Interface\Buttons\UI-Panel-Button-Up", font: "GameFontHighlight",
-                fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "12", color: "#FFFFFFFF");
+            CollectUiParityDraw(id,"Button",actualMin,button,"GameMenuFrame",
+                new(@"Interface\Buttons\UI-Panel-Button-Up",0xffffffff,"IMGUI_BUTTON",point,relativeTo,relativePoint,0,float.Parse(offsetY,System.Globalization.CultureInfo.InvariantCulture),@"Fonts\FRIZQT__.TTF",12));
             if (Button(label, button, enabled)) onClick();
             if (tip is not null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
         }

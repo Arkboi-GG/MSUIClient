@@ -1,0 +1,4 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-4-1-game-menu-20260801-223000\game-menu.protocol
+1,PASS,ui-parity game-menu
+2,PASS,wait 2

@@ -1,0 +1,5 @@
+time,character,unit_guid,slot,spell_id,name,event,helpful,cancelable,stacks,duration_ms,remaining_ms,display,source
+0.579,"Test",0x0000000000000001,0,2457,"Battle Stance",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
+0.581,"Test",0x0000000000000001,1,16380,"Greater Invisibility",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
+0.585,"Test",0xF13000195B015407,0,10848,"Shroud of Death",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
+0.585,"Test",0xF13000195B015407,32,9036,"Ghost",APPLY,False,False,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT

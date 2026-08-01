@@ -128,3 +128,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 5/129 with 124 NOT-DRAWN. Exact set: `live-runs/N2-0-3-14-trade-20260801-221500/trade-diff.csv`.
 - Work: implement authoritative trade wire/state, player/target slots, enchant slots, portraits/names, money, accept/cancel states, highlights, and every absent reference element.
 - Review: `live-runs/N2-0-3-14-trade-20260801-221500/trade-contact.png`.
+
+## Q23 — 4-1 — game-menu NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 10/43 with 33 NOT-DRAWN. Exact set: `live-runs/N2-0-4-1-game-menu-20260801-223000/game-menu-diff.csv`.
+- Work: derive title font, backdrop nine-slice properties, every button texture state/font/color/layer, and implement every absent reference element.
+- Review: `live-runs/N2-0-4-1-game-menu-20260801-223000/game-menu-contact.png`.

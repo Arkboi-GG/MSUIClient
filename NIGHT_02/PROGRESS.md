@@ -56,3 +56,5 @@
 2026-08-01 22:15 local | 3-14 | CLOSED-FINDING | previously absent trade UI built with shipped shell and real empty-state draw output; coverage 5/129 with 124 NOT-DRAWN | live-runs/N2-0-3-14-trade-20260801-221500/N2-0-3-14-trade-20260801-221500.md
 2026-08-01 22:15 local | 0-3 | CLOSED-FINDING | all fourteen interface-window parity items have committed increments, immutable outputs, exact diffs, contacts, queues, manifests, and passing gates | NIGHT_02/3_WINDOWS.md
 2026-08-01 22:15 local | 4-1 | OPEN | game-menu corrected full-reference parity is the first system-UI item | NIGHT_02/4_SYSTEM_UI.md
+2026-08-01 22:30 local | 4-1 | CLOSED-FINDING | legacy declarations replaced with draw-derived root/header/button evidence; coverage 10/43 with 33 NOT-DRAWN | live-runs/N2-0-4-1-game-menu-20260801-223000/N2-0-4-1-game-menu-20260801-223000.md
+2026-08-01 22:30 local | 4-2 | OPEN | options-frame parity is the first open system-UI item | NIGHT_02/4_SYSTEM_UI.md

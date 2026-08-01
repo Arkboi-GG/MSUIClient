@@ -90,7 +90,7 @@ public sealed partial class GameLoop
         static string N(float value) => value.ToString("0.###", CultureInfo.InvariantCulture);
         static string Norm(string path) => path.Length == 0 || path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? path : path + ".blp";
         float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
-        Vector2 relative = element is "PlayerFrame" or "TargetFrame" or "CharacterFrame" or "PaperDollFrame" or "SpellBookFrame" or "TalentFrame" or "QuestLogFrame" or "MerchantFrame" or "ClassTrainerFrame" or "BankFrame" or "MailFrame" or "AuctionFrame" or "LootFrame" or "GuildFrame" or "GossipFrame" or "TaxiFrame" or "TradeFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
+        Vector2 relative = element is "GameMenuFrame" or "PlayerFrame" or "TargetFrame" or "CharacterFrame" or "PaperDollFrame" or "SpellBookFrame" or "TalentFrame" or "QuestLogFrame" or "MerchantFrame" or "ClassTrainerFrame" or "BankFrame" or "MailFrame" or "AuctionFrame" or "LootFrame" or "GuildFrame" or "GossipFrame" or "TaxiFrame" or "TradeFrame" ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
         string texture = Norm(trace.TexturePath);
         string asset = texture.Length == 0 ? "" : _mpq?.ReadFileWithSupplier(texture) is { } hit
             ? $"{hit.Supplier}:{texture}" : $"MISSING:{texture}";
