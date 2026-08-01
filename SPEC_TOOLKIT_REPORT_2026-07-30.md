@@ -4133,3 +4133,68 @@ and 1,224 / 1,289 / 56 controls, and move-audit PASS.
 
 No capture or product/server/configuration mutation occurred. Z3 remains the
 required causal selection and hard-stop packet; SPEC-21 P3/P4 remain queued.
+
+## Z3 - transit decision + HARD STOP
+
+### Actual versus predicted
+
+```text
+PREDICTED causal row: attack present + ACKed + SPEC-21-style server silence
+ACTUAL wire: exact 14-byte attack in seq 817834466:817834480
+ACTUAL ACK: server ACK 817834507 covers the complete range after 585.233 ms
+ACTUAL server evidence: accepted P2 bounded debug/combat window remains zero
+        receive/dispatch/opcode/handler lines for its proven-valid attack
+RESULT: SERVER_PREHANDLER_OR_UNLOGGED_PREDICATE_PROVEN; HARD STOP
+
+PREDICTED deeper root cause: gated behind Nico option-3 ruling
+ACTUAL: candidate table frozen; no server instrumentation or fix attempted
+RESULT: PASS; new ruling required
+
+PREDICTED cleanup: relay closed, filters removed, pktmon stopped, raw deleted
+ACTUAL: elevated relay exited; lifecycle proves filter removal and stopped state;
+        ETL, PCAPNG, formatted text, helper, and control files deleted
+RESULT: PASS
+```
+
+The verdict is a bounded class, not a fabricated exact branch. Z1 proves that
+the valid fresh-target attack reached the server TCP stack. SPEC-21 P2 proves
+that an equivalent fully proven-valid attack generated no line within the
+authorized diagnostic surface. The deployed source also establishes that
+normal dispatch, handler entry, and several `Unit::Attack` false returns can be
+silent. Accordingly, the remaining cause is server-side pre-handler admission/
+dispatch or an unlogged handler/unit predicate; selecting one requires new
+instrumentation.
+
+The X3 table is frozen at `Server/WorldSocket.cpp:98-183`,
+`Server/WorldSession.cpp:277-331,518-549,1250-1313`,
+`Server/Protocol/Opcodes.cpp:398-401`, `Handlers/CombatHandler.cpp:32-62`,
+and `Objects/Unit.cpp:4721-4804`.
+
+Prior-runs reconciliation is complete: P2 server silence and X1 client flush
+remain valid; X2-X4 correctly stopped at their then-unresolved capture boundary;
+Y0 elevation remains valid; Y1-Y3 capture-filter defect and scenario drift
+remain correct for that run; Z0 removed drift mechanically; Z1 supplied wire
+presence and ACK; Z2 was correctly not entered.
+
+The full hard-stop packet is
+`live-runs/Z3-attack-transit-hard-stop-20260731-204723.md`, SHA-256
+`d1a678d6bdd4be59479c5eece14b4887d99e0b4242465841c6e2a7bf16fb4f6e`.
+The thirteen-file reconciliation manifest is
+`live-runs/manifests/Z3-20260731-204723.sha256`, SHA-256
+`acc25cb7eccb29431aefa445cfbda8469516c18d86e0fd8a9670036426c725b1`;
+all entries recomputed exactly at the final boundary.
+
+Nico's choices are: authorize a separately bounded option-3 server-
+instrumentation order at the frozen candidate sites, or retain this root-cause
+class and stop. Linux tcpdump remains excluded. SPEC-21 P3/P4 remain queued.
+
+Z3 final boundary gates passed sequentially: Debug build with only the
+established CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534
+specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No server code, DB, persistent config, combat behavior, error display, or F3-F6
+change occurred. The live-run `vantages.json` rewrite was restored exactly.
+
+**HARD STOP - SPEC-24 Z0-Z3 is complete at
+`SERVER_PREHANDLER_OR_UNLOGGED_PREDICATE_PROVEN`. Deeper server instrumentation
+requires Nico's option-3 ruling.**
