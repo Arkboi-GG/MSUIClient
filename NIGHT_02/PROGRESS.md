@@ -51,3 +51,5 @@
 2026-08-01 21:30 local | 3-12 | OPEN | gossip parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 21:45 local | 3-12 | CLOSED-FINDING | shipped gossip shell captured from an authoritative in-range Stormwind vendor menu after two preserved range-failure attempts; coverage 6/23 with 17 NOT-DRAWN | live-runs/N2-0-3-12-gossip-20260801-214500/N2-0-3-12-gossip-20260801-214500.md
 2026-08-01 21:45 local | 3-13 | OPEN | taxi parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 22:00 local | 3-13 | CLOSED-FINDING | shipped taxi shell built; real spawned/natural flight-master attempts preserved and populated state explicitly replay-labelled; coverage 5/12 with 7 NOT-DRAWN | live-runs/N2-0-3-13-taxi-20260801-220000/N2-0-3-13-taxi-20260801-220000.md
+2026-08-01 22:00 local | 3-14 | OPEN | trade parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

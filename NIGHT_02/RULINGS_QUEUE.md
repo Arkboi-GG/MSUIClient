@@ -116,3 +116,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 6/23 with 17 NOT-DRAWN. Exact set: `live-runs/N2-0-3-12-gossip-20260801-214500/gossip-diff.csv`.
 - Work: derive portrait/name/greeting material, option icons/rows, greeting text, close/goodbye states, and every absent reference element.
 - Review: `live-runs/N2-0-3-12-gossip-20260801-214500/gossip-contact.png`.
+
+## Q21 — 3-13 — taxi NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 5/12 with 7 NOT-DRAWN. Exact set: `live-runs/N2-0-3-13-taxi-20260801-220000/taxi-diff.csv`.
+- Work: derive portrait/title/dynamic continent map, real node buttons/route line, close states, and resolve an authoritative TEST-realm flight-master descriptor.
+- Review: `live-runs/N2-0-3-13-taxi-20260801-220000/taxi-contact.png`.

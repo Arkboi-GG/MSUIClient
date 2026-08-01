@@ -132,9 +132,17 @@ public sealed partial class GameLoop
 
     private void DrawTaxiFrame()
     {
-        if (!_taxiOpen) return;
-        ImGui.SetNextWindowSize(new Vector2(520, 360), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Flight Map##taxi", ref _taxiOpen)) { ImGui.End(); return; }
+        if (!_taxiOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
+        if (!ImGui.Begin("##taxi",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
+        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="taxi"){BeginUiParityFrame(origin,s);CollectUiParityDraw("TaxiFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
+            ("TaxiFrame/Texture",@"Interface\TaxiFrame\UI-TaxiFrame-TopLeft",Vector2.Zero,new(256,256)),
+            ("TaxiFrame/Texture#2",@"Interface\TaxiFrame\UI-TaxiFrame-TopRight",new(256,0),new(128,256)),
+            ("TaxiFrame/Texture#3",@"Interface\TaxiFrame\UI-TaxiFrame-BotLeft",new(0,256),new(256,256)),
+            ("TaxiFrame/Texture#4",@"Interface\TaxiFrame\UI-TaxiFrame-BotRight",new(256,256),new(128,256))];
+        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="taxi")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"TaxiFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","TaxiFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        ImGui.SetCursorScreenPos(origin+new Vector2(50,82)*s);ImGui.BeginChild("##taxi-content",new Vector2(270,300)*s,false);
         ImGui.TextColored(new Vector4(1f,.82f,0f,1f), $"Current node: {_taxiCurrentNode}");
         ImGui.TextDisabled(_taxiLocked ? "In flight — movement controls locked" : "Choose a discovered destination");
         ImGui.Separator();
@@ -145,6 +153,8 @@ public sealed partial class GameLoop
             else if (ImGui.Button($"Fly to node {node}##taxi-{node}")) ActivateTaxi(node);
         }
         if (_taxiKnownNodes.Count == 0) ImGui.TextDisabled("No discovered flight nodes received.");
+        ImGui.EndChild();Vector2 close=origin+new Vector2(323,8)*s;DrawImageButton(dl,"##taxi-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_taxiOpen=false;
+        if(_uiParityArmed&&_uiParityPanel=="taxi")MarkUiParityFrameComplete();
         ImGui.End();
     }
 }

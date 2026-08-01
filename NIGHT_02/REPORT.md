@@ -215,3 +215,9 @@ Evidence: `live-runs/N2-0-3-11-guild-20260801-213000/N2-0-3-11-guild-20260801-21
 Coverage: 6/23 with 17 NOT-DRAWN. The shipped quest-greeting shell was
 captured from a real in-range Stormwind vendor gossip menu. Evidence:
 `live-runs/N2-0-3-12-gossip-20260801-214500/N2-0-3-12-gossip-20260801-214500.md`.
+
+## 3-13 Taxi — CLOSED-FINDING
+
+Coverage: 5/12 with 7 NOT-DRAWN. The shipped shell is live. Real interaction
+attempts are preserved; the populated map/route state is explicitly REPLAYED.
+Evidence: `live-runs/N2-0-3-13-taxi-20260801-220000/N2-0-3-13-taxi-20260801-220000.md`.

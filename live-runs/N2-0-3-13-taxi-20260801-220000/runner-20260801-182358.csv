@@ -1,0 +1,18 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-13-taxi-20260801-220000\taxi.protocol
+1,PASS,gm .gm on
+2,PASS,gm .npc spawn add 352
+3,PASS,wait 3
+4,PASS,select spawn:1 guid=0xF1300000C504A2B4
+5,PASS,gm .gm off
+6,FAIL,taxi status
+7,PASS,wait 2
+8,FAIL,taxi open
+9,PASS,wait 2
+10,PASS,gm .gm on
+11,PASS,select spawn:1 guid=0xF1300000C504A2B4
+12,PASS,gm .npc spawn delete
+13,PASS,gm .gm off
+14,PASS,taxi simulate
+15,PASS,ui-parity taxi
+16,PASS,wait 2

@@ -1,0 +1,17 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-13-taxi-20260801-220000\taxi-final.protocol
+1,PASS,gm .gm on
+2,PASS,gm .tele stormwind
+3,PASS,wait 4
+4,FAIL,select npc-flag-nearest:flightmaster guid=0x0000000000000000
+5,FAIL,anchor selected guid=0x0000000000000000 position=unavailable
+6,PASS,wait 3
+7,FAIL,select anchor guid=0x0000000000000000
+8,PASS,gm .gm off
+9,FAIL,taxi status
+10,PASS,wait 2
+11,FAIL,taxi open
+12,PASS,wait 2
+13,PASS,taxi simulate
+14,PASS,ui-parity taxi
+15,PASS,wait 2
