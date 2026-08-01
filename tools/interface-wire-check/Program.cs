@@ -213,4 +213,13 @@ Check(WorldSession.BuildLearnTalentBody(124, 0).SequenceEqual(Convert.FromHexStr
 Check(WorldSession.BuildTalentWipeBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
       "talent wipe full trainer guid body");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents opcodes/bodies/bounds/state/render-binding");
+Check((ushort)Op.CMSG_GAMEOBJ_USE == 177 && (ushort)Op.SMSG_GAMEOBJECT_CUSTOM_ANIM == 179 &&
+      (ushort)Op.CMSG_PAGE_TEXT_QUERY == 90 && (ushort)Op.SMSG_PAGE_TEXT_QUERY_RESPONSE == 91,
+      "game object/page opcodes");
+ulong objectGuid = 0xF110000003000001ul;
+Check(WorldSession.BuildGameObjectUseBody(objectGuid).SequenceEqual(Convert.FromHexString("01000003000010F1")),
+      "game object use full guid body");
+Check(WorldSession.BuildPageTextQueryBody(77).SequenceEqual(Convert.FromHexString("4D000000")),
+      "page text query body");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects opcodes/bodies/bounds/state/render-binding");

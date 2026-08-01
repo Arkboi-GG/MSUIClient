@@ -55,6 +55,9 @@ public sealed partial class GameLoop
     private void ApplyLootResponse(byte[] body)
     {
         var (guid, lootType, error, gold, items) = LootPackets.ParseResponse(body);
+        if (_gameObjectGuid == guid || (_entities.TryGet(guid, out WorldEntity gameObject) && gameObject.IsGameObject))
+            EmitInterface("gameobject", "response", lootType == 0 ? "REFUSED" : "LOOT_OPEN", guid,
+                $"lootType={lootType};error={error};money={gold};items={items.Count}");
         if (lootType == 0)
         {
             // The error shape. Refusals surface as the red error text the 1.12 client shows.

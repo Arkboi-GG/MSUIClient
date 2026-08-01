@@ -298,6 +298,8 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.GossipHello(guid); return true; } catch { return false; }
     }
+    public bool GameObjectUse(ulong guid) => InWorld(s => s.GameObjectUse(guid));
+    public bool PageTextQuery(uint pageId) => InWorld(s => s.PageTextQuery(pageId));
     public bool GossipSelect(ulong guid, uint listId, string? code = null)
     {
         if (State != NetState.InWorld || _session is null) return false;

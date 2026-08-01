@@ -60,6 +60,12 @@ public enum Op : ushort
     CMSG_NPC_TEXT_QUERY           = 0x017F,
     SMSG_NPC_TEXT_UPDATE          = 0x0180,
 
+    // --- Game objects / readable world pages ---
+    CMSG_PAGE_TEXT_QUERY          = 0x005A,
+    SMSG_PAGE_TEXT_QUERY_RESPONSE = 0x005B,
+    CMSG_GAMEOBJ_USE              = 0x00B1,
+    SMSG_GAMEOBJECT_CUSTOM_ANIM   = 0x00B3,
+
     // --- Questing ---
     CMSG_QUESTGIVER_STATUS_QUERY   = 0x0182,
     SMSG_QUESTGIVER_STATUS         = 0x0183,

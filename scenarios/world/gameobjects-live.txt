@@ -1,0 +1,27 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .help go object
+waitfor GmChatResponse 3
+gm .learn 2366
+gm .setskill 182 300 300
+wait 5
+gameobject snapshot
+select object-type-nearest:7
+gm-to-selection
+wait 4
+select object-type-nearest:7
+gm .gm off
+gameobject use
+probe-interface gameobject response 5
+gm .gm on
+select self
+gm .gm off
+gameobject simulate
+assert family=gameobject step=replay-use outcome=SERVER_EFFECT
+assert family=gameobject step=profession-prerequisite outcome=PRESENT
+assert family=gameobject step=page outcome=DECODED
+dump n1c-gameobjects-ui
+wait 2
+gm .gps
+waitfor GmChatResponse 3

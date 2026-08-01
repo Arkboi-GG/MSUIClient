@@ -496,3 +496,23 @@ retained one `BLOCKED-BY:F-SILENT-INTERACT` row; the server response replay
 displayed its exact 10,000-copper cost. The final scenario passed 41/41 before
 the added bounded trainer prompt leg and 41/41 in the combined evidence run.
 Evidence: `live-runs/N1C-2-11-talents-20260801-134000.md`.
+## NIGHT_01C 4-2 — game objects — 2026-08-01 13:50 local
+
+Status: `CLOSED-FINDING`
+
+- Built the missing 1.12 game-object family: exact `CMSG_GAMEOBJ_USE` full-GUID send,
+  `SMSG_GAMEOBJECT_CUSTOM_ANIM`, chained page-text query/response, range/type gates,
+  STRING verdicts, nearby type/presence inventory, a world-object panel, and runner cells.
+- The final live protocol passed 27/27. It observed object entry 151958/type 7, used the
+  already-verified `.go xyz X Y Z map` syntax to place TEST 0.013 yd from it, turned GM
+  mode OFF, and flushed body `63680096510210F1`. The bounded response leg is the single
+  required `BLOCKED-BY:F-SILENT-INTERACT` row; `.gps` controls were delivered on both sides.
+- Chest/loot, door, lever/button, spell-focus presence, custom-animation, and readable-page
+  paths were byte/state replayed through the runtime. The landed 2-8 prerequisite was proved
+  by provisioning Herbalism (`.learn 2366`, `.setskill 182 300 300`) and recording the
+  Silverleaf/Copper Vein cells. A fresh `.help go object` returned `There is no help for that
+  command`; it was therefore not used in the accepted run.
+- Evidence: `live-runs/runner-20260801-134726.csv`,
+  `live-runs/verdicts-20260801-134726.txt`,
+  `live-runs/N1C-4-2-gameobjects-ui-20260801-134726.png`, and
+  `scenarios/world/gameobjects-live.txt`.

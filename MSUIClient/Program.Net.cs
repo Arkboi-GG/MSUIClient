@@ -194,6 +194,7 @@ public sealed partial class GameLoop
             ResetTargeting();
             ResetCombatFeedback();
             ResetLoot();
+            ResetGameObjects();
             ResetGossip();
             ResetMail();
             ResetAuction();
@@ -396,6 +397,12 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_NPC_TEXT_UPDATE:
                         ApplyNpcText(body);
+                        break;
+                    case Op.SMSG_GAMEOBJECT_CUSTOM_ANIM:
+                        ApplyGameObjectCustomAnim(body);
+                        break;
+                    case Op.SMSG_PAGE_TEXT_QUERY_RESPONSE:
+                        ApplyPageText(body);
                         break;
                     case Op.SMSG_LIST_INVENTORY:
                         ApplyVendorList(body);

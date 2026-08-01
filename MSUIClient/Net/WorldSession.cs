@@ -364,6 +364,18 @@ public sealed class WorldSession : IDisposable
     }
 
     public void GossipHello(ulong guid) => SendFullGuid(Op.CMSG_GOSSIP_HELLO, guid);
+    public void GameObjectUse(ulong guid) => SendFullGuid(Op.CMSG_GAMEOBJ_USE, guid);
+    public void PageTextQuery(uint pageId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(pageId);
+        SendPacket((ushort)Op.CMSG_PAGE_TEXT_QUERY, w.AsSpan());
+    }
+
+    public static byte[] BuildGameObjectUseBody(ulong guid) => BuildGuidBody(guid);
+    public static byte[] BuildPageTextQueryBody(uint pageId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(pageId); return w.ToArray();
+    }
 
     public void GossipSelect(ulong guid, uint listId, string? code = null)
     {

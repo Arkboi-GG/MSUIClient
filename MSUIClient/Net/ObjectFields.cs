@@ -164,6 +164,7 @@ public sealed class ObjectFields
     public uint? Entry => GetU32(OBJECT_ENTRY);
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
+    public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
     public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
     public uint MountDisplayId => GetU32(UNIT_MOUNTDISPLAYID) ?? 0;
     public uint Health => GetU32(UNIT_HEALTH) ?? 0;

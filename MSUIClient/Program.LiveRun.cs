@@ -165,6 +165,15 @@ public sealed partial class GameLoop
                     if(line[3..].StartsWith(".npc spawn add",StringComparison.OrdinalIgnoreCase))
                         _liveSpawnBefore=_entities.Units.Where(x=>x.IsCreature).Select(x=>x.Guid).ToHashSet();
                     Log(SendGmCommand(line[3..],"protocol-runner"),line); break;
+                case "gm-to-selection":
+                    if (_entities.TryGet(_selectionGuid, out WorldEntity selectedForTeleport))
+                    {
+                        string go = string.Create(CultureInfo.InvariantCulture,
+                            $".go xyz {selectedForTeleport.Position.X:R} {selectedForTeleport.Position.Y:R} {selectedForTeleport.Position.Z:R} {_config.Start.Map}");
+                        Log(SendGmCommand(go, "protocol-runner-selection-placement"), $"{line} command={go}");
+                    }
+                    else Log(false, $"{line} selected descriptor missing");
+                    break;
                 case "wait": _liveWaitUntil=now+double.Parse(p[1],CultureInfo.InvariantCulture); Log(true,line); break;
                 case "waitfor":
                     string[] w=line[8..].Split(' '); double timeout=double.Parse(w[^1],CultureInfo.InvariantCulture);
@@ -177,6 +186,7 @@ public sealed partial class GameLoop
                     bool npcFlagNearest=p[1].StartsWith("npc-flag-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool entryNearest=p[1].StartsWith("entry-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool objectEntryNearest=p[1].StartsWith("object-entry-nearest:",StringComparison.OrdinalIgnoreCase);
+                    bool objectTypeNearest=p[1].StartsWith("object-type-nearest:",StringComparison.OrdinalIgnoreCase);
                     bool mailboxNearest=p[1].Equals("mailbox-nearest",StringComparison.OrdinalIgnoreCase);
                     int ordinal=self||anchor||npcFlagNearest||mailboxNearest?0:int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     bool wildEntryNearest=p[1].StartsWith("wild-entry-nearest:",StringComparison.OrdinalIgnoreCase);
@@ -186,6 +196,7 @@ public sealed partial class GameLoop
                     bool spawned=p[1].StartsWith("spawn:",StringComparison.OrdinalIgnoreCase);
                     ulong guid=self?_net?.PlayerGuid??0:npcFlagNearest?LiveNpcFlagNearestGuid(p[1].Split(':')[^1]):
                         mailboxNearest?LiveMailboxNearestGuid():
+                        objectTypeNearest?LiveObjectTypeNearestGuid(ordinal):
                         objectEntryNearest?LiveObjectEntryNearestGuid(ordinal):
                         entryNearest?LiveEntryNearestGuid(ordinal):
                         anchor&&_entities.TryGet(_liveAnchorGuid,out _)?_liveAnchorGuid:
@@ -305,6 +316,12 @@ public sealed partial class GameLoop
                     { SimulateLootFlow(); Log(true, line); }
                     else if (p[1].Equals("simulate-empty", StringComparison.OrdinalIgnoreCase))
                     { SimulateLootFlow(empty: true); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "gameobject":
+                    if (p[1].Equals("use", StringComparison.OrdinalIgnoreCase)) Log(UseGameObject(_selectionGuid), line);
+                    else if (p[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase)) { SnapshotGameObjects(); Log(true, line); }
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateGameObjectFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "character":
@@ -662,6 +679,17 @@ public sealed partial class GameLoop
         float distance = Vector3.Distance(selected.Position, _controller.Position);
         EmitInterface("mail", "mailbox-observed", "PASS", selected.Guid,
             $"entry={entry};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
+        return selected.Guid;
+    }
+    private ulong LiveObjectTypeNearestGuid(int type)
+    {
+        if (_controller is null || type < 0) return 0;
+        WorldEntity? selected = _entities.Entities.Values.Where(x => x.IsGameObject && x.GameObjectType == (uint)type)
+            .OrderBy(x => Vector3.Distance(x.Position, _controller.Position)).ThenBy(x => x.Guid).FirstOrDefault();
+        if (selected is null) return 0;
+        float distance = Vector3.Distance(selected.Position, _controller.Position);
+        EmitInterface("gameobject", "type-observed", "PASS", selected.Guid,
+            $"entry={selected.Entry};type={type};kind={GameObjectKind((uint)type)};distance={distance:R};position={selected.Position.X:R}|{selected.Position.Y:R}|{selected.Position.Z:R}");
         return selected.Guid;
     }
     private ulong LiveMailboxNearestGuid()
