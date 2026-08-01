@@ -161,6 +161,11 @@ public enum Op : ushort
     MSG_SAVE_GUILD_EMBLEM         = 0x01F1,
     SMSG_TABARDVENDOR_ACTIVATE    = 0x01F2,
 
+    // --- Talents ---
+    CMSG_UNLEARN_TALENTS          = 0x0213,
+    CMSG_LEARN_TALENT             = 0x0251,
+    MSG_TALENT_WIPE_CONFIRM       = 0x02AA,
+
     // --- Movement (MSG_* are bidirectional) ---
     MSG_MOVE_START_FORWARD       = 0x00B5,
     MSG_MOVE_START_BACKWARD      = 0x00B6,
@@ -244,6 +249,7 @@ public enum Op : ushort
     SMSG_ACTION_BUTTONS          = 0x0129,
     SMSG_LEARNED_SPELL           = 0x012B,
     SMSG_SUPERCEDED_SPELL        = 0x012C,
+    SMSG_REMOVED_SPELL           = 0x0203,
     SMSG_INITIALIZE_FACTIONS     = 0x0122,
     SMSG_BINDPOINTUPDATE         = 0x0155,
     CMSG_MESSAGECHAT             = 0x0095,

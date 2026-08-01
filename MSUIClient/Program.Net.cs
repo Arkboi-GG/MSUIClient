@@ -376,6 +376,14 @@ public sealed partial class GameLoop
                             _actions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
                         }
                         break;
+                    case Op.SMSG_REMOVED_SPELL:
+                        {
+                            var spellReader = new PacketReader(body);
+                            uint removed = spellReader.ReadU16();
+                            _actions.Remove(removed);
+                            EmitInterface("talent", "spell-removed", "APPLIED", removed, "source=SMSG_REMOVED_SPELL");
+                        }
+                        break;
                     case Op.SMSG_ITEM_QUERY_SINGLE_RESPONSE:
                         _items?.Apply(body);
                         break;
@@ -400,6 +408,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_TRAINER_BUY_FAILED:
                         ApplyTrainerFailure(body);
+                        break;
+                    case Op.MSG_TALENT_WIPE_CONFIRM:
+                        ApplyTalentWipeConfirm(body);
                         break;
                     case Op.SMSG_SHOW_BANK:
                         ApplyShowBank(body);

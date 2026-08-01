@@ -131,6 +131,7 @@ public sealed partial class GameLoop
         DrawProfessionFrame();
         DrawGuildFrame();
         DrawTabardFrame();
+        DrawTalentFrame();
         DrawInventory();
         DrawCharacterPage();
         DrawSpellbook();

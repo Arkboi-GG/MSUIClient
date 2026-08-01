@@ -313,6 +313,8 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.TrainerBuySpell(guid, spellId); return true; } catch { return false; }
     }
+    public bool LearnTalent(uint talentId, uint requestedRank) => InWorld(s => s.LearnTalent(talentId, requestedRank));
+    public bool ConfirmTalentWipe(ulong trainerGuid) => InWorld(s => s.ConfirmTalentWipe(trainerGuid));
     public bool BankerActivate(ulong guid) => InWorld(s => s.BankerActivate(guid));
     public bool BuyBankSlot(ulong guid) => InWorld(s => s.BuyBankSlot(guid));
     public bool GetMailList(ulong guid) => InWorld(s => s.GetMailList(guid));

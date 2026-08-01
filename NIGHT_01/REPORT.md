@@ -484,3 +484,15 @@ equipped and six exact shipped MPQ layers rendered on the character. Designer
 activation retained the single registered `F-SILENT-INTERACT` row. The final
 scenario passed 40/40 and visual judgment is queued Q19. Evidence:
 `live-runs/N1C-2-10-tabard-20260801-132000.md`.
+
+## NIGHT_01C 2-11 — talents
+
+`CLOSED-FINDING`: exact Talent/TalentTab DBC catalogs, nine-class three-panel
+trees, rank/tier/prerequisite/point gates, spend/reset-removal/wipe-cost wire,
+server confirmation, UI, runner, and byte gates are built. TEST/Warrior reset
+to 51 points, then a GM-off rank-zero spend learned Improved Heroic Strike and
+changed the authoritative point field 51→50. The real trainer unlearn option
+retained one `BLOCKED-BY:F-SILENT-INTERACT` row; the server response replay
+displayed its exact 10,000-copper cost. The final scenario passed 41/41 before
+the added bounded trainer prompt leg and 41/41 in the combined evidence run.
+Evidence: `live-runs/N1C-2-11-talents-20260801-134000.md`.

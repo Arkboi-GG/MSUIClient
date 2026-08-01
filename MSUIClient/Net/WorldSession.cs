@@ -384,6 +384,18 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_TRAINER_BUY_SPELL, BuildTrainerBuyBody(guid, spellId));
     }
 
+    public void LearnTalent(uint talentId, uint requestedRank)
+        => SendPacket((ushort)Op.CMSG_LEARN_TALENT, BuildLearnTalentBody(talentId, requestedRank));
+
+    public void ConfirmTalentWipe(ulong trainerGuid)
+        => SendPacket((ushort)Op.MSG_TALENT_WIPE_CONFIRM, BuildTalentWipeBody(trainerGuid));
+
+    public static byte[] BuildLearnTalentBody(uint talentId, uint requestedRank)
+    { var w = new PacketWriter(8); w.WriteU32(talentId); w.WriteU32(requestedRank); return w.ToArray(); }
+
+    public static byte[] BuildTalentWipeBody(ulong trainerGuid)
+    { var w = new PacketWriter(8); w.WriteU64(trainerGuid); return w.ToArray(); }
+
     public void BankerActivate(ulong guid)
         => SendPacket((ushort)Op.CMSG_BANKER_ACTIVATE, BuildBankGuidBody(guid));
 

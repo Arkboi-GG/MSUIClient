@@ -205,4 +205,12 @@ Check(tabardPaths.SequenceEqual(new[]
     @"Textures\GuildEmblems\Emblem_07_03_TL_U.blp",
 }), "tabard renderer binds exact six MPQ layers");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard opcodes/bodies/bounds/state/render-binding");
+Check((ushort)Op.CMSG_UNLEARN_TALENTS == 531 && (ushort)Op.CMSG_LEARN_TALENT == 593 &&
+      (ushort)Op.MSG_TALENT_WIPE_CONFIRM == 682, "talent opcodes");
+Check((ushort)Op.SMSG_REMOVED_SPELL == 515, "talent reset spell-removal opcode");
+Check(WorldSession.BuildLearnTalentBody(124, 0).SequenceEqual(Convert.FromHexString("7C00000000000000")),
+      "learn talent id/requested-rank body");
+Check(WorldSession.BuildTalentWipeBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "talent wipe full trainer guid body");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents opcodes/bodies/bounds/state/render-binding");

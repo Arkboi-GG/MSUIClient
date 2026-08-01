@@ -39,6 +39,7 @@ public sealed partial class GameLoop
         InitProfessions();
         InitGuild();
         InitTabard();
+        InitTalents();
     }
 
     private void UpdateInventoryInput(bool typing)
@@ -59,6 +60,7 @@ public sealed partial class GameLoop
         ObserveInventoryTransition();
         ObserveBankTransition();
         ObserveProfessionSkillTransition();
+        ObserveTalentTransition();
     }
 
     private void ObserveInventoryTransition()

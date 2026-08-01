@@ -411,6 +411,17 @@ public sealed partial class GameLoop
                         uint.Parse(tabard[5], CultureInfo.InvariantCulture), uint.Parse(tabard[6], CultureInfo.InvariantCulture)); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "talent":
+                    string[] talent = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (talent.Length == 2 && talent[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(OpenTalentPanel(), line);
+                    else if (talent.Length == 2 && talent[1].Equals("inspect", StringComparison.OrdinalIgnoreCase))
+                    { byte cls = _net is not null && _entities.TryGet(_net.PlayerGuid, out var tp) ? tp.Fields.Bytes0.Class : (byte)0; EmitTalentSnapshot(cls); Log(true, line); }
+                    else if (talent.Length == 2 && talent[1].Equals("spend-first", StringComparison.OrdinalIgnoreCase)) Log(SpendFirstEligibleTalent(), line);
+                    else if (talent.Length == 3 && talent[1].Equals("spend", StringComparison.OrdinalIgnoreCase)) Log(SpendTalent(uint.Parse(talent[2], CultureInfo.InvariantCulture)), line);
+                    else if (talent.Length == 2 && talent[1].Equals("confirm-wipe", StringComparison.OrdinalIgnoreCase)) Log(ConfirmTalentWipe(), line);
+                    else if (talent.Length == 2 && talent[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateTalentRoster(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

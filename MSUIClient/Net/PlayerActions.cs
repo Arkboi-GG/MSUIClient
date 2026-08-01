@@ -71,6 +71,13 @@ public sealed class PlayerActions
     }
 
     public void Learn(uint spell) => _knownSpells.Add(spell);
+    public void Remove(uint spell)
+    {
+        _knownSpells.Remove(spell);
+        for (int i = 0; i < _slots.Length; i++)
+            if (_slots[i] is { Kind: ActionSlot.Spell, ActionId: var id } && id == spell)
+                _slots[i] = null;
+    }
 
     public void Supercede(uint oldSpell, uint newSpell)
     {
