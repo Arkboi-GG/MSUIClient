@@ -1,0 +1,15 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-11-guild-20260801-213000\guild.protocol
+1,PASS,gm .gm on
+2,PASS,gm .guild delete "MSUINight"
+3,PASS,gm .guild create Test "MSUINight"
+4,PASS,wait 2
+5,PASS,gm .gm off
+6,PASS,guild roster
+7,PASS,wait 2
+8,PASS,guild simulate
+9,PASS,ui-parity guild
+10,PASS,wait 2
+11,PASS,gm .gm on
+12,PASS,gm .guild delete "MSUINight"
+13,PASS,gm .gm off

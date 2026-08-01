@@ -47,3 +47,5 @@
 2026-08-01 21:00 local | 3-10 | OPEN | loot-window parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 21:15 local | 3-10 | CLOSED-FINDING | existing original-art loot draw instrumented and captured from a real killed creature; coverage 4/20 with 16 NOT-DRAWN | live-runs/N2-0-3-10-loot-20260801-211500/N2-0-3-10-loot-20260801-211500.md
 2026-08-01 21:15 local | 3-11 | OPEN | guild parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 21:30 local | 3-11 | CLOSED-FINDING | real one-member roster plus replay-labelled expanded roster captured in FriendsFrame shell; coverage 1/63 with 62 NOT-DRAWN | live-runs/N2-0-3-11-guild-20260801-213000/N2-0-3-11-guild-20260801-213000.md
+2026-08-01 21:30 local | 3-12 | OPEN | gossip parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md

@@ -203,3 +203,9 @@ Evidence: `live-runs/N2-0-3-9-auction-20260801-210000/N2-0-3-9-auction-20260801-
 Coverage: 4/20 with 16 NOT-DRAWN. The already original-art loot frame was
 instrumented and captured against an authoritative corpse-loot response.
 Evidence: `live-runs/N2-0-3-10-loot-20260801-211500/N2-0-3-10-loot-20260801-211500.md`.
+
+## 3-11 Guild — CLOSED-FINDING
+
+Coverage: 1/63 with 62 NOT-DRAWN. A real temporary TEST-account guild supplied
+the authoritative roster before the explicitly replay-labelled expanded state.
+Evidence: `live-runs/N2-0-3-11-guild-20260801-213000/N2-0-3-11-guild-20260801-213000.md`.

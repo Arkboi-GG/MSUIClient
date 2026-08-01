@@ -104,3 +104,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 4/20 with 16 NOT-DRAWN. Exact set: `live-runs/N2-0-3-10-loot-20260801-211500/loot-diff.csv`.
 - Work: derive title, pager states, close states, and all populated item/coin row evidence and implement every absent reference element.
 - Review: `live-runs/N2-0-3-10-loot-20260801-211500/loot-contact.png`.
+
+## Q19 — 3-11 — guild NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 1/63 with 62 NOT-DRAWN. Exact set: `live-runs/N2-0-3-11-guild-20260801-213000/guild-diff.csv`.
+- Work: derive roster columns/rows, totals, MOTD/info tabs, rank controls, notes, filters, and every absent embedded GuildFrame reference element.
+- Review: `live-runs/N2-0-3-11-guild-20260801-213000/guild-contact.png`.
