@@ -352,6 +352,10 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateTaxiFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "environment":
+                    if (p[1].Equals("audit", StringComparison.OrdinalIgnoreCase)) { RunEnvironmentAudit(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "character":
                     if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
                     else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))

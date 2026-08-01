@@ -1,0 +1,10 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\world\environment-audit-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,environment audit
+4,PASS,assert family=environment step=summary outcome=PASS
+5,PASS,dump n1c-environment-audit
+6,PASS,wait 2
+7,PASS,gm .gps
+8,PASS,waitfor GmChatResponse

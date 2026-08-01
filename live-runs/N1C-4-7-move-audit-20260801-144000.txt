@@ -1,0 +1,6 @@
+2026-08-01 14:40 local
+command: dotnet run --project tools\move-audit\move-audit.csproj -c Debug -- --check movement-scenarios\baseline movement-scenarios\expected
+baseline traces: 8
+expected verdict sets: 8
+result: move-audit-check passed
+

@@ -562,3 +562,11 @@ GM-off status request to a provisioned flightmaster returned known status 1; the
 map request retained the one registered `F-SILENT-INTERACT` row. Production-path replay covered
 map, purchase, lockout, flight, and arrival, and the protocol passed 25/25. Evidence:
 `live-runs/N1C-4-6-flightmaster-20260801-143000.md`.
+## 2026-08-01 14:40 local — item 4-7 environment audit sweeps
+
+Added a read-only unattended environment audit over the current build. The dual-band movement
+check passed all 8 baseline/expected sets; 115 portal definitions passed joined-volume and target
+validation; 33 instance rows passed arrival-plan/catalog checks; and five resident liquid samples
+recorded current renderer state. The live protocol passed 8/8 with zero portal or instance errors
+and delivered `.gps` controls. No F3–F6 behavior changed. Evidence:
+`live-runs/N1C-4-7-environment-audit-20260801-144000.md`.
