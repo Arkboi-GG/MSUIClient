@@ -53,3 +53,6 @@
 2026-08-01 21:45 local | 3-13 | OPEN | taxi parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
 2026-08-01 22:00 local | 3-13 | CLOSED-FINDING | shipped taxi shell built; real spawned/natural flight-master attempts preserved and populated state explicitly replay-labelled; coverage 5/12 with 7 NOT-DRAWN | live-runs/N2-0-3-13-taxi-20260801-220000/N2-0-3-13-taxi-20260801-220000.md
 2026-08-01 22:00 local | 3-14 | OPEN | trade parity is the first open interface-window item | NIGHT_02/3_WINDOWS.md
+2026-08-01 22:15 local | 3-14 | CLOSED-FINDING | previously absent trade UI built with shipped shell and real empty-state draw output; coverage 5/129 with 124 NOT-DRAWN | live-runs/N2-0-3-14-trade-20260801-221500/N2-0-3-14-trade-20260801-221500.md
+2026-08-01 22:15 local | 0-3 | CLOSED-FINDING | all fourteen interface-window parity items have committed increments, immutable outputs, exact diffs, contacts, queues, manifests, and passing gates | NIGHT_02/3_WINDOWS.md
+2026-08-01 22:15 local | 4-1 | OPEN | game-menu corrected full-reference parity is the first system-UI item | NIGHT_02/4_SYSTEM_UI.md

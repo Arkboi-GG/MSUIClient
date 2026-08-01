@@ -221,3 +221,9 @@ captured from a real in-range Stormwind vendor gossip menu. Evidence:
 Coverage: 5/12 with 7 NOT-DRAWN. The shipped shell is live. Real interaction
 attempts are preserved; the populated map/route state is explicitly REPLAYED.
 Evidence: `live-runs/N2-0-3-13-taxi-20260801-220000/N2-0-3-13-taxi-20260801-220000.md`.
+
+## 3-14 Trade — CLOSED-FINDING
+
+Coverage: 5/129 with 124 NOT-DRAWN. The client had no trade window; the
+committed increment builds the shipped shell and a real empty-state draw path.
+Evidence: `live-runs/N2-0-3-14-trade-20260801-221500/N2-0-3-14-trade-20260801-221500.md`.

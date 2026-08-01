@@ -122,3 +122,9 @@ No rulings queued as of 2026-08-01 15:35 local.
 - Corrected coverage: 5/12 with 7 NOT-DRAWN. Exact set: `live-runs/N2-0-3-13-taxi-20260801-220000/taxi-diff.csv`.
 - Work: derive portrait/title/dynamic continent map, real node buttons/route line, close states, and resolve an authoritative TEST-realm flight-master descriptor.
 - Review: `live-runs/N2-0-3-13-taxi-20260801-220000/taxi-contact.png`.
+
+## Q22 — 3-14 — trade NOT-DRAWN worklist and perceptual review
+
+- Corrected coverage: 5/129 with 124 NOT-DRAWN. Exact set: `live-runs/N2-0-3-14-trade-20260801-221500/trade-diff.csv`.
+- Work: implement authoritative trade wire/state, player/target slots, enchant slots, portraits/names, money, accept/cancel states, highlights, and every absent reference element.
+- Review: `live-runs/N2-0-3-14-trade-20260801-221500/trade-contact.png`.
