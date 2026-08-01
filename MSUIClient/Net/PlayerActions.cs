@@ -109,4 +109,12 @@ public sealed class PlayerActions
 
     public bool IsOnCooldown(uint spell, double nowSeconds)
         => CooldownFraction(spell, nowSeconds) > 0f;
+
+    public double CooldownRemaining(uint spell, double nowSeconds)
+    {
+        if (!_cooldowns.TryGetValue(spell, out var cd)) return 0;
+        double left = cd.DurationSeconds - (nowSeconds - cd.StartedAt);
+        if (left <= 0) { _cooldowns.Remove(spell); return 0; }
+        return left;
+    }
 }

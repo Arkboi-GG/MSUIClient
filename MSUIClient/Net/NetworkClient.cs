@@ -314,6 +314,7 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.TrainerList(guid); return true; } catch { return false; }
     }
+    public bool BinderActivate(ulong guid) => InWorld(s => s.BinderActivate(guid));
     public bool TrainerBuySpell(ulong guid, uint spellId)
     {
         if (State != NetState.InWorld || _session is null) return false;

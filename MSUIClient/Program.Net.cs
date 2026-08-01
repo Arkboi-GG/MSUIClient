@@ -197,6 +197,7 @@ public sealed partial class GameLoop
             ResetGameObjects();
             ResetRestXp();
             ResetDeathRez();
+            ResetHearth();
             ResetGossip();
             ResetMail();
             ResetAuction();
@@ -417,6 +418,12 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_TRAINER_BUY_FAILED:
                         ApplyTrainerFailure(body);
+                        break;
+                    case Op.SMSG_BINDER_CONFIRM:
+                        ApplyBinderConfirm(body);
+                        break;
+                    case Op.SMSG_BINDPOINTUPDATE:
+                        ApplyBindPoint(body);
                         break;
                     case Op.MSG_TALENT_WIPE_CONFIRM:
                         ApplyTalentWipeConfirm(body);

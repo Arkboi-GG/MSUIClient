@@ -1,0 +1,26 @@
+gm .gps
+waitfor GmChatResponse 3
+gm .gm on
+gm .additem 6948 1
+gm .npc spawn add 295
+wait 3
+select spawn:1
+gm .gm off
+hearth bind
+probe-interface hearth bind-confirm 5
+gm .gm on
+select spawn:1
+gm .npc spawn delete
+select self
+gm .cooldown clear
+gm .gm off
+hearth use
+wait 12
+hearth simulate
+assert family=hearth step=cast outcome=COMPLETED
+assert family=hearth step=teleport outcome=VERIFIED
+assert family=hearth step=cooldown outcome=DISPLAYED
+dump n1c-hearth-ui
+wait 2
+gm .gps
+waitfor GmChatResponse 3

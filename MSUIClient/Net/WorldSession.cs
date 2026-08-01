@@ -399,6 +399,8 @@ public sealed class WorldSession : IDisposable
     {
         SendPacket((ushort)Op.CMSG_TRAINER_LIST, BuildTrainerListBody(guid));
     }
+    public void BinderActivate(ulong guid) => SendPacket((ushort)Op.CMSG_BINDER_ACTIVATE, BuildGuidBody(guid));
+    public static byte[] BuildBinderBody(ulong guid) => BuildGuidBody(guid);
 
     public void TrainerBuySpell(ulong guid, uint spellId)
     {

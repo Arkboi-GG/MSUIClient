@@ -338,6 +338,12 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateDeathRezFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "hearth":
+                    if (p[1].Equals("bind", StringComparison.OrdinalIgnoreCase)) Log(RequestBind(_selectionGuid), line);
+                    else if (p[1].Equals("use", StringComparison.OrdinalIgnoreCase)) Log(UseHearthstone(), line);
+                    else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateHearthFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "character":
                     if (p[1].Equals("inspect", StringComparison.OrdinalIgnoreCase)) Log(InspectCharacterInventory(), line);
                     else if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase))

@@ -229,5 +229,9 @@ Check((ushort)Op.CMSG_REPOP_REQUEST == 346 && (ushort)Op.SMSG_RESURRECT_REQUEST 
       (ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE == 540, "death/resurrection opcodes");
 Check(WorldSession.BuildResurrectResponseBody(0x1234, true).SequenceEqual(Convert.FromHexString("341200000000000001")),
       "resurrection response guid/accept body");
+Check((ushort)Op.CMSG_BINDER_ACTIVATE == 437 && (ushort)Op.SMSG_BINDER_CONFIRM == 438 &&
+      (ushort)Op.SMSG_BINDPOINTUPDATE == 341, "binder/bind-point opcodes");
+Check(WorldSession.BuildBinderBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "binder full guid body");
 
 Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects opcodes/bodies/bounds/state/render-binding");

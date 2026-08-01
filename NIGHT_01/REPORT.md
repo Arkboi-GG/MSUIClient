@@ -545,3 +545,12 @@ Status: `CLOSED-PASS`
 - Spirit healer sickness/durability, timed reclaim, and a named resurrect offer with accept/
   decline exact bodies were replayed through production paths. Evidence:
   `live-runs/N1C-4-4-death-rez-20260801-141000.md`.
+## 2026-08-01 14:20 local — item 4-5 innkeeper / hearth
+
+Implemented exact binder activate/confirm and bind-point update protocol, an innkeeper eligibility
+gate and home/cooldown UI, and Hearthstone item-to-spell tracking through cast and teleport. The
+unattended protocol passed 26/26. On dedicated TEST with GM OFF, item 6948 generated real server
+start/go packets for spell 8690 across its 10-second cast and a server home-position update. The
+GM-off binder request was wire-correct but retained the one registered `F-SILENT-INTERACT` row;
+the distinct teleport-distance and one-hour cooldown displays were exercised through the exact
+runtime replay path. Evidence: `live-runs/N1C-4-5-hearth-20260801-142000.md`.

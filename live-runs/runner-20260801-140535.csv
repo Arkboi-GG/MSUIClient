@@ -1,0 +1,28 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\world\hearth-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,gm .additem 6948 1
+5,PASS,gm .npc spawn add 295
+6,PASS,wait 3
+7,PASS,select spawn:1 guid=0xF13000012704A2CA
+8,PASS,gm .gm off
+9,PASS,hearth bind
+10,PASS,probe-interface hearth bind-confirm blocked
+11,PASS,gm .gm on
+12,PASS,select spawn:1 guid=0xF13000012704A2CA
+13,PASS,gm .npc spawn delete
+14,PASS,select self guid=0x0000000000000001
+15,PASS,gm .cooldown clear
+16,PASS,gm .gm off
+17,PASS,hearth use
+18,PASS,wait 12
+19,PASS,hearth simulate
+20,PASS,assert family=hearth step=cast outcome=COMPLETED
+21,PASS,assert family=hearth step=teleport outcome=VERIFIED
+22,PASS,assert family=hearth step=cooldown outcome=DISPLAYED
+23,PASS,dump n1c-hearth-ui
+24,PASS,wait 2
+25,PASS,gm .gps
+26,PASS,waitfor GmChatResponse
