@@ -3998,3 +3998,49 @@ capture or option-3 instrumentation.**
 Y3 final boundary gates passed sequentially: Debug build with only the
 established CA2014 warning, combat-wire PASS, portrait-camera PASS with 10,534
 specimens and 1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+## Z0 - mechanical pre-send gate + uncaptured rehearsal
+
+### Actual versus predicted
+
+```text
+PREDICTED DevTools gate: refuse before packet construction unless every predicate passes
+ACTUAL: gate returns before NetworkClient.AttackSwing and logs pass/refusal;
+        devTools=false returns true without behavior change
+RESULT: report=act gate implemented
+
+PREDICTED fresh target: new entry-6 at player, up to 3 attempts
+ACTUAL attempt 1: GUID 0xF13000000604A28E, spawn distance=0,
+                  gate distance=0, flags=0, alive 100/100, GM off
+RESULT: PASS on attempt 1; zero refusals
+
+PREDICTED control-to-attack <=2 s
+ACTUAL: .gps flush at 7.033, attack flush at 7.040
+RESULT: 0.007 s PASS
+
+PREDICTED rehearsal: gate pass + both socket writes flushed
+ACTUAL .gps SHA-256: 45fdd04c6a8d2f1e19261a030c38fd86ce0f757f94b5e5b767ca0c4639c4e811
+ACTUAL attack SHA-256: 3874595e24d5d00f5e0cb2d4c8b7faf409c0d6332c097e8646c49cebd0ef8e52
+RESULT: runner 26/26 PASS; no capture active
+```
+
+Symbol verification found the actual seam in `Program.Targeting.cs`, between
+`ObserveAttackPrecondition(entity)` and `_net.AttackSwing(guid)`. No named X1
+distance epsilon exists; Z0 conservatively uses `distanceSquared <= 1e-6`
+(distance <=0.001 yd). Accepted X1 and this rehearsal both measured exact zero.
+
+Full evidence is in
+`live-runs/Z0-pre-send-gate-rehearsal-20260731-203500.md`, SHA-256
+`a5bcd34c7e499ae9991189ed4e161214041552ac9906296439bfbc88524d3289`.
+The ten-file manifest is
+`live-runs/manifests/Z0-20260731-203500.sha256`, SHA-256
+`e28157673ef94c4c8d5a54f0f96775756ea30058d1dbd29dacb75d83427fae2b`.
+
+Z0 boundary gates passed sequentially: Debug build PASS with zero warnings on
+the boundary invocation, combat-wire PASS (established CA2014 appeared during
+its dependency build only), portrait-camera PASS with 10,534 specimens and
+1,224 / 1,289 / 56 controls, and move-audit PASS.
+
+No capture, server code, DB, persistent config, error display, or F3-F6 change
+occurred. The only combat-path change is the authorized DevTools-gated refusal.
+SPEC-21 P3/P4 remain queued.

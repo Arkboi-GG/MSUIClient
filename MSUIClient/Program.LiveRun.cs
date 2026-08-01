@@ -174,7 +174,16 @@ public sealed partial class GameLoop
                     Log(anchored,$"{line} guid=0x{anchorGuid:X16} position="+
                         (anchorTarget is null?"unavailable":$"{anchorTarget.Position.X:R}|{anchorTarget.Position.Y:R}|{anchorTarget.Position.Z:R}"));
                     break;
-                case "attack": if(p[1]=="start") CommitSelection(_selectionGuid,true); else StopAttack("user-cancel"); Log(true,line); break;
+                case "attack":
+                    if(p[1]=="start")
+                    {
+                        _lastAttackPreconditionGatePassed=null;
+                        CommitSelection(_selectionGuid,true);
+                        Log(_lastAttackPreconditionGatePassed==true,
+                            $"{line} gate={(_lastAttackPreconditionGatePassed==true?"PASS":"REFUSED")}");
+                    }
+                    else { StopAttack("user-cancel"); Log(true,line); }
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":

@@ -145,7 +145,7 @@ public sealed partial class GameLoop
         {
             if (_attackTargetGuid != guid)
             {
-                ObserveAttackPrecondition(entity);
+                if (!ObserveAttackPrecondition(entity)) return;
                 _net.AttackSwing(guid);
                 _attackTargetGuid = guid; // speculative until SMSG_ATTACKSTART/STOP
                 ObserveCombatIntent(true, guid, changed && wasAttacking ? "target-switch" : "user-start");

@@ -20,6 +20,7 @@ public sealed partial class GameLoop
     private double _combatTraceTime;
     private string _lastCombatStopCause = "server-stop";
     private bool? _serverGmMode;
+    private bool? _lastAttackPreconditionGatePassed;
 
     private void StartCombatTrace()
     {
@@ -84,18 +85,46 @@ public sealed partial class GameLoop
         EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
     }
 
-    private void ObserveAttackPrecondition(WorldEntity target)
+    private bool ObserveAttackPrecondition(WorldEntity target)
     {
         Vector3 player=_controller?.Position??Vector3.Zero;
         float distance=_controller is null?-1:Vector3.Distance(player,target.Position);
+        bool present=_entities.TryGet(target.Guid,out WorldEntity current)&&ReferenceEquals(current,target);
+        // The entity store is the live visibility set used by targeting: an
+        // out-of-range descriptor is removed before this send path can act on it.
+        bool visible=present;
+        bool alive=!target.IsDead&&target.Fields.Health>0;
         EmitCombat("AttackPrecondition","live-send-path",target.Guid,
             $"player=0x{_net?.PlayerGuid??0:X16};position={player.X:R}|{player.Y:R}|{player.Z:R};"+
             $"gmMode={(_serverGmMode.HasValue?_serverGmMode.Value.ToString().ToLowerInvariant():"unmeasured")};"+
-            $"gmSource=server-response;present=true;visible=true;alive={!target.IsDead};"+
+            $"gmSource=server-response;present={present.ToString().ToLowerInvariant()};"+
+            $"visible={visible.ToString().ToLowerInvariant()};alive={alive.ToString().ToLowerInvariant()};"+
             $"health={target.Fields.Health};maxHealth={target.Fields.MaxHealth};"+
             $"unitFlags=0x{target.Fields.UnitFlags:X8};dynamicFlags=0x{target.Fields.DynamicFlags:X8};"+
             $"faction={target.Fields.FactionTemplate};entry={target.Entry};distance={distance:R};"+
             $"targetPosition={target.Position.X:R}|{target.Position.Y:R}|{target.Position.Z:R}");
+        if(!_config.DevTools) return true;
+
+        bool pass=present&&visible&&alive&&target.Fields.Health==100&&target.Fields.MaxHealth==100&&
+            target.Fields.DynamicFlags==0&&target.Fields.UnitFlags==0&&_serverGmMode==false&&
+            _controller is not null&&Vector3.DistanceSquared(player,target.Position)<=1e-6f;
+        _lastAttackPreconditionGatePassed=pass;
+        string[] reasons=
+        [
+            ..(!present?["absent"]:Array.Empty<string>()),
+            ..(!visible?["not-visible"]:Array.Empty<string>()),
+            ..(!alive?["dead"]:Array.Empty<string>()),
+            ..(target.Fields.Health!=100||target.Fields.MaxHealth!=100?["health-not-100/100"]:Array.Empty<string>()),
+            ..(target.Fields.DynamicFlags!=0?["dynamicFlags-nonzero"]:Array.Empty<string>()),
+            ..(target.Fields.UnitFlags!=0?["unitFlags-nonzero"]:Array.Empty<string>()),
+            ..(_serverGmMode!=false?["gm-not-confirmed-off"]:Array.Empty<string>()),
+            ..(_controller is null||Vector3.DistanceSquared(player,target.Position)>1e-6f?["distance-nonzero"]:Array.Empty<string>()),
+        ];
+        EmitCombat(pass?"AttackPreconditionGatePass":"AttackPreconditionGateRefusal",
+            "devtools-pre-send-gate",target.Guid,
+            $"packetConstructed={pass.ToString().ToLowerInvariant()};epsilon=distanceSquared<=1e-6;"+
+            $"reasons={(reasons.Length==0?"none":string.Join('|',reasons))}");
+        return pass;
     }
 
     private void ObserveGmChatWire(bool outgoing, ushort opcode, ReadOnlySpan<byte> body) =>

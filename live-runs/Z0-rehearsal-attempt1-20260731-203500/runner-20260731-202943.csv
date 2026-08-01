@@ -1,0 +1,28 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\Z0-fresh-target-rehearsal-20260731-203500.txt
+1,PASS,gm .gm off
+2,PASS,wait 0.5
+3,PASS,gm .gm
+4,PASS,wait 0.5
+5,PASS,gm .dismount
+6,PASS,wait 0.5
+7,PASS,gm .combatstop TEST
+8,PASS,wait 0.5
+9,PASS,socket-trace start Z0-fresh-target-rehearsal-20260731-203500 path=C:\Users\nico\source\repos\MSUIClient\dumps\sockettrace-Z0-fresh-target-rehearsal-20260731-203500-20260731-202945.csv
+10,PASS,trace start Z0-fresh-target-rehearsal-20260731-203500
+11,PASS,gm .npc spawn add 6
+12,PASS,select spawn:1 guid=0xF13000000604A28E
+13,PASS,gm .gps
+14,PASS,attack start gate=PASS
+15,PASS,assert event=AttackPreconditionGatePass
+16,PASS,waitfor detail=Map:_0_
+17,PASS,wait 0.1
+18,PASS,attack stop
+19,PASS,trace stop
+20,PASS,socket-trace stop
+21,PASS,gm .gm on
+22,PASS,wait 0.5
+23,PASS,gm .npc spawn delete
+24,PASS,wait 0.5
+25,PASS,waitgone spawn:1 guid=0xF13000000604A28E descriptorPresent=False
+26,PASS,gm .gm off
