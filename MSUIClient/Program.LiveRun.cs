@@ -346,6 +346,21 @@ public sealed partial class GameLoop
                     { SimulateMailActions(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "auction":
+                    string[] auction = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (auction[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestAuction(_selectionGuid), line);
+                    else if (auction[1].Equals("browse", StringComparison.OrdinalIgnoreCase)) Log(BrowseAuctions(), line);
+                    else if (auction[1].Equals("owner", StringComparison.OrdinalIgnoreCase)) Log(RequestOwnerAuctions(), line);
+                    else if (auction[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateAuctionFlow(); Log(true, line); }
+                    else if (auction[1].Equals("bid-first", StringComparison.OrdinalIgnoreCase) && _auctions.Count > 0)
+                    { AuctionRow row = _auctions[0]; Log(BidAuction(row.Id, Math.Max(row.StartBid, row.Bid + row.MinIncrement)), line); }
+                    else if (auction[1].Equals("cancel-first", StringComparison.OrdinalIgnoreCase) && _auctions.Count > 0)
+                        Log(CancelAuction(_auctions[0].Id), line);
+                    else if (auction[1].Equals("create", StringComparison.OrdinalIgnoreCase) && auction.Length == 6)
+                        Log(CreateAuction(uint.Parse(auction[2], CultureInfo.InvariantCulture), uint.Parse(auction[3], CultureInfo.InvariantCulture),
+                            uint.Parse(auction[4], CultureInfo.InvariantCulture), uint.Parse(auction[5], CultureInfo.InvariantCulture)), line);
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");

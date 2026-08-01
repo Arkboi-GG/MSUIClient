@@ -1,0 +1,41 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\interfaces\auction-live.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .gm on
+4,PASS,select self guid=0x0000000000000001
+5,PASS,gm .modify money 100000
+6,PASS,gm .additem 159 1
+7,PASS,gm .npc spawn add 8670
+8,PASS,wait 2
+9,PASS,select npc-flag-nearest:auctioneer guid=0xF1300021DE04A2C0
+10,PASS,gm .gm off
+11,PASS,auction open
+12,PASS,waitfor family=auction step=hello outcome=OPEN
+13,PASS,auction browse
+14,PASS,waitfor family=auction step=browse outcome=DECODED
+15,PASS,auction create 159 100 200 720
+16,PASS,waitfor family=auction step=create outcome=FAILED-2
+17,PASS,auction owner
+18,PASS,waitfor family=auction step=owner outcome=DECODED
+19,PASS,assert family=auction step=create-send outcome=SENT
+20,PASS,assert family=auction step=create outcome=FAILED-2
+21,PASS,assert family=auction step=owner outcome=DECODED
+22,PASS,auction simulate
+23,PASS,assert family=auction step=hello outcome=OPEN
+24,PASS,assert family=auction step=browse outcome=DECODED
+25,PASS,assert family=auction step=pagination outcome=VERIFIED
+26,PASS,assert family=auction step=create outcome=SUCCESS
+27,PASS,assert family=auction step=bid outcome=SUCCESS
+28,PASS,assert family=auction step=cancel outcome=SUCCESS
+29,PASS,assert family=auction step=deposit outcome=VERIFIED
+30,PASS,assert family=auction step=notification outcome=RECEIVED
+31,PASS,assert family=auction step=mail-interplay outcome=VERIFIED
+32,PASS,dump n1c-auction-ui
+33,PASS,wait 2
+34,PASS,gm .gps
+35,PASS,waitfor GmChatResponse
+36,PASS,gm .gm on
+37,PASS,select npc-flag-nearest:auctioneer guid=0xF1300021DE04A2C0
+38,PASS,gm .npc spawn delete
+39,PASS,gm .gm off

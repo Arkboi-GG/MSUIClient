@@ -429,6 +429,31 @@ public sealed class WorldSession : IDisposable
         return w.ToArray();
     }
 
+    public void AuctionHello(ulong guid) => SendPacket((ushort)Op.MSG_AUCTION_HELLO, BuildAuctionGuidBody(guid));
+    public void AuctionBrowse(ulong guid, uint page, string search)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_ITEMS, BuildAuctionBrowseBody(guid, page, search));
+    public void AuctionOwnerList(ulong guid, uint page)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_OWNER_ITEMS, BuildAuctionPageBody(guid, page));
+    public void AuctionBid(ulong guid, uint id, uint price)
+        => SendPacket((ushort)Op.CMSG_AUCTION_PLACE_BID, BuildAuctionBidBody(guid, id, price));
+    public void AuctionCancel(ulong guid, uint id)
+        => SendPacket((ushort)Op.CMSG_AUCTION_REMOVE_ITEM, BuildAuctionPageBody(guid, id));
+    public void AuctionSell(ulong guid, ulong item, uint bid, uint buyout, uint durationMinutes)
+        => SendPacket((ushort)Op.CMSG_AUCTION_SELL_ITEM, BuildAuctionSellBody(guid, item, bid, buyout, durationMinutes));
+
+    public static byte[] BuildAuctionGuidBody(ulong guid) => BuildGuidBody(guid);
+    public static byte[] BuildAuctionPageBody(ulong guid, uint value)
+    { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(value); return w.ToArray(); }
+    public static byte[] BuildAuctionBidBody(ulong guid, uint id, uint price)
+    { var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(id); w.WriteU32(price); return w.ToArray(); }
+    public static byte[] BuildAuctionSellBody(ulong guid, ulong item, uint bid, uint buyout, uint durationMinutes)
+    { var w = new PacketWriter(32); w.WriteU64(guid); w.WriteU64(item); w.WriteU32(bid); w.WriteU32(buyout); w.WriteU32(durationMinutes); return w.ToArray(); }
+    public static byte[] BuildAuctionBrowseBody(ulong guid, uint page, string search)
+    {
+        var w = new PacketWriter(42 + search.Length); w.WriteU64(guid); w.WriteU32(page); w.WriteCString(search);
+        w.WriteU8(0); w.WriteU8(0); for (int i = 0; i < 4; i++) w.WriteU32(uint.MaxValue); w.WriteU8(0); return w.ToArray();
+    }
+
     public static byte[] BuildTrainerListBody(ulong guid)
     { var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray(); }
 

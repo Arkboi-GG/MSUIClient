@@ -35,6 +35,7 @@ public sealed partial class GameLoop
         _items = new ItemTemplateCache(displays);
         InitBank();
         InitMail();
+        InitAuction();
     }
 
     private void UpdateInventoryInput(bool typing)

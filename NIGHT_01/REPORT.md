@@ -443,3 +443,15 @@ with delivered `.gps`, recorded once as `BLOCKED-BY:F-SILENT-INTERACT`; the
 runtime replay passed all send, take-money, take-item/COD, return, delete, and
 expiry assertions. The scenario passed 24/24. Evidence:
 `live-runs/N1C-2-6-mail-20260801-123000.md`.
+
+## NIGHT_01C 2-7 — auction house
+
+`CLOSED-FINDING`: exact browse/filter/page, create, bid/buyout, cancel,
+owner/bidder list, result, notification, bounded state, deposit preview, UI,
+runner, and byte gates are built. The GM-off live leg opened house 1 and decoded
+browse and owner lists; its exact create request received the server's explicit
+restricted-account result because this test account retains security status and
+the realm disallows GM trades. Runtime replay verified two exact rows,
+pagination, lifecycle successes, notifications, and mail-refresh interplay. The
+scenario passed 39/39. Evidence:
+`live-runs/N1C-2-7-auction-20260801-124300.md`.

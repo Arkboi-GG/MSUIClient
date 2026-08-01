@@ -196,6 +196,7 @@ public sealed partial class GameLoop
             ResetLoot();
             ResetGossip();
             ResetMail();
+            ResetAuction();
             _creaturesLogged = 0;
             _pendingObjectParse = null;
             _pendingObjectUpdates = null;
@@ -411,6 +412,26 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_RECEIVED_MAIL:
                         ApplyReceivedMail(body);
+                        break;
+                    case Op.MSG_AUCTION_HELLO:
+                        ApplyAuctionHello(body);
+                        break;
+                    case Op.SMSG_AUCTION_LIST_RESULT:
+                        ApplyAuctionList(body, "browse");
+                        break;
+                    case Op.SMSG_AUCTION_OWNER_LIST_RESULT:
+                        ApplyAuctionList(body, "owner");
+                        break;
+                    case Op.SMSG_AUCTION_BIDDER_LIST_RESULT:
+                        ApplyAuctionList(body, "bidder");
+                        break;
+                    case Op.SMSG_AUCTION_COMMAND_RESULT:
+                        ApplyAuctionCommand(body);
+                        break;
+                    case Op.SMSG_AUCTION_BIDDER_NOTIFICATION:
+                    case Op.SMSG_AUCTION_OWNER_NOTIFICATION:
+                    case Op.SMSG_AUCTION_REMOVED_NOTIFICATION:
+                        ApplyAuctionNotification((Op)opcode, body);
                         break;
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);

@@ -322,6 +322,12 @@ public sealed class NetworkClient : IDisposable
     public bool MailTakeItem(ulong guid, uint id) => InWorld(s => s.MailTakeItem(guid, id));
     public bool MailReturn(ulong guid, uint id) => InWorld(s => s.MailReturn(guid, id));
     public bool MailDelete(ulong guid, uint id) => InWorld(s => s.MailDelete(guid, id));
+    public bool AuctionHello(ulong guid) => InWorld(s => s.AuctionHello(guid));
+    public bool AuctionBrowse(ulong guid, uint page, string search) => InWorld(s => s.AuctionBrowse(guid, page, search));
+    public bool AuctionOwnerList(ulong guid, uint page) => InWorld(s => s.AuctionOwnerList(guid, page));
+    public bool AuctionBid(ulong guid, uint id, uint price) => InWorld(s => s.AuctionBid(guid, id, price));
+    public bool AuctionCancel(ulong guid, uint id) => InWorld(s => s.AuctionCancel(guid, id));
+    public bool AuctionSell(ulong guid, ulong item, uint bid, uint buyout, uint duration) => InWorld(s => s.AuctionSell(guid, item, bid, buyout, duration));
     public bool QuestgiverStatus(ulong guid) => InWorld(s => s.QuestgiverStatus(guid));
     public bool QuestgiverHello(ulong guid) => InWorld(s => s.QuestgiverHello(guid));
     public bool QuestgiverQuery(ulong guid, uint questId) => InWorld(s => s.QuestgiverQuery(guid, questId));

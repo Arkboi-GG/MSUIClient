@@ -148,4 +148,23 @@ Check(mailReader.ReadU64() == trainerGuid && mailReader.ReadCString() == "Test" 
       mailReader.ReadU32() == 100 && mailReader.ReadU32() == 200 && mailReader.ReadU64() == 0 &&
       mailReader.ReadU8() == 0 && mailReader.Remaining == 0, "send mail body order and constants");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail opcodes/bodies/bounds/state");
+Check((ushort)Op.MSG_AUCTION_HELLO == 597 && (ushort)Op.CMSG_AUCTION_SELL_ITEM == 598 &&
+      (ushort)Op.CMSG_AUCTION_REMOVE_ITEM == 599 && (ushort)Op.CMSG_AUCTION_LIST_ITEMS == 600 &&
+      (ushort)Op.CMSG_AUCTION_LIST_OWNER_ITEMS == 601 && (ushort)Op.CMSG_AUCTION_PLACE_BID == 602 &&
+      (ushort)Op.SMSG_AUCTION_COMMAND_RESULT == 603 && (ushort)Op.SMSG_AUCTION_LIST_RESULT == 604 &&
+      (ushort)Op.SMSG_AUCTION_BIDDER_NOTIFICATION == 606 &&
+      (ushort)Op.SMSG_AUCTION_OWNER_NOTIFICATION == 607 &&
+      (ushort)Op.SMSG_AUCTION_REMOVED_NOTIFICATION == 653,
+      "auction opcodes");
+Check(WorldSession.BuildAuctionGuidBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
+      "auction hello full guid body");
+Check(WorldSession.BuildAuctionBidBody(trainerGuid, 7, 123)
+      .SequenceEqual(Convert.FromHexString("0100008F030030F1070000007B000000")), "auction bid body");
+Check(WorldSession.BuildAuctionSellBody(trainerGuid, 9, 100, 200, 720).Length == 28,
+      "auction sell fixed body");
+var browseReader = new PacketReader(WorldSession.BuildAuctionBrowseBody(trainerGuid, 50, "Sword"));
+Check(browseReader.ReadU64() == trainerGuid && browseReader.ReadU32() == 50 && browseReader.ReadCString() == "Sword" &&
+      browseReader.ReadU8() == 0 && browseReader.ReadU8() == 0 && browseReader.ReadU32() == uint.MaxValue,
+      "auction browse page/search/filter order");
+
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction opcodes/bodies/bounds/state");
