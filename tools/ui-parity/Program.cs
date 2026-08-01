@@ -400,6 +400,7 @@ static int Diff(string[] args)
     if (!selection.Contains("scope=all-reference-elements", StringComparer.OrdinalIgnoreCase))
         throw new InvalidDataException("selection rule must declare scope=all-reference-elements; post-hoc element enumerations are forbidden");
     List<Row> expected = ReadRows(expectedPath), actual = ReadRows(actualPath);
+    foreach (Row row in actual.Where(r => r.Coverage.Length == 0)) row.Coverage = "DRAWN-NOT-INSTRUMENTED";
     var e = expected.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
     var a = actual.ToDictionary(r => r.Element, StringComparer.OrdinalIgnoreCase);
     var lines = new List<string> { "panel,element,field,expected,actual,verdict" };
