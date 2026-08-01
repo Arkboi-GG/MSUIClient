@@ -133,6 +133,31 @@ Manifest: `live-runs/manifests/N3-20260731-235000.sha256`, SHA-256
 `68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`;
 all five entries recomputed exactly.
 
+## 4-1 through 4-7 — world-interaction triage
+
+Statuses: all seven items `SHELVED-BLOCKED`.
+
+### Actual versus predicted
+
+```text
+PREDICTED: complete gossip/object/rest/rez/hearth/taxi flows and a combined
+           dual-band + portal + instance + water regression batch
+ACTUAL: interaction families/prerequisites are absent or shelved; move-audit
+        passes, but no committed portal/instance/water protocol sets exist
+RESULT: whole items shelved; F3-F6 and all server/DB state untouched
+```
+
+Per-item map: `live-runs/N4-world-triage-20260801-000000.md`. Q7 recommends
+gossip as the interaction root plus separately defined environment protocol sets.
+
+Manifest: `live-runs/manifests/N4-20260801-000000.sha256`, SHA-256
+`8d8a3801bd610b3c306fbdd8e0edf2103ae17a8c0f57f9aff8a838123e7946ea`;
+all four entries recomputed exactly.
+
+Boundary gates: build PASS (established CA2014 only, 0 errors), combat-wire
+PASS, portrait-camera 10,534 / 1,224 / 1,289 / 56, move-audit-check PASS.
+
+
 Manifest: `live-runs/manifests/N2-20260731-234000.sha256`, SHA-256
 `ea5bfd3e2a2fffeae5b03cb46fd96be315b82d510dfd7fa283dfc330a8957f87`;
 all four entries recomputed exactly.

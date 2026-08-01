@@ -27,3 +27,10 @@ Format: `<local time> | <item id> | <status> | <one-line result> | <evidence/com
 2026-07-31 23:50 local | 3-6 | SHELVED-BLOCKED | aura stacks display but duration/cancel/instrument flow absent | live-runs/N3-spell-triage-20260731-235000.md
 2026-07-31 23:50 local | 3-7 | SHELVED-BLOCKED | visual supplier exists but known-spell STRING sweep/contact sheet absent | live-runs/N3-spell-triage-20260731-235000.md
 2026-07-31 23:50 local | 3-8 | SHELVED-BLOCKED | cast failures collapse to generic labels; named reason-to-text display law absent | live-runs/N3-spell-triage-20260731-235000.md
+2026-08-01 00:00 local | 4-1 | SHELVED-BLOCKED | gossip family absent and destination interface tree shelved | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-2 | SHELVED-BLOCKED | game-object use family absent; profession prerequisite shelved | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-3 | SHELVED-BLOCKED | rest/XP flow lacks quest/kill prerequisites and complete instrument | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-4 | SHELVED-BLOCKED | accepted death proof exists but extended rez family/runner absent | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-5 | SHELVED-BLOCKED | innkeeper/hearth flow blocked by gossip and cast-gate prerequisites | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-6 | SHELVED-BLOCKED | taxi protocol/state/UI/runner family absent; F3-F6 untouched | live-runs/N4-world-triage-20260801-000000.md
+2026-08-01 00:00 local | 4-7 | SHELVED-BLOCKED | move-audit passes but portal/instance/water batch protocol sets are absent | live-runs/N4-world-triage-20260801-000000.md

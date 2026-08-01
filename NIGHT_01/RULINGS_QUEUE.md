@@ -43,3 +43,9 @@ Format per entry:
 - Options: (A) first build the Z0-style target/GCD/resource gate, named cast-result law, and roster CSV runner; (B) select one spell item without the shared batch; (C) accept current partial spell foundations.
 - Agent recommendation: A — it is the smallest shared root cause and prevents every later spell conclusion from being contaminated by send-precondition drift.
 - Manifest: `live-runs/manifests/N3-20260731-235000.sha256`, SHA-256 `68903e99640f0fa2b63206c2f0a5bc0e12d7038f3cfdf61c4e16b815600104c7`.
+
+## Q7 — 4-1..4-7 — order world-interaction prerequisites and missing environment protocol sets
+- Evidence: `live-runs/N4-world-triage-20260801-000000.md`.
+- Options: (A) implement gossip after Q5, then game objects/rest/rez/hearth/taxi; define portal/instance/water sets separately; (B) prioritize only the environment sets; (C) accept current absence.
+- Agent recommendation: A — gossip is the routing root for most interaction items, while 4-7 needs explicit additive protocol definitions rather than treating move-audit alone as complete coverage.
+- Manifest: `live-runs/manifests/N4-20260801-000000.sha256`, SHA-256 `8d8a3801bd610b3c306fbdd8e0edf2103ae17a8c0f57f9aff8a838123e7946ea`.
