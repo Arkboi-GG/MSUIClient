@@ -17,3 +17,15 @@ All five stage-boundary gates pass; the solution build retains only the standing
 No reference asset is missing. The contact sheet is queued for perceptual review and did not block.
 
 Main toolkit report: `../SPEC_TOOLKIT_REPORT_2026-07-30.md`.
+
+## 2026-08-01 15:55 local — item 2-1 player / target unit frames
+
+Status: `CLOSED-FINDING`
+
+Added actual-draw captures for the unit-frame roots, backgrounds, and portraits,
+fixed logical-scale measurement, and corrected target buffs/debuffs to the separate
+build-5875 grids. All instrumented geometry/anchor/layer rows pass. The unchanged
+reference cohorts retain 9 player and 28 target presence deltas, chiefly conditional
+template rows plus unenumerated existing frame/text draws, so the item is not claimed
+as parity PASS. Evidence:
+`live-runs/N2-0-2-1-unit-frames-20260801-155500/N2-0-2-1-unit-frames-20260801-155500.md`.

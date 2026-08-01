@@ -5,3 +5,5 @@
 2026-08-01 15:35 local | 0-3 | OPEN | interface window parity pending 0-2 | NIGHT_02/3_WINDOWS.md
 2026-08-01 15:35 local | 0-4 | OPEN | system UI parity pending 0-3 | NIGHT_02/4_SYSTEM_UI.md
 2026-08-01 15:35 local | 0-5 | OPEN | cross-cutting polish pending 0-4 | NIGHT_02/5_POLISH.md
+2026-08-01 15:55 local | 2-1 | CLOSED-FINDING | measured unit-frame geometry/anchors pass and target aura grid was corrected; representative extraction retains 9 player and 28 target presence deltas | live-runs/N2-0-2-1-unit-frames-20260801-155500/N2-0-2-1-unit-frames-20260801-155500.md
+2026-08-01 15:55 local | 2-2 | OPEN | party-frame family is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md

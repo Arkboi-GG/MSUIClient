@@ -129,7 +129,8 @@ static void AddElement(XElement element, string instanceName, string parentName,
     {
         if (child.Name.LocalName == "Frames")
         {
-            foreach (XElement nested in child.Elements().Where(IsDrawable))
+            foreach (XElement nested in child.Elements().Where(IsDrawable)
+                .Where(e => !A(e, "hidden").Equals("true", StringComparison.OrdinalIgnoreCase)))
             {
                 string rawName = (string?)nested.Attribute("name") ?? $"{instanceName}/{nested.Name.LocalName}";
                 string name = Expand(rawName, instanceName, instanceName);
@@ -139,7 +140,8 @@ static void AddElement(XElement element, string instanceName, string parentName,
         else if (child.Name.LocalName == "Layers")
         {
             foreach (XElement layerNode in child.Elements().Where(x => x.Name.LocalName == "Layer"))
-            foreach (XElement nested in layerNode.Elements().Where(IsDrawable))
+            foreach (XElement nested in layerNode.Elements().Where(IsDrawable)
+                .Where(e => !A(e, "hidden").Equals("true", StringComparison.OrdinalIgnoreCase)))
             {
                 string rawName = (string?)nested.Attribute("name") ?? $"{instanceName}/{nested.Name.LocalName}";
                 string name = Expand(rawName, instanceName, instanceName);
@@ -147,7 +149,7 @@ static void AddElement(XElement element, string instanceName, string parentName,
                     A(layerNode, "level"), strata, named, rows, panel);
             }
         }
-        else if (IsDrawable(child))
+        else if (IsDrawable(child) && !A(child, "hidden").Equals("true", StringComparison.OrdinalIgnoreCase))
         {
             string rawName = (string?)child.Attribute("name") ?? $"{instanceName}/{child.Name.LocalName}";
             AddElement(child, Expand(rawName, instanceName, instanceName), instanceName, sourcePath, supplier, layer, strata, named, rows, panel);
@@ -305,7 +307,8 @@ static int Crop(string[] args)
     float maxX=Math.Max(Parse(root.Width,256),placed.Max(r=>Parse(r.X,0)+Parse(r.Width,0)));
     float maxY=Math.Max(Parse(root.Height,256),placed.Max(r=>Parse(r.Y,0)+Parse(r.Height,0)));
     using SKBitmap source=SKBitmap.Decode(input)??throw new InvalidDataException(input);
-    float rootLeft=(source.Width-Parse(root.Width,256)*scale)/2f,rootTop=(source.Height-Parse(root.Height,256)*scale)/2f;
+    float rootLeft=o.TryGetValue("left",out string? left) ? Parse(left,0)*scale : (source.Width-Parse(root.Width,256)*scale)/2f;
+    float rootTop=o.TryGetValue("top",out string? top) ? Parse(top,0)*scale : (source.Height-Parse(root.Height,256)*scale)/2f;
     var src=new SKRect(rootLeft+minX*scale,rootTop+minY*scale,rootLeft+maxX*scale,rootTop+maxY*scale);
     int w=(int)MathF.Ceiling(maxX-minX),h=(int)MathF.Ceiling(maxY-minY);
     using var cropped=new SKBitmap(w,h,SKColorType.Rgba8888,SKAlphaType.Premul); using var c=new SKCanvas(cropped);

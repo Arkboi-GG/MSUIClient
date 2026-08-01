@@ -1,0 +1,4 @@
+panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource
+"target-frame","TargetFrame","Button","","0","0","232","100","TOPLEFT","","","250","-4","","","","","","","LOW","","","","","","","MSUI:actual-draw-path","",""
+"target-frame","TargetFrameBackground","Texture","TargetFrame","7","22","119","41","TOPRIGHT","","","-106","-22","","","","","","BACKGROUND","LOW","","","","","","","MSUI:actual-draw-path","",""
+"target-frame","TargetPortrait","Texture","TargetFrame","126","12","64","64","TOPRIGHT","","","-42","-12","","","","","","BORDER","LOW","","","","","","","MSUI:actual-draw-path","",""

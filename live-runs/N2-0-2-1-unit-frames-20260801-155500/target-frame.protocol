@@ -1,0 +1,3 @@
+select wild:1
+ui-parity target-frame
+wait 2

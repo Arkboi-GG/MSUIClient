@@ -16,7 +16,9 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         Vector2 p = authoredOrigin * s;
         Vector2 size = new(232, 100);
-        Vector2 windowSize = playerFrame ? size : new Vector2(232, 118);
+        // The root frame is 232x100. The target's aura children deliberately
+        // extend below it and ImGui needs a taller transparent host to avoid clipping.
+        Vector2 windowSize = playerFrame ? size : new Vector2(232, 110);
         CollectGameplayLayout(playerFrame ? "player-frame" : "target-frame",
             authoredOrigin.X, authoredOrigin.Y, windowSize.X, windowSize.Y, p, windowSize * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
@@ -28,6 +30,26 @@ public sealed partial class GameLoop
         if (!ImGui.Begin(playerFrame ? "##vanilla-player-frame" : "##vanilla-target-frame", flags))
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+
+        string parityPanel = playerFrame ? "player-frame" : "target-frame";
+        if (_uiParityArmed && _uiParityPanel == parityPanel)
+        {
+            string root = playerFrame ? "PlayerFrame" : "TargetFrame";
+            BeginUiParityFrame(p, s);
+            CollectUiParity(root, "Button", p, size * s, parent: "", point: "TOPLEFT",
+                offsetX: playerFrame ? "-19" : "250", offsetY: "-4",
+                strata: playerFrame ? "BACKGROUND" : "LOW");
+            CollectUiParity(playerFrame ? "PlayerFrameBackground" : "TargetFrameBackground", "Texture",
+                p + new Vector2(playerFrame ? 106f : 7f, 22f) * s, new Vector2(119f, 41f) * s,
+                parent: root, point: playerFrame ? "TOPLEFT" : "TOPRIGHT",
+                offsetX: playerFrame ? "106" : "-106", offsetY: "-22", layer: "BACKGROUND",
+                strata: playerFrame ? "BACKGROUND" : "LOW");
+            CollectUiParity(playerFrame ? "PlayerPortrait" : "TargetPortrait", "Texture",
+                p + new Vector2(playerFrame ? 42f : 126f, 12f) * s, new Vector2(64f) * s,
+                parent: root, point: playerFrame ? "TOPLEFT" : "TOPRIGHT",
+                offsetX: playerFrame ? "42" : "-42", offsetY: "-12",
+                layer: playerFrame ? "ARTWORK" : "BORDER", strata: playerFrame ? "BACKGROUND" : "LOW");
+        }
 
         float barX = playerFrame ? 106f : 7f;
         Vector2 troughMin = p + new Vector2(barX, 22) * s;
@@ -79,7 +101,8 @@ public sealed partial class GameLoop
             dl.AddCircle(portraitMin + new Vector2(32) * s, 29f * s,
                 ImGui.ColorConvertFloat4ToU32(new Vector4(1, 0.12f, 0.08f,
                     Math.Clamp(combatFlash / 0.35f, 0, 1))), 48, 2f * s);
-        if (!playerFrame) DrawTargetAuras(dl, unit, p + new Vector2(8, 72) * s, s);
+        if (!playerFrame) DrawTargetAuras(dl, unit, p, s);
+        if (_uiParityArmed && _uiParityPanel == parityPanel) MarkUiParityFrameComplete();
         ImGui.End();
     }
 
@@ -97,24 +120,30 @@ public sealed partial class GameLoop
         dl.AddText(font, size, pos, color, text);
     }
 
-    private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 start, float scale)
+    private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 frameMin, float scale)
     {
         if (_gameplayArt is null || _spellCatalog is null) return;
-        int shown = 0;
+        int buffs = 0, debuffs = 0;
         foreach (var aura in unit.Fields.Auras())
         {
             if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
             uint icon = _gameplayArt.Handle(spell.IconPath);
             if (icon == 0) continue;
-            int col = shown % 8, row = shown / 8;
-            Vector2 min = start + new Vector2(col * 21, row * 21) * scale;
-            Vector2 max = min + new Vector2(18) * scale;
+            bool buff = aura.Slot < 32;
+            int index = buff ? buffs++ : debuffs++;
+            if (buff && index >= 5 || !buff && index >= 16) continue;
+            int col = buff ? index : index % 6;
+            int row = buff ? 0 : index / 6;
+            float step = buff ? 24f : 20f;
+            float size = buff ? 21f : 17f;
+            Vector2 start = frameMin + new Vector2(5f, buff ? 87f : 68f) * scale;
+            Vector2 min = start + new Vector2(col * step, row * 20f) * scale;
+            Vector2 max = min + new Vector2(size) * scale;
             dl.AddImage((nint)icon, min, max);
-            uint border = aura.Slot < 32 ? 0xff40d0ffu : 0xff4040ffu;
+            uint border = buff ? 0xff40d0ffu : 0xff4040ffu;
             dl.AddRect(min, max, border, 0, ImDrawFlags.None, MathF.Max(1, scale));
             if (aura.Stacks > 1)
                 dl.AddText(max - new Vector2(7, 11) * scale, 0xffffffff, aura.Stacks.ToString());
-            if (++shown >= 16) break;
         }
     }
 

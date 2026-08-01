@@ -13,20 +13,23 @@ public sealed partial class GameLoop
     private string _uiParityPanel = "";
     private string _uiParityStamp = "";
     private Vector2 _uiParityOrigin;
+    private float _uiParityLogicalScale = 1f;
 
     private void ArmUiParityCapture(string panel)
     {
-        if (!_config.DevTools || !panel.Equals("game-menu", StringComparison.OrdinalIgnoreCase)) return;
+        if (!_config.DevTools || panel is not ("game-menu" or "player-frame" or "target-frame")) return;
         _uiParityPanel = panel;
         _uiParityStamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         _uiParityRows.Clear(); _uiParityArmed = true; _uiParityFrameSeen = false; _uiParityPresentedFrames = 0;
-        OpenSettings();
+        if (panel == "game-menu") OpenSettings();
     }
 
-    private void BeginUiParityFrame(Vector2 origin)
+    private void BeginUiParityFrame(Vector2 origin, float logicalScale = 0f)
     {
-        if (!_uiParityArmed || _uiParityFrameSeen || _menuPage != MenuPage.GameMenu) return;
-        _uiParityOrigin = origin; _uiParityRows.Clear();
+        if (!_uiParityArmed || _uiParityFrameSeen || _uiParityPanel == "game-menu" && _menuPage != MenuPage.GameMenu) return;
+        _uiParityOrigin = origin;
+        _uiParityLogicalScale = logicalScale > 0 ? logicalScale : S;
+        _uiParityRows.Clear();
     }
 
     private void CollectUiParity(string element, string type, Vector2 min, Vector2 size,
@@ -45,10 +48,12 @@ public sealed partial class GameLoop
                 _mpq?.ReadFileWithSupplier(path) is { } hit ? $"{hit.Supplier}:{path}" : $"MISSING:{path}"));
         string fontSource = fontPath.Length > 0 && _mpq?.ReadFileWithSupplier(fontPath) is { } fontHit
             ? $"{fontHit.Supplier}:{fontPath}" : "";
-        Vector2 relative = element == "GameMenuFrame" ? Vector2.Zero : (min - _uiParityOrigin) / S;
+        float logicalScale = MathF.Max(_uiParityLogicalScale, 0.001f);
+        Vector2 relative = element is "GameMenuFrame" or "PlayerFrame" or "TargetFrame"
+            ? Vector2.Zero : (min - _uiParityOrigin) / logicalScale;
         bool unsized = size == Vector2.Zero;
         string[] values = [_uiParityPanel, element, type, parent, unsized ? "" : N(relative.X), unsized ? "" : N(relative.Y),
-            unsized ? "" : N(size.X / S), unsized ? "" : N(size.Y / S), point, relativeTo, relativePoint, offsetX, offsetY,
+            unsized ? "" : N(size.X / logicalScale), unsized ? "" : N(size.Y / logicalScale), point, relativeTo, relativePoint, offsetX, offsetY,
             texture, font, fontPath, fontSize, color, layer, strata, bgFile, edgeFile, tileSize,
             edgeSize, insets, texCoords, "MSUI:actual-draw-path", assets, fontSource];
         _uiParityRows.Add(new(values));
