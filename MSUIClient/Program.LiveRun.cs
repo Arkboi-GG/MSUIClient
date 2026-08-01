@@ -412,8 +412,10 @@ public sealed partial class GameLoop
         File.WriteAllLines(log,new[]{"step,result,detail"}.Concat(_liveLog)); File.WriteAllLines(verdict,VerdictLines());
         string spellCsv=Path.Combine(dir,$"spell-sweep-{_liveStamp}.csv");
         WriteSpellSweepCsv(spellCsv);
+        string castBarCsv=Path.Combine(dir,$"cast-bar-{_liveStamp}.csv");
+        WriteCastBarCsv(castBarCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
     }
 
@@ -429,6 +431,23 @@ public sealed partial class GameLoop
                 v.ClassId, v.SpellId, Csv(v.SpellName), v.School, v.CastType, v.Result,
                 Csv(v.AnimationState), Csv(v.EffectCheck), v.TargetType, v.GcdReady, v.CooldownReady,
                 v.ResourceType, v.ResourceBefore, v.ResourceCost, $"0x{v.ResolvedGuid:X16}", v.Sent));
+        File.WriteAllLines(path, lines);
+    }
+
+    private void WriteCastBarCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,spell_id,name,event,classification,server_duration_ms,dbc_cast_time_ms,dbc_duration_ms,phase,started,ends,pushback_total_ms,cancel_source,animation_state"
+        };
+        foreach (CastBarVerdict v in _verdicts.Snapshot("cast-bar").OfType<CastBarVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture), Csv(v.Character),
+                v.SpellId, Csv(v.SpellName), v.Event, v.Classification, v.ServerDurationMs,
+                v.DbcCastTimeMs, v.DbcDurationMs, v.Phase,
+                v.StartedAt.ToString("F3", CultureInfo.InvariantCulture),
+                v.EndsAt.ToString("F3", CultureInfo.InvariantCulture), v.PushbackTotalMs,
+                v.CancelSource, Csv(v.AnimationState)));
         File.WriteAllLines(path, lines);
     }
 

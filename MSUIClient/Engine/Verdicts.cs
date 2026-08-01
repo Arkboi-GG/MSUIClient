@@ -212,7 +212,7 @@ public sealed class VerdictRing
     }
 
     public static IReadOnlyList<string> Channels { get; } =
-        ["portrait", "cast", "action", "anim", "move", "combat", "interface", "spell-sweep"];
+        ["portrait", "cast", "action", "anim", "move", "combat", "interface", "spell-sweep", "cast-bar"];
 
     private readonly Dictionary<string, ChannelRing> _channels =
         new(StringComparer.OrdinalIgnoreCase)
@@ -225,6 +225,7 @@ public sealed class VerdictRing
         ["combat"] = new(2048),
         ["interface"] = new(2048),
         ["spell-sweep"] = new(8192),
+        ["cast-bar"] = new(4096),
         };
     private long _nextSequence;
 

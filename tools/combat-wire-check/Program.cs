@@ -122,6 +122,10 @@ Check(SpellCastResultNames.Name(0x23) == "SPELL_FAILED_INTERRUPTED" &&
       SpellCastResultNames.Name(0x59) == "SPELL_FAILED_OUT_OF_RANGE" &&
       SpellCastResultNames.Name(0xFE) == "SPELL_FAILED_0xFE",
       "cast-result reasons are stable strings with an exact-byte fallback");
+Check((TargetSpell(0, 1) with { CastTimeMs = 1500 }).CastClassification == "CAST_TIME" &&
+      (TargetSpell(0, 1) with { ChannelInterruptFlags = 8 }).CastClassification == "CHANNEL" &&
+      TargetSpell(0, 1).CastClassification == "INSTANT",
+      "DBC cast classification strings");
 
 var verdicts = new VerdictRing();
 verdicts.Add(Portrait(0));
@@ -134,14 +138,17 @@ for (int i = 0; i < 514; i++) verdicts.Add(Action(4000 + i));
 verdicts.Add(new SpellSweepVerdict(5000, "Test", 1, 78, "Heroic Strike", "PHYSICAL",
     "NEXT_SWING", "PRE_SEND_PASS", "Stand", "NO_VISUAL", "UNIT", true, true,
     "RAGE", 100, 15, 2, true));
+verdicts.Add(new CastBarVerdict(5001, "Test", 133, "Fireball", "CAST_START",
+    "CAST_TIME", 1500, 1500, 0, "CASTING", 5, 6.5, 0, "NONE", "SpellCastOmni"));
 Check(verdicts.Snapshot("portrait").Count == 64 &&
       verdicts.Snapshot("cast").Count == 128 &&
       verdicts.Snapshot("action").Count == 512 &&
       verdicts.Snapshot("anim").Count == 1024 &&
-      verdicts.Snapshot("spell-sweep").Count == 1,
+      verdicts.Snapshot("spell-sweep").Count == 1 &&
+      verdicts.Snapshot("cast-bar").Count == 1,
       "per-channel verdict capacities");
 IReadOnlyList<IVerdict> allVerdicts = verdicts.SnapshotAll();
-Check(allVerdicts.Count == 1729 &&
+Check(allVerdicts.Count == 1730 &&
       allVerdicts.Zip(allVerdicts.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time),
       "merged verdict snapshot count/time order");
 

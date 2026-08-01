@@ -149,6 +149,7 @@ public sealed partial class GameLoop
         uint spell = _pendingCastSpell;
         if (spell == 0 && _castBarPhase == CastBarPhase.Casting) spell = _castBarSpell;
         if (spell == 0) return false;
+        EmitCastBarVerdict("CANCEL_SEND", spell, cancelSource: "ESCAPE");
         _net.CancelCast(spell);
         ApplySpellFailure(_net.PlayerGuid, spell, "INTERRUPTED");
         return true;
@@ -165,6 +166,7 @@ public sealed partial class GameLoop
             (_spellCatalog?.TryGet(_castBarSpell, out SpellInfo channel) != true ||
              channel.MovementInterruptsChannel))
         {
+            EmitCastBarVerdict("CANCEL_SEND", _castBarSpell, cancelSource: "MOVEMENT_CHANNEL");
             _net.CancelChannelling(_castBarSpell);
             return; // channel owns the one movement-cancel edge
         }
@@ -174,6 +176,7 @@ public sealed partial class GameLoop
         if (spell == 0) return;
         if (_spellCatalog?.TryGet(spell, out SpellInfo info) == true && !info.MovementInterrupts)
             return;
+        EmitCastBarVerdict("CANCEL_SEND", spell, cancelSource: "MOVEMENT_CAST");
         _net.CancelCast(spell);
         ApplySpellFailure(_net.PlayerGuid, spell, "INTERRUPTED");
     }
@@ -208,6 +211,8 @@ public sealed partial class GameLoop
         _castBarStarted = now;
         _castBarEnds = now + durationMs / 1000.0;
         _castBarPhase = channel ? CastBarPhase.Channel : CastBarPhase.Casting;
+        _castBarPushbackTotalMs = 0;
+        EmitCastBarVerdict(channel ? "CHANNEL_START" : "CAST_START", spell, durationMs);
     }
 
     private void CompleteCastBar(uint spell)
@@ -218,6 +223,7 @@ public sealed partial class GameLoop
         _castBarFinishedAt = NowSeconds();
         // CastingBar.xml: flash grows at .2 per 30 Hz tick, then the frame fades at .05/tick.
         _castBarDisplayUntil = _castBarFinishedAt + 1.0 / 6.0 + 1.0 / 1.5;
+        EmitCastBarVerdict("CAST_COMPLETE", spell);
     }
 
     private void FailCastBar(uint spell, string text)
@@ -228,6 +234,7 @@ public sealed partial class GameLoop
         _castBarText = text;
         _castBarFinishedAt = NowSeconds();
         _castBarDisplayUntil = _castBarFinishedAt + 1.0 + 1.0 / 1.5;
+        EmitCastBarVerdict("CAST_FAILED", spell, cancelSource: text);
     }
 
     private void DelayCastBar(uint delayMs)
@@ -235,6 +242,8 @@ public sealed partial class GameLoop
         if (_castBarPhase != CastBarPhase.Casting) return;
         _castBarStarted += delayMs / 1000.0;
         _castBarEnds += delayMs / 1000.0;
+        _castBarPushbackTotalMs += delayMs;
+        EmitCastBarVerdict("PUSHBACK", _castBarSpell, delayMs);
     }
 
     private void UpdateChannel(uint remainingMs)
@@ -246,12 +255,14 @@ public sealed partial class GameLoop
                 _castBarPhase = CastBarPhase.Success;
                 _castBarFinishedAt = NowSeconds();
                 _castBarDisplayUntil = _castBarFinishedAt + 1.0 / 6.0 + 1.0 / 1.5;
+                EmitCastBarVerdict("CHANNEL_STOP", _castBarSpell);
             }
             _character?.CancelSpellVisual();
             if (_net is not null) _spellEffects?.Reap(_net.PlayerGuid, _castBarSpell);
             return;
         }
         _castBarEnds = NowSeconds() + remainingMs / 1000.0;
+        EmitCastBarVerdict("CHANNEL_UPDATE", _castBarSpell, remainingMs);
     }
 
     private void BeginChannel(uint spellId, uint durationMs)
