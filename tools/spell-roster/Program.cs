@@ -45,7 +45,7 @@ if (fenceTestOutput is not null)
 
 RosterSpec[] required =
 [
-    new("Nbwarhuman", 1, "Warrior", 1, "Human"),
+    new("Nbwarh03", 1, "Warrior", 1, "Human"),
     new("Nbpalhuman", 2, "Paladin", 1, "Human"),
     new("Nbhundwarf", 3, "Hunter", 3, "Dwarf"),
     new("Nbroghuman", 4, "Rogue", 1, "Human"),

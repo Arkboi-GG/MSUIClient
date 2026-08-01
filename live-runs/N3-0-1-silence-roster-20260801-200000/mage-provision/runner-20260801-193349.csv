@@ -1,0 +1,21 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-provision.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .help character level
+4,PASS,wait 1
+5,PASS,gm .help gm
+6,PASS,wait 1
+7,PASS,gm .gm on
+8,PASS,wait 1
+9,PASS,gm .character level Nbmaghuman 60
+10,PASS,wait 2
+11,PASS,gm .learn all_myclass
+12,PASS,wait 2
+13,PASS,gm .learn all_myspells
+14,PASS,wait 2
+15,PASS,gm .cooldown clear
+16,PASS,wait 1
+17,PASS,spellbook snapshot known=196
+18,PASS,gm .gps
+19,PASS,waitfor GmChatResponse

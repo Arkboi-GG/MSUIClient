@@ -1,0 +1,1 @@
+time,character,spell_id,cell,row_kind,coverage,sample_index,frame,actual_stage,expected_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,moving,active_models,asset_sources,animation_verdict,blend_verdict,gm_mode,source

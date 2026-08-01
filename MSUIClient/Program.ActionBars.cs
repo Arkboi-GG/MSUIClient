@@ -194,7 +194,14 @@ public sealed partial class GameLoop
     {
         CastTargetCandidate? selected = null, self = null;
         if (_selectionGuid != 0 && _entities.TryGet(_selectionGuid, out WorldEntity selectedEntity))
+        {
             selected = CastCandidate(selectedEntity, _selectionGuid == _net!.PlayerGuid);
+            EmitCombat("SpellTargetCandidate", "cast-acting-path", selectedEntity.Guid,
+                $"spell={spell.Id};mask=0x{CastTargetLaw.TargetMask(spell):X4};isSelf={selected.Value.IsSelf};" +
+                $"friendly={selected.Value.Friendly};attackable={selected.Value.Attackable};dead={selected.Value.Dead};" +
+                $"unitFlags=0x{selectedEntity.Fields.UnitFlags:X8};faction={selectedEntity.Fields.FactionTemplate};" +
+                $"reaction={ReactionPlayerToward(selectedEntity)}");
+        }
         if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
             self = CastCandidate(player, isSelf: true);
         return CastTargetLaw.Resolve(spell, selected, self);

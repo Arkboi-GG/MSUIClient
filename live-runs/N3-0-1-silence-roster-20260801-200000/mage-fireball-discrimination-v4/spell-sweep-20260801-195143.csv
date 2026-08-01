@@ -1,0 +1,5 @@
+time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
+0.542,"Nbmaghuman",8,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,1000,0,0x0000000000000000,True
+8.977,"Nbmaghuman",8,133,"Fireball",FIRE,CAST,PRE_SEND_PASS,"Stand","Spells\Fire_Precast_Hand.mdx|Spells\Fire_Cast_Hand.mdx|Spells\MoltenBlast_Impact_Chest.mdx|Spells\Fireball_Missile_Low.mdx",UNIT,True,True,MANA,1000,30,0xF130002D3F04A2D8,True
+9.090,"Nbmaghuman",8,133,"Fireball",FIRE,CAST,SMSG_SPELL_START,"Stand","Spells\Fire_Precast_Hand.mdx|Spells\Fire_Cast_Hand.mdx|Spells\MoltenBlast_Impact_Chest.mdx|Spells\Fireball_Missile_Low.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
+10.541,"Nbmaghuman",8,133,"Fireball",FIRE,CAST,SMSG_SPELL_GO,"Anim51","Spells\Fire_Precast_Hand.mdx|Spells\Fire_Cast_Hand.mdx|Spells\MoltenBlast_Impact_Chest.mdx|Spells\Fireball_Missile_Low.mdx",SERVER,True,True,MANA,1000,0,0x0000000000000000,True

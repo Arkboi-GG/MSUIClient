@@ -1,0 +1,10 @@
+run_local,planned_name,actual_name,class_id,class_name,planned_race_id,planned_race_name,actual_race_id,method,result,guid,level
+"2026-08-01T19:31:37","Nbwarh03","",1,"Warrior",1,"Human",,CMSG_CHAR_CREATE,REFUSED_0x49,,
+"2026-08-01T19:31:37","Nbpalhuman","Nbpalhuman",2,"Paladin",1,"Human",1,existing,PRESENT,0x000000000000021E,1
+"2026-08-01T19:31:37","Nbhundwarf","Nbhundwarf",3,"Hunter",3,"Dwarf",3,existing,PRESENT,0x000000000000021F,1
+"2026-08-01T19:31:37","Nbroghuman","Nbroghuman",4,"Rogue",1,"Human",1,existing,PRESENT,0x0000000000000220,1
+"2026-08-01T19:31:37","Nbprihuman","Nbprihuman",5,"Priest",1,"Human",1,existing,PRESENT,0x0000000000000221,1
+"2026-08-01T19:31:37","Nbshaorc","Nbshaorc",7,"Shaman",2,"Orc",2,existing,PRESENT,0x0000000000000222,1
+"2026-08-01T19:31:37","Nbmaghuman","Nbmaghuman",8,"Mage",1,"Human",1,existing,PRESENT,0x0000000000000223,1
+"2026-08-01T19:31:37","Nbwlkgnome","Nbwlkgnome",9,"Warlock",7,"Gnome",7,existing,PRESENT,0x0000000000000224,1
+"2026-08-01T19:31:37","Nbdrunelf","Nbdrunelf",11,"Druid",4,"NightElf",4,existing,PRESENT,0x0000000000000225,1

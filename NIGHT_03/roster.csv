@@ -1,1 +1,9 @@
 name,race,class,created_at,deleted_at,wave,creation_source,create_method,gm_commands
+"Nbpalhuman","Human","Paladin","2026-08-01T19:31:08",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbhundwarf","Dwarf","Hunter","2026-08-01T19:31:08",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbroghuman","Human","Rogue","2026-08-01T19:31:08",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbprihuman","Human","Priest","2026-08-01T19:31:08",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbshaorc","Orc","Shaman","2026-08-01T19:31:09",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbmaghuman","Human","Mage","2026-08-01T19:31:09",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbwlkgnome","Gnome","Warlock","2026-08-01T19:31:09",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"
+"Nbdrunelf","NightElf","Druid","2026-08-01T19:31:09",,1,AGENT_CREATED,"CMSG_CHAR_CREATE","pending in-world verification"

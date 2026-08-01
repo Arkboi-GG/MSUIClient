@@ -1,0 +1,13 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-reset-untalented.txt
+1,PASS,gm .gps
+2,PASS,waitfor GmChatResponse
+3,PASS,gm .help reset talents
+4,PASS,wait 1
+5,PASS,gm .reset talents
+6,PASS,wait 2
+7,PASS,spellbook snapshot known=174
+8,PASS,gm .gm off
+9,PASS,wait 1
+10,PASS,gm .gps
+11,PASS,waitfor GmChatResponse

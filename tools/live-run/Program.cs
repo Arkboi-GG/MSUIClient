@@ -24,11 +24,18 @@ catch (Exception ex)
     File.WriteAllText(Path.Combine(output,$"bootstrap-preflight-{stamp}.sha256"),$"{hash}  {Path.GetFileName(artifact)}\n");
     Console.Error.WriteLine($"[live-run] SERVER_UNREACHABLE {host}:{port}; artifact={artifact}"); return 4;
 }
-if (!configuredCharacter.Equals("TEST",StringComparison.OrdinalIgnoreCase))
+bool legacyTest = configuredCharacter.Equals("TEST",StringComparison.OrdinalIgnoreCase);
+string nightRoster = Path.Combine(root,"NIGHT_03","roster.csv");
+bool nightOwned = string.IsNullOrWhiteSpace(configuredCharacter) &&
+    character.StartsWith("NB",StringComparison.OrdinalIgnoreCase) && File.Exists(nightRoster) &&
+    File.ReadLines(nightRoster).Skip(1).Any(line =>
+        line.StartsWith($"\"{character}\",",StringComparison.OrdinalIgnoreCase) &&
+        line.Contains(",AGENT_CREATED,",StringComparison.OrdinalIgnoreCase));
+if (!legacyTest && !nightOwned)
 {
     string artifact=Path.Combine(output,$"bootstrap-refused-{stamp}.json");
     File.WriteAllText(artifact,JsonSerializer.Serialize(new { result="REFUSED_NON_TEST_ACCOUNT",
-        requirement="dedicated configuration must be bound to TEST", character },new JsonSerializerOptions{WriteIndented=true}));
+        requirement="dedicated configuration must be bound to TEST or target an NB-prefixed NIGHT-owned character from character-select", character },new JsonSerializerOptions{WriteIndented=true}));
     string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(artifact))).ToLowerInvariant();
     File.WriteAllText(Path.Combine(output,$"bootstrap-refused-{stamp}.sha256"),$"{hash}  {Path.GetFileName(artifact)}\n");
     Console.Error.WriteLine($"[live-run] REFUSED_NON_TEST_ACCOUNT; artifact={artifact}"); return 3;
