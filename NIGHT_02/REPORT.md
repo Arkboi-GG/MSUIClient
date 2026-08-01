@@ -97,3 +97,12 @@ shipped art. A real TEST `.gps` response populated the capture. The visible main
 cohort passes 63/63 mechanical verdicts; the full main inventory retains 25
 resize/alternate-state presence findings. Evidence:
 `live-runs/N2-0-2-7-chat-frame-20260801-173500/N2-0-2-7-chat-frame-20260801-173500.md`.
+
+## 2-8 XP / reputation bars — CLOSED-FINDING
+
+The live XP path was recaptured and the missing conditional reputation-watch
+bar was added with original status, reputation, and dwarf-border assets. The
+complete reputation inventory passes 84/84 mechanical verdicts; the visible XP
+cohort passes 35/35 while its full inventory retains four conditional presence
+findings. Evidence:
+`live-runs/N2-0-2-8-xp-reputation-20260801-175000/N2-0-2-8-xp-reputation-20260801-175000.md`.

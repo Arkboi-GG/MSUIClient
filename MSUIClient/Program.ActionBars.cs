@@ -276,7 +276,8 @@ public sealed partial class GameLoop
         }
 
         // FrameXML child order: XP and the LOW-strata latency meter sit beneath the dwarf art.
-        DrawExpBar(bg, barMin, scale);
+        if (_uiParityArmed && _uiParityPanel == "reputation-bar") DrawReputationWatchBar(bg, barMin, scale);
+        else DrawExpBar(bg, barMin, scale);
         DrawPerformanceMeter(bg, barMin, scale, display);
         DrawMainMenuBarArt(bg, barMin, scale);
 

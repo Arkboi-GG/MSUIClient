@@ -19,3 +19,5 @@
 2026-08-01 17:15 local | 2-7 | OPEN | chat-frame parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
 2026-08-01 17:35 local | 2-7 | CLOSED-FINDING | built missing live chat receive/display, scroll, tab, and edit presentation from shipped specs/art; visible main cohort is 63/63 PASS while full main inventory retains 25 state/resize presence deltas | live-runs/N2-0-2-7-chat-frame-20260801-173500/N2-0-2-7-chat-frame-20260801-173500.md
 2026-08-01 17:35 local | 2-8 | OPEN | XP/reputation-bar parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
+2026-08-01 17:50 local | 2-8 | CLOSED-FINDING | added exact conditional reputation-watch bar with 84/84 PASS and recaptured live XP at 35/35 visible PASS; full XP inventory retains four conditional presence deltas | live-runs/N2-0-2-8-xp-reputation-20260801-175000/N2-0-2-8-xp-reputation-20260801-175000.md
+2026-08-01 17:50 local | 2-9 | OPEN | bag/backpack parity is the first open core-HUD sub-item | NIGHT_02/2_CORE_HUD.md
