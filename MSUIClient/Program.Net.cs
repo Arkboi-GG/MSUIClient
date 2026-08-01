@@ -198,6 +198,7 @@ public sealed partial class GameLoop
             ResetRestXp();
             ResetDeathRez();
             ResetHearth();
+            ResetTaxi();
             ResetGossip();
             ResetMail();
             ResetAuction();
@@ -353,7 +354,11 @@ public sealed partial class GameLoop
                         {
                             // Creature locomotion: attach the server spline so this NPC walks.
                             var mm = MonsterMoveParser.Parse(body);
-                            if (mm is not null) _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
+                            if (mm is not null)
+                            {
+                                ObserveTaxiSpline(mm);
+                                _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
+                            }
                         }
                         break;
                     case Op.SMSG_ACTION_BUTTONS:
@@ -424,6 +429,15 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_BINDPOINTUPDATE:
                         ApplyBindPoint(body);
+                        break;
+                    case Op.SMSG_TAXINODE_STATUS:
+                        ApplyTaxiNodeStatus(body);
+                        break;
+                    case Op.SMSG_SHOWTAXINODES:
+                        ApplyTaxiNodes(body);
+                        break;
+                    case Op.SMSG_ACTIVATETAXIREPLY:
+                        ApplyTaxiReply(body);
                         break;
                     case Op.MSG_TALENT_WIPE_CONFIRM:
                         ApplyTalentWipeConfirm(body);

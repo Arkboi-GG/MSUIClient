@@ -125,6 +125,7 @@ public sealed partial class GameLoop
         DrawRestXpFrame();
         DrawDeathRezFrame();
         DrawHearthFrame();
+        DrawTaxiFrame();
         DrawGossipFrame();
         DrawVendorFrame();
         DrawTrainerFrame();

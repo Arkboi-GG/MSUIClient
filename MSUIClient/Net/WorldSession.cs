@@ -365,6 +365,14 @@ public sealed class WorldSession : IDisposable
 
     public void GossipHello(ulong guid) => SendFullGuid(Op.CMSG_GOSSIP_HELLO, guid);
     public void GameObjectUse(ulong guid) => SendFullGuid(Op.CMSG_GAMEOBJ_USE, guid);
+    public void TaxiNodeStatusQuery(ulong guid) => SendFullGuid(Op.CMSG_TAXINODE_STATUS_QUERY, guid);
+    public void TaxiQueryAvailableNodes(ulong guid) => SendFullGuid(Op.CMSG_TAXIQUERYAVAILABLENODES, guid);
+    public void ActivateTaxi(ulong guid, uint sourceNode, uint destinationNode) =>
+        SendPacket((ushort)Op.CMSG_ACTIVATETAXI, BuildActivateTaxiBody(guid, sourceNode, destinationNode));
+    public static byte[] BuildActivateTaxiBody(ulong guid, uint sourceNode, uint destinationNode)
+    {
+        var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(sourceNode); w.WriteU32(destinationNode); return w.ToArray();
+    }
     public void RepopRequest() => SendPacket((ushort)Op.CMSG_REPOP_REQUEST, ReadOnlySpan<byte>.Empty);
     public void ReclaimCorpse(ulong corpseGuid) => SendPacket((ushort)Op.CMSG_RECLAIM_CORPSE, BuildGuidBody(corpseGuid));
     public void SpiritHealerActivate(ulong healerGuid) => SendPacket((ushort)Op.CMSG_SPIRIT_HEALER_ACTIVATE, BuildGuidBody(healerGuid));

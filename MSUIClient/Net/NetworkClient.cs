@@ -299,6 +299,10 @@ public sealed class NetworkClient : IDisposable
         try { _session.GossipHello(guid); return true; } catch { return false; }
     }
     public bool GameObjectUse(ulong guid) => InWorld(s => s.GameObjectUse(guid));
+    public bool TaxiNodeStatusQuery(ulong guid) => InWorld(s => s.TaxiNodeStatusQuery(guid));
+    public bool TaxiQueryAvailableNodes(ulong guid) => InWorld(s => s.TaxiQueryAvailableNodes(guid));
+    public bool ActivateTaxi(ulong guid, uint sourceNode, uint destinationNode) =>
+        InWorld(s => s.ActivateTaxi(guid, sourceNode, destinationNode));
     public bool RepopRequest() => InWorld(s => s.RepopRequest());
     public bool ReclaimCorpse(ulong guid) => InWorld(s => s.ReclaimCorpse(guid));
     public bool SpiritHealerActivate(ulong guid) => InWorld(s => s.SpiritHealerActivate(guid));

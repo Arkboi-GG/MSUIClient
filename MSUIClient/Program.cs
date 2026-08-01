@@ -1382,6 +1382,7 @@ public sealed partial class GameLoop : IDisposable
 
         bool scriptedJump = false;
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
+        ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
 
         // TURNING IS SLOWER WHILE YOU ARE MOVING, and that is not a detail. The
         // reference turns at 180 deg/s planted and three quarters of that once
@@ -1422,6 +1423,7 @@ public sealed partial class GameLoop : IDisposable
         bool movementWasGrounded = _controller.Grounded;
         float movementPreviousFallMs = _controller.FallTimeMs;
         long phaseStarted = Stopwatch.GetTimestamp();
+        UpdateTaxiSpline();
         _controller.Update(dt, input);
         if (_net is { IsInWorld: true })
         {

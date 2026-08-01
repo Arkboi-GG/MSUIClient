@@ -554,3 +554,11 @@ start/go packets for spell 8690 across its 10-second cast and a server home-posi
 GM-off binder request was wire-correct but retained the one registered `F-SILENT-INTERACT` row;
 the distinct teleport-distance and one-hour cooldown displays were exercised through the exact
 runtime replay path. Evidence: `live-runs/N1C-4-5-hearth-20260801-142000.md`.
+## 2026-08-01 14:30 local — item 4-6 flightmaster
+
+Built the exact taxi status/map/activation/reply family, discovered-node UI, player flying-spline
+playback, control lockout, and arrival handoff without touching excluded F3–F6 behavior. The live
+GM-off status request to a provisioned flightmaster returned known status 1; the available-node
+map request retained the one registered `F-SILENT-INTERACT` row. Production-path replay covered
+map, purchase, lockout, flight, and arrival, and the protocol passed 25/25. Evidence:
+`live-runs/N1C-4-6-flightmaster-20260801-143000.md`.

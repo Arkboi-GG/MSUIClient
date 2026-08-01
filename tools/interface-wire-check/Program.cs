@@ -233,5 +233,9 @@ Check((ushort)Op.CMSG_BINDER_ACTIVATE == 437 && (ushort)Op.SMSG_BINDER_CONFIRM =
       (ushort)Op.SMSG_BINDPOINTUPDATE == 341, "binder/bind-point opcodes");
 Check(WorldSession.BuildBinderBody(trainerGuid).SequenceEqual(Convert.FromHexString("0100008F030030F1")),
       "binder full guid body");
+Check((ushort)Op.CMSG_TAXINODE_STATUS_QUERY == 0x01AA && (ushort)Op.SMSG_SHOWTAXINODES == 0x01AD &&
+      (ushort)Op.CMSG_ACTIVATETAXI == 0x01AE, "taxi opcodes");
+Check(WorldSession.BuildActivateTaxiBody(0x0102030405060708, 12, 34).SequenceEqual(new byte[]
+      { 8,7,6,5,4,3,2,1, 12,0,0,0, 34,0,0,0 }), "taxi activate body");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects opcodes/bodies/bounds/state/render-binding");
+Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding");
