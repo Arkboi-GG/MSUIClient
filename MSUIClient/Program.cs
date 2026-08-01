@@ -2142,6 +2142,7 @@ public sealed partial class GameLoop : IDisposable
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
         if (!_config.DevTools) return;
+        if (_uiParityArmed) return;
 
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);

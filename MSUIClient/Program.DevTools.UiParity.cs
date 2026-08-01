@@ -23,6 +23,9 @@ public sealed partial class GameLoop
         if (!_config.DevTools || panel is not ("game-menu" or "player-frame" or "target-frame" or "party-frame" or
             "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack")) return;
         _uiParityPanel = panel;
+        // Captures isolate the requested gameplay panel from persistent wire-opened utility
+        // windows; this changes capture presentation only, never the panel draw path.
+        _hearthOpen = false;
         _uiParityStamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         _uiParityRows.Clear(); _uiParityArmed = true; _uiParityFrameSeen = false; _uiParityPresentedFrames = 0;
         if (panel == "game-menu") OpenSettings();
