@@ -21,6 +21,8 @@ public sealed partial class GameLoop
 
     private void ApplySpellStart(SpellStartPacket packet)
     {
+        if (_net is not null && packet.Caster == _net.PlayerGuid)
+            EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
         SpellVisualKitInfo? kit = ResolveSpellKit(info?.VisualId ?? 0, static s => s.Precast);
         ushort? anim = kit?.AnimationId;
@@ -47,6 +49,7 @@ public sealed partial class GameLoop
             _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit, persistent: false, NowSeconds());
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
+            EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_GO");
             if (_pendingCastSpell == packet.SpellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == packet.SpellId) _queuedMeleeSpell = 0;
             _character?.ReleaseSpellVisual(anim);

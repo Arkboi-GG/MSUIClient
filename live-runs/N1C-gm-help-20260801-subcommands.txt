@@ -1,0 +1,70 @@
+Welcome to World of Warcraft!
+Patch 1.12: Drums of War is now live!
+Username: Password: +Logged in.
+ mangos>> help spell
+Command spell have subcommands:
+
+
+    effects
+
+    info
+
+    search
+
+    iconfix
++mangos>> help reset
+Command reset have subcommands:
+
+
+    honor
+
+    level
+
+    spells
+
+    stats
+
+    talents
+
+    items
+
+    all
++mangos>> help character level
+There is no help for that command
++mangos>> character level
+Incorrect syntax.
+-mangos>> spell
+There is no such subcommand
+Command  have subcommands:
+
+
+    effects
+
+    info
+
+    search
+
+    iconfix
+-mangos>> reset
+There is no such subcommand
+Command  have subcommands:
+
+
+    honor
+
+    level
+
+    spells
+
+    stats
+
+    talents
+
+    items
+
+    all
+-mangos>> help gold
+There is no help for that command
++mangos>> help character hasitem
+There is no help for that command
++mangos>

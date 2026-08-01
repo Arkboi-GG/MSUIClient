@@ -416,14 +416,19 @@ public sealed partial class GameLoop
                         {
                             var result = SpellPacketParser.ParseResult(body);
                             if (result.Status == 2)
+                            {
+                                EmitSpellServerResult(result.SpellId, SpellCastResultNames.Name(result.Reason));
                                 ApplySpellFailure(_net.PlayerGuid, result.SpellId,
                                     result.Reason is 0x23 or 0x24 ? "INTERRUPTED" : "FAILED");
+                            }
                         }
                         break;
                     case Op.SMSG_SPELL_FAILED_OTHER:
                         {
                             var r = new PacketReader(body);
-                            ApplySpellFailure(r.ReadU64(), r.ReadU32(), "INTERRUPTED");
+                            ulong caster = r.ReadU64(); uint spell = r.ReadU32();
+                            if (caster == _net.PlayerGuid) EmitSpellServerResult(spell, "SMSG_SPELL_FAILED_OTHER");
+                            ApplySpellFailure(caster, spell, "INTERRUPTED");
                         }
                         break;
                     case Op.SMSG_SPELL_DELAYED:

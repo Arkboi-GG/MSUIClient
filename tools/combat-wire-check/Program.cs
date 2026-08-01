@@ -113,6 +113,10 @@ Check(fireballTarget.Kind == CastTargetKind.Unit && fireballTarget.Guid == 2,
 Check(fireballTarget.Reason == CastTargetReason.SelectedUnit,
       "hostile selected-unit reason");
 Check(Enum.IsDefined(CastTargetReason.PendingCast), "pending-cast refusal reason exists");
+Check(SpellCastResultNames.Name(0x23) == "SPELL_FAILED_INTERRUPTED" &&
+      SpellCastResultNames.Name(0x59) == "SPELL_FAILED_OUT_OF_RANGE" &&
+      SpellCastResultNames.Name(0xFE) == "SPELL_FAILED_0xFE",
+      "cast-result reasons are stable strings with an exact-byte fallback");
 
 var verdicts = new VerdictRing();
 verdicts.Add(Portrait(0));
@@ -122,13 +126,17 @@ Check(verdicts.Snapshot("portrait").Count == 1,
 for (int i = 0; i < 70; i++) verdicts.Add(Portrait(2000 + i));
 for (int i = 0; i < 130; i++) verdicts.Add(Cast(3000 + i));
 for (int i = 0; i < 514; i++) verdicts.Add(Action(4000 + i));
+verdicts.Add(new SpellSweepVerdict(5000, "Test", 1, 78, "Heroic Strike", "PHYSICAL",
+    "NEXT_SWING", "PRE_SEND_PASS", "Stand", "NO_VISUAL", "UNIT", true, true,
+    "RAGE", 100, 15, 2, true));
 Check(verdicts.Snapshot("portrait").Count == 64 &&
       verdicts.Snapshot("cast").Count == 128 &&
       verdicts.Snapshot("action").Count == 512 &&
-      verdicts.Snapshot("anim").Count == 1024,
+      verdicts.Snapshot("anim").Count == 1024 &&
+      verdicts.Snapshot("spell-sweep").Count == 1,
       "per-channel verdict capacities");
 IReadOnlyList<IVerdict> allVerdicts = verdicts.SnapshotAll();
-Check(allVerdicts.Count == 1728 &&
+Check(allVerdicts.Count == 1729 &&
       allVerdicts.Zip(allVerdicts.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time),
       "merged verdict snapshot count/time order");
 

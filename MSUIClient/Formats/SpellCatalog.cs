@@ -8,7 +8,7 @@ public readonly record struct SpellInfo(
     uint RecoveryMs, uint CategoryRecoveryMs,
     uint PowerType, uint ManaCost, uint ManaCostPercent,
     uint StartRecoveryCategory, uint StartRecoveryMs, uint VisualId, float Speed, string Description,
-    uint RangeIndex)
+    uint RangeIndex, uint School = 0)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
@@ -80,7 +80,7 @@ public sealed class SpellCatalog
                 spells.GetUInt(row, 31), spells.GetUInt(row, 32), spells.GetUInt(row, 156),
                 spells.GetUInt(row, 157), spells.GetUInt(row, 158), spells.GetUInt(row, 115),
                 spells.GetFloat(row, 37), spells.GetString(row, 138),
-                spells.GetUInt(row, 36));
+                spells.GetUInt(row, 36), spells.GetUInt(row, 1));
         }
         return result;
     }

@@ -142,6 +142,12 @@ public sealed partial class GameLoop
             RefuseCast(rangeFailure.Text);
             return;
         }
+        if (!SpellResourceGate(spell, out _, out _))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.NotEnoughPower, target, sent: false);
+            RefuseCast("Not enough power");
+            return;
+        }
         _net.CastSpell(spellId, target);
         EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: true);
         if (spell.AutoRepeat) _autoRepeatSpell = spellId;
@@ -196,6 +202,7 @@ public sealed partial class GameLoop
         var verdict = new CastVerdict(
             NowSeconds(), spellId, reason, _selectionGuid, resolvedGuid, sent);
         _verdicts.Add(verdict);
+        EmitSpellSweep(spellId, reason, resolvedGuid, sent);
         if (!sent || resolvedGuid != _selectionGuid)
             Console.WriteLine($"[verdict:cast] {verdict.ToLine()}");
     }

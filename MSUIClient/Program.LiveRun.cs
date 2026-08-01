@@ -213,6 +213,16 @@ public sealed partial class GameLoop
                         Log(RequestVendor(_selectionGuid),$"{line} guid=0x{_selectionGuid:X16}");
                     else Log(false,$"unknown {line}");
                     break;
+                case "spellbook":
+                    int known = EmitKnownSpellInventory();
+                    Log(known > 0, $"{line} known={known}");
+                    break;
+                case "cast":
+                    uint castSpell = uint.Parse(p[1], CultureInfo.InvariantCulture);
+                    int beforeCast = _verdicts.Snapshot("spell-sweep").Count;
+                    TryCast(castSpell);
+                    Log(_verdicts.Snapshot("spell-sweep").Count > beforeCast, line);
+                    break;
                 case "trace": if(p[1]=="start") { _combatTraceName=p[2]; StartCombatTrace(); } else StopCombatTrace(); Log(true,line); break;
                 case "move-trace": if(p[1]=="start") StartMovementTrace(p[2]); else StopMovementTrace(); Log(true,line); break;
                 case "wire-trace":
@@ -373,9 +383,26 @@ public sealed partial class GameLoop
         Directory.CreateDirectory(dir);
         string log=Path.Combine(dir,$"runner-{_liveStamp}.csv"), verdict=Path.Combine(dir,$"verdicts-{_liveStamp}.txt");
         File.WriteAllLines(log,new[]{"step,result,detail"}.Concat(_liveLog)); File.WriteAllLines(verdict,VerdictLines());
+        string spellCsv=Path.Combine(dir,$"spell-sweep-{_liveStamp}.csv");
+        WriteSpellSweepCsv(spellCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}");
         LiveRunExitCode=failures==0?0:1; _window.Close();
+    }
+
+    private void WriteSpellSweepCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent"
+        };
+        foreach (SpellSweepVerdict v in _verdicts.Snapshot("spell-sweep").OfType<SpellSweepVerdict>())
+            lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture), Csv(v.Character),
+                v.ClassId, v.SpellId, Csv(v.SpellName), v.School, v.CastType, v.Result,
+                Csv(v.AnimationState), Csv(v.EffectCheck), v.TargetType, v.GcdReady, v.CooldownReady,
+                v.ResourceType, v.ResourceBefore, v.ResourceCost, $"0x{v.ResolvedGuid:X16}", v.Sent));
+        File.WriteAllLines(path, lines);
     }
 
     private void FinishLiveBootstrap(string result, string detail)

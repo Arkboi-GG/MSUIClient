@@ -18,6 +18,7 @@ public enum CastTargetReason
     Mounted,
     TooClose,
     OutOfRange,
+    NotEnoughPower,
 }
 
 public readonly record struct CastTargetCandidate(
