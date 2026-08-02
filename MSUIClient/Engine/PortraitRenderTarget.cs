@@ -184,13 +184,7 @@ public sealed class PortraitRenderTarget : IDisposable
             throw new ArgumentException("RGBA byte count does not match image dimensions", nameof(rgba));
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
-        for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++)
-        {
-            int i = (y * width + x) * 4;
-            bitmap.SetPixel(x, y,
-                new SKColor(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]));
-        }
+        System.Runtime.InteropServices.Marshal.Copy(rgba, 0, bitmap.GetPixels(), rgba.Length);
         using SKImage image = SKImage.FromBitmap(bitmap);
         using SKData data = image.Encode(SKEncodedImageFormat.Png, 100);
         using FileStream stream = File.Create(path);

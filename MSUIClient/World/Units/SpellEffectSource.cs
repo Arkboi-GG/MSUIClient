@@ -34,6 +34,7 @@ public sealed class SpellEffectSource
         public Vector3 From;
         public Vector3 To;
         public bool Missile;
+        public string Stage = "";
     }
 
     private readonly MpqMount _mpq;
@@ -51,7 +52,7 @@ public sealed class SpellEffectSource
         .ToArray();
 
     public void SpawnKit(ulong unit, uint spell, SpellVisualKitInfo kit, bool persistent,
-        double now, double lifetime = 1.25)
+        double now, string stage, double lifetime = 1.25)
     {
         foreach (var (attachment, path) in kit.Effects)
             if (Load(path) is { } asset)
@@ -59,7 +60,7 @@ public sealed class SpellEffectSource
                 {
                     Id = ++_nextId, Asset = asset, Unit = unit, Spell = spell,
                     Persistent = persistent, Attachment = attachment,
-                    Started = now, Ends = persistent ? double.PositiveInfinity : now + lifetime,
+                    Started = now, Ends = persistent ? double.PositiveInfinity : now + lifetime, Stage = stage,
                 });
     }
 
@@ -71,7 +72,27 @@ public sealed class SpellEffectSource
         {
             Id = ++_nextId, Asset = asset, Unit = caster, Spell = spell,
             Started = now, Ends = now + Math.Max(.05, duration), From = from, To = to, Missile = true,
+            Stage = "MISSILE",
         });
+    }
+
+    public readonly record struct VisualInstance(long Id, string Stage, string Path, Vector3 Position,
+        bool Missile, float Progress, int Emitters, bool MeshValid);
+
+    public IReadOnlyList<VisualInstance> Snapshot(uint spell, double now,
+        Func<ulong, (bool Found, Vector3 Position, float Yaw)> unitPose)
+    {
+        var rows = new List<VisualInstance>();
+        foreach (Instance instance in _instances.Where(instance => instance.Spell == spell))
+        {
+            if (!TryTransform(instance, now, unitPose, out Matrix4x4 transform)) continue;
+            float progress = instance.Missile ? (float)Math.Clamp((now - instance.Started) /
+                Math.Max(.001, instance.Ends - instance.Started), 0, 1) : 0;
+            rows.Add(new(instance.Id, instance.Stage, instance.Asset.Path,
+                new Vector3(transform.M41, transform.M42, transform.M43), instance.Missile,
+                progress, instance.Asset.Emitters.Length, instance.Asset.Model.IsValid));
+        }
+        return rows;
     }
 
     public void Reap(ulong unit, uint spell)

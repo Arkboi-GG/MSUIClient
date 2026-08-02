@@ -28,7 +28,7 @@ public sealed partial class GameLoop
         SpellVisualKitInfo? kit = ResolveSpellKit(info?.VisualId ?? 0, static s => s.Precast);
         ushort? anim = kit?.AnimationId;
         if (kit is { } precastKit)
-            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, precastKit, persistent: true, NowSeconds());
+            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, precastKit, persistent: true, NowSeconds(), "PRECAST");
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
             _character?.BeginSpellVisual(anim);
@@ -50,7 +50,7 @@ public sealed partial class GameLoop
         ushort? anim = kit?.AnimationId;
         _spellEffects?.Reap(packet.Caster, packet.SpellId);
         if (kit is { } castKit)
-            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit, persistent: false, NowSeconds());
+            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit, persistent: false, NowSeconds(), "CAST");
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_GO");
@@ -70,6 +70,12 @@ public sealed partial class GameLoop
             }
         }
         else _creatures?.ReleaseSpellVisual(packet.Caster, anim);
+
+        EmitCombat("SpellGoTargets", "server-packet", packet.Targets.Unit ?? 0,
+            $"spell={packet.SpellId};mask=0x{packet.Targets.Mask:X4};hits={packet.Hits.Length};" +
+            $"hitGuids={string.Join('|', packet.Hits.Select(guid => $"0x{guid:X16}"))};" +
+            $"misses={packet.Misses.Length};missInfo={string.Join('|', packet.Misses.Select(miss => $"0x{miss.Guid:X16}:{miss.Reason}"))};explicitUnit=" +
+            (packet.Targets.Unit is { } explicitUnit ? $"0x{explicitUnit:X16}" : "none"));
 
         foreach (ulong target in packet.Hits)
         {
@@ -93,7 +99,7 @@ public sealed partial class GameLoop
         uint visual = _spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0;
         SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Impact);
         if (kit is { } impactKit)
-            _spellEffects?.SpawnKit(target, spellId, impactKit, persistent: false, NowSeconds());
+            _spellEffects?.SpawnKit(target, spellId, impactKit, persistent: false, NowSeconds(), "IMPACT");
 
         // Reference law (benilla creature_anim/driver/wound.rs:14-15 + net/apply/combat_log.rs):
         // a spell impact animates its victim ONLY through the kit's own authored animation id,
@@ -294,13 +300,13 @@ public sealed partial class GameLoop
             _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
             EmitSpellAnimation(channelInfo, "CHANNEL", channelStages.Channel, animation, "SERVER_CHANNEL");
         if (ResolveSpellKit(visual, static s => s.Channel) is { } channelKit && _net is not null)
-            _spellEffects?.SpawnKit(_net.PlayerGuid, spellId, channelKit, persistent: true, NowSeconds());
+            _spellEffects?.SpawnKit(_net.PlayerGuid, spellId, channelKit, persistent: true, NowSeconds(), "CHANNEL");
     }
 
     private void ApplyPushedVisual(ulong unit, uint kitId)
     {
         if (_spellVisualCatalog?.TryGetKit(kitId, out SpellVisualKitInfo kit) != true) return;
-        _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds());
+        _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds(), "PUSHED");
         if (_net is not null && unit == _net.PlayerGuid)
             _character?.ReleaseSpellVisual(kit.AnimationId);
         else

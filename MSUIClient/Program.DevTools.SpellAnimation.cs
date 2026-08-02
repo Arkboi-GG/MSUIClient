@@ -25,7 +25,7 @@ public sealed partial class GameLoop
         if (_presentedEffectSpell != 0) _spellEffects.Reap(_net.PlayerGuid, _presentedEffectSpell);
         _presentedEffectSpell = spellId;
         _spellEffects.SpawnKit(_net.PlayerGuid, spellId, kit,
-            persistent: stage is "precast" or "state" or "channel", NowSeconds());
+            persistent: stage is "precast" or "state" or "channel", NowSeconds(), stage.ToUpperInvariant());
         if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
             stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
             _character?.BeginSpellVisual(kit.AnimationId);

@@ -1,0 +1,161 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-layer2-smoke.txt
+1,PASS,gm .gm on
+2,PASS,wait 0.25
+3,PASS,gm .modify mana 1000
+4,PASS,gm .additem 17031 10
+5,PASS,gm .additem 17032 10
+6,PASS,gm .additem 17056 10
+7,PASS,gm .go xyz -8970 -132.493 83.53 0
+8,PASS,wait 0.5
+9,PASS,gm .npc spawn add 6
+10,PASS,wait 0.8
+11,PASS,select entry-nearest:6 guid=0xF13000000604A4FC
+12,PASS,wait 0.12
+13,PASS,gm .npc set movetype idle
+14,PASS,gm .npc set reactstate 0
+15,PASS,gm .npc allowmove off
+16,PASS,gm .npc allowattack off
+17,PASS,gm .modify hp 1000000 1000000
+18,PASS,gm .gm on
+19,PASS,wait 1.0
+20,PASS,gm .cooldown clear
+21,PASS,gm .modify mana 1000
+22,PASS,select entry-nearest:6 guid=0xF13000000604A4FC
+23,PASS,wait 0.12
+24,PASS,gm .unaura all
+25,PASS,gm .modify hp 1000000 1000000
+26,PASS,gm .gm off
+27,PASS,wait 0.35
+28,PASS,anchor selected 20 guid=0xF13000000604A4FC position=-8970.529|-131.30354|83.35735
+29,PASS,wait 0.35
+30,PASS,release w
+31,PASS,animation-sequence start 10202 standing
+32,PASS,animation-sequence sample n3-mage-10202-standing-00
+33,PASS,cast 10202
+34,PASS,wait 0.08
+35,PASS,animation-sequence sample n3-mage-10202-standing-01
+36,PASS,wait 0.12
+37,PASS,animation-sequence sample n3-mage-10202-standing-02
+38,PASS,wait 0.12
+39,PASS,animation-sequence sample n3-mage-10202-standing-03
+40,PASS,wait 0.12
+41,PASS,animation-sequence sample n3-mage-10202-standing-04
+42,PASS,wait 0.12
+43,PASS,animation-sequence sample n3-mage-10202-standing-05
+44,PASS,wait 0.12
+45,PASS,animation-sequence sample n3-mage-10202-standing-06
+46,PASS,wait 0.12
+47,PASS,animation-sequence sample n3-mage-10202-standing-07
+48,PASS,wait 0.12
+49,PASS,animation-sequence sample n3-mage-10202-standing-08
+50,PASS,wait 0.12
+51,PASS,animation-sequence sample n3-mage-10202-standing-09
+52,PASS,wait 0.12
+53,PASS,animation-sequence sample n3-mage-10202-standing-10
+54,PASS,wait 0.12
+55,PASS,animation-sequence sample n3-mage-10202-standing-11
+56,PASS,wait 0.12
+57,PASS,animation-sequence sample n3-mage-10202-standing-12
+58,PASS,wait 0.12
+59,PASS,animation-sequence sample n3-mage-10202-standing-13
+60,PASS,wait 0.12
+61,PASS,animation-sequence sample n3-mage-10202-standing-14
+62,PASS,wait 0.12
+63,PASS,animation-sequence sample n3-mage-10202-standing-15
+64,PASS,wait 0.12
+65,PASS,animation-sequence sample n3-mage-10202-standing-16
+66,PASS,wait 0.12
+67,PASS,animation-sequence sample n3-mage-10202-standing-17
+68,PASS,wait 0.12
+69,PASS,animation-sequence sample n3-mage-10202-standing-18
+70,PASS,wait 0.12
+71,PASS,animation-sequence sample n3-mage-10202-standing-19
+72,PASS,wait 0.12
+73,PASS,animation-sequence sample n3-mage-10202-standing-20
+74,PASS,wait 0.12
+75,PASS,animation-sequence sample n3-mage-10202-standing-21
+76,PASS,wait 0.12
+77,PASS,animation-sequence sample n3-mage-10202-standing-22
+78,PASS,wait 0.12
+79,PASS,animation-sequence sample n3-mage-10202-standing-23
+80,PASS,wait 0.12
+81,PASS,animation-sequence sample n3-mage-10202-standing-24
+82,PASS,animation-sequence stop
+83,PASS,gm .gm on
+84,PASS,wait 1.0
+85,PASS,gm .cooldown clear
+86,PASS,gm .modify mana 1000
+87,PASS,select entry-nearest:6 guid=0xF13000000604A4FC
+88,PASS,wait 0.12
+89,PASS,gm .unaura all
+90,PASS,gm .modify hp 1000000 1000000
+91,PASS,gm .gm off
+92,PASS,wait 0.35
+93,PASS,anchor selected 20 guid=0xF13000000604A4FC position=-8970.529|-131.30354|83.35735
+94,PASS,wait 0.35
+95,PASS,press w
+96,PASS,wait 0.35
+97,PASS,animation-sequence start 10202 moving
+98,PASS,animation-sequence sample n3-mage-10202-moving-00
+99,PASS,cast 10202
+100,PASS,wait 0.08
+101,PASS,animation-sequence sample n3-mage-10202-moving-01
+102,PASS,wait 0.12
+103,PASS,animation-sequence sample n3-mage-10202-moving-02
+104,PASS,wait 0.12
+105,PASS,animation-sequence sample n3-mage-10202-moving-03
+106,PASS,wait 0.12
+107,PASS,animation-sequence sample n3-mage-10202-moving-04
+108,PASS,wait 0.12
+109,PASS,animation-sequence sample n3-mage-10202-moving-05
+110,PASS,wait 0.12
+111,PASS,animation-sequence sample n3-mage-10202-moving-06
+112,PASS,wait 0.12
+113,PASS,animation-sequence sample n3-mage-10202-moving-07
+114,PASS,wait 0.12
+115,PASS,animation-sequence sample n3-mage-10202-moving-08
+116,PASS,wait 0.12
+117,PASS,animation-sequence sample n3-mage-10202-moving-09
+118,PASS,wait 0.12
+119,PASS,animation-sequence sample n3-mage-10202-moving-10
+120,PASS,wait 0.12
+121,PASS,animation-sequence sample n3-mage-10202-moving-11
+122,PASS,wait 0.12
+123,PASS,animation-sequence sample n3-mage-10202-moving-12
+124,PASS,wait 0.12
+125,PASS,animation-sequence sample n3-mage-10202-moving-13
+126,PASS,wait 0.12
+127,PASS,animation-sequence sample n3-mage-10202-moving-14
+128,PASS,wait 0.12
+129,PASS,animation-sequence sample n3-mage-10202-moving-15
+130,PASS,wait 0.12
+131,PASS,animation-sequence sample n3-mage-10202-moving-16
+132,PASS,wait 0.12
+133,PASS,animation-sequence sample n3-mage-10202-moving-17
+134,PASS,wait 0.12
+135,PASS,animation-sequence sample n3-mage-10202-moving-18
+136,PASS,wait 0.12
+137,PASS,animation-sequence sample n3-mage-10202-moving-19
+138,PASS,wait 0.12
+139,PASS,animation-sequence sample n3-mage-10202-moving-20
+140,PASS,wait 0.12
+141,PASS,animation-sequence sample n3-mage-10202-moving-21
+142,PASS,wait 0.12
+143,PASS,animation-sequence sample n3-mage-10202-moving-22
+144,PASS,wait 0.12
+145,PASS,animation-sequence sample n3-mage-10202-moving-23
+146,PASS,wait 0.12
+147,PASS,animation-sequence sample n3-mage-10202-moving-24
+148,PASS,animation-sequence stop
+149,PASS,release w
+150,PASS,wait 0.15
+151,PASS,release w
+152,PASS,gm .gm on
+153,PASS,wait 0.25
+154,PASS,select entry-nearest:6 guid=0xF13000000604A4FC
+155,PASS,wait 0.12
+156,PASS,gm .npc spawn delete
+157,PASS,wait 0.5
+158,PASS,gm .gps
+159,PASS,waitfor GmChatResponse

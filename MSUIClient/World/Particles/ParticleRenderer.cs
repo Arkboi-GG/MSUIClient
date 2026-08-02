@@ -270,6 +270,13 @@ public sealed class ParticleRenderer : IDisposable
         _config = config;
     }
 
+    public (int Pools, int LiveParticles, int DrawnParticles) VisualState(string pathPrefix)
+    {
+        Pool[] pools = _pools.Where(pair => pair.Key.Path.StartsWith(pathPrefix,
+            StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Value).ToArray();
+        return (pools.Length, pools.Sum(pool => pool.Particles.Count), pools.Sum(pool => pool.DrawnLastFrame));
+    }
+
     public void LoadShaders(string shaderDir)
     {
         _shader = Shader.FromFiles(_gl,
@@ -300,6 +307,7 @@ public sealed class ParticleRenderer : IDisposable
         public float SpawnAccumulator;
         public readonly List<Particle> Particles = [];
         public bool TouchedThisFrame;
+        public int DrawnLastFrame;
         public uint Seed = 0x9E3779B9;
 
         /// <summary>Uniform scale of the placement, applied to speed and sprite size.</summary>
@@ -779,6 +787,7 @@ public sealed class ParticleRenderer : IDisposable
     {
         DrawnLastFrame = 0;
         DrawMilliseconds = 0.0;
+        foreach (Pool pool in _pools.Values) pool.DrawnLastFrame = 0;
         if (!Enabled || _shader is null || _pools.Count == 0) return;
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -869,6 +878,7 @@ public sealed class ParticleRenderer : IDisposable
 
             UploadInstances();
             _gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)_scratch.Count);
+            foreach (Pool pool in pools) pool.DrawnLastFrame = pool.Particles.Count;
             DrawnLastFrame += _scratch.Count;
         }
 

@@ -1085,17 +1085,16 @@ public class M2Reader
             // ── Vertices ────────────────────────────────────────────────────
             uint nVertices = ReadUInt32(data, 0x044);
             uint ofsVertices = ReadUInt32(data, 0x048);
-            if (nVertices == 0 || ofsVertices == 0 || ofsVertices >= data.Length)
-                return null;
-            if (!ParseVertices(data, nVertices, ofsVertices, model))
+            bool particleOnly = nVertices == 0;
+            if (!particleOnly && (ofsVertices == 0 || ofsVertices >= data.Length ||
+                !ParseVertices(data, nVertices, ofsVertices, model)))
                 return null;
 
             // ── Views (vanilla = inlined; we always read view 0) ────────────
             uint nViews = ReadUInt32(data, 0x04C);
             uint ofsViews = ReadUInt32(data, 0x050);
-            if (nViews == 0 || ofsViews == 0 || ofsViews >= data.Length)
-                return null;
-            if (!ParseInlinedView(data, ofsViews, model))
+            if (!particleOnly && (nViews == 0 || ofsViews == 0 || ofsViews >= data.Length ||
+                !ParseInlinedView(data, ofsViews, model)))
                 return null;
 
             // ── Textures + lookups + render flags + transparency ────────────
@@ -1121,7 +1120,7 @@ public class M2Reader
 
             ParsePortraitCamera(data, model);
 
-            return model.IsValid ? model : null;
+            return model.IsValid || model.ParticleEmitters.Count > 0 ? model : null;
         }
         catch
         {

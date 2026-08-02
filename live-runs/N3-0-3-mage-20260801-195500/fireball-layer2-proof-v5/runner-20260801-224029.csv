@@ -1,0 +1,73 @@
+step,result,detail
+START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\night03\mage-fireball-layer2-proof.txt
+1,PASS,gm .gm on
+2,PASS,wait 0.25
+3,PASS,gm .modify mana 1000
+4,PASS,gm .additem 17031 10
+5,PASS,gm .additem 17032 10
+6,PASS,gm .additem 17056 10
+7,PASS,gm .gm on
+8,PASS,wait 1.65
+9,PASS,gm .go xyz -8970 -132.493 83.53 0
+10,PASS,wait 0.5
+11,PASS,gm .cooldown clear
+12,PASS,gm .modify mana 1000
+13,PASS,gm .npc spawn add 6
+14,PASS,wait 0.8
+15,PASS,select entry-nearest:6 guid=0xF13000000604A4FA
+16,PASS,wait 0.12
+17,PASS,gm .npc set movetype idle
+18,PASS,gm .npc set reactstate 0
+19,PASS,gm .npc allowmove off
+20,PASS,gm .npc allowattack off
+21,PASS,gm .modify hp 1000000 1000000
+22,PASS,wait 0.5
+23,PASS,wait 0.12
+24,PASS,gm .gm off
+25,PASS,wait 1.0
+26,PASS,gm .gps
+27,PASS,waitfor GmChatResponse
+28,PASS,select entry-nearest:6 guid=0xF13000000604A4FA
+29,PASS,wait 0.12
+30,PASS,anchor selected 20 guid=0xF13000000604A4FA position=-8970|-132.493|83.30938
+31,PASS,wait 0.35
+32,PASS,release w
+33,PASS,animation-sequence start 133 standing
+34,PASS,animation-sequence sample n3-mage-133-standing-00
+35,PASS,cast 133
+36,PASS,wait 0.42
+37,PASS,animation-sequence sample n3-mage-133-standing-01
+38,PASS,wait 0.42
+39,PASS,animation-sequence sample n3-mage-133-standing-02
+40,PASS,wait 0.42
+41,PASS,animation-sequence sample n3-mage-133-standing-03
+42,PASS,wait 0.42
+43,PASS,animation-sequence sample n3-mage-133-standing-04
+44,PASS,wait 0.42
+45,PASS,animation-sequence sample n3-mage-133-standing-05
+46,PASS,wait 0.42
+47,PASS,animation-sequence sample n3-mage-133-standing-06
+48,PASS,wait 0.42
+49,PASS,animation-sequence sample n3-mage-133-standing-07
+50,PASS,wait 0.42
+51,PASS,animation-sequence sample n3-mage-133-standing-08
+52,PASS,wait 0.42
+53,PASS,animation-sequence sample n3-mage-133-standing-09
+54,PASS,wait 0.42
+55,PASS,animation-sequence sample n3-mage-133-standing-10
+56,PASS,wait 0.42
+57,PASS,animation-sequence sample n3-mage-133-standing-11
+58,PASS,wait 0.42
+59,PASS,animation-sequence sample n3-mage-133-standing-12
+60,PASS,wait 0.42
+61,PASS,animation-sequence sample n3-mage-133-standing-13
+62,PASS,animation-sequence stop
+63,PASS,gm .gm on
+64,PASS,wait 0.25
+65,PASS,gm .npc spawn delete
+66,PASS,wait 0.5
+67,PASS,release w
+68,PASS,gm .gm on
+69,PASS,wait 0.25
+70,PASS,gm .gps
+71,PASS,waitfor GmChatResponse

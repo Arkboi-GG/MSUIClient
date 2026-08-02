@@ -70,8 +70,10 @@ public sealed partial class GameLoop
     {
         if (_liveRunOptions is null) return;
         _liveRunElapsed += dt;
-        if (_liveRunElapsed > _liveRunOptions.TimeoutSeconds)
-        { FinishLiveBootstrap("TIMEOUT", "world did not become ready"); return; }
+        if (_liveSteps is null && _liveRunElapsed > 180)
+        { FinishLiveBootstrap("TIMEOUT", "world did not become ready within 180 seconds"); return; }
+        if (_liveSteps is not null && _liveRunElapsed > _liveRunOptions.TimeoutSeconds)
+        { FinishLiveBootstrap("TIMEOUT", "protocol exceeded its separate run timeout"); return; }
         if (_net is not { IsInWorld:true } || _worldLoading || _controller is null || _character is null) return;
         if (_liveTeleportSent)
         {
@@ -233,9 +235,10 @@ public sealed partial class GameLoop
                     }
                     _liveSelectWaitStarted=0;
                     _liveAnchorGuid=anchorGuid;
+                    float anchorOffset=p.Length>2?float.Parse(p[2],CultureInfo.InvariantCulture):0f;
                     bool anchored=anchorGuid!=0&&anchorTarget is not null&&SendGmCommand(
                         string.Create(CultureInfo.InvariantCulture,
-                            $".go xyz {anchorTarget.Position.X:R} {anchorTarget.Position.Y:R} {anchorTarget.Position.Z:R} {_config.Start.Map}"),
+                            $".go xyz {anchorTarget.Position.X-anchorOffset:R} {anchorTarget.Position.Y:R} {anchorTarget.Position.Z:R} {_config.Start.Map}"),
                         "protocol-runner-anchor");
                     Log(anchored,$"{line} guid=0x{anchorGuid:X16} position="+
                         (anchorTarget is null?"unavailable":$"{anchorTarget.Position.X:R}|{anchorTarget.Position.Y:R}|{anchorTarget.Position.Z:R}"));
@@ -852,7 +855,7 @@ public sealed partial class GameLoop
         static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
         var lines = new List<string>
         {
-            "time,character,spell_id,cell,row_kind,coverage,sample_index,frame,actual_stage,expected_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,moving,active_models,asset_sources,animation_verdict,blend_verdict,gm_mode,source"
+            "time,character,spell_id,cell,row_kind,coverage,sample_index,frame,actual_stage,expected_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,moving,player_health,player_power,selection_health,player_x,player_y,player_z,unit_count,player_auras,selection_auras,inventory_fingerprint,health_changed,target_health_changed,position_changed,unit_count_changed,aura_changed,inventory_changed,power_changed,precast_visual,cast_visual,missile_visual,impact_visual,visual_instances,spell_visual_verdict,active_models,asset_sources,caster_animation_verdict,blend_verdict,gm_mode,source"
         };
         foreach (SpellAnimationSequenceVerdict v in _verdicts.Snapshot("spell-animation-sequence").OfType<SpellAnimationSequenceVerdict>())
             lines.Add(string.Join(',', v.Time.ToString("F3", CultureInfo.InvariantCulture), Csv(v.Character),
@@ -860,7 +863,14 @@ public sealed partial class GameLoop
                 v.ExpectedAnimationId, v.RequestedAnimationId, v.PlayedAnimationId, v.Resolution,
                 Csv(v.RendererState), Csv(v.BaseAnimation), Csv(v.PreviousBaseAnimation),
                 Csv(v.ActionAnimation), Csv(v.HoldAnimation), v.BlendWeight.ToString("F4", CultureInfo.InvariantCulture),
-                v.Moving, Csv(v.ActiveModels), Csv(v.AssetSources), v.AnimationVerdict, v.BlendVerdict,
+                v.Moving, v.PlayerHealth, v.PlayerPower, v.SelectionHealth,
+                v.PlayerX.ToString("F4", CultureInfo.InvariantCulture), v.PlayerY.ToString("F4", CultureInfo.InvariantCulture),
+                v.PlayerZ.ToString("F4", CultureInfo.InvariantCulture), v.UnitCount, Csv(v.PlayerAuras),
+                Csv(v.SelectionAuras), Csv(v.InventoryFingerprint), v.HealthChanged, v.TargetHealthChanged,
+                v.PositionChanged, v.UnitCountChanged, v.AuraChanged, v.InventoryChanged, v.PowerChanged,
+                v.PrecastVisual, v.CastVisual, v.MissileVisual, v.ImpactVisual, Csv(v.VisualInstances),
+                v.SpellVisualVerdict,
+                Csv(v.ActiveModels), Csv(v.AssetSources), v.AnimationVerdict, v.BlendVerdict,
                 v.GmMode, v.Source));
         File.WriteAllLines(path, lines);
     }

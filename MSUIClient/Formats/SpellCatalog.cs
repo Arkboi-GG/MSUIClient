@@ -9,7 +9,9 @@ public readonly record struct SpellInfo(
     uint PowerType, uint ManaCost, uint ManaCostPercent,
     uint StartRecoveryCategory, uint StartRecoveryMs, uint VisualId, float Speed, string Description,
     uint RangeIndex, uint School = 0, uint CastingTimeIndex = 0, int CastTimeMs = 0,
-    uint DurationIndex = 0, int DurationMs = 0)
+    uint DurationIndex = 0, int DurationMs = 0, uint[]? EffectIds = null,
+    uint[]? AuraIds = null, uint[]? ImplicitTargetsA = null, uint[]? ImplicitTargetsB = null,
+    int[]? EffectMiscValues = null, uint[]? EffectItemTypes = null)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
@@ -103,7 +105,13 @@ public sealed class SpellCatalog
                 spells.GetFloat(row, 37), spells.GetString(row, 138),
                 spells.GetUInt(row, 36), spells.GetUInt(row, 1), castTimeIndex,
                 result._castTimes.GetValueOrDefault(castTimeIndex), durationIndex,
-                result._durations.GetValueOrDefault(durationIndex));
+                result._durations.GetValueOrDefault(durationIndex),
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 61 + i)).ToArray(),
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 91 + i)).ToArray(),
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 82 + i)).ToArray(),
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 85 + i)).ToArray(),
+                Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 106 + i)).ToArray(),
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 103 + i)).ToArray());
             var reagents = new List<SpellReagent>(8);
             for (int i = 0; i < 8; i++)
             {

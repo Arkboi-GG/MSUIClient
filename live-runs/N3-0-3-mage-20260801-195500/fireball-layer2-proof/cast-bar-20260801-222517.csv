@@ -1,0 +1,3 @@
+time,character,spell_id,name,event,classification,server_duration_ms,dbc_cast_time_ms,dbc_duration_ms,phase,started,ends,pushback_total_ms,cancel_source,animation_state
+9.339,"Nbmaghuman",133,"Fireball",CAST_START,CAST_TIME,1500,1500,4000,CASTING,9.338,10.838,0,NONE,"Stand"
+10.794,"Nbmaghuman",133,"Fireball",CAST_COMPLETE,CAST_TIME,0,1500,4000,SUCCESS,9.338,10.838,0,NONE,"Anim51"

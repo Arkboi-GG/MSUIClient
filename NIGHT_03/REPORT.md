@@ -73,3 +73,43 @@ missing from the mounted MPQs. No full-sweep PASS count is claimed yet.
 Reference: `live-runs/N3-0-3-mage-20260801-195500/mage-expected-animation.csv`.
 Keys: `NIGHT_03/cohorts/mage-untalented-level60-nonpassive.keys` and
 `NIGHT_03/cohorts/mage-untalented-level60-passive.keys`.
+
+## Instrument-truth correction -- spell visual layer
+
+Status: `INSTRUMENT-BLOCKER`; the earlier 0-2 acceptance and all Mage PASS
+counts are withdrawn. Item 3-2 has not opened.
+
+The first Mage matrix measured only the caster skeleton. Its 116 `ANIM-EXACT`
+cells did not prove that a spell visual rendered: 341 of 348 cell summaries had
+an empty `active_models`, including 114 of the 116 exact-animation rows. The
+corrected schema carries independent `CASTER-ANIM-*` and `SPELL-VISUAL-*`
+verdicts. Layer 2 has renderer-derived PRECAST, CAST, MISSILE, and IMPACT
+sub-verdicts; missile PRESENT additionally requires distinct world positions
+over time. `asset_sources` is only resolution evidence. It cannot substitute
+for a live renderer instance or a draw submission.
+
+Diagnosis found 44 distinct Mage model paths. Before the repair, 17 existing
+particle-only M2 files failed parsing because `M2Reader` rejected zero-vertex
+models before reading their particle emitters. After allowing a valid model to
+contain emitters without mesh vertices, all 44 parse as drawable. This explains
+the broad hand/cast/impact instantiation failure. A second bounded control found
+that entry 11583 rejected Fireball, while a fresh entry-6 target produced a real
+hit list. The final Fireball proof, GM OFF, records PRECAST PRESENT, CAST
+PRESENT, MISSILE PRESENT at six changing positions between caster and target,
+and IMPACT PRESENT. Its composite spell-visual verdict is
+`SPELL-VISUAL-PRESENT`.
+
+The historical `asset_sources` duplication was a citation-join defect, not two
+stages resolving to one file. The join is now case-insensitively deduplicated,
+and cell summaries cite the union of all expected stage paths while
+`active_models` cites the union actually instantiated during the sequence.
+
+The 108 historical `ANIM-STATIC` cells group by expected animation ID as:
+`-1:78`, `54:19`, `53:6`, `125:4`, `124:1`. No single missing model source
+explains them. The largest group has no authored animation ID; the remaining
+groups span fire, magic, ice, and ritual assets. The committed cell list is
+`live-runs/N3-0-3-mage-20260801-195500/mage-caster-static-by-expected.csv`.
+
+Evidence: `mage-visual-load-diagnosis.csv`,
+`mage-visual-load-diagnosis-after.csv`, `fireball-layer2-proof-v6/`,
+`NIGHT_03/GM_SYNTAX.md`, and `NIGHT_03/RUN_POLICY.md`.

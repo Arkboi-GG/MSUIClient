@@ -50,6 +50,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
     public int DrawnLastFrame { get; private set; }
+    private readonly HashSet<string> _drawnPaths = new(StringComparer.OrdinalIgnoreCase);
+    public bool WasDrawn(string path) => _drawnPaths.Contains(path);
 
     public SpellEffectMeshRenderer(GL gl, MpqMount mpq)
     {
@@ -65,6 +67,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         IEnumerable<(string Path, M2Model Model, Matrix4x4 Transform, float Age)> instances)
     {
         DrawnLastFrame = 0;
+        _drawnPaths.Clear();
         if (_shader is null) return;
         var ready = instances.Select(x => (Source: x, Mesh: Resolve(x.Path, x.Model)))
             .Where(x => x.Mesh is not null).ToArray();
@@ -125,6 +128,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                     _gl.DepthMask(!transparent && !batch.NoZWrite);
                     _gl.DrawElements(PrimitiveType.Triangles, batch.Count,
                         DrawElementsType.UnsignedShort, (void*)(batch.Start * sizeof(ushort)));
+                    _drawnPaths.Add(item.Source.Path);
                 }
                 DrawnLastFrame++;
             }

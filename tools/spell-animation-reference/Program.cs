@@ -37,7 +37,7 @@ using (var parser = new TextFieldParser(input) { TextFieldType = FieldType.Delim
 Directory.CreateDirectory(Path.GetDirectoryName(output)!);
 var lines = new List<string>
 {
-    "class,spell_id,name,rank,school,cast_type,visual_id,precast_kit,precast_animation,precast_models,cast_kit,cast_animation,cast_models,impact_kit,impact_animation,impact_models,state_kit,state_animation,state_models,channel_kit,channel_animation,channel_models,missile_model,coverage"
+    "class,spell_id,name,rank,school,cast_type,cast_time_ms,duration_ms,speed,effect_ids,aura_ids,implicit_targets_a,implicit_targets_b,effect_misc_values,effect_item_types,visual_id,precast_kit,precast_animation,precast_models,cast_kit,cast_animation,cast_models,impact_kit,impact_animation,impact_models,state_kit,state_animation,state_models,channel_kit,channel_animation,channel_models,missile_model,coverage"
 };
 foreach (uint id in known.Keys)
 {
@@ -47,7 +47,10 @@ foreach (uint id in known.Keys)
         state = Stage(stages.State), channel = Stage(stages.Channel);
     string missile = visuals.MissilePath(stages) is { } missilePath ? Source(missilePath) : "";
     lines.Add(string.Join(',', Csv(className), id, Csv(spell.Name), Csv(spell.Rank), spell.School,
-        spell.CastClassification, spell.VisualId, stages.Precast, precast[0], Csv(precast[1]),
+        spell.CastClassification, spell.CastTimeMs, spell.DurationMs, spell.Speed.ToString("R", CultureInfo.InvariantCulture),
+        Csv(Join(spell.EffectIds)), Csv(Join(spell.AuraIds)), Csv(Join(spell.ImplicitTargetsA)),
+        Csv(Join(spell.ImplicitTargetsB)), Csv(Join(spell.EffectMiscValues)), Csv(Join(spell.EffectItemTypes)),
+        spell.VisualId, stages.Precast, precast[0], Csv(precast[1]),
         stages.Cast, cast[0], Csv(cast[1]), stages.Impact, impact[0], Csv(impact[1]),
         stages.State, state[0], Csv(state[1]), stages.Channel, channel[0], Csv(channel[1]),
         Csv(missile), spell.VisualId == 0 ? "NOT-PRESENT" : "MEASURED"));
@@ -57,6 +60,8 @@ WriteKeys(cohortPrefix + "-nonpassive.keys", known, "every non-passive spell ran
 WriteKeys(cohortPrefix + "-passive.keys", passives, "every passive spell known at level 60, untalented; excluded from cast cells");
 Console.WriteLine($"[spell-animation-reference] class={className} nonpassive={known.Count} passive={passives.Count} output={output}");
 return 0;
+
+static string Join<T>(IEnumerable<T>? values) => values is null ? "" : string.Join('|', values);
 
 string[] Stage(uint kitId)
 {

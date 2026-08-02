@@ -284,4 +284,37 @@ public sealed partial class GameLoop
         PortraitRenderTarget.SaveRgbaPng(path, width, height, topDown);
         return true;
     }
+
+    /// <summary>Evidence-only framebuffer capture for high-volume spell sequences.
+    /// The acting renderer is sampled unchanged; only the stored evidence image is
+    /// reduced to a bounded 640px width so a full class matrix remains reviewable.</summary>
+    private unsafe bool TrySaveAnimationSequenceFrame(string path)
+    {
+        if (_gl is null) return false;
+        Vector2 size = _window.FramebufferSize;
+        int sourceWidth = Math.Max(1, (int)size.X);
+        int sourceHeight = Math.Max(1, (int)size.Y);
+        byte[] bottomUp = new byte[checked(sourceWidth * sourceHeight * 4)];
+        fixed (byte* pixels = bottomUp)
+            _gl.ReadPixels(0, 0, (uint)sourceWidth, (uint)sourceHeight,
+                PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+
+        int width = Math.Min(480, sourceWidth);
+        int height = Math.Max(1, sourceHeight * width / sourceWidth);
+        byte[] reduced = new byte[checked(width * height * 4)];
+        for (int y = 0; y < height; y++)
+        {
+            int sourceY = sourceHeight - 1 - y * sourceHeight / height;
+            for (int x = 0; x < width; x++)
+            {
+                int sourceX = x * sourceWidth / width;
+                int source = (sourceY * sourceWidth + sourceX) * 4;
+                int target = (y * width + x) * 4;
+                System.Buffer.BlockCopy(bottomUp, source, reduced, target, 4);
+            }
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        PortraitRenderTarget.SaveRgbaPng(path, width, height, reduced);
+        return true;
+    }
 }
