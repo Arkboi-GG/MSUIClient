@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Numerics;
 using MSUIClient.Formats;
 
@@ -197,7 +197,7 @@ public sealed class SpellEffectSource
     }
 
     /// <summary>
-    /// Spawn a kit anchored at a fixed world point — the dynamic-object area visual
+    /// Spawn a kit anchored at a fixed world point â€” the dynamic-object area visual
     /// (Blizzard's falling snow, Rain of Fire, consecrate rings). Keyed by the dynobj
     /// guid so <see cref="Reap"/> removes it when the object despawns. Attachment is
     /// forced to the base tag (0x13) so ground-anchored mesh batches drape terrain.
@@ -335,7 +335,7 @@ public sealed class SpellEffectSource
         {
             if (instance.Asset is not { } asset || !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
-            double age = Math.Max(0, now - (instance.Missile ? Math.Max(instance.Started, instance.ReleaseAt) : instance.Started));
+            double age = InstanceAge(instance, asset, now);
             int animationId = instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0;
             Matrix4x4[]? effectSkin = null;
             if (asset.Animator is { } animator)
@@ -365,6 +365,24 @@ public sealed class SpellEffectSource
         }
     }
 
+    /// <summary>
+    /// Effect age driving animation and emitter gates. Area-anchored instances (dynamic-object
+    /// visuals) LOOP their first sequence: the authored clip is short (Blizzard_Impact_Base is
+    /// 3.3s) while the dynobj lives for the spell's whole duration â€” without the wrap the clip
+    /// clamps at its end, emission gates shut off and the falling-shard bones freeze.
+    /// </summary>
+    private static double InstanceAge(Instance instance, Asset asset, double now)
+    {
+        double age = Math.Max(0, now - (instance.Missile
+            ? Math.Max(instance.Started, instance.ReleaseAt) : instance.Started));
+        if (instance.Area && asset.Model.Sequences.FirstOrDefault() is { } seq)
+        {
+            double span = Math.Max(0.05, (seq.EndTimestamp - seq.StartTimestamp) / 1000.0);
+            age %= span;
+        }
+        return age;
+    }
+
     public IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
         float Age, int AnimationId, bool GroundAnchor, string? CustomTexture)> MeshInstances(double now, Func<ulong, SpellUnitPose> unitPose)
     {
@@ -374,7 +392,7 @@ public sealed class SpellEffectSource
                 !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
             yield return (instance.Id, asset.Path, asset.Model, transform,
-                (float)Math.Max(0, now - (instance.Missile ? Math.Max(instance.Started, instance.ReleaseAt) : instance.Started)),
+                (float)InstanceAge(instance, asset, now),
                 instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0,
                 !instance.Missile && instance.Attachment == 0x13, instance.CustomTexture);
         }
@@ -389,7 +407,7 @@ public sealed class SpellEffectSource
                 !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
             yield return (instance.Id, asset.Path, asset.Model, transform,
-                (float)Math.Max(0, now - (instance.Missile ? Math.Max(instance.Started, instance.ReleaseAt) : instance.Started)),
+                (float)InstanceAge(instance, asset, now),
                 instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0);
         }
     }
@@ -399,7 +417,12 @@ public sealed class SpellEffectSource
     {
         if (instance.Area)
         {
-            transform = Matrix4x4.CreateTranslation(instance.Position);
+            // Model space is Y-up ((x, z, -y) from WoW; M2Reader convention) — the world is
+            // Z-up, so a bare translation lays the effect ON ITS SIDE: Blizzard's snow bones,
+            // authored 7-30 units up local +Y, land N yards NORTH at ankle height (proven by
+            // the particle census). RotationX(+90°) stands the model up: local +Y → world +Z.
+            transform = Matrix4x4.CreateRotationX(MathF.PI / 2f) *
+                Matrix4x4.CreateTranslation(instance.Position);
             return true;
         }
         if (instance.Missile)
@@ -425,7 +448,7 @@ public sealed class SpellEffectSource
         {
             transform = SpellAttachment.World(pose.Model, point, pose.UnitTransform, pose.BoneMatrix);
             // Some creature models resolve a kit attach (e.g. the impact chest tag 0x22) to a bone
-            // that sits far from the body — a mis-scaled prop joint that throws the effect dozens of
+            // that sits far from the body â€” a mis-scaled prop joint that throws the effect dozens of
             // yards off the target (same failure the missile destination hit). Clamp an implausible
             // result to the unit's chest so an impact can't fly off; mirrors ResolveMissileDestination.
             var at = new Vector3(transform.M41, transform.M42, transform.M43);
@@ -461,9 +484,9 @@ public sealed class SpellEffectSource
     /// The world point a missile homes to on its target. Benilla resolves the DBC dest-attach
     /// (SpellVisual field 9) to a body point; but some vanilla NPC models map that same tag
     /// (0x22 for Fireball) to a bone that sits far from the body in model space and is amplified
-    /// by the model's render scale — resolving 60+ yards off, which sends the projectile arcing
+    /// by the model's render scale â€” resolving 60+ yards off, which sends the projectile arcing
     /// into the sky. When the attach resolves implausibly far from the unit's base, fall back to
-    /// the target's body centre (the reference's practical body-homing target — see
+    /// the target's body centre (the reference's practical body-homing target â€” see
     /// benilla missile.rs, "homing aims at the dest attach point ... same body point in practice").
     /// </summary>
     private static Vector3 ResolveMissileDestination(in SpellUnitPose pose, ushort attachment)
@@ -504,8 +527,8 @@ public sealed class SpellEffectSource
     {
         if (!pose.Found) return pose.Position;
         // The event-marker Position is MODEL SPACE (same convention as M2Attachment.Position), so
-        // it rides the bone's RAW skinning matrix — subtract the pivot before the posed frame
-        // (T(pivot)·Skin) exactly like SpellAttachment.World, or the launch lands ~a pivot off the
+        // it rides the bone's RAW skinning matrix â€” subtract the pivot before the posed frame
+        // (T(pivot)Â·Skin) exactly like SpellAttachment.World, or the launch lands ~a pivot off the
         // hand (the release marker sat ~1yd in front of the caster's hand before this).
         if (pose.BoneMatrix(bone) is not { } model) return pose.Position;
         Vector3 pivot = pose.Model is { } m && bone < m.Bones.Count ? m.Bones[bone].Pivot : Vector3.Zero;
@@ -548,3 +571,4 @@ public sealed class SpellEffectSource
         return asset;
     }
 }
+

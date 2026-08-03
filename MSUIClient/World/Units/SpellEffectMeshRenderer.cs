@@ -177,6 +177,14 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                             opacity *= M2TrackSampling.Fixed16(item.Source.Model.TransparencyTracks[track],
                                 item.Source.Model, sequence, item.Source.Age);
                     }
+                    // TEMP diagnostic (Blizzard area-mesh hunt): sample what this batch resolves to.
+                    if (Environment.GetEnvironmentVariable("MSUI_FX_TRACE") is not null &&
+                        item.Source.Path.Contains("Blizzard", StringComparison.OrdinalIgnoreCase) &&
+                        Environment.TickCount64 % 1000 < 20)
+                        Console.WriteLine($"[fx-trace] {Path.GetFileName(item.Source.Path)} " +
+                            $"age={item.Source.Age:0.00} anim={item.Source.AnimationId} seq={sequence} " +
+                            $"blend={batch.Blend} ground={batch.Ground is not null} " +
+                            $"tint=({tint.X:0.00},{tint.Y:0.00},{tint.Z:0.00}) opacity={opacity:0.000}");
                     _shader.Set("uTint", tint);
                     _shader.Set("uOpacity", opacity);
                     _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
