@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-4-3-keybindings-20260801-230000\keybindings.protocol
-1,PASS,ui-parity keybindings
-2,PASS,wait 2

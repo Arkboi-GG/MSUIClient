@@ -1,4 +1,0 @@
-time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
-0.598,"Nbmaghuman",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
-8.336,"Nbmaghuman",1459,"Arcane Intellect",ARCANE,PRECAST,0,-1,-1,-1,Missing,"Run",True,True,True,"Run","none","none","none",1.0000,SERVER_START
-8.336,"Nbmaghuman",1459,"Arcane Intellect",ARCANE,CAST,267,54,54,54,BakedOnDemand,"Anim54",True,True,True,"Run","none","Anim54","none",1.0000,SERVER_GO

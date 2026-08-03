@@ -1,6 +1,0 @@
-time,character,spell_id,name,event,classification,server_duration_ms,dbc_cast_time_ms,dbc_duration_ms,phase,started,ends,pushback_total_ms,cancel_source,animation_state
-2.927,"Test",133,"Fireball",CAST_FAILED,CAST_TIME,0,1500,4000,FAILED,0.000,0.000,0,Target not in line of sight,"Stand"
-2.937,"Test",133,"Fireball",CAST_FAILED,CAST_TIME,0,1500,4000,FAILED,0.000,0.000,0,Not enough mana,"Stand"
-2.946,"Test",133,"Fireball",CAST_FAILED,CAST_TIME,0,1500,4000,FAILED,0.000,0.000,0,Out of range.,"Stand"
-2.955,"Test",133,"Fireball",CAST_FAILED,CAST_TIME,0,1500,4000,FAILED,0.000,0.000,0,FAILED,"Stand"
-2.963,"Test",133,"Fireball",CAST_FAILED,CAST_TIME,0,1500,4000,FAILED,0.000,0.000,0,Spell failed.,"Stand"

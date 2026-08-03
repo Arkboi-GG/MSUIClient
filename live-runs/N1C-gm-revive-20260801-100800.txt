@@ -1,6 +1,0 @@
-Welcome to World of Warcraft!
-Patch 1.12: Drums of War is now live!
-Username: Password: +Logged in.
- mangos>> revive Test
-Test revived (offline)
-+mangos>

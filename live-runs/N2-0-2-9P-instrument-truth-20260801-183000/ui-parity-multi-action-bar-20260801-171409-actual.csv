@@ -1,6 +1,0 @@
-panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
-"multi-action-bar","MultiBarBottomLeft","Frame","","0","0","500","38","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"multi-action-bar","MultiBarBottomLeftButton1","CheckButton","MultiBarBottomLeft","0","2","36","36","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"multi-action-bar","MultiBarBottomLeftButton1Icon","Texture","MultiBarBottomLeftButton1","0","2","36","36","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"multi-action-bar","MultiBarBottomLeftButton1HotKey","FontString","MultiBarBottomLeftButton1","-2","4","36","10","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"multi-action-bar","MultiBarBottomLeftButton1NormalTexture","NormalTexture","MultiBarBottomLeftButton1","-15","-12","66","66","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"

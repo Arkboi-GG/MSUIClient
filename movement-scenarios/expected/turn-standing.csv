@@ -1,5 +1,0 @@
-name,currentMin,currentMax,lawMin,lawMax,citation
-turnRate,3.09,3.19,3.091593,3.191593,vanilla standing turn pi +/-0.05
-stallWindows,0,0,0,0,no stalls
-hardCuts,0,0,0,0,every transition exposes outgoing clipB and positive incoming blend ramp
-substitutedEvents,0,0,0,0,no substitutions

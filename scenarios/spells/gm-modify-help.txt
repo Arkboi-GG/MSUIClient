@@ -1,4 +1,0 @@
-gm .gps
-waitfor GmChatResponse 3
-gm .help modify
-wait 2

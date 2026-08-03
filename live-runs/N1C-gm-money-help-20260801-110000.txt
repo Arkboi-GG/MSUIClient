@@ -1,6 +1,0 @@
-Welcome to World of Warcraft!
-Patch 1.12: Drums of War is now live!
-Username: Password: +Logged in.
- mangos>> help modify money
-There is no help for that command
-+mangos>

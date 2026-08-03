@@ -1,2 +1,0 @@
-gm .help npc summon
-wait 2

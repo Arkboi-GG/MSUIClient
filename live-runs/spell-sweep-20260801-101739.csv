@@ -1,8 +1,0 @@
-time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
-0.577,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
-6.112,"Test",1,689,"Drain Life",SHADOW,CAST,PRE_SEND_PASS,"Stand","Spells\Lifetap_State_Chest.mdx",UNIT,True,True,MANA,1000,55,0xF13000000604A2A8,True
-6.187,"Test",1,689,"Drain Life",SHADOW,CAST,SMSG_SPELL_START,"Stand","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
-6.188,"Test",1,689,"Drain Life",SHADOW,CAST,SMSG_SPELL_GO,"Stand","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
-6.188,"Test",1,689,"Drain Life",SHADOW,CAST,MSG_CHANNEL_START,"Stand","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
-14.236,"Test",1,689,"Drain Life",SHADOW,CAST,PRE_SEND_PASS,"Stand","Spells\Lifetap_State_Chest.mdx",UNIT,True,True,MANA,945,55,0xF13000000604A2A8,True
-14.277,"Test",1,689,"Drain Life",SHADOW,CAST,SPELL_FAILED_0x7C,"Stand","Spells\Lifetap_State_Chest.mdx",SERVER,False,False,MANA,945,0,0x0000000000000000,True

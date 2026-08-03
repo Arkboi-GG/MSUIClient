@@ -1,4 +1,0 @@
-gm .gps
-wait 2
-assert Map:_0
-assert X:_

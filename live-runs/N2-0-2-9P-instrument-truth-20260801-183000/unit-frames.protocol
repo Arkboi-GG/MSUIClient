@@ -1,4 +1,0 @@
-ui-parity player-frame
-wait 2
-ui-parity target-frame
-wait 2

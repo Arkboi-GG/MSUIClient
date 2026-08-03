@@ -1,3 +1,0 @@
-time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
-0.638,"Nbmaghuman",8,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,1000,0,0x0000000000000000,True
-9.178,"Nbmaghuman",8,133,"Fireball",FIRE,CAST,LOCAL_NoValidUnit,"Stand","Spells\Fire_Precast_Hand.mdx|Spells\Fire_Cast_Hand.mdx|Spells\MoltenBlast_Impact_Chest.mdx|Spells\Fireball_Missile_Low.mdx",SELF_IMPLICIT,True,True,MANA,1000,30,0x0000000000000000,False

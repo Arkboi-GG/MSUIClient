@@ -1,5 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-1-unit-frames-20260801-155500\target-frame.protocol
-1,PASS,select wild:1 guid=0xF13000000604A29F
-2,PASS,ui-parity target-frame
-3,PASS,wait 2

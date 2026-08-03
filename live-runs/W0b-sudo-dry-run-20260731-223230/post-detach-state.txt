@@ -1,6 +1,0 @@
-SPEC-26 W0b post-detach read-only SSH confirmation
-PTRACE_SCOPE=1
-PID=576688
-OWNER=wowvmangos
-COMMAND=mangosd-main
-RESULT=RUNNING

@@ -1,6 +1,0 @@
-name,currentMin,currentMax,lawMin,lawMax,citation
-maxSpeed,4.45,4.55,4.45,4.55,backpedal 4.50 +/-0.05
-stopDistance,0,0.05,0,0.05,instant stop
-stallWindows,0,0,0,0,no stalls
-hardCuts,0,0,0,0,every transition exposes outgoing clipB and positive incoming blend ramp
-substitutedEvents,0,0,0,0,no substitutions

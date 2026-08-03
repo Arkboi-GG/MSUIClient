@@ -1,5 +1,0 @@
-name,measured,currentMin,currentMax,currentResult,vanillaMin,vanillaMax,vanillaResult,citation
-turnRate,3.141604,3.09,3.19,PASS,3.091593,3.191593,PASS,vanilla standing turn pi +/-0.05
-stallWindows,0,0,0,PASS,0,0,PASS,no stalls
-hardCuts,0,0,0,PASS,0,0,PASS,every transition exposes outgoing clipB and positive incoming blend ramp
-substitutedEvents,0,0,0,PASS,0,0,PASS,no substitutions

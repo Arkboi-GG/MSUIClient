@@ -1,6 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-7-chat-frame-20260801-173500\chat-frame.protocol
-1,PASS,gm .gps
-2,PASS,wait 1
-3,PASS,ui-parity chat-frame
-4,PASS,wait 2

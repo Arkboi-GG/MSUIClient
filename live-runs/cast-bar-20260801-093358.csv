@@ -1,2 +1,0 @@
-time,character,spell_id,name,event,classification,server_duration_ms,dbc_cast_time_ms,dbc_duration_ms,phase,started,ends,pushback_total_ms,cancel_source,animation_state
-7.809,"Test",11605,"Slam",CAST_FAILED,CAST_TIME,0,1500,0,FAILED,0.000,0.000,0,FAILED,"Stand"

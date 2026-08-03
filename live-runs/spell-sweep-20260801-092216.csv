@@ -1,7 +1,0 @@
-time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
-0.537,"Test",1,8326,"Ghost",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Spells\Ghost_state.mdx",SERVER,True,True,MANA,0,0,0x0000000000000000,True
-0.593,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
-5.509,"Test",1,25289,"Battle Shout",PHYSICAL,EFFECT_CHECK,AURA_ABSENT,"Stand","PLAYER_DESCRIPTOR_AURA",SELF,True,True,NONE,0,0,0x0000000000000001,False
-5.516,"Test",1,25289,"Battle Shout",PHYSICAL,CAST,PRE_SEND_PASS,"Stand","Spells\BattleShout_Cast_Base.mdx",SELF_IMPLICIT,True,True,RAGE,10000,100,0x0000000000000000,True
-5.528,"Test",1,25289,"Battle Shout",PHYSICAL,CAST,SPELL_FAILED_0x13,"Stand","Spells\BattleShout_Cast_Base.mdx",SERVER,False,False,RAGE,10000,0,0x0000000000000000,True
-10.521,"Test",1,25289,"Battle Shout",PHYSICAL,EFFECT_CHECK,AURA_ABSENT,"Stand","PLAYER_DESCRIPTOR_AURA",SELF,True,True,NONE,0,0,0x0000000000000001,False

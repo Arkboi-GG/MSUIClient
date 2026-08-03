@@ -1,6 +1,0 @@
-time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
-0.695,"Nbmaghuman",8,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,2808,0,0x0000000000000000,True
-6.063,"Nbmaghuman",8,1459,"Arcane Intellect",ARCANE,CAST,PRE_SEND_PASS,"Stand","Spells\Magic_Cast_Hand.mdx|Spells\ArcaneIntellect_Impact_Base.mdx",SELF,True,True,MANA,2808,60,0x0000000000000223,True
-6.105,"Nbmaghuman",8,1459,"Arcane Intellect",ARCANE,CAST,SMSG_SPELL_START,"Stand","Spells\Magic_Cast_Hand.mdx|Spells\ArcaneIntellect_Impact_Base.mdx",SERVER,False,False,MANA,2808,0,0x0000000000000000,True
-6.106,"Nbmaghuman",8,1459,"Arcane Intellect",ARCANE,CAST,SMSG_SPELL_GO,"Stand","Spells\Magic_Cast_Hand.mdx|Spells\ArcaneIntellect_Impact_Base.mdx",SERVER,False,False,MANA,2808,0,0x0000000000000000,True
-7.553,"Nbmaghuman",8,1459,"Arcane Intellect",ARCANE,EFFECT_CHECK,AURA_PRESENT,"Stand","PLAYER_DESCRIPTOR_AURA",SELF,True,True,NONE,0,0,0x0000000000000223,False

@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-4-quest-log-20260801-194500\quest-log.protocol
-1,PASS,ui-parity quest-log
-2,PASS,wait 2

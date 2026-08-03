@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-4-4-macro-20260801-231500\macro-final.protocol
-1,PASS,ui-parity macro
-2,PASS,wait 2

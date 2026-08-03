@@ -1,8 +1,0 @@
-scenario,priorSwingSamples,rescopedPlayerSwingSamples,priorFinding,rescopedFinding,change
-CB1,0,0,NO_DATA,NO_DATA,none
-CB2,0,0,NO_DATA,NO_DATA,none
-CB3,0,0,NO_DATA,NO_DATA,none
-CB4,1,0,MACHINE-VERIFIED PASS,PARTIAL wire-only,"player-swing confirmation and one-shot PASS void; 2 starts/2 sends and 2 cancels/2 stops stand"
-CB5,1,0,MACHINE-VERIFIED PASS,PARTIAL wire-only,"target-switch wire sequence stands; swing/animation evidence becomes NO_DATA"
-CB6,8,0,FAIL candidate,NO_DATA for death behavior,"all eight swing rows were foreign; initial redundant IntentOff audit failure remains"
-CB7,1,0,AUDIT-INSTRUMENT defect,PARTIAL wire-only,"swingInsideIntent FAIL becomes PASS after foreign row exclusion; initial redundant IntentOff audit failure remains"

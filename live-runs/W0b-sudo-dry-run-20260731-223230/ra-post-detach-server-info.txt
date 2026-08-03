@@ -1,8 +1,0 @@
-Welcome to World of Warcraft!
-Patch 1.12: Drums of War is now live!
-Username: Password: +Logged in.
- mangos>> server info
-Core revision: d5ed9b2a4112560622be / 2026-07-17 09:09:02 -0400 / Linux_x64 (little-endian)
-Players online: 512 (0 queued). Max online: 514 (0 queued).
-Server uptime: 10 Hours 40 Minutes 57 Seconds.
-+mangos>

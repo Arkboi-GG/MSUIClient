@@ -1,5 +1,0 @@
-panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource
-"buff-frame","BuffFrame","Frame","","0","0","50","50","TOPRIGHT","UIParent","TOPRIGHT","-205","-13","","","","","","","LOW","","","","","","","MSUI:actual-draw-path","",""
-"buff-frame","BuffButton0","Button","BuffFrame","20","0","30","30","TOPRIGHT","","","0","0","","","","","","","LOW","","","","","","","MSUI:actual-draw-path","",""
-"buff-frame","BuffButton0Icon","Texture","BuffButton0","20","0","30","30","","","","","","","","","","","BACKGROUND","LOW","","","","","","","MSUI:actual-draw-path","",""
-"buff-frame","BuffButton0Duration","FontString","BuffFrame","","","","","TOP","","","","","","BuffButtonDurationTemplate","Fonts\FRIZQT__.TTF","10","#FFD100FF","ARTWORK","LOW","","","","","","","MSUI:actual-draw-path","","fonts.MPQ:Fonts\FRIZQT__.TTF"

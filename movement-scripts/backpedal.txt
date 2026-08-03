@@ -1,4 +1,0 @@
-fixed-dt 16.666667
-0.000000 press S
-3.000000 release S
-3.500000 release S

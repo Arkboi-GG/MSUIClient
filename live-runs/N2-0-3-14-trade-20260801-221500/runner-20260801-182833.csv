@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-3-14-trade-20260801-221500\trade.protocol
-1,PASS,ui-parity trade
-2,PASS,wait 2

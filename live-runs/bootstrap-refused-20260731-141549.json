@@ -1,4 +1,0 @@
-{
-  "result": "REFUSED_NON_TEST_ACCOUNT",
-  "requirement": "server.account=TEST and named server.character"
-}

@@ -1,2 +1,0 @@
-gm .npc spawn delete 303739
-wait 2

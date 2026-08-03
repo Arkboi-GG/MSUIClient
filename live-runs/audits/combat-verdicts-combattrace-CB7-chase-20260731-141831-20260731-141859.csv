@@ -1,7 +1,0 @@
-check,result,detail
-legalTransitions,FAIL,t=0.015452; event=IntentOff; target=0xF13000007900B1EF; IntentOff while Off
-swingInsideIntent,FAIL,t=4.835642; event=SwingReceive; target=0xF13000007A00E7F9; SwingReceive while Off
-oneSwingSendPerStart,PASS,intentStarts=1; attackSwingSends=1
-oneStopSendPerCancel,PASS,localCancels=2; attackStopSends=2
-cadenceVsWeaponSpeed,NO_DATA,weaponSpeedSamples=0; eligibilitySamples=0; swingSamples=1
-oneShotReturn,PASS,attackAnimChoices=1; movementBaseReturn=1

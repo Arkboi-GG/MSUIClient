@@ -1,9 +1,0 @@
-gm .tele stormwind
-wait 4
-gm .go xyz -8832.405 618.70374 93.62842 0
-wait 2
-select npc-flag-nearest:vendor
-vendor open
-wait 2
-ui-parity merchant
-wait 2

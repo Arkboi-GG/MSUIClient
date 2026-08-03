@@ -1,3 +1,0 @@
-panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
-"ui-errors","UIErrorsFrame","MessageFrame","","0","0","512","60","TOP","","","0","-96","","","","","","IMGUI_FOREGROUND","IMGUI_WINDOW","","","","","","","MSUI:derived-from-draw-variables","","","DRAWN-INSTRUMENTED"
-"ui-errors","UIErrorsFrame/FontString","FontString","UIErrorsFrame","0","0","512","60","","","","0","0","","","Fonts\FRIZQT__.TTF","16","#FF1010FF","IMGUI_FOREGROUND","IMGUI_WINDOW","","","","","","","MSUI:derived-from-draw-variables","","fonts.MPQ:Fonts\FRIZQT__.TTF","DRAWN-INSTRUMENTED"

@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-8-xp-reputation-20260801-175000\xp-bar.protocol
-1,PASS,ui-parity action-bar
-2,PASS,wait 2

@@ -1,9 +1,0 @@
-gm .gm on
-wait 3
-select spawn:1
-trace start H2-bisect-run17-single-teleport-20260731-173000
-attack start
-wait 2
-attack stop
-wait 0.2
-trace stop

@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T3-isolation-cleanup2-20260731-160000.txt
-1,PASS,gm .npc spawn delete 303734
-2,PASS,wait 2

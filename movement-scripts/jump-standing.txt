@@ -1,4 +1,0 @@
-fixed-dt 16.666667
-0.500000 press SPACE
-0.516667 release SPACE
-2.500000 release SPACE

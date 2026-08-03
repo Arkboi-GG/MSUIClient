@@ -1,2 +1,0 @@
-time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
-0.621,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO

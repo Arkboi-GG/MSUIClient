@@ -1,7 +1,0 @@
-time,character,class_id,spell_id,name,school,cast_type,result_enum,animation_state,effect_check,target_type,gcd_ready,cooldown_ready,resource_type,resource_before,resource_cost,resolved_guid,sent
-0.627,"Test",1,836,"LOGINEFFECT",PHYSICAL,CAST,SMSG_SPELL_GO,"none","Particles\LoginFX.mdl",SERVER,True,True,MANA,0,0,0x0000000000000000,True
-5.207,"Test",1,1243,"Power Word: Fortitude",HOLY,CAST,PRE_SEND_PASS,"Stand","Spells\Holy_Precast_Low_Hand.mdx|Spells\HolyWord_Fortitude_Impact_Base.mdx",SELF,True,True,MANA,1000,60,0x0000000000000001,True
-5.221,"Test",1,1243,"Power Word: Fortitude",HOLY,CAST,SMSG_SPELL_START,"Stand","Spells\Holy_Precast_Low_Hand.mdx|Spells\HolyWord_Fortitude_Impact_Base.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
-5.222,"Test",1,1243,"Power Word: Fortitude",HOLY,CAST,SMSG_SPELL_GO,"Stand","Spells\Holy_Precast_Low_Hand.mdx|Spells\HolyWord_Fortitude_Impact_Base.mdx",SERVER,False,False,MANA,1000,0,0x0000000000000000,True
-7.226,"Test",1,1243,"Power Word: Fortitude",HOLY,EFFECT_CHECK,AURA_PRESENT,"Stand","PLAYER_DESCRIPTOR_AURA",SELF,True,True,NONE,0,0,0x0000000000000001,False
-9.235,"Test",1,1243,"Power Word: Fortitude",HOLY,EFFECT_CHECK,AURA_ABSENT,"Stand","PLAYER_DESCRIPTOR_AURA",SELF,True,True,NONE,0,0,0x0000000000000001,False

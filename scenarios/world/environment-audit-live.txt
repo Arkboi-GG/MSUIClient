@@ -1,8 +1,0 @@
-gm .gps
-waitfor GmChatResponse 3
-environment audit
-assert family=environment step=summary outcome=PASS
-dump n1c-environment-audit
-wait 2
-gm .gps
-waitfor GmChatResponse 3

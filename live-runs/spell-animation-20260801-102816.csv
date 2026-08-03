@@ -1,4 +1,0 @@
-time,character,spell_id,name,school,stage,kit_id,authored_animation_id,requested_animation_id,played_animation_id,resolution,renderer_state,moving,legal_while_moving,movement_interrupts,base_animation,previous_base_animation,action_animation,hold_animation,blend_weight,source
-0.488,"Test",836,"LOGINEFFECT",PHYSICAL,CAST,127,-1,-1,-1,Missing,"none",False,True,False,"none","none","none","none",1.0000,SERVER_GO
-5.193,"Test",1243,"Power Word: Fortitude",HOLY,PRECAST,99,52,52,52,BakedOnDemand,"Anim52",False,True,True,"Stand","none","none","Anim52",1.0000,SERVER_START
-5.193,"Test",1243,"Power Word: Fortitude",HOLY,CAST,270,54,54,54,BakedOnDemand,"Anim54",False,True,True,"Stand","none","Anim54","none",1.0000,SERVER_GO

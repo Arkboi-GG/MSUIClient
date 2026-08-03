@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\scenarios\combat\T3-summon-help-20260731-160000.txt
-1,PASS,gm .help npc summon
-2,PASS,wait 2

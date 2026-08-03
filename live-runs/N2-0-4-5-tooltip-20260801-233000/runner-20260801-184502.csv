@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-4-5-tooltip-20260801-233000\tooltip.protocol
-1,PASS,ui-parity tooltip
-2,PASS,wait 2

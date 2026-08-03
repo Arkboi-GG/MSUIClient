@@ -1,8 +1,0 @@
-time,character,spell_id,name,reason,display_text,displayed,source
-2.925,"Test",133,"Fireball",SPELL_FAILED_LINE_OF_SIGHT,"Target not in line of sight",True,SMSG_CAST_RESULT
-2.937,"Test",133,"Fireball",SPELL_FAILED_NO_POWER,"Not enough mana",True,SMSG_CAST_RESULT
-2.946,"Test",133,"Fireball",SPELL_FAILED_OUT_OF_RANGE,"Out of range.",True,SMSG_CAST_RESULT
-2.955,"Test",133,"Fireball",SPELL_FAILED_DONT_REPORT,"",False,SMSG_CAST_RESULT
-2.963,"Test",133,"Fireball",SPELL_FAILED_0xFE,"Spell failed.",True,SMSG_CAST_RESULT
-6.231,"Test",133,"Fireball",LOCAL_NO_POWER,"Not enough mana",True,LOCAL_GATE
-11.265,"Test",133,"Fireball",LOCAL_OutOfRange,"Out of range.",True,LOCAL_GATE

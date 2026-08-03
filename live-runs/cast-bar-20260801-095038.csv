@@ -1,3 +1,0 @@
-time,character,spell_id,name,event,classification,server_duration_ms,dbc_cast_time_ms,dbc_duration_ms,phase,started,ends,pushback_total_ms,cancel_source,animation_state
-11.913,"Test",1464,"Slam",CANCEL_SEND,CAST_TIME,0,1500,0,HIDDEN,0.000,0.000,0,MOVEMENT_CAST,"Stand"
-11.923,"Test",1464,"Slam",CAST_FAILED,CAST_TIME,0,1500,0,FAILED,0.000,0.000,0,INTERRUPTED,"Stand"

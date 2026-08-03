@@ -1,8 +1,0 @@
-time,character,spell_id,name,event,duration_ms,remaining_ms,tick_index,tick_delta_ms,tick_kind,amount,moving,animation_state,source
-6.189,"Test",689,"Drain Life",START,5000,5000,0,0.000,NONE,0,False,"Anim124",MSG_CHANNEL_START
-7.213,"Test",689,"Drain Life",TICK,5000,3974,1,0.000,DAMAGE,10,False,"Anim124",SMSG_SPELLNONMELEEDAMAGELOG
-7.435,"Test",689,"Drain Life",UPDATE,5000,2761,1,0.000,NONE,0,False,"Anim124",MSG_CHANNEL_UPDATE
-8.249,"Test",689,"Drain Life",TICK,5000,1946,2,1036.000,DAMAGE,10,False,"Anim124",SMSG_SPELLNONMELEEDAMAGELOG
-9.277,"Test",689,"Drain Life",TICK,5000,919,3,1028.000,DAMAGE,10,False,"Anim124",SMSG_SPELLNONMELEEDAMAGELOG
-10.238,"Test",689,"Drain Life",TICK,5000,0,4,961.000,DAMAGE,10,False,"Anim124",SMSG_SPELLNONMELEEDAMAGELOG
-11.270,"Test",689,"Drain Life",STOP,5000,0,4,0.000,NONE,0,False,"Anim124",MSG_CHANNEL_UPDATE

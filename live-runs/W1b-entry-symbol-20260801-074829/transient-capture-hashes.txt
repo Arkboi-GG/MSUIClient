@@ -1,3 +1,0 @@
-b8adf61cc2fb63db8a52aaf3e017a4b3a4927ab8c3e9c5724358a27853a69416  C:\Users\nico\source\repos\MSUIClient\live-runs\W1b-entry-symbol-20260801-074829\capture.etl
-adacb1ab250d425e6372c8ef93e79770a15c4d86cc220e99b973ccde5120efb9  C:\Users\nico\source\repos\MSUIClient\live-runs\W1b-entry-symbol-20260801-074829\capture.pcapng
-ad44e49bfd9d839842dd8bcf7f05e55768bda802e5902d5e27050c91fdea020c  C:\Users\nico\source\repos\MSUIClient\live-runs\W1b-entry-symbol-20260801-074829\capture.txt

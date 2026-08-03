@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-9-backpack-20260801-181000\backpack.protocol
-1,PASS,ui-parity backpack
-2,PASS,wait 2

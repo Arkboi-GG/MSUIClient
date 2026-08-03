@@ -1,4 +1,0 @@
-fixed-dt 16.666667
-0.000000 press TURN-LEFT
-2.000000 release TURN-LEFT
-2.500000 release TURN-LEFT

@@ -1,5 +1,0 @@
-panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource,coverage
-"action-button","ActionButton1","CheckButton","","0","0","36","36","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"action-button","ActionButton1Icon","Texture","ActionButton1","0","0","36","36","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"action-button","ActionButton1HotKey","FontString","ActionButton1","-2","2","36","10","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"
-"action-button","ActionButton1NormalTexture","NormalTexture","ActionButton1","-15","-14","66","66","","","","","","","","","","","","","","","","","","","MSUI:legacy-geometry-only","","","DRAWN-NOT-INSTRUMENTED"

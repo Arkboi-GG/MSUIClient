@@ -1,6 +1,0 @@
-Welcome to World of Warcraft!
-Patch 1.12: Drums of War is now live!
-Username: Password: +Logged in.
- mangos>> character level Test 60
-You changed level of Test to 60.
-+mangos>

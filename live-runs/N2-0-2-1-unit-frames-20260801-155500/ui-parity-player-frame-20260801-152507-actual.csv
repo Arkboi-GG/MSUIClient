@@ -1,4 +1,0 @@
-panel,element,type,parent,x,y,width,height,point,relativeTo,relativePoint,offsetX,offsetY,texture,font,fontPath,fontSize,color,layer,strata,bgFile,edgeFile,tileSize,edgeSize,insets,texCoords,source,assetSource,fontSource
-"player-frame","PlayerFrame","Button","","0","0","232","100","TOPLEFT","","","-19","-4","","","","","","","BACKGROUND","","","","","","","MSUI:actual-draw-path","",""
-"player-frame","PlayerFrameBackground","Texture","PlayerFrame","106","22","119","41","TOPLEFT","","","106","-22","","","","","","BACKGROUND","BACKGROUND","","","","","","","MSUI:actual-draw-path","",""
-"player-frame","PlayerPortrait","Texture","PlayerFrame","42","12","64","64","TOPLEFT","","","42","-12","","","","","","ARTWORK","BACKGROUND","","","","","","","MSUI:actual-draw-path","",""

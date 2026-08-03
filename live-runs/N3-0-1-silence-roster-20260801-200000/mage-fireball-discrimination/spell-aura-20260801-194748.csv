@@ -1,6 +1,0 @@
-time,character,unit_guid,slot,spell_id,name,event,helpful,cancelable,stacks,duration_ms,remaining_ms,display,source
-0.764,"Nbmaghuman",0x0000000000000223,0,1459,"Arcane Intellect",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
-4.113,"Nbmaghuman",0xF13000195B015407,0,10848,"Shroud of Death",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
-4.113,"Nbmaghuman",0xF13000195B015407,32,9036,"Ghost",APPLY,False,False,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
-16.364,"Nbmaghuman",0xF13000195B015407,0,10848,"Shroud of Death",APPLY,True,True,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT
-16.364,"Nbmaghuman",0xF13000195B015407,32,9036,"Ghost",APPLY,False,False,1,0,0,ICON_VISIBLE,SMSG_UPDATE_OBJECT

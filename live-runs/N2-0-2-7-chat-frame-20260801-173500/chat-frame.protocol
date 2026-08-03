@@ -1,4 +1,0 @@
-gm .gps
-wait 1
-ui-parity chat-frame
-wait 2

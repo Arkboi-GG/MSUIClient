@@ -1,4 +1,0 @@
-step,result,detail
-START protocol=C:\Users\nico\source\repos\MSUIClient\live-runs\N2-0-2-3-action-bars-20260801-162500\multi-action-bar.protocol
-1,PASS,ui-parity multi-action-bar
-2,PASS,wait 2
