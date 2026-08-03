@@ -67,10 +67,8 @@ public sealed partial class GameLoop
         // Targeting-cursor mode (armed ground AoE): a world left-click binds the terrain
         // point under the cursor and commits the cast; a right-click cancels. Matches the
         // 1.12 SpellIsTargeting machine — while armed, clicks never select or attack.
-        if (_groundCastSpell != 0 && !_window.MouseCaptured)
-            ImGui.GetForegroundDrawList().AddText(
-                _window.MousePosition + new Vector2(18, 14), 0xFF00E060, "Select target area");
-
+        // (The "Select target area" cursor hint is drawn from the action-bar ImGui pass —
+        // this method runs in the update phase, where touching ImGui draw lists crashes.)
         while (_window.TryDequeueWorldClick(out WorldMouseClick click))
         {
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;

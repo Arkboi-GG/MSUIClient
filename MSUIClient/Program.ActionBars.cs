@@ -377,6 +377,13 @@ public sealed partial class GameLoop
         if (!ImGui.Begin("##main-action-bar", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        // Ground-targeting cursor hint. Drawn here (inside the ImGui frame) rather than in
+        // UpdateTargeting, which runs pre-NewFrame where draw-list access is an access
+        // violation in native ImGui.
+        if (_groundCastSpell != 0 && !_window.MouseCaptured)
+            ImGui.GetForegroundDrawList().AddText(
+                ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
+                "Select target area");
         int hoveredSlot = -1;
         if (_pressedActionSlot >= 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _actionPressPosition) > 6f * scale)
@@ -418,7 +425,11 @@ public sealed partial class GameLoop
 
             ImGui.SetCursorScreenPos(buttonMin);
             bool clicked = ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin);
-            bool hovered = ImGui.IsItemHovered();
+            // AllowWhenBlockedByActiveItem: during a drag the source button (spellbook,
+            // macro pane, another slot) is ImGui's active item, which suppresses plain
+            // IsItemHovered() on every other item — hoveredSlot stayed -1 for the whole
+            // drag and the drop landed nowhere. This flag is what makes drop targets work.
+            bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
             bool activated = ImGui.IsItemActivated();
             bool pushed = ImGui.IsItemActive() || BindingDown(ActionBinding(i));
             if (hovered) hoveredSlot = wireSlot;
