@@ -34,6 +34,9 @@ public sealed class SpellEffectSource
         public double Ends;
         public string Stage = "";
 
+        /// <summary>Fixed world-point anchor (dynamic-object area visuals): the instance sits
+        /// at <see cref="Position"/> with identity rotation, no unit pose involved.</summary>
+        public bool Area;
         public bool Missile;
         public ulong Target;
         public ushort DestinationAttachment;
@@ -193,6 +196,32 @@ public sealed class SpellEffectSource
         });
     }
 
+    /// <summary>
+    /// Spawn a kit anchored at a fixed world point — the dynamic-object area visual
+    /// (Blizzard's falling snow, Rain of Fire, consecrate rings). Keyed by the dynobj
+    /// guid so <see cref="Reap"/> removes it when the object despawns. Attachment is
+    /// forced to the base tag (0x13) so ground-anchored mesh batches drape terrain.
+    /// </summary>
+    public int SpawnKitAtLocation(ulong key, uint spell, SpellVisualKitInfo kit,
+        Vector3 position, double now, string stage)
+    {
+        _instances.RemoveAll(i => i.Unit == key && i.Spell == spell &&
+            i.Life != StageLife.SelfTerminating);
+        int spawned = 0;
+        foreach (var (_, path) in kit.Effects)
+        {
+            _instances.Add(new Instance
+            {
+                Id = ++_nextId, Asset = Load(path), Unit = key, Spell = spell,
+                Life = StageLife.Persistent, Attachment = 0x13, Started = now,
+                Ends = double.PositiveInfinity, Stage = stage, Area = true,
+                Position = position,
+            });
+            spawned++;
+        }
+        return spawned;
+    }
+
     public readonly record struct VisualInstance(long Id, string Stage, string Path, Vector3 Position,
         bool Missile, float Progress, int Emitters, bool MeshValid, int Ribbons);
 
@@ -213,6 +242,9 @@ public sealed class SpellEffectSource
         }
         return rows;
     }
+
+    /// <summary>Remove every area-anchored visual keyed to a despawned dynamic object.</summary>
+    public void ReapArea(ulong key) => _instances.RemoveAll(i => i.Area && i.Unit == key);
 
     public void Reap(ulong unit, uint spell, StageLife? life = null)
         => _instances.RemoveAll(i => i.Unit == unit && i.Spell == spell &&
@@ -365,6 +397,11 @@ public sealed class SpellEffectSource
     private static bool TryTransform(Instance instance, Func<ulong, SpellUnitPose> unitPose,
         out Matrix4x4 transform)
     {
+        if (instance.Area)
+        {
+            transform = Matrix4x4.CreateTranslation(instance.Position);
+            return true;
+        }
         if (instance.Missile)
         {
             if (!instance.Launched) { transform = default; return false; }

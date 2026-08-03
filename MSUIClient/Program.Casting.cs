@@ -267,6 +267,7 @@ public sealed partial class GameLoop
         _spellEffects?.Tick(now, SpellEffectUnitPose);
         UpdateAuraStateVisuals(now);
         UpdateObservedChannels(now);
+        UpdateDynamicObjectVisuals(now);
         _spellSounds?.Tick(_controller?.Position ?? Vector3.Zero, guid =>
         {
             SpellUnitPose pose = SpellEffectUnitPose(guid);
@@ -532,6 +533,46 @@ public sealed partial class GameLoop
             _activeAuraStateFx.Remove(stale);
         }
     }
+
+    /// <summary>
+    /// Dynamic-object area visuals (1.12: the server spawns a DynamicObject for every
+    /// persistent ground effect — Blizzard's snowfall, Rain of Fire, Consecration — and
+    /// the client plays the spell's IMPACT kit anchored at the object's position for the
+    /// object's lifetime; field layout vmangos UpdateFields_1_12_1.h:325-334).
+    /// </summary>
+    private void UpdateDynamicObjectVisuals(double now)
+    {
+        if (_spellEffects is null) return;
+        HashSet<ulong>? seen = null;
+        foreach (WorldEntity obj in _entities.Entities.Values
+                     .Where(e => e.Type == ObjectTypeId.DynamicObject))
+        {
+            (seen ??= []).Add(obj.Guid);
+            if (_activeDynObjectFx.Contains(obj.Guid)) continue;
+            uint spell = obj.Fields.GetU32(9) ?? 0;                       // DYNAMICOBJECT_SPELLID
+            Vector3 position = obj.Fields.GetF32(11) is { } x &&          // DYNAMICOBJECT_POS_X/Y/Z
+                               obj.Fields.GetF32(12) is { } y &&
+                               obj.Fields.GetF32(13) is { } z
+                ? new Vector3(x, y, z) : obj.Position;
+            uint visual = _spellCatalog?.TryGet(spell, out SpellInfo info) == true
+                ? info.VisualId : 0;
+            if (spell != 0 && ResolveSpellKit(visual, static s => s.Impact) is { } areaKit &&
+                _spellEffects.SpawnKitAtLocation(obj.Guid, spell, areaKit, position, now, "AREA") > 0)
+            {
+                Console.WriteLine($"[dynobj-fx] spawn guid=0x{obj.Guid:X12} spell={spell} " +
+                    $"pos=({position.X:0.0},{position.Y:0.0},{position.Z:0.0})");
+                _activeDynObjectFx.Add(obj.Guid);
+            }
+        }
+        if (_activeDynObjectFx.Count == 0) return;
+        foreach (ulong stale in _activeDynObjectFx.Where(g => seen?.Contains(g) != true).ToArray())
+        {
+            _spellEffects.ReapArea(stale);
+            _activeDynObjectFx.Remove(stale);
+        }
+    }
+
+    private readonly HashSet<ulong> _activeDynObjectFx = [];
 
     private void UpdateObservedChannels(double now)
     {

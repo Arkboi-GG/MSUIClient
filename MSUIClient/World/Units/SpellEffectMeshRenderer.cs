@@ -409,6 +409,50 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private static Vector2 Bilerp(Vector2 bl, Vector2 br, Vector2 tl, Vector2 tr, float u, float v)
         => (1 - u) * (1 - v) * bl + u * (1 - v) * br + (1 - u) * v * tl + u * v * tr;
 
+    /// <summary>
+    /// The 1.12 area-targeting reticle: the AURARUNE circle draped over terrain at the
+    /// cursor's ground point, sized to the spell radius, tinted green and drawn additively.
+    /// Called from the world render pass every frame while ground-targeting is armed.
+    /// </summary>
+    public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius,
+        Func<float, float, float, float?>? sampleGround)
+    {
+        if (_groundShader is null) return;
+        Texture? rune = ResolveTexture(@"SPELLS\AURARUNE256.BLP");
+        if (rune is null) return;
+        int n = GroundTessellation;
+        var grid = new (Vector3 P, Vector2 UV)[(n + 1) * (n + 1)];
+        for (int gy = 0; gy <= n; gy++)
+            for (int gx = 0; gx <= n; gx++)
+            {
+                float u = gx / (float)n, v = gy / (float)n;
+                var p = new Vector3(
+                    centre.X + (u - .5f) * 2f * radius,
+                    centre.Y + (v - .5f) * 2f * radius, centre.Z);
+                if (sampleGround?.Invoke(p.X, p.Y, centre.Z + 3f) is float height)
+                    p.Z = height + .03f;
+                p -= camera.Position;
+                grid[gy * (n + 1) + gx] = (p, new Vector2(u, v));
+            }
+        float[] vertices = new float[n * n * 6 * 5];
+        int o = 0;
+        for (int gy = 0; gy < n; gy++)
+            for (int gx = 0; gx < n; gx++)
+            {
+                var a = grid[gy * (n + 1) + gx];
+                var b = grid[gy * (n + 1) + gx + 1];
+                var c = grid[(gy + 1) * (n + 1) + gx];
+                var d = grid[(gy + 1) * (n + 1) + gx + 1];
+                WriteGroundVert(vertices, ref o, a);
+                WriteGroundVert(vertices, ref o, b);
+                WriteGroundVert(vertices, ref o, c);
+                WriteGroundVert(vertices, ref o, c);
+                WriteGroundVert(vertices, ref o, b);
+                WriteGroundVert(vertices, ref o, d);
+            }
+        RenderGroundQuads(camera, [(vertices, rune, 4, new Vector3(.25f, 1f, .35f), 1f)]);
+    }
+
     private unsafe void RenderGroundQuads(Camera camera,
         List<(float[] Vertices, Texture? Texture, int Blend, Vector3 Tint, float Opacity)> draws)
     {

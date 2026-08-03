@@ -64,6 +64,12 @@ public sealed partial class GameLoop
         if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen)
             _hoveredGuid = PickUnit(_window.MousePosition);
 
+        // Armed ground AoE: track the terrain point under the cursor every frame so the
+        // render pass can draw the 1.12 targeting rune circle there in realtime.
+        _groundCursorPoint = _groundCastSpell != 0 && !_window.MouseCaptured &&
+            !ImGui.GetIO().WantCaptureMouse && TryPickGround(_window.MousePosition, out Vector3 aim)
+            ? aim : null;
+
         // Targeting-cursor mode (armed ground AoE): a world left-click binds the terrain
         // point under the cursor and commits the cast; a right-click cancels. Matches the
         // 1.12 SpellIsTargeting machine — while armed, clicks never select or attack.
@@ -219,6 +225,10 @@ public sealed partial class GameLoop
             return FactionReaction.Neutral;
         return other.ReactionToward(own);
     }
+
+    /// <summary>Terrain point currently under the cursor while ground-targeting is armed
+    /// (null when not armed or nothing pickable). Feeds the rune-circle marker draw.</summary>
+    private Vector3? _groundCursorPoint;
 
     /// <summary>
     /// Resolve the terrain/world point under a window pixel for a ground-target cast.
