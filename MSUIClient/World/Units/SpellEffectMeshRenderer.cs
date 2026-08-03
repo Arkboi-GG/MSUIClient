@@ -293,12 +293,17 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     {
         path = path.Replace('/', Path.DirectorySeparatorChar);
         if (_textures.TryGetValue(path, out Texture? cached)) return cached;
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         byte[]? bytes = _mpq.ReadFile(path);
         if (bytes is null) return _textures[path] = null;
         try
         {
             byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
-            return _textures[path] = Texture.From2D(_gl, pixels, width, height, mipmaps: true, repeat: false);
+            Texture texture = Texture.From2D(_gl, pixels, width, height, mipmaps: true, repeat: false);
+            double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 /
+                System.Diagnostics.Stopwatch.Frequency;
+            if (ms > 2) Console.WriteLine($"[fx-load] mesh-tex {Path.GetFileName(path)} {ms:0.0}ms");
+            return _textures[path] = texture;
         }
         catch { return _textures[path] = null; }
     }

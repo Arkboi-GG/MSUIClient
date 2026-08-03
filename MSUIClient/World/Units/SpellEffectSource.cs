@@ -483,12 +483,20 @@ public sealed class SpellEffectSource
         double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
         if (_assetFailures.TryGetValue(path, out double failedAt) && now - failedAt < 10.0)
             return null;
+        long t0 = Stopwatch.GetTimestamp();
         byte[]? bytes = _mpq.ReadFile(path);
+        long t1 = Stopwatch.GetTimestamp();
         M2Model? model = bytes is null ? null : M2Reader.Parse(bytes);
+        long t2 = Stopwatch.GetTimestamp();
         if (model is null) { _assetFailures[path] = now; return null; }
         var asset = new Asset { Path = path, Model = model, Emitters = model.ParticleEmitters.ToArray(),
             Animator = M2Animator.Build(model, model.Sequences.Select(s => (int)s.AnimationId),
                 includeStaticSequences: true) };
+        long t3 = Stopwatch.GetTimestamp();
+        double ToMs(long a, long b) => (b - a) * 1000.0 / Stopwatch.Frequency;
+        if (ToMs(t0, t3) > 2)
+            Console.WriteLine($"[fx-load] asset {Path.GetFileName(path)} " +
+                $"read={ToMs(t0, t1):0.0}ms parse={ToMs(t1, t2):0.0}ms animator={ToMs(t2, t3):0.0}ms");
         if (asset.Animator is { } animator)
             asset.Skin = new Matrix4x4[animator.BoneCount];
         asset.EmitterTextures = new string[asset.Emitters.Length];

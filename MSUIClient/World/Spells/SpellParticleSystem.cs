@@ -635,6 +635,7 @@ public sealed class SpellParticleSystem : IDisposable
     {
         if (path.Length == 0) return null;
         if (_textures.TryGetValue(path, out Texture? tex)) return tex;
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, path);
@@ -642,6 +643,9 @@ public sealed class SpellParticleSystem : IDisposable
                 mipmaps: true, repeat: true) : null;
         }
         catch { tex = null; }
+        double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 /
+            System.Diagnostics.Stopwatch.Frequency;
+        if (ms > 2) Console.WriteLine($"[fx-load] particle-tex {Path.GetFileName(path)} {ms:0.0}ms");
         _textures[path] = tex;
         return tex;
     }
