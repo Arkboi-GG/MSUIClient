@@ -2,7 +2,7 @@ using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
-public enum CastTargetKind { SelfImplicit, Unit, Refused }
+public enum CastTargetKind { SelfImplicit, Unit, Ground, Refused }
 
 public enum CastTargetReason
 {
@@ -10,6 +10,7 @@ public enum CastTargetReason
     UnsupportedTargetShape,
     SelectedUnit,
     SelfFallback,
+    GroundTargeting,
     NoValidUnit,
     UnavailableOrPassive,
     AlreadyQueued,
@@ -42,6 +43,12 @@ public static class CastTargetLaw
     private const ushort Enemy = 0x0080, Assist = 0x0100, CorpseEnemy = 0x0200;
     private const ushort ExplicitGate = 0x0400, CorpseAlly = 0x8000;
     private const ushort UnitBits = Unit | Raid | Party | Enemy | Assist | CorpseEnemy | ExplicitGate | CorpseAlly;
+    // TARGET_FLAG_SOURCE_LOCATION / TARGET_FLAG_DEST_LOCATION — the ground-AoE location bits.
+    // The 1.12 client answers these with its targeting cursor (SpellIsTargeting = word != 0,
+    // click to bind a terrain point), not with a unit; vmangos SpellCastTargets::read consumes
+    // the bound point as three raw floats (SpellCastTargetsInfo.cpp:169-174).
+    private const ushort SourceLocation = 0x0020, DestLocation = 0x0040;
+    private const ushort LocationBits = SourceLocation | DestLocation;
 
     public static ushort TargetMask(in SpellInfo spell)
     {
@@ -66,6 +73,12 @@ public static class CastTargetLaw
     {
         ushort word = TargetMask(spell);
         if (word == 0) return new(CastTargetKind.SelfImplicit, CastTargetReason.ImplicitSelf);
+        // Ground-target AoE (Blizzard, Flamestrike, Rain of Fire...): the location bits enter
+        // the client's targeting-cursor mode — the caller arms a ground pick and the cast is
+        // committed later with the bound point. Words mixing location bits with shapes we still
+        // can't bind (item/string) keep refusing below.
+        if ((word & LocationBits) != 0 && (word & ~(UnitBits | LocationBits)) == 0)
+            return new(CastTargetKind.Ground, CastTargetReason.GroundTargeting);
         if ((word & ~UnitBits) != 0)
             return new(CastTargetKind.Refused, CastTargetReason.UnsupportedTargetShape);
         if (selection is { } selected && ClearSatisfied(word, selected) == 0)

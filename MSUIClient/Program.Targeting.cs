@@ -64,9 +64,24 @@ public sealed partial class GameLoop
         if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen)
             _hoveredGuid = PickUnit(_window.MousePosition);
 
+        // Targeting-cursor mode (armed ground AoE): a world left-click binds the terrain
+        // point under the cursor and commits the cast; a right-click cancels. Matches the
+        // 1.12 SpellIsTargeting machine — while armed, clicks never select or attack.
+        if (_groundCastSpell != 0 && !_window.MouseCaptured)
+            ImGui.GetForegroundDrawList().AddText(
+                _window.MousePosition + new Vector2(18, 14), 0xFF00E060, "Select target area");
+
         while (_window.TryDequeueWorldClick(out WorldMouseClick click))
         {
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
+            if (_groundCastSpell != 0)
+            {
+                uint armed = _groundCastSpell;
+                _groundCastSpell = 0;
+                if (click.Button == MouseButton.Left && TryPickGround(click.Position, out Vector3 spot))
+                    CommitGroundCast(armed, spot);
+                continue;
+            }
             ulong picked = PickUnit(click.Position);
             if (click.Button == MouseButton.Left)
                 CommitSelection(picked, beginAttack: false); // empty left clears
@@ -205,6 +220,47 @@ public sealed partial class GameLoop
             !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own))
             return FactionReaction.Neutral;
         return other.ReactionToward(own);
+    }
+
+    /// <summary>
+    /// Resolve the terrain/world point under a window pixel for a ground-target cast.
+    /// Prefers the collision mesh; falls back to marching the camera ray against the
+    /// terrain heightfield and bisecting the crossing.
+    /// </summary>
+    private bool TryPickGround(Vector2 pixel, out Vector3 point)
+    {
+        point = default;
+        var ray = _window.Camera.ScreenPointToRay(pixel, _window.FramebufferSize);
+        if (ray is null) return false;
+        (Vector3 origin, Vector3 direction) = ray.Value;
+        const float maxDistance = 250f;
+        if (_collision?.Raycast(origin, direction, maxDistance) is { } hit)
+        {
+            point = hit.Point;
+            return true;
+        }
+        if (_terrain is null) return false;
+        float previous = 0f;
+        for (float t = 1f; t <= maxDistance; t += 1f)
+        {
+            Vector3 sample = origin + direction * t;
+            if (_terrain.SampleHeight(sample.X, sample.Y) is float ground && sample.Z <= ground)
+            {
+                float lo = previous, hi = t;
+                for (int i = 0; i < 16; i++)
+                {
+                    float mid = (lo + hi) * .5f;
+                    Vector3 m = origin + direction * mid;
+                    if (_terrain.SampleHeight(m.X, m.Y) is float g && m.Z <= g) hi = mid;
+                    else lo = mid;
+                }
+                Vector3 found = origin + direction * hi;
+                point = found with { Z = _terrain.SampleHeight(found.X, found.Y) ?? found.Z };
+                return true;
+            }
+            previous = t;
+        }
+        return false;
     }
 
     private ulong PickUnit(Vector2 pixel)

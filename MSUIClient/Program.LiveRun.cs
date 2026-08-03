@@ -555,6 +555,26 @@ public sealed partial class GameLoop
                     _liveSpellWaitAfter = _verdicts.Snapshot("spell-sweep").Count;
                     Log(_verdicts.Snapshot("spell-sweep").Count > beforeCast, line);
                     break;
+                case "castground":
+                    // castground <spellId> [forwardYards=15] — commit a ground-target cast at a
+                    // point ahead of the player, bypassing the mouse (the scripted twin of the
+                    // targeting-cursor click; same CommitGroundCast wire path).
+                    uint groundSpell = uint.Parse(p[1], CultureInfo.InvariantCulture);
+                    float forwardYards = p.Length > 2
+                        ? float.Parse(p[2], CultureInfo.InvariantCulture) : 15f;
+                    bool groundOk = false;
+                    if (_controller is not null)
+                    {
+                        var fwd = new Vector3(MathF.Cos(_controller.Yaw), MathF.Sin(_controller.Yaw), 0f);
+                        Vector3 spot = _controller.Position + fwd * forwardYards;
+                        spot.Z = SpellParticleGroundHeight(spot.X, spot.Y, _controller.Position.Z + 5f)
+                            ?? _controller.Position.Z;
+                        CommitGroundCast(groundSpell, spot);
+                        _liveLastCastSpell = groundSpell;
+                        groundOk = true;
+                    }
+                    Log(groundOk, line);
+                    break;
                 case "camera":
                     string[] camArgs = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                     if (_window?.Camera is { } liveCam)

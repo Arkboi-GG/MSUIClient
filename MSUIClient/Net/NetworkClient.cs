@@ -286,6 +286,11 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.CastSpell(spellId, targetGuid); return true; } catch { return false; }
     }
+    public bool CastSpellAtLocation(uint spellId, System.Numerics.Vector3 dest)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.CastSpellAtLocation(spellId, dest); return true; } catch { return false; }
+    }
     public bool CastSpellOnGameObject(uint spellId, ulong gameObjectGuid)
     {
         if (State != NetState.InWorld || _session is null) return false;

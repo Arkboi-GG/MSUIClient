@@ -173,6 +173,15 @@ public sealed partial class GameLoop
 
         CastTargetVerdict targetVerdict = ResolveCastTarget(spell);
         ulong target = targetVerdict.Guid;
+        if (targetVerdict.Kind == CastTargetKind.Ground)
+        {
+            // 1.12 targeting-cursor mode: the cast is armed, not sent — the next world
+            // left-click binds a terrain point and commits (Program.Targeting.cs), a
+            // right-click cancels. All the gates above have already passed.
+            _groundCastSpell = spellId;
+            EmitCastVerdict(spellId, CastTargetReason.GroundTargeting, 0, sent: false);
+            return;
+        }
         if (targetVerdict.Kind == CastTargetKind.Refused)
         {
             EmitCastVerdict(spellId, targetVerdict.Reason, target, sent: false);
@@ -193,19 +202,44 @@ public sealed partial class GameLoop
             RefuseCast(spellId, "LOCAL_NO_POWER", $"Not enough {PowerName((byte)spell.PowerType).ToLowerInvariant()}");
             return;
         }
-        bool sent = _net.CastSpell(spellId, target);
-        EmitCastVerdict(spellId, targetVerdict.Reason, target, sent);
+        CommitCastSend(spell, spellId, target, ground: null, targetVerdict.Reason);
+    }
+
+    /// <summary>
+    /// The send tail shared by unit/self casts and ground-bound casts: ship the packet,
+    /// record the verdict, then arm pending/auto-repeat state and the GCD.
+    /// </summary>
+    private void CommitCastSend(in SpellInfo spell, uint spellId, ulong target,
+        Vector3? ground, CastTargetReason reason)
+    {
+        if (_net is null || _actions is null) return;
+        bool sent = ground is { } dest
+            ? _net.CastSpellAtLocation(spellId, dest)
+            : _net.CastSpell(spellId, target);
+        EmitCastVerdict(spellId, reason, target, sent);
         if (!sent) return;
         if (spell.AutoRepeat) _autoRepeatSpell = spellId;
         else if (spell.OnNextSwing) _queuedMeleeSpell = spellId;
         else _pendingCastSpell = spellId;
         if (spell.StartRecoveryMs > 0)
         {
+            double now = NowSeconds();
             _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
             _actions.StartCooldown(spellId, spell.StartRecoveryCategory, 0,
                 spell.StartRecoveryMs, now);
         }
     }
+
+    /// <summary>Commit an armed ground-target cast at a bound world point.</summary>
+    private void CommitGroundCast(uint spellId, Vector3 dest)
+    {
+        _groundCastSpell = 0;
+        if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
+        CommitCastSend(spell, spellId, 0, dest, CastTargetReason.GroundTargeting);
+    }
+
+    /// <summary>Armed ground-target spell awaiting a terrain click; 0 = not targeting.</summary>
+    private uint _groundCastSpell;
 
     private void RefuseCast(uint spellId, string reason, string text) =>
         ShowSpellError(spellId, reason, text, "LOCAL_GATE");

@@ -311,6 +311,23 @@ public sealed class WorldSession : IDisposable
         return w.ToArray();
     }
 
+    public void CastSpellAtLocation(uint spellId, System.Numerics.Vector3 dest)
+        => SendPacket((ushort)Op.CMSG_CAST_SPELL, BuildCastSpellAtLocationBody(spellId, dest));
+
+    /// <summary>
+    /// Ground-target cast: mask TARGET_FLAG_DEST_LOCATION (0x0040) then three raw floats.
+    /// Byte shape per vmangos SpellCastTargets::read (SpellCastTargetsInfo.cpp:169-174) —
+    /// the 1.12 dest block carries no transport guid.
+    /// </summary>
+    public static byte[] BuildCastSpellAtLocationBody(uint spellId, System.Numerics.Vector3 dest)
+    {
+        var w = new PacketWriter(18);
+        w.WriteU32(spellId);
+        w.WriteU16(0x0040);
+        w.WriteF32(dest.X); w.WriteF32(dest.Y); w.WriteF32(dest.Z);
+        return w.ToArray();
+    }
+
     public void CastSpellOnGameObject(uint spellId, ulong gameObjectGuid)
         => SendPacket((ushort)Op.CMSG_CAST_SPELL,
             BuildCastSpellOnGameObjectBody(spellId, gameObjectGuid));
