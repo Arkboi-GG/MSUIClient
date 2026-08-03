@@ -21,6 +21,10 @@ public sealed class ObjectFields
     public const ushort OBJECT_ENTRY = 3;            // creature/gameobject template entry
     public const ushort OBJECT_SCALE_X = 4;          // f32
 
+    public const ushort UNIT_FIELD_CHARM = 6;        // guid of controlled/charmed unit
+    public const ushort UNIT_FIELD_SUMMON = 8;       // guid of owned summon/pet
+    public const ushort UNIT_FIELD_CHARMEDBY = 10;   // guid of controlling unit
+    public const ushort UNIT_FIELD_SUMMONEDBY = 12;  // guid of summoner
     public const ushort UNIT_TARGET = 16;            // guid
     public const ushort UNIT_HEALTH = 22;
     public const ushort UNIT_POWER1 = 23;            // five slots, indexed by power type
@@ -47,6 +51,7 @@ public sealed class ObjectFields
     public const ushort UNIT_MINOFFHANDDAMAGE = 136;
     public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
+    public const ushort UNIT_CHANNEL_SPELL = 144;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
     public const ushort UNIT_NPC_FLAGS = 147;
     public const ushort UNIT_STAT0 = 150;
@@ -70,21 +75,38 @@ public sealed class ObjectFields
     public const ushort CONTAINER_SLOT_1 = 50;
 
     public const ushort PLAYER_QUEST_LOG_1_1 = 198;
+    public const ushort PLAYER_VISIBLE_ITEM_1_0 = 254;
     public const ushort PLAYER_INV_SLOT_HEAD = 486;
     public const ushort PLAYER_PACK_SLOT_1 = 532;
     public const ushort PLAYER_BANK_SLOT_1 = 564;
     public const ushort PLAYER_BANK_BAG_SLOT_1 = 612;
+    public const ushort PLAYER_VENDOR_BUYBACK_SLOT_1 = 618;
     public const ushort PLAYER_XP = 716;
     public const ushort PLAYER_NEXT_LEVEL_XP = 717;
     public const ushort PLAYER_SKILL_INFO_1_1 = 718;
     public const ushort PLAYER_CHARACTER_POINTS1 = 1102;
     public const ushort PLAYER_CHARACTER_POINTS2 = 1103;
+    // Private self-player fields. Tracking auras set bit (MiscValue - 1); resource
+    // MiscValue is a LockType.dbc id (Herbalism=2, Mining=3).
+    public const ushort PLAYER_TRACK_CREATURES = 1104;
+    public const ushort PLAYER_TRACK_RESOURCES = 1105;
     public const ushort PLAYER_REST_STATE_EXPERIENCE = 1175;
     public const ushort PLAYER_COINAGE = 1176;
     public const ushort PLAYER_POSSTAT0 = 1177;
     public const ushort PLAYER_NEGSTAT0 = 1182;
     public const ushort PLAYER_RESISTANCEBUFFMODSPOSITIVE = 1187;
     public const ushort PLAYER_RESISTANCEBUFFMODSNEGATIVE = 1194;
+    public const ushort PLAYER_FIELD_BUYBACK_PRICE_1 = 1220;
+    public const ushort PLAYER_FIELD_SESSION_KILLS = 1244;
+    public const ushort PLAYER_FIELD_YESTERDAY_KILLS = 1245;
+    public const ushort PLAYER_FIELD_LAST_WEEK_KILLS = 1246;
+    public const ushort PLAYER_FIELD_THIS_WEEK_KILLS = 1247;
+    public const ushort PLAYER_FIELD_THIS_WEEK_CONTRIBUTION = 1248;
+    public const ushort PLAYER_FIELD_LIFETIME_HONORABLE_KILLS = 1249;
+    public const ushort PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS = 1250;
+    public const ushort PLAYER_FIELD_YESTERDAY_CONTRIBUTION = 1251;
+    public const ushort PLAYER_FIELD_LAST_WEEK_CONTRIBUTION = 1252;
+    public const ushort PLAYER_FIELD_LAST_WEEK_RANK = 1253;
 
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
@@ -163,6 +185,8 @@ public sealed class ObjectFields
 
     // --- named accessors ---
     public uint? Entry => GetU32(OBJECT_ENTRY);
+    public uint PlayerTrackCreatures => GetU32(PLAYER_TRACK_CREATURES) ?? 0;
+    public uint PlayerTrackResources => GetU32(PLAYER_TRACK_RESOURCES) ?? 0;
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
@@ -175,6 +199,10 @@ public sealed class ObjectFields
     public uint UnitFlags => GetU32(UNIT_FLAGS) ?? 0;
     public uint NpcFlags => GetU32(UNIT_NPC_FLAGS) ?? 0;
     public ulong? Target => GetGuid(UNIT_TARGET) is { } g && g != 0 ? g : null;
+    public ulong? Charm => GetGuid(UNIT_FIELD_CHARM) is { } g && g != 0 ? g : null;
+    public ulong? Summon => GetGuid(UNIT_FIELD_SUMMON) is { } g && g != 0 ? g : null;
+    public ulong? CharmedBy => GetGuid(UNIT_FIELD_CHARMEDBY) is { } g && g != 0 ? g : null;
+    public ulong? SummonedBy => GetGuid(UNIT_FIELD_SUMMONEDBY) is { } g && g != 0 ? g : null;
 
     public byte PowerType => Bytes0.PowerType;
     public uint Power(byte powerType) => powerType <= 4 ? GetU32((ushort)(UNIT_POWER1 + powerType)) ?? 0 : 0;
@@ -243,9 +271,13 @@ public sealed class ObjectFields
     public uint ContainerNumSlots => GetU32(CONTAINER_NUM_SLOTS) ?? 0;
     public ulong ContainerSlot(int index) => index is >= 0 and < 36 ? GetGuid((ushort)(CONTAINER_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerInventorySlot(int index) => index is >= 0 and < 23 ? GetGuid((ushort)(PLAYER_INV_SLOT_HEAD + index * 2)) ?? 0 : 0;
+    public uint PlayerVisibleItemEntry(int index) => index is >= 0 and < 19
+        ? GetU32((ushort)(PLAYER_VISIBLE_ITEM_1_0 + index * 12)) ?? 0 : 0;
     public ulong PlayerBackpackSlot(int index) => index is >= 0 and < 16 ? GetGuid((ushort)(PLAYER_PACK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankSlot(int index) => index is >= 0 and < 24 ? GetGuid((ushort)(PLAYER_BANK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
+    public ulong PlayerBuybackSlot(int index) => index is >= 0 and < 12 ? GetGuid((ushort)(PLAYER_VENDOR_BUYBACK_SLOT_1 + index * 2)) ?? 0 : 0;
+    public uint PlayerBuybackPrice(int index) => index is >= 0 and < 12 ? GetU32((ushort)(PLAYER_FIELD_BUYBACK_PRICE_1 + index)) ?? 0 : 0;
     public uint Experience => GetU32(PLAYER_XP) ?? 0;
     public uint NextLevelExperience => GetU32(PLAYER_NEXT_LEVEL_XP) ?? 0;
     public uint RestStateExperience => GetU32(PLAYER_REST_STATE_EXPERIENCE) ?? 0;
@@ -264,6 +296,8 @@ public sealed class ObjectFields
                 yield return (slot, questId, GetU32((ushort)(first + 1)) ?? 0, GetU32((ushort)(first + 2)) ?? 0);
         }
     }
+
+    public uint ChannelSpell => GetU32(UNIT_CHANNEL_SPELL) ?? 0;
     public int Stat(int index) => index is >= 0 and < 5 ? GetI32((ushort)(UNIT_STAT0 + index)) ?? 0 : 0;
     public int StatPositive(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_POSSTAT0 + index)) ?? 0) : 0;
     public int StatNegative(int index) => index is >= 0 and < 5 ? (int)MathF.Round(GetF32((ushort)(PLAYER_NEGSTAT0 + index)) ?? 0) : 0;
@@ -281,6 +315,22 @@ public sealed class ObjectFields
     public uint RangedAttackTime => GetU32(UNIT_RANGEDATTACKTIME) ?? 0;
     public int AttackPower => (GetI32(UNIT_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
     public int RangedAttackPower => (GetI32(UNIT_RANGED_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_RANGED_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_RANGED_ATTACK_POWER_MODS);
+    public (ushort Honorable, ushort Dishonorable) SessionKills => PackedKills(PLAYER_FIELD_SESSION_KILLS);
+    public (ushort Honorable, ushort Dishonorable) YesterdayKills => PackedKills(PLAYER_FIELD_YESTERDAY_KILLS);
+    public (ushort Honorable, ushort Dishonorable) LastWeekKills => PackedKills(PLAYER_FIELD_LAST_WEEK_KILLS);
+    public (ushort Honorable, ushort Dishonorable) ThisWeekKills => PackedKills(PLAYER_FIELD_THIS_WEEK_KILLS);
+    public uint ThisWeekContribution => GetU32(PLAYER_FIELD_THIS_WEEK_CONTRIBUTION) ?? 0;
+    public uint LifetimeHonorableKills => GetU32(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS) ?? 0;
+    public uint LifetimeDishonorableKills => GetU32(PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS) ?? 0;
+    public uint YesterdayContribution => GetU32(PLAYER_FIELD_YESTERDAY_CONTRIBUTION) ?? 0;
+    public uint LastWeekContribution => GetU32(PLAYER_FIELD_LAST_WEEK_CONTRIBUTION) ?? 0;
+    public uint LastWeekRank => GetU32(PLAYER_FIELD_LAST_WEEK_RANK) ?? 0;
+
+    private (ushort Honorable, ushort Dishonorable) PackedKills(ushort index)
+    {
+        uint value = GetU32(index) ?? 0;
+        return ((ushort)value, (ushort)(value >> 16));
+    }
 
     private int PackedSignedLow(ushort index) => unchecked((short)(GetU32(index) ?? 0));
     private int PackedSignedHigh(ushort index) => unchecked((short)((GetU32(index) ?? 0) >> 16));

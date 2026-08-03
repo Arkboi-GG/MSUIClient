@@ -62,7 +62,8 @@ public sealed partial class GameLoop
         var r = new PacketReader(body); uint level = r.ReadU32(); uint health = r.ReadU32();
         uint[] powers = Enumerable.Range(0, 5).Select(_ => r.ReadU32()).ToArray();
         uint[] stats = Enumerable.Range(0, 5).Select(_ => r.ReadU32()).ToArray();
-        _lastLevelUp = (level, health, powers, stats); _restXpOpen = true;
+        _lastLevelUp = (level, health, powers, stats); _restXpOpen = _config.DevTools;
+        PushCenterText($"You have reached level {level}!", CenterCombatTextStyle.Heal);
         EmitInterface("rest-xp", "level-up-info", "DECODED", _net?.PlayerGuid ?? 0,
             $"level={level};healthGain={health};powerGains={string.Join('|', powers)};statGains={string.Join('|', stats)};bytes={body.Length}");
     }
@@ -80,7 +81,7 @@ public sealed partial class GameLoop
 
     private void DrawRestXpFrame()
     {
-        if (!_restXpOpen) return;
+        if (!_config.DevTools || !_restXpOpen) return;
         ImGui.SetNextWindowSize(new Vector2(410, 260), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Experience & Rest##rest-xp", ref _restXpOpen)) { ImGui.End(); return; }
         if (CurrentRestSnapshot() is { } s)

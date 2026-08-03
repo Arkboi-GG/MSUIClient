@@ -155,12 +155,12 @@ public sealed partial class GameLoop
 
     private void DrawTargetAuras(ImDrawListPtr dl, WorldEntity unit, Vector2 frameMin, float scale)
     {
-        if (_gameplayArt is null || _spellCatalog is null) return;
+        if (_gameplayArt is null) return;
         int buffs = 0, debuffs = 0;
-        foreach (var aura in unit.Fields.Auras())
+        foreach (AuraSnapshot aura in OrderedAuras(unit))
         {
-            if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
-            uint icon = _gameplayArt.Handle(spell.IconPath);
+            if (!TryVisibleAuraSpell(aura.SpellId, out SpellInfo? spell)) continue;
+            uint icon = _gameplayArt.Handle(spell?.IconPath ?? "");
             if (icon == 0) continue;
             bool buff = aura.Slot < 32;
             int index = buff ? buffs++ : debuffs++;
@@ -182,7 +182,7 @@ public sealed partial class GameLoop
 
     private void DrawPlayerAuraBar()
     {
-        if (_net is null || _gameplayArt is null || _spellCatalog is null ||
+        if (_net is null || _gameplayArt is null ||
             !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
@@ -198,10 +198,10 @@ public sealed partial class GameLoop
                 offsetX: "-205", offsetY: "-13", strata: "LOW");
         }
         int shown = 0, buffShown = 0, debuffShown = 0;
-        foreach (var aura in player.Fields.Auras())
+        foreach (AuraSnapshot aura in OrderedAuras(player))
         {
-            if (!_spellCatalog.TryGet(aura.SpellId, out SpellInfo spell) || spell.IconPath.Length == 0) continue;
-            uint icon = _gameplayArt.Handle(spell.IconPath);
+            if (!TryVisibleAuraSpell(aura.SpellId, out SpellInfo? spell)) continue;
+            uint icon = _gameplayArt.Handle(spell?.IconPath ?? "");
             if (icon == 0) continue;
             bool harmful = aura.Slot >= 32;
             int cohort = harmful ? debuffShown++ : buffShown++;
@@ -232,7 +232,8 @@ public sealed partial class GameLoop
             }
             if (aura.Stacks > 1)
                 dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
-            if (_playerAuraDurations.TryGetValue(aura.Slot, out var timer))
+            if (_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) &&
+                timer.SpellId == aura.SpellId)
             {
                 double remaining = Math.Max(0, timer.Expires - NowSeconds());
                 string text = remaining >= 60 ? $"{Math.Ceiling(remaining / 60)}m" : $"{Math.Ceiling(remaining)}s";

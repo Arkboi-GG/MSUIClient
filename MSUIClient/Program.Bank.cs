@@ -130,7 +130,7 @@ public sealed partial class GameLoop
     private void DrawBankFrame()
     {
         if (!_bankOpen || _net is null || _gameplayArt is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        float s=GameplayUiScale(); Vector2 origin=new(0,8*s), logicalSize=new(384,512);
+        float s=GameplayUiScale(); Vector2 origin=new(0,104*s), logicalSize=new(384,512);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##bank", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
@@ -141,6 +141,15 @@ public sealed partial class GameLoop
             ("BankFrame/Texture#3",@"Interface\BankFrame\UI-BankFrame-BotLeft",new(0,256),new(256,256)),
             ("BankFrame/Texture#4",@"Interface\BankFrame\UI-BankFrame-BotRight",new(256,256),new(128,256))];
         foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="bank")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"BankFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","BankFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        if (_gameplayArt is not null)
+        {
+            DrawVanillaBankSlots(dl, origin, s, player);
+            Vector2 bankClose=origin+new Vector2(324,10)*s;
+            DrawImageButton(dl,"##bank-close",bankClose,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+            if(ImGui.IsItemClicked())_bankOpen=false;
+            if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
+            ImGui.End(); return;
+        }
         ImGui.SetCursorScreenPos(origin+new Vector2(35,75)*s); ImGui.BeginChild("##bank-slots",new Vector2(295,245)*s,false);
         for (int i = 0; i < 24; i++)
         {
@@ -166,5 +175,36 @@ public sealed partial class GameLoop
         Vector2 close=origin+new Vector2(324,10)*s;DrawImageButton(dl,"##bank-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_bankOpen=false;
         if(_uiParityArmed&&_uiParityPanel=="bank")MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void DrawVanillaBankSlots(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player)
+    {
+        for (int i = 0; i < 24; i++)
+        {
+            ulong guid = player.Fields.PlayerBankSlot(i);
+            WorldEntity? instance = guid != 0 && _entities.TryGet(guid, out WorldEntity found) ? found : null;
+            ItemTemplate? item = null;
+            if (instance is not null) { _items?.Require(instance.Entry, guid, _net!); _items?.TryGet(instance.Entry, out item); }
+            int row = i / 6, col = i % 6;
+            Vector2 min = origin + new Vector2(35 + col * 43, 78 + row * 43) * s;
+            uint icon = item is null ? 0 : _gameplayArt?.Handle(item.IconPath) ?? 0;
+            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(37) * s);
+            uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot2") ?? 0;
+            if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
+            ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton($"##bank-item-{i}", new Vector2(37) * s);
+            if (ImGui.IsItemClicked() && instance is not null) WithdrawBankEntry(instance.Entry);
+            if (ImGui.IsItemHovered() && item is not null) DrawItemTooltip(item, instance?.Fields.ItemStackCount ?? 1);
+        }
+        byte count = player.Fields.BankBagSlotCount; uint price = _bankPrices?.Price(count + 1) ?? 0;
+        for (int i = 0; i < 6; i++)
+        {
+            Vector2 min = origin + new Vector2(35 + i * 43, 300) * s;
+            uint ring = _gameplayArt?.Handle(i < count ? @"Interface\Buttons\UI-Quickslot2" : @"Interface\BankFrame\UI-Bank-Slot-Locked") ?? 0;
+            if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
+        }
+        dl.AddText(ImGui.GetFont(),10f*s,origin+new Vector2(36,350)*s,0xffffffff,
+            count < 6 ? $"Next bag slot: {FormatMoney(price)}" : "All bank bag slots purchased");
+        if (count < 6 && VanillaButton(dl,"##bank-buy-slot","Purchase",origin+new Vector2(230,344)*s,
+                new Vector2(90,22),s)) BuyNextBankSlot();
     }
 }

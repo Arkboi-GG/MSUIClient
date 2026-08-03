@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Numerics;
 
 namespace MSUIClient.Net;
 
@@ -266,6 +267,19 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);
 
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
+    public void Inspect(ulong guid) => SendFullGuid(Op.CMSG_INSPECT, guid);
+    public void PetAction(ulong petGuid, uint packedAction, ulong targetGuid)
+    {
+        var w = new PacketWriter(20);
+        w.WriteU64(petGuid); w.WriteU32(packedAction); w.WriteU64(targetGuid);
+        SendPacket((ushort)Op.CMSG_PET_ACTION, w.AsSpan());
+    }
+    public void ZoneUpdate(uint zoneId) =>
+        SendPacket((ushort)Op.CMSG_ZONEUPDATE, BuildZoneUpdateBody(zoneId));
+    public static byte[] BuildZoneUpdateBody(uint zoneId)
+    {
+        var w = new PacketWriter(4); w.WriteU32(zoneId); return w.ToArray();
+    }
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);
     public void SendChatSay(string text, uint language)
@@ -294,6 +308,19 @@ public sealed class WorldSession : IDisposable
         w.WriteU32(spellId);
         w.WriteU16(targetGuid == 0 ? (ushort)0 : (ushort)0x0002); // TARGET_FLAG_SELF / UNIT
         if (targetGuid != 0) w.WritePackedGuid(targetGuid);
+        return w.ToArray();
+    }
+
+    public void CastSpellOnGameObject(uint spellId, ulong gameObjectGuid)
+        => SendPacket((ushort)Op.CMSG_CAST_SPELL,
+            BuildCastSpellOnGameObjectBody(spellId, gameObjectGuid));
+
+    public static byte[] BuildCastSpellOnGameObjectBody(uint spellId, ulong gameObjectGuid)
+    {
+        var w = new PacketWriter(14);
+        w.WriteU32(spellId);
+        w.WriteU16(0x4800); // TARGET_FLAG_OBJECT | TARGET_FLAG_GAMEOBJECT_ITEM
+        w.WritePackedGuid(gameObjectGuid);
         return w.ToArray();
     }
 
@@ -346,6 +373,71 @@ public sealed class WorldSession : IDisposable
     }
 
     public void NameQuery(ulong guid) => SendFullGuid(Op.CMSG_NAME_QUERY, guid);
+    public void FriendList() => SendPacket((ushort)Op.CMSG_FRIEND_LIST, ReadOnlySpan<byte>.Empty);
+    public void AddFriend(string name)
+    {
+        var w = new PacketWriter(name.Length + 1); w.WriteCString(name);
+        SendPacket((ushort)Op.CMSG_ADD_FRIEND, w.AsSpan());
+    }
+    public void DeleteFriend(ulong guid) => SendFullGuid(Op.CMSG_DEL_FRIEND, guid);
+    public void Who(string name)
+    {
+        var w = new PacketWriter(48);
+        w.WriteU32(0); w.WriteU32(100);
+        w.WriteCString(name); w.WriteCString("");
+        w.WriteU32(uint.MaxValue); w.WriteU32(uint.MaxValue);
+        w.WriteU32(0); // zone count
+        w.WriteU32(0); // search term count
+        SendPacket((ushort)Op.CMSG_WHO, w.AsSpan());
+    }
+    public void AddIgnore(string name)
+    {
+        var w = new PacketWriter(name.Length + 1); w.WriteCString(name);
+        SendPacket((ushort)Op.CMSG_ADD_IGNORE, w.AsSpan());
+    }
+    public void DeleteIgnore(ulong guid) => SendFullGuid(Op.CMSG_DEL_IGNORE, guid);
+    public void GroupInvite(string name)
+    {
+        var w = new PacketWriter(name.Length + 1); w.WriteCString(name);
+        SendPacket((ushort)Op.CMSG_GROUP_INVITE, w.AsSpan());
+    }
+    public void InitiateTrade(ulong guid) => SendFullGuid(Op.CMSG_INITIATE_TRADE, guid);
+    public void BeginTrade() => SendPacket((ushort)Op.CMSG_BEGIN_TRADE, ReadOnlySpan<byte>.Empty);
+    public void AcceptTrade()
+        => SendPacket((ushort)Op.CMSG_ACCEPT_TRADE, BuildAcceptTradeBody());
+    public void UnacceptTrade() => SendPacket((ushort)Op.CMSG_UNACCEPT_TRADE, ReadOnlySpan<byte>.Empty);
+    public void CancelTrade() => SendPacket((ushort)Op.CMSG_CANCEL_TRADE, ReadOnlySpan<byte>.Empty);
+    public void SetTradeItem(byte tradeSlot, byte bag, byte slot)
+        => SendPacket((ushort)Op.CMSG_SET_TRADE_ITEM, BuildSetTradeItemBody(tradeSlot, bag, slot));
+    public void ClearTradeItem(byte tradeSlot)
+    {
+        var w = new PacketWriter(1); w.WriteU8(tradeSlot);
+        SendPacket((ushort)Op.CMSG_CLEAR_TRADE_ITEM, w.AsSpan());
+    }
+    public void SetTradeGold(uint gold)
+        => SendPacket((ushort)Op.CMSG_SET_TRADE_GOLD, BuildSetTradeGoldBody(gold));
+    public static byte[] BuildAcceptTradeBody()
+    { var w = new PacketWriter(4); w.WriteU32(1); return w.ToArray(); }
+    public static byte[] BuildSetTradeItemBody(byte tradeSlot, byte bag, byte slot)
+    { var w = new PacketWriter(3); w.WriteU8(tradeSlot); w.WriteU8(bag); w.WriteU8(slot); return w.ToArray(); }
+    public static byte[] BuildSetTradeGoldBody(uint gold)
+    { var w = new PacketWriter(4); w.WriteU32(gold); return w.ToArray(); }
+    public void GmTicketCreate(byte type, uint map, Vector3 position, string message)
+        => SendPacket((ushort)Op.CMSG_GMTICKET_CREATE, BuildGmTicketCreateBody(type, map, position, message));
+    public void GmTicketUpdate(byte type, string message)
+    {
+        var w = new PacketWriter(message.Length + 2); w.WriteU8(type); w.WriteCString(message);
+        SendPacket((ushort)Op.CMSG_GMTICKET_UPDATETEXT, w.AsSpan());
+    }
+    public void GmTicketGet() => SendPacket((ushort)Op.CMSG_GMTICKET_GETTICKET, ReadOnlySpan<byte>.Empty);
+    public void GmTicketDelete() => SendPacket((ushort)Op.CMSG_GMTICKET_DELETETICKET, ReadOnlySpan<byte>.Empty);
+    public void GmTicketSystemStatus() => SendPacket((ushort)Op.CMSG_GMTICKET_SYSTEMSTATUS, ReadOnlySpan<byte>.Empty);
+    public static byte[] BuildGmTicketCreateBody(byte type, uint map, Vector3 position, string message)
+    {
+        var w = new PacketWriter(message.Length + 24); w.WriteU8(type); w.WriteU32(map);
+        w.WriteF32(position.X); w.WriteF32(position.Y); w.WriteF32(position.Z);
+        w.WriteCString(message); w.WriteCString(""); return w.ToArray();
+    }
 
     /// <summary>CMSG_CREATURE_QUERY — resolve a creature template's name/type. Body = entry(u32) + guid(u64).</summary>
     public void CreatureQuery(uint entry, ulong guid)
@@ -354,6 +446,19 @@ public sealed class WorldSession : IDisposable
         w.WriteU32(entry);
         w.WriteU64(guid);
         SendPacket((ushort)Op.CMSG_CREATURE_QUERY, w.AsSpan());
+    }
+
+    /// <summary>CMSG_GAMEOBJECT_QUERY -- resolve a streamed object's type-specific template data.</summary>
+    public void GameObjectQuery(uint entry, ulong guid)
+    {
+        SendPacket((ushort)Op.CMSG_GAMEOBJECT_QUERY, BuildGameObjectQueryBody(entry, guid));
+    }
+
+    public static byte[] BuildGameObjectQueryBody(uint entry, ulong guid)
+    {
+        var w = new PacketWriter(12);
+        w.WriteU32(entry); w.WriteU64(guid);
+        return w.ToArray();
     }
 
     public void ItemQuery(uint entry, ulong guid)
@@ -473,10 +578,12 @@ public sealed class WorldSession : IDisposable
     }
 
     public void AuctionHello(ulong guid) => SendPacket((ushort)Op.MSG_AUCTION_HELLO, BuildAuctionGuidBody(guid));
-    public void AuctionBrowse(ulong guid, uint page, string search)
-        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_ITEMS, BuildAuctionBrowseBody(guid, page, search));
+    public void AuctionBrowse(ulong guid, uint page, string search, uint itemClass = uint.MaxValue)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_ITEMS, BuildAuctionBrowseBody(guid, page, search, itemClass));
     public void AuctionOwnerList(ulong guid, uint page)
         => SendPacket((ushort)Op.CMSG_AUCTION_LIST_OWNER_ITEMS, BuildAuctionPageBody(guid, page));
+    public void AuctionBidderList(ulong guid, uint page)
+        => SendPacket((ushort)Op.CMSG_AUCTION_LIST_BIDDER_ITEMS, BuildAuctionPageBody(guid, page));
     public void AuctionBid(ulong guid, uint id, uint price)
         => SendPacket((ushort)Op.CMSG_AUCTION_PLACE_BID, BuildAuctionBidBody(guid, id, price));
     public void AuctionCancel(ulong guid, uint id)
@@ -491,10 +598,12 @@ public sealed class WorldSession : IDisposable
     { var w = new PacketWriter(16); w.WriteU64(guid); w.WriteU32(id); w.WriteU32(price); return w.ToArray(); }
     public static byte[] BuildAuctionSellBody(ulong guid, ulong item, uint bid, uint buyout, uint durationMinutes)
     { var w = new PacketWriter(32); w.WriteU64(guid); w.WriteU64(item); w.WriteU32(bid); w.WriteU32(buyout); w.WriteU32(durationMinutes); return w.ToArray(); }
-    public static byte[] BuildAuctionBrowseBody(ulong guid, uint page, string search)
+    public static byte[] BuildAuctionBrowseBody(ulong guid, uint page, string search,
+        uint itemClass = uint.MaxValue)
     {
         var w = new PacketWriter(42 + search.Length); w.WriteU64(guid); w.WriteU32(page); w.WriteCString(search);
-        w.WriteU8(0); w.WriteU8(0); for (int i = 0; i < 4; i++) w.WriteU32(uint.MaxValue); w.WriteU8(0); return w.ToArray();
+        w.WriteU8(0); w.WriteU8(0); w.WriteU32(uint.MaxValue); w.WriteU32(itemClass);
+        w.WriteU32(uint.MaxValue); w.WriteU32(uint.MaxValue); w.WriteU8(0); return w.ToArray();
     }
 
     public static byte[] BuildTrainerListBody(ulong guid)
@@ -504,6 +613,9 @@ public sealed class WorldSession : IDisposable
     { var w = new PacketWriter(12); w.WriteU64(guid); w.WriteU32(spellId); return w.ToArray(); }
 
     public void QuestgiverStatus(ulong guid) => SendPacket((ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY, BuildGuidBody(guid));
+    public static byte[] BuildQuestQueryBody(uint questId)
+    { var w = new PacketWriter(4); w.WriteU32(questId); return w.ToArray(); }
+    public void QuestQuery(uint questId) => SendPacket((ushort)Op.CMSG_QUEST_QUERY, BuildQuestQueryBody(questId));
     public void QuestgiverHello(ulong guid) => SendPacket((ushort)Op.CMSG_QUESTGIVER_HELLO, BuildGuidBody(guid));
     public void QuestgiverQuery(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_QUERY_QUEST, BuildQuestGuidBody(guid, questId));
     public void QuestgiverAccept(ulong guid, uint questId) => SendPacket((ushort)Op.CMSG_QUESTGIVER_ACCEPT_QUEST, BuildQuestGuidBody(guid, questId));

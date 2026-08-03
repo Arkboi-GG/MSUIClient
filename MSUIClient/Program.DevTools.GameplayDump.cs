@@ -22,12 +22,12 @@ public sealed partial class GameLoop
 
     private void ArmGameplayDump()
     {
-        if (_config.DevTools) _gameplayDumpRequested = true;
+        if (_config.DevTools || _liveRunOptions is not null) _gameplayDumpRequested = true;
     }
 
     private void BeginGameplayDumpFrame()
     {
-        if (!_gameplayDumpRequested || !_config.DevTools) return;
+        if (!_gameplayDumpRequested || (!_config.DevTools && _liveRunOptions is null)) return;
         _gameplayDumpRequested = false;
         _gameplayDumpArmed = true;
         _gameplayDumpLayout.Clear();

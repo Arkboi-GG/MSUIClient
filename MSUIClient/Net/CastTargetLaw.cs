@@ -19,6 +19,11 @@ public enum CastTargetReason
     TooClose,
     OutOfRange,
     NotEnoughPower,
+    UnknownSpell,
+    ProfessionWindow,
+    MissingReagent,
+    MissingTool,
+    MissingSpellFocus,
 }
 
 public readonly record struct CastTargetCandidate(

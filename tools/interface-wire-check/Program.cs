@@ -1,10 +1,38 @@
 using MSUIClient;
+using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 
 static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidDataException(message);
 }
+
+var attackSpell = new SpellInfo(6603, "Attack", "", @"Interface\Icons\Temp.blp",
+    0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0,
+    EffectIds: [ActionIconLaw.SpellEffectAttack]);
+Check(ActionIconLaw.Resolve(attackSpell, @"Interface\Icons\INV_Sword_04.blp", 7) ==
+      @"Interface\Icons\INV_Sword_04.blp", "Attack borrows equipped main-hand icon");
+Check(ActionIconLaw.Resolve(attackSpell, null, null) == ActionIconLaw.UnarmedAttackIcon,
+    "unarmed Attack uses Spell-Reset rather than Temp");
+var autoShot = attackSpell with { Id = 75, Name = "Auto Shot", IconPath = @"Interface\Icons\Ability_Whirlwind.blp",
+    Attributes = 0x2, AttributesEx2 = 0x20, EffectIds = [0u] };
+Check(ActionIconLaw.Resolve(autoShot, @"Interface\Icons\INV_Weapon_Rifle_01.blp", 3) ==
+      @"Interface\Icons\INV_Weapon_Rifle_01.blp", "Auto Shot borrows equipped ranged icon");
+Check(ActionIconLaw.Resolve(autoShot, @"Interface\Icons\INV_ThrowingKnife_01.blp", 16) ==
+      autoShot.IconPath, "thrown weapon keeps ranged spell icon");
+
+var northshire = MinimapProjection.FromWorld(new System.Numerics.Vector3(-8949.95f, -132.493f, 83.5312f));
+Check(northshire.TileColumn == 32 && northshire.TileRow == 48 &&
+      northshire.ChunkX == 3 && northshire.ChunkY == 12,
+      "Northshire world position projects to Azeroth minimap/MCNK coordinates");
+Check((ushort)Op.CMSG_ZONEUPDATE == 500, "CMSG_ZONEUPDATE opcode");
+Check(WorldSession.BuildZoneUpdateBody(12).SequenceEqual(Convert.FromHexString("0C000000")),
+      "zone update body");
+string clientData = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
+var northshireAdt = AdtTerrainReader.ReadFromMpq(clientData, "Azeroth", 48, 32);
+Check(northshire.AreaId(northshireAdt) == 9,
+      "Northshire MCNK resolves live AreaTable ID 9 rather than login zone");
 
 Check((ushort)Op.CMSG_GOSSIP_HELLO == 379, "CMSG_GOSSIP_HELLO opcode");
 Check((ushort)Op.CMSG_GOSSIP_SELECT_OPTION == 380, "CMSG_GOSSIP_SELECT_OPTION opcode");
@@ -75,11 +103,14 @@ Check(trainer.TrainerGuid == trainerGuid && trainer.Spells.Count == 1 &&
       trainer.Spells[0].ServiceSpellId == 6673 && trainer.Spells[0].Cost == 100 &&
       trainer.Spells[0].RequiredLevel == 1 && trainer.Greeting == "Train", "trainer list 38-byte row shape");
 
-Check((ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY == 386 && (ushort)Op.SMSG_QUESTGIVER_STATUS == 387 &&
+Check((ushort)Op.CMSG_QUEST_QUERY == 92 && (ushort)Op.SMSG_QUEST_QUERY_RESPONSE == 93 &&
+      (ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY == 386 && (ushort)Op.SMSG_QUESTGIVER_STATUS == 387 &&
       (ushort)Op.CMSG_QUESTGIVER_HELLO == 388 && (ushort)Op.SMSG_QUESTGIVER_QUEST_LIST == 389 &&
       (ushort)Op.CMSG_QUESTGIVER_QUERY_QUEST == 390 && (ushort)Op.SMSG_QUESTGIVER_QUEST_DETAILS == 392 &&
       (ushort)Op.CMSG_QUESTGIVER_ACCEPT_QUEST == 393 && (ushort)Op.SMSG_QUESTGIVER_QUEST_COMPLETE == 401 &&
       (ushort)Op.SMSG_QUESTUPDATE_ADD_KILL == 409, "quest opcodes");
+Check(WorldSession.BuildQuestQueryBody(0x12345678).SequenceEqual(Convert.FromHexString("78563412")),
+      "quest query id body");
 Check(WorldSession.BuildQuestGuidBody(trainerGuid, 7)
       .SequenceEqual(Convert.FromHexString("0100008F030030F107000000")), "quest guid plus id body");
 var questDetailsWriter = new PacketWriter(); questDetailsWriter.WriteU64(trainerGuid); questDetailsWriter.WriteU32(7);
@@ -216,11 +247,30 @@ Check(WorldSession.BuildTalentWipeBody(trainerGuid).SequenceEqual(Convert.FromHe
 Check((ushort)Op.CMSG_GAMEOBJ_USE == 177 && (ushort)Op.SMSG_GAMEOBJECT_CUSTOM_ANIM == 179 &&
       (ushort)Op.CMSG_PAGE_TEXT_QUERY == 90 && (ushort)Op.SMSG_PAGE_TEXT_QUERY_RESPONSE == 91,
       "game object/page opcodes");
+Check((ushort)Op.CMSG_GAMEOBJECT_QUERY == 94 && (ushort)Op.SMSG_GAMEOBJECT_QUERY_RESPONSE == 95,
+      "game object template query opcodes");
 ulong objectGuid = 0xF110000003000001ul;
+Check(WorldSession.BuildGameObjectQueryBody(1731, objectGuid)
+      .SequenceEqual(Convert.FromHexString("C306000001000003000010F1")),
+      "game object query entry/full-guid body");
 Check(WorldSession.BuildGameObjectUseBody(objectGuid).SequenceEqual(Convert.FromHexString("01000003000010F1")),
       "game object use full guid body");
 Check(WorldSession.BuildPageTextQueryBody(77).SequenceEqual(Convert.FromHexString("4D000000")),
       "page text query body");
+using (var professionMpq = new MpqMount(clientData))
+{
+    LockCatalog locks = LockCatalog.Load(professionMpq) ?? throw new InvalidDataException("Lock.dbc missing");
+    Check(locks.ResourceLockType(29) == 2 && locks.ResourceLockType(38) == 3,
+        "Silverleaf and Copper Lock.dbc skill-slot mapping");
+    Check(locks.MatchesResourceMask(29, 0x2) && !locks.MatchesResourceMask(29, 0x4) &&
+          locks.MatchesResourceMask(38, 0x4) && !locks.MatchesResourceMask(38, 0x2),
+        "resource masks discriminate herb/mineral nodes");
+    SpellFocusCatalog foci = SpellFocusCatalog.Load(professionMpq) ??
+        throw new InvalidDataException("SpellFocusObject.dbc missing");
+    Check(foci.Name(1) == "Anvil" && foci.Name(3) == "Forge" &&
+          foci.Name(4) == "Cooking Fire" && foci.Name(543) == "Black Forge",
+        "crafting focus names");
+}
 Check((ushort)Op.SMSG_LEVELUP_INFO == 468, "level-up info opcode");
 Check(ObjectFields.PLAYER_REST_STATE_EXPERIENCE == 1175 && ObjectFields.PLAYER_XP == 716,
       "rest/experience build-5875 field indices");
@@ -238,4 +288,24 @@ Check((ushort)Op.CMSG_TAXINODE_STATUS_QUERY == 0x01AA && (ushort)Op.SMSG_SHOWTAX
 Check(WorldSession.BuildActivateTaxiBody(0x0102030405060708, 12, 34).SequenceEqual(new byte[]
       { 8,7,6,5,4,3,2,1, 12,0,0,0, 34,0,0,0 }), "taxi activate body");
 
-Console.WriteLine("interface wire checks passed: gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding");
+Check((ushort)Op.CMSG_INITIATE_TRADE == 278 && (ushort)Op.CMSG_BEGIN_TRADE == 279 &&
+      (ushort)Op.CMSG_ACCEPT_TRADE == 282 && (ushort)Op.CMSG_SET_TRADE_ITEM == 285 &&
+      (ushort)Op.CMSG_SET_TRADE_GOLD == 287 && (ushort)Op.SMSG_TRADE_STATUS == 288 &&
+      (ushort)Op.SMSG_TRADE_STATUS_EXTENDED == 289, "trade opcodes");
+Check(WorldSession.BuildAcceptTradeBody().SequenceEqual(new byte[] { 1, 0, 0, 0 }),
+      "trade accept session marker");
+Check(WorldSession.BuildSetTradeItemBody(2, 255, 25).SequenceEqual(new byte[] { 2, 255, 25 }),
+      "trade item slot/bag/slot body");
+Check(WorldSession.BuildSetTradeGoldBody(0x12345678).SequenceEqual(Convert.FromHexString("78563412")),
+      "trade money body");
+
+Check((ushort)Op.CMSG_FRIEND_LIST == 102 && (ushort)Op.SMSG_FRIEND_LIST == 103 &&
+      (ushort)Op.SMSG_FRIEND_STATUS == 104 && (ushort)Op.CMSG_ADD_FRIEND == 105 &&
+      (ushort)Op.CMSG_DEL_FRIEND == 106, "social opcodes");
+
+Check((ushort)Op.CMSG_GMTICKET_CREATE == 517 && (ushort)Op.SMSG_GMTICKET_CREATE == 518 &&
+      (ushort)Op.CMSG_GMTICKET_UPDATETEXT == 519 && (ushort)Op.CMSG_GMTICKET_GETTICKET == 529 &&
+      (ushort)Op.CMSG_GMTICKET_DELETETICKET == 535 && (ushort)Op.CMSG_GMTICKET_SYSTEMSTATUS == 538,
+      "help ticket opcodes");
+
+Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding");

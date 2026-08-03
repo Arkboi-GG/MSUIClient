@@ -2,11 +2,26 @@ using System.Numerics;
 
 namespace MSUIClient.Net;
 
-public readonly record struct SpellTargets(ushort Mask, ulong? Unit, Vector3? Destination);
-public readonly record struct SpellStartPacket(ulong Caster, uint SpellId, ushort CastFlags,
-    uint CastTimeMs, SpellTargets Targets, uint? AmmoDisplayId);
-public readonly record struct SpellGoPacket(ulong Caster, uint SpellId, ushort CastFlags,
-    ulong[] Hits, (ulong Guid, byte Reason)[] Misses, SpellTargets Targets, uint? AmmoDisplayId);
+/// <summary>
+/// The complete 1.12 spell-target block.  Keeping the source and item/string branches is
+/// important even when the renderer does not consume them: the wire decoder must not erase
+/// information before presentation/gameplay policy has had a chance to inspect it.
+/// </summary>
+public readonly record struct SpellTargets(
+    ushort Mask,
+    ulong? Unit,
+    ulong? Item,
+    ulong? SourceTransport,
+    Vector3? Source,
+    Vector3? Destination,
+    string? String);
+
+public readonly record struct SpellStartPacket(ulong ItemCaster, ulong Caster, uint SpellId,
+    ushort CastFlags, uint CastTimeMs, SpellTargets Targets, uint? AmmoDisplayId,
+    uint? AmmoInventoryType);
+public readonly record struct SpellGoPacket(ulong ItemCaster, ulong Caster, uint SpellId,
+    ushort CastFlags, ulong[] Hits, (ulong Guid, byte Reason)[] Misses, SpellTargets Targets,
+    uint? AmmoDisplayId, uint? AmmoInventoryType);
 
 public static class SpellPacketParser
 {
@@ -16,20 +31,21 @@ public static class SpellPacketParser
     public static SpellStartPacket ParseStart(byte[] body)
     {
         var r = new PacketReader(body);
-        r.ReadPackedGuid();
+        ulong itemCaster = r.ReadPackedGuid();
         ulong caster = r.ReadPackedGuid();
         uint spell = r.ReadU32();
         ushort flags = r.ReadU16();
         uint castMs = r.ReadU32();
         SpellTargets targets = ReadTargets(r);
-        uint? ammo = (flags & 0x20) != 0 ? ReadAmmo(r) : null;
-        return new SpellStartPacket(caster, spell, flags, castMs, targets, ammo);
+        (uint Display, uint Inventory)? ammo = (flags & 0x20) != 0 ? ReadAmmo(r) : null;
+        return new SpellStartPacket(itemCaster, caster, spell, flags, castMs, targets,
+            ammo?.Display, ammo?.Inventory);
     }
 
     public static SpellGoPacket ParseGo(byte[] body)
     {
         var r = new PacketReader(body);
-        r.ReadPackedGuid();
+        ulong itemCaster = r.ReadPackedGuid();
         ulong caster = r.ReadPackedGuid();
         uint spell = r.ReadU32();
         ushort flags = r.ReadU16();
@@ -43,8 +59,9 @@ public static class SpellPacketParser
             misses[i] = (guid, reason);
         }
         SpellTargets targets = ReadTargets(r);
-        uint? ammo = (flags & 0x20) != 0 ? ReadAmmo(r) : null;
-        return new SpellGoPacket(caster, spell, flags, hits, misses, targets, ammo);
+        (uint Display, uint Inventory)? ammo = (flags & 0x20) != 0 ? ReadAmmo(r) : null;
+        return new SpellGoPacket(itemCaster, caster, spell, flags, hits, misses, targets,
+            ammo?.Display, ammo?.Inventory);
     }
 
     public static (uint SpellId, byte Status, byte Reason) ParseResult(byte[] body)
@@ -54,16 +71,23 @@ public static class SpellPacketParser
         return (spell, status, status == 2 && r.HasMore ? r.ReadU8() : (byte)0);
     }
 
-    private static uint ReadAmmo(PacketReader r) { uint display = r.ReadU32(); r.ReadU32(); return display; }
+    private static (uint Display, uint Inventory) ReadAmmo(PacketReader r)
+        => (r.ReadU32(), r.ReadU32());
 
     private static SpellTargets ReadTargets(PacketReader r)
     {
         ushort mask = r.ReadU16(); ulong? unit = null;
         if ((mask & UnitBits) != 0) unit = r.ReadPackedGuid();
-        if ((mask & ItemBits) != 0) r.ReadPackedGuid();
-        if ((mask & 0x0020) != 0) r.ReadVector3();
+        ulong? item = (mask & ItemBits) != 0 ? r.ReadPackedGuid() : null;
+        ulong? sourceTransport = null;
+        Vector3? source = null;
+        if ((mask & 0x0020) != 0)
+        {
+            sourceTransport = r.ReadPackedGuid();
+            source = r.ReadVector3();
+        }
         Vector3? destination = (mask & 0x0040) != 0 ? r.ReadVector3() : null;
-        if ((mask & 0x2000) != 0) r.ReadCString();
-        return new SpellTargets(mask, unit, destination);
+        string? text = (mask & 0x2000) != 0 ? r.ReadCString() : null;
+        return new SpellTargets(mask, unit, item, sourceTransport, source, destination, text);
     }
 }

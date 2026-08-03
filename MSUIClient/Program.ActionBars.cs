@@ -29,12 +29,6 @@ public sealed partial class GameLoop
     private readonly ActionButtonVerdict?[] _lastActionButtonVerdicts =
         new ActionButtonVerdict?[120];
 
-    private static readonly Key[] ActionKeys =
-    [
-        Key.Number1, Key.Number2, Key.Number3, Key.Number4, Key.Number5, Key.Number6,
-        Key.Number7, Key.Number8, Key.Number9, Key.Number0, Key.Minus, Key.Equal,
-    ];
-    private static readonly string[] ActionLabels = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="];
 
     private void InitGameplayUi(GL gl)
     {
@@ -56,9 +50,9 @@ public sealed partial class GameLoop
 
     private void UpdateActionBarInput(bool typing)
     {
-        for (int i = 0; i < ActionKeys.Length; i++)
+        for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
-            bool down = _window.IsDown(ActionKeys[i]);
+            bool down = BindingDown(ActionBinding(i));
             if (down && !_actionKeyWasDown[i] && !typing && _net is { IsInWorld: true })
                 UseAction(ActionWireSlot(i));
             _actionKeyWasDown[i] = down;
@@ -80,6 +74,9 @@ public sealed partial class GameLoop
             case ActionSlot.Item:
                 UseItemAction(slot.ActionId);
                 break;
+            case ActionSlot.Macro:
+                ExecuteMacro(slot.ActionId);
+                break;
         }
     }
 
@@ -89,6 +86,17 @@ public sealed partial class GameLoop
         if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell) || spell.Passive)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
+            return;
+        }
+        if (!_actions.KnownSpells.Contains(spellId))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnknownSpell, 0, sent: false);
+            RefuseCast(spellId, "LOCAL_UNKNOWN_SPELL", "You have not learned that spell.");
+            return;
+        }
+        if (TryOpenProfession(spellId))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.ProfessionWindow, 0, sent: false);
             return;
         }
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
@@ -105,7 +113,7 @@ public sealed partial class GameLoop
             EmitCastVerdict(spellId, CastTargetReason.AlreadyQueued, 0, sent: false);
             return;
         }
-        if (_actions.IsOnCooldown(spellId, now) || now < _globalCooldownUntil)
+        if (_actions.IsOnCooldown(spellId, now, spell.Category) || now < _globalCooldownUntil)
         {
             EmitCastVerdict(spellId, CastTargetReason.CooldownOrGlobalCooldown, 0, sent: false);
             RefuseCast(spellId, "LOCAL_COOLDOWN", "Spell is not ready yet.");
@@ -125,6 +133,30 @@ public sealed partial class GameLoop
                 RefuseCast(spellId, "LOCAL_MOUNTED", "You are mounted");
                 return;
             }
+        }
+
+        SpellReagent? missingReagent = _spellCatalog.Reagents(spellId)
+            .FirstOrDefault(reagent => CarriedCount(reagent.ItemId) < reagent.Count);
+        if (missingReagent is { ItemId: not 0 } reagent)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.MissingReagent, 0, sent: false);
+            RefuseCast(spellId, "LOCAL_MISSING_REAGENT",
+                $"Missing reagent {reagent.ItemId} ({CarriedCount(reagent.ItemId)}/{reagent.Count}).");
+            return;
+        }
+        uint missingTool = _spellCatalog.Tools(spellId).FirstOrDefault(tool => CarriedCount(tool) == 0);
+        if (missingTool != 0)
+        {
+            EmitCastVerdict(spellId, CastTargetReason.MissingTool, 0, sent: false);
+            RefuseCast(spellId, "LOCAL_MISSING_TOOL", $"Requires item {missingTool}.");
+            return;
+        }
+        if (!HasNearbySpellFocus(spell.RequiredFocus))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.MissingSpellFocus, 0, sent: false);
+            RefuseCast(spellId, "LOCAL_MISSING_FOCUS",
+                $"Requires {SpellFocusName(spell.RequiredFocus)}.");
+            return;
         }
 
         CastTargetVerdict targetVerdict = ResolveCastTarget(spell);
@@ -158,7 +190,8 @@ public sealed partial class GameLoop
         if (spell.StartRecoveryMs > 0)
         {
             _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
-            _actions.StartCooldown(spellId, spell.StartRecoveryCategory, spell.StartRecoveryMs, now);
+            _actions.StartCooldown(spellId, spell.StartRecoveryCategory, 0,
+                spell.StartRecoveryMs, now);
         }
     }
 
@@ -341,7 +374,7 @@ public sealed partial class GameLoop
             bool clicked = ImGui.InvisibleButton($"##action-{i}", buttonMax - buttonMin);
             bool hovered = ImGui.IsItemHovered();
             bool activated = ImGui.IsItemActivated();
-            bool pushed = ImGui.IsItemActive() || _window.IsDown(ActionKeys[i]);
+            bool pushed = ImGui.IsItemActive() || BindingDown(ActionBinding(i));
             if (hovered) hoveredSlot = wireSlot;
 
             if (slot is { } action)
@@ -352,13 +385,18 @@ public sealed partial class GameLoop
                 if (action.Kind == ActionSlot.Spell && _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true)
                 {
                     spellInfo = spell;
-                    iconPath = spell.IconPath;
+                    iconPath = ResolveSpellActionIcon(spell, player);
                     title = spell.Rank.Length > 0 ? $"{spell.Name} ({spell.Rank})" : spell.Name;
                 }
                 else if (action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null)
                 {
                     iconPath = item.IconPath;
                     title = item.Name;
+                }
+                else if (action.Kind == ActionSlot.Macro)
+                {
+                    iconPath = MacroIcon(action.ActionId);
+                    title = action.ActionId is > 0 and <= 18 ? _macros[(int)action.ActionId - 1].Name : "Macro";
                 }
 
                 // ── the reference three-way usability verdict (ActionButton_UpdateUsable) ──
@@ -383,7 +421,10 @@ public sealed partial class GameLoop
                     if (flash != 0) dl.AddImage((nint)flash, buttonMin, buttonMax);
                 }
 
-                float cooldown = verdict.IsItem ? 0f : _actions.CooldownFraction(verdict.ActionId, now);
+                uint cooldownCategory = !verdict.IsItem && _spellCatalog?.TryGet(verdict.ActionId,
+                    out SpellInfo cooldownSpell) == true ? cooldownSpell.Category : 0;
+                float cooldown = verdict.IsItem ? 0f : _actions.CooldownFraction(
+                    verdict.ActionId, now, cooldownCategory);
                 if (cooldown > 0f) DrawCooldownSwipe(dl, buttonMin, buttonMax, cooldown);
 
                 if (activated)
@@ -433,7 +474,7 @@ public sealed partial class GameLoop
                 // Hotkey: red (1.0,0.1,0.1) while the selection is out of range, grey otherwise.
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
-                DrawActionText(dl, buttonMin, ActionLabels[i], scale, hotkeyColor);
+                DrawActionText(dl, buttonMin, FriendlyKey(BoundKey(ActionBinding(i))), scale, hotkeyColor);
 
                 if (verdict.IsItem && verdict.StackCount > 0)
                     DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
@@ -449,7 +490,7 @@ public sealed partial class GameLoop
                     verdict.CarriedGrid
                         ? @"Interface\Buttons\UI-Quickslot"
                         : @"Interface\Buttons\UI-Quickslot2", scale);
-                DrawActionText(dl, buttonMin, ActionLabels[i], scale, 0xff999999);
+                DrawActionText(dl, buttonMin, FriendlyKey(BoundKey(ActionBinding(i))), scale, 0xff999999);
             }
         }
 
@@ -469,9 +510,10 @@ public sealed partial class GameLoop
         if (_draggingActionSlot >= 0 && _actions[_draggingActionSlot] is { } dragged)
         {
             string iconPath = dragged.Kind == ActionSlot.Spell && _spellCatalog?.TryGet(dragged.ActionId, out SpellInfo info) == true
-                ? info.IconPath
+                ? ResolveSpellActionIcon(info, player)
                 : dragged.Kind == ActionSlot.Item && _items?.TryGet(dragged.ActionId, out ItemTemplate? item) == true && item is not null
-                    ? item.IconPath : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                    ? item.IconPath : dragged.Kind == ActionSlot.Macro ? MacroIcon(dragged.ActionId)
+                    : @"Interface\Icons\INV_Misc_QuestionMark.blp";
             uint icon = _gameplayArt.Handle(iconPath);
             if (icon != 0)
             {
@@ -482,7 +524,18 @@ public sealed partial class GameLoop
         }
         if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
         {
-            if (_draggingSpellId != 0)
+            if (_draggingMacroId != 0)
+            {
+                if (hoveredSlot >= 0)
+                {
+                    var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
+                    _actions.Set(hoveredSlot, macroAction);
+                    _net?.SetActionButton((byte)hoveredSlot, macroAction.Packed);
+                }
+                _draggingMacroId = 0;
+                _pressedMacroId = 0;
+            }
+            else if (_draggingSpellId != 0)
             {
                 if (hoveredSlot >= 0)
                 {
@@ -577,9 +630,11 @@ public sealed partial class GameLoop
             {
                 string iconPath = action.Kind == ActionSlot.Spell &&
                     _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true
-                        ? spell.IconPath
+                        ? ResolveSpellActionIcon(spell, _entities.TryGet(_net!.PlayerGuid,
+                            out WorldEntity owner) ? owner : null)
                         : action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
-                            ? item.IconPath : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                            ? item.IconPath : action.Kind == ActionSlot.Macro ? MacroIcon(action.ActionId)
+                            : @"Interface\Icons\INV_Misc_QuestionMark.blp";
                 uint icon = _gameplayArt.Handle(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax);
             }
@@ -608,12 +663,12 @@ public sealed partial class GameLoop
         [
             ("Character", "Character Info (C)", true, _characterOpen),
             ("Spellbook", "Spellbook & Abilities (P)", true, _spellbookOpen),
-            ("Talents", "Talents", false, false),
-            ("Quest", "Quest Log", false, false),
-            ("Socials", "Social", false, false),
-            ("World", "World Map", false, false),
+            ("Talents", "Talents", true, _talentOpen),
+            ("Quest", "Quest Log", true, _questLogOpen),
+            ("Socials", "Social", true, _socialOpen),
+            ("World", "World Map", true, _worldMapOpen),
             ("MainMenu", "Game Menu (Esc)", true, _settingsOpen),
-            ("Help", "Help Request", false, false),
+            ("Help", "Help Request", true, _helpOpen),
         ];
 
         for (int i = 0; i < buttons.Length; i++)
@@ -651,8 +706,24 @@ public sealed partial class GameLoop
                         _spellbookOpen = !_spellbookOpen;
                         if (_spellbookOpen) _characterOpen = false;
                         break;
+                    case 2:
+                        OpenTalentPanel();
+                        break;
+                    case 3:
+                        _questLogOpen = !_questLogOpen;
+                        if (_questLogOpen) { _questList = null; _questDetails = null; _questOffer = null; _questRequestItems = null; }
+                        break;
+                    case 4:
+                        if (_socialOpen) _socialOpen = false; else OpenSocial();
+                        break;
+                    case 5:
+                        _worldMapOpen = !_worldMapOpen;
+                        break;
                     case 6:
                         OpenSettings();
+                        break;
+                    case 7:
+                        if (_helpOpen) _helpOpen = false; else OpenHelp();
                         break;
                 }
             }

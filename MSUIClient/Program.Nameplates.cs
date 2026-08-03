@@ -67,7 +67,9 @@ public sealed partial class GameLoop
             (fontSize / MathF.Max(ImGui.GetFontSize(), 1f));
         Vector2 position = new(screen.X - extent.X * 0.5f, screen.Y - extent.Y);
         uint color = ReactionColorU32(ReactionTargetTowardPlayer(unit), unit.IsPlayer, unit.IsDead);
-        ImDrawListPtr draw = ImGui.GetForegroundDrawList();
+        // World labels belong above the 3-D scene but below every player-facing
+        // panel. Foreground draw lists punch them through auction/help/map art.
+        ImDrawListPtr draw = ImGui.GetBackgroundDrawList();
         draw.AddText(font, fontSize, position + Vector2.One, 0xc0000000u, name);
         draw.AddText(font, fontSize, position, color, name);
     }
@@ -122,7 +124,7 @@ public sealed partial class GameLoop
     private void DrawEnemyPlate(WorldEntity unit, FactionReaction reaction, ScreenRect plate,
         float basis, float nameSize, float levelSize, WorldEntity player)
     {
-        ImDrawListPtr draw = ImGui.GetForegroundDrawList();
+        ImDrawListPtr draw = ImGui.GetBackgroundDrawList();
         bool target = unit.Guid == _selectionGuid;
         bool hover = plate.Contains(ImGui.GetIO().MousePos);
         bool lit = hover || unit.Guid == _hoveredGuid || target;

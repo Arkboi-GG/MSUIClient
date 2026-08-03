@@ -36,8 +36,18 @@ public class M2Model
     /// </summary>
     public List<M2ParticleEmitter> ParticleEmitters { get; set; } = new();
 
-    // ── Transparency tracks (Session N — static evaluation only) ─────────────
+    /// <summary>Weapon trails, spell slashes, and missile streamers.</summary>
+    public List<M2RibbonEmitter> RibbonEmitters { get; set; } = new();
+
+    /// <summary>Model animation event markers such as cast release ($CSL/$CSR/$CST/$BWR).</summary>
+    public List<M2EventMarker> Events { get; set; } = new();
+
+    /// <summary>Per-material RGB/alpha animation blocks from the M2 colors table.</summary>
+    public List<M2ColorAnimation> Colors { get; set; } = new();
+
+    // ── Transparency tracks: legacy value[0] plus full keyed runtime tracks ──
     public List<float> TransparencyStaticAlphas { get; set; } = new();
+    public List<M2AnimTrack<short>> TransparencyTracks { get; set; } = new();
     public List<ushort> TransparencyLookup { get; set; } = new();
 
     // ── Sequences (Session O — animation) ────────────────────────────────────
@@ -84,6 +94,7 @@ public class M2Model
     public bool HasCollision => CollisionVertices.Count > 0 && CollisionIndices.Count >= 3;
 
     public bool IsValid => Vertices.Count > 0 && Indices.Count >= 3;
+    public bool HasRenderableContent => IsValid || ParticleEmitters.Count > 0 || RibbonEmitters.Count > 0;
     public bool HasSkeleton => Bones.Count > 0;
 
     /// <summary>
@@ -129,6 +140,40 @@ public class M2Model
         }
         return -1;
     }
+}
+
+public sealed class M2ColorAnimation
+{
+    public M2AnimTrack<Vector3> Color { get; set; } = new();
+    public M2AnimTrack<short> Alpha { get; set; } = new();
+}
+
+public sealed class M2EventMarker
+{
+    public string Identifier { get; set; } = "";
+    public uint Data { get; set; }
+    public ushort Bone { get; set; }
+    public Vector3 Position { get; set; }
+    public List<uint> Times { get; set; } = [];
+}
+
+public sealed class M2RibbonEmitter
+{
+    public ushort Bone { get; set; }
+    public Vector3 Position { get; set; }
+    public ushort Texture { get; set; } = ushort.MaxValue;
+    public ushort Material { get; set; } = ushort.MaxValue;
+    public M2AnimTrack<Vector3> Color { get; set; } = new();
+    public M2AnimTrack<short> Alpha { get; set; } = new();
+    public M2AnimTrack<float> HeightAbove { get; set; } = new();
+    public M2AnimTrack<float> HeightBelow { get; set; } = new();
+    public float EdgesPerSecond { get; set; }
+    public float EdgeLifetime { get; set; }
+    public float Gravity { get; set; }
+    public ushort TextureRows { get; set; } = 1;
+    public ushort TextureColumns { get; set; } = 1;
+    public M2AnimTrack<ushort> TextureSlot { get; set; } = new();
+    public M2AnimTrack<byte> Visibility { get; set; } = new();
 }
 
 /// <summary>
@@ -440,6 +485,91 @@ public struct AnimationRange
     public uint End;
 }
 
+/// <summary>Allocation-light sampling shared by effect materials and ribbons.</summary>
+public static class M2TrackSampling
+{
+    public static float Float(M2AnimTrack<float> track, M2Model model, int sequence,
+        float seconds, float fallback = 0f)
+        => Sample(track, model, sequence, seconds, fallback, static (a, b, t) => a + (b - a) * t);
+
+    public static Vector3 Vector(M2AnimTrack<Vector3> track, M2Model model, int sequence,
+        float seconds, Vector3 fallback)
+        => Sample(track, model, sequence, seconds, fallback, Vector3.Lerp);
+
+    public static float Fixed16(M2AnimTrack<short> track, M2Model model, int sequence,
+        float seconds, float fallback = 1f)
+        => Math.Clamp(Sample(track, model, sequence, seconds, (short)(fallback * 32767),
+            static (a, b, t) => (short)Math.Clamp((int)MathF.Round(a + (b - a) * t), short.MinValue, short.MaxValue)) / 32767f, 0f, 1f);
+
+    public static byte Byte(M2AnimTrack<byte> track, M2Model model, int sequence,
+        float seconds, byte fallback = 1)
+        => Sample(track, model, sequence, seconds, fallback, static (a, _, _) => a);
+
+    public static ushort UShort(M2AnimTrack<ushort> track, M2Model model, int sequence,
+        float seconds, ushort fallback = 0)
+        => Sample(track, model, sequence, seconds, fallback, static (a, _, _) => a);
+
+    private static T Sample<T>(M2AnimTrack<T> track, M2Model model, int sequence,
+        float seconds, T fallback, Func<T, T, float, T> lerp) where T : struct
+    {
+        if (track.Keys.Count == 0 || track.Timestamps.Count != track.Keys.Count) return fallback;
+        if (track.GlobalSequence >= 0)
+        {
+            uint duration = track.GlobalSequence < model.GlobalSequenceDurations.Count
+                ? model.GlobalSequenceDurations[track.GlobalSequence] : 0;
+            float milliseconds = duration > 0 ? seconds * 1000f % duration : seconds * 1000f;
+            return Bracket(track.Timestamps, track.Keys, milliseconds, track.IsLinear, lerp, fallback);
+        }
+        if (sequence < 0 || sequence >= model.Sequences.Count) return track.Keys[0];
+        M2Sequence seq = model.Sequences[sequence];
+        float durationSeconds = Math.Max(.001f, seq.DurationMs / 1000f);
+        // Vanilla's sequence flag bit 0 means "do not loop". M2Sequence's
+        // legacy IsLooping property predates that discovery and describes a
+        // different flag, so renderer track clocks use the actual file law.
+        bool looping = (seq.Flags & 0x1) == 0;
+        float local = looping ? seconds % durationSeconds : Math.Min(seconds, durationSeconds);
+        int first = 0, last = track.Keys.Count - 1;
+        if (sequence < track.Ranges.Count)
+        {
+            AnimationRange range = track.Ranges[sequence];
+            if (range.End >= range.Start && range.End < track.Keys.Count &&
+                track.Timestamps[(int)range.Start] >= seq.StartTimestamp &&
+                track.Timestamps[(int)range.End] <= seq.EndTimestamp)
+            { first = (int)range.Start; last = (int)range.End; }
+        }
+        while (first <= last && track.Timestamps[first] < seq.StartTimestamp) first++;
+        while (last >= first && track.Timestamps[last] > seq.EndTimestamp) last--;
+        if (first > last) return fallback;
+        float at = seq.StartTimestamp + local * 1000f;
+        if (first == last || at <= track.Timestamps[first]) return track.Keys[first];
+        for (int i = first + 1; i <= last; i++)
+        {
+            if (at > track.Timestamps[i]) continue;
+            if (!track.IsLinear || track.Timestamps[i] == track.Timestamps[i - 1])
+                return track.Keys[i - 1];
+            float t = Math.Clamp((at - track.Timestamps[i - 1]) /
+                (track.Timestamps[i] - track.Timestamps[i - 1]), 0, 1);
+            return lerp(track.Keys[i - 1], track.Keys[i], t);
+        }
+        return track.Keys[last];
+    }
+
+    private static T Bracket<T>(IReadOnlyList<uint> times, IReadOnlyList<T> values, float at,
+        bool linear, Func<T, T, float, T> lerp, T fallback)
+    {
+        if (values.Count == 0) return fallback;
+        if (values.Count == 1 || at <= times[0]) return values[0];
+        for (int i = 1; i < values.Count; i++)
+        {
+            if (at > times[i]) continue;
+            if (!linear || times[i] == times[i - 1]) return values[i - 1];
+            float t = Math.Clamp((at - times[i - 1]) / (times[i] - times[i - 1]), 0, 1);
+            return lerp(values[i - 1], values[i], t);
+        }
+        return values[^1];
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // PARTICLE EMITTERS — PLAN_14_PARTICLES.md §3.
 //
@@ -454,12 +584,11 @@ public struct AnimationRange
 // ten consecutive 28-byte tracks, and the eleventh fails on 200/200. That is a
 // boundary, not a threshold.
 //
-// WHAT IS NOT PARSED HERE, AND WHY. The 172 bytes from +332 to +504 hold
-// colour, alpha, scale, spin, drag, tumble and wind. A first reconstruction of
-// that region was WRONG (see PLAN_14 §3.3) and is not repeated on a guess. The
-// byte sweep says +480/+488/+496 are M2Array-shaped at 100% across 910
-// emitters, so the struct ends with arrays - but which is which is stage 2's
-// job, using the sweep that already worked rather than a wiki struct.
+// The extended region is now read where its vanilla offsets are established:
+// atlas tail cells/time, inherited scale, spin/angular velocity, follow response,
+// spline points, and the enable track. Rendering still deliberately omits model-
+// particle geometry/recursive child emitters and wind/tumble behavior; those are
+// runtime features, not justification for silently discarding the authored data.
 // ════════════════════════════════════════════════════════════════════════════
 
 /// <summary>
@@ -472,6 +601,36 @@ public enum ParticleShape { Plane, Sphere, Spline }
 
 public class M2ParticleEmitter
 {
+    public M2AnimTrack<float>[] ScalarTracks { get; } =
+        Enumerable.Range(0, 10).Select(_ => new M2AnimTrack<float>()).ToArray();
+    internal M2Model? OwnerModel { get; set; }
+
+    /// <summary>
+    /// The emission ON/OFF gate (vanilla M2 particle record +0x1dc, an M2Track&lt;u8&gt; step
+    /// track projected to 0/1). Distinct from the spawn-rate track (+0xdc / <see cref="ScalarTracks"/>[6]).
+    /// The reference forces the spawn rate to 0 while this gate is off — how a one-shot impact's
+    /// emitters pour only for their authored burst window (the fireball impact's plume 0–200ms,
+    /// spray 0–500ms, lava 0–333ms, dust 67–200ms) instead of the whole sequence. Empty = always on
+    /// (the loader default). See benilla-formats particles.rs +0x1dc / emit_timing.rs.
+    /// </summary>
+    public M2AnimTrack<float> EnabledTrack { get; set; } = new();
+
+    public float SampleScalar(int index, double seconds, int animationId, float fallback)
+    {
+        if (index < 0 || index >= ScalarTracks.Length || OwnerModel is null) return fallback;
+        int sequence = OwnerModel.TryFindSequenceIndexByAnimationId(animationId);
+        if (sequence < 0 && OwnerModel.Sequences.Count > 0) sequence = 0;
+        return M2TrackSampling.Float(ScalarTracks[index], OwnerModel, sequence, (float)seconds, fallback);
+    }
+
+    /// <summary>Is emission gated ON this many seconds into the given animation? Empty gate = on.</summary>
+    public bool SampleEnabled(double seconds, int animationId)
+    {
+        if (EnabledTrack.Keys.Count == 0 || OwnerModel is null) return true;
+        int sequence = OwnerModel.TryFindSequenceIndexByAnimationId(animationId);
+        if (sequence < 0 && OwnerModel.Sequences.Count > 0) sequence = 0;
+        return M2TrackSampling.Float(EnabledTrack, OwnerModel, sequence, (float)seconds, 1f) > 0.5f;
+    }
     public uint ParticleId { get; set; }
     public uint Flags { get; set; }
 
@@ -527,10 +686,8 @@ public class M2ParticleEmitter
 
     // ── The ten tracks at +52, static values only ────────────────────────────
     //
-    // Same contract as TransparencyStaticAlphas above: a track with exactly one
-    // key is a constant and is read; an animated track is reported by its key
-    // count and left for the runtime. Every InstancePortal track is a constant,
-    // so the portal needs nothing more than this.
+    // Static fields retain value[0] for legacy callers; ScalarTracks keeps
+    // every key/range and the spell path samples them on its instance clock.
 
     /// <summary>
     /// Yards per second along the emission direction. **CAN BE NEGATIVE, and
@@ -618,6 +775,19 @@ public class M2ParticleEmitter
     public ushort[] HeadCellEnd { get; set; } = new ushort[2];
     /// <summary>Per-segment flipbook repeat count (+0x16c / +0x172); 1 = one pass over the segment.</summary>
     public float[] HeadCellRepeat { get; set; } = new float[2] { 1f, 1f };
+    public ushort[] TailCellBegin { get; set; } = new ushort[2];
+    public ushort[] TailCellEnd { get; set; } = new ushort[2];
+    public float TailTime { get; set; }
+    public float InheritScale { get; set; }
+    public float Spin { get; set; }
+    public Vector3 AngularVelocityMin { get; set; }
+    public Vector3 AngularVelocityMax { get; set; }
+    public float FollowSpeed1 { get; set; }
+    public float FollowScale1 { get; set; }
+    public float FollowSpeed2 { get; set; }
+    public float FollowScale2 { get; set; }
+    /// <summary>Cubic-Bezier chain control points in the emitter's original WoW Z-up frame.</summary>
+    public Vector3[] SplinePoints { get; set; } = [];
 
     // ── The emitter's bone spin (PLAN_14 §11) ────────────────────────────────
     //
@@ -874,7 +1044,10 @@ public class M2ParticleEmitter
     /// it to floor(base + span*ct) &amp; 0xFF (forward arm base=begin,span=end-begin+1; reverse arm
     /// base=begin+1,span=end-begin-1). The per-segment repeat count cycles the FLIPBOOK ONLY.
     /// </summary>
-    public int SampleHeadCell(float t)
+    public int SampleHeadCell(float t) => SampleCell(t, HeadCellBegin, HeadCellEnd);
+    public int SampleTailCell(float t) => SampleCell(t, TailCellBegin, TailCellEnd);
+
+    private int SampleCell(float t, ushort[] begin, ushort[] end)
     {
         int cells = Math.Max(1, (int)TextureRows) * Math.Max(1, (int)TextureCols);
         if (cells <= 1) return 0;
@@ -887,7 +1060,7 @@ public class M2ParticleEmitter
         st = Math.Clamp(st, 0f, 1f) * 0.99f + 0.005f;              // endpoint inset (as SampleRamp)
         float rep = HeadCellRepeat[seg];
         float ct = rep != 1f ? st * rep - MathF.Floor(st * rep) : st;   // repeat wrap: fract(t*rep)
-        return CellSample(HeadCellBegin[seg], HeadCellEnd[seg], ct);
+        return CellSample(begin[seg], end[seg], ct);
     }
 
     // benilla CellRamp::new + ::sample: index = floor(base + span*t) & 0xFF (mod-256 column wrap).
@@ -906,15 +1079,74 @@ public class M2ParticleEmitter
     /// on every real sheet), row = (idx / cols) % rows (benilla lets the row run off and relies on
     /// repeat addressing to land back on row 0 — the modulo reproduces that net result in-atlas).
     /// </summary>
-    public Vector4 SampleHeadCellRect(float t)
+    public Vector4 SampleHeadCellRect(float t) => SampleCellRect(SampleHeadCell(t));
+    public Vector4 SampleTailCellRect(float t) => SampleCellRect(SampleTailCell(t));
+
+    private Vector4 SampleCellRect(int idx)
     {
         int cols = Math.Max(1, (int)TextureCols);
         int rows = Math.Max(1, (int)TextureRows);
         if (cols * rows <= 1) return new Vector4(0f, 0f, 1f, 1f);
-        int idx = SampleHeadCell(t);
-        int cx = idx % cols;
-        int cy = (idx / cols) % rows;
+        int cx = idx & (cols - 1);
+        // Rows intentionally run past one. Repeat texture addressing performs the fold.
+        int cy = idx >> BitOperations.TrailingZeroCount((uint)cols);
         return new Vector4(cx / (float)cols, cy / (float)rows, 1f / cols, 1f / rows);
+    }
+
+    /// <summary>Arc-length-parameterized cubic-Bezier sample using 16 chords per segment.</summary>
+    public bool SampleSpline(float normalized, out Vector3 position, out Vector3 tangent)
+    {
+        position = default;
+        tangent = Vector3.UnitZ;
+        if (SplinePoints.Length < 4) return false;
+        int segments = (SplinePoints.Length - 1) / 3;
+        if (segments <= 0) return false;
+        const int chords = 16;
+        var lengths = new float[segments * chords + 1];
+        Vector3 previous = SplinePoints[0];
+        float total = 0;
+        for (int s = 0; s < segments; s++)
+            for (int c = 1; c <= chords; c++)
+            {
+                Vector3 at = Bezier(s, c / (float)chords);
+                total += Vector3.Distance(previous, at);
+                lengths[s * chords + c] = total;
+                previous = at;
+            }
+        if (total <= 1e-6f)
+        {
+            position = SplinePoints[0];
+            return true;
+        }
+        float target = Math.Clamp(normalized, 0f, 1f) * total;
+        int hi = Array.FindIndex(lengths, x => x >= target);
+        if (hi <= 0) hi = 1;
+        int lo = hi - 1;
+        float span = lengths[hi] - lengths[lo];
+        float chordT = span > 1e-6f ? (target - lengths[lo]) / span : 0;
+        int segment = Math.Min(segments - 1, lo / chords);
+        float local = (lo % chords + chordT) / chords;
+        position = Bezier(segment, local);
+        tangent = BezierTangent(segment, local);
+        tangent = tangent.LengthSquared() > 1e-12f ? Vector3.Normalize(tangent) : Vector3.UnitZ;
+        return true;
+    }
+
+    private Vector3 Bezier(int segment, float t)
+    {
+        int i = segment * 3;
+        float u = 1 - t;
+        return u * u * u * SplinePoints[i] + 3 * u * u * t * SplinePoints[i + 1] +
+            3 * u * t * t * SplinePoints[i + 2] + t * t * t * SplinePoints[i + 3];
+    }
+
+    private Vector3 BezierTangent(int segment, float t)
+    {
+        int i = segment * 3;
+        float u = 1 - t;
+        return 3 * u * u * (SplinePoints[i + 1] - SplinePoints[i]) +
+            6 * u * t * (SplinePoints[i + 2] - SplinePoints[i + 1]) +
+            3 * t * t * (SplinePoints[i + 3] - SplinePoints[i + 2]);
     }
 
     public bool AnyTrackAnimated
@@ -1101,10 +1333,13 @@ public class M2Reader
             ParseTextures(data, ReadUInt32(data, 0x05C), ReadUInt32(data, 0x060), model);
             ParseTextureLookup(data, ReadUInt32(data, 0x094), ReadUInt32(data, 0x098), model);
             ParseRenderFlags(data, ReadUInt32(data, 0x084), ReadUInt32(data, 0x088), model);
+            ParseColors(data, ReadUInt32(data, 0x054), ReadUInt32(data, 0x058), model);
             ParseParticleEmitters(data, ReadUInt32(data, 0x13C), ReadUInt32(data, 0x140), model,
                 ReadUInt32(data, 0x034), ReadUInt32(data, 0x038),
                 ReadUInt32(data, 0x01C), ReadUInt32(data, 0x020));
             ParseTransparencyStaticAlphas(data,
+                ReadUInt32(data, 0x064), ReadUInt32(data, 0x068), model);
+            ParseTransparencyTracks(data,
                 ReadUInt32(data, 0x064), ReadUInt32(data, 0x068), model);
             ParseTransparencyLookup(data,
                 ReadUInt32(data, 0x0A4), ReadUInt32(data, 0x0A8), model);
@@ -1118,9 +1353,12 @@ public class M2Reader
             uint ofsAttachmentLookup = ReadUInt32(data, 0x110);
             ParseAttachmentLookup(data, nAttachmentLookup, ofsAttachmentLookup, model);
 
+            ParseEvents(data, ReadUInt32(data, 0x114), ReadUInt32(data, 0x118), model);
+            ParseRibbonEmitters(data, ReadUInt32(data, 0x134), ReadUInt32(data, 0x138), model);
+
             ParsePortraitCamera(data, model);
 
-            return model.IsValid || model.ParticleEmitters.Count > 0 ? model : null;
+            return model.HasRenderableContent ? model : null;
         }
         catch
         {
@@ -1757,6 +1995,97 @@ public class M2Reader
         }
     }
 
+    private static void ParseColors(byte[] data, uint count, uint offset, M2Model model)
+    {
+        const int stride = 56;
+        if (count == 0 || offset == 0 || offset + count * stride > data.Length) return;
+        for (uint i = 0; i < count; i++)
+        {
+            int o = (int)(offset + i * stride);
+            model.Colors.Add(new M2ColorAnimation
+            {
+                Color = ParseAnimTrack<Vector3>(data, o, model.Sequences.Count, 12,
+                    static (b, k) => new Vector3(ReadFloat(b, k), ReadFloat(b, k + 4), ReadFloat(b, k + 8))),
+                Alpha = ParseAnimTrack<short>(data, o + 28, model.Sequences.Count, 2,
+                    static (b, k) => unchecked((short)ReadUInt16(b, k))),
+            });
+        }
+    }
+
+    private static void ParseTransparencyTracks(byte[] data, uint count, uint offset, M2Model model)
+    {
+        const int stride = 28;
+        if (count == 0 || offset == 0 || offset + count * stride > data.Length) return;
+        for (uint i = 0; i < count; i++)
+            model.TransparencyTracks.Add(ParseAnimTrack<short>(data,
+                (int)(offset + i * stride), model.Sequences.Count, 2,
+                static (b, k) => unchecked((short)ReadUInt16(b, k))));
+    }
+
+    private static void ParseEvents(byte[] data, uint count, uint offset, M2Model model)
+    {
+        const int stride = 44;
+        if (count == 0 || offset == 0 || offset + count * stride > data.Length) return;
+        for (uint i = 0; i < count; i++)
+        {
+            int o = (int)(offset + i * stride);
+            var marker = new M2EventMarker
+            {
+                Identifier = Encoding.ASCII.GetString(data, o, 4),
+                Data = ReadUInt32(data, o + 4),
+                Bone = ReadUInt16(data, o + 8),
+                Position = new Vector3(ReadFloat(data, o + 12), ReadFloat(data, o + 20),
+                    -ReadFloat(data, o + 16)),
+            };
+            uint times = ReadUInt32(data, o + 36), timesOffset = ReadUInt32(data, o + 40);
+            if (timesOffset > 0 && timesOffset + times * 4 <= data.Length)
+                for (uint t = 0; t < times; t++)
+                    marker.Times.Add(ReadUInt32(data, (int)(timesOffset + t * 4)));
+            model.Events.Add(marker);
+        }
+    }
+
+    private static void ParseRibbonEmitters(byte[] data, uint count, uint offset, M2Model model)
+    {
+        const int stride = 0xDC;
+        if (count == 0 || offset == 0 || offset + count * stride > data.Length) return;
+        for (uint i = 0; i < count; i++)
+        {
+            int o = (int)(offset + i * stride);
+            var ribbon = new M2RibbonEmitter
+            {
+                Bone = ReadUInt16(data, o + 4),
+                Position = new Vector3(ReadFloat(data, o + 8), ReadFloat(data, o + 16),
+                    -ReadFloat(data, o + 12)),
+                Color = ParseAnimTrack<Vector3>(data, o + 0x24, model.Sequences.Count, 12,
+                    static (b, k) => new Vector3(ReadFloat(b, k), ReadFloat(b, k + 4), ReadFloat(b, k + 8))),
+                Alpha = ParseAnimTrack<short>(data, o + 0x40, model.Sequences.Count, 2,
+                    static (b, k) => unchecked((short)ReadUInt16(b, k))),
+                HeightAbove = ParseAnimTrack<float>(data, o + 0x5C, model.Sequences.Count, 4,
+                    static (b, k) => ReadFloat(b, k)),
+                HeightBelow = ParseAnimTrack<float>(data, o + 0x78, model.Sequences.Count, 4,
+                    static (b, k) => ReadFloat(b, k)),
+                EdgesPerSecond = ReadFloat(data, o + 0x94),
+                EdgeLifetime = Math.Max(.25f, ReadFloat(data, o + 0x98)),
+                Gravity = ReadFloat(data, o + 0x9C),
+                TextureRows = Math.Max((ushort)1, ReadUInt16(data, o + 0xA0)),
+                TextureColumns = Math.Max((ushort)1, ReadUInt16(data, o + 0xA2)),
+                TextureSlot = ParseAnimTrack<ushort>(data, o + 0xA4, model.Sequences.Count, 2,
+                    static (b, k) => ReadUInt16(b, k)),
+                Visibility = ParseAnimTrack<byte>(data, o + 0xC0, model.Sequences.Count, 1,
+                    static (b, k) => b[k]),
+            };
+
+            uint nTextures = ReadUInt32(data, o + 0x14), textureOffset = ReadUInt32(data, o + 0x18);
+            if (nTextures > 0 && textureOffset > 0 && textureOffset + 2 <= data.Length)
+                ribbon.Texture = ReadUInt16(data, (int)textureOffset);
+            uint nMaterials = ReadUInt32(data, o + 0x1C), materialOffset = ReadUInt32(data, o + 0x20);
+            if (nMaterials > 0 && materialOffset > 0 && materialOffset + 2 <= data.Length)
+                ribbon.Material = ReadUInt16(data, (int)materialOffset);
+            model.RibbonEmitters.Add(ribbon);
+        }
+    }
+
     private static void ParseTransparencyLookup(byte[] data, uint count, uint offset, M2Model model)
     {
         if (count == 0 || offset == 0) return;
@@ -1777,6 +2106,9 @@ public class M2Reader
 
     private static float ReadFloat(byte[] data, int offset)
         => offset + 4 > data.Length ? 0f : BitConverter.ToSingle(data, offset);
+
+    private static ushort ValidAtlasDimension(ushort value)
+        => value != 0 && (value & (value - 1)) == 0 ? value : (ushort)1;
     // ── Particle emitters (PLAN_14 §3) ───────────────────────────────────────
 
     /// <summary>Derived, not looked up. See the M2ParticleEmitter class summary.</summary>
@@ -1824,10 +2156,11 @@ public class M2Reader
                     3 => ParticleShape.Spline,
                     _ => ParticleShape.Plane,
                 },
-                ParticleType = data[o + 44],
-                HeadOrTail = data[o + 45],
-                TextureRows = ReadUInt16(data, o + 48),
-                TextureCols = ReadUInt16(data, o + 50),
+                // Vanilla stores the head/tail mode in the single byte at +0x2c.
+                ParticleType = data[o + 0x2C],
+                HeadOrTail = data[o + 0x2C],
+                TextureRows = ValidAtlasDimension(ReadUInt16(data, o + 0x30)),
+                TextureCols = ValidAtlasDimension(ReadUInt16(data, o + 0x32)),
                 MidPoint = BitConverter.ToSingle(data, o + 332),
             };
 
@@ -1848,25 +2181,51 @@ public class M2Reader
             e.HeadCellBegin[1] = ReadUInt16(data, o + 0x16E);
             e.HeadCellEnd[1] = ReadUInt16(data, o + 0x170);
             e.HeadCellRepeat[1] = ReadUInt16(data, o + 0x172);
+            e.TailCellBegin[0] = ReadUInt16(data, o + 0x174);
+            e.TailCellEnd[0] = ReadUInt16(data, o + 0x176);
+            e.TailCellBegin[1] = ReadUInt16(data, o + 0x178);
+            e.TailCellEnd[1] = ReadUInt16(data, o + 0x17A);
+            e.TailTime = ReadFloat(data, o + 0x17C);
+            e.InheritScale = ReadFloat(data, o + 0x190);
+            e.Spin = ReadFloat(data, o + 0x198);
+            e.AngularVelocityMin = new Vector3(ReadFloat(data, o + 0x19C),
+                ReadFloat(data, o + 0x1A0), ReadFloat(data, o + 0x1A4));
+            e.AngularVelocityMax = new Vector3(ReadFloat(data, o + 0x1A8),
+                ReadFloat(data, o + 0x1AC), ReadFloat(data, o + 0x1B0));
+            e.FollowSpeed1 = ReadFloat(data, o + 0x1C4);
+            e.FollowScale1 = ReadFloat(data, o + 0x1C8);
+            e.FollowSpeed2 = ReadFloat(data, o + 0x1CC);
+            e.FollowScale2 = ReadFloat(data, o + 0x1D0);
 
-            // The ten tracks. Static evaluation only, exactly like
-            // TransparencyStaticAlphas: one key is a constant and is read, more
-            // than one is reported by count and left for the runtime. Every
-            // InstancePortal track is a constant.
+            if (e.Shape == ParticleShape.Spline)
+            {
+                uint splineCount = ReadUInt32(data, o + 0x1D4);
+                uint splineOffset = ReadUInt32(data, o + 0x1D8);
+                int pointCount = splineCount >= 3 ? checked(3 * ((int)splineCount / 3) + 1) : 0;
+                if (pointCount >= 4 && splineOffset > 0 &&
+                    splineOffset + (long)pointCount * 12 <= data.Length)
+                {
+                    e.SplinePoints = new Vector3[pointCount];
+                    for (int p = 0; p < pointCount; p++)
+                    {
+                        int at = (int)splineOffset + p * 12;
+                        e.SplinePoints[p] = new Vector3(ReadFloat(data, at),
+                            ReadFloat(data, at + 4), ReadFloat(data, at + 8));
+                    }
+                }
+            }
+
+            // The ten scalar tracks. Keep every key and sequence range: spell
+            // effects animate emission rate, size, speed, and lifespan on their
+            // instance clip, so value[0] is not a valid runtime substitute.
             var values = new float[PARTICLE_TRACK_COUNT];
             for (int t = 0; t < PARTICLE_TRACK_COUNT; t++)
             {
                 int to = o + PARTICLE_TRACK_BASE + t * ANIM_BLOCK_STRIDE_VANILLA;
-                uint nKeys = ReadUInt32(data, to + 20);
-                uint ofsKeys = ReadUInt32(data, to + 24);
-                e.TrackKeyCounts[t] = (int)nKeys;
-                // `ofsKeys + 4 <= data.Length` would be unchecked uint arithmetic:
-                // a misparsed offset near uint.MaxValue wraps to something small,
-                // passes, and then (int)ofsKeys is NEGATIVE and BitConverter
-                // throws - taking the whole model load down. Subtract instead.
-                values[t] = nKeys >= 1 && ofsKeys != 0 && ofsKeys <= (uint)data.Length - 4u
-                    ? BitConverter.ToSingle(data, (int)ofsKeys)
-                    : 0f;
+                e.ScalarTracks[t] = ParseAnimTrack<float>(data, to, model.Sequences.Count, 4,
+                    static (b, k) => ReadFloat(b, k));
+                e.TrackKeyCounts[t] = e.ScalarTracks[t].Keys.Count;
+                values[t] = e.ScalarTracks[t].Keys.FirstOrDefault();
             }
 
             e.EmissionSpeed = values[0];
@@ -1881,6 +2240,13 @@ public class M2Reader
             e.ZSource = values[9];                          // +0x130 track
             e.Drag = o + 0x194 + 4 <= data.Length            // +0x194 plain f32
                 ? BitConverter.ToSingle(data, o + 0x194) : 0f;
+
+            // Emission ON/OFF gate at +0x1dc (M2Track<u8>, step; benilla-formats particles.rs).
+            // Keyed one-shot effects (the fireball impact) shut their emitters off here after a
+            // short burst window; without it the pool emits for the whole sequence and lingers.
+            if (o + 0x1DC + ANIM_BLOCK_STRIDE_VANILLA <= data.Length)
+                e.EnabledTrack = ParseAnimTrack<float>(data, o + 0x1DC, model.Sequences.Count, 1,
+                    static (b, k) => b[k] != 0 ? 1f : 0f);
 
             // The twinkle block. Guarded because the record tail is the part of the 0x1f8
             // stride we derived rather than read from a spec; a short/garbled record must not
@@ -1903,6 +2269,7 @@ public class M2Reader
 
             ReadEmitterBoneSpin(data, e, boneCount, boneOffset, seqCount, seqOffset);
             ReadEmitterBoneChain(data, e, boneCount, boneOffset, seqCount, seqOffset);
+            e.OwnerModel = model;
             model.ParticleEmitters.Add(e);
         }
     }

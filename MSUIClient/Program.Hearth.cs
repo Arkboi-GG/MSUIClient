@@ -39,7 +39,7 @@ public sealed partial class GameLoop
     {
         if (body.Length < 16) throw new InvalidDataException($"bind point bytes={body.Length}");
         var r = new PacketReader(body); float x = r.ReadF32(), y = r.ReadF32(), z = r.ReadF32(); uint map = r.ReadU32();
-        _bindPoint = (map, new Vector3(x, y, z)); _hearthOpen = true;
+        _bindPoint = (map, new Vector3(x, y, z));
         EmitInterface("hearth", "bind-point", "UPDATED", _binderGuid,
             $"map={map};position={x:R}|{y:R}|{z:R};bytes={body.Length}");
     }
@@ -88,6 +88,7 @@ public sealed partial class GameLoop
     private void DrawHearthFrame()
     {
         if (!_hearthOpen) return;
+        if (_gameplayArt is not null) { DrawBindConfirmation(); return; }
         ImGui.SetNextWindowSize(new Vector2(420, 250), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Inn & Hearthstone##hearth", ref _hearthOpen)) { ImGui.End(); return; }
         if (_bindPoint is { } bind) ImGui.TextUnformatted($"Home: map {bind.Map} · {bind.Position.X:0.0}, {bind.Position.Y:0.0}, {bind.Position.Z:0.0}");
@@ -96,6 +97,24 @@ public sealed partial class GameLoop
         ImGui.TextColored(cooldown > 0 ? new Vector4(.7f,.7f,.7f,1) : new Vector4(.2f,1f,.2f,1),
             cooldown > 0 ? $"Hearthstone ready in {Math.Ceiling(cooldown/60):0}m" : "Hearthstone ready");
         if (ImGui.Button("Use Hearthstone")) UseHearthstone();
+        ImGui.End();
+    }
+
+    private void DrawBindConfirmation()
+    {
+        if (_binderGuid == 0) { _hearthOpen = false; return; }
+        float s = GameplayUiScale(); Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
+        Vector2 at = new((logicalDisplay.X - 360) * .5f, (logicalDisplay.Y - 140) * .5f);
+        if (!BeginVanillaWindow("##bind-confirm", at, new Vector2(360, 140),
+                out ImDrawListPtr dl, out Vector2 origin, out s)) { ImGui.End(); return; }
+        dl.AddRectFilled(origin, origin + new Vector2(360, 140) * s, 0xee101010, 8 * s);
+        dl.AddRect(origin, origin + new Vector2(360, 140) * s, 0xffb08040, 8 * s, ImDrawFlags.None, s);
+        DrawCenteredText(dl, origin + new Vector2(180, 42) * s, "Make this inn your home?", 12f * s, 0xffffffff);
+        if (VanillaButton(dl, "##bind-accept", "Accept", origin + new Vector2(88, 88) * s,
+                new Vector2(80, 22), s))
+        { _net?.BinderActivate(_binderGuid); _hearthOpen = false; }
+        if (VanillaButton(dl, "##bind-cancel", "Cancel", origin + new Vector2(192, 88) * s,
+                new Vector2(80, 22), s)) _hearthOpen = false;
         ImGui.End();
     }
 }

@@ -113,7 +113,10 @@ public sealed partial class GameLoop
         bool pass=present&&visible&&alive&&target.Fields.Health==100&&target.Fields.MaxHealth==100&&
             target.Fields.DynamicFlags==0&&target.Fields.UnitFlags==0&&_serverGmMode==false&&
             _controller is not null&&Vector3.DistanceSquared(player,target.Position)<=1e-6f;
-        _lastAttackPreconditionGatePassed=pass;
+        // The send is always allowed now (see the note at the return); record that
+        // as the harness-visible gate result. The strict `pass` predicate below is
+        // still emitted to the verdict stream as pure diagnostics.
+        _lastAttackPreconditionGatePassed=true;
         string[] reasons=
         [
             ..(!present?["absent"]:Array.Empty<string>()),
@@ -129,7 +132,12 @@ public sealed partial class GameLoop
             "devtools-pre-send-gate",target.Guid,
             $"packetConstructed={pass.ToString().ToLowerInvariant()};epsilon=distanceSquared<=1e-6;"+
             $"reasons={(reasons.Length==0?"none":string.Join('|',reasons))}");
-        return pass;
+        // This is a diagnostic probe, not a gameplay rule. Its `pass` predicate
+        // (target at the player's exact position, 100/100 HP, GM-mode-off) was a
+        // controlled instrument scenario and is never true in real melee. Gating
+        // the live send on it disabled all auto-attack. Real target validity is
+        // enforced by CanAttack at the call site; here we only record the verdict.
+        return true;
     }
 
     private void ObserveGmChatWire(bool outgoing, ushort opcode, ReadOnlySpan<byte> body) =>

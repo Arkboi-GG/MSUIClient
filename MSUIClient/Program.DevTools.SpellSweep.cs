@@ -71,7 +71,7 @@ public sealed partial class GameLoop
             info is { AutoRepeat: true } ? "AUTO_REPEAT" : info is { OnNextSwing: true } ? "NEXT_SWING" : "CAST",
             sent ? "PRE_SEND_PASS" : $"LOCAL_{reason}", _character?.CurrentAnimation ?? "none",
             SpellEffectCheck(info), targetType, clock >= _globalCooldownUntil,
-            !_actions.IsOnCooldown(spellId, clock), PowerName(powerType), power, cost, resolvedGuid, sent);
+            !_actions.IsOnCooldown(spellId, clock, info?.Category ?? 0), PowerName(powerType), power, cost, resolvedGuid, sent);
         _verdicts.Add(verdict);
         Console.WriteLine($"[verdict:spell-sweep] {verdict.ToLine()}");
     }
@@ -89,7 +89,7 @@ public sealed partial class GameLoop
             _castBarPhase == CastBarPhase.Channel ? "CHANNEL" : "CAST", result,
             _character?.CurrentAnimation ?? "none", SpellEffectCheck(info), "SERVER",
             MovementInfo.ClientUptimeMs() / 1000.0 >= _globalCooldownUntil,
-            !_actions.IsOnCooldown(spellId, MovementInfo.ClientUptimeMs() / 1000.0),
+            !_actions.IsOnCooldown(spellId, MovementInfo.ClientUptimeMs() / 1000.0, info?.Category ?? 0),
             PowerName(powerType), power, 0, 0, true);
         _verdicts.Add(verdict);
         Console.WriteLine($"[verdict:spell-sweep] {verdict.ToLine()}");

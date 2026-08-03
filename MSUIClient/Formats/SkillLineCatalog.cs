@@ -20,6 +20,7 @@ public sealed class SkillLineCatalog
     private readonly Dictionary<uint, List<SkillRecipeInfo>> _recipesByLine = new();
 
     public bool TryGet(uint id, out SkillLineInfo line) => _lines.TryGetValue(id, out line);
+    public IEnumerable<SkillLineInfo> Lines => _lines.Values;
     public bool TryGetCategory(uint id, out SkillCategoryInfo category) => _categories.TryGetValue(id, out category);
     public uint SpellLine(uint spellId) => _spellLines.GetValueOrDefault(spellId);
     public bool TryGetRecipe(uint spellId, out SkillRecipeInfo recipe) => _recipes.TryGetValue(spellId, out recipe);

@@ -153,7 +153,7 @@ public sealed partial class GameLoop
         if (_gossipMenu is null) return;
         float s = GameplayUiScale();
         Vector2 size = new Vector2(384f, 512f) * s;
-        Vector2 p = new(0,8f*s);
+        Vector2 p = new(0,104f*s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);ImGuiWindowFlags flags=ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav;
@@ -166,42 +166,33 @@ public sealed partial class GameLoop
             ("GossipFrameGreetingPanel/Texture#4",@"Interface\QuestFrame\UI-QuestGreeting-BotRight",new(256,256),new(128,256)),
             ("GossipFrameGreetingPanel/Texture#5",@"Interface\QuestFrame\UI-Quest-BotLeftPatch",new(22,380),new(128,64))];
         foreach(var r in art){Vector2 m=p+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="gossip")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"GossipFrameGreetingPanel",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","GossipFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        ImGui.SetCursorScreenPos(p+new Vector2(28,72)*s);ImGui.BeginChild("##gossip-content",new Vector2(305,365)*s,false);
-
         string sourceName = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity source)
             ? source.IsPlayer
                 ? _playerNames.GetValueOrDefault(source.Guid, "Player")
                 : _creatureNames.GetValueOrDefault(source.Entry, $"Creature {source.Entry}")
             : $"0x{_gossipMenu.SourceGuid:X16}";
-        ImGui.TextColored(new Vector4(1f, .82f, 0f, 1f), sourceName);
-        ImGui.Separator();
+        DrawCenteredText(dl,p+new Vector2(192,18)*s,sourceName,12*s,0xff202020);
         string greeting = _gossipText?.MaleText ?? $"Loading text {_gossipMenu.TextId}...";
-        ImGui.TextWrapped(greeting.Replace("$N", _net?.PlayerName ?? "traveler", StringComparison.OrdinalIgnoreCase));
-        ImGui.Spacing();
+        float used=DrawWrappedText(dl,greeting.Replace("$N",_net?.PlayerName??"traveler",StringComparison.OrdinalIgnoreCase),
+            p+new Vector2(36,76)*s,300,11*s,s,0xff202020,10);
+        float rowY=96+used/s;
 
         for (int i = 0; i < _gossipMenu.Options.Count; i++)
         {
             GossipOption option = _gossipMenu.Options[i];
-            if (ImGui.Selectable($"> {option.Text}##gossip-option-{i}")) SelectGossipOption(i);
+            if (VanillaListRow(dl,$"##gossip-option-{i}",p+new Vector2(36,rowY)*s,
+                    new Vector2(300,22),s,$"> {option.Text}",false,0xff202020)) SelectGossipOption(i);
+            rowY+=24;
         }
         foreach (GossipQuest quest in _gossipMenu.Quests)
-            if (ImGui.Selectable($"[{quest.Level}] {quest.Title}##gossip-quest-{quest.QuestId}"))
-                RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
-
-        ImGui.SetCursorPosY(MathF.Max(ImGui.GetCursorPosY(),300));
-        if (ImGui.Button("Close##gossip")) ResetGossip();
-        if (_config.DevTools)
         {
-            ImGui.SameLine();
-            if (ImGui.Button("Copy evidence##gossip"))
-            {
-                string text = string.Join(Environment.NewLine, _verdicts.Snapshot("interface")
-                    .OfType<InterfaceVerdict>().Where(v => v.Family == "gossip")
-                    .Select(v => $"[verdict:interface] {v.ToLine()}"));
-                CopyVerdictText(text);
-            }
+            if (VanillaListRow(dl,$"##gossip-quest-{quest.QuestId}",p+new Vector2(36,rowY)*s,
+                    new Vector2(300,22),s,$"[{quest.Level}] {quest.Title}",false,0xff202020))
+                RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
+            rowY+=24;
         }
-        ImGui.EndChild();Vector2 close=p+new Vector2(326,14)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
+        if(VanillaButton(dl,"##gossip-goodbye","Goodbye",p+new Vector2(248,430)*s,new Vector2(90,22),s))ResetGossip();
+        Vector2 close=p+new Vector2(326,14)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
         if(_uiParityArmed&&_uiParityPanel=="gossip")MarkUiParityFrameComplete();ImGui.End();
     }
 }

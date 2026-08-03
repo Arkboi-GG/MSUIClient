@@ -41,7 +41,7 @@ public sealed partial class GameLoop
             _pendingVisualSheathState = null;
         }
 
-        bool down = _window.IsDown(Key.Z);
+        bool down = BindingDown(GameBinding.Sheath);
         if (down && !_sheathKeyWasDown && !typing && !player.Engaged)
         {
             byte next = _visualSheathState == 0 ? (byte)1 : (byte)0;

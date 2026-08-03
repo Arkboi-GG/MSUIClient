@@ -70,8 +70,25 @@ public sealed partial class GameLoop
     {
         if (_liveRunOptions is null) return;
         _liveRunElapsed += dt;
+        if (_liveRunElapsed > 10 && _net?.State is NetState.Failed or NetState.Disconnected)
+        {
+            FinishLiveBootstrap("NETWORK_FAILED", $"client network state={_net.State}");
+            return;
+        }
+        if (_liveRunElapsed > 20 && _net?.State == NetState.CharacterSelect &&
+            !string.IsNullOrWhiteSpace(_liveRunOptions.Character) &&
+            !_net.Characters.Any(c => c.Name.Equals(_liveRunOptions.Character, StringComparison.OrdinalIgnoreCase)))
+        {
+            FinishLiveBootstrap("CHARACTER_NOT_FOUND",
+                $"requested={_liveRunOptions.Character};roster={string.Join('|', _net.Characters.Select(c => c.Name))}");
+            return;
+        }
         if (_liveSteps is null && _liveRunElapsed > 180)
-        { FinishLiveBootstrap("TIMEOUT", "world did not become ready within 180 seconds"); return; }
+        {
+            FinishLiveBootstrap("TIMEOUT",
+                $"world did not become ready within 180 seconds;state={_net?.State};roster={string.Join('|', _net?.Characters.Select(c => c.Name) ?? [])}");
+            return;
+        }
         if (_liveSteps is not null && _liveRunElapsed > _liveRunOptions.TimeoutSeconds)
         { FinishLiveBootstrap("TIMEOUT", "protocol exceeded its separate run timeout"); return; }
         if (_net is not { IsInWorld:true } || _worldLoading || _controller is null || _character is null) return;
@@ -313,6 +330,7 @@ public sealed partial class GameLoop
                     if (p[1].Equals("request", StringComparison.OrdinalIgnoreCase)) Log(RequestLoot(_selectionGuid), line);
                     else if (p[1].Equals("money", StringComparison.OrdinalIgnoreCase)) Log(TakeLootMoney(), line);
                     else if (p[1].Equals("item-first", StringComparison.OrdinalIgnoreCase)) Log(TakeFirstLootItem(), line);
+                    else if (p[1].Equals("take-all", StringComparison.OrdinalIgnoreCase)) Log(TakeAllLoot(), line);
                     else if (p[1].Equals("release", StringComparison.OrdinalIgnoreCase))
                     { bool wasOpen = _loot.IsOpen; ReleaseLoot(); Log(wasOpen, line); }
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
@@ -325,6 +343,11 @@ public sealed partial class GameLoop
                     if (p[1].Equals("use", StringComparison.OrdinalIgnoreCase)) Log(UseGameObject(_selectionGuid), line);
                     else if (p[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase)) { SnapshotGameObjects(); Log(true, line); }
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateGameObjectFlow(); Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "gathering":
+                    if (p[1].Equals("snapshot", StringComparison.OrdinalIgnoreCase))
+                    { SnapshotGathering(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "rest-xp":
@@ -371,6 +394,10 @@ public sealed partial class GameLoop
                     else if (p[1].StartsWith("unequip-slot", StringComparison.OrdinalIgnoreCase))
                         Log(UnequipSlot(int.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else Log(false, $"unknown {line}");
+                    break;
+                case "action-icon":
+                    Log(p.Length > 1 && p[1].Equals("attack", StringComparison.OrdinalIgnoreCase) &&
+                        EmitAttackIconEvidence(), line);
                     break;
                 case "bank":
                     if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestBank(_selectionGuid), line);
@@ -430,8 +457,18 @@ public sealed partial class GameLoop
                     { EmitProfessionRecipeSnapshot(); Log(_professionOpen, line); }
                     else if (profession.Length == 2 && profession[1].Equals("provision-first", StringComparison.OrdinalIgnoreCase))
                         Log(ProvisionFirstProfessionRecipe(), line);
+                    else if (profession.Length == 3 && profession[1].Equals("provision", StringComparison.OrdinalIgnoreCase))
+                        Log(ProvisionProfessionRecipe(int.Parse(profession[2], CultureInfo.InvariantCulture)), line);
+                    else if (profession.Length == 3 && profession[1].Equals("provision-spell", StringComparison.OrdinalIgnoreCase))
+                        Log(ProvisionProfessionSpell(uint.Parse(profession[2], CultureInfo.InvariantCulture)), line);
                     else if (profession.Length == 2 && profession[1].Equals("craft-first", StringComparison.OrdinalIgnoreCase))
                         Log(CraftProfessionRecipe(0), line);
+                    else if (profession.Length == 3 && profession[1].Equals("craft", StringComparison.OrdinalIgnoreCase))
+                        Log(CraftProfessionRecipe(int.Parse(profession[2], CultureInfo.InvariantCulture)), line);
+                    else if (profession.Length == 3 && profession[1].Equals("craft-spell", StringComparison.OrdinalIgnoreCase))
+                        Log(CraftProfessionSpell(uint.Parse(profession[2], CultureInfo.InvariantCulture)), line);
+                    else if (profession.Length == 2 && profession[1].Equals("cleanup-last", StringComparison.OrdinalIgnoreCase))
+                        Log(CleanupLastProfessionProduct(), line);
                     else if (profession.Length == 2 && profession[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
                     { SimulateProfessionFlow(); Log(true, line); }
                     else Log(false, $"unknown {line}");
@@ -474,6 +511,33 @@ public sealed partial class GameLoop
                     else if (talent.Length == 2 && talent[1].Equals("simulate", StringComparison.OrdinalIgnoreCase)) { SimulateTalentRoster(); Log(true, line); }
                     else Log(false, $"unknown {line}");
                     break;
+                case "panel":
+                    string panel = p[1].ToLowerInvariant();
+                    CloseLiveRunPanels();
+                    bool opened = panel switch
+                    {
+                        "character" => OpenLiveCharacter(),
+                        "spellbook" => OpenLiveSpellbook(),
+                        "quest" => _questLogOpen = true,
+                        "social" => OpenLiveSocial(),
+                        "who" => OpenLiveWho(),
+                        "worldmap" => _worldMapOpen = true,
+                        "help" => OpenLiveHelp(),
+                        "keybindings" => OpenLiveBindings(),
+                        "macro" => OpenLiveMacros(),
+                        "guild" => OpenLiveGuild(),
+                        "auction" => OpenLiveAuction(),
+                        "mail" => OpenLiveMail(),
+                        "profession" => OpenLiveProfession(),
+                        "talent" => OpenLiveTalent(),
+                        "trade" => _tradeOpen = true,
+                        "bank" => _bankOpen = true,
+                        "trainer" => OpenLiveTrainer(),
+                        "taxi" => OpenLiveTaxi(),
+                        _ => false,
+                    };
+                    Log(opened, line);
+                    break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
                     EmitInterface(blocked[1], blocked[2], $"BLOCKED-BY:{blocked[3]}", _selectionGuid, "boundedWaitExpired=true");
@@ -490,6 +554,26 @@ public sealed partial class GameLoop
                     _liveLastCastSpell = castSpell;
                     _liveSpellWaitAfter = _verdicts.Snapshot("spell-sweep").Count;
                     Log(_verdicts.Snapshot("spell-sweep").Count > beforeCast, line);
+                    break;
+                case "camera":
+                    string[] camArgs = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (_window?.Camera is { } liveCam)
+                    {
+                        liveCam.OrbitYaw = float.Parse(camArgs[1], CultureInfo.InvariantCulture) * MathF.PI / 180f;
+                        if (camArgs.Length > 2) liveCam.Pitch = float.Parse(camArgs[2], CultureInfo.InvariantCulture) * MathF.PI / 180f;
+                        if (camArgs.Length > 3) liveCam.Distance = float.Parse(camArgs[3], CultureInfo.InvariantCulture);
+                        Log(true, $"{line} orbitYaw={liveCam.OrbitYaw:R} pitch={liveCam.Pitch:R} dist={liveCam.Distance:R}");
+                    }
+                    else Log(false, $"{line} no camera");
+                    break;
+                case "particle-census":
+                    string censusPrefix = p.Length > 1 ? p[1] : "Spells\\";
+                    string census = censusPrefix.StartsWith("spell", StringComparison.OrdinalIgnoreCase)
+                        ? $"player=({_controller?.Position.X:0.##},{_controller?.Position.Y:0.##},{_controller?.Position.Z:0.##}) " +
+                          (_spellParticles?.CensusReport() ?? "no spell particle system")
+                        : _particles?.CensusReport(censusPrefix) ?? "no particle renderer";
+                    EmitCombat("ParticleCensus", "diagnostic", 0, census);
+                    Log(true, $"{line} => {census}");
                     break;
                 case "waitspell":
                     string[] spellWait = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -587,8 +671,24 @@ public sealed partial class GameLoop
                     break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
                 case "ui-parity": ArmUiParityCapture(p[1]); Log(_uiParityArmed,line); break;
+                case "ui-scale":
+                    float requestedUiScale=float.Parse(p[1],CultureInfo.InvariantCulture);
+                    if(_skin is null) Log(false,line);
+                    else { _skin.Scale=Math.Clamp(requestedUiScale,.5f,4f); Log(true,$"{line} effective={GameplayUiScale():R}"); }
+                    break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
+                case "face":
+                    float facing = float.Parse(p[1], CultureInfo.InvariantCulture);
+                    if (_controller is null) Log(false, line);
+                    else
+                    {
+                        _controller.Yaw = facing;
+                        _window.Camera.Yaw = facing;
+                        _window.Camera.OrbitYaw = 0;
+                        Log(true, $"{line} radians={facing:R}");
+                    }
+                    break;
                 case "waitdeath":
                     int deathOrdinal=int.Parse(p[1].Split(':')[^1],CultureInfo.InvariantCulture);
                     ulong deathGuid=LiveSpawnGuid(deathOrdinal);
@@ -679,6 +779,32 @@ public sealed partial class GameLoop
             $"{selected.Unit.Position.X:R}|{selected.Unit.Position.Y:R}|{selected.Unit.Position.Z:R}");
         return selected.Unit.Guid;
     }
+
+    private void CloseLiveRunPanels()
+    {
+        _characterOpen = _spellbookOpen = _questLogOpen = _socialOpen = _worldMapOpen =
+            _helpOpen = _keybindingsOpen = _macroOpen = _guildOpen = _auctionOpen = _mailOpen =
+            _professionOpen = _talentOpen = _tradeOpen = _bankOpen = false;
+    }
+
+    private bool OpenLiveCharacter() { _characterOpen = true; _paperDollDirty = true; return true; }
+    private bool OpenLiveSpellbook() { _spellbookLine = 0; _spellbookPage = 0; _spellbookOpen = true; return true; }
+    private bool OpenLiveSocial() { OpenSocial(); return true; }
+    private bool OpenLiveWho() { OpenSocial(); _socialPage = 1; _net?.Who(""); return true; }
+    private bool OpenLiveHelp() { OpenHelp(); return true; }
+    private bool OpenLiveBindings() { OpenKeybindings(); return true; }
+    private bool OpenLiveMacros() { OpenMacros(); return true; }
+    private bool OpenLiveGuild() { SimulateGuildFlow(); return true; }
+    private bool OpenLiveAuction() { SimulateAuctionFlow(); return true; }
+    private bool OpenLiveMail() { SimulateMailList(); return true; }
+    private bool OpenLiveProfession()
+    {
+        SimulateProfessionFlow();
+        return OpenProfessionNamed("Alchemy") || OpenFirstProfession();
+    }
+    private bool OpenLiveTalent() { SimulateTalentRoster(); return true; }
+    private bool OpenLiveTrainer() { SimulateTrainerList(); return true; }
+    private bool OpenLiveTaxi() { SimulateTaxiFlow(); _taxiOpen = true; return true; }
     private ulong LiveNpcFlagNearestGuid(string flagName)
     {
         if(_controller is null) return 0;
@@ -797,7 +923,8 @@ public sealed partial class GameLoop
         WriteSpellErrorCsv(spellErrorCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
         Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}; errors={spellErrorCsv}");
-        LiveRunExitCode=failures==0?0:1; _window.Close();
+        LiveRunExitCode=failures==0?0:1;
+        _quitRequested = true;
     }
 
     private void WriteSpellSweepCsv(string path)
@@ -930,6 +1057,6 @@ public sealed partial class GameLoop
             elapsed=_liveRunElapsed },new JsonSerializerOptions{WriteIndented=true}));
         Console.WriteLine($"[live-run] {result}: {detail}; artifact={path}");
         LiveRunExitCode=result=="READY"?0:1;
-        _window.Close();
+        _quitRequested = true;
     }
 }

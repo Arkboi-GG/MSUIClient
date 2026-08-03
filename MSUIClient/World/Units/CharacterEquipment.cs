@@ -47,6 +47,7 @@ public sealed class CharacterEquipment
         public const int Hands = 10;
         public const int Weapon = 13;
         public const int Shield = 14;
+        public const int Ranged = 15;
         public const int Cloak = 16;
         public const int TwoHand = 17;
         public const int Tabard = 19;

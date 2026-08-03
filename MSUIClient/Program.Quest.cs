@@ -11,7 +11,10 @@ public sealed partial class GameLoop
     private QuestOffer? _questOffer;
     private QuestRequestItems? _questRequestItems;
     private bool _questLogOpen;
+    private int _questLogSelected;
     private readonly Dictionary<uint, string> _questProgress = [];
+    private readonly Dictionary<uint, string> _questTitles = [];
+    private readonly HashSet<uint> _questQueries = [];
     private HashSet<uint> _questLogSnapshot = [];
     private uint _questXpBefore;
     private uint _questMoneyBefore;
@@ -102,6 +105,7 @@ public sealed partial class GameLoop
     private void ApplyQuestList(byte[] body)
     {
         _questList = QuestPackets.ParseList(body); _questDetails = null; _questOffer = null; _questRequestItems = null;
+        foreach (GossipQuest quest in _questList.Quests) _questTitles[quest.QuestId] = quest.Title;
         EmitInterface("quest", "list", "DECODED", _questList.GiverGuid,
             $"quests={_questList.Quests.Count};greeting={SanitizeEvidence(_questList.Greeting)}");
     }
@@ -109,6 +113,7 @@ public sealed partial class GameLoop
     private void ApplyQuestDetails(byte[] body)
     {
         _questDetails = QuestPackets.ParseDetails(body); _questOffer = null; _questRequestItems = null;
+        _questTitles[_questDetails.QuestId] = _questDetails.Title;
         EmitInterface("quest", "details", "DECODED", _questDetails.GiverGuid,
             $"quest={_questDetails.QuestId};title={SanitizeEvidence(_questDetails.Title)};objectives={SanitizeEvidence(_questDetails.Objectives)};choices={_questDetails.ChoiceRewards.Count};fixed={_questDetails.FixedRewards.Count};money={_questDetails.Money}");
     }
@@ -123,6 +128,7 @@ public sealed partial class GameLoop
     private void ApplyQuestOffer(byte[] body)
     {
         _questOffer = QuestPackets.ParseOffer(body);
+        _questTitles[_questOffer.QuestId] = _questOffer.Title;
         EmitInterface("quest", "offer", "DECODED", _questOffer.GiverGuid,
             $"quest={_questOffer.QuestId};choices={_questOffer.ChoiceRewards.Count};fixed={_questOffer.FixedRewards.Count};money={_questOffer.Money};title={SanitizeEvidence(_questOffer.Title)}");
     }
@@ -165,6 +171,8 @@ public sealed partial class GameLoop
     {
         if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         HashSet<uint> now = player.Fields.QuestLog().Select(q => q.QuestId).ToHashSet();
+        foreach (uint id in now)
+            if (!_questTitles.ContainsKey(id) && _questQueries.Add(id)) _net.QuestQuery(id);
         foreach (uint id in now.Except(_questLogSnapshot)) EmitInterface("quest", "log", "ADDED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         foreach (uint id in _questLogSnapshot.Except(now)) EmitInterface("quest", "log", "REMOVED", _net.PlayerGuid, $"quest={id};count={now.Count}");
         _questLogSnapshot = now;
@@ -180,6 +188,21 @@ public sealed partial class GameLoop
                 _questRewardPending = 0;
             }
         }
+    }
+
+    private void ApplyQuestQuery(byte[] body)
+    {
+        // Build 5875: fixed fields/rewards/map point occupy 152 bytes, followed
+        // by Title, Objectives, Details, EndText and the objective records.
+        if (body.Length < 153) return;
+        var r = new PacketReader(body);
+        uint id = r.ReadU32();
+        r.Skip(148);
+        string title = r.ReadCString();
+        if (id != 0 && title.Length > 0) _questTitles[id] = title;
+        _questQueries.Remove(id);
+        EmitInterface("quest", "query", "DECODED", 0,
+            $"quest={id};title={SanitizeEvidence(title)}");
     }
 
     private void SimulateQuestFlow()
@@ -199,46 +222,121 @@ public sealed partial class GameLoop
     private void DrawQuestFrame()
     {
         if (!_questLogOpen && _questList is null && _questDetails is null && _questOffer is null && _questRequestItems is null) return;
-        float s=GameplayUiScale(); Vector2 origin=new(0,8*s), logicalSize=new(384,512);
+        float s=GameplayUiScale(); Vector2 origin=new(0,104*s), logicalSize=new(384,512);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always); ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always); ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##quest", ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();
         if(_uiParityArmed&&_uiParityPanel=="quest-log"){BeginUiParityFrame(origin,s);CollectUiParityDraw("QuestLogFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        bool logMode = _questLogOpen;
+        string stem = logMode ? "UI-QuestLog" : _questList is not null ? "UI-QuestGreeting" : "UI-Quest";
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
             ("QuestLogFrame/Texture",@"Interface\QuestFrame\UI-QuestLog-BookIcon",new(4,4),new(64,64)),
-            ("QuestLogFrame/Texture#2",@"Interface\QuestFrame\UI-QuestLog-TopLeft",Vector2.Zero,new(256,256)),
-            ("QuestLogFrame/Texture#3",@"Interface\QuestFrame\UI-QuestLog-TopRight",new(256,0),new(128,256)),
-            ("QuestLogFrame/Texture#4",@"Interface\QuestFrame\UI-QuestLog-BotLeft",new(0,256),new(256,256)),
-            ("QuestLogFrame/Texture#5",@"Interface\QuestFrame\UI-QuestLog-BotRight",new(256,256),new(128,256))];
+            ("QuestLogFrame/Texture#2",$@"Interface\QuestFrame\{stem}-TopLeft",Vector2.Zero,new(256,256)),
+            ("QuestLogFrame/Texture#3",$@"Interface\QuestFrame\{stem}-TopRight",new(256,0),new(128,256)),
+            ("QuestLogFrame/Texture#4",$@"Interface\QuestFrame\{stem}-BotLeft",new(0,256),new(256,256)),
+            ("QuestLogFrame/Texture#5",$@"Interface\QuestFrame\{stem}-BotRight",new(256,256),new(128,256))];
         foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="quest-log")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"QuestLogFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","QuestLogFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        ImGui.SetCursorScreenPos(origin+new Vector2(30,75)*s); ImGui.BeginChild("##quest-content",new Vector2(320,350)*s,false);
-        if (_questList is not null)
+        if (_questLogOpen && _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            DrawQuestLogContent(dl, origin, s, player);
+        else
+            DrawQuestNpcContent(dl, origin, s);
+        Vector2 close=origin+new Vector2(322,8)*s;
+        DrawImageButton(dl,"##quest-close",close,new Vector2(32)*s,
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",
+            @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+        if(ImGui.IsItemClicked())
         {
-            ImGui.TextWrapped(_questList.Greeting);
-            foreach (GossipQuest quest in _questList.Quests)
-                if (ImGui.Selectable($"[{quest.Level}] {quest.Title}##quest-list-{quest.QuestId}")) RequestQuestDetails(_questList.GiverGuid, quest.QuestId);
+            _questLogOpen=false; _questList=null; _questDetails=null; _questOffer=null; _questRequestItems=null;
         }
-        if (_questDetails is not null)
-        {
-            ImGui.TextColored(new Vector4(1, .82f, 0, 1), _questDetails.Title); ImGui.Separator();
-            ImGui.TextWrapped(_questDetails.Details); ImGui.Spacing(); ImGui.TextWrapped(_questDetails.Objectives);
-            if (_questProgress.TryGetValue(_questDetails.QuestId, out string? progress)) ImGui.Text($"Progress: {progress}");
-            if (ImGui.Button("Accept##quest")) AcceptQuest(); ImGui.SameLine();
-            if (ImGui.Button("Complete##quest")) RequestQuestCompletion();
-        }
-        if (_questRequestItems is not null)
-        {
-            ImGui.TextColored(new Vector4(1, .82f, 0, 1), _questRequestItems.Title); ImGui.TextWrapped(_questRequestItems.Text);
-            if (ImGui.Button("Continue##quest")) RequestQuestReward();
-        }
-        if (_questOffer is not null)
-        {
-            ImGui.TextColored(new Vector4(1, .82f, 0, 1), _questOffer.Title); ImGui.TextWrapped(_questOffer.Text);
-            for (int i = 0; i < Math.Max(1, _questOffer.ChoiceRewards.Count); i++)
-                if (ImGui.Button($"Complete quest{(_questOffer.ChoiceRewards.Count > 1 ? $" (reward {i + 1})" : "")}##quest-reward-{i}")) ChooseQuestReward((uint)i);
-        }
-        ImGui.EndChild();
         if(_uiParityArmed&&_uiParityPanel=="quest-log")MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void DrawQuestLogContent(ImDrawListPtr dl, Vector2 origin, float s, WorldEntity player)
+    {
+        var quests = player.Fields.QuestLog().ToArray();
+        _questLogSelected = Math.Clamp(_questLogSelected, 0, Math.Max(0, quests.Length - 1));
+        DrawCenteredText(dl, origin + new Vector2(192, 22) * s, "Quest Log", 12f * s, 0xffffffff);
+        dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(267, 45) * s,
+            VanillaGold, $"{quests.Length} / 20");
+        for (int i = 0; i < quests.Length && i < 6; i++)
+        {
+            var quest = quests[i];
+            string title = _questTitles.GetValueOrDefault(quest.QuestId, $"Quest {quest.QuestId}");
+            Vector2 min = origin + new Vector2(19, 75 + i * 15) * s;
+            if (VanillaListRow(dl, $"##quest-log-{quest.QuestId}", min, new Vector2(300, 16), s,
+                    title, _questLogSelected == i, VanillaGold)) _questLogSelected = i;
+        }
+        if (quests.Length > 0)
+        {
+            uint selected = quests[_questLogSelected].QuestId;
+            string title = _questTitles.GetValueOrDefault(selected, $"Quest {selected}");
+            dl.AddText(ImGui.GetFont(), 14f * s, origin + new Vector2(24, 180) * s,
+                0xff202020, title);
+            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(24, 207) * s,
+                0xff202020, "Objectives");
+            DrawWrappedText(dl, _questProgress.GetValueOrDefault(selected,
+                    "Objectives are updated from the server as you progress."),
+                origin + new Vector2(24, 228) * s, 285, 10f * s, s, 0xff202020, 8);
+            if (VanillaButton(dl, "##quest-abandon", "Abandon Quest",
+                    origin + new Vector2(17, 437) * s, new Vector2(125, 21), s))
+                AbandonQuest(selected);
+        }
+        else VanillaButton(dl, "##quest-abandon", "Abandon Quest",
+            origin + new Vector2(17, 437) * s, new Vector2(125, 21), s, false);
+        VanillaButton(dl, "##quest-push", "Share Quest", origin + new Vector2(141, 437) * s,
+            new Vector2(123, 21), s, false);
+        if (VanillaButton(dl, "##quest-exit", "Close", origin + new Vector2(264, 437) * s,
+                new Vector2(77, 21), s)) _questLogOpen = false;
+    }
+
+    private void DrawQuestNpcContent(ImDrawListPtr dl, Vector2 origin, float s)
+    {
+        if (_questList is not null)
+        {
+            DrawCenteredText(dl, origin + new Vector2(192, 22) * s, "Quests", 12f * s, 0xffffffff);
+            float used = DrawWrappedText(dl, _questList.Greeting, origin + new Vector2(36, 76) * s,
+                300, 11f * s, s, 0xff202020, 8);
+            int i = 0;
+            foreach (GossipQuest quest in _questList.Quests.Take(12))
+            {
+                Vector2 min = origin + new Vector2(36, 96 + used / s + i * 22) * s;
+                if (VanillaListRow(dl, $"##quest-list-{quest.QuestId}", min, new Vector2(300, 20), s,
+                        $"[{quest.Level}] {quest.Title}", false, 0xff202020))
+                    RequestQuestDetails(_questList.GiverGuid, quest.QuestId);
+                i++;
+            }
+            return;
+        }
+        string title = _questDetails?.Title ?? _questRequestItems?.Title ?? _questOffer?.Title ?? "Quest";
+        string body = _questDetails?.Details ?? _questRequestItems?.Text ?? _questOffer?.Text ?? "";
+        DrawCenteredText(dl, origin + new Vector2(192, 22) * s, title, 12f * s, 0xffffffff);
+        float usedBody = DrawWrappedText(dl, body, origin + new Vector2(36, 78) * s,
+            300, 11f * s, s, 0xff202020, 18);
+        if (_questDetails is not null)
+        {
+            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(36, 92 + usedBody / s) * s,
+                0xff202020, "Quest Objectives");
+            DrawWrappedText(dl, _questDetails.Objectives, origin + new Vector2(36, 112 + usedBody / s) * s,
+                300, 10f * s, s, 0xff202020, 8);
+            if (VanillaButton(dl, "##quest-accept", "Accept", origin + new Vector2(201, 437) * s,
+                    new Vector2(80, 21), s)) AcceptQuest();
+            if (VanillaButton(dl, "##quest-decline", "Decline", origin + new Vector2(283, 437) * s,
+                    new Vector2(80, 21), s))
+                _questDetails = null;
+        }
+        else if (_questRequestItems is not null)
+        {
+            if (VanillaButton(dl, "##quest-continue", "Continue", origin + new Vector2(263, 437) * s,
+                    new Vector2(100, 21), s, _questRequestItems.Completable)) RequestQuestReward();
+        }
+        else if (_questOffer is not null)
+        {
+            int choices = Math.Max(1, _questOffer.ChoiceRewards.Count);
+            for (int i = 0; i < choices; i++)
+                if (VanillaButton(dl, $"##quest-reward-{i}", choices > 1 ? $"Reward {i + 1}" : "Complete Quest",
+                        origin + new Vector2(223 - i * 104, 437) * s, new Vector2(120, 21), s))
+                    ChooseQuestReward((uint)i);
+        }
     }
 }

@@ -36,6 +36,14 @@ public sealed partial class GameLoop
     private long _worldCombatTextSpawned;
     private long _worldCombatTextDropped;
 
+    private bool PlayerPanelOpen => _worldMapOpen || _characterOpen || _inspectOpen || _spellbookOpen ||
+        _questLogOpen || _socialOpen || _helpOpen || _keybindingsOpen || _macroOpen ||
+        _guildOpen || _auctionOpen || _mailOpen || _professionOpen || _talentOpen ||
+        _tradeOpen || _bankOpen || _trainer is not null || _taxiOpen || _vendor is not null ||
+        _gossipMenu is not null || _questList is not null || _questDetails is not null ||
+        _questRequestItems is not null || _questOffer is not null || _backpackOpen ||
+        _deathRezOpen || _hearthOpen || _tabardOpen || _loot.IsOpen || _gameObjectPages.Count > 0;
+
     private void ResetCombatFeedback()
     {
         _floatingCombatText.Clear();
@@ -112,11 +120,20 @@ public sealed partial class GameLoop
     private void DrawCombatHud()
     {
         BakeDirtyPortraits();
+        // WorldMapFrame is a FULLSCREEN frame in the 1.12 FrameXML.  Nothing from
+        // the ordinary HUD is allowed to render over it.
+        if (_worldMapOpen)
+        {
+            DrawWorldMapFrame();
+            return;
+        }
         DrawFloatingCombatText();
         DrawWorldUnitNames();
         DrawPlayerFrame();
         DrawTargetFrame();
+        DrawPetFrameAndActionBar();
         DrawPartyFrames();
+        DrawUnitPopup();
         DrawPlayerAuraBar();
         DrawMinimap();
         DrawChatFrame();
@@ -138,6 +155,7 @@ public sealed partial class GameLoop
         DrawAuctionFrame();
         DrawProfessionFrame();
         DrawGuildFrame();
+        DrawSocialFrame();
         DrawTradeFrame();
         DrawKeybindingsFrame();
         DrawMacroFrame();
@@ -148,7 +166,9 @@ public sealed partial class GameLoop
         DrawTalentFrame();
         DrawInventory();
         DrawCharacterPage();
+        DrawInspectFrame();
         DrawSpellbook();
+        DrawHelpFrame();
     }
 
     private void DrawPlayerFrame()

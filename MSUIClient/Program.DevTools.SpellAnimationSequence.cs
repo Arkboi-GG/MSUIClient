@@ -180,7 +180,8 @@ public sealed partial class GameLoop
             foreach (var instance in instances.Where(instance => instance.Stage == stage))
             {
                 var particles = _particles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
-                bool drawn = particles.DrawnParticles > 0 || (_spellEffectMeshes?.WasDrawn(instance.Path) ?? false);
+                bool drawn = particles.DrawnParticles > 0 || (_spellEffectMeshes?.WasDrawn(instance.Path) ?? false) ||
+                    (_spellRibbons?.WasDrawn(instance.Path) ?? false);
                 if (drawn) return "PRESENT";
             }
             return "ABSENT";
@@ -189,8 +190,9 @@ public sealed partial class GameLoop
         {
             var particles = _particles?.VisualState($"spell:{instance.Path}#{instance.Id}") ?? default;
             bool mesh = _spellEffectMeshes?.WasDrawn(instance.Path) ?? false;
+            bool ribbon = _spellRibbons?.WasDrawn(instance.Path) ?? false;
             return $"{instance.Stage}:{instance.Path}#{instance.Id}@{instance.Position.X:F2}/{instance.Position.Y:F2}/{instance.Position.Z:F2}" +
-                $":progress={instance.Progress:F3}:pools={particles.Pools}:live={particles.LiveParticles}:drawn={particles.DrawnParticles}:mesh={mesh}";
+                $":progress={instance.Progress:F3}:pools={particles.Pools}:live={particles.LiveParticles}:drawn={particles.DrawnParticles}:mesh={mesh}:ribbon={ribbon}";
         }));
         return new(Status("PRECAST"), Status("CAST"), Status("MISSILE"), Status("IMPACT"), details,
             instances.Where(instance => instance.Missile).Select(instance => instance.Position).ToArray());

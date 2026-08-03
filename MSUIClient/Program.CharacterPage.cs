@@ -21,6 +21,7 @@ public sealed partial class GameLoop
         if (_mpq is null) return;
         try { _skillLines = SkillLineCatalog.Load(_mpq); }
         catch (Exception ex) { Console.WriteLine($"[character] skill catalog failed: {ex.Message}"); }
+        InitReputation();
     }
 
     private static readonly (int Slot, string Empty)[] LeftPaperDollSlots =
@@ -40,7 +41,7 @@ public sealed partial class GameLoop
 
     private void UpdateCharacterPageInput(bool typing)
     {
-        bool down = _window.IsDown(Key.C);
+        bool down = BindingDown(GameBinding.OpenCharacter);
         bool control = _window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight);
         if (down && !_characterKeyWasDown && !control && !typing && _net is { IsInWorld: true })
         {
@@ -56,8 +57,10 @@ public sealed partial class GameLoop
             !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
 
         float scale = GameplayUiScale();
-        Vector2 origin = new(0, 8f * scale);
-        Vector2 size = new(384, 544);
+        Vector2 origin = new(0, 104f * scale);
+        // CharacterFrame.xml is exactly 384x512. The previous 544px host left a
+        // spurious black strip and pushed the five authored tabs below the frame.
+        Vector2 size = new(384, 512);
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(size * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
@@ -75,10 +78,16 @@ public sealed partial class GameLoop
                 new("", 0, "IMGUI_HOST", "TOPLEFT", "CharacterFrame", "TOPLEFT", 0, 0));
         }
         if (_characterTab == 0) DrawPaperDollBackground(dl, origin, scale);
-        else DrawSkillBackground(dl, origin, scale);
+        else if (_characterTab == 3) DrawSkillBackground(dl, origin, scale);
+        else DrawCharacterGeneralBackground(dl, origin, scale);
 
-        if (_characterTab == 0) DrawPaperDollPage(dl, origin, scale, player);
-        else DrawSkillsPage(dl, origin, scale, player);
+        switch (_characterTab)
+        {
+            case 0: DrawPaperDollPage(dl, origin, scale, player); break;
+            case 2: DrawReputationPage(dl, origin, scale, player); break;
+            case 3: DrawSkillsPage(dl, origin, scale, player); break;
+            case 4: DrawHonorPage(dl, origin, scale, player); break;
+        }
 
         DrawCharacterHeader(dl, origin, scale, player);
         DrawCharacterTabs(dl, origin, scale);
@@ -113,6 +122,14 @@ public sealed partial class GameLoop
         DrawArt(dl, @"Interface\PaperDollInfoFrame\SkillFrame-BotRight", p + new Vector2(258, 255) * s, new(128, 256), s);
     }
 
+    private void DrawCharacterGeneralBackground(ImDrawListPtr dl, Vector2 p, float s)
+    {
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft", p + new Vector2(2, 1) * s, new(256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight", p + new Vector2(258, 1) * s, new(128, 256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-BottomLeft", p + new Vector2(2, 257) * s, new(256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-General-BottomRight", p + new Vector2(258, 257) * s, new(128, 256), s);
+    }
+
     private void DrawCharacterHeader(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
     {
         if (_playerPortrait is not null && _playerPortraitUsable)
@@ -123,10 +140,12 @@ public sealed partial class GameLoop
             DrawUnitPortraitImage(dl, player, p + new Vector2(7, 6) * s, 60f * s, 0, true);
 
         string name = _net?.PlayerName ?? "";
-        DrawCenteredText(dl, p + new Vector2(192, 18) * s, name, 14f * s, 0xffffffff);
+        // CharacterNameText is a 300x12 region at (48,18), centered at (198,24).
+        DrawCenteredText(dl, p + new Vector2(198, 24) * s, name, 12f * s, 0xffffffff);
         var bytes = player.Fields.Bytes0;
         string level = $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
-        DrawCenteredText(dl, p + new Vector2(192, 38) * s, level, 11f * s, 0xffffd100);
+        // CharacterLevelText is TOP of CharacterNameText BOTTOM -6.
+        DrawCenteredText(dl, p + new Vector2(198, 41) * s, level, 10f * s, VanillaGold);
 
         Vector2 close = p + new Vector2(324, 9) * s;
         DrawImageButton(dl, "##char-close", close, new Vector2(32) * s,
@@ -153,7 +172,9 @@ public sealed partial class GameLoop
             DrawEquipmentSlot(dl, p + new Vector2(305, 74 + i * 41) * s, s, player,
                 RightPaperDollSlots[i].Slot, RightPaperDollSlots[i].Empty);
         for (int i = 0; i < WeaponPaperDollSlots.Length; i++)
-            DrawEquipmentSlot(dl, p + new Vector2(122 + i * 42, 348) * s, s, player,
+            // CharacterMainHandSlot is TOPLEFT to PaperDollFrame.BOTTOMLEFT
+            // (122,127): in top-origin coordinates its top is 512-127=385.
+            DrawEquipmentSlot(dl, p + new Vector2(122 + i * 42, 385) * s, s, player,
                 WeaponPaperDollSlots[i].Slot, WeaponPaperDollSlots[i].Empty);
 
         DrawCharacterStats(dl, p, s, player.Fields);
@@ -242,7 +263,7 @@ public sealed partial class GameLoop
 
     private static void DrawStatRow(ImDrawListPtr dl, Vector2 p, string label, string value, float s, float width = 104)
     {
-        dl.AddText(ImGui.GetFont(), 10f * s, p, 0xffffd100, label);
+        dl.AddText(ImGui.GetFont(), 10f * s, p, VanillaGold, label);
         Vector2 text = ImGui.CalcTextSize(value);
         dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(width * s - text.X, 0), 0xffffffff, value);
     }
@@ -254,7 +275,9 @@ public sealed partial class GameLoop
         int[] schools = [6, 2, 3, 4, 5];
         for (int i = 0; i < 5; i++)
         {
-            Vector2 min = p + new Vector2(297, 77 + i * 29) * s;
+            // CharacterResistanceFrame is 32px wide and its TOPRIGHT, not its
+            // TOPLEFT, is anchored at x=297. Its authored left edge is x=265.
+            Vector2 min = p + new Vector2(265, 77 + i * 29) * s;
             if (art != 0) dl.AddImage((nint)art, min, min + new Vector2(32, 29) * s,
                 new Vector2(0, tops[i]), new Vector2(1, tops[i] + 0.11328125f));
             string v = f.Resistance(schools[i]).ToString();
@@ -264,22 +287,81 @@ public sealed partial class GameLoop
 
     private void DrawCharacterTabs(ImDrawListPtr dl, Vector2 p, float s)
     {
-        DrawCharacterTab(dl, p + new Vector2(3, 466) * s, new Vector2(115, 32) * s, "Character", 0, s);
-        DrawCharacterTab(dl, p + new Vector2(102, 466) * s, new Vector2(115, 32) * s, "Skills", 1, s);
+        string[] labels = ["Character", "Pet", "Reputation", "Skills", "Honor"];
+        float[] widths = labels.Select(label => VanillaCharacterTabWidth(label, s, 0)).ToArray();
+        // CharacterFrameTab1 CENTER is (60, frame bottom - 62). The remaining
+        // tabs anchor LEFT to the preceding RIGHT with a deliberate -16 overlap.
+        float x = 60 - widths[0] * .5f;
+        for (int tab = 0; tab < labels.Length; tab++)
+        {
+            if (VanillaTab(dl, $"##char-tab-{tab}", p + new Vector2(x, 434) * s,
+                    labels[tab], widths[tab], s, tab == _characterTab, tab != 1))
+                _characterTab = tab;
+            x += widths[tab] - 16;
+        }
     }
 
-    private void DrawCharacterTab(ImDrawListPtr dl, Vector2 min, Vector2 size, string text, int tab, float s)
+    private void DrawReputationPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
     {
-        string path = tab == _characterTab
-            ? @"Interface\PaperDollInfoFrame\UI-Character-ActiveTab"
-            : @"Interface\PaperDollInfoFrame\UI-Character-InActiveTab";
-        uint art = _gameplayArt?.Handle(path) ?? 0;
-        if (art != 0) dl.AddImage((nint)art, min, min + size);
-        DrawCenteredText(dl, min + new Vector2(size.X * 0.5f, 11f * s), text, 11f * s,
-            tab == _characterTab ? 0xffffffff : 0xffffd100);
-        ImGui.SetCursorScreenPos(min);
-        ImGui.InvisibleButton($"##char-tab-{tab}", size);
-        if (ImGui.IsItemClicked()) _characterTab = tab;
+        var rows = new List<(FactionInfo Info, int Standing)>();
+        if (_factionCatalog is not null)
+            for (int i = 0; i < _reputation.Length; i++)
+                if ((_reputation[i].Flags & 1) != 0 && _factionCatalog.TryGetByReputationIndex(i, out FactionInfo info))
+                    rows.Add((info, info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) + _reputation[i].Standing));
+
+        DrawCenteredText(dl, p + new Vector2(115, 64) * s, "Faction", 11f * s, VanillaGold);
+        DrawCenteredText(dl, p + new Vector2(255, 64) * s, "Standing", 11f * s, VanillaGold);
+        _reputationScroll = Math.Clamp(_reputationScroll, 0, Math.Max(0, rows.Count - 15));
+        Vector2 listMin = p + new Vector2(25, 86) * s;
+        ImGui.SetCursorScreenPos(listMin);
+        ImGui.InvisibleButton("##reputation-scroll", new Vector2(300, 360) * s);
+        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+            _reputationScroll = Math.Clamp(_reputationScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, Math.Max(0, rows.Count - 15));
+        for (int row = 0; row < 15 && row + _reputationScroll < rows.Count; row++)
+        {
+            var value = rows[row + _reputationScroll];
+            var rank = ReputationRank(value.Standing);
+            Vector2 min = p + new Vector2(25, 87 + row * 23) * s;
+            dl.AddText(ImGui.GetFont(), 11f * s, min, 0xffffffff, value.Info.Name);
+            Vector2 barMin = min + new Vector2(137, 0) * s;
+            Vector2 barSize = new Vector2(137, 13) * s;
+            dl.AddRectFilled(barMin, barMin + barSize, 0xff202020);
+            float fraction = Math.Clamp((float)(value.Standing - rank.Floor) / Math.Max(1, rank.Ceiling - rank.Floor), 0, 1);
+            dl.AddRectFilled(barMin, barMin + new Vector2(barSize.X * fraction, barSize.Y), rank.Color);
+            DrawCenteredText(dl, barMin + barSize * .5f, rank.Name, 10f * s, 0xffffffff);
+        }
+        if (rows.Count == 0)
+            DrawCenteredText(dl, p + new Vector2(190, 220) * s, "No known reputations", 12f * s, 0xffaaaaaa);
+    }
+
+    private void DrawHonorPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
+    {
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-TopLeft", p + new Vector2(22, 69) * s, new(256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-TopRight", p + new Vector2(275, 69) * s, new(128, 256), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-BottomLeft", p + new Vector2(22, 325) * s, new(256, 128), s);
+        DrawArt(dl, @"Interface\PaperDollInfoFrame\UI-Character-Honor-BottomRight", p + new Vector2(275, 325) * s, new(128), s);
+        ObjectFields f = player.Fields;
+        var session = f.SessionKills; var yesterday = f.YesterdayKills;
+        var week = f.ThisWeekKills; var last = f.LastWeekKills;
+        DrawCenteredText(dl, p + new Vector2(192, 88) * s, "Honor", 14f * s, VanillaGold);
+        DrawHonorBlock(dl, p, s, 112, "Today", session.Honorable, null);
+        DrawHonorBlock(dl, p, s, 176, "Yesterday", yesterday.Honorable, f.YesterdayContribution);
+        DrawHonorBlock(dl, p, s, 240, "This Week", week.Honorable, f.ThisWeekContribution);
+        DrawHonorBlock(dl, p, s, 304, "Last Week", last.Honorable, f.LastWeekContribution);
+        dl.AddText(ImGui.GetFont(), 11f * s, p + new Vector2(45, 384) * s, VanillaGold, "Lifetime");
+        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, 405) * s, 0xffffffff,
+            $"Honorable Kills: {f.LifetimeHonorableKills}");
+        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, 421) * s, 0xffffffff,
+            $"Dishonorable Kills: {f.LifetimeDishonorableKills}");
+    }
+
+    private static void DrawHonorBlock(ImDrawListPtr dl, Vector2 p, float s, float y, string title,
+        uint kills, uint? contribution)
+    {
+        dl.AddText(ImGui.GetFont(), 11f * s, p + new Vector2(45, y) * s, VanillaGold, title);
+        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, y + 20) * s, 0xffffffff, $"Honorable Kills: {kills}");
+        if (contribution is { } cp)
+            dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, y + 36) * s, 0xffffffff, $"Honor: {cp}");
     }
 
     private void DrawSkillsPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
@@ -353,7 +435,7 @@ public sealed partial class GameLoop
                     uint hi = _gameplayArt?.Handle(@"Interface\Buttons\UI-Listbox-Highlight2") ?? 0;
                     if (hi != 0) dl.AddImage((nint)hi, barMin - new Vector2(5, 0), barMax + new Vector2(5, 0));
                 }
-                dl.AddText(ImGui.GetFont(), 10f * s, barMin + new Vector2(6, 1) * s, 0xffffd100, row.Name);
+                dl.AddText(ImGui.GetFont(), 10f * s, barMin + new Vector2(6, 1) * s, VanillaGold, row.Name);
                 string rank = row.Bonus == 0 ? $"{row.Value} / {row.Max}" : $"{row.Value} + {row.Bonus} / {row.Max}";
                 dl.AddText(ImGui.GetFont(), 10f * s, barMin + new Vector2(177, 1) * s,
                     row.Bonus < 0 ? 0xff4040ff : row.Bonus > 0 ? 0xff40ff40 : 0xffffffff, rank);
@@ -367,7 +449,7 @@ public sealed partial class GameLoop
             p + new Vector2(15, 305) * s, new Vector2(331, 16), s);
         if (_selectedSkill != 0 && _skillLines is not null && _skillLines.TryGet(_selectedSkill, out SkillLineInfo selected))
         {
-            dl.AddText(ImGui.GetFont(), 12f * s, p + new Vector2(44, 329) * s, 0xffffd100, selected.Name);
+            dl.AddText(ImGui.GetFont(), 12f * s, p + new Vector2(44, 329) * s, VanillaGold, selected.Name);
             if (!string.IsNullOrWhiteSpace(selected.Description))
                 dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(38, 353) * s, 0xffffffff,
                     selected.Description);

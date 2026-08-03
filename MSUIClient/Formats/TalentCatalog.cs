@@ -1,6 +1,7 @@
 namespace MSUIClient.Formats;
 
-public readonly record struct TalentTabInfo(uint Id, string Name, uint ClassMask, uint Page, string Background);
+public readonly record struct TalentTabInfo(uint Id, string Name, uint ClassMask, uint Page,
+    string Background, string IconPath);
 public readonly record struct TalentInfo(uint Id, uint TabId, uint Row, uint Column,
     uint[] RankSpells, uint DependsOn, uint DependsOnRank, uint RequiredSpell);
 
@@ -25,11 +26,23 @@ public sealed class TalentCatalog
         DbcFile? talents = Parse(mpq, TalentPath), tabs = Parse(mpq, TabPath);
         if (talents is null || tabs is null || talents.FieldCount < 21 || tabs.FieldCount < 15) return null;
         var result = new TalentCatalog();
+        var iconMap = new Dictionary<uint, string>();
+        DbcFile? icons = Parse(mpq, SpellCatalog.IconPath);
+        if (icons is { FieldCount: >= 2 })
+            for (int row = 0; row < icons.RecordCount; row++)
+            {
+                uint iconId = icons.GetUInt(row, 0);
+                string icon = icons.GetString(row, 1);
+                if (iconId != 0 && icon.Length > 0)
+                    iconMap[iconId] = icon.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)
+                        ? icon : icon + ".blp";
+            }
         for (int row = 0; row < tabs.RecordCount; row++)
         {
             uint id = tabs.GetUInt(row, 0); if (id == 0) continue;
+            iconMap.TryGetValue(tabs.GetUInt(row, 11), out string? icon);
             result._tabs[id] = new(id, tabs.GetString(row, 1), tabs.GetUInt(row, 12),
-                tabs.GetUInt(row, 13), tabs.GetString(row, 14));
+                tabs.GetUInt(row, 13), tabs.GetString(row, 14), icon ?? "");
         }
         for (int row = 0; row < talents.RecordCount; row++)
         {

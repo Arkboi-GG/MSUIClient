@@ -160,6 +160,8 @@ public sealed class ItemDisplayRow
     public string[] BodyTextures = new string[8];
 
     public uint ItemVisualId;
+    /// <summary>Ranged fallback SpellVisual (vanilla ItemDisplayInfo field 10).</summary>
+    public uint SpellVisualId;
 
     public bool HasModel => ModelName1.Length > 0 || ModelName2.Length > 0;
     public bool HasBodyTexture => BodyTextures.Any(t => t.Length > 0);
@@ -399,6 +401,7 @@ public sealed class ItemDisplayTable
                 HelmetGeosetVis1 = dbc.GetUInt(r, 12),
                 HelmetGeosetVis2 = dbc.GetUInt(r, 13),
                 ItemVisualId = dbc.GetUInt(r, 22),
+                SpellVisualId = dbc.GetUInt(r, 10),
             };
 
             for (int t = 0; t < 8; t++)

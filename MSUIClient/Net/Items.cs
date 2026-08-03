@@ -115,6 +115,8 @@ public sealed class ItemTemplateCache
     public int Count => _templates.Count;
     public int PendingCount => _pending.Count;
     public bool TryGet(uint entry, out ItemTemplate? item) => _templates.TryGetValue(entry, out item);
+    public ItemTemplate? FindByName(string name) => _templates.Values.FirstOrDefault(x =>
+        x is not null && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     public void Require(uint entry, ulong guid, NetworkClient net)
     {

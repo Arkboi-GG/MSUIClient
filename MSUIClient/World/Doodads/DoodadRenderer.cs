@@ -361,7 +361,8 @@ public sealed class DoodadRenderer : IDisposable
     /// work, not this walk.
     /// </summary>
     public IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
-                        int EmitterIndex, string TexturePath)>
+                        int EmitterIndex, string TexturePath, double AnimationTime, int AnimationId,
+                        Vector3? LocalOrigin, Quaternion? LocalRotation)>
         EmitterInstances(Vector3 near, float radius)
     {
         float r2 = radius * radius;
@@ -377,7 +378,8 @@ public sealed class DoodadRenderer : IDisposable
                 {
                     string tex = e < model.EmitterTexturePaths.Length
                         ? model.EmitterTexturePaths[e] : "";
-                    yield return (inst.Path, inst.Transform, model.Emitters[e], e, tex);
+                    yield return (inst.Path, inst.Transform, model.Emitters[e], e, tex, double.NaN, 0,
+                        null, null);
                 }
             }
         }

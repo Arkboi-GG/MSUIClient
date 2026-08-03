@@ -46,4 +46,24 @@ public sealed class AreaTableCatalog
         }
         return "";
     }
+
+    /// <summary>The authored sub-zone name without collapsing it to its parent.</summary>
+    public string AreaName(uint areaId) =>
+        _rows.TryGetValue(areaId, out var row) ? row.Name : "";
+
+    /// <summary>
+    /// Top-level zone containing an area. CMSG_ZONEUPDATE carries this value;
+    /// the visible minimap text still uses <see cref="AreaName"/>.
+    /// </summary>
+    public uint ParentZoneId(uint areaId)
+    {
+        uint id = areaId;
+        for (int i = 0; i < 8 && id != 0; i++)
+        {
+            if (!_rows.TryGetValue(id, out var row)) return 0;
+            if (row.Parent == 0) return id;
+            id = row.Parent;
+        }
+        return 0;
+    }
 }

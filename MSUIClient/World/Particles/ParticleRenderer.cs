@@ -38,10 +38,9 @@ namespace MSUIClient.World.Particles;
 ///   4. PER-INSTANCE POOLS. Two torches must not share particles (H5). The
 ///      model is shared; the pool is keyed by the placement.
 ///
-/// NOT DONE HERE, deliberately: the 4x4 sprite-sheet flipbook that flames use
-/// (headCellTrack lives in the part of the struct §3.3 has not cracked), bone
-/// animation of the emitter origin, spline and sphere emitter types, tails,
-/// and ribbons. A flame will glow but not lick.
+/// Sprite-sheet flipbooks, animated emitter bones, plane/sphere kernels, and
+/// instance-local spell clocks are handled here. M2 ribbons are a sibling
+/// dynamic renderer because they are edge trails rather than particle quads.
 /// </summary>
 public enum ParticleSpaceMode { FromFlag, ForceModel, ForceWorld }
 
@@ -277,6 +276,23 @@ public sealed class ParticleRenderer : IDisposable
         return (pools.Length, pools.Sum(pool => pool.Particles.Count), pools.Sum(pool => pool.DrawnLastFrame));
     }
 
+    /// <summary>Per-emitter particle census for a path prefix: which emitters are
+    /// alive and actually drawing, split by model/world space. Used to localize
+    /// "thin fire" — a model-space glow with live &gt; 0 but drawn == 0 is dropping
+    /// out at draw, not at spawn.</summary>
+    public string CensusReport(string pathPrefix)
+    {
+        Pool[] pools = _pools.Where(pair => pair.Key.Path.StartsWith(pathPrefix,
+            StringComparison.OrdinalIgnoreCase)).Select(pair => pair.Value)
+            .OrderBy(p => p.TexturePath).ThenBy(p => p.EmitterIndex).ToArray();
+        if (pools.Length == 0) return $"census '{pathPrefix}': NO POOLS";
+        var sb = new System.Text.StringBuilder($"census '{pathPrefix}': {pools.Length} pools");
+        foreach (Pool p in pools)
+            sb.Append($" | e{p.EmitterIndex}[{(p.ModelSpace ? "model" : "world")}] blend={p.Emitter.BlendingType} " +
+                $"live={p.Particles.Count} drawn={p.DrawnLastFrame} scale={p.Scale:0.##} tex={System.IO.Path.GetFileName(p.TexturePath)}");
+        return sb.ToString();
+    }
+
     public void LoadShaders(string shaderDir)
     {
         _shader = Shader.FromFiles(_gl,
@@ -308,6 +324,11 @@ public sealed class ParticleRenderer : IDisposable
         public readonly List<Particle> Particles = [];
         public bool TouchedThisFrame;
         public int DrawnLastFrame;
+        // True for spell-effect pools (path "spell:..."). Portal-only presentation
+        // knobs (the centre-hole hollow) must NOT apply to these: a spell orb is
+        // ~0.8yd, far inside the 4.33yd portal hole, so it would fade the bright
+        // converging core to near-zero. This is why precast/impact read as thin.
+        public bool Spell;
         public uint Seed = 0x9E3779B9;
 
         /// <summary>Uniform scale of the placement, applied to speed and sprite size.</summary>
@@ -321,6 +342,11 @@ public sealed class ParticleRenderer : IDisposable
 
         /// <summary>Emitter index within its model, for the solo/isolation debug.</summary>
         public int EmitterIndex;
+        /// <summary>Placement-local M2 clock; NaN inputs use the global doodad clock.</summary>
+        public double AnimationTime;
+        public int AnimationId;
+        public readonly float[] Scalars = new float[10];
+        public Quaternion? BoneRotationOverride;
 
 
         /// <summary>xorshift, so each pool is independent and nothing shares Random.</summary>
@@ -426,7 +452,9 @@ public sealed class ParticleRenderer : IDisposable
         float dt,
         Vector3 cameraPosition,
         IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
-                     int EmitterIndex, string TexturePath)> emitters)
+                     int EmitterIndex, string TexturePath, double AnimationTime,
+                     int AnimationId, Vector3? LocalOrigin,
+                     Quaternion? LocalRotation)> emitters)
     {
         SimulateMilliseconds = 0.0;
         if (!Enabled || _shader is null) return;
@@ -439,8 +467,10 @@ public sealed class ParticleRenderer : IDisposable
 
         float simSq = SimulationDistance * SimulationDistance;
 
-        foreach (var (path, transform, emitter, index, texPath) in emitters)
+        foreach (var (path, transform, emitter, index, texPath, suppliedAnimationTime, animationId,
+            localOrigin, localRotation) in emitters)
         {
+            double animationTime = double.IsNaN(suppliedAnimationTime) ? _time : suppliedAnimationTime;
             // The emitter's BONE composes each particle's BIRTH (benilla particles.rs:10-11),
             // so an emitter riding an animated bone leaves a TRAIL rather than dragging its
             // cloud. Sampling only the bone's ROTATION - which is all this did - froze every
@@ -448,21 +478,25 @@ public sealed class ParticleRenderer : IDisposable
             // EmissionSpeed 0 and keep all their motion in bones 32..47, so the login screen
             // grew 16 motionless flares (~90 additive sprites stacked on one point) where the
             // OG has drifting motes. Static emitters return the bind position unchanged.
-            var origin = Vector3.Transform(
-                emitter.SampleBonePosition(
-                    _time, new Vector3(emitter.PosX, emitter.PosY, emitter.PosZ)),
-                transform);
+            Vector3 emitterLocal = localOrigin ?? emitter.SampleBonePosition(
+                animationTime, new Vector3(emitter.PosX, emitter.PosY, emitter.PosZ));
+            var origin = Vector3.Transform(emitterLocal, transform);
             if (Vector3.DistanceSquared(origin, cameraPosition) > simSq) continue;
 
             // Rotation is in the key as well as position: two placements of the
             // same model in the same tenth-of-a-yard cell would otherwise share
             // one pool, which is precisely the per-instance invariant H5 asks
             // this key to enforce.
+            // Spell paths already contain the effect-instance id. Keying those
+            // pools by their moving position rebuilt the pool every tenth of a
+            // yard, deleting the projectile's cloud and making its trail blink.
+            bool movingInstance = path.StartsWith("spell:", StringComparison.OrdinalIgnoreCase);
             var key = new PoolKey(path,
-                (int)MathF.Round(transform.M41 * 10f),
-                (int)MathF.Round(transform.M42 * 10f),
-                (int)MathF.Round(transform.M43 * 10f), index,
-                (int)MathF.Round((transform.M11 + transform.M21 * 3f + transform.M12 * 7f) * 100f));
+                movingInstance ? 0 : (int)MathF.Round(transform.M41 * 10f),
+                movingInstance ? 0 : (int)MathF.Round(transform.M42 * 10f),
+                movingInstance ? 0 : (int)MathF.Round(transform.M43 * 10f), index,
+                movingInstance ? 0 : (int)MathF.Round(
+                    (transform.M11 + transform.M21 * 3f + transform.M12 * 7f) * 100f));
 
             if (!_pools.TryGetValue(key, out var pool))
             {
@@ -483,8 +517,18 @@ public sealed class ParticleRenderer : IDisposable
             pool.Transform = transform;
             pool.Emitter = emitter;
             pool.TexturePath = texPath;
+            pool.Spell = movingInstance;
             pool.ModelSpace = IsModelSpace(emitter);
             pool.EmitterIndex = index;
+            pool.AnimationTime = animationTime;
+            pool.AnimationId = animationId;
+            pool.BoneRotationOverride = localRotation;
+            float[] defaults = [emitter.EmissionSpeed, emitter.SpeedVariation, emitter.VerticalRange,
+                emitter.HorizontalRange, emitter.Gravity, emitter.Lifespan, emitter.EmissionRate,
+                emitter.EmissionAreaLength, emitter.EmissionAreaWidth, emitter.ZSource];
+            for (int scalar = 0; scalar < pool.Scalars.Length; scalar++)
+                pool.Scalars[scalar] = emitter.SampleScalar(scalar, animationTime, animationId,
+                    defaults[scalar]);
             pool.Scale = MathF.Sqrt(
                 transform.M11 * transform.M11 +
                 transform.M12 * transform.M12 +
@@ -492,14 +536,19 @@ public sealed class ParticleRenderer : IDisposable
             if (pool.Scale <= 0f || float.IsNaN(pool.Scale)) pool.Scale = 1f;
             pool.Origin = origin;
             pool.TouchedThisFrame = true;
-            Advance(pool, dt, origin);
+            Advance(pool, dt, origin, emit: true);
         }
 
         // Pools nobody touched are out of range or gone with their placement.
         // Dropped rather than kept, because holding them would leak one pool per
         // doodad ever walked past.
         foreach (var key in _pools.Keys.ToArray())
-            if (!_pools[key].TouchedThisFrame) _pools.Remove(key);
+        {
+            Pool pool = _pools[key];
+            if (pool.TouchedThisFrame) continue;
+            Advance(pool, dt, pool.Origin, emit: false);
+            if (pool.Particles.Count == 0) _pools.Remove(key);
+        }
 
         int live = 0;
         foreach (var pool in _pools.Values) live += pool.Particles.Count;
@@ -510,7 +559,7 @@ public sealed class ParticleRenderer : IDisposable
             .GetElapsedTime(started).TotalMilliseconds;
     }
 
-    private void Advance(Pool pool, float dt, Vector3 origin)
+    private void Advance(Pool pool, float dt, Vector3 origin, bool emit)
     {
         var e = pool.Emitter;
         var list = pool.Particles;
@@ -531,10 +580,10 @@ public sealed class ParticleRenderer : IDisposable
                 // this is pos += vel*dt for the portal; it matters for other emitters.
                 float sdt = MathF.Min(dt, 0.1f);
                 p.Position += p.Velocity * sdt;
-                if (e.Gravity != 0f)
+                if (pool.Scalars[4] != 0f)
                 {
-                    p.Position.Y -= 0.5f * e.Gravity * sdt * sdt;
-                    p.Velocity.Y -= e.Gravity * sdt;
+                    p.Position.Y -= 0.5f * pool.Scalars[4] * sdt * sdt;
+                    p.Velocity.Y -= pool.Scalars[4] * sdt;
                 }
                 if (e.Drag != 0f)
                 {
@@ -544,16 +593,18 @@ public sealed class ParticleRenderer : IDisposable
             }
             else
             {
-                p.Velocity.Z -= e.Gravity * dt;
+                p.Velocity.Z -= pool.Scalars[4] * dt;
                 p.Position += p.Velocity * dt;
             }
             list[i] = p;
         }
 
+        if (!emit) return; // orphaned effect: drain already-born particles
+
         // An emitter can be authored inert - dustwestfall's rate is 0.0 - so
         // this is a real case and not a guard against nothing.
-        float rate = e.EmissionRate * DensityScale;
-        if (rate <= 0f || e.Lifespan <= 0f) return;
+        float rate = pool.Scalars[6] * DensityScale;
+        if (rate <= 0f || pool.Scalars[5] <= 0f) return;
         if (LiveParticles >= MaxParticles) return;
 
         pool.SpawnAccumulator += rate * dt;
@@ -594,17 +645,17 @@ public sealed class ParticleRenderer : IDisposable
             if (e.Shape == ParticleShape.Sphere)
             {
                 // areaLength/areaWidth are the min/max radius for a sphere emitter.
-                float r = e.EmissionAreaLength
-                        + pool.Rand() * MathF.Max(0f, e.EmissionAreaWidth - e.EmissionAreaLength);
-                float lat = pool.Symmetric() * e.VerticalRange;   // latitude
-                float lon = pool.Symmetric() * e.HorizontalRange; // longitude
+                float r = pool.Scalars[7]
+                        + pool.Rand() * MathF.Max(0f, pool.Scalars[8] - pool.Scalars[7]);
+                float lat = pool.Symmetric() * pool.Scalars[2];   // latitude
+                float lon = pool.Symmetric() * pool.Scalars[3]; // longitude
                 float clat = MathF.Cos(lat), slat = MathF.Sin(lat);
                 float clon = MathF.Cos(lon), slon = MathF.Sin(lon);
                 var shell = new Vector3(clat * clon, clat * slon, slat);  // unit
                 posZ = r * shell;                                         // birth on the shell (the ring)
-                if (e.ZSource != 0f)
+                if (pool.Scalars[9] != 0f)
                 {
-                    dirZ = posZ - new Vector3(0f, 0f, e.ZSource);
+                    dirZ = posZ - new Vector3(0f, 0f, pool.Scalars[9]);
                     dirZ = dirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(dirZ) : Vector3.UnitZ;
                 }
                 else if ((e.Flags & 0x100) != 0)
@@ -621,18 +672,18 @@ public sealed class ParticleRenderer : IDisposable
                 // Plane (spline falls back to plane): born across the area rectangle,
                 // direction a symmetric spherical cone about +Z.
                 posZ = new Vector3(
-                    e.EmissionAreaLength * 0.5f * pool.Symmetric(),
-                    e.EmissionAreaWidth * 0.5f * pool.Symmetric(),
+                    pool.Scalars[7] * 0.5f * pool.Symmetric(),
+                    pool.Scalars[8] * 0.5f * pool.Symmetric(),
                     0f);
-                if (e.ZSource != 0f)
+                if (pool.Scalars[9] != 0f)
                 {
-                    dirZ = posZ - new Vector3(0f, 0f, e.ZSource);
+                    dirZ = posZ - new Vector3(0f, 0f, pool.Scalars[9]);
                     dirZ = dirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(dirZ) : Vector3.UnitZ;
                 }
                 else
                 {
-                    float theta = pool.Symmetric() * e.VerticalRange;
-                    float phi = pool.Symmetric() * e.HorizontalRange;
+                    float theta = pool.Symmetric() * pool.Scalars[2];
+                    float phi = pool.Symmetric() * pool.Scalars[3];
                     float st = MathF.Sin(theta), ct = MathF.Cos(theta);
                     float sp = MathF.Sin(phi), cp = MathF.Cos(phi);
                     dirZ = new Vector3(st * cp, st * sp, ct);
@@ -643,14 +694,14 @@ public sealed class ParticleRenderer : IDisposable
             var localPos = Swap(Rot90Z(posZ));
             var localDir = Swap(Rot90Z(dirZ));
 
-            float mspeed = e.EmissionSpeed * (1f + e.SpeedVariation * pool.Symmetric()) * pool.Scale;
+            float mspeed = pool.Scalars[0] * (1f + pool.Scalars[1] * pool.Symmetric()) * pool.Scale;
 
             return new Particle
             {
                 Position = localPos,           // LOCAL (relative to pivot), re-projected at draw
                 Velocity = localDir * mspeed,  // negative speed => inward; no time-reversal needed
                 Age = 0f,
-                Life = e.Lifespan,
+                Life = pool.Scalars[5],
                 Phase = pool.NextPhase(),
             };
         }
@@ -684,17 +735,17 @@ public sealed class ParticleRenderer : IDisposable
         if (e.Shape == ParticleShape.Sphere)
         {
             // areaLength/areaWidth are min/max radius for a sphere emitter.
-            float r = e.EmissionAreaLength
-                    + pool.Rand() * MathF.Max(0f, e.EmissionAreaWidth - e.EmissionAreaLength);
-            float lat = pool.Symmetric() * e.VerticalRange;
-            float lon = pool.Symmetric() * e.HorizontalRange;
+            float r = pool.Scalars[7]
+                    + pool.Rand() * MathF.Max(0f, pool.Scalars[8] - pool.Scalars[7]);
+            float lat = pool.Symmetric() * pool.Scalars[2];
+            float lon = pool.Symmetric() * pool.Scalars[3];
             float clat = MathF.Cos(lat), slat = MathF.Sin(lat);
             float clon = MathF.Cos(lon), slon = MathF.Sin(lon);
             var shell = new Vector3(clat * clon, clat * slon, slat);
             wposZ = r * shell;
-            if (e.ZSource != 0f)
+            if (pool.Scalars[9] != 0f)
             {
-                wdirZ = wposZ - new Vector3(0f, 0f, e.ZSource);
+                wdirZ = wposZ - new Vector3(0f, 0f, pool.Scalars[9]);
                 wdirZ = wdirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(wdirZ) : Vector3.UnitZ;
             }
             else if ((e.Flags & 0x100) != 0) wdirZ = Vector3.UnitZ;   // sphere_up
@@ -705,18 +756,18 @@ public sealed class ParticleRenderer : IDisposable
             // Plane (spline falls back to plane): born across the area rectangle,
             // direction a symmetric spherical cone about +Z.
             wposZ = new Vector3(
-                e.EmissionAreaLength * 0.5f * pool.Symmetric(),
-                e.EmissionAreaWidth * 0.5f * pool.Symmetric(),
+                pool.Scalars[7] * 0.5f * pool.Symmetric(),
+                pool.Scalars[8] * 0.5f * pool.Symmetric(),
                 0f);
-            if (e.ZSource != 0f)
+            if (pool.Scalars[9] != 0f)
             {
-                wdirZ = wposZ - new Vector3(0f, 0f, e.ZSource);
+                wdirZ = wposZ - new Vector3(0f, 0f, pool.Scalars[9]);
                 wdirZ = wdirZ.LengthSquared() > 1e-12f ? Vector3.Normalize(wdirZ) : Vector3.UnitZ;
             }
             else
             {
-                float theta = pool.Symmetric() * e.VerticalRange;
-                float phi = pool.Symmetric() * e.HorizontalRange;
+                float theta = pool.Symmetric() * pool.Scalars[2];
+                float phi = pool.Symmetric() * pool.Scalars[3];
                 float st = MathF.Sin(theta), ct = MathF.Cos(theta);
                 float sp = MathF.Sin(phi), cp = MathF.Cos(phi);
                 wdirZ = new Vector3(st * cp, st * sp, ct);
@@ -732,7 +783,7 @@ public sealed class ParticleRenderer : IDisposable
         // carries the bone). A static brazier bone is Identity, so local +Z stays
         // world up and the cone rises straight from the brazier; an animated emitter
         // bone rides its live pose. No SpinRateScale here - that was the portal sweep.
-        var boneRot = e.SampleBoneRotation(_time);
+        var boneRot = pool.BoneRotationOverride ?? e.SampleBoneRotation(pool.AnimationTime);
         wlocalPos = Vector3.Transform(wlocalPos, boneRot);
         wlocalDir = Vector3.Transform(wlocalDir, boneRot);
 
@@ -745,7 +796,7 @@ public sealed class ParticleRenderer : IDisposable
         var dirWorld = Vector3.TransformNormal(wlocalDir, rotation);
         dirWorld = dirWorld.LengthSquared() > 1e-12f ? Vector3.Normalize(dirWorld) : Vector3.UnitY;
 
-        float speed = e.EmissionSpeed * (1f + e.SpeedVariation * pool.Symmetric()) * pool.Scale;
+        float speed = pool.Scalars[0] * (1f + pool.Scalars[1] * pool.Symmetric()) * pool.Scale;
 
         var velocity = dirWorld * speed;
         var position = origin + offsetWorld;
@@ -753,9 +804,9 @@ public sealed class ParticleRenderer : IDisposable
         // TIME REVERSAL. Start where the particle would have ENDED and travel back -
         // converging (negative-speed) emitters only, so a waterfall spirals inward
         // while fire, fountaining outward at positive speed, is untouched.
-        if (ReverseConverging && e.EmissionSpeed < 0f)
+        if (ReverseConverging && pool.Scalars[0] < 0f)
         {
-            position += velocity * e.Lifespan;
+            position += velocity * pool.Scalars[5];
             velocity = -velocity;
         }
 
@@ -764,7 +815,7 @@ public sealed class ParticleRenderer : IDisposable
             Position = position,
             Velocity = velocity,
             Age = 0f,
-            Life = e.Lifespan,
+            Life = pool.Scalars[5],
             Phase = pool.NextPhase(),
         };
     }
@@ -903,7 +954,7 @@ public sealed class ParticleRenderer : IDisposable
         // particle rides the spin as the disc turns (benilla quads.rs:151-155).
         if (pool.ModelSpace)
         {
-            var boneRot = e.SampleBoneRotation(_time * ModelSpinScale);
+            var boneRot = pool.BoneRotationOverride ?? e.SampleBoneRotation(pool.AnimationTime * ModelSpinScale);
             var rot = pool.Transform;
             rot.M41 = rot.M42 = rot.M43 = 0f;   // rotation+scale only; the pivot is pool.Origin
 
@@ -913,7 +964,7 @@ public sealed class ParticleRenderer : IDisposable
                 e.SampleRamp(t, out var rgba, out float scale);
                 if (ParticleHueShift != 0f || ParticleSaturation != 1f || ParticleValue != 1f)
                     rgba = AdjustColor(rgba, ParticleHueShift, ParticleSaturation, ParticleValue);
-                if (PortalCentreHole > 0f)
+                if (PortalCentreHole > 0f && !pool.Spell)
                 {
                     float rc = p.Position.Length() * PortalScale;
                     if (rc < PortalCentreHole) rgba.W *= rc / PortalCentreHole;
@@ -932,7 +983,13 @@ public sealed class ParticleRenderer : IDisposable
                 _scratch.Add(new GpuParticle
                 {
                     Centre = centre,
-                    Size = scale * pool.Scale * PortalScale * SpriteSizeScale * SpriteSizeScaleAll,
+                    // benilla sizes a particle by its authored half-extent alone (quads.rs:156;
+                    // instance scale only under emitter flag 0x200). PortalScale/SpriteSizeScale
+                    // are portal-disc tuning (SpriteSizeScale=1.77 oversized the converging
+                    // glow ~1.8x — the "too big circumference"); they must not touch spell pools.
+                    Size = pool.Spell
+                        ? scale * pool.Scale
+                        : scale * pool.Scale * PortalScale * SpriteSizeScale * SpriteSizeScaleAll,
                     Colour = rgba,
                     CellRect = e.SampleHeadCellRect(t),   // (0,0,1,1) for the 1x1 swirls: unchanged
                 });
@@ -946,7 +1003,7 @@ public sealed class ParticleRenderer : IDisposable
             float t = p.Life > 0f ? p.Age / p.Life : 1f;
 
             // Flip which end of the life owns the density. See ReverseRamp.
-            if (ReverseRamp && e.EmissionSpeed < 0f) t = 1f - t;
+            if (ReverseRamp && pool.Scalars[0] < 0f) t = 1f - t;
 
             e.SampleRamp(t, out var rgba, out float scale);
 

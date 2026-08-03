@@ -21,9 +21,8 @@ namespace MSUIClient;
 ///
 ///   GameMenuFrame  195 x 226, buttons 144 x 21, first button 37 below the top,
 ///                  1px gaps, and a 16px gap before Continue.
-///   OptionsFrame   450 x 575 in vanilla. Ours is larger because this client
-///                  exposes several times as many controls - that is the one
-///                  deliberate departure, and the content scrolls.
+///   OptionsFrame   450 x 575. Renderer-specific controls scroll inside that
+///                  contract instead of changing the player's frame geometry.
 ///
 /// THIS IS THE FIRST THING ON THE NON-DEVTOOLS SIDE OF THE SEAM
 ///   FOUNDATION_PLAN section 12 says developer tooling ships off. DrawSettingsModal
@@ -45,7 +44,7 @@ public sealed partial class GameLoop
     private const string MenuPopupId = "##msui-game-menu";
 
     /// <summary>Which frame the menu is showing. 0 is the Game Menu itself.</summary>
-    private enum MenuPage { GameMenu = 0, Video, Controls, Streaming }
+    private enum MenuPage { GameMenu = 0, Video, Controls }
 
     /// <summary>
     /// Handed over by Program.Main, which loads it BEFORE the window exists
@@ -138,9 +137,43 @@ public sealed partial class GameLoop
         {
             // 1.12 Escape order: stop casting first, then close open panels (the loot
             // window), and only then open the game menu.
-            if (!TryCancelSpellOnEscape() && !TryCloseLootOnEscape()) _escapePressed = true;
+            if (!TryCancelSpellOnEscape() && !TryCloseLootOnEscape() && !TryClosePlayerPanelOnEscape())
+                _escapePressed = true;
         }
         _escapeKeyDown = escape;
+    }
+
+    private bool TryClosePlayerPanelOnEscape()
+    {
+        if (_bindingCapture is not null) { _bindingCapture = null; return true; }
+        if (_keybindingsOpen)
+        {
+            if (_bindingSnapshot is not null)
+            { _bindings.Clear(); foreach (var pair in _bindingSnapshot) _bindings[pair.Key] = pair.Value; }
+            _bindingSnapshot = null; _keybindingsOpen = false; return true;
+        }
+        if (_tradeOpen) { _net?.CancelTrade(); ResetTrade(); return true; }
+        if (_auctionOpen) { ResetAuction(); return true; }
+        if (_mailOpen) { ResetMail(); return true; }
+        if (_gossipMenu is not null || _gossipText is not null) { ResetGossip(); return true; }
+        if (_vendor is not null) { _vendor = null; return true; }
+        if (_trainer is not null) { _trainer = null; return true; }
+        if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
+        if (_worldMapOpen) { _worldMapOpen = false; return true; }
+        if (_macroOpen) { _macroOpen = false; return true; }
+        if (_helpOpen) { _helpOpen = false; return true; }
+        if (_socialOpen) { _socialOpen = false; return true; }
+        if (_guildOpen) { _guildOpen = false; return true; }
+        if (_professionOpen) { _professionOpen = false; return true; }
+        if (_bankOpen) { _bankOpen = false; return true; }
+        if (_tabardOpen) { _tabardOpen = false; return true; }
+        if (_taxiOpen && !_taxiLocked) { _taxiOpen = false; return true; }
+        if (_talentOpen) { _talentOpen = false; return true; }
+        if (_questLogOpen) { _questLogOpen = false; return true; }
+        if (_spellbookOpen) { _spellbookOpen = false; return true; }
+        if (_characterOpen) { _characterOpen = false; return true; }
+        if (_backpackOpen) { _backpackOpen = false; return true; }
+        return false;
     }
 
     private void OpenSettings()
@@ -266,7 +299,6 @@ public sealed partial class GameLoop
                 case MenuPage.GameMenu: DrawGameMenu(size); break;
                 case MenuPage.Video: DrawVideoOptions(size); break;
                 case MenuPage.Controls: DrawControlsPage(size); break;
-                case MenuPage.Streaming: DrawStreamingPage(size); break;
             }
             MarkUiParityFrameComplete();
 
@@ -324,16 +356,14 @@ public sealed partial class GameLoop
     private string PageTitle() => _menuPage switch
     {
         MenuPage.Video => "Video Options",
-        MenuPage.Controls => "Camera and Controls",
-        MenuPage.Streaming => "Streaming",
+        MenuPage.Controls => "Interface Options",
         _ => "Main Menu",
     };
 
     /// <summary>
     /// GameMenuFrame is 195x226 in vanilla with seven buttons. Ours is derived
     /// from the same constants so it stays right when a button is added.
-    /// OptionsFrame is 450x575; ours is bigger because this client has several
-    /// times as many controls, and it scrolls.
+    /// OptionsFrame is 450x575 and content scrolls inside it.
     /// </summary>
     private Vector2 PageSize(Vector2 display)
     {
@@ -343,13 +373,10 @@ public sealed partial class GameLoop
             return new Vector2(195f, 246f) * S;
         }
 
-        // Vanilla's OptionsFrame is 450 wide. Ours is 540 because this client
-        // exposes several times as many controls, but it is sized in UI PIXELS,
-        // not as a fraction of the screen. Run 2 used 52% of the display, which
-        // on a wide panel produced a 2000-pixel frame full of 1500-pixel sliders
-        // - proportions that exist in no version of WoW.
-        float w = MathF.Min(540f * S, display.X * 0.94f);
-        float ht = MathF.Min(620f * S, display.Y * 0.90f);
+        // FrameXML's OptionsFrame is the contract. Extra renderer controls scroll
+        // inside the vanilla body; they do not change the player's frame geometry.
+        float w = MathF.Min(450f * S, display.X * 0.94f);
+        float ht = MathF.Min(575f * S, display.Y * 0.90f);
         return new Vector2(w, ht);
     }
 
@@ -380,9 +407,9 @@ public sealed partial class GameLoop
         Row("GameMenuButtonUIOptions", "Interface Options", 70.5f, "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
             true, () => Go(MenuPage.Controls));
         Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
-            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();_keybindingsOpen=true; });
+            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();OpenKeybindings(); });
         Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
-            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();_macroOpen=true; });
+            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();OpenMacros(); });
         Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
             false, () => { }, "Character logout is not built yet.");
 
@@ -1252,9 +1279,6 @@ public sealed partial class GameLoop
                 break;
             case MenuPage.Controls:
                 s.Controls = d.Controls;
-                break;
-            case MenuPage.Streaming:
-                s.Streaming = d.Streaming;
                 break;
         }
 

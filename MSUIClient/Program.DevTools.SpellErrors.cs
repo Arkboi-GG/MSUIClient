@@ -25,6 +25,7 @@ public sealed partial class GameLoop
             ? PowerName((byte)spell.PowerType) : "POWER";
         string text = SpellCastResultNames.Text(reason, power);
         ShowSpellError(spellId, name, text, "SMSG_CAST_RESULT");
+        ObserveProfessionSpellFailure(spellId, name);
         ApplySpellFailure(_net?.PlayerGuid ?? 0, spellId,
             reason is 0x23 or 0x24 ? "INTERRUPTED" : text.Length > 0 ? text : "FAILED");
     }

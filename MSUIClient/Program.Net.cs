@@ -41,6 +41,9 @@ public sealed partial class GameLoop
     private SelectionRingRenderer? _selectionRing;
     private SpellEffectSource? _spellEffects;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
+    private SpellRibbonRenderer? _spellRibbons;
+    private World.Spells.SpellParticleSystem? _spellParticles;
+    private World.Spells.SpellSoundSystem? _spellSounds;
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
     private long _netInbound;
@@ -117,6 +120,7 @@ public sealed partial class GameLoop
         if (_mpq is not null)
         {
             _spellEffects = new SpellEffectSource(_mpq);
+            _spellSounds = new World.Spells.SpellSoundSystem(_mpq);
             try
             {
                 _spellEffectMeshes = new SpellEffectMeshRenderer(gl, _mpq);
@@ -124,10 +128,19 @@ public sealed partial class GameLoop
                 if (!File.Exists(Path.Combine(fxShaderDir, "attached.vert")))
                     fxShaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
                 _spellEffectMeshes.LoadShaders(fxShaderDir);
+                _spellRibbons = new SpellRibbonRenderer(gl, _mpq);
+                _spellRibbons.LoadShaders();
+                string spellShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
+                if (!File.Exists(Path.Combine(spellShaderDir, "spell_particle.vert")))
+                    spellShaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
+                _spellParticles = new World.Spells.SpellParticleSystem(gl, _config);
+                _spellParticles.LoadShaders(spellShaderDir);
             }
             catch (Exception ex)
             {
                 _spellEffectMeshes?.Dispose(); _spellEffectMeshes = null;
+                _spellRibbons?.Dispose(); _spellRibbons = null;
+                _spellParticles?.Dispose(); _spellParticles = null;
                 Console.WriteLine($"[spell-fx] mesh renderer unavailable: {ex.Message}");
             }
         }
@@ -146,7 +159,14 @@ public sealed partial class GameLoop
 
         try
         {
-            _net = new NetworkClient(_config.ToNetSettings(), CaptureWirePacket,
+            NetSettings netSettings = _config.ToNetSettings();
+            if (!string.IsNullOrWhiteSpace(_liveRunOptions?.Character))
+            {
+                netSettings = netSettings with { CharacterName = _liveRunOptions.Character };
+                Console.WriteLine($"[live-run] selecting requested character {_liveRunOptions.Character}");
+            }
+
+            _net = new NetworkClient(netSettings, CaptureWirePacket,
                 _config.DevTools ? ObserveSocketWrite : null);
             _net.CombatSendObserved = ObserveCombatSend;
             if (_config.Server.AutoConnect &&
@@ -241,8 +261,26 @@ public sealed partial class GameLoop
             }
             else
             {
+                // SMSG_NEW_WORLD changes the authoritative map, not just the coordinates.
+                // Keep the renderer/ADT map in the same transaction; otherwise a server
+                // teleport to Deadmines leaves Azeroth loaded at instance coordinates and
+                // the live runner can never observe the instance's streamed objects.
+                if (_config.Start.Map != (int)enter.Map)
+                {
+                    EnsureInstanceData();
+                    MapRow? destinationMap = _maps?.Get((int)enter.Map);
+                    if (destinationMap is not null && _adts is not null)
+                    {
+                        TearDownWorldContent();
+                        _adts.SetMap(destinationMap.Directory);
+                        _residentCentre = null;
+                        _config.Start.MapName = destinationMap.Directory;
+                    }
+                    else Console.WriteLine($"[net] map {enter.Map} has no Map.dbc/WDT identity");
+                }
                 Console.WriteLine($"[net] moved to map {enter.Map} at " +
                                   $"({enter.Position.X:F0}, {enter.Position.Y:F0}, {enter.Position.Z:F0})");
+                _worldEntryTransitionStage = 3;
             }
         }
 
@@ -293,6 +331,46 @@ public sealed partial class GameLoop
                 {
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
+                        break;
+                    case Op.SMSG_PET_SPELLS:
+                        ApplyPetSpells(body);
+                        break;
+                    case Op.SMSG_INSPECT:
+                        ApplyInspect(body);
+                        break;
+                    case Op.SMSG_FRIEND_LIST:
+                        ApplyFriendList(body);
+                        break;
+                    case Op.SMSG_FRIEND_STATUS:
+                        ApplyFriendStatus(body);
+                        break;
+                    case Op.SMSG_IGNORE_LIST:
+                        ApplyIgnoreList(body);
+                        break;
+                    case Op.SMSG_WHO:
+                        ApplyWhoList(body);
+                        break;
+                    case Op.SMSG_TRADE_STATUS:
+                        ApplyTradeStatus(body);
+                        break;
+                    case Op.SMSG_TRADE_STATUS_EXTENDED:
+                        ApplyTradeExtended(body);
+                        break;
+                    case Op.SMSG_GMTICKET_CREATE:
+                    case Op.SMSG_GMTICKET_UPDATETEXT:
+                    case Op.SMSG_GMTICKET_DELETETICKET:
+                    case Op.SMSG_GMTICKET_SYSTEMSTATUS:
+                    case Op.SMSG_GMTICKET_GETTICKET:
+                        ApplyHelpTicketPacket((Op)opcode, body);
+                        break;
+                    case Op.SMSG_INITIALIZE_FACTIONS:
+                        ApplyInitialFactions(body);
+                        break;
+                    case Op.SMSG_SET_FACTION_VISIBLE:
+                        ApplyFactionVisible(body);
+                        break;
+                    case Op.SMSG_SET_FACTION_STANDING:
+                        ApplyFactionStanding(body);
                         break;
                     case Op.MSG_MOVE_TELEPORT_ACK:
                         {
@@ -498,6 +576,9 @@ public sealed partial class GameLoop
                     case Op.SMSG_QUESTGIVER_STATUS:
                         ApplyQuestStatus(body);
                         break;
+                    case Op.SMSG_QUEST_QUERY_RESPONSE:
+                        ApplyQuestQuery(body);
+                        break;
                     case Op.SMSG_QUESTGIVER_QUEST_LIST:
                         ApplyQuestList(body);
                         break;
@@ -556,48 +637,48 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_SPELL_START:
-                        ApplySpellStart(SpellPacketParser.ParseStart(body));
+                        EnqueueSpellPresentation(new SpellStartEvent(SpellPacketParser.ParseStart(body)));
                         break;
                     case Op.SMSG_SPELL_GO:
-                        ApplySpellGo(SpellPacketParser.ParseGo(body));
+                        EnqueueSpellPresentation(new SpellGoEvent(SpellPacketParser.ParseGo(body)));
                         break;
                     case Op.SMSG_CAST_RESULT:
                         {
                             var result = SpellPacketParser.ParseResult(body);
                             if (result.Status == 2)
-                                ApplySpellCastFailureResult(result.SpellId, result.Reason);
+                                EnqueueSpellPresentation(new SpellCastResultEvent(result.SpellId, result.Reason));
                         }
                         break;
                     case Op.SMSG_SPELL_FAILED_OTHER:
                         {
                             var r = new PacketReader(body);
                             ulong caster = r.ReadU64(); uint spell = r.ReadU32();
-                            if (caster == _net.PlayerGuid) EmitSpellServerResult(spell, "SMSG_SPELL_FAILED_OTHER");
-                            ApplySpellFailure(caster, spell, "INTERRUPTED");
+                            EnqueueSpellPresentation(new SpellFailedOtherEvent(caster, spell));
                         }
                         break;
                     case Op.SMSG_SPELL_DELAYED:
                         {
-                            var r = new PacketReader(body); r.ReadU64(); DelayCastBar(r.ReadU32());
+                            var r = new PacketReader(body);
+                            EnqueueSpellPresentation(new SpellDelayedEvent(r.ReadU64(), r.ReadU32()));
                         }
                         break;
                     case Op.MSG_CHANNEL_START:
                         {
                             var r = new PacketReader(body); uint spell = r.ReadU32(); uint duration = r.ReadU32();
-                            EmitSpellServerResult(spell, "MSG_CHANNEL_START");
-                            BeginChannel(spell, duration);
+                            EnqueueSpellPresentation(new SpellChannelStartEvent(spell, duration));
                         }
                         break;
                     case Op.MSG_CHANNEL_UPDATE:
-                        UpdateChannel(new PacketReader(body).ReadU32());
+                        EnqueueSpellPresentation(new SpellChannelUpdateEvent(new PacketReader(body).ReadU32()));
                         break;
                     case Op.SMSG_PLAY_SPELL_VISUAL:
                         {
-                            var r = new PacketReader(body); ApplyPushedVisual(r.ReadU64(), r.ReadU32());
+                            var r = new PacketReader(body);
+                            EnqueueSpellPresentation(new SpellKitPushEvent(r.ReadU64(), r.ReadU32()));
                         }
                         break;
                     case Op.SMSG_CANCEL_AUTO_REPEAT:
-                        ApplyAutoRepeatCancelled();
+                        EnqueueSpellPresentation(new SpellAutoRepeatCancelledEvent());
                         break;
                     case Op.SMSG_LOOT_RESPONSE:
                         ApplyLootResponse(body);
@@ -633,6 +714,9 @@ public sealed partial class GameLoop
                         ObserveChannelCombat(combatEvent);
                         ApplyCombatAnimation(combatEvent);
                         break;
+                    case Op.SMSG_GAMEOBJECT_QUERY_RESPONSE:
+                        ApplyGameObjectQuery(body);
+                        break;
                     case Op.SMSG_LEVELUP_INFO:
                         ApplyLevelUpInfo(body);
                         break;
@@ -664,6 +748,10 @@ public sealed partial class GameLoop
 
     FinishNetPump:
         _netUpdatesLastFrame = updates;
+
+        // Spell packet parsing is intentionally side-effect free.  Apply its ordered edge stream
+        // only after the current object-update slice, before any animation/spline simulation.
+        DrainSpellPresentationEvents();
 
         // Advance every in-progress creature spline so NPCs actually move between packets.
         _entities.TickSplines(MovementInfo.ClientUptimeMs());
@@ -701,7 +789,11 @@ public sealed partial class GameLoop
                 _creatureLifecycle.NoteReason(
                     guid, CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
         _entities.Apply(u);
+        if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
+            u.Type == ObjectTypeId.GameObject && _entities.TryGet(u.Guid, out WorldEntity streamedGo))
+            RequireGameObjectTemplate(streamedGo);
         if (u.Guid == _net?.PlayerGuid) { ObserveQuestLog(); ObserveRestXp(); ObserveDeathRez(); }
+        ObserveProfessionProductTransition();
         if (u.Type == ObjectTypeId.Corpse || (u.Guid != 0 && _entities.TryGet(u.Guid, out WorldEntity corpse) && corpse.Type == ObjectTypeId.Corpse)) ObserveCorpseStore();
         ObserveAuraObjectUpdate(u.Guid, aurasBefore);
         if ((u.Kind is UpdateKind.CreateObject or UpdateKind.CreateObject2) &&
@@ -932,7 +1024,7 @@ public sealed partial class GameLoop
         if (st == NetState.InWorld)
         {
             DrawCombatHud();
-            if (!_uiParityArmed) DrawInWorldPanel();
+            if (_config.DevTools && !_uiParityArmed && !PlayerPanelOpen) DrawInWorldPanel();
             return;
         }
 

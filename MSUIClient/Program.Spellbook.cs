@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 
 namespace MSUIClient;
 
@@ -17,7 +18,7 @@ public sealed partial class GameLoop
 
     private void UpdateSpellbookInput(bool typing)
     {
-        bool down = _window.IsDown(Key.P);
+        bool down = BindingDown(GameBinding.OpenSpellbook);
         if (down && !_spellbookKeyWasDown && !typing && _net is { IsInWorld: true })
         {
             _spellbookOpen = !_spellbookOpen;
@@ -30,7 +31,7 @@ public sealed partial class GameLoop
     {
         if (!_spellbookOpen || _gameplayArt is null || _spellCatalog is null) return;
         float s = GameplayUiScale();
-        Vector2 p = new(0, 8f * s);
+        Vector2 p = new(0, 104f * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(416, 512) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
@@ -48,7 +49,9 @@ public sealed partial class GameLoop
 
         var known = _actions.KnownSpells
             .Select(id => _spellCatalog.TryGet(id, out SpellInfo spell) ? (Id: id, Spell: spell) : default)
-            .Where(x => x.Id != 0 && !x.Spell.Passive)
+            .Where(x => x.Id != 0 && !x.Spell.Passive && !x.Spell.HiddenClientSide &&
+                !IsProfessionRecipeSpell(x.Id, x.Spell) && !IsClientStatusAura(x.Id) &&
+                ((_skillLines?.SpellLine(x.Id) ?? 0) != 0 || x.Id == 6603))
             .ToList();
         var tabs = known.GroupBy(x => _skillLines?.SpellLine(x.Id) ?? 0)
             .Select(g => (Id: g.Key, Name: g.Key != 0 && _skillLines?.TryGet(g.Key, out SkillLineInfo line) == true
@@ -74,7 +77,7 @@ public sealed partial class GameLoop
         for (int i = 0; i < tabs.Count; i++)
             DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, tabs[i].Id, tabs[i].Name, tabs[i].Icon);
 
-        DrawCenteredText(dl, p + new Vector2(178, 416) * s, $"Page {_spellbookPage + 1}", 12f * s, 0xffffd100);
+        DrawCenteredText(dl, p + new Vector2(178, 416) * s, $"Page {_spellbookPage + 1}", 12f * s, VanillaGold);
         DrawPageButton(dl, p + new Vector2(34, 391) * s, true, s, _spellbookPage > 0);
         DrawPageButton(dl, p + new Vector2(298, 391) * s, false, s, _spellbookPage + 1 < pages);
 
@@ -91,7 +94,9 @@ public sealed partial class GameLoop
             _draggingSpellId = _pressedSpellId;
         if (_draggingSpellId != 0 && _spellCatalog.TryGet(_draggingSpellId, out SpellInfo dragged))
         {
-            uint icon = _gameplayArt.Handle(dragged.IconPath);
+            WorldEntity? player = _net is not null && _entities.TryGet(_net.PlayerGuid,
+                out WorldEntity owner) ? owner : null;
+            uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(dragged, player));
             if (icon != 0)
             {
                 Vector2 min = ImGui.GetIO().MousePos + new Vector2(10) * s;
@@ -101,6 +106,16 @@ public sealed partial class GameLoop
         }
         if (ImGui.IsMouseReleased(ImGuiMouseButton.Left)) _pressedSpellId = 0;
     }
+
+    private bool IsProfessionRecipeSpell(uint id, in SpellInfo spell)
+    {
+        if (_skillLines?.TryGetRecipe(id, out _) != true) return false;
+        return spell.EffectIds?.Any(effect => effect is 24 or 53) == true;
+    }
+
+    // These server-applied state auras can be present in an administrative test
+    // character's learned set, but the 1.12 client never offers them as actions.
+    private static bool IsClientStatusAura(uint id) => id is 2479 or 15007 or 26013;
 
     private void DrawSpellbookArt(ImDrawListPtr dl, Vector2 p, float s)
     {
@@ -128,7 +143,9 @@ public sealed partial class GameLoop
         Vector2 max = min + new Vector2(37) * s;
         uint bg = _gameplayArt!.Handle(@"Interface\Spellbook\UI-Spellbook-SpellBackground");
         if (bg != 0) dl.AddImage((nint)bg, min - new Vector2(3, -3) * s, min + new Vector2(61, 61) * s);
-        uint icon = _gameplayArt.Handle(spell.IconPath);
+        WorldEntity? player = _net is not null && _entities.TryGet(_net.PlayerGuid,
+            out WorldEntity owner) ? owner : null;
+        uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(spell, player));
         if (icon != 0) dl.AddImage((nint)icon, min, max);
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
         if (ring != 0)
@@ -136,7 +153,7 @@ public sealed partial class GameLoop
             Vector2 center = (min + max) * .5f, half = new(32f * s);
             dl.AddImage((nint)ring, center - half, center + half);
         }
-        dl.AddText(ImGui.GetFont(), 11f * s, min + new Vector2(45, 4) * s, 0xffffd100, spell.Name);
+        dl.AddText(ImGui.GetFont(), 11f * s, min + new Vector2(45, 4) * s, VanillaGold, spell.Name);
         if (!string.IsNullOrWhiteSpace(spell.Rank))
             dl.AddText(ImGui.GetFont(), 9f * s, min + new Vector2(45, 20) * s, 0xffaaaaaa, spell.Rank);
         ImGui.SetCursorScreenPos(min);

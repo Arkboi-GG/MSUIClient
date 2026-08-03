@@ -260,6 +260,10 @@ public sealed class NetworkClient : IDisposable
     }
 
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
+    public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
+    public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>
+        InWorld(s => s.PetAction(petGuid, packedAction, targetGuid));
+    public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
     public Action<Op, ulong>? CombatSendObserved { get; set; }
     public void AttackSwing(ulong guid)
     {
@@ -282,6 +286,12 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.CastSpell(spellId, targetGuid); return true; } catch { return false; }
     }
+    public bool CastSpellOnGameObject(uint spellId, ulong gameObjectGuid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.CastSpellOnGameObject(spellId, gameObjectGuid); return true; }
+        catch { return false; }
+    }
     public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
     public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
     public bool CancelAura(uint spellId)
@@ -292,6 +302,7 @@ public sealed class NetworkClient : IDisposable
     public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }
     public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }
+    public void GameObjectQuery(uint entry, ulong guid) { try { _session?.GameObjectQuery(entry, guid); } catch { } }
     public void ItemQuery(uint entry, ulong guid) { try { _session?.ItemQuery(entry, guid); } catch { } }
     public bool GossipHello(ulong guid)
     {
@@ -336,8 +347,10 @@ public sealed class NetworkClient : IDisposable
     public bool MailReturn(ulong guid, uint id) => InWorld(s => s.MailReturn(guid, id));
     public bool MailDelete(ulong guid, uint id) => InWorld(s => s.MailDelete(guid, id));
     public bool AuctionHello(ulong guid) => InWorld(s => s.AuctionHello(guid));
-    public bool AuctionBrowse(ulong guid, uint page, string search) => InWorld(s => s.AuctionBrowse(guid, page, search));
+    public bool AuctionBrowse(ulong guid, uint page, string search, uint itemClass = uint.MaxValue) =>
+        InWorld(s => s.AuctionBrowse(guid, page, search, itemClass));
     public bool AuctionOwnerList(ulong guid, uint page) => InWorld(s => s.AuctionOwnerList(guid, page));
+    public bool AuctionBidderList(ulong guid, uint page) => InWorld(s => s.AuctionBidderList(guid, page));
     public bool AuctionBid(ulong guid, uint id, uint price) => InWorld(s => s.AuctionBid(guid, id, price));
     public bool AuctionCancel(ulong guid, uint id) => InWorld(s => s.AuctionCancel(guid, id));
     public bool AuctionSell(ulong guid, ulong item, uint bid, uint buyout, uint duration) => InWorld(s => s.AuctionSell(guid, item, bid, buyout, duration));
@@ -352,6 +365,7 @@ public sealed class NetworkClient : IDisposable
         => InWorld(s => s.SaveGuildEmblem(vendorGuid, emblemStyle, emblemColor,
             borderStyle, borderColor, backgroundColor));
     public bool QuestgiverStatus(ulong guid) => InWorld(s => s.QuestgiverStatus(guid));
+    public bool QuestQuery(uint questId) => InWorld(s => s.QuestQuery(questId));
     public bool QuestgiverHello(ulong guid) => InWorld(s => s.QuestgiverHello(guid));
     public bool QuestgiverQuery(ulong guid, uint questId) => InWorld(s => s.QuestgiverQuery(guid, questId));
     public bool QuestgiverAccept(ulong guid, uint questId) => InWorld(s => s.QuestgiverAccept(guid, questId));
@@ -380,6 +394,27 @@ public sealed class NetworkClient : IDisposable
     public bool SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
         InWorld(s => s.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot));
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
+    public bool FriendList() => InWorld(s => s.FriendList());
+    public bool AddFriend(string name) => InWorld(s => s.AddFriend(name));
+    public bool DeleteFriend(ulong guid) => InWorld(s => s.DeleteFriend(guid));
+    public bool Who(string name) => InWorld(s => s.Who(name));
+    public bool AddIgnore(string name) => InWorld(s => s.AddIgnore(name));
+    public bool DeleteIgnore(ulong guid) => InWorld(s => s.DeleteIgnore(guid));
+    public bool GroupInvite(string name) => InWorld(s => s.GroupInvite(name));
+    public bool InitiateTrade(ulong guid) => InWorld(s => s.InitiateTrade(guid));
+    public bool BeginTrade() => InWorld(s => s.BeginTrade());
+    public bool AcceptTrade() => InWorld(s => s.AcceptTrade());
+    public bool UnacceptTrade() => InWorld(s => s.UnacceptTrade());
+    public bool CancelTrade() => InWorld(s => s.CancelTrade());
+    public bool SetTradeItem(byte tradeSlot, byte bag, byte slot) => InWorld(s => s.SetTradeItem(tradeSlot, bag, slot));
+    public bool ClearTradeItem(byte tradeSlot) => InWorld(s => s.ClearTradeItem(tradeSlot));
+    public bool SetTradeGold(uint gold) => InWorld(s => s.SetTradeGold(gold));
+    public bool GmTicketCreate(byte type, uint map, Vector3 position, string message) =>
+        InWorld(s => s.GmTicketCreate(type, map, position, message));
+    public bool GmTicketUpdate(byte type, string message) => InWorld(s => s.GmTicketUpdate(type, message));
+    public bool GmTicketGet() => InWorld(s => s.GmTicketGet());
+    public bool GmTicketDelete() => InWorld(s => s.GmTicketDelete());
+    public bool GmTicketSystemStatus() => InWorld(s => s.GmTicketSystemStatus());
     public bool Loot(ulong guid) => InWorld(s => s.Loot(guid));
     public bool LootMoney() => InWorld(s => s.LootMoney());
     public bool LootRelease(ulong guid) => InWorld(s => s.LootRelease(guid));

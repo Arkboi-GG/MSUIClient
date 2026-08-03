@@ -111,6 +111,7 @@ public sealed partial class CreatureRenderer : IDisposable
     private int _diagLogged;
 
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
+    private readonly Dictionary<ulong, SpellUnitPose> _spellPoses = [];
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
 
     private readonly Dictionary<ulong, float> _animTime = new();
@@ -327,6 +328,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
         _seen.Clear();
+        _spellPoses.Clear();
 
         _orderedUnits.Clear();
         foreach (WorldEntity entity in entities.Units)
@@ -400,10 +402,11 @@ public sealed partial class CreatureRenderer : IDisposable
             // squares native sub-1 scales and makes wolves/critters tiny.
             float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
-            Matrix4x4 m = Matrix4x4.CreateScale(scale)
+            Matrix4x4 worldModel = Matrix4x4.CreateScale(scale)
                 * Matrix4x4.CreateRotationY(heading)
                 * Basis
                 * Matrix4x4.CreateTranslation(e.Position);
+            Matrix4x4 m = worldModel;
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
             _shader.Set("uHighlight", e.Guid == HoveredGuid || e.Guid == SelectedGuid ? 64f / 255f : 0f);
@@ -463,6 +466,14 @@ public sealed partial class CreatureRenderer : IDisposable
             }
             _shader.Set("uBoneCount", boneCount);
 
+            Matrix4x4[] poseSkin = new Matrix4x4[model.Source.Bones.Count];
+            IReadOnlyList<Matrix4x4> sourceSkin = boneCount > 0 ? _skin : _bindSkin;
+            for (int poseIndex = 0; poseIndex < poseSkin.Length; poseIndex++)
+                poseSkin[poseIndex] = poseIndex < sourceSkin.Count
+                    ? sourceSkin[poseIndex] : Matrix4x4.Identity;
+            _spellPoses[e.Guid] = new SpellUnitPose(true, e.Position, e.Orientation,
+                worldModel, model.Source, poseSkin);
+
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
             for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
@@ -495,6 +506,9 @@ public sealed partial class CreatureRenderer : IDisposable
 
         PruneAnimState();
     }
+
+    public bool TryGetSpellPose(ulong guid, out SpellUnitPose pose)
+        => _spellPoses.TryGetValue(guid, out pose);
 
     private int CompareUnitDistance(WorldEntity left, WorldEntity right) =>
         Vector3.DistanceSquared(left.Position, _sortCameraPosition)

@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Units;
 
 namespace MSUIClient;
 
@@ -16,8 +17,9 @@ public sealed partial class GameLoop
     private double _castBarDisplayUntil;
     private double _castBarFinishedAt;
 
-    private readonly List<(double At, ulong Target, uint Spell)> _pendingSpellImpacts = [];
     private bool _castMovementWasActive;
+    private readonly HashSet<(ulong Unit, uint Spell)> _activeAuraStateFx = [];
+    private readonly Dictionary<ulong, uint> _activeObservedChannels = [];
 
     private void ApplySpellStart(SpellStartPacket packet)
     {
@@ -25,10 +27,14 @@ public sealed partial class GameLoop
         if (_net is not null && packet.Caster == _net.PlayerGuid)
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
-        SpellVisualKitInfo? kit = ResolveSpellKit(info?.VisualId ?? 0, static s => s.Precast);
+        uint visual = EffectiveSpellVisual(info, packet.Caster);
+        SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Precast);
         ushort? anim = kit?.AnimationId;
+        _spellSounds?.StopHold(packet.Caster);
+        PlaySpellSound(packet.Caster, kit?.Sound);
         if (kit is { } precastKit)
-            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, precastKit, persistent: true, NowSeconds(), "PRECAST");
+            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, precastKit,
+                StageLife.Persistent, NowSeconds(), "PRECAST");
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
             _character?.BeginSpellVisual(anim);
@@ -46,11 +52,15 @@ public sealed partial class GameLoop
         MarkAnimationSequenceStage(packet.SpellId, "CAST");
         double now = NowSeconds();
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
-        SpellVisualKitInfo? kit = ResolveSpellKit(info?.VisualId ?? 0, static s => s.Cast);
+        uint visual = EffectiveSpellVisual(info, packet.Caster);
+        SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Cast);
         ushort? anim = kit?.AnimationId;
-        _spellEffects?.Reap(packet.Caster, packet.SpellId);
+        _spellEffects?.Reap(packet.Caster, packet.SpellId, StageLife.Persistent);
+        _spellSounds?.StopHold(packet.Caster);
+        PlaySpellSound(packet.Caster, kit?.Sound);
         if (kit is { } castKit)
-            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit, persistent: false, NowSeconds(), "CAST");
+            _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit,
+                StageLife.SelfTerminating, NowSeconds(), "CAST");
         if (_net is not null && packet.Caster == _net.PlayerGuid)
         {
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_GO");
@@ -65,8 +75,8 @@ public sealed partial class GameLoop
             ObserveHearthSpellGo(packet.SpellId);
             if (info is { } completed)
             {
-                uint cooldown = Math.Max(completed.RecoveryMs, completed.CategoryRecoveryMs);
-                if (cooldown > 0) _actions.StartCooldown(packet.SpellId, 0, cooldown, now);
+                _actions.StartCooldown(packet.SpellId, completed.Category,
+                    completed.RecoveryMs, completed.CategoryRecoveryMs, now);
             }
         }
         else _creatures?.ReleaseSpellVisual(packet.Caster, anim);
@@ -77,29 +87,57 @@ public sealed partial class GameLoop
             $"misses={packet.Misses.Length};missInfo={string.Join('|', packet.Misses.Select(miss => $"0x{miss.Guid:X16}:{miss.Reason}"))};explicitUnit=" +
             (packet.Targets.Unit is { } explicitUnit ? $"0x{explicitUnit:X16}" : "none"));
 
-        foreach (ulong target in packet.Hits)
+        SpellVisualStages visualStages = default;
+        bool hasStages = _spellVisualCatalog?.TryGetStages(visual, out visualStages) == true;
+        string? missilePath = hasStages ? _spellVisualCatalog!.MissilePath(visualStages) : null;
+        if (hasStages && visualStages.MissileEffect != 0 && missilePath is null)
+            missilePath = SpellVisualCatalog.ErrorCube;
+        bool ammoFallback = missilePath is null;
+        missilePath ??= _spellEffects?.AmmoModelPath(packet.AmmoDisplayId);
+        string? ammoTexture = ammoFallback ? _spellEffects?.AmmoTexturePath(packet.AmmoDisplayId) : null;
+
+        foreach ((ulong target, bool missed, byte reason) in
+            packet.Hits.Select(g => (g, false, (byte)0))
+                .Concat(packet.Misses.Select(m => (m.Guid, true, m.Reason))))
         {
-            double travel = 0;
-            if (info is { Speed: > 0 } && TryUnitPosition(packet.Caster, out Vector3 from) &&
-                TryUnitPosition(target, out Vector3 to))
-                travel = Vector3.Distance(from, to) / info.Value.Speed;
-            if (travel > .01 && info is { } missileInfo && _spellVisualCatalog is not null &&
-                _spellVisualCatalog.TryGetStages(missileInfo.VisualId, out SpellVisualStages stages) &&
-                _spellVisualCatalog.MissilePath(stages) is { } missilePath &&
-                TryUnitPosition(packet.Caster, out Vector3 missileFrom) && TryUnitPosition(target, out Vector3 missileTo))
-                _spellEffects?.SpawnMissile(packet.Caster, packet.SpellId, missilePath,
-                    missileFrom + new Vector3(0, 0, 1.2f), missileTo + new Vector3(0, 0, 1.1f), now, travel);
-            if (travel <= 0.01) ApplySpellImpact(target, packet.SpellId);
-            else _pendingSpellImpacts.Add((now + travel, target, packet.SpellId));
+            if (info is not { Speed: > 0 } || _spellEffects is null)
+            {
+                OnSpellMissileArrived(target, packet.SpellId, visual, missed, reason);
+                continue;
+            }
+            long missileVoice = 0;
+            _spellEffects.SpawnMissile(packet.Caster, packet.SpellId, missilePath, target,
+                hasStages ? visualStages.MissileAttachment : (ushort)0x22,
+                info.Value.Speed, now, missed, reason, anim, SpellEffectUnitPose,
+                (arrivedTarget, arrivedSpell, wasMissed, missReason) =>
+                    OnSpellMissileArrived(arrivedTarget, arrivedSpell, visual, wasMissed, missReason),
+                ammoTexture,
+                launched: () => missileVoice = PlaySpellSound(packet.Caster,
+                    hasStages ? visualStages.MissileSound : 0, forceLoop: true,
+                    trackHold: false),
+                ended: () => _spellSounds?.Stop(missileVoice));
         }
     }
 
-    private void ApplySpellImpact(ulong target, uint spellId)
+    private void OnSpellMissileArrived(ulong target, uint spellId, uint visual,
+        bool missed, byte reason)
     {
-        uint visual = _spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0;
-        SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Impact);
-        if (kit is { } impactKit)
-            _spellEffects?.SpawnKit(target, spellId, impactKit, persistent: false, NowSeconds(), "IMPACT");
+        if (!missed) { ApplySpellImpact(target, spellId, visual); return; }
+        if (reason is not (3 or 5)) return; // Benilla: Dodge and Block only.
+        if (_net is not null && target == _net.PlayerGuid)
+            _character?.TriggerCombatReaction(reason, landedHit: false);
+        else _creatures?.TriggerCombatReaction(target, reason, landedHit: false);
+    }
+
+    private void ApplySpellImpact(ulong target, uint spellId, uint visualOverride = 0)
+    {
+        uint visual = visualOverride != 0 ? visualOverride :
+            (_spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0);
+        SpellVisualKitInfo? impact = ResolveSpellKit(visual, static s => s.Impact);
+        if (impact is { } impactKit)
+            _spellEffects?.SpawnKit(target, spellId, impactKit,
+                StageLife.SelfTerminating, NowSeconds(), "IMPACT");
+        PlaySpellSound(target, impact?.Sound);
 
         // Reference law (benilla creature_anim/driver/wound.rs:14-15 + net/apply/combat_log.rs):
         // a spell impact animates its victim ONLY through the kit's own authored animation id,
@@ -107,17 +145,28 @@ public sealed partial class GameLoop
         // routes through the wound reaction. A kit with no animation plays NOTHING - the old
         // "no anim => synthesize a wound" fallback here is what made the server's login visual
         // (LOGINEFFECT, spell 836) flinch the local player the moment the world became visible.
-        if (kit?.AnimationId is not { } anim || anim == 0) return;
-        bool wound = anim is 8 or 9 or 10;
-        if (_net is not null && target == _net.PlayerGuid)
+        void PlayBodyAnimation(ushort? animation)
         {
-            if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
-            else _character?.TriggerOneShot(anim);
+            if (animation is not { } anim || anim == 0) return;
+            bool wound = anim is 8 or 9 or 10;
+            if (_net is not null && target == _net.PlayerGuid)
+            {
+                if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
+                else _character?.TriggerOneShot(anim);
+            }
+            else if (wound)
+                _creatures?.TriggerCombatReaction(target, 0, landedHit: true);
+            else
+                _creatures?.ReleaseSpellVisual(target, anim);
         }
-        else if (wound)
-            _creatures?.TriggerCombatReaction(target, 0, landedHit: true);
-        else
-            _creatures?.ReleaseSpellVisual(target, anim);
+
+        // Benilla's impact hand-off is ordered stage 1 then stage 2. State
+        // effect models are owned separately by the aura-slot watcher below,
+        // but its authored body animation is still a discrete arrival event.
+        PlayBodyAnimation(impact?.AnimationId);
+        SpellVisualKitInfo? state = ResolveSpellKit(visual, static s => s.State);
+        PlayBodyAnimation(state?.AnimationId);
+        if (_net is not null && target == _net.PlayerGuid) PlaySpellSound(target, state?.Sound);
     }
 
     private SpellVisualKitInfo? ResolveSpellKit(uint visualId,
@@ -146,7 +195,8 @@ public sealed partial class GameLoop
             FailCastBar(spellId, text);
         }
         else _creatures?.CancelSpellVisual(caster);
-        _spellEffects?.Reap(caster, spellId);
+        _spellSounds?.StopHold(caster);
+        _spellEffects?.Reap(caster, spellId, StageLife.Persistent);
     }
 
     /// <summary>
@@ -164,6 +214,7 @@ public sealed partial class GameLoop
             _autoRepeatSpell = 0;
             SetVisualSheath(0);
             _character?.CancelSpellVisual();
+            if (_net is not null) _spellSounds?.StopHold(_net.PlayerGuid);
             return true;
         }
         uint spell = _pendingCastSpell;
@@ -213,16 +264,26 @@ public sealed partial class GameLoop
     private void UpdateSpellPresentation()
     {
         double now = NowSeconds();
-        _spellEffects?.Tick(now);
-        for (int i = _pendingSpellImpacts.Count - 1; i >= 0; i--)
+        _spellEffects?.Tick(now, SpellEffectUnitPose);
+        UpdateAuraStateVisuals(now);
+        UpdateObservedChannels(now);
+        _spellSounds?.Tick(_controller?.Position ?? Vector3.Zero, guid =>
         {
-            if (_pendingSpellImpacts[i].At > now) continue;
-            var impact = _pendingSpellImpacts[i];
-            _pendingSpellImpacts.RemoveAt(i);
-            ApplySpellImpact(impact.Target, impact.Spell);
-        }
+            SpellUnitPose pose = SpellEffectUnitPose(guid);
+            return (pose.Found, pose.Position);
+        });
         if (_castBarPhase is CastBarPhase.Success or CastBarPhase.Failed && now >= _castBarDisplayUntil)
             _castBarPhase = CastBarPhase.Hidden;
+    }
+
+    private long PlaySpellSound(ulong unit, uint? soundId, bool forceLoop = false,
+        bool trackHold = true)
+    {
+        if (_spellSounds is null || soundId is not uint id || id == 0) return 0;
+        SpellUnitPose pose = SpellEffectUnitPose(unit);
+        Vector3 source = pose.Found ? pose.Position : _controller?.Position ?? Vector3.Zero;
+        Vector3 listener = _controller?.Position ?? source;
+        return _spellSounds.Play(id, unit, source, listener, forceLoop, trackHold);
     }
 
     private void BeginCastBar(uint spell, uint durationMs, bool channel)
@@ -281,7 +342,11 @@ public sealed partial class GameLoop
                 EmitChannelVerdict("STOP", source: "MSG_CHANNEL_UPDATE");
             }
             _character?.CancelSpellVisual();
-            if (_net is not null) _spellEffects?.Reap(_net.PlayerGuid, _castBarSpell);
+            if (_net is not null)
+            {
+                _spellSounds?.StopHold(_net.PlayerGuid);
+                _spellEffects?.Reap(_net.PlayerGuid, _castBarSpell, StageLife.Persistent);
+            }
             return;
         }
         _castBarEnds = NowSeconds() + remainingMs / 1000.0;
@@ -294,7 +359,13 @@ public sealed partial class GameLoop
         BeginCastBar(spellId, durationMs, channel: true);
         EmitChannelVerdict("START", durationMs, durationMs, source: "MSG_CHANNEL_START");
         uint visual = _spellCatalog?.TryGet(spellId, out SpellInfo info) == true ? info.VisualId : 0;
-        ushort? animation = ResolveSpellKit(visual, static s => s.Channel)?.AnimationId;
+        SpellVisualKitInfo? channelResolved = ResolveSpellKit(visual, static s => s.Channel);
+        ushort? animation = channelResolved?.AnimationId;
+        if (_net is not null)
+        {
+            _spellSounds?.StopHold(_net.PlayerGuid);
+            PlaySpellSound(_net.PlayerGuid, channelResolved?.Sound);
+        }
         _character?.BeginSpellVisual(animation);
         if (_spellCatalog?.TryGet(spellId, out SpellInfo channelInfo) == true &&
             _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
@@ -307,6 +378,7 @@ public sealed partial class GameLoop
     {
         if (_spellVisualCatalog?.TryGetKit(kitId, out SpellVisualKitInfo kit) != true) return;
         _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds(), "PUSHED");
+        PlaySpellSound(unit, kit.Sound);
         if (_net is not null && unit == _net.PlayerGuid)
             _character?.ReleaseSpellVisual(kit.AnimationId);
         else
@@ -399,13 +471,117 @@ public sealed partial class GameLoop
         position = default; return false;
     }
 
-    private (bool Found, Vector3 Position, float Yaw) SpellEffectUnitPose(ulong guid)
+    private SpellUnitPose SpellEffectUnitPose(ulong guid)
     {
         if (_net is not null && guid == _net.PlayerGuid && _controller is not null)
-            return (true, _controller.Position, _controller.Yaw);
+            return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
+        if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
+            return pose;
         if (_entities.TryGet(guid, out WorldEntity unit))
-            return (true, unit.Position, unit.Orientation);
-        return default;
+            return new SpellUnitPose(true, unit.Position, unit.Orientation,
+                Matrix4x4.CreateTranslation(unit.Position), null, null);
+        return SpellUnitPose.Missing;
+    }
+
+    private float? SpellGroundHeight(float x, float y, float authoredZ)
+    {
+        float? terrain = _terrain?.SampleHeight(x, y);
+        float? collision = _collision?.Raycast(new Vector3(x, y, authoredZ + 3f),
+            -Vector3.UnitZ, 6f)?.Point.Z;
+        if (collision is float solid && MathF.Abs(solid - authoredZ) <= 3f) return solid;
+        return terrain;
+    }
+
+    private float? SpellParticleGroundHeight(float x, float y, float authoredZ)
+    {
+        float? solid = _collision?.Raycast(new Vector3(x, y, authoredZ + .01f),
+            -Vector3.UnitZ, 20.01f)?.Point.Z;
+        float? terrain = _terrain?.SampleHeight(x, y);
+        float? best = null;
+        if (solid is float s && authoredZ - s is >= 0f and <= 20f) best = s;
+        if (terrain is float t && authoredZ - t is >= 0f and <= 20f &&
+            (best is null || t > best.Value)) best = t;
+        return best;
+    }
+
+    private void UpdateAuraStateVisuals(double now)
+    {
+        if (_spellEffects is null || _spellVisualCatalog is null) return;
+        var seen = new HashSet<(ulong Unit, uint Spell)>();
+        foreach (WorldEntity unit in _entities.Entities.Values.Where(e => e.IsUnit))
+        {
+            foreach (uint spell in unit.Fields.Auras().Select(a => a.SpellId).Distinct())
+            {
+                var key = (unit.Guid, spell);
+                seen.Add(key);
+                if (_activeAuraStateFx.Contains(key)) continue;
+                uint visual = _spellCatalog?.TryGet(spell, out SpellInfo info) == true
+                    ? EffectiveSpellVisual(info, unit.Guid) : 0;
+                int spawned = 0;
+                if (_spellVisualCatalog.TryGetStageKit(visual, SpellStage.State,
+                        out SpellVisualKitInfo stateKit, out StageLife life))
+                    spawned = _spellEffects.SpawnKit(unit.Guid, spell, stateKit, life, now, "STATE");
+                // A failed resolve/load is not an active state. Leaving the key absent makes the
+                // descriptor watcher retry instead of suppressing the aura for its whole lifetime.
+                if (spawned > 0) _activeAuraStateFx.Add(key);
+            }
+        }
+        foreach (var stale in _activeAuraStateFx.Where(k => !seen.Contains(k)).ToArray())
+        {
+            _spellEffects.Reap(stale.Unit, stale.Spell, StageLife.AuraState);
+            _activeAuraStateFx.Remove(stale);
+        }
+    }
+
+    private void UpdateObservedChannels(double now)
+    {
+        if (_spellEffects is null) return;
+        var seen = new HashSet<ulong>();
+        foreach (WorldEntity unit in _entities.Entities.Values.Where(e => e.IsUnit))
+        {
+            if (_net is not null && unit.Guid == _net.PlayerGuid) continue;
+            uint spell = unit.Fields.ChannelSpell;
+            if (spell == 0) continue;
+            seen.Add(unit.Guid);
+            if (_activeObservedChannels.GetValueOrDefault(unit.Guid) == spell) continue;
+            if (_activeObservedChannels.Remove(unit.Guid, out uint old))
+            {
+                _spellEffects.Reap(unit.Guid, old, StageLife.Persistent);
+                _spellSounds?.StopHold(unit.Guid);
+            }
+            SpellInfo? info = _spellCatalog?.TryGet(spell, out SpellInfo found) == true ? found : null;
+            uint visual = EffectiveSpellVisual(info, unit.Guid);
+            SpellVisualKitInfo? channel = ResolveSpellKit(visual, static s => s.Channel);
+            if (channel is { } kit)
+            {
+                _spellEffects.SpawnKit(unit.Guid, spell, kit, StageLife.Persistent, now, "CHANNEL");
+                _creatures?.BeginSpellVisual(unit.Guid, kit.AnimationId);
+                PlaySpellSound(unit.Guid, kit.Sound);
+            }
+            _activeObservedChannels[unit.Guid] = spell;
+        }
+        foreach (var stale in _activeObservedChannels.Keys.Where(g => !seen.Contains(g)).ToArray())
+        {
+            uint spell = _activeObservedChannels[stale];
+            _spellEffects.Reap(stale, spell, StageLife.Persistent);
+            _spellSounds?.StopHold(stale);
+            _creatures?.CancelSpellVisual(stale);
+            _activeObservedChannels.Remove(stale);
+        }
+    }
+
+    private uint EffectiveSpellVisual(SpellInfo? info, ulong caster)
+    {
+        if (info is null) return 0;
+        if (_spellVisualCatalog?.TryGetStages(info.Value.VisualId, out _) == true ||
+            !info.Value.Ranged) return info.Value.VisualId;
+        uint display = 0;
+        if (_net is not null && caster == _net.PlayerGuid && _character is not null)
+            display = _character.Equipment.Pieces.LastOrDefault(p =>
+                p.EquipmentSlot == 17 || p.InventoryType is 15 or 25 or 26)?.DisplayId ?? 0;
+        else if (_entities.TryGet(caster, out WorldEntity unit))
+            display = unit.Fields.VirtualItemDisplay(2);
+        return _spellEffects?.ItemSpellVisual(display) ?? 0;
     }
 
     private static double NowSeconds() => MovementInfo.ClientUptimeMs() / 1000.0;

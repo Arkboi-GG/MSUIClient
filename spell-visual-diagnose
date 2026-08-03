@@ -1,0 +1,76 @@
+{
+  "ClientDataPath": "GameData\\Data",
+  "RealmdHost": "192.168.0.2",
+  "RealmdPort": 3724,
+  "DevTools": true,
+  "Window": {
+    "Width": 1600,
+    "Height": 900,
+    "VSync": true,
+    "Title": "MSUI Client",
+    "UiScale": 1.8
+  },
+  "Start": {
+    "Map": 0,
+    "MapName": "Azeroth",
+    "X": -8949.95,
+    "Y": -132.493,
+    "Z": 83.5312,
+    "Orientation": 0,
+    "TileRadius": 1,
+    "WmoPreloadRadius": 2,
+    "DrainPreloadsAtStartup": false
+  },
+  "Render": {
+    "FieldOfView": 70,
+    "NearPlane": 0.1,
+    "FarPlane": 2000,
+    "MsaaSamples": 1,
+    "Anisotropy": 8,
+    "Doodads": true,
+    "DoodadDistance": 300,
+    "WmoDistance": 777,
+    "DoodadCollisionBasis": 2,
+    "Painterly": false,
+    "Glow": false,
+    "GlowGain": 0.5,
+    "ParticleDensity": 0.89,
+    "LoadingScreenArt": true
+  },
+  "Camera": {
+    "MouseSensitivity": 0.004,
+    "InvertPitch": false,
+    "Collision": true,
+    "Clearance": 0.35,
+    "RestoreSpeed": 8
+  },
+  "Movement": {
+    "Collision": true,
+    "CollisionSource": "client",
+    "IncludeM2": true,
+    "RunSpeed": 7,
+    "WalkSpeed": 2.5,
+    "BackwardSpeed": 4.5,
+    "Radius": 0.4,
+    "Height": 2.1,
+    "StepHeight": 0.7,
+    "GroundSnapDistance": 0.5,
+    "FallAnimationDelayMs": 180,
+    "MaxSlopeDegrees": 50,
+    "Gravity": 19.291105,
+    "JumpVelocity": 7.9558,
+    "TerminalVelocity": 60.148,
+    "FlySpeed": 30,
+    "FlyBoost": 5,
+    "StartFlying": false
+  },
+  "Server": {
+    "Enabled": false,
+    "AutoConnect": true,
+    "Account": "",
+    "Password": "",
+    "WorldPortFallback": 8085,
+    "WorldUsesRealmdHost": true,
+    "TimeoutMs": 10000
+  }
+}

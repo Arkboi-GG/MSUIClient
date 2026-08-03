@@ -11,9 +11,11 @@ public readonly record struct SpellInfo(
     uint RangeIndex, uint School = 0, uint CastingTimeIndex = 0, int CastTimeMs = 0,
     uint DurationIndex = 0, int DurationMs = 0, uint[]? EffectIds = null,
     uint[]? AuraIds = null, uint[]? ImplicitTargetsA = null, uint[]? ImplicitTargetsB = null,
-    int[]? EffectMiscValues = null, uint[]? EffectItemTypes = null)
+    int[]? EffectMiscValues = null, uint[]? EffectItemTypes = null,
+    uint RequiredFocus = 0, uint Category = 0)
 {
     public bool Passive => (Attributes & 0x40) != 0;
+    public bool HiddenClientSide => (Attributes & 0x80) != 0;
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
     public bool AutoRepeat => (AttributesEx2 & 0x20) != 0;
     public bool OnNextSwing => (Attributes & 0x404) != 0;
@@ -38,13 +40,20 @@ public sealed class SpellCatalog
     private readonly Dictionary<uint, int> _durations = new();
     private readonly Dictionary<uint, SpellReagent[]> _reagents = new();
     private readonly Dictionary<uint, uint> _createdItems = new();
+    private readonly Dictionary<uint, uint[]> _tools = new();
 
     public int Count => _spells.Count;
+    public IEnumerable<SpellInfo> Spells => _spells.Values;
     public bool TryGet(uint id, out SpellInfo spell) => _spells.TryGetValue(id, out spell);
+    public SpellInfo? FindKnownByName(string name, IReadOnlySet<uint> known) => _spells.Values
+        .Where(x => known.Contains(x.Id) && x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(x => x.Id).Cast<SpellInfo?>().FirstOrDefault();
     public bool TryGetRange(uint rangeIndex, out SpellRangeRow range) => _ranges.TryGetValue(rangeIndex, out range);
     public IReadOnlyList<SpellReagent> Reagents(uint spellId) =>
         _reagents.TryGetValue(spellId, out SpellReagent[]? reagents) ? reagents : [];
     public uint CreatedItem(uint spellId) => _createdItems.GetValueOrDefault(spellId);
+    public IReadOnlyList<uint> Tools(uint spellId) =>
+        _tools.TryGetValue(spellId, out uint[]? tools) ? tools : [];
 
     public static SpellCatalog? Load(MpqMount mpq)
     {
@@ -111,7 +120,11 @@ public sealed class SpellCatalog
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 82 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 85 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 106 + i)).ToArray(),
-                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 103 + i)).ToArray());
+                Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 103 + i)).ToArray(),
+                spells.GetUInt(row, 15), spells.GetUInt(row, 2));
+            uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
+                .Where(x => x != 0).ToArray();
+            if (tools.Length > 0) result._tools[id] = tools;
             var reagents = new List<SpellReagent>(8);
             for (int i = 0; i < 8; i++)
             {

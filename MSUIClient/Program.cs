@@ -66,6 +66,173 @@ public static partial class Program
             return 1;
         }
 
+        // Offline diagnostic: parse one or more M2 models straight from the MPQs
+        // and print their particle-emitter records (blend/texture/tiles/color ramp).
+        // No window, no server. Usage: --dump-emitters "Spells\Foo.mdx" [more...]
+        if (args.Contains("--dump-emitters", StringComparer.OrdinalIgnoreCase))
+        {
+            using var mount = new Formats.MpqMount(config.ClientDataPath);
+            foreach (string modelPath in args.Where(a =>
+                a.EndsWith(".m2", StringComparison.OrdinalIgnoreCase) ||
+                a.EndsWith(".mdx", StringComparison.OrdinalIgnoreCase) ||
+                a.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)))
+            {
+                byte[]? bytes = mount.ReadFile(modelPath)
+                    ?? mount.ReadFile(Path.ChangeExtension(modelPath, ".mdx"))
+                    ?? mount.ReadFile(Path.ChangeExtension(modelPath, ".m2"));
+                Console.WriteLine($"===== {modelPath} ({(bytes is null ? "NOT FOUND" : bytes.Length + " bytes")}) =====");
+                if (bytes is null) continue;
+                Formats.M2Model? model = Formats.M2Reader.Parse(bytes);
+                if (model is null) { Console.WriteLine("  parse returned null"); continue; }
+                Console.WriteLine($"  textures={model.Textures.Count} emitters={model.ParticleEmitters.Count} ribbons={model.RibbonEmitters.Count}");
+                Console.WriteLine($"  attachments[{model.Attachments.Count}]: {string.Join(" ", model.Attachments.Select(a => $"0x{a.Id:X}(bone{a.BoneIndex})"))}");
+                // Parent chain for the hand-attach bones (spell-hand tags 0x15/0x16/0x11 and real hands 0x1/0x2).
+                foreach (ushort tag in new ushort[] { 0x1, 0x2, 0x11, 0x15, 0x16 })
+                {
+                    Formats.M2Attachment? at = model.Attachments.FirstOrDefault(a => a.Id == tag);
+                    if (at is null) continue;
+                    int b = (int)at.BoneIndex; var chain = new List<int>();
+                    for (int g = 0; b >= 0 && b < model.Bones.Count && g < 20; g++) { chain.Add(b); b = model.Bones[b].ParentBone; }
+                    Console.WriteLine($"  attach 0x{tag:X}: bone{at.BoneIndex} parentChain={string.Join("<-", chain)}");
+                }
+                for (int i = 0; i < model.ParticleEmitters.Count; i++)
+                {
+                    Formats.M2ParticleEmitter e = model.ParticleEmitters[i];
+                    string tex = e.Texture < model.Textures.Count ? model.Textures[e.Texture].Filename : "<oob>";
+                    string Rgba(uint v) => $"({(v >> 16) & 0xFF},{(v >> 8) & 0xFF},{v & 0xFF},a{(v >> 24) & 0xFF})";
+                    Console.WriteLine($"  emitter[{i}] blend={e.BlendingType} shape={e.Shape} flags=0x{e.Flags:X} " +
+                        $"texIdx={e.Texture} tex='{(tex.Length == 0 ? "<empty/replaceable>" : tex)}' " +
+                        $"tiles={e.TextureRows}x{e.TextureCols} rate={e.EmissionRate:R} life={e.Lifespan:R}");
+                    Console.WriteLine($"    colorKeys RGB {Rgba(e.ColorKeys[0])} {Rgba(e.ColorKeys[1])} {Rgba(e.ColorKeys[2])} scale {e.ScaleKeys[0]:R}/{e.ScaleKeys[1]:R}/{e.ScaleKeys[2]:R}");
+                    Console.WriteLine($"    physics: emitSpeed={e.EmissionSpeed:R} speedVar={e.SpeedVariation:R} vRange={e.VerticalRange:R} hRange={e.HorizontalRange:R} gravity={e.Gravity:R} areaLen={e.EmissionAreaLength:R} areaWid={e.EmissionAreaWidth:R} bone={e.Bone} pos=({e.PosX:R},{e.PosY:R},{e.PosZ:R})");
+                }
+                // Decode each unique emitter texture and report real pixel stats -
+                // the one thing the emitter record cannot show. Green/garbage here
+                // (while the color ramp is orange) localizes the bug to BLP decode.
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in model.ParticleEmitters)
+                {
+                    string tp = e.Texture < model.Textures.Count ? model.Textures[e.Texture].Filename : "";
+                    if (tp.Length == 0 || !seen.Add(tp)) continue;
+                    byte[]? tb = mount.ReadFile(tp);
+                    if (tb is null) { Console.WriteLine($"    TEX '{tp}' NOT FOUND"); continue; }
+                    try
+                    {
+                        byte[] px = Formats.BlpDecoder.GetPixels(tb, 0, out int tw, out int th);
+                        long sb = 0, sg = 0, sr = 0, sa = 0; int n = tw * th;
+                        for (int q = 0; q < n; q++) { sb += px[q * 4]; sg += px[q * 4 + 1]; sr += px[q * 4 + 2]; sa += px[q * 4 + 3]; }
+                        int ci = (th / 2 * tw + tw / 2) * 4;
+                        Console.WriteLine($"    TEX '{tp}' {tw}x{th} enc={tb[8]} avgBGRA=({sb / n},{sg / n},{sr / n},{sa / n}) centerBGRA=({px[ci]},{px[ci + 1]},{px[ci + 2]},{px[ci + 3]})");
+                    }
+                    catch (Exception tex) { Console.WriteLine($"    TEX '{tp}' DECODE FAILED: {tex.Message}"); }
+                }
+                // Mesh / geoset structure — the half the emitter dump ignored. Zero-emitter
+                // effect models (AoE rings, buff glows, ArcaneIntellect) are pure MESH and live
+                // entirely here; this is where a missing ground ring or floating glow is diagnosed.
+                Console.WriteLine($"  MESH bones={model.Bones.Count} seqs={model.Sequences.Count} " +
+                    $"submeshes={model.Submeshes.Count} batches={model.Batches.Count} verts={model.Vertices.Count} " +
+                    $"idx={model.Indices.Count} renderFlags={model.RenderFlags.Count} colors={model.Colors.Count} " +
+                    $"transp={model.TransparencyTracks.Count}");
+                for (int s = 0; s < model.Sequences.Count; s++)
+                {
+                    Formats.M2Sequence sq = model.Sequences[s];
+                    Console.WriteLine($"    seq[{s}] anim={sq.AnimationId} var={sq.VariationId} " +
+                        $"start={sq.StartTimestamp} end={sq.EndTimestamp} dur={sq.DurationMs}ms loop={sq.IsLooping}");
+                }
+                {
+                    int animScale = 0, animTrans = 0, animRot = 0, globalSeqBones = 0;
+                    foreach (Formats.M2Bone bn in model.Bones)
+                    {
+                        if (bn.Scale.Keys.Count > 1) animScale++;
+                        if (bn.Translation.Keys.Count > 1) animTrans++;
+                        if (bn.Rotation.Keys.Count > 1) animRot++;
+                        if (bn.Scale.GlobalSequence >= 0 || bn.Translation.GlobalSequence >= 0 ||
+                            bn.Rotation.GlobalSequence >= 0) globalSeqBones++;
+                    }
+                    Console.WriteLine($"    bones animated: scale={animScale} translation={animTrans} " +
+                        $"rotation={animRot} globalSeq={globalSeqBones}   billboardBones=" +
+                        model.Bones.Count(b => (b.Flags & 0x78) != 0));
+                }
+                for (int b = 0; b < model.Batches.Count; b++)
+                {
+                    Formats.M2Batch ba = model.Batches[b];
+                    Formats.M2Submesh? sub = ba.SubmeshIndex < model.Submeshes.Count
+                        ? model.Submeshes[ba.SubmeshIndex] : null;
+                    Formats.M2RenderFlag? rf = ba.MaterialIndex < model.RenderFlags.Count
+                        ? model.RenderFlags[ba.MaterialIndex] : null;
+                    string tex = "?";
+                    if (ba.TextureIndex < model.TextureLookup.Count)
+                    {
+                        int ti = model.TextureLookup[ba.TextureIndex];
+                        tex = ti >= 0 && ti < model.Textures.Count
+                            ? (model.Textures[ti].Filename.Length == 0 ? "<replaceable>" : model.Textures[ti].Filename)
+                            : "<oob>";
+                    }
+                    // Local-space bbox + z=0-flatness of the submesh: a flat quad at z=0 is a ground
+                    // decal candidate; a vertical/tall bbox is normal ring/burst geometry.
+                    float mnx = 1e9f, mny = 1e9f, mnz = 1e9f, mxx = -1e9f, mxy = -1e9f, mxz = -1e9f;
+                    var uniq = new HashSet<ushort>();
+                    if (sub is not null)
+                        for (int q = sub.IndexStart; q < sub.IndexStart + sub.IndexCount && q < model.Indices.Count; q++)
+                        {
+                            ushort vi = model.Indices[q]; uniq.Add(vi);
+                            if (vi >= model.Vertices.Count) continue;
+                            Formats.M2Vertex v = model.Vertices[vi];
+                            mnx = MathF.Min(mnx, v.PosX); mny = MathF.Min(mny, v.PosY); mnz = MathF.Min(mnz, v.PosZ);
+                            mxx = MathF.Max(mxx, v.PosX); mxy = MathF.Max(mxy, v.PosY); mxz = MathF.Max(mxz, v.PosZ);
+                        }
+                    // Reader converts WoW Z-up -> Y-up, so the ground plane is PosY≈0.
+                    bool flatGround = sub is not null && MathF.Abs(mny) < 0.05f && MathF.Abs(mxy) < 0.05f;
+                    Console.WriteLine($"    batch[{b}] sub={ba.SubmeshIndex} subId={sub?.Id} verts={uniq.Count} " +
+                        $"idx={sub?.IndexCount} blend={rf?.BlendingMode} unlit={rf?.Unlit} 2side={rf?.TwoSided} " +
+                        $"noZW={rf?.NoZWrite} colorIdx={ba.ColorIndex} texWt={ba.TextureWeightIndex} tex='{tex}' " +
+                        $"bbox=({mnx:F2},{mny:F2},{mnz:F2})..({mxx:F2},{mxy:F2},{mxz:F2})" +
+                        (flatGround ? "  [FLAT-GROUND]" : ""));
+                }
+                // Animation probe: skin the model through M2Animator exactly like
+                // SpellEffectMeshRenderer does, and report the whole-model world size over the
+                // sequence. An AoE ring authored at ~0.1yd that must GROW via bone scale shows up
+                // here as an expanding extent; a flat/collapsed extent means the scale isn't applied.
+                if (model.Sequences.Count > 0 && model.Bones.Count > 0)
+                {
+                    var animator = World.Units.M2Animator.Build(model,
+                        model.Sequences.Select(s => (int)s.AnimationId), includeStaticSequences: true);
+                    if (animator is { BoneCount: > 0 } anim)
+                    {
+                        var clip = anim.Find(model.Sequences[0].AnimationId) ?? anim.Clips.Values.FirstOrDefault();
+                        var skin = new System.Numerics.Matrix4x4[anim.BoneCount];
+                        float dur = model.Sequences[0].DurationMs / 1000f;
+                        Console.WriteLine($"    ANIM probe clip='{clip?.Name}' dur={dur:F3}s boneCount={anim.BoneCount}");
+                        foreach (float frac in new[] { 0f, 0.25f, 0.5f, 0.9f })
+                        {
+                            float ageS = dur * frac;
+                            anim.Evaluate(clip, ageS, ageS, skin);
+                            float wmnx = 1e9f, wmny = 1e9f, wmnz = 1e9f, wmxx = -1e9f, wmxy = -1e9f, wmxz = -1e9f;
+                            float smin = 1e9f, smax = -1e9f;
+                            for (int bi = 0; bi < anim.BoneCount && bi < model.Bones.Count; bi++)
+                            {
+                                var m = skin[bi];
+                                float sc = new System.Numerics.Vector3(m.M11, m.M12, m.M13).Length();
+                                smin = MathF.Min(smin, sc); smax = MathF.Max(smax, sc);
+                            }
+                            foreach (var vtx in model.Vertices)
+                            {
+                                int bone = vtx.BoneIndex0 < anim.BoneCount ? vtx.BoneIndex0 : 0;
+                                var wp = System.Numerics.Vector3.Transform(
+                                    new System.Numerics.Vector3(vtx.PosX, vtx.PosY, vtx.PosZ), skin[bone]);
+                                wmnx = MathF.Min(wmnx, wp.X); wmny = MathF.Min(wmny, wp.Y); wmnz = MathF.Min(wmnz, wp.Z);
+                                wmxx = MathF.Max(wmxx, wp.X); wmxy = MathF.Max(wmxy, wp.Y); wmxz = MathF.Max(wmxz, wp.Z);
+                            }
+                            Console.WriteLine($"      t={ageS:F3}s ({frac:P0})  boneScale[{smin:F3}..{smax:F3}]  " +
+                                $"worldBBox=({wmnx:F2},{wmny:F2},{wmnz:F2})..({wmxx:F2},{wmxy:F2},{wmxz:F2})  " +
+                                $"span=({wmxx - wmnx:F2},{wmxy - wmny:F2},{wmxz - wmnz:F2})");
+                        }
+                    }
+                }
+            }
+            return 0;
+        }
+
         Console.WriteLine($"[start] map {config.Start.Map} ({config.Start.MapName}) " +
                           $"at ({config.Start.X:F1}, {config.Start.Y:F1}, {config.Start.Z:F1})");
         if (liveRun?.Character is { Length: > 0 }) config.Server.Character = liveRun.Character;
@@ -1182,6 +1349,10 @@ public sealed partial class GameLoop : IDisposable
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
         _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
         _character?.PumpAppearanceUpdate();
+        // Live protocols must own their wall-clock before world entry as well as
+        // in game. Keeping this below the world-ready guard made a bad realm or
+        // character selection hang forever instead of producing a diagnostic.
+        AdvanceLiveRun(dt);
 
         // LOGIN_VERIFY_WORLD only schedules this ownership transfer. Bootstrap
         // and avatar adoption each get their own curtain frame, outside the
@@ -1300,6 +1471,9 @@ public sealed partial class GameLoop : IDisposable
         UpdateInventoryInput(typing);
         UpdateCharacterPageInput(typing);
         UpdateSpellbookInput(typing);
+        UpdateWorldMapInput(typing);
+        UpdateTargetBinding(typing);
+        UpdateRunBinding(typing);
         UpdateSheathInput(typing);
         UpdatePortraitLabInput(typing);
 
@@ -1368,17 +1542,18 @@ public sealed partial class GameLoop : IDisposable
         bool mouseSteering = _window.MouseRightDown;
 
         float turn = typing ? 0f : _window.Axis(Key.Left, Key.Right);
-        if (!typing && !mouseSteering) turn += _window.Axis(Key.A, Key.D);
+        if (!typing && !mouseSteering) turn += BindingAxis(GameBinding.TurnLeft, GameBinding.TurnRight);
         turn = Math.Clamp(turn, -1f, 1f);
 
-        float strafe = typing ? 0f : _window.Axis(Key.E, Key.Q);
-        if (!typing && mouseSteering) strafe += _window.Axis(Key.D, Key.A);
+        float strafe = typing ? 0f : BindingAxis(GameBinding.StrafeRight, GameBinding.StrafeLeft);
+        if (!typing && mouseSteering) strafe += BindingAxis(GameBinding.TurnRight, GameBinding.TurnLeft);
         strafe = Math.Clamp(strafe, -1f, 1f);
 
         // Up and down arrows walk, like vanilla. Combined with W/S rather than
         // replacing it, and clamped so holding both does not double the speed.
         float forward = typing ? 0f : Math.Clamp(
-            _window.Axis(Key.W, Key.S) + _window.Axis(Key.Up, Key.Down), -1f, 1f);
+            BindingAxis(GameBinding.MoveForward, GameBinding.MoveBackward) +
+            _window.Axis(Key.Up, Key.Down), -1f, 1f);
 
         bool scriptedJump = false;
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
@@ -1411,10 +1586,11 @@ public sealed partial class GameLoop : IDisposable
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing ? 0f : _window.Axis(Key.Space, Key.ControlLeft),
+            Up = typing ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
+                                (_window.IsDown(Key.ControlLeft) ? 1f : 0f)),
             Yaw = _window.Camera.Yaw,
-            Jump = _movementScript is not null ? scriptedJump : !typing && _window.IsDown(Key.Space),
-            Walking = shift && !_controller.Flying,
+            Jump = _movementScript is not null ? scriptedJump : !typing && BindingDown(GameBinding.Jump),
+            Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
         };
 
@@ -1520,7 +1696,6 @@ public sealed partial class GameLoop : IDisposable
 
         // Target picking uses the final camera and final collision world for this frame.
         UpdateTargeting();
-        AdvanceLiveRun(dt);
         UpdateCombatFeedback(dt);
         UpdateSpellPresentation();
 
@@ -1849,23 +2024,6 @@ public sealed partial class GameLoop : IDisposable
         // "foliage-rescatter" on the strength of a number bigger than the frame.
         _foliageScatterMilliseconds = _foliage?.ScatterMillisecondsThisFrame ?? 0;
 
-        // Particles LAST in the world pass. They are transparent and depth-write
-        // is off, so everything opaque must already be in the depth buffer or
-        // they draw over walls they are standing behind.
-        if (WarmStage(5) && _particles is not null && _doodads is not null)
-        {
-            var eye = _window.Camera.Position;
-            IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
-                int EmitterIndex, string TexturePath)> emitters =
-                _doodads.EmitterInstances(eye, _particles.SimulationDistance);
-            if (_spellEffects is not null)
-                emitters = emitters.Concat(_spellEffects.EmitterInstances(
-                    MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
-            _particles.Simulate(dt, eye, emitters);
-            _particles.Render(_window.Camera);
-            _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
-            _particleDrawMilliseconds = _particles.DrawMilliseconds;
-        }
         _foliageDrawMilliseconds = _foliage?.DrawMilliseconds ?? 0;
 
         _worldRenderMilliseconds = Stopwatch.GetElapsedTime(worldStarted).TotalMilliseconds;
@@ -1898,8 +2056,41 @@ public sealed partial class GameLoop : IDisposable
         long spellEffectStarted = Stopwatch.GetTimestamp();
         if (WarmStage(5) && _spellEffects is not null && _spellEffectMeshes is not null)
             _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
+                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
+                SpellGroundHeight);
+        if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
+            _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
         _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
+
+        // Transparent particles are simulated after the unit draws have
+        // published this frame's skeletons, then drawn after every opaque unit
+        // and effect mesh has populated depth. This is both attachment-correct
+        // and the intended transparent ordering.
+        // Spell-effect emitters are the primary visible content of most spell
+        // visuals, so they must not be coupled to the doodad renderer. Simulate
+        // whenever particles exist, gathering doodad emitters only if that
+        // renderer is present; otherwise spell particles vanish whenever doodads
+        // are off at startup or DoodadRenderer construction failed.
+        // Doodad/world particles go through the shared (portal-tuned) renderer.
+        // Spell-effect particles go through the SEPARATE benilla-faithful
+        // SpellParticleSystem (World/Spells/) so no portal tuning ever touches them.
+        if (WarmStage(5) && _particles is not null && _doodads is not null)
+        {
+            var eye = _window.Camera.Position;
+            _particles.Simulate(dt, eye, _doodads.EmitterInstances(eye, _particles.SimulationDistance));
+            _particles.Render(_window.Camera);
+            _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
+            _particleDrawMilliseconds = _particles.DrawMilliseconds;
+        }
+        if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
+        {
+            var eye = _window.Camera.Position;
+            _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
+                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
+                SpellParticleGroundHeight);
+            _spellParticles.Render(_window.Camera);
+        }
 
         // Water draws AFTER the character, on purpose. It tests depth but does not
         // write it, so a surface in front of a submerged character blends over him
@@ -2141,7 +2332,7 @@ public sealed partial class GameLoop : IDisposable
 
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
-        if (!_config.DevTools) return;
+        if (!_config.DevTools || PlayerPanelOpen) return;
         if (_uiParityArmed) return;
 
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
@@ -3047,6 +3238,9 @@ public sealed partial class GameLoop : IDisposable
         AdtTerrainReader.StormLibExtractor = null;
         _particles?.Dispose();
         _spellEffectMeshes?.Dispose();
+        _spellRibbons?.Dispose();
+        _spellParticles?.Dispose();
+        _spellSounds?.Dispose();
         _mpq?.Dispose();
     }
 }

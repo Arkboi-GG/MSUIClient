@@ -7,6 +7,8 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private VendorInventory? _vendor;
+    private int _vendorPage;
+    private int _vendorTab;
 
     private bool RequestVendor(ulong guid)
     {
@@ -27,7 +29,7 @@ public sealed partial class GameLoop
 
     private void ApplyVendorList(byte[] body)
     {
-        _vendor=VendorPackets.ParseList(body);
+        _vendor=VendorPackets.ParseList(body); _vendorPage = 0; _vendorTab = 0;
         EmitInterface("vendor","list",_vendor.Error==0?"DECODED":"ERROR",_vendor.VendorGuid,
             $"items={_vendor.Items.Count};error={_vendor.Error}");
         if(_items is not null&&_net is not null)
@@ -52,25 +54,81 @@ public sealed partial class GameLoop
         return sent;
     }
 
+    private bool SellToOpenVendor(ulong itemGuid, byte count = 0)
+    {
+        if (_vendor is null || itemGuid == 0 || _net is null) return false;
+        bool sent = _net.SellItem(_vendor.VendorGuid, itemGuid, count);
+        EmitInterface("vendor", "sell", sent ? "SENT" : "SEND_FAILED", _vendor.VendorGuid,
+            $"itemGuid=0x{itemGuid:X16};count={count}");
+        return sent;
+    }
+
     private void DrawVendorFrame()
     {
         if(_vendor is null||_gameplayArt is null) return;
-        float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        float s=GameplayUiScale();Vector2 origin=new(0,104*s),logicalSize=new(384,512);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if(!ImGui.Begin("##vendor",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="merchant"){BeginUiParityFrame(origin,s);CollectUiParityDraw("MerchantFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[("MerchantFrame/Texture",@"Interface\MerchantFrame\UI-Merchant-TopLeft",Vector2.Zero,new(256,256)),("MerchantFrame/Texture#2",@"Interface\MerchantFrame\UI-Merchant-TopRight",new(256,0),new(128,256)),("MerchantFrame/Texture#3",@"Interface\MerchantFrame\UI-Merchant-BotLeft",new(0,256),new(256,256)),("MerchantFrame/Texture#4",@"Interface\MerchantFrame\UI-Merchant-BotRight",new(256,256),new(128,256))];
         foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="merchant")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"MerchantFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","MerchantFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        ImGui.SetCursorScreenPos(origin+new Vector2(30,75)*s);ImGui.BeginChild("##vendor-items",new Vector2(310,340)*s,false);
-        foreach(VendorItem row in _vendor.Items)
+        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
         {
-            string name=_items?.TryGet(row.ItemId,out ItemTemplate? t)==true&&t is not null?t.Name:$"Item {row.ItemId}";
-            if(ImGui.Selectable($"{name}  {FormatMoney(row.Price)}##vendor-{row.Slot}"))
+            if (_vendorTab == 0)
             {
-                BuyVendorEntry(row.ItemId, 1);
+                int pages = Math.Max(1, (_vendor.Items.Count + 11) / 12);
+                _vendorPage = Math.Clamp(_vendorPage, 0, pages - 1);
+                for (int visible = 0; visible < 12; visible++)
+                {
+                    int index = _vendorPage * 12 + visible;
+                    if (index >= _vendor.Items.Count) break;
+                    VendorItem row = _vendor.Items[index];
+                    ItemTemplate? item = null;
+                    if (_items?.TryGet(row.ItemId, out ItemTemplate? found) == true) item = found;
+                    int col = visible & 1, listRow = visible / 2;
+                    Vector2 cell = origin + new Vector2(24 + col * 165, 80 + listRow * 52) * s;
+                    uint slotArt = _gameplayArt.Handle(@"Interface\Buttons\UI-EmptySlot");
+                    if (slotArt != 0) dl.AddImage((nint)slotArt, cell - new Vector2(13) * s, cell + new Vector2(51) * s);
+                    uint icon = item is null ? 0 : _gameplayArt.Handle(item.IconPath);
+                    if (icon != 0) dl.AddImage((nint)icon, cell, cell + new Vector2(37) * s);
+                    ImGui.SetCursorScreenPos(cell); ImGui.InvisibleButton($"##vendor-{row.Slot}", new Vector2(153, 44) * s);
+                    if (ImGui.IsItemClicked()) BuyVendorEntry(row.ItemId, 1);
+                    if (ImGui.IsItemHovered() && item is not null) DrawItemTooltip(item, 1);
+                    dl.AddText(ImGui.GetFont(), 10f * s, cell + new Vector2(42, 2) * s, VanillaGold,
+                        item?.Name ?? $"Item {row.ItemId}");
+                    dl.AddText(ImGui.GetFont(), 9f * s, cell + new Vector2(42, 22) * s, 0xffffffff, FormatMoney(row.Price));
+                }
+                DrawCenteredText(dl, origin + new Vector2(181, 358) * s, $"Page {_vendorPage + 1} of {pages}", 10f * s, VanillaGold);
+                if (TabardArrow(dl, "##vendor-prev", origin + new Vector2(21, 340) * s, false, s) && _vendorPage > 0) _vendorPage--;
+                if (TabardArrow(dl, "##vendor-next", origin + new Vector2(308, 340) * s, true, s) && _vendorPage + 1 < pages) _vendorPage++;
+            }
+            else
+            {
+                for (int i = 0; i < 12; i++)
+                {
+                    ulong guid = player.Fields.PlayerBuybackSlot(i);
+                    if (guid == 0 || !_entities.TryGet(guid, out WorldEntity instance)) continue;
+                    _items?.Require(instance.Entry, guid, _net);
+                    ItemTemplate? item = null;
+                    if (_items?.TryGet(instance.Entry, out ItemTemplate? found) == true) item = found;
+                    int col = i & 1, listRow = i / 2;
+                    Vector2 cell = origin + new Vector2(24 + col * 165, 80 + listRow * 52) * s;
+                    uint icon = item is null ? 0 : _gameplayArt.Handle(item.IconPath);
+                    if (icon != 0) dl.AddImage((nint)icon, cell, cell + new Vector2(37) * s);
+                    ImGui.SetCursorScreenPos(cell); ImGui.InvisibleButton($"##buyback-{i}", new Vector2(153, 44) * s);
+                    if (ImGui.IsItemClicked()) _net.BuybackItem(_vendor.VendorGuid, (uint)i);
+                    dl.AddText(ImGui.GetFont(), 10f * s, cell + new Vector2(42, 2) * s, VanillaGold,
+                        item?.Name ?? $"Item {instance.Entry}");
+                    dl.AddText(ImGui.GetFont(), 9f * s, cell + new Vector2(42, 22) * s, 0xffffffff,
+                        FormatMoney(player.Fields.PlayerBuybackPrice(i)));
+                }
             }
         }
-        ImGui.EndChild();
+        float merchantWidth=VanillaCharacterTabWidth("Merchant",s,0);
+        float buybackWidth=VanillaCharacterTabWidth("Buyback",s,0);
+        float merchantX=60-merchantWidth*.5f;
+        if (VanillaTab(dl,"##vendor-tab",origin+new Vector2(merchantX,450)*s,"Merchant",merchantWidth,s,_vendorTab==0)) _vendorTab=0;
+        if (VanillaTab(dl,"##buyback-tab",origin+new Vector2(merchantX+merchantWidth-16,450)*s,"Buyback",buybackWidth,s,_vendorTab==1)) _vendorTab=1;
         Vector2 close=origin+new Vector2(322,8)*s;DrawImageButton(dl,"##vendor-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_vendor=null;
         if(_uiParityArmed&&_uiParityPanel=="merchant")MarkUiParityFrameComplete();
         ImGui.End();

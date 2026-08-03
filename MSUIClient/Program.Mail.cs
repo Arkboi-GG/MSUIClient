@@ -18,8 +18,11 @@ public sealed partial class GameLoop
 
     private readonly List<MailRow> _mail = [];
     private bool _mailOpen;
+    private bool _hasNewMail;
     private ulong _mailboxGuid;
     private int _mailSelected;
+    private int _mailTab;
+    private uint _mailAttachmentEntry;
     private PendingMailAction? _pendingMail;
     private readonly byte[] _mailRecipient = new byte[48];
     private readonly byte[] _mailSubject = new byte[68];
@@ -35,7 +38,7 @@ public sealed partial class GameLoop
 
     private void ResetMail()
     {
-        _mail.Clear(); _mailOpen = false; _mailboxGuid = 0; _mailSelected = 0; _pendingMail = null;
+        _mail.Clear(); _mailOpen = false; _hasNewMail = false; _mailboxGuid = 0; _mailSelected = 0; _pendingMail = null;
     }
 
     private static void WriteBuffer(byte[] buffer, string value)
@@ -79,7 +82,8 @@ public sealed partial class GameLoop
                     durability, money, cod, check, expiry, template));
             }
             if (r.Remaining != 0) throw new InvalidDataException($"trailing={r.Remaining}");
-            _mail.Clear(); _mail.AddRange(rows); _mailOpen = true; _mailSelected = Math.Clamp(_mailSelected, 0, Math.Max(0, _mail.Count - 1));
+            _mail.Clear(); _mail.AddRange(rows); _mailOpen = true; _hasNewMail = false; _mailTab = 0;
+            _mailSelected = Math.Clamp(_mailSelected, 0, Math.Max(0, _mail.Count - 1));
             foreach (MailRow row in rows)
                 if (row.ItemEntry != 0) _items?.Require(row.ItemEntry, 0, _net!);
             EmitInterface("mail", "list", "DECODED", _mailboxGuid,
@@ -123,6 +127,7 @@ public sealed partial class GameLoop
     private void ApplyReceivedMail(byte[] body)
     {
         uint delay = body.Length >= 4 ? BitConverter.ToUInt32(body, 0) : 0;
+        _hasNewMail = true;
         EmitInterface("mail", "notification", "RECEIVED", _mailboxGuid, $"delay={delay}");
     }
 
@@ -228,7 +233,7 @@ public sealed partial class GameLoop
     private void DrawMailFrame()
     {
         if (!_mailOpen || _gameplayArt is null) return;
-        float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        float s=GameplayUiScale();Vector2 origin=new(0,104*s),logicalSize=new(384,512);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##mail",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="mail"){BeginUiParityFrame(origin,s);CollectUiParityDraw("MailFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
@@ -239,6 +244,15 @@ public sealed partial class GameLoop
             ("MailFrameBotLeft",@"Interface\ItemTextFrame\UI-ItemText-BotLeft",new(0,256),new(256,256)),
             ("MailFrameBotRight",@"Interface\Spellbook\UI-SpellbookPanel-BotRight",new(256,256),new(128,256))];
         foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="mail")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"MailFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","MailFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
+        if (_gameplayArt is not null)
+        {
+            DrawVanillaMail(dl, origin, s);
+            Vector2 mailClose=origin+new Vector2(323,10)*s;
+            DrawImageButton(dl,"##mail-close",mailClose,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+            if(ImGui.IsItemClicked())_mailOpen=false;
+            if(_uiParityArmed&&_uiParityPanel=="mail")MarkUiParityFrameComplete();
+            ImGui.End(); return;
+        }
         ImGui.SetCursorScreenPos(origin+new Vector2(28,78)*s);ImGui.BeginChild("mail-list",new Vector2(305,315)*s,false);
         for (int i = 0; i < _mail.Count; i++)
         {
@@ -271,5 +285,53 @@ public sealed partial class GameLoop
         Vector2 close=origin+new Vector2(323,10)*s;DrawImageButton(dl,"##mail-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_mailOpen=false;
         if(_uiParityArmed&&_uiParityPanel=="mail")MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void DrawVanillaMail(ImDrawListPtr dl, Vector2 origin, float s)
+    {
+        if (_mailTab == 0)
+        {
+            DrawCenteredText(dl, origin + new Vector2(192, 20) * s, "Inbox", 14f * s, VanillaGold);
+            for (int i = 0; i < _mail.Count && i < 7; i++)
+            {
+                MailRow row = _mail[i];
+                if (VanillaListRow(dl,$"##mail-row-{row.Id}",origin+new Vector2(34,76+i*38)*s,
+                        new Vector2(296,34),s,row.Subject,_mailSelected==i)) _mailSelected=i;
+                dl.AddText(ImGui.GetFont(),9f*s,origin+new Vector2(42,96+i*38)*s,0xff999999,
+                    $"Expires {FormatExpiry(row.ExpireDays)}");
+            }
+            if (_mail.Count > 0)
+            {
+                MailRow row=_mail[Math.Clamp(_mailSelected,0,_mail.Count-1)];
+                dl.AddText(ImGui.GetFont(),10f*s,origin+new Vector2(36,360)*s,0xffffffff,
+                    $"{FormatMoney(row.Money)}   COD {FormatMoney(row.Cod)}");
+                if(row.Money>0&&VanillaButton(dl,"##mail-take-money","Take Money",origin+new Vector2(34,390)*s,new Vector2(95,22),s))TakeMailMoney(row.Id);
+                if(row.ItemEntry>0&&VanillaButton(dl,"##mail-take-item","Take Item",origin+new Vector2(134,390)*s,new Vector2(90,22),s))TakeMailItem(row.Id);
+                if(VanillaButton(dl,"##mail-return","Return",origin+new Vector2(229,390)*s,new Vector2(70,22),s))ReturnMail(row.Id);
+                if(row.Cod==0&&VanillaButton(dl,"##mail-delete","Delete",origin+new Vector2(304,390)*s,new Vector2(60,22),s))DeleteMail(row.Id);
+            }
+        }
+        else
+        {
+            DrawCenteredText(dl, origin + new Vector2(192, 20) * s, "Send Mail", 14f * s, VanillaGold);
+            dl.AddText(ImGui.GetFont(),10*s,origin+new Vector2(34,86)*s,VanillaGold,"To:");
+            VanillaInputText(dl,"##mail-to",_mailRecipient,origin+new Vector2(60,80)*s,new Vector2(255,22),s);
+            dl.AddText(ImGui.GetFont(),10*s,origin+new Vector2(17,122)*s,VanillaGold,"Subject:");
+            VanillaInputText(dl,"##mail-subject",_mailSubject,origin+new Vector2(60,116)*s,new Vector2(255,22),s);
+            VanillaInputTextMultiline(dl,"##mail-body",_mailBody,origin+new Vector2(45,162)*s,new Vector2(290,145),s);
+            dl.AddText(ImGui.GetFont(),10f*s,origin+new Vector2(48,330)*s,0xffffffff,
+                _mailAttachmentEntry==0?"Attachment: none":$"Attachment: item {_mailAttachmentEntry}");
+            dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(48,345)*s,VanillaGold,"Money");
+            VanillaInputInt(dl,"##mail-money",ref _mailMoneyInput,origin+new Vector2(48,354)*s,new Vector2(120,22),s);
+            dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(205,345)*s,VanillaGold,"C.O.D.");
+            VanillaInputInt(dl,"##mail-cod",ref _mailCodInput,origin+new Vector2(205,354)*s,new Vector2(120,22),s);
+            bool ready=ReadBuffer(_mailRecipient).Length>0&&(_mailCodInput<=0||_mailAttachmentEntry!=0);
+            if(VanillaButton(dl,"##mail-send","Send",origin+new Vector2(244,405)*s,new Vector2(80,22),s,ready))
+                SendMailFlow(ReadBuffer(_mailRecipient),_mailAttachmentEntry,(uint)Math.Max(0,_mailMoneyInput),(uint)Math.Max(0,_mailCodInput));
+        }
+        float inboxWidth=VanillaCharacterTabWidth("Inbox",s,0);
+        float sendWidth=VanillaCharacterTabWidth("Send Mail",s,0);
+        if(VanillaTab(dl,"##mail-inbox-tab",origin+new Vector2(24,436)*s,"Inbox",inboxWidth,s,_mailTab==0))_mailTab=0;
+        if(VanillaTab(dl,"##mail-send-tab",origin+new Vector2(24+inboxWidth-8,436)*s,"Send Mail",sendWidth,s,_mailTab==1))_mailTab=1;
     }
 }

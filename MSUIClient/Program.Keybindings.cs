@@ -1,31 +1,152 @@
 using System.Numerics;
 using ImGuiNET;
+using Silk.NET.Input;
 
 namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
     private bool _keybindingsOpen;
+    private Dictionary<GameBinding, BindingPair>? _bindingSnapshot;
+    private GameBinding? _bindingCapture;
+    private int _bindingCaptureSlot = 1;
+    private bool _bindingCaptureReleased;
+    private int _bindingScroll;
+    private bool _characterSpecificBindings;
+
+    private void OpenKeybindings()
+    {
+        EnsureBindingsLoaded();
+        _bindingSnapshot = new Dictionary<GameBinding, BindingPair>(_bindings);
+        _bindingCapture = null;
+        _keybindingsOpen = true;
+    }
 
     private void DrawKeybindingsFrame()
     {
-        if(!_keybindingsOpen||_gameplayArt is null)return;
-        float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(640,512);
-        ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
-        if(!ImGui.Begin("##keybindings",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)){ImGui.End();return;}
-        ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="keybindings"){BeginUiParityFrame(origin,s);CollectUiParityDraw("KeyBindingFrame","Button",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
-        (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
-            ("KeyBindingFrame/Texture",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopLeft",new(0,0),new(256,256)),
-            ("KeyBindingFrame/Texture#2",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Top",new(256,0),new(256,256)),
-            ("KeyBindingFrame/Texture#3",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopRight",new(512,0),new(128,256)),
-            ("KeyBindingFrame/Texture#4",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotLeft",new(0,256),new(256,256)),
-            ("KeyBindingFrame/Texture#5",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Bot",new(256,256),new(256,256)),
-            ("KeyBindingFrame/Texture#6",@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotRight",new(512,256),new(128,256))];
-        foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="keybindings")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"KeyBindingFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","KeyBindingFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        ImGui.SetCursorScreenPos(origin+new Vector2(35,55)*s);ImGui.BeginChild("##binding-list",new Vector2(540,360)*s,false);
-        string[] rows=["Movement","Move Forward — W","Move Backward — S","Turn Left — A","Turn Right — D","Jump — Space","Targeting","Target Nearest Enemy — Tab","Interface","Open Game Menu — Escape","Open Backpack — B","Character Info — C"];
-        foreach(string row in rows)ImGui.Selectable(row);
-        ImGui.EndChild();ImGui.SetCursorScreenPos(origin+new Vector2(440,430)*s);if(ImGui.Button("Okay"))_keybindingsOpen=false;ImGui.SameLine();if(ImGui.Button("Cancel"))_keybindingsOpen=false;
-        if(_uiParityArmed&&_uiParityPanel=="keybindings")MarkUiParityFrameComplete();ImGui.End();
+        if (!_keybindingsOpen || _gameplayArt is null) return;
+        EnsureBindingsLoaded();
+        _bindingSnapshot ??= new Dictionary<GameBinding, BindingPair>(_bindings);
+        float s = GameplayUiScale();
+        if (!BeginVanillaWindow("##keybindings", new Vector2(0, 104), new Vector2(640, 512), out ImDrawListPtr dl,
+                out Vector2 origin, out s)) return;
+
+        (string Path, Vector2 Offset, Vector2 Size)[] art =
+        [
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopLeft", new(0,0), new(256,256)),
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Top", new(256,0), new(256,256)),
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-TopRight", new(512,0), new(128,256)),
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotLeft", new(0,256), new(256,256)),
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-Bot", new(256,256), new(256,256)),
+            (@"Interface\KeyBindingFrame\UI-KeyBindingFrame-BotRight", new(512,256), new(128,256)),
+        ];
+        foreach (var piece in art) DrawArt(dl, piece.Path, origin + piece.Offset * s, piece.Size, s);
+        DrawCenteredText(dl, origin + new Vector2(290, 24) * s, "Key Bindings", 14 * s, VanillaGold);
+        dl.AddText(ImGui.GetFont(), 11f * s, origin + new Vector2(26, 35) * s, VanillaGold, "Command");
+        DrawCenteredText(dl, origin + new Vector2(290, 41) * s, "Key 1", 11f * s, VanillaGold);
+        DrawCenteredText(dl, origin + new Vector2(470, 41) * s, "Key 2", 11f * s, VanillaGold);
+
+        var visibleRows = new List<(bool Header, string Category, GameBinding Binding, string Label)>();
+        string lastCategory = "";
+        foreach (var row in BindingRows)
+        {
+            if (row.Category != lastCategory)
+            {
+                lastCategory = row.Category;
+                visibleRows.Add((true, row.Category, default, row.Category));
+            }
+            visibleRows.Add((false, row.Category, row.Binding, row.Label));
+        }
+        _bindingScroll = Math.Clamp(_bindingScroll, 0, Math.Max(0, visibleRows.Count - 17));
+        Vector2 wheelMin = origin + new Vector2(27, 53) * s;
+        ImGui.SetCursorScreenPos(wheelMin);
+        ImGui.InvisibleButton("##binding-wheel", new Vector2(535, 390) * s);
+        if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
+            _bindingScroll = Math.Clamp(_bindingScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0,
+                Math.Max(0, visibleRows.Count - 17));
+
+        for (int i = 0; i < 17 && i + _bindingScroll < visibleRows.Count; i++)
+        {
+            var row = visibleRows[i + _bindingScroll];
+            Vector2 rowMin = origin + new Vector2(27, 53 + i * 23) * s;
+            if (row.Header)
+            {
+                dl.AddText(ImGui.GetFont(), 12f * s, rowMin + new Vector2(0, 5) * s,
+                    0xffffffff, row.Label);
+                continue;
+            }
+            dl.AddText(ImGui.GetFont(), 10f * s, rowMin + new Vector2(0, 6) * s,
+                VanillaGold, row.Label);
+            BindingPair pair = BoundKeys(row.Binding);
+            DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 1, pair.Primary);
+            DrawBindingKeyButton(dl, origin, s, rowMin, row.Binding, 2, pair.Secondary);
+        }
+
+        DrawVanillaScrollBar(dl, "##binding-scrollbar", origin + new Vector2(584, 52) * s,
+            390, s, _bindingScroll, Math.Max(0, visibleRows.Count - 17), v => _bindingScroll = v);
+
+        if (_bindingCapture is not null)
+        {
+            if (!_bindingCaptureReleased) _bindingCaptureReleased = !AnyBindableKeyDown();
+            else if (FirstBindableKeyDown() is { } pressed)
+            {
+                foreach (GameBinding other in _bindings.Where(x => x.Value.Contains(pressed)).Select(x => x.Key).ToArray())
+                    _bindings[other] = _bindings[other].Without(pressed);
+                _bindings[_bindingCapture.Value] = BoundKeys(_bindingCapture.Value).With(_bindingCaptureSlot, pressed);
+                _bindingCapture = null;
+            }
+        }
+
+        VanillaCheckButton(dl, "##character-bindings", origin + new Vector2(395, 10) * s,
+            "Character Specific Key Bindings", s, ref _characterSpecificBindings);
+        if (VanillaButton(dl, "Defaults##bindings", "Reset To Default", origin + new Vector2(10, 469) * s,
+                new Vector2(130, 22), s)) ResetBindingsToDefaults();
+        bool canUnbind = _bindingCapture is not null;
+        if (VanillaButton(dl, "Unbind##bindings", "Unbind", origin + new Vector2(230, 469) * s,
+                new Vector2(130, 22), s, canUnbind) && _bindingCapture is { } unbind)
+        { _bindings[unbind] = BoundKeys(unbind).With(_bindingCaptureSlot, Key.Unknown); _bindingCapture = null; }
+        if (VanillaButton(dl, "Okay##bindings", "Okay", origin + new Vector2(360, 469) * s,
+                new Vector2(130, 22), s))
+        { SaveBindings(); _bindingSnapshot = null; _keybindingsOpen = false; }
+        if (VanillaButton(dl, "Cancel##bindings", "Cancel", origin + new Vector2(490, 469) * s,
+                new Vector2(130, 22), s))
+        {
+            if (_bindingSnapshot is not null)
+            { _bindings.Clear(); foreach (var pair in _bindingSnapshot) _bindings[pair.Key] = pair.Value; }
+            _bindingSnapshot = null; _keybindingsOpen = false;
+        }
+        ImGui.End();
     }
+
+    private void DrawBindingKeyButton(ImDrawListPtr dl, Vector2 origin, float s, Vector2 rowMin,
+        GameBinding binding, int slot, Key key)
+    {
+        Vector2 min = rowMin + new Vector2(slot == 1 ? 175 : 355, 1) * s;
+        bool capturing = _bindingCapture == binding && _bindingCaptureSlot == slot;
+        string text = capturing ? "Press Key to Bind" : key == Key.Unknown ? "Not Bound" : FriendlyKey(key);
+        if (VanillaButton(dl, $"##bind-{binding}-{slot}", text, min, new Vector2(180, 22), s))
+        {
+            _bindingCapture = binding;
+            _bindingCaptureSlot = slot;
+            _bindingCaptureReleased = !AnyBindableKeyDown();
+        }
+    }
+
+    private bool AnyBindableKeyDown() => FirstBindableKeyDown() is not null;
+
+    private Key? FirstBindableKeyDown()
+    {
+        foreach (Key key in Enum.GetValues<Key>().Distinct())
+            if (key != Key.Unknown && _window.IsDown(key)) return key;
+        return null;
+    }
+
+    private static string FriendlyKey(Key key) => key switch
+    {
+        Key.Unknown => "",
+        Key.Number0 => "0", Key.Number1 => "1", Key.Number2 => "2", Key.Number3 => "3",
+        Key.Number4 => "4", Key.Number5 => "5", Key.Number6 => "6", Key.Number7 => "7",
+        Key.Number8 => "8", Key.Number9 => "9", Key.Space => "Space Bar", Key.Slash => "/",
+        Key.Equal => "=", Key.Minus => "-", _ => key.ToString(),
+    };
 }

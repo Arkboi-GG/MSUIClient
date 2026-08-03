@@ -15,7 +15,8 @@ public sealed class PlayerActions
 {
     private readonly ActionSlot?[] _slots = new ActionSlot?[120];
     private readonly HashSet<uint> _knownSpells = new();
-    private readonly Dictionary<uint, SpellCooldown> _cooldowns = new();
+    private readonly Dictionary<uint, SpellCooldown> _spellCooldowns = new();
+    private readonly Dictionary<uint, SpellCooldown> _categoryCooldowns = new();
 
     public IReadOnlySet<uint> KnownSpells => _knownSpells;
     public int OccupiedCount => _slots.Count(s => s.HasValue);
@@ -25,7 +26,8 @@ public sealed class PlayerActions
     {
         Array.Clear(_slots);
         _knownSpells.Clear();
-        _cooldowns.Clear();
+        _spellCooldowns.Clear();
+        _categoryCooldowns.Clear();
     }
 
     public void ApplyButtons(byte[] body)
@@ -54,7 +56,8 @@ public sealed class PlayerActions
             r.ReadU16();
         }
 
-        _cooldowns.Clear();
+        _spellCooldowns.Clear();
+        _categoryCooldowns.Clear();
         if (r.Remaining < 2) return;
         int cooldownCount = r.ReadU16();
         for (int i = 0; i < cooldownCount && r.Remaining >= 14; i++)
@@ -64,9 +67,11 @@ public sealed class PlayerActions
             uint category = r.ReadU16();
             uint spellMs = r.ReadU32();
             uint categoryMs = r.ReadU32();
-            uint duration = Math.Max(spellMs, categoryMs);
-            if (duration > 1)
-                _cooldowns[spell] = new SpellCooldown(spell, category, nowSeconds, duration / 1000.0);
+            if (spellMs > 1)
+                _spellCooldowns[spell] = new SpellCooldown(spell, category, nowSeconds, spellMs / 1000.0);
+            if (category != 0 && categoryMs > 1)
+                _categoryCooldowns[category] = new SpellCooldown(spell, category, nowSeconds,
+                    categoryMs / 1000.0);
         }
     }
 
@@ -95,26 +100,71 @@ public sealed class PlayerActions
 
     public void StartCooldown(uint spell, uint category, uint durationMs, double nowSeconds)
     {
-        if (durationMs == 0) return;
-        _cooldowns[spell] = new SpellCooldown(spell, category, nowSeconds, durationMs / 1000.0);
+        StartCooldown(spell, category, durationMs, 0, nowSeconds);
     }
 
-    public float CooldownFraction(uint spell, double nowSeconds)
+    /// <summary>Starts the independent spell and category clocks carried by SMSG_SPELL_GO.</summary>
+    public void StartCooldown(uint spell, uint category, uint spellDurationMs,
+        uint categoryDurationMs, double nowSeconds)
     {
-        if (!_cooldowns.TryGetValue(spell, out var cd) || cd.DurationSeconds <= 0) return 0f;
+        if (spellDurationMs > 0)
+            _spellCooldowns[spell] = new SpellCooldown(spell, category, nowSeconds,
+                spellDurationMs / 1000.0);
+        if (category != 0 && categoryDurationMs > 0)
+            _categoryCooldowns[category] = new SpellCooldown(spell, category, nowSeconds,
+                categoryDurationMs / 1000.0);
+    }
+
+    public float CooldownFraction(uint spell, double nowSeconds, uint category = 0)
+    {
+        if (!TryActiveCooldown(spell, category, nowSeconds, out SpellCooldown cd, out _)) return 0f;
         double elapsed = nowSeconds - cd.StartedAt;
-        if (elapsed >= cd.DurationSeconds) { _cooldowns.Remove(spell); return 0f; }
         return (float)Math.Clamp(elapsed / cd.DurationSeconds, 0, 1);
     }
 
-    public bool IsOnCooldown(uint spell, double nowSeconds)
-        => CooldownFraction(spell, nowSeconds) > 0f;
+    public bool IsOnCooldown(uint spell, double nowSeconds, uint category = 0)
+        => TryActiveCooldown(spell, category, nowSeconds, out _, out _);
 
-    public double CooldownRemaining(uint spell, double nowSeconds)
+    public double CooldownRemaining(uint spell, double nowSeconds, uint category = 0)
     {
-        if (!_cooldowns.TryGetValue(spell, out var cd)) return 0;
-        double left = cd.DurationSeconds - (nowSeconds - cd.StartedAt);
-        if (left <= 0) { _cooldowns.Remove(spell); return 0; }
-        return left;
+        return TryActiveCooldown(spell, category, nowSeconds, out _, out double remaining)
+            ? remaining
+            : 0;
+    }
+
+    private bool TryActiveCooldown(uint spell, uint category, double nowSeconds,
+        out SpellCooldown cooldown, out double remaining)
+    {
+        cooldown = default;
+        remaining = 0;
+        if (TryClock(_spellCooldowns, spell, nowSeconds, out SpellCooldown spellClock,
+                out double spellRemaining))
+        {
+            cooldown = spellClock;
+            remaining = spellRemaining;
+        }
+        if (category != 0 &&
+            TryClock(_categoryCooldowns, category, nowSeconds, out SpellCooldown categoryClock,
+                out double categoryRemaining) && categoryRemaining > remaining)
+        {
+            cooldown = categoryClock;
+            remaining = categoryRemaining;
+        }
+        return remaining > 0;
+    }
+
+    private static bool TryClock(Dictionary<uint, SpellCooldown> clocks, uint key,
+        double nowSeconds, out SpellCooldown cooldown, out double remaining)
+    {
+        if (!clocks.TryGetValue(key, out cooldown))
+        {
+            remaining = 0;
+            return false;
+        }
+        remaining = cooldown.DurationSeconds - (nowSeconds - cooldown.StartedAt);
+        if (remaining > 0) return true;
+        clocks.Remove(key);
+        remaining = 0;
+        return false;
     }
 }

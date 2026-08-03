@@ -294,7 +294,8 @@ public sealed class M2Animator
     /// Returns null for a model with no skeleton - a doodad, in other words,
     /// which the caller should draw through DoodadRenderer instead.
     /// </summary>
-    public static M2Animator? Build(M2Model m2, IEnumerable<int> animationIds)
+    public static M2Animator? Build(M2Model m2, IEnumerable<int> animationIds,
+        bool includeStaticSequences = false)
     {
         if (!m2.HasSkeleton) return null;
 
@@ -303,7 +304,7 @@ public sealed class M2Animator
 
         foreach (int id in animationIds.Distinct())
         {
-            var clip = animator.Bake(id);
+            var clip = animator.Bake(id, includeStaticSequences);
             if (clip is not null) animator._clips[id] = clip;
         }
 
@@ -543,7 +544,7 @@ public sealed class M2Animator
 
     // ── baking ───────────────────────────────────────────────────────────────
 
-    private Clip? Bake(int animationId)
+    private Clip? Bake(int animationId, bool includeStaticSequences = false)
     {
         int seqIdx = _m2.TryFindSequenceIndexByAnimationId(animationId);
         if (seqIdx < 0) return null;
@@ -615,7 +616,7 @@ public sealed class M2Animator
 
         // A clip with no moving bones is worse than useless: it looks like a
         // frozen character and reads as a renderer bug rather than a data one.
-        if (clip.AnimatedBones == 0) return null;
+        if (clip.AnimatedBones == 0 && !includeStaticSequences) return null;
 
         // Some sequences declare a zero-length window. Fall back to the longest
         // authored keyframe rather than dividing by zero later.

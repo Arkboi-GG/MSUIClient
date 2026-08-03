@@ -18,6 +18,7 @@ public sealed partial class GameLoop
     private string _guildInfo = "";
     private int _guildSelected;
     private readonly byte[] _guildMotdEdit = new byte[256];
+    private bool _guildStatusView;
 
     private void InitGuild() { }
     private void ResetGuild()
@@ -115,7 +116,7 @@ public sealed partial class GameLoop
 
     private void DrawGuildFrame()
     {
-        if (!_guildOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,8*s),logicalSize=new(384,512);
+        if (!_guildOpen||_gameplayArt is null) return;float s=GameplayUiScale();Vector2 origin=new(0,104*s),logicalSize=new(384,512);
         ImGui.SetNextWindowPos(origin,ImGuiCond.Always);ImGui.SetNextWindowSize(logicalSize*s,ImGuiCond.Always);ImGui.SetNextWindowBgAlpha(0);
         if (!ImGui.Begin("##guild",ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="guild"){BeginUiParityFrame(origin,s);CollectUiParityDraw("GuildFrame","Frame",origin,logicalSize*s,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
@@ -125,13 +126,44 @@ public sealed partial class GameLoop
             ("GuildFrame/ShellBotLeft",@"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",new(0,256),new(256,256)),
             ("GuildFrame/ShellBotRight",@"Interface\FriendsFrame\UI-FriendsFrame-BotRight",new(256,256),new(128,256))];
         foreach(var r in art){Vector2 m=origin+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="guild")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"GuildFrame",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","GuildFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        ImGui.SetCursorScreenPos(origin+new Vector2(30,72)*s);ImGui.BeginChild("##guild-content",new Vector2(305,365)*s,false);
-        ImGui.TextUnformatted($"MOTD: {_guildMotd}"); ImGui.TextDisabled(_guildInfo); ImGui.Separator();
-        for (int i = 0; i < _guildMembers.Count; i++) { GuildMember m = _guildMembers[i]; if (ImGui.Selectable($"{(m.Online ? "Online" : $"Offline {m.OfflineDays:F1}d")}  {m.Name}  Lv{m.Level}  Rank {m.Rank}##guild-{m.Guid}", _guildSelected == i)) _guildSelected = i; }
-        ImGui.InputText("MOTD", _guildMotdEdit, (uint)_guildMotdEdit.Length); if (ImGui.Button("Set MOTD")) SetGuildMotd(ReadBuffer(_guildMotdEdit));
-        if (_guildMembers.Count > 0) { string name = _guildMembers[Math.Clamp(_guildSelected, 0, _guildMembers.Count - 1)].Name; ImGui.SameLine(); if (ImGui.Button("Promote")) PromoteGuildMember(name); ImGui.SameLine(); if (ImGui.Button("Demote")) DemoteGuildMember(name); }
-        if (_config.DevTools && ImGui.Button("Copy guild evidence")) CopyVerdictText(string.Join(Environment.NewLine, _verdicts.Snapshot("interface").OfType<InterfaceVerdict>().Where(v => v.Family == "guild").Select(v => $"[verdict:interface] {v.ToLine()}")));
-        ImGui.EndChild();Vector2 close=origin+new Vector2(324,10)*s;DrawImageButton(dl,"##guild-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_guildOpen=false;
+        DrawCenteredText(dl,origin+new Vector2(192,18)*s,"Guild",14*s,VanillaGold);
+        DrawCenteredText(dl,origin+new Vector2(192,54)*s,_guildMotd,10*s,0xffffffff);
+        string[] headers=_guildStatusView?["Name","Rank","Note","Last Online"]:["Name","Zone","Lvl","Class"];
+        float[] hx=[22,148,245,285];float[] hw=[128,99,42,72];
+        for(int i=0;i<headers.Length;i++)
+        {
+            dl.AddRectFilled(origin+new Vector2(hx[i],70)*s,origin+new Vector2(hx[i]+hw[i],91)*s,0xff342517);
+            dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(hx[i]+4,75)*s,0xffffffff,headers[i]);
+        }
+        for (int i=0;i<_guildMembers.Count&&i<13;i++)
+        {
+            GuildMember m=_guildMembers[i];
+            string zone=_areas?.ZoneName(m.Zone)??$"Area {m.Zone}";
+            string text=_guildStatusView
+                ?$"{m.Name,-17} Rank {m.Rank,-3} {m.PublicNote,-12} {(m.Online?"Online":$"{m.OfflineDays:F1} days")}"
+                :$"{m.Name,-17} {zone,-13} {m.Level,2}  {ClassName(m.Class)}";
+            if(VanillaListRow(dl,$"##guild-{m.Guid}",origin+new Vector2(22,95+i*19)*s,new Vector2(337,18),s,
+                    text,_guildSelected==i,m.Online?0xffffffff:0xff808080))_guildSelected=i;
+        }
+        dl.AddText(ImGui.GetFont(),10*s,origin+new Vector2(23,344)*s,VanillaGold,"Guild Message of the Day:");
+        VanillaInputText(dl,"##guild-motd",_guildMotdEdit,origin+new Vector2(23,362)*s,new Vector2(315,22),s);
+        dl.AddText(ImGui.GetFont(),9*s,origin+new Vector2(23,390)*s,VanillaGold,
+            $"{_guildMembers.Count} members, {_guildMembers.Count(x=>x.Online)} online");
+        if(VanillaButton(dl,"##guild-info","Guild Information",origin+new Vector2(16,408)*s,new Vector2(123,22),s))
+            SetGuildMotd(ReadBuffer(_guildMotdEdit));
+        if(VanillaButton(dl,"##guild-add","Add Member",origin+new Vector2(141,408)*s,new Vector2(98,22),s))
+            AddChatMessage("Enter a player name with /ginvite <name>.");
+        if(VanillaButton(dl,"##guild-control","Guild Control",origin+new Vector2(241,408)*s,new Vector2(104,22),s))
+            _guildStatusView=!_guildStatusView;
+        string[] outer=["Friends","Who","Guild","Raid"];
+        float[] tw=outer.Select(text=>VanillaCharacterTabWidth(text,s,0)).ToArray();float tabX=11;
+        for(int i=0;i<4;i++)
+        {
+            if(VanillaTab(dl,$"##guild-tab-{i}",origin+new Vector2(tabX,433)*s,outer[i],tw[i],s,i==2)&&i!=2)
+            { _guildOpen=false;OpenSocial();_socialPage=i; if(i==1)_net?.Who(""); }
+            tabX+=tw[i]-14;
+        }
+        Vector2 close=origin+new Vector2(322,8)*s;DrawImageButton(dl,"##guild-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())_guildOpen=false;
         if(_uiParityArmed&&_uiParityPanel=="guild")MarkUiParityFrameComplete();
         ImGui.End();
     }

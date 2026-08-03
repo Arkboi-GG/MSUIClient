@@ -44,7 +44,7 @@ public sealed partial class GameLoop
 
     private void UpdateInventoryInput(bool typing)
     {
-        bool down = _window.IsDown(Key.B);
+        bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
             _backpackOpen = !_backpackOpen;
         _backpackKeyWasDown = down;
@@ -60,6 +60,7 @@ public sealed partial class GameLoop
         ObserveInventoryTransition();
         ObserveBankTransition();
         ObserveProfessionSkillTransition();
+        ObserveProfessionProductTransition();
         ObserveTalentTransition();
     }
 
@@ -132,7 +133,10 @@ public sealed partial class GameLoop
             if (!_items.TryGet(instance.Entry, out ItemTemplate? item) || item is null) continue;
             resolved++;
             EmitInterface("inventory", "item-string", "VERIFIED", guid,
-                $"slot={slot};entry={item.Entry};name={SanitizeEvidence(item.Name)};quality={item.Quality};inventoryType={item.InventoryType};itemLevel={item.ItemLevel};requiredLevel={item.RequiredLevel};armor={item.Armor};stats={string.Join(',', item.Stats.Select(x => $"{x.Type}:{x.Value}"))};durability={instance.Fields.ItemDurability}/{instance.Fields.ItemMaxDurability}");
+                $"slot={slot};entry={item.Entry};count={Math.Max(1, instance.Fields.ItemStackCount)};name={SanitizeEvidence(item.Name)};" +
+                $"quality={item.Quality};inventoryType={item.InventoryType};itemLevel={item.ItemLevel};requiredLevel={item.RequiredLevel};" +
+                $"armor={item.Armor};stats={string.Join(',', item.Stats.Select(x => $"{x.Type}:{x.Value}"))};" +
+                $"durability={instance.Fields.ItemDurability}/{instance.Fields.ItemMaxDurability}");
         }
         EmitInterface("inventory", "snapshot", "COMPLETE", _net.PlayerGuid,
             $"equipped={equipped};backpack={backpack};resolved={resolved}");
@@ -300,9 +304,19 @@ public sealed partial class GameLoop
             ImGui.SetCursorScreenPos(slotMin);
             ImGui.InvisibleButton($"##pack-{gameSlot}", slotMax - slotMin,
                 ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
-            if (ImGui.IsItemClicked(ImGuiMouseButton.Left)) PickupOrPlaceItem(255, 23 + gameSlot, guid);
+            if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+            {
+                if (_tradeOpen && _tradePlaceSlot >= 0) PlaceTradeItem(255, (byte)(23 + gameSlot));
+                else PickupOrPlaceItem(255, 23 + gameSlot, guid);
+            }
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right) && instance is not null && template is not null)
-                UseBackpackItem(gameSlot, template);
+            {
+                if (_vendor is not null) SellToOpenVendor(instance.Guid);
+                else if (_bankOpen) DepositBankEntry(instance.Entry);
+                else if (_mailOpen && _mailTab == 1) _mailAttachmentEntry = instance.Entry;
+                else if (_auctionOpen && _auctionTab == 2) _auctionSellEntry = instance.Entry;
+                else UseBackpackItem(gameSlot, template);
+            }
             if (ImGui.IsItemHovered() && template is not null)
                 DrawItemTooltip(template, instance?.Fields.ItemStackCount ?? 1);
 
@@ -483,10 +497,17 @@ public sealed partial class GameLoop
             ImGui.InvisibleButton($"##bag-{bagIndex}-{slot}", max - min,
                 ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
             if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
-                PickupOrPlaceItem(19 + bagIndex, slot, itemGuid);
+            {
+                if (_tradeOpen && _tradePlaceSlot >= 0) PlaceTradeItem((byte)(19 + bagIndex), (byte)slot);
+                else PickupOrPlaceItem(19 + bagIndex, slot, itemGuid);
+            }
             if (ImGui.IsItemClicked(ImGuiMouseButton.Right) && item is not null)
             {
-                if (item.InventoryType != 0) _net!.AutoEquipItem((byte)(19 + bagIndex), (byte)slot);
+                if (_vendor is not null && instance is not null) SellToOpenVendor(instance.Guid);
+                else if (_bankOpen && instance is not null) DepositBankEntry(instance.Entry);
+                else if (_mailOpen && _mailTab == 1 && instance is not null) _mailAttachmentEntry = instance.Entry;
+                else if (_auctionOpen && _auctionTab == 2 && instance is not null) _auctionSellEntry = instance.Entry;
+                else if (item.InventoryType != 0) _net!.AutoEquipItem((byte)(19 + bagIndex), (byte)slot);
                 else _net!.UseItem((byte)(19 + bagIndex), (byte)slot, item.UseSpellIndex);
             }
             if (ImGui.IsItemHovered() && item is not null)

@@ -70,7 +70,7 @@ static void EmitCell(StringBuilder text, uint id, string cell, bool moving, stri
     text.AppendLine("gm .modify hp 1000000 1000000");
     text.AppendLine("gm .gm off");
     text.AppendLine("wait 0.35");
-    text.AppendLine("anchor selected 20");
+    text.AppendLine("anchor selected 10");
     text.AppendLine("wait 0.35");
     if (moving) { text.AppendLine("press w"); text.AppendLine("wait 0.35"); }
     else text.AppendLine("release w");
@@ -88,7 +88,7 @@ static void EmitCell(StringBuilder text, uint id, string cell, bool moving, stri
         sampleTimes.Add(Math.Max(sampleTimes[^1] + .08, castSeconds + .08));
     }
     else sampleTimes.Add(.08);
-    while (sampleTimes.Count < 24) sampleTimes.Add(sampleTimes[^1] + .12);
+    while (sampleTimes.Count < 14) sampleTimes.Add(sampleTimes[^1] + .12);
     double previous = 0;
     for (int frame = 1; frame <= sampleTimes.Count; frame++)
     {

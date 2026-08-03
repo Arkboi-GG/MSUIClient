@@ -1414,6 +1414,11 @@ public static class AdtTerrainReader
 
         chunk.IndexX = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x04);
         chunk.IndexY = (int)BitConverter.ToUInt32(data, mcnkDataStart + 0x08);
+        // AreaTable.dbc ID authored for this 33-yard terrain chunk. The stock
+        // client samples this as the player crosses MCNK boundaries and uses
+        // it for GetSubZoneText()/the minimap label. Character.Zone is only a
+        // login/roster value and cannot provide live sub-zones.
+        chunk.AreaId = BitConverter.ToUInt32(data, mcnkDataStart + 0x34);
         // Terrain hole bitmask — uint16 at offset 0x3C in the MCNK header.
         // Maps a 4×4 grid onto the chunk's 8×8 cell grid; each bit controls
         // a 2×2 cell block. Used by the client to punch holes in the terrain
@@ -1823,6 +1828,7 @@ public static class AdtTerrainReader
     {
         public int IndexX { get; set; }
         public int IndexY { get; set; }
+        public uint AreaId { get; set; }
         public MclyLayer[] Layers { get; set; } = Array.Empty<MclyLayer>();
 
         /// <summary>

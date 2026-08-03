@@ -114,19 +114,24 @@ public sealed partial class GameLoop
         var r = new PacketReader(body);
         ulong player = r.ReadU64();
         if (player != _net.PlayerGuid) return;
-        r.ReadU32();          // received (0) / from-NPC (1)
-        r.ReadU32();          // created
-        r.ReadU32();          // show in chat
-        r.ReadU8();           // bag slot
-        r.ReadU32();          // item slot (0xFFFFFFFF = stacked onto an existing slot)
+        uint received = r.ReadU32();
+        uint created = r.ReadU32();
+        uint showInChat = r.ReadU32();
+        byte bagSlot = r.ReadU8();
+        uint itemSlot = r.ReadU32(); // 0xFFFFFFFF = stacked onto an existing slot
         uint entry = r.ReadU32();
-        r.ReadU32();          // suffix factor
-        r.ReadU32();          // random property id
+        uint suffixFactor = r.ReadU32();
+        uint randomProperty = r.ReadU32();
         uint count = r.ReadU32();
         if (entry == 0) return;
+        uint actualCount = Math.Max(1, count);
         if (_items is not null) _items.Require(entry, 0, _net);
-        _pendingReceives.Add((entry, Math.Max(1, count), 120));
-        EmitInterface("loot", "item", "RECEIVED", player, $"item={entry};count={Math.Max(1, count)}");
+        _pendingReceives.Add((entry, actualCount, 120));
+        EmitInterface("loot", "item", "RECEIVED", player,
+            $"item={entry};count={actualCount};received={received};created={created};show={showInChat};" +
+            $"bag={bagSlot};slot={itemSlot};suffix={suffixFactor};random={randomProperty};bytes={body.Length}");
+        if (created != 0)
+            ObserveProfessionCreatedItemPush(entry, actualCount);
     }
 
     /// <summary>Escape closes the loot window before it reaches the game menu.</summary>
@@ -165,6 +170,23 @@ public sealed partial class GameLoop
         bool sent = _net.AutostoreLootItem(slot);
         EmitInterface("loot", "item", sent ? "SENT" : "SEND_FAILED", _loot.Source,
             $"slot={slot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(slot))}");
+        return sent;
+    }
+
+    private bool TakeAllLoot()
+    {
+        if (_net is null || !_loot.IsOpen) return false;
+        bool sent = true;
+        if (_loot.Gold > 0) sent &= TakeLootMoney();
+        foreach (LootItem item in _loot.Items.ToArray())
+        {
+            bool itemSent = _net.AutostoreLootItem(item.Slot);
+            sent &= itemSent;
+            EmitInterface("loot", "item", itemSent ? "SENT" : "SEND_FAILED", _loot.Source,
+                $"slot={item.Slot};body={Convert.ToHexString(WorldSession.BuildAutostoreLootBody(item.Slot))};batch=all");
+        }
+        EmitInterface("loot", "take-all", sent ? "SENT" : "SEND_FAILED", _loot.Source,
+            $"money={_loot.Gold};items={_loot.Items.Count}");
         return sent;
     }
 
@@ -263,7 +285,7 @@ public sealed partial class GameLoop
         DrawArt(dl, @"Interface\TargetingFrame\TargetDead", p + new Vector2(10f, 8f) * s,
             new Vector2(58f, 58f), s);
         if(_uiParityArmed&&_uiParityPanel=="loot")CollectUiParityDraw("LootFramePortraitOverlay","Texture",p+new Vector2(10,8)*s,new Vector2(58)*s,"LootFrame",new(@"Interface\TargetingFrame\TargetDead",0xffffffff,"IMGUI_IMAGE","TOPLEFT","LootFrame","TOPLEFT",10,-8));
-        DrawCenteredText(dl, p + new Vector2(116f, 26f) * s, "Items", 12f * s, 0xffffd100);
+        DrawCenteredText(dl, p + new Vector2(116f, 26f) * s, "Items", 12f * s, VanillaGold);
 
         List<LootRow> rows = BuildLootRows();
 

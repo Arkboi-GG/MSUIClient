@@ -3116,6 +3116,12 @@ public sealed partial class CharacterRenderer : IDisposable
              * Matrix4x4.CreateTranslation(position);
     }
 
+    public SpellUnitPose SpellPose(in UnitState state)
+    {
+        if (_m2 is null) return SpellUnitPose.Missing;
+        return new SpellUnitPose(true, state.Position, state.Yaw, BuildTransform(state), _m2, _skin);
+    }
+
     public unsafe void Render(Camera camera, in UnitState state)
     {
         if (!Enabled || _m2 is null || _shader is null || _pieces.Count == 0) return;

@@ -36,6 +36,11 @@ Interface/
 # the handbook's lineage section is where its findings get recorded.
 _wowee_ref/
 
+# vmangos server-emulator source, vendored as a read-only spell-behavior
+# reference. It carries its own .git (24 MB); it must not be embedded as a
+# gitlink or copied into this history. Recoverable independently via its own repo.
+.reference-vmangos-core/
+
 # Per-machine paths. client-config.json.example is committed instead, so
 # a fresh clone has a template without carrying anyone's local layout.
 client-config.json
@@ -118,3 +123,22 @@ live-runs/N2-0-1-parity-harness-20260801-153000/
 live-runs/N2-0-1-parity-harness-20260801-160000/
 live-runs/N2-0-2-1-unit-frames-20260801-154500/
 live-runs/N2-0-2-1-unit-frames-20260801-155000/
+
+# --- session evidence (untracked, kept on disk) ---
+/live-runs/
+/dumps/
+/scenarios/
+/movement-scenarios/
+/movement-scripts/
+/combat-instruments/
+/scratch/
+/portrait-batch/
+/variant-batch/
+/NIGHT_01/
+/NIGHT_02/
+/NIGHT_03/
+/NIGHT_04/
+/NIGHT_05/
+/NIGHT_06/
+/NIGHT_07/
+/_to_delete/

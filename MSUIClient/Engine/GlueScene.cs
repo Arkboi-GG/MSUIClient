@@ -88,7 +88,9 @@ public sealed class GlueScene : IDisposable
 
     // Fire emitter instances, in the ParticleRenderer tuple shape. Transform is identity: the
     // emitters live in the same Y-up model space as the mesh and draw through the glue camera.
-    private readonly List<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter, int Index, string TexPath)> _emitters = new();
+    private readonly List<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter, int Index,
+        string TexPath, double AnimationTime, int AnimationId, Vector3? LocalOrigin,
+        Quaternion? LocalRotation)> _emitters = new();
 
     private Vector3 _eye = new(0, 1, 3);
     private Vector3 _target = Vector3.Zero;
@@ -255,7 +257,7 @@ public sealed class GlueScene : IDisposable
         {
             var em = model.ParticleEmitters[i];
             string tex = em.Texture < model.Textures.Count ? model.Textures[em.Texture].Filename : "";
-            _emitters.Add(("glue-scene", Matrix4x4.Identity, em, i, tex));
+            _emitters.Add(("glue-scene", Matrix4x4.Identity, em, i, tex, double.NaN, 0, null, null));
         }
 
         foreach (var b in model.Batches)

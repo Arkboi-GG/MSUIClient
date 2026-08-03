@@ -120,6 +120,7 @@ public sealed partial class GameLoop
     private void DrawDeathRezFrame()
     {
         if (!_deathRezOpen) return;
+        if (_gameplayArt is not null) { DrawDeathRezPopup(); return; }
         ImGui.SetNextWindowSize(new Vector2(430, 270), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Death & Resurrection##death-rez", ref _deathRezOpen)) { ImGui.End(); return; }
         ImGui.TextColored(new Vector4(.8f, .8f, .8f, 1f), _deathWasDead == true ? "You are dead" : "Resurrection flow");
@@ -134,6 +135,38 @@ public sealed partial class GameLoop
             ImGui.Separator(); ImGui.TextUnformatted($"{_resurrectOffer.Name} offers resurrection");
             ImGui.TextDisabled($"Health {_resurrectOffer.Health} · Mana {_resurrectOffer.Mana}");
             if (ImGui.Button("Accept")) AnswerResurrect(true); ImGui.SameLine(); if (ImGui.Button("Decline")) AnswerResurrect(false);
+        }
+        ImGui.End();
+    }
+
+    private void DrawDeathRezPopup()
+    {
+        float s = GameplayUiScale(); Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
+        Vector2 at = new((logicalDisplay.X - 384) * .5f, (logicalDisplay.Y - 170) * .5f);
+        if (!BeginVanillaWindow("##death-rez-popup", at, new Vector2(384, 170),
+                out ImDrawListPtr dl, out Vector2 origin, out s)) { ImGui.End(); return; }
+        dl.AddRectFilled(origin, origin + new Vector2(384, 170) * s, 0xee101010, 8 * s);
+        dl.AddRect(origin, origin + new Vector2(384, 170) * s, 0xffb08040, 8 * s, ImDrawFlags.None, s);
+        DrawCenteredText(dl, origin + new Vector2(192, 28) * s,
+            _resurrectOffer is not null ? $"{_resurrectOffer.Name} offers resurrection" : "You are dead",
+            12f * s, 0xffffffff);
+        if (_resurrectOffer is not null)
+        {
+            DrawCenteredText(dl, origin + new Vector2(192, 58) * s,
+                $"Health {_resurrectOffer.Health}  Mana {_resurrectOffer.Mana}", 10f * s, 0xffaaaaaa);
+            if (VanillaButton(dl, "##rez-accept", "Accept", origin + new Vector2(94, 105) * s,
+                    new Vector2(80, 22), s)) AnswerResurrect(true);
+            if (VanillaButton(dl, "##rez-decline", "Decline", origin + new Vector2(210, 105) * s,
+                    new Vector2(80, 22), s)) AnswerResurrect(false);
+        }
+        else if (_corpseGuid != 0)
+        {
+            uint left = (uint)Math.Max(0, (_corpseReclaimReadyAt - NowSeconds()) * 1000);
+            DrawCenteredText(dl, origin + new Vector2(192, 58) * s,
+                left == 0 ? "Return to your corpse to resurrect." : $"You may resurrect in {left / 1000f:0.0} seconds.",
+                10f * s, 0xffaaaaaa);
+            if (VanillaButton(dl, "##reclaim", "Reclaim Corpse", origin + new Vector2(132, 105) * s,
+                    new Vector2(120, 22), s, left == 0)) ReclaimCorpse();
         }
         ImGui.End();
     }
