@@ -79,13 +79,12 @@ public static class SpellPacketParser
         ushort mask = r.ReadU16(); ulong? unit = null;
         if ((mask & UnitBits) != 0) unit = r.ReadPackedGuid();
         ulong? item = (mask & ItemBits) != 0 ? r.ReadPackedGuid() : null;
+        // TARGET_FLAG_SOURCE_LOCATION in 1.12 is three floats only — no transport guid
+        // (vmangos SpellCastTargetsInfo.cpp write side; benilla messages/spells.rs:110-112).
+        // Reading a packed guid here desyncs the stream and corrupts every self-centred
+        // AoE SPELL_GO (Arcane Explosion, Frost Nova).
         ulong? sourceTransport = null;
-        Vector3? source = null;
-        if ((mask & 0x0020) != 0)
-        {
-            sourceTransport = r.ReadPackedGuid();
-            source = r.ReadVector3();
-        }
+        Vector3? source = (mask & 0x0020) != 0 ? r.ReadVector3() : null;
         Vector3? destination = (mask & 0x0040) != 0 ? r.ReadVector3() : null;
         string? text = (mask & 0x2000) != 0 ? r.ReadCString() : null;
         return new SpellTargets(mask, unit, item, sourceTransport, source, destination, text);
