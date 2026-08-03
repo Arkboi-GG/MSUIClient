@@ -2089,7 +2089,9 @@ public sealed partial class GameLoop : IDisposable
             _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
                 SpellParticleGroundHeight);
-            _spellParticles.Render(_window.Camera);
+            // TEMP diagnostic: mute spell particles to expose the effect-mesh layer alone.
+            if (Environment.GetEnvironmentVariable("MSUI_MUTE_SPELL_PARTICLES") is null)
+                _spellParticles.Render(_window.Camera);
         }
 
         // Water draws AFTER the character, on purpose. It tests depth but does not

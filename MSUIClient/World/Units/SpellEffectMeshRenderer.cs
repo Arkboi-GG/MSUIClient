@@ -528,23 +528,25 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                 }
                 else if ((billboard & 0x10) != 0) // keep authored WoW X
                 {
-                    bx = NormalizeOr(Vector3.Transform(-Vector3.UnitZ, kept), -forward);
+                    bx = NormalizeOr(Vector3.Transform(Vector3.UnitX, kept), -forward);
                     bz = NormalizeOr(Vector3.Cross(forward, bx), up);
                     by = NormalizeOr(Vector3.Cross(bz, bx), right);
                 }
                 else // 0x20: keep authored WoW Y
                 {
-                    by = NormalizeOr(Vector3.Transform(-Vector3.UnitX, kept), right);
+                    by = NormalizeOr(Vector3.Transform(-Vector3.UnitZ, kept), right);
                     bx = NormalizeOr(Vector3.Cross(forward, by), -forward);
                     bz = NormalizeOr(Vector3.Cross(bx, by), up);
                 }
 
-                // M2 was converted from WoW coordinates to local Y-up:
-                // local X=-WoW Y, local Y=WoW Z, local Z=-WoW X.
+                // M2Reader stores model space as (x, z, -y) from WoW:
+                // local X=WoW X, local Y=WoW Z, local Z=-WoW Y. (The previous
+                // basis here was benilla/Bevy's local convention — wrong for
+                // MSUI verts; it turned every billboard edge-on to the camera.)
                 Matrix4x4 facing = new(
-                    -by.X, -by.Y, -by.Z, 0,
+                    bx.X, bx.Y, bx.Z, 0,
                     bz.X, bz.Y, bz.Z, 0,
-                    -bx.X, -bx.Y, -bx.Z, 0,
+                    -by.X, -by.Y, -by.Z, 0,
                     0, 0, 0, 1);
                 global = Matrix4x4.CreateScale(scale) * facing *
                     Matrix4x4.CreateTranslation(position);
