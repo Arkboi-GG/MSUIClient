@@ -121,9 +121,21 @@ public sealed partial class GameLoop
         }
         if (!spell.AutoRepeat && !spell.OnNextSwing && _pendingCastSpell != 0)
         {
-            if (_pendingCastSpell != spellId) RefuseCast(spellId, "LOCAL_SPELL_IN_PROGRESS", "Another action is in progress");
-            EmitCastVerdict(spellId, CastTargetReason.PendingCast, 0, sent: false);
-            return;
+            // This gate is only reached once the GCD has elapsed (checked above), so the
+            // only cast still legitimately in flight here is a timed one whose cast bar
+            // outlasts the global cooldown. If no cast bar / channel is up, the pending
+            // lock is stale: its SMSG_SPELL_GO was never received (observed with Arcane
+            // Explosion 1449, whose only server GO in a run was the Clearcasting proc
+            // 12536, never spell 1449 itself). Clear it so one dropped GO cannot deadlock
+            // every future cast (the baseline symptom: Frost Nova refused "Another action
+            // is in progress" 2.4s after the AoE, GCD already ready).
+            if (_castBarPhase is CastBarPhase.Casting or CastBarPhase.Channel)
+            {
+                if (_pendingCastSpell != spellId) RefuseCast(spellId, "LOCAL_SPELL_IN_PROGRESS", "Another action is in progress");
+                EmitCastVerdict(spellId, CastTargetReason.PendingCast, 0, sent: false);
+                return;
+            }
+            _pendingCastSpell = 0;
         }
         if (_entities.TryGet(_net.PlayerGuid, out WorldEntity caster))
         {
