@@ -34,12 +34,20 @@ public sealed class TerrainRenderer : IDisposable
     {
         public TerrainTile.Uploaded? Uploaded;
         public float[] Heights = [];
+        public float[] InnerHeights = [];
         public byte[] Holes = [];
     }
     private HashSet<(int col, int row)> _desired = [];
 
     /// <summary>Height grids kept CPU-side for ground queries, keyed like the tiles.</summary>
     private readonly Dictionary<(int col, int row), float[]> _heights = [];
+
+    /// <summary>
+    /// 128x128 per-cell INNER (fan-centre) heights, in lockstep with _heights. The render
+    /// mesh is 4 triangles per cell fanned around this vertex (TerrainTile), so decal
+    /// projection needs it to re-emit geometry exactly coplanar with the drawn ground.
+    /// </summary>
+    private readonly Dictionary<(int col, int row), float[]> _innerHeights = [];
 
     /// <summary>
     /// Per-quad hole masks, one per loaded tile, in lockstep with _heights.
@@ -199,6 +207,7 @@ public sealed class TerrainRenderer : IDisposable
             _tiles[key].Dispose();
             _tiles.Remove(key);
             _heights.Remove(key);
+            _innerHeights.Remove(key);
             RemoveHoles(key);
             changed = true;
         }
@@ -375,6 +384,88 @@ public sealed class TerrainRenderer : IDisposable
         }
 
         return grid;
+    }
+
+    /// <summary>
+    /// CPU-side 128x128 grid of the per-cell inner (fan-centre) heights — the
+    /// vertex the render mesh fans four triangles around. Indexed like the hole
+    /// grid: inner[r * 128 + c] belongs to the quad with corners (r,c)..(r+1,c+1).
+    /// </summary>
+    private static float[] BuildInnerHeightGrid(AdtTerrainReader.AdtResult? adt)
+    {
+        var grid = new float[QuadGridSide * QuadGridSide];
+        if (adt?.Chunks == null) return grid;
+        foreach (var chunk in adt.Chunks)
+        {
+            if (chunk?.Heights == null) continue;
+            for (int r = 0; r < 8; r++)
+            for (int c = 0; c < 8; c++)
+            {
+                int gr = chunk.IndexY * 8 + r;
+                int gc = chunk.IndexX * 8 + c;
+                if (gr >= QuadGridSide || gc >= QuadGridSide) continue;
+                grid[gr * QuadGridSide + gc] = chunk.BaseZ + chunk.InnerHeight(c, r);
+            }
+        }
+        return grid;
+    }
+
+    /// <summary>
+    /// Emit the RENDERED terrain triangles (the 4-triangle fan per cell, real inner
+    /// vertex) that intersect a world-XY rectangle. This is what ground-decal
+    /// projection drapes spell markers/rings over: the emitted geometry is exactly
+    /// coplanar with the drawn ground, so a depth-biased decal can never clip
+    /// through a slope. Holed and no-data cells are skipped (they aren't drawn).
+    /// </summary>
+    public void GatherGroundTriangles(float minX, float minY, float maxX, float maxY,
+        List<(Vector3 A, Vector3 B, Vector3 C)> output)
+    {
+        const float cell = GridSize / (HeightGridSide - 1);
+        foreach (((int col, int row) key, float[] grid) in _heights)
+        {
+            float originX = (32 - key.row) * GridSize;
+            float originY = (32 - key.col) * GridSize;
+            // world X spans [originX - GridSize, originX]; reject tiles outside the rect.
+            if (originX < minX || originX - GridSize > maxX ||
+                originY < minY || originY - GridSize > maxY) continue;
+
+            int r0 = Math.Clamp((int)MathF.Floor((originX - maxX) / cell), 0, QuadGridSide - 1);
+            int r1 = Math.Clamp((int)MathF.Ceiling((originX - minX) / cell), 1, QuadGridSide);
+            int c0 = Math.Clamp((int)MathF.Floor((originY - maxY) / cell), 0, QuadGridSide - 1);
+            int c1 = Math.Clamp((int)MathF.Ceiling((originY - minY) / cell), 1, QuadGridSide);
+            _holes.TryGetValue(key, out byte[]? holeGrid);
+            _innerHeights.TryGetValue(key, out float[]? inner);
+
+            for (int r = r0; r < r1; r++)
+            for (int c = c0; c < c1; c++)
+            {
+                if (ApplyHoles && holeGrid is not null &&
+                    holeGrid.Length == QuadGridSide * QuadGridSide &&
+                    holeGrid[r * QuadGridSide + c] != 0) continue;
+                float h00 = grid[r * HeightGridSide + c];
+                float h01 = grid[r * HeightGridSide + c + 1];
+                float h10 = grid[(r + 1) * HeightGridSide + c];
+                float h11 = grid[(r + 1) * HeightGridSide + c + 1];
+                if (h00 == 0 && h01 == 0 && h10 == 0 && h11 == 0) continue; // no MCVT
+
+                float x0 = originX - r * cell, x1 = x0 - cell;
+                float y0 = originY - c * cell, y1 = y0 - cell;
+                var v00 = new Vector3(x0, y0, h00);
+                var v01 = new Vector3(x0, y1, h01);
+                var v10 = new Vector3(x1, y0, h10);
+                var v11 = new Vector3(x1, y1, h11);
+                float midH = inner is not null && inner.Length == QuadGridSide * QuadGridSide &&
+                             inner[r * QuadGridSide + c] != 0
+                    ? inner[r * QuadGridSide + c]
+                    : (h00 + h01 + h10 + h11) * .25f;
+                var mid = new Vector3(x0 - cell * .5f, y0 - cell * .5f, midH);
+
+                output.Add((v00, mid, v01));
+                output.Add((v01, mid, v11));
+                output.Add((v11, mid, v10));
+                output.Add((v10, mid, v00));
+            }
+        }
     }
 
     /// <summary>
@@ -643,3 +734,4 @@ public sealed class TerrainRenderer : IDisposable
         _shader?.Dispose();
     }
 }
+

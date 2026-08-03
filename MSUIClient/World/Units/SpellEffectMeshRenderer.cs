@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using Silk.NET.OpenGL;
@@ -80,12 +80,15 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _groundVbo = _gl.GenBuffer();
         _gl.BindVertexArray(_groundVao);
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _groundVbo);
-        const uint stride = 5 * sizeof(float);
+        const uint stride = 6 * sizeof(float);
         _gl.EnableVertexAttribArray(0);
         _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
         _gl.EnableVertexAttribArray(1);
         _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, stride,
             (void*)(3 * sizeof(float)));
+        _gl.EnableVertexAttribArray(2);
+        _gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride,
+            (void*)(5 * sizeof(float)));
         _gl.BindVertexArray(0);
     }
 
@@ -344,8 +347,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     /// Grid resolution per side for the ground-ring decal. A single flat 4-corner quad drapes an
     /// expanding AoE ring (~19yd for Frost Nova) as one planar patch; over rolling terrain its far
     /// half sinks below the curved ground and depth-fails, so only a consistent world-half (a
-    /// crescent) survives — the "half the ring renders" bug. Tessellating and snapping EVERY grid
-    /// vertex to the ground makes the ring hug the terrain everywhere → a full 360-degree ring. This
+    /// crescent) survives â€” the "half the ring renders" bug. Tessellating and snapping EVERY grid
+    /// vertex to the ground makes the ring hug the terrain everywhere â†’ a full 360-degree ring. This
     /// is a cheap stand-in for benilla's true terrain-triangle projection (ground_fx.rs project_decal).
     /// </summary>
     private const int GroundTessellation = 10;
@@ -370,6 +373,24 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             cuv[i] = new Vector2(c.TexU, c.TexV);
         }
 
+        // Handedness normalization (benilla ground_fx.rs:70-83): keep the frame's +y'
+        // axis matched to the quad's authored +y edge so the UV bilerp never flips.
+        {
+            Vector3 ex = cp[1] - cp[0] + cp[3] - cp[2];
+            Vector3 ey = cp[2] - cp[0] + cp[3] - cp[1];
+            if (ex.X * ey.Y - ex.Y * ey.X < 0)
+            {
+                (cp[0], cp[2]) = (cp[2], cp[0]); (cp[1], cp[3]) = (cp[3], cp[1]);
+                (cuv[0], cuv[2]) = (cuv[2], cuv[0]); (cuv[1], cuv[3]) = (cuv[3], cuv[1]);
+            }
+        }
+
+        // True projector first: re-emit the terrain triangles under the posed quad.
+        if (FitFrame(cp) is { } frame && ProjectDecal(frame, cuv, camera) is { } projected)
+            return projected;
+
+        // Fallback (no terrain under the quad, or no gatherer â€” WMO floors): the
+        // tessellated height-snapped grid. Coarser, but better than nothing.
         int n = GroundTessellation;
         var grid = new (Vector3 P, Vector2 UV)[(n + 1) * (n + 1)];
         for (int gz = 0; gz <= n; gz++)
@@ -386,7 +407,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         }
 
         // Two triangles per cell, emitted as a triangle list (culling is off, so winding is moot).
-        float[] vertices = new float[n * n * 6 * 5];
+        float[] vertices = new float[n * n * 6 * 6];
         int o = 0;
         for (int gz = 0; gz < n; gz++)
             for (int gx = 0; gx < n; gx++)
@@ -408,7 +429,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private static void WriteGroundVert(float[] dst, ref int o, (Vector3 P, Vector2 UV) v)
     {
         dst[o++] = v.P.X; dst[o++] = v.P.Y; dst[o++] = v.P.Z;
-        dst[o++] = v.UV.X; dst[o++] = v.UV.Y;
+        dst[o++] = v.UV.X; dst[o++] = v.UV.Y; dst[o++] = 1f;
     }
 
     private static Vector3 Bilerp(Vector3 bl, Vector3 br, Vector3 tl, Vector3 tr, float u, float v)
@@ -417,47 +438,136 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private static Vector2 Bilerp(Vector2 bl, Vector2 br, Vector2 tl, Vector2 tr, float u, float v)
         => (1 - u) * (1 - v) * bl + u * (1 - v) * br + (1 - u) * v * tl + u * v * tr;
 
+    // â”€â”€ Ground-decal projector (benilla decal.rs/ground_fx.rs, trace Â§9) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //
+    // The decal is never drawn as its own quad: the REAL terrain triangles inside a
+    // fitted frame box are re-emitted with the quad's UVs bilerped across the frame and
+    // a vertical-fade alpha. The emitted geometry is exactly coplanar with the drawn
+    // ground, so with a strong depth bias the marker/ring can never clip into a slope,
+    // and the pattern is never split by terrain curvature.
+
+    /// <summary>Yaw-rotated horizontal rectangle Ã— a vertical slab, centred on Center.</summary>
+    private readonly record struct DecalFrame(Vector3 Center, float Sin, float Cos,
+        float HalfX, float HalfY, float Vert)
+    {
+        public (float X, float Y) InFrame(in Vector3 p)
+        {
+            float dx = p.X - Center.X, dy = p.Y - Center.Y;
+            return (dx * Cos - dy * Sin, dy * Cos + dx * Sin);
+        }
+    }
+
+    /// <summary>Signature of TerrainRenderer.GatherGroundTriangles; assigned by the host.</summary>
+    public Action<float, float, float, float, List<(Vector3 A, Vector3 B, Vector3 C)>>? GatherGround;
+
+    private readonly List<(Vector3 A, Vector3 B, Vector3 C)> _gatherScratch = new(256);
+    private List<Vector3> _clipFront = new(16);
+    private List<Vector3> _clipBack = new(16);
+
+    /// <summary>Fit the projection frame to 4 posed corners (benilla fit_frame). Null for a
+    /// degenerate pose (scale-0 first frame, edge-on tilt).</summary>
+    private static DecalFrame? FitFrame(ReadOnlySpan<Vector3> c)
+    {
+        Vector3 center = (c[0] + c[1] + c[2] + c[3]) * .25f;
+        Vector3 ex = (c[1] - c[0] + c[3] - c[2]) * .5f;
+        Vector3 ey = (c[2] - c[0] + c[3] - c[1]) * .5f;
+        var exh = new Vector2(ex.X, ex.Y);
+        float halfX = exh.Length() * .5f;
+        float halfY = new Vector2(ey.X, ey.Y).Length() * .5f;
+        if (halfX < 1e-3f || halfY < 1e-3f) return null;
+        Vector2 d = exh / (halfX * 2f);
+        return new DecalFrame(center, -d.Y, d.X, halfX, halfY, 2f * MathF.Max(halfX, halfY));
+    }
+
+    private static float PlaneDistance(in DecalFrame f, int plane, in Vector3 p)
+    {
+        (float x, float y) = f.InFrame(p);
+        float z = p.Z - f.Center.Z;
+        return plane switch
+        {
+            0 => x + f.HalfX, 1 => f.HalfX - x,
+            2 => y + f.HalfY, 3 => f.HalfY - y,
+            4 => z + f.Vert, _ => f.Vert - z,
+        };
+    }
+
+    /// <summary>Sutherlandâ€“Hodgman clip of one triangle against the frame's 6 half-planes.
+    /// Returns the surviving convex polygon (shared scratch list) or null.</summary>
+    private List<Vector3>? ClipToFrame(in DecalFrame f, Vector3 a, Vector3 b, Vector3 c)
+    {
+        _clipFront.Clear(); _clipFront.Add(a); _clipFront.Add(b); _clipFront.Add(c);
+        for (int plane = 0; plane < 6 && _clipFront.Count >= 3; plane++)
+        {
+            _clipBack.Clear();
+            int n = _clipFront.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p0 = _clipFront[i], p1 = _clipFront[(i + 1) % n];
+                float d0 = PlaneDistance(f, plane, p0), d1 = PlaneDistance(f, plane, p1);
+                if (d0 >= 0) _clipBack.Add(p0);
+                if (d0 >= 0 != d1 >= 0) _clipBack.Add(Vector3.Lerp(p0, p1, d0 / (d0 - d1)));
+            }
+            (_clipFront, _clipBack) = (_clipBack, _clipFront);
+        }
+        return _clipFront.Count >= 3 ? _clipFront : null;
+    }
+
     /// <summary>
-    /// The 1.12 area-targeting reticle: the AURARUNE circle draped over terrain at the
-    /// cursor's ground point, sized to the spell radius, tinted green and drawn additively.
-    /// Called from the world render pass every frame while ground-targeting is armed.
+    /// Project the frame onto the terrain: gather real ground triangles under it, clip
+    /// each to the frame, and emit camera-relative vertices with bilerped corner UVs
+    /// and the vertical-fade alpha trapezoid. Null when no ground is in the slab (the
+    /// mid-air gate) or no gatherer is wired.
     /// </summary>
-    public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius,
-        Func<float, float, float, float?>? sampleGround)
+    private float[]? ProjectDecal(in DecalFrame frame, ReadOnlySpan<Vector2> uv, Vector3 camera)
+    {
+        if (GatherGround is null) return null;
+        _gatherScratch.Clear();
+        float ext = MathF.Sqrt(frame.HalfX * frame.HalfX + frame.HalfY * frame.HalfY);
+        GatherGround(frame.Center.X - ext, frame.Center.Y - ext,
+            frame.Center.X + ext, frame.Center.Y + ext, _gatherScratch);
+        if (_gatherScratch.Count == 0) return null;
+        var vertices = new List<float>(512);
+        foreach ((Vector3 a, Vector3 b, Vector3 c) in _gatherScratch)
+        {
+            if (ClipToFrame(frame, a, b, c) is not { } poly) continue;
+            for (int k = 1; k < poly.Count - 1; k++)
+            {
+                EmitDecalVert(vertices, frame, uv, poly[0], camera);
+                EmitDecalVert(vertices, frame, uv, poly[k], camera);
+                EmitDecalVert(vertices, frame, uv, poly[k + 1], camera);
+            }
+        }
+        return vertices.Count >= 18 ? vertices.ToArray() : null;
+    }
+
+    private static void EmitDecalVert(List<float> dst, in DecalFrame f,
+        ReadOnlySpan<Vector2> uv, Vector3 p, Vector3 camera)
+    {
+        (float x, float y) = f.InFrame(p);
+        float s = (x + f.HalfX) / (2f * f.HalfX);
+        float t = (y + f.HalfY) / (2f * f.HalfY);
+        Vector2 u = Vector2.Lerp(Vector2.Lerp(uv[0], uv[1], s), Vector2.Lerp(uv[2], uv[3], s), t);
+        float dz = MathF.Abs(p.Z - f.Center.Z);
+        float alpha = Math.Clamp((f.Vert - dz) / (.75f * f.Vert), 0f, 1f);
+        dst.Add(p.X - camera.X); dst.Add(p.Y - camera.Y); dst.Add(p.Z - camera.Z);
+        dst.Add(u.X); dst.Add(u.Y); dst.Add(alpha);
+    }
+
+    /// <summary>
+    /// The 1.12 area-targeting reticle: the AURARUNE circle projected onto the real
+    /// terrain triangles at the cursor's ground point, sized to the spell radius,
+    /// tinted green and drawn additively. No ground under the cursor â†’ no marker
+    /// (the 1.12 mid-air gate).
+    /// </summary>
+    public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius)
     {
         if (_groundShader is null) return;
         Texture? rune = ResolveTexture(@"SPELLS\AURARUNE256.BLP");
         if (rune is null) return;
-        int n = GroundTessellation;
-        var grid = new (Vector3 P, Vector2 UV)[(n + 1) * (n + 1)];
-        for (int gy = 0; gy <= n; gy++)
-            for (int gx = 0; gx <= n; gx++)
-            {
-                float u = gx / (float)n, v = gy / (float)n;
-                var p = new Vector3(
-                    centre.X + (u - .5f) * 2f * radius,
-                    centre.Y + (v - .5f) * 2f * radius, centre.Z);
-                if (sampleGround?.Invoke(p.X, p.Y, centre.Z + 3f) is float height)
-                    p.Z = height + .03f;
-                p -= camera.Position;
-                grid[gy * (n + 1) + gx] = (p, new Vector2(u, v));
-            }
-        float[] vertices = new float[n * n * 6 * 5];
-        int o = 0;
-        for (int gy = 0; gy < n; gy++)
-            for (int gx = 0; gx < n; gx++)
-            {
-                var a = grid[gy * (n + 1) + gx];
-                var b = grid[gy * (n + 1) + gx + 1];
-                var c = grid[(gy + 1) * (n + 1) + gx];
-                var d = grid[(gy + 1) * (n + 1) + gx + 1];
-                WriteGroundVert(vertices, ref o, a);
-                WriteGroundVert(vertices, ref o, b);
-                WriteGroundVert(vertices, ref o, c);
-                WriteGroundVert(vertices, ref o, c);
-                WriteGroundVert(vertices, ref o, b);
-                WriteGroundVert(vertices, ref o, d);
-            }
+        var frame = new DecalFrame(centre, 0f, 1f, radius, radius, 2f * radius);
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        float[]? vertices = ProjectDecal(frame, uv, camera.Position);
+        if (vertices is null) return;
         RenderGroundQuads(camera, [(vertices, rune, 4, new Vector3(.25f, 1f, .35f), 1f)]);
     }
 
@@ -473,7 +583,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _gl.DepthMask(false);
         _gl.Disable(EnableCap.CullFace);
         _gl.Enable(EnableCap.PolygonOffsetFill);
-        _gl.PolygonOffset(-1f, -1f);
+        _gl.PolygonOffset(-1f, -8192f); // benilla GROUND_FX_DEPTH_BIAS: coplanar decal must beat the opaque ground
         foreach (var draw in draws)
         {
             _groundShader.Set("uHasTexture", draw.Texture is null ? 0 : 1);
@@ -485,7 +595,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             fixed (float* p = draw.Vertices)
                 _gl.BufferData(BufferTargetARB.ArrayBuffer,
                     (nuint)(draw.Vertices.Length * sizeof(float)), p, BufferUsageARB.StreamDraw);
-            _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(draw.Vertices.Length / 5));
+            _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(draw.Vertices.Length / 6));
         }
         _gl.Disable(EnableCap.PolygonOffsetFill);
         _gl.Enable(EnableCap.CullFace);
@@ -598,7 +708,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
 
                 // M2Reader stores model space as (x, z, -y) from WoW:
                 // local X=WoW X, local Y=WoW Z, local Z=-WoW Y. (The previous
-                // basis here was benilla/Bevy's local convention — wrong for
+                // basis here was benilla/Bevy's local convention â€” wrong for
                 // MSUI verts; it turned every billboard edge-on to the camera.)
                 Matrix4x4 facing = new(
                     bx.X, bx.Y, bx.Z, 0,
@@ -699,16 +809,20 @@ void main() {
     private const string GroundVertexSource = @"#version 330 core
 layout(location=0) in vec3 aPosition;
 layout(location=1) in vec2 aUV;
+layout(location=2) in float aAlpha;
 uniform mat4 uViewProjection;
 out vec2 vUV;
-void main(){vUV=aUV;gl_Position=uViewProjection*vec4(aPosition,1.0);}";
+out float vAlpha;
+void main(){vUV=aUV;vAlpha=aAlpha;gl_Position=uViewProjection*vec4(aPosition,1.0);}";
 
     private const string GroundFragmentSource = @"#version 330 core
 in vec2 vUV;
+in float vAlpha;
 uniform sampler2D uTexture;
 uniform int uHasTexture;
 uniform vec3 uTint;
 uniform float uOpacity;
 out vec4 FragColor;
-void main(){vec4 t=uHasTexture!=0?texture(uTexture,vUV):vec4(1.0);FragColor=vec4(t.rgb*uTint,t.a*uOpacity);if(FragColor.a<=0.001)discard;}";
+void main(){vec4 t=uHasTexture!=0?texture(uTexture,vUV):vec4(1.0);FragColor=vec4(t.rgb*uTint,t.a*uOpacity*vAlpha);if(FragColor.a<=0.001)discard;}";
 }
+

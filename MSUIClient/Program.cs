@@ -2055,14 +2055,19 @@ public sealed partial class GameLoop : IDisposable
 
         long spellEffectStarted = Stopwatch.GetTimestamp();
         if (WarmStage(5) && _spellEffects is not null && _spellEffectMeshes is not null)
+        {
+            // Ground-decal projection needs the terrain's triangle gatherer (rings + reticle).
+            _spellEffectMeshes.GatherGround ??= _terrain is not null
+                ? _terrain.GatherGroundTriangles : null;
             _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
                 SpellGroundHeight);
-        // Armed ground-AoE reticle: the rune circle follows the cursor's terrain point.
-        // 8 yd = the base-rank radius of every 1.12 targeted AoE (Blizzard, Flamestrike,
-        // Rain of Fire); per-spell SpellRadius.dbc lookup is a refinement.
-        if (WarmStage(5) && _groundCastSpell != 0 && _groundCursorPoint is { } reticle)
-            _spellEffectMeshes?.RenderTargetingMarker(_window.Camera, reticle, 8f, SpellGroundHeight);
+            // Armed ground-AoE reticle: the rune circle follows the cursor's terrain point.
+            // 8 yd = the base-rank radius of every 1.12 targeted AoE (Blizzard, Flamestrike,
+            // Rain of Fire); per-spell SpellRadius.dbc lookup is a refinement.
+            if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle)
+                _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle, 8f);
+        }
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
