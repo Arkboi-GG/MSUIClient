@@ -77,7 +77,7 @@ Supersedes: `MSUI_CLIENT_DESIGN.md` (browser-era architecture, abandoned — see
 > **If you are a fresh assistant picking this project up cold, read §0, §1, §3, §4 and §10 before touching anything.**
 > §3 lists facts established empirically that cost real hours. Several are counter-intuitive and several were got wrong once — sometimes twice — before being got right. Re-deriving them will waste a session.
 > §10 lists exactly what to ask Nico for, and why.
-> **§1.2 is the documentation map.** Detail for a specific system (water, terrain, WMO, …) increasingly lives in its own `SYSTEM_<NAME>.md`. When you are working on one system, read *this handbook's* cross-cutting ground truth (§3) plus that system's doc — not every section here. Loading the whole handbook to change one system is the context waste §1.2 exists to stop.
+> **§1.2 is the documentation map.** Committed documentation is organized under `docs/current/`, `docs/systems/`, and `docs/plans/`; superseded evidence remains local under the Git-ignored `docs/archive/`. See `docs/README.md`. When you are working on one system, read *this handbook's* cross-cutting ground truth (§3) plus that system's doc — not every document. Loading the whole handbook to change one system is the context waste §1.2 exists to stop.
 
 ---
 
@@ -457,8 +457,11 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 ├── setup-vmaps.ps1                  optional; -Wsl mode for the travel machine
 ├── .gitignore                       MUST contain GameData/ — see §8.6
 ├── .gitattributes                   CRLF for C#/shaders/config, LF for markdown
-├── SYSTEM_*.md                      one system, one doc — see §1.2
-├── FOUNDATION_PLAN.md / PLAN_0x_*.md / PLAN_TEMPLATE.md
+├── docs/                            detailed project knowledge — see docs/README.md
+│   ├── current/                     active handoffs, context, audits and research
+│   ├── systems/                     one system, one ground-truth doc — see §1.2
+│   ├── plans/                       foundation and numbered derivation records
+│   └── archive/                     local-only superseded evidence (Git-ignored)
 ├── tools/mpqpeek/                   read the client's own MPQs (Python, stdlib, read-only)
 │                                    find/cat/stat/png/cells - SYSTEM_SETTINGS_UI.md §7
 ├── areatrigger_teleport.tsv         VMaNGOS dump; where each portal SENDS you
@@ -597,15 +600,16 @@ Splitting keeps each read small and each doc owned by exactly one concern — th
 same "where each responsibility ends" discipline §1.1 applies to code.
 
 **Conventions.**
-- File name: `SYSTEM_<NAME>.md` at the repo root (matches the flat `PLAN_*.md`
-  layout already here). `docs/` can come later if the root gets crowded; the rule
-  is one-system-one-file, not the exact folder.
+- File name: `SYSTEM_<NAME>.md` under `docs/systems/`; plans live under
+  `docs/plans/`. The rule is one-system-one-file, with the repository root kept
+  for orientation, setup, source, and configuration.
 - Scope: one system per doc. If a doc starts describing two systems, split it.
 - Cross-cutting invariants that many systems depend on (coordinates, camera-relative
   rendering, the shader ASCII rule, streaming residency) stay in the handbook §3
   and are *referenced* by the system docs, not copied into them.
-- Foundation / dev-tooling docs keep their existing names (`FOUNDATION_PLAN.md`,
-  `PLAN_0x_*.md`); they already follow the spirit of this rule.
+- Foundation / dev-tooling docs keep their existing names under `docs/plans/`
+  (`FOUNDATION_PLAN.md`, `PLAN_0x_*.md`); they already follow the spirit of this
+  rule.
 
 **The map.**
 

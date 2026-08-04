@@ -72,8 +72,11 @@ experiment this session — cherry-picked, captured, still squares, reverted.
    spell's impact kit at the dynobj position for its lifetime. Two bugs then found by
    census forensics: the anchor was missing the model→world rotation — **the whole
    blizzard was lying on its side in the grass** (snow emitters 7.7 units "up" sat
-   7.7 yd north at ankle height) — and the 3.3 s clip needed looping across the 8 s
-   object. After both: snowfall spawns ~9.5 yd overhead at the bound point and falls.
+   7.7 yd north at ankle height). An initial correction also manually rewound the 3.3 s
+   clip across the 8 s object. The later full M2 animation audit disproved that second
+   rule: Blizzard's first sequence has clamp bit `0x1`; only tracks authored to loop may
+   loop, and global sequences keep their own clock. The manual area-clock rewind is now
+   removed. Type-9 shard births remain owned by the DynamicObject duration.
 6. **`b779a25` — the ground-decal projector (trace doc §9, benilla decal.rs/ground_fx.rs).**
    Decals are no longer drawn as their own quads: the real rendered terrain triangles
    (4-per-cell fan, true MCVT inner vertices — new per-tile inner-height grid +
@@ -85,11 +88,11 @@ experiment this session — cherry-picked, captured, still squares, reverted.
 
 ## Open items (the honest list)
 
-- **Green targeting circle: pattern still wrong.** Placement/draping is right; the
-  LOOK is not the 1.12 reference (full rune circle: outer+inner rings, glyphs, crossing
-  arcs). Current texture guess is `SPELLS\AURARUNE256.BLP`, axis-aligned, fixed 8 yd.
-  Next: pin down what the real 1.12 AoE cursor actually renders (texture, orientation,
-  radius source — SpellRadius.dbc via EffectRadiusIndex, possibly rotation animation).
+- **Green targeting circle: pattern still needs original-client capture.** Placement/draping is right and
+  radius now comes from the maximum positive SpellRadius referenced by all populated effect lanes (full
+  build-5875 census in `tools/spell-target-radius-check`; zero-radius placement retains an explicit 8-yard
+  fallback). The remaining question is the exact 1.12 texture/orientation/animation and whether mixed-radius
+  or zero-radius spells use a different presentation rule.
 - **Blizzard: small snowflakes right, the BIG falling shards missing.** The model's
   ICE3B_C mesh batches (43 verts, translation-animated bones from ~14 yd up) are
   confirmed drawing with full opacity (`MSUI_FX_TRACE`) yet don't read as the big
@@ -102,10 +105,77 @@ experiment this session — cherry-picked, captured, still squares, reverted.
 - **Reticle on WMO floors** falls back to the old grid (gatherer is terrain-only).
 - **Multi-action-bars** have no drop detection (main bar drops work).
 - **ESC does not cancel** ground-targeting (right-click does).
-- **Per-spell radius** for the reticle (SpellRadius.dbc) instead of fixed 8 yd.
 - Diagnostics kept in-tree, all off by default: `MSUI_MUTE_SPELL_PARTICLES`,
   `MSUI_MUTE_SPELL_AUDIO`, `MSUI_FX_TRACE`, `[fx-load]` cold-load timers, the
   `[dynobj-fx]` spawn log, and the `castground <id> [yards]` protocol step.
+
+## Special particle motion/frame slice — static/data completion
+
+The `0x10` model-space, `0x40` inherited-motion, and `0x4000` follow exceptions were traced end to end after
+the ordinary root-cloud correction. The important defect was deeper than a missing flag branch:
+`SpellEffectSource` supplied only the posed emitter origin and quaternion. That discarded live joint scale,
+so model-space positions/tails and world-to-stored follow/inherit vectors could not match the reference.
+
+The runtime now supplies the emitter joint's decomposed live TRS and composes it with the effect root at the
+particle boundary. The complete frame drives ordinary birth offsets/directions, model-space draw and inverse
+conversion, tail velocity, fixed-plane quad basis, and geometry-particle pose. Follow and inherit receive the
+same 100 ms-clamped step as integration/emission. Inherit retains the reference's strict `>1/30 s` trigger,
+current-frame-only delta, already-live gate, and held value.
+
+`tools/spell-particle-motion-check` passes 61 checks. Its complete mounted listfile scan pins 9,717 paths,
+9,654 parsed models, 7,860 emitters, and 2,550 unique special records (2,391 model-space, 124 inherit, 96
+follow). The 599 referenced SpellVisual paths contain 505 model-space, 61 inherit, and 20 follow records.
+There are 115 special records beneath scale-animated joint chains, including 52 spell records; a live
+`AbolishMagic_Base.m2` source-frame probe confirms non-unit scale reaches the feed. Arcane Shot pins the follow
+curve and Bloodlust pins combined model-space+inherit with scale 3.
+
+Neighbor regressions pass: animation/lifecycle 5,788 checks, area 100,104, target radius 779, ordinary frame
+law, interface wire check, and the full solution build. This is `STATIC/DATA_COMPLETE`; no synchronized
+original-client runtime/pixel capture was made for these special-motion fixtures.
+
+## Missile release/root/history/impact slice — static/data completion
+
+The missile lane was re-traced as a single ownership and timing pipeline instead of accepting the older
+independent “match” labels. Four hidden divergences were corrected: missile movement had inherited the
+particle simulator's 100 ms hitch clamp; the parsed model basis did not map authored +X to flight; free
+missile ordinary particles were stored world-absolute instead of relative to the moving root; and spells
+with no SpellVisual row tried chest (`0x22`) before the reference fallback tail.
+
+`SpellMissileLaw` now owns release-event, animation-finish, strict never-started backstop, GO-time deadline,
+raw-dt homing, no-snap arrival, and roll-free flight-frame decisions. `SpellVisualCatalog` preserves an
+explicit no-destination-tag sentinel. `SpellEffectSource` resolves release markers at the live caster pose,
+re-resolves the target point every flight tick, carries ordinary clouds with live root translation without
+free-model attachment rotation, and hands sound/root ownership to impact before the visual can snap.
+
+`tools/spell-missile-pipeline-check` passes 54 checks. Its mounted census pins 981 speed spells, 824 with
+visual rows, 157 without, 64 distinct missile paths (63 resolve; `Particles\FrostBolt_Missle.m2` is the one
+shipped stale/typo path), 45 particle models, 35 ribbon models, 25 models with AnimationData 144, and 169
+emitters (8 follow, 5 inherit). It also runs normal launch/motion/end/impact and past-deadline no-flight
+handoffs through the production source. This is `STATIC/DATA_COMPLETE`; the prior Fireball image predates
+the corrected frame law and is not pixel certification. Ribbon history is handled in the following slice.
+
+## Ribbon committed-node/history slice — static/data completion
+
+The old ribbon audit repeated two semantic-frame mistakes this project has now seen several times: it
+accepted matching labels without converting coordinate bases, and it treated every notion of “effect age”
+as one clock. Benilla's width axis is authored WoW bone-local +Y. MSUI parses raw `(x,y,z)` into `(x,z,-y)`,
+so that direction is parsed local `-Z`; the former `Vector3.UnitY` was a 90-degree error. Benilla also uses
+raw age for pair lifetime/U while its 100 ms-clamped simulation step advances emission, sag, and keyed ribbon
+look tracks.
+
+`SpellRibbonHistoryLaw` now makes those contracts explicit. The current posed bone/root builds the live head
+and a new top/bottom pair only at the authored cadence. Committed pairs remain world-space, retain their born
+width, sag and expire without any later pose transform, and continue keyed alpha/color during owner-loss
+drain. Direct `position*skin*root` is regression-checked against the pivot-rebased posed-bone form, and the
+width direction discards scale like Benilla's live joint rotation read.
+
+`tools/spell-ribbon-history-check` passes 41 checks over all 9,717 mounted M2 paths: 176 ribbon models, 590
+records, 350 spell ribbons, 318 referenced ribbons, 80 missile ribbons, 102 gravity records, 142 animated-
+height records, 214 animated-alpha records, 90 scale-animated chains, and 570 animated-bone chains. Arcane
+Shot proves a later real InFlight bone/root pose cannot move a committed pair; Holy Smite distinguishes the
+clamped look clock from raw expiry; the thrown dagger pins Stand-off/InFlight-on visibility. This is
+`STATIC/DATA_COMPLETE`, not original-client pixel certification. The next unresolved implementation slice
+is multi-weight mesh/pivot composition.
 
 ## Method notes (why this session moved)
 

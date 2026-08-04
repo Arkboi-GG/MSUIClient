@@ -83,11 +83,37 @@ project.assets.json
 *.sln.docstates
 *.userprefs
 
+# Per-user assistant/editor state. Project-wide agent instructions belong in
+# AGENTS.md or .agents/, not in these local settings.
+/.claude/
+
+# ImGui writes window positions and sizes here at runtime.
+/imgui.ini
+
 # ── OS noise ─────────────────────────────────────────────────────────
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 .DS_Store
+
+# ── Documentation policy ─────────────────────────────────────────────────────
+# Keep the repository root from accumulating ad-hoc Markdown dumps. Detailed
+# maintained documentation belongs in the three allow-listed docs trees.
+/*.md
+!/PROJECT_HANDBOOK.md
+!/SETUP.md
+
+/docs/*
+!/docs/README.md
+!/docs/current/
+!/docs/current/**
+!/docs/systems/
+!/docs/systems/**
+!/docs/plans/
+!/docs/plans/**
+
+# Explicitly local/disposable holding area.
+/can delete or move/
 
 # ── Scratch ──────────────────────────────────────────────────────────
 *.log
@@ -141,4 +167,5 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 /NIGHT_05/
 /NIGHT_06/
 /NIGHT_07/
+/NIGHT_*/
 /_to_delete/
