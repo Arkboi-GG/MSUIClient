@@ -84,6 +84,9 @@ public sealed class SpellSoundSystem : IDisposable
         return voiceId;
     }
 
+    public bool IsAuthoredLoop(uint? soundId)
+        => soundId is uint id && _catalog?.TryGet(id, out SoundEntry entry) == true && entry.Looping;
+
     private void PlayOnWorker(long voiceId, string path, SoundEntry entry, ulong unit,
         bool looping, bool trackHold, float gain)
     {

@@ -48,12 +48,92 @@ namespace MSUIClient.Formats;
 /// </summary>
 public readonly record struct SpellVisualStages(
     uint Precast, uint Cast, uint Impact, uint State, uint Channel,
-    uint MissileEffect, ushort MissileAttachment, uint MissileSound, uint StrikeSound);
+    uint MissileEffect, ushort MissileAttachment, uint MissileSound, uint StrikeSound,
+    uint MissileGate, uint AreaGate, uint AreaEffect, uint AreaKit);
+
+public readonly record struct SpellVisualKitEffect(
+    ushort AttachmentId,
+    string ModelPath);
+
+public readonly record struct SpellVisualCharProc(int Type, float[] Parameters);
+
+public readonly record struct SpellAreaEmitterInfo(
+    int Selector,
+    string ModelPath,
+    float InstancesPerSecond);
 
 public readonly record struct SpellVisualKitInfo(
     ushort? AnimationId,
     uint? Sound,
-    IReadOnlyList<(ushort AttachmentId, string ModelPath)> Effects);
+    IReadOnlyList<SpellVisualKitEffect> Effects,
+    IReadOnlyList<SpellVisualCharProc> CharProcs);
+
+public readonly record struct SpellAreaVisualInfo(
+    string? LoopingModelPath,
+    IReadOnlyList<SpellAreaEmitterInfo> Emitters,
+    uint? Sound);
+
+/// <summary>
+/// The 1.12 client's type-9 SpellVisualKit dispatch. The selector is not a
+/// SpellVisualEffectName foreign key: it indexes this literal client table.
+/// A complete build-5875 census finds eight type-9 rows, all with integral
+/// selectors in this range and zeroes in parameters 2/3. Selector 3 is shipped
+/// by the client table but unused by the mounted DBC.
+/// </summary>
+public static class SpellAreaVisualLaw
+{
+    private static readonly string[] ShardModels =
+    [
+        @"Spells\Blizzard_Impact_Base.m2",
+        @"Spells\RainOfFire_Impact_Base.m2",
+        @"Spells\CallLightning_Impact.m2",
+        @"Spells\FlamestrikeSmall_Impact_Base.m2",
+        @"Spells\DeathAndDecay_Area_Base.m2",
+        @"Spells\ArcaneShot_Area.m2",
+        @"Spells\StarShards_Impact_Base.m2",
+    ];
+    private static readonly IReadOnlyList<string> ShardModelView = Array.AsReadOnly(ShardModels);
+
+    public static IReadOnlyList<string> ClientShardModels => ShardModelView;
+
+    public static bool TryResolveEmitter(in SpellVisualCharProc proc,
+        out SpellAreaEmitterInfo emitter)
+    {
+        emitter = default;
+        if (proc.Type != 9 || proc.Parameters.Length < 2) return false;
+        float rawSelector = proc.Parameters[0];
+        float rate = proc.Parameters[1];
+        if (!float.IsFinite(rawSelector) || !float.IsFinite(rate) || rate <= 0f) return false;
+
+        float integral = MathF.Round(rawSelector);
+        if (rawSelector != integral || integral < 0f || integral >= ShardModels.Length) return false;
+        int selector = (int)integral;
+        emitter = new SpellAreaEmitterInfo(selector, ShardModels[selector], rate);
+        return true;
+    }
+
+    /// <summary>Uniform by area over the server-owned DynamicObject disc.</summary>
+    public static Vector2 NextDiscOffset(ref ulong randomState, float radius)
+    {
+        if (randomState == 0) randomState = 0x9E3779B97F4A7C15UL;
+        float u1 = NextUnit(ref randomState);
+        float u2 = NextUnit(ref randomState);
+        float safeRadius = float.IsFinite(radius) ? Math.Max(0f, radius) : 0f;
+        float distance = safeRadius * MathF.Sqrt(u1);
+        float angle = u2 * MathF.Tau;
+        return new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+    }
+
+    private static float NextUnit(ref ulong state)
+    {
+        ulong x = state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        state = x;
+        return ((x * 0x2545F4914F6CDD1DUL) >> 40) / 16777216f;
+    }
+}
 
 /// <summary>
 /// Which owner's reap may kill an instance of this stage.
@@ -87,12 +167,19 @@ public sealed class SpellVisualCatalog
     public static readonly ushort[] MissileAttachTable =
         [0x14, 0x22, 0x13, 0x15, 0x16, 0x11, 0x17, 0x18, 0x19, 0x0F, 0x10];
 
+    /// <summary>
+    /// Field 9 ordinals outside the literal table have no first-choice tag. Keep that state
+    /// distinct from attachment id 0 so missile targeting begins at the 0x0F/0x13 fallback tail.
+    /// </summary>
+    public const ushort NoMissileAttachment = ushort.MaxValue;
+
     /// <summary>The reference client's literal fallback when a missile chain resolves to nothing.</summary>
     public const string ErrorCube = @"Spells\ErrorCube.m2";
 
     private readonly Dictionary<uint, SpellVisualStages> _visuals = [];
-    private readonly Dictionary<uint, (ushort? Anim, uint? Sound, uint[] Effects)> _kits = [];
-    private readonly Dictionary<uint, string> _effectPaths = [];
+    private readonly Dictionary<uint, (ushort? Anim, uint? Sound, uint[] Effects,
+        SpellVisualCharProc[] CharProcs)> _kits = [];
+    private readonly Dictionary<uint, string> _effects = [];
 
     /// <summary>Fold BOTH none-sentinels. See the class remarks.</summary>
     private static uint? Fk(uint raw) => raw is 0 or uint.MaxValue ? null : raw;
@@ -133,15 +220,41 @@ public sealed class SpellVisualCatalog
     public bool TryGetKit(uint id, out SpellVisualKitInfo kit)
     {
         if (Fk(id) is null || !_kits.TryGetValue(id, out var raw)) { kit = default; return false; }
-        var effects = new List<(ushort, string)>(9);
+        var effects = new List<SpellVisualKitEffect>(9);
         for (int i = 0; i < raw.Effects.Length; i++)
         {
             if (Fk(raw.Effects[i]) is not uint effect) continue;
-            if (!_effectPaths.TryGetValue(effect, out string? path) || path.Length == 0) continue;
-            effects.Add((KitAttachmentIds[i], ModelPath(path)));
+            if (!_effects.TryGetValue(effect, out var visual) || visual.Length == 0) continue;
+            effects.Add(new SpellVisualKitEffect(KitAttachmentIds[i], ModelPath(visual)));
         }
-        kit = new SpellVisualKitInfo(raw.Anim, raw.Sound, effects);
+        kit = new SpellVisualKitInfo(raw.Anim, raw.Sound, effects, raw.CharProcs);
         return true;
+    }
+
+    /// <summary>
+    /// Resolve the DynamicObject-specific visual machine. This is separate from the ordinary
+    /// impact-kit path: SpellVisual fields 11/12 name the looping centre model, while field 13's
+    /// first type-9 CharProc names and rates the free one-shot shards scattered over the radius.
+    /// </summary>
+    public bool TryGetAreaVisual(uint visualId, out SpellAreaVisualInfo area)
+    {
+        area = default;
+        if (!_visuals.TryGetValue(visualId, out SpellVisualStages stages)) return false;
+
+        string? looping = stages.AreaGate != 0 && Fk(stages.AreaEffect) is uint effectId &&
+                          _effects.TryGetValue(effectId, out string? path)
+            ? ModelPath(path) : null;
+        var emitters = new List<SpellAreaEmitterInfo>(4);
+        uint? sound = null;
+        if (Fk(stages.AreaKit) is uint kitId && _kits.TryGetValue(kitId, out var kit))
+        {
+            sound = kit.Sound;
+            foreach (SpellVisualCharProc proc in kit.CharProcs)
+                if (SpellAreaVisualLaw.TryResolveEmitter(proc, out SpellAreaEmitterInfo emitter))
+                    emitters.Add(emitter);
+        }
+        area = new SpellAreaVisualInfo(looping, emitters, sound);
+        return looping is not null || emitters.Count != 0 || sound is not null;
     }
 
     /// <summary>
@@ -168,8 +281,8 @@ public sealed class SpellVisualCatalog
     /// </summary>
     public string? MissilePath(in SpellVisualStages stages)
         => Fk(stages.MissileEffect) is uint id &&
-           _effectPaths.TryGetValue(id, out string? path) && path.Length > 0
-            ? ModelPath(path) : null;
+           _effects.TryGetValue(id, out string? visual) && visual.Length > 0
+            ? ModelPath(visual) : null;
 
     public static SpellVisualCatalog? Load(MpqMount mpq)
     {
@@ -185,7 +298,8 @@ public sealed class SpellVisualCatalog
         {
             uint id = names.GetUInt(row, 0);
             string path = names.GetString(row, 2);
-            if (id != 0 && path.Length > 0) result._effectPaths[id] = path;
+            if (id != 0 && path.Length > 0)
+                result._effects[id] = path;
         }
 
         for (int row = 0; row < kits.RecordCount; row++)
@@ -193,10 +307,23 @@ public sealed class SpellVisualCatalog
             uint id = kits.GetUInt(row, 0);
             var effects = new uint[9];
             for (int i = 0; i < effects.Length; i++) effects[i] = kits.GetUInt(row, 3 + i);
+            var charProcs = new List<SpellVisualCharProc>(4);
+            for (int i = 0; i < 4; i++)
+            {
+                int type = kits.GetInt(row, 15 + i);
+                if (type <= 0) continue;
+                // Build 5875 has four parameter arrays, transposed by proc lane:
+                // p0=f19..22, p1=f23..26, p2=f27..30, p3=f31..34.
+                var parameters = new float[4];
+                for (int p = 0; p < parameters.Length; p++)
+                    parameters[p] = kits.GetFloat(row, 19 + p * 4 + i);
+                charProcs.Add(new SpellVisualCharProc(type, parameters));
+            }
             result._kits[id] = (
                 Fk(kits.GetUInt(row, 2)) is uint a ? (ushort)a : null,
                 Fk(kits.GetUInt(row, 13)),
-                effects);
+                effects,
+                charProcs.ToArray());
         }
 
         for (int row = 0; row < visuals.RecordCount; row++)
@@ -210,12 +337,16 @@ public sealed class SpellVisualCatalog
                 State: visuals.GetUInt(row, 4),
                 Channel: visuals.GetUInt(row, 5),
                 MissileEffect: visuals.GetUInt(row, 7),
-                // The ordinal maps THROUGH the table. Out of range -> chest, the
-                // reference's own practical default for a body-homing projectile.
+                // The ordinal maps THROUGH the table. Out of range means no first-choice
+                // tag; the missile destination resolver then starts at 0x0F/0x13.
                 MissileAttachment: ordinal < (uint)MissileAttachTable.Length
-                    ? MissileAttachTable[ordinal] : (ushort)0x22,
+                    ? MissileAttachTable[ordinal] : NoMissileAttachment,
                 MissileSound: visuals.GetUInt(row, 10) is var snd && Fk(snd) is uint s ? s : 0,
-                StrikeSound: visuals.GetUInt(row, 14) is var strike && Fk(strike) is uint st ? st : 0);
+                StrikeSound: visuals.GetUInt(row, 14) is var strike && Fk(strike) is uint st ? st : 0,
+                MissileGate: visuals.GetUInt(row, 6),
+                AreaGate: visuals.GetUInt(row, 11),
+                AreaEffect: visuals.GetUInt(row, 12),
+                AreaKit: visuals.GetUInt(row, 13));
         }
 
         return result;

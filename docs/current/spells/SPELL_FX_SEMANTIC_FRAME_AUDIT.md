@@ -14,6 +14,11 @@ Current evidence for the corrected ordinary-anchor and special-motion laws: `STA
 production build, pure frame checks, complete mounted M2 census, real authored fixtures, and live
 `SpellEffectSource` frame feed pass. Matched original-client pixels/runtime traces are still required.
 
+M-017 effect-mesh skinning is also `STATIC/DATA_COMPLETE` at its bounded claim: all four weights, nonzero
+pivots, hierarchy, scale, billboard palette propagation, matrix packing, normals, root placement, and camera
+subtraction are executable-audited against the mounted build-5875 corpus. No mesh-only MSUI/original-client
+capture has been made, so this is not pixel or runtime parity certification.
+
 ## Authority and evidence rules
 
 1. Original 1.12.1 captures decide pixels, timing, direction, scale, and composition.
@@ -58,7 +63,7 @@ does not prove that a live asset supplies the expected frames or that final pixe
 | Inherit `0x40` | Strict 30 Hz sample-and-hold of the current one-frame emitter delta; zero until particles already live | Held world velocity, converted into the particle storage frame at birth | Birth adds `(1 + S11*speedVariation) * held` | Pure cadence/hitch/live-gate checks + Bloodlust/Abolish Magic fixtures; velocity trace open. |
 | Geometry particle | Same parent-particle position lane; orientation seeded at birth | Particle position/quaternion/angular velocity | Per-particle sub-model root then ordinary M2 material path | Static implementation; captures open. |
 | Recursive particle | Parent particle position/velocity drives child birth | Child uses the parent's storage lane | Draws at the same cloud anchor as parent | Static implementation; captures open. |
-| Effect mesh | `G_bind -> inverse bind/pivot -> B_i(t) -> R(t)` | No particle history | `W(t)`, then camera subtraction once | Prior static audit; multi-weight runtime proof open. |
+| Effect mesh | `G_pose = sum(w_i * (G_bind * T(-pivot_i) * B_i(t)))`; then `R(t)` once | No particle history | `W(t)`, then camera subtraction once; normals use inverse-transpose of the blended skin+root linear map | Production helper + complete mounted referenced-asset census + Rake/Undying/Arcane Shot fixtures; matched pixels open. |
 | Billboard child | Camera basis converted into `F_model`, constrained by authored flags | Rewritten palette bone and descendants | Skinned through the same `R(t)` | Previously captured for Frost Armor, not full flag coverage. |
 | Ground decal | Animated bind corners -> inverse bind -> posed bone -> world surface clip | Projected world triangles for the frame | World triangles -> `V(t)` | Terrain captured; WMO floor open. |
 | Ribbon | Live root + posed bone create the head; authored WoW local +Y maps to parsed local -Z for width | Committed top/bottom pairs in `N_world`; raw age expires edges while a separate 100 ms-clamped clock samples ribbon look tracks | Only the live head sees the current root/bone; old pairs sag/expire in world and drain after owner loss | Benilla/static/data complete; matched original pixels open. |
@@ -93,7 +98,7 @@ not all been migrated and must not retain a `MATCH` label automatically.
 | P-053 | Particle | Flag `0x40` samples current-frame emitter motion on a strict `> 1/30 s` trigger, gates on an already-live pool, and holds the result until the next trigger. | Inherit flag/scale; emitter world delta; shared clamped dt | Emitter motion | Current-frame `E_i` delta in world | Held world velocity, then particle storage frame at birth | Tick sample; birth consume | Benilla `particles/sim.rs:498-507,637-644` | Pure `UpdateInheritedMotion`; one shared clamped step; model conversion uses inverse full emitter frame | `Spells\Bloodlust_State_Hand.m2` e0 model+inherit scale 3; `AbolishMagic_Base.m2` | Equality does not fire; prior deltas do not accumulate; no-live trigger yields zero; held value survives interim frames | static/data complete; capture open | `STATIC_FOUND` | Accumulated deltas, `>=`, raw hitch dt, or lost joint scale change launch velocity. |
 | R-015 | Ribbon | The current posed bone/root creates only the live head and new edge; every committed top/bottom pair remains in world history. | Ribbon bone/position; parsed axis fold; height/rate/lifetime/gravity tracks | Ribbon history state | Parsed `F_model` head and authored WoW +Y width axis through current bone/root | `N_world` top/bottom pairs plus raw birth age | Live head each render; pair only at cadence; old pairs sag/expire without pose resampling | Benilla `ribbons.rs:45-76,216-349`; `wow_to_bevy` basis | `SpellRibbonHistoryLaw`; renderer stores committed pairs directly and never reapplies root/bone | `ArcaneShot_Missile.m2` animated-bone InFlight trail; Holy Smite keyed slash; 9,717-path census | A later bone/root move changes the head by >1 yd while the old Arcane pair remains bit-identical; identity authored +Y is parsed -Z, not parsed +Y | static/data complete; capture open | `STATIC_FOUND` | Reapplying live pose rigidly drags the whole trail; using parsed +Y rotates its width plane by 90 degrees. |
 | R-016 | Ribbon | Edge expiry and ribbon look animation intentionally consume different clocks. | Frame elapsed time; edge lifetime; height/color/alpha tracks | Ribbon history state | Raw source/wall elapsed plus clamped simulation delta | Raw edge age; private clamped clip age | Every live and drain frame | Benilla `ribbons.rs:216-235,255-318` | `AdvanceLive`/`AdvanceDrain`: raw time expires and advances U; `min(dt,.1)` advances emission, sag, and look tracks even after owner loss | Holy Smite alpha is still >0.9 at clamped 0.1 s while raw 0.5 s is <0.1; drain expiry crosses at raw lifetime | Hitches cannot prematurely skip the slash look or make edge lifetime stretch; draining alpha continues rather than freezing | static/data complete; capture open | `STATIC_FOUND` | One shared clock either kills trails late or skips keyed flare/fade frames during a hitch. |
-| M-017 | Mesh | Weighted vertices use inverse bind/pivot rebasing before posed bones. | M2 vertices, weights, bones, pivots | Mesh vertex/bones | `G_bind` | `G_pose(t)` | Draw | Original M2 law; Benilla mesh path | Existing renderer branch needs multi-weight numeric fixture | Multi-weight effect mesh | All four weights contribute and bind pose is invariant under identity animation | open | `UNSCOPED` | Mesh parts orbit, shear, or shift around pivots. |
+| M-017 | Mesh | Four weighted bind vertices use pivot inverse-bind rebasing, posed hierarchy, reference normal policy, billboard-rewritten palette, one effect root, and one camera subtraction. | Raw M2 position/normal, four byte weights/global bone indices, bones/pivots/TRS/flags | Mesh vertex and joint palette | Parsed `G_bind` in `F_model` | `G_pose(t)`, then `W(t)`, then camera-relative `V(t)` | Selected sequence draw age; billboard rewrite after pose and before packing | Benilla `model.rs:141-194,243-286,474-525`; Bevy 0.18.1 `skinning.wgsl`; `billboard.rs:160-203,280-377` | `M2Reader` converts once; `M2Animator` emits `T(-pivot)*jointGlobal`; `SpellMeshSkinningLaw` owns four-weight resolution, invalid fallback, inverse-transpose normals, billboard propagation, root/camera boundary, and shader contract | `Spells\Rake.m2` v302 four weights; `Undying_Strength_Impact_Chest.m2` v378 T/R/S chain; `ArcaneShot_Missile.m2` all-single control; synthetic billboard/invalid/zero cases | 555 resolved referenced assets/5,222 bones are bind-invariant; every Rake influence changes the pose; CPU packing equals shader dots; referenced corpus has no invalid indices or non-255 totals | static/data complete; mesh-only capture open | `STATIC/DATA_COMPLETE` | Wrong order or forward-normal transform orbits/shears mesh parts and mislights non-uniformly scaled poses. |
 | D-001 | Decal | WMO floors participate in effect ground projection. | Projectable WMO triangles | World surface | Animated decal world prism | `D_surface` | Draw | Original capture required; Benilla projector useful | Current terrain gatherer does not prove WMO coverage | Frost Nova/reticle on WMO floor | Decal conforms to floor or follows proven no-surface behavior | mismatch/open | `STATIC_FOUND` | Ground effects float, vanish, or fall back incorrectly indoors. |
 | S-001 | Shader/postprocess | Effect color/blend/glow is evaluated in the proven framebuffer color representation. | Texture format, blend, fog, FFXGlow inputs | Framebuffer | Fragment output + scene buffer | `F_fb`/presented pixel | Draw/present | Original numeric pixels; Benilla only an oracle | Static gamma-byte combine exists | Controlled ramp on black/gray/color backgrounds | Recorded input RGBA and output pixel agree with original with glow on/off | open | `UNSCOPED` | Correct geometry still looks too hard, dim, bright, or square-edged. |
 | O-022 | Orchestration | DynamicObject owns area position/radius/duration while each born type-9 M2 root owns its one-shot animation phase. | VMaNGOS DynamicObject fields + build-5875 Spell/SpellVisual/SpellVisualKit/M2 census | Server object and effect root | Server `W` position/radius | Persistent area `R(t)` plus world-born shard roots | Object spawn/update/removal; per-model one-shot clock | Original/VMaNGOS; Benilla lane absent | Seven-entry literal dispatch is range-validated; all populated type-9 lanes fire at authored rate; live field updates affect the loop/future births only; despawn stops births and preserves tails | `tools/spell-area-visual-check`: all 8 type-9 rows, 7 assets, 124 persistent-area spells/30 visuals, lifecycle and 100k-point distribution checks | Existing shards are invariant under later DynamicObject movement; new births remain inside the updated wire radius; removal stops births immediately and tails expire on their own model spans | static/data complete; exact original random law open | `REFERENCE_LIMITED` | Wrong selector, clamping, stale radius/position, or owner reap changes the signature rain/snow field. |
@@ -115,7 +120,8 @@ not all been migrated and must not retain a `MATCH` label automatically.
 | Geometry particle | `Spells\BestowDisease_Impact_Chest.m2` emitter 0 -> `Spells\Skull180.m2` | Geometry sub-model path | Exact archive reference and valid mesh confirmed | Isolated lane capture with tint/scale/tumble trace. |
 | Recursive particle | `Spells\Bomb_ExplosionA.m2` emitter 4 -> `Spells\Fire_SmokeTrail.m2` | Private child pools | Exact archive reference and one eligible child confirmed | Parent/child position and velocity trace plus drain capture. |
 | Ribbon | `ArcaneShot_Missile.m2`, `HolySmite_Low_Chest.m2`, thrown dagger InFlight, scaled spell fixtures | R-015/R-016 | 41-check law, real animated bone, keyed-width/alpha, visibility, gravity, drain, and full corpus pass | Matched moving-camera original capture of width plane, sag, and post-owner drain. |
-| Pure mesh | Arcane Intellect impact | Mesh only | Previously visually present | Matched timing/color capture and numeric skin trace. |
+| Multi-weight effect mesh | `Spells\Rake.m2` v302; `Undying_Strength_Impact_Chest.m2` v378 | Four/three-weight nonzero-pivot animation, including a scale chain | Mounted exact pose/influence checks and production CPU/GPU contract pass | Mesh-only MSUI trace and synchronized original-client pixels. |
+| Pure mesh negative/control | `Spells\ArcaneShot_Missile.m2` | Seven vertices, all single-weight | Mounted control and bind pose pass | Retain beside multi-weight capture to isolate mesh skinning from missile particles/ribbon. |
 | Billboard hierarchy | Frost Armor or proven billboard child | Billboard palette rewrite | Prior multi-angle capture fixed one basis bug | Axis-flag matrix coverage and child transform trace. |
 | Ground decal | Frost Nova/Arcane Explosion | Animated ground quad + terrain projector | Terrain capture verified | Sloped repeat and WMO-floor fixture. |
 | Missile | Fireball, Arcane Shot, markerless cast, no-visual ranged shot | Release/deadline/root/trail/impact pipeline | 54-check executable law and mounted census; prior Fireball image is not post-correction certification | Matched original capture of root-carried cloud, ribbon history, and close-range no-flight handoff. |
@@ -131,6 +137,7 @@ not all been migrated and must not retain a `MATCH` label automatically.
 | `tools/spell-particle-motion-check` output: `PASS (61 checks)` | `STATIC/DATA_COMPLETE` | The full 9,717-path mounted census, 2,550 special records, reference fixtures, pivot-rebased full-TRS round-trip, hitch cadence, unflagged follow negative, and a live scaled spell source frame agree with the bounded laws. | Final pixels or an original-client runtime trace. |
 | `tools/spell-missile-pipeline-check` output: `PASS (54 checks)` | `STATIC/DATA_COMPLETE` | Release-event/finish/strict-backstop timing, actual-launch animation clock, GO-time deadline, raw-dt homing, parsed-axis pose, no-tag attachment fallback, root/cloud feed, impact ordering, and the mounted 981-spell/64-path corpus are pinned. | Original-client pixels or the original ray/sphere and missed-projectile deflection approximations. |
 | `tools/spell-ribbon-history-check` output: `PASS (41 checks)` | `STATIC/DATA_COMPLETE` | World-committed pair history, parsed authored-axis mapping, pivot equivalence, separate raw/clamped clocks, gravity, cadence, drain animation, InFlight visibility, and all 590 mounted ribbon records are pinned. | Original-client pixels or the exact CEffect-side owner-destruction wait beyond the supplied Benilla approximation. |
+| `tools/spell-mesh-skinning-check` output: `PASS (83,681 checks)` | `STATIC/DATA_COMPLETE` | Four-weight contribution, byte normalization, zero/invalid/duplicate policy, nonzero-pivot bind and animated pose, hierarchy, scale, inverse-transpose normals, billboard child propagation, root/camera boundary, packing/shader source, 9,717 listed/9,654 parsed M2s, and all 555 resolved referenced assets/5,222 bind bones are pinned. | GL execution, a mesh-only live MSUI trace, final lighting pixels, or original-client parity. |
 | `dotnet build MSUIClient/MSUIClient.csproj --no-restore` succeeds | `STATIC_FOUND` | The bounded correction integrates with the dirty working tree. | Runtime behavior or visual parity. |
 | `SpellParticleSystem.CensusReport` root/emitter/boneOffset/cloudAxis/span fields | Enables future `INSTRUMENTED` evidence | Names root and emitter separately and measures live cloud history. | Nothing until a trace is actually recorded. |
 | `SESSION_2026-08-03_SPELL_SLICES.md` captures | `CAPTURED` only for the specifically recorded prior fixes | Billboard basis, terrain decal, DynamicObject placement observations. | The new particle anchor correction or unrelated lanes. |
@@ -150,8 +157,10 @@ not all been migrated and must not retain a `MATCH` label automatically.
 5. **Ribbon committed-node frame:** corrected and executable-audited as R-015/R-016. Original-client pixels
    and the precise effect-controller destruction wait remain open; the storage/frame law no longer is.
 6. **Geometry and recursive particles:** code and asset census exist, but no lane-isolated runtime captures.
-7. **Cone of Cold alpha/texture:** still visibly wrong; decoder and controlled shader probes are needed.
-8. **Shader/framebuffer/glow policy:** static code comparison cannot replace numeric pixels under controlled
+7. **Effect-mesh skinning:** M-017 is static/data complete, including real four-/three-weight assets and the
+   normal correction. Mesh-only live/original captures remain; the implementation law is no longer open.
+8. **Cone of Cold alpha/texture:** still visibly wrong; decoder and controlled shader probes are needed.
+9. **Shader/framebuffer/glow policy:** static code comparison cannot replace numeric pixels under controlled
    backgrounds and explicit sRGB state.
 
 ## Behavioral test plan
@@ -172,7 +181,8 @@ Still required:
    live gate, hold, and uneven-dt laws now pass numerically);
 7. committed ribbon-node history, hitch-clock, gravity, visibility, and drain tests now pass against real
    Arcane Shot/Holy Smite/thrown fixtures; matched original pixels remain required;
-8. multi-weight mesh + nonzero-pivot inverse-bind test;
+8. multi-weight mesh + nonzero-pivot inverse-bind, hierarchy, scale, normal, billboard, root/camera, and
+   CPU/GPU packing checks now pass against synthetic adversarial cases and mounted Rake/Undying/control assets;
 9. mesh-only/particles-only/ribbons-only/glow-off captures that preserve the shared root and clock;
 10. Blizzard cloud principal-axis/span regression from at least two times and two camera angles.
 
@@ -195,6 +205,85 @@ checks all 218 location-target spells against the raw three-lane Spell.dbc data,
 bombs, utility targeting, and both mixed-radius fixtures. The census contains 182 authored footprints and 36
 zero-radius fallbacks, with authored values from 1 to 100 yards. This is data/static evidence, not a claim
 that Benilla or an original-client capture has certified the mixed-lane maximum or fallback cursor size.
+
+## M-017 effect-mesh skinning closure — 2026-08-03
+
+### End-to-end frame and matrix trace
+
+1. `M2Reader.ParseVertices` reads the raw 48-byte M2 vertex as position, four byte weights, four byte bone
+   indices, normal, and UV. It maps position and normal exactly once from WoW Z-up `(x,y,z)` to MSUI model
+   space `(x,z,-y)`. `ParseBones` applies the same point map to pivots/translation, the corresponding
+   quaternion basis map to rotation, and an axis-only permutation to scale. Vertex indices remain global
+   M2 bone-array indices.
+2. `SpellMeshSkinningLaw.Resolve`, called by `SpellEffectMeshRenderer.Resolve`, divides all four weights by
+   their authored byte sum. A zero sum binds fully to bone zero, matching the audited Benilla loader. Raw byte
+   indices are uploaded unchanged. The shader skips any positive-weight index outside the live palette and
+   renormalizes surviving weights; it no longer treats indices 160-255 differently by silently rebinding them
+   to bone zero. The referenced effect corpus contains no zero totals, non-255 totals, or invalid live indices.
+3. `M2Animator` stores rest local translation as `pivot_i-pivot_parent`, samples live `S*R*T` in
+   `System.Numerics` row-vector order, and composes `global_i = local_i*global_parent` once. It returns
+   `skin_i = T(-pivot_i)*global_i`. At bind, the rest translations telescope to `global_i=T(pivot_i)`, so
+   every returned matrix is identity, including nonzero pivots and descendants.
+4. `M2Animator.Pack` uploads three explicit GLSL dot-product rows per bone:
+   `(M11,M21,M31,M41)`, `(M12,M22,M32,M42)`, `(M13,M23,M33,M43)`. These are the rows of the column-vector
+   equivalent of the CPU row-vector affine matrix. `skinPoint` performs the corresponding three dots, so the
+   semantic law is `sum(w_i * (bind * T(-pivot_i) * global_i))`; textual column-vector order is never copied
+   from Benilla.
+5. The shader blends all four valid matrices and divides by the surviving weight sum. Normals now follow
+   Benilla's Bevy 0.18.1 policy: blend the skin matrices first, append `uModel`, exclude translation, and apply
+   the inverse-transpose of that combined linear map. The former forward-3x3 weighted normal was a real
+   divergence under non-uniform bone/root scale even when position skinning was correct.
+6. `ApplyBillboardBones` reconstructs the pre-rewrite global as `T(pivot)*skin`, recovers each child local from
+   its original parent, replaces billboard or ignore-parent rotation in model space, recomposes descendants
+   in parents-before-children order, and folds the pivot back as `T(-pivot)*rewrittenGlobal`. Therefore a
+   vertex partly weighted to a billboard bone and partly elsewhere consumes each rewritten palette entry once.
+7. `SpellEffectSource` supplies the effect root independently of the palette. The vertex shader applies
+   `uModel` once after skinning. `CameraRelativeModel` subtracts the camera only from that affine root
+   translation, algebraically equal to `Transform(pos, worldRoot)-camera`; the translation-free relative view
+   cannot subtract it again.
+
+### Mounted build-5875 census and fixtures
+
+- Complete listfile scan: 9,717 listed M2 paths, 9,654 parsed. Influence histogram (models containing the
+  class / vertices): one = 9,315 / 2,109,706; two = 741 / 135,947; three = 446 / 24,172; four = 273 / 4,679.
+- SpellVisual closure: 599 referenced paths, 555 listed/resolved, 350 with mesh vertices. Influence histogram:
+  one = 350 / 37,399; two = 17 / 2,485; three = 4 / 170; four = 1 / 8. All 555 referenced rigs and all 5,222
+  bones reduce to identity under production bind evaluation.
+- Referenced multi-weight behavior: 16 models and 2,643 vertices touch nonzero pivots; 1,264 vertices lie under
+  translation-keyed chains, 2,663 under rotation-keyed chains, and 264 under scale-keyed chains. Exactly zero
+  referenced multi-weight vertices touch billboard or ignore-parent-rotation bones, so that branch retains a
+  synthetic adversarial fixture rather than a fabricated real asset claim.
+- Full-corpus negative census: zero zero-total vertices and zero non-255 totals; 2,840 vertices contain
+  duplicate live indices. Three non-referenced models exceed/escape the 160-bone palette and account for 999
+  invalid vertices / 1,061 invalid influences: `UI_Tauren.m2`, `Taerar.m2`, and
+  `transportship_sails.m2`. No referenced effect asset exceeds 160 bones or has an invalid live index.
+- `Spells\Rake.m2` is the only referenced four-influence asset. Sequence 0 at age 0.555 s, vertex 302 has
+  weights `64/64/64/63` on bones `4/14/5/16`; its pinned posed point is
+  `(1.0220361,1.3673285,-0.12145541)`, and removing even its weakest influence changes the result by
+  `0.04776045` model units.
+- `Spells\Undying_Strength_Impact_Chest.m2` supplies nonzero pivots and live translation/rotation/scale chains.
+  Sequence 0 at age 0.61679006 s, vertex 378 has three equal weights on bones `5/9/15`; its pinned point is
+  `(-0.17665625,1.1976844,-0.052858792)`. `Spells\ArcaneShot_Missile.m2` is the real negative control: seven
+  mesh vertices, all single-weight.
+
+### Evidence boundary and residuals
+
+M-017 is `STATIC/DATA_COMPLETE`: production wiring, adversarial formula checks, real shipped fixtures, and the
+complete relevant mounted corpus pass. It is not `CAPTURED` or `PARITY_CERTIFIED`; the validator does not
+execute an OpenGL context and no synchronized original-client mesh-only capture exists.
+
+- Implementation gaps after M-017: WMO-floor decal triangle participation; Cone of Cold `CLOUDS.BLP` alpha/
+  blend diagnosis; controlled shader/framebuffer/glow probes; any head/tail particle or future mesh-normal
+  divergence exposed by runtime capture.
+- MSUI runtime captures still required: Rake and Undying mesh-only posed traces; billboard/child flag matrix;
+  corrected ordinary/special particle, missile, ribbon, geometry, and recursion fixtures.
+- Original-client-only verification: matched mesh form/scale/lighting pixels, DynamicObject exact random phase/
+  sound instant, target-marker mixed/zero-radius presentation, missile interception/deflection, exact ribbon
+  owner-destruction wait, and numeric blend/fog/glow output.
+
+The next unresolved implementation item is **WMO-floor decal projection**. This is selected ahead of capture-only
+work because D-001 remains a known production-path gap, while M-017's remaining burden is runtime/original
+evidence rather than an untraced implementation law.
 
 ## Reference limitations
 
@@ -219,10 +308,11 @@ that Benilla or an original-client capture has certified the mixed-lane maximum 
 3. Capture the now-pinned `0x10`, `0x4000`, and `0x40` fixtures, then pin/capture head-tail behavior.
 4. Capture the corrected Fireball/Arcane Shot missile pipeline, including root-carried ordinary particles,
    independently committed ribbon history, markerless launch, and close-range no-flight impact.
-5. Capture the corrected ribbon committed-node/width/drain behavior. The next unresolved implementation
-   item is multi-weight mesh/pivot composition.
+5. Capture the corrected ribbon committed-node/width/drain behavior; M-017 multi-weight mesh/pivot
+   composition is now static/data complete and awaits its mesh-only capture.
 6. Capture geometry and recursive particle fixtures independently.
-7. Add WMO surfaces to the decal evidence chain.
+7. **Next implementation slice:** add projectable WMO surfaces to the decal evidence chain and pin the
+   no-surface behavior.
 8. Resolve Cone of Cold with decoder pixels, then run controlled blend/fog/glow pixel probes.
 9. Only then run orchestration composition/mute captures and update individual evidence levels.
 
@@ -234,12 +324,13 @@ emitter-bone birth composition at the corrected storage boundary, moving-root ca
 attachment rotation, full live model-space joint/root TRS, clamped-step follow response, strict 30 Hz
 inherited motion, the complete mounted-data DynamicObject/type-9 selector/rate/ownership path, and the
 complete mounted-data ground-target radius path, the Benilla missile release/deadline/homing/pose/
-root-cloud/impact pipeline, and ribbon committed-world history with separate raw/clamped clocks. The area lane remains original-capture-limited for its exact
+root-cloud/impact pipeline, ribbon committed-world history with separate raw/clamped clocks, and M-017
+four-weight/nonzero-pivot effect-mesh skinning with inverse-transpose normals. The area lane remains original-capture-limited for its exact
 random sequence and birth phase; target markers remain original-capture-limited for mixed/zero-radius visual
 selection.  
 Still unknown: post-correction Blizzard pixels, second ordinary-history asset generality, runtime/pixel
 certification of the special-motion, corrected missile, and corrected ribbon fixtures,
-geometry/recursion captures, WMO decals, and numeric shader/glow
+geometry/recursion and multi-weight mesh captures, WMO decals, and numeric shader/glow
 parity. No row in this document is `PARITY_CERTIFIED`.
 
 ## Animation and lifecycle correction — 2026-08-03

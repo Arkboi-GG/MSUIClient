@@ -675,9 +675,8 @@ public sealed partial class GameLoop : IDisposable
             _particles = null;
         }
 
-        // FFXGlow whole-scene bloom (Engine/FfxGlow.cs). Faithful benilla glow,
-        // composited additively so the exterior base lighting is untouched - only
-        // highlight bloom is added. render.glowGain is the per-zone weight;
+        // FFXGlow whole-scene gamma-byte composite (Engine/FfxGlow.cs).
+        // render.glowGain is the per-zone weight;
         // render.glow = false disables the pass entirely.
         try
         {
@@ -2053,24 +2052,39 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(5)) DrawSelectionRing();
         _selectionRenderMilliseconds = Stopwatch.GetElapsedTime(selectionStarted).TotalMilliseconds;
 
+        // Spell particles need this frame's published unit/effect skeletons before they simulate.
+        // Run them before the spell-mesh pass so geometry-model particles join the same opaque /
+        // transparent M2 material ordering as ordinary kit and missile meshes.
+        double spellNow = MovementInfo.ClientUptimeMs() / 1000.0;
+        if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
+        {
+            var eye = _window.Camera.Position;
+            _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
+                spellNow, SpellEffectUnitPose), SpellParticleGroundHeight);
+        }
+
         long spellEffectStarted = Stopwatch.GetTimestamp();
         if (WarmStage(5) && _spellEffects is not null && _spellEffectMeshes is not null)
         {
             // Ground-decal projection needs the terrain's triangle gatherer (rings + reticle).
             _spellEffectMeshes.GatherGround ??= _terrain is not null
                 ? _terrain.GatherGroundTriangles : null;
-            _spellEffectMeshes.Render(_window.Camera, _spellEffects.MeshInstances(
-                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
-                SpellGroundHeight);
-            // Armed ground-AoE reticle: the rune circle follows the cursor's terrain point.
-            // 8 yd = the base-rank radius of every 1.12 targeted AoE (Blizzard, Flamestrike,
-            // Rain of Fire); per-spell SpellRadius.dbc lookup is a refinement.
-            if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle)
-                _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle, 8f);
+            IEnumerable<SpellMeshDraw> spellMeshes = _spellEffects.MeshInstances(
+                spellNow, SpellEffectUnitPose);
+            if (_spellParticles is not null)
+                spellMeshes = spellMeshes.Concat(_spellParticles.GeometryInstances());
+            _spellEffectMeshes.Render(_window.Camera, spellMeshes, SpellGroundHeight);
+            // Armed location-target reticle: the rune circle follows the cursor and spans the
+            // largest populated Spell.dbc effect radius. The compatibility fallback is reached
+            // only by placement spells whose effect lanes author no radius at all.
+            if (_groundCastSpell != 0 && _groundCursorPoint is { } reticle &&
+                _spellCatalog?.TryGet(_groundCastSpell, out SpellInfo groundSpell) == true)
+                _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle,
+                    _spellCatalog.TargetingRadius(groundSpell));
         }
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
-                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose));
+                spellNow, SpellEffectUnitPose));
         _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
 
         // Transparent particles are simulated after the unit draws have
@@ -2095,10 +2109,6 @@ public sealed partial class GameLoop : IDisposable
         }
         if (WarmStage(5) && _spellParticles is not null && _spellEffects is not null)
         {
-            var eye = _window.Camera.Position;
-            _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
-                MovementInfo.ClientUptimeMs() / 1000.0, SpellEffectUnitPose),
-                SpellParticleGroundHeight);
             // TEMP diagnostic: mute spell particles to expose the effect-mesh layer alone.
             if (Environment.GetEnvironmentVariable("MSUI_MUTE_SPELL_PARTICLES") is null)
                 _spellParticles.Render(_window.Camera);
@@ -2175,7 +2185,7 @@ public sealed partial class GameLoop : IDisposable
 
         // FFXGlow whole-scene bloom over the finished world + particles, before the
         // curtain and HUD so neither blooms (benilla composites its UI over an
-        // already-glowed world). Additive glow-only: the base scene is untouched.
+        // already-glowed world). The pass replaces the scene with its gamma-byte combine.
         DrawGlueScene(); // Phase 2 login glue scene (UI_MainMenu), networked + pre-world only
         DrawCharacterSelectScene(); // character-select per-race booth (UI_<Race>), CharacterSelect only
         _glow?.Apply();
@@ -2260,6 +2270,37 @@ public sealed partial class GameLoop : IDisposable
         if (_wmo is not null) ApplyWmo(_wmo);
         if (_doodads is not null) ApplyDoodads(_doodads);
         if (_character is not null) ApplyCharacter(_character);
+
+        float effectFarClip = _atmosphere.CullAtFogEnd ? _atmosphere.FogEnd : 0f;
+        if (_spellParticles is not null)
+        {
+            _spellParticles.FogEnabled = _atmosphere.FogEnabled;
+            _spellParticles.FogColor = _atmosphere.FogColor;
+            _spellParticles.FogStart = _atmosphere.ShaderFogStart;
+            _spellParticles.FogEnd = _atmosphere.ShaderFogEnd;
+            _spellParticles.FarClip = effectFarClip;
+        }
+        if (_spellRibbons is not null)
+        {
+            _spellRibbons.FogEnabled = _atmosphere.FogEnabled;
+            _spellRibbons.FogColor = _atmosphere.FogColor;
+            _spellRibbons.FogStart = _atmosphere.ShaderFogStart;
+            _spellRibbons.FogEnd = _atmosphere.ShaderFogEnd;
+            _spellRibbons.FarClip = effectFarClip;
+        }
+        if (_spellEffectMeshes is not null)
+        {
+            _spellEffectMeshes.SunDirection = _atmosphere.SunDirection;
+            _spellEffectMeshes.SunColor = _atmosphere.SunColor;
+            _spellEffectMeshes.SunIntensity = _atmosphere.SunIntensity;
+            _spellEffectMeshes.AmbientColor = _atmosphere.AmbientColor;
+            _spellEffectMeshes.AmbientIntensity = _atmosphere.AmbientIntensity;
+            _spellEffectMeshes.FogEnabled = _atmosphere.FogEnabled;
+            _spellEffectMeshes.FogColor = _atmosphere.FogColor;
+            _spellEffectMeshes.FogStart = _atmosphere.ShaderFogStart;
+            _spellEffectMeshes.FogEnd = _atmosphere.ShaderFogEnd;
+            _spellEffectMeshes.FarClip = effectFarClip;
+        }
 
         if (_liquid is not null)
         {

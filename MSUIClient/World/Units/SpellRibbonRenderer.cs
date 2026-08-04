@@ -11,22 +11,15 @@ namespace MSUIClient.World.Units;
 /// <summary>Dynamic M2 ribbon trails used by spell slashes and projectiles.</summary>
 public sealed class SpellRibbonRenderer : IDisposable
 {
-    private sealed class Edge
-    {
-        public Vector3 Top, Bottom;
-        public float Born;
-    }
-
     private sealed class Trail
     {
-        public readonly List<Edge> Edges = [];
-        public float LastAge;
-        public float Accumulator;
-        public float CurrentAge;
-        public float Lifetime;
-        public float Gravity;
+        public readonly SpellRibbonHistoryLaw.State History = new();
+        public M2Model Model = null!;
+        public M2RibbonEmitter Definition = null!;
+        public int SequenceIndex;
         public Texture? Texture;
         public int Blend;
+        public int FogPolicy = 1;
         public Vector3 Color = Vector3.One;
         public float Alpha = 1f;
         public float U0, U1 = 1f, V0, V1 = 1f;
@@ -46,6 +39,12 @@ public sealed class SpellRibbonRenderer : IDisposable
     public int DrawnLastFrame { get; private set; }
     private readonly HashSet<string> _drawnPaths = new(StringComparer.OrdinalIgnoreCase);
     public bool WasDrawn(string path) => _drawnPaths.Contains(path);
+
+    public Vector3 FogColor { get; set; } = new(.56f, .71f, .85f);
+    public float FogStart { get; set; } = 350f;
+    public float FogEnd { get; set; } = 777f;
+    public float FarClip { get; set; } = 777f;
+    public bool FogEnabled { get; set; } = true;
 
     public SpellRibbonRenderer(GL gl, MpqMount mpq) { _gl = gl; _mpq = mpq; }
 
@@ -68,18 +67,25 @@ public sealed class SpellRibbonRenderer : IDisposable
 
     public unsafe void Render(Camera camera,
         IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
-            float Age, int AnimationId)> instances)
+            float Age, int SequenceIndex)> instances)
     {
         DrawnLastFrame = 0;
         _drawnPaths.Clear();
         if (_shader is null) return;
         double wall = _clock.Elapsed.TotalSeconds;
-        float drainDt = (float)Math.Clamp(wall - _lastWall, 0, .1);
+        float rawWallDelta = double.IsFinite(wall - _lastWall)
+            ? (float)Math.Max(0, wall - _lastWall) : 0f;
         _lastWall = wall;
         var seen = new HashSet<(long, int)>();
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uView", camera.RelativeView);
         _shader.Set("uTexture", 0);
+        _shader.Set("uFogEnabled", FogEnabled ? 1 : 0);
+        _shader.Set("uFogColor", FogColor);
+        _shader.Set("uFogStart", FogStart);
+        _shader.Set("uFogEnd", FogEnd);
+        _shader.Set("uFarClip", FarClip);
         _gl.BindVertexArray(_vao);
         _gl.Enable(EnableCap.Blend);
         _gl.DepthMask(false);
@@ -87,88 +93,81 @@ public sealed class SpellRibbonRenderer : IDisposable
 
         foreach (var instance in instances)
         {
-            int sequence = instance.Model.TryFindSequenceIndexByAnimationId(instance.AnimationId);
+            int sequence = instance.SequenceIndex;
+            int visibilitySequence = sequence;
             M2Animator? animator = ResolveAnimator(instance.Path, instance.Model);
             if (animator is not null)
             {
-                M2Animator.Clip? clip = animator.Find(instance.AnimationId) ?? animator.Clips.Values.FirstOrDefault();
+                M2Animator.Clip? clip = animator.FindSequenceOrBake(sequence);
                 animator.Evaluate(clip, instance.Age, instance.Age, _skin);
             }
 
             for (int r = 0; r < instance.Model.RibbonEmitters.Count; r++)
             {
                 M2RibbonEmitter def = instance.Model.RibbonEmitters[r];
-                if (M2TrackSampling.Byte(def.Visibility, instance.Model, sequence, instance.Age) == 0)
+                // Nonglobal visibility is a per-sequence spawn gate sampled at that sequence's
+                // band start. A global-sequence track is not such a gate and stays always-on.
+                if (def.Visibility.Keys.Count > 0 && def.Visibility.GlobalSequence < 0 &&
+                    visibilitySequence >= 0 && M2TrackSampling.Byte(def.Visibility,
+                        instance.Model, visibilitySequence, 0f) == 0)
                     continue;
                 var key = (instance.Id, r);
                 seen.Add(key);
                 if (!_trails.TryGetValue(key, out Trail? trail))
-                    _trails[key] = trail = new Trail { LastAge = instance.Age,
-                        CurrentAge = instance.Age };
-                float dt = Math.Clamp(instance.Age - trail.LastAge, 0, .1f);
-                trail.LastAge = instance.Age;
-                trail.CurrentAge = instance.Age;
-                trail.Lifetime = def.EdgeLifetime;
-                trail.Gravity = def.Gravity;
+                    _trails[key] = trail = new Trail();
+                trail.Model = instance.Model;
+                trail.Definition = def;
+                trail.SequenceIndex = sequence;
                 trail.Path = instance.Path;
-                for (int e = trail.Edges.Count - 1; e >= 0; e--)
-                {
-                    if (instance.Age - trail.Edges[e].Born >= def.EdgeLifetime)
-                    { trail.Edges.RemoveAt(e); continue; }
-                    if (def.Gravity != 0)
-                    {
-                        float sag = 2f * def.Gravity * dt;
-                        trail.Edges[e].Top.Z -= sag;
-                        trail.Edges[e].Bottom.Z -= sag;
-                    }
-                }
+                SpellRibbonHistoryLaw.Step step = SpellRibbonHistoryLaw.AdvanceLive(
+                    trail.History, instance.Age, def.EdgesPerSecond,
+                    def.EdgeLifetime, def.Gravity);
 
                 Matrix4x4 joint = Matrix4x4.Identity;
                 if (animator is not null && def.Bone < instance.Model.Bones.Count)
-                    joint = Matrix4x4.CreateTranslation(instance.Model.Bones[def.Bone].Pivot) * _skin[def.Bone];
-                Matrix4x4 world = joint * instance.Transform;
-                Vector3 head = Vector3.Transform(def.Position, world);
-                Vector3 axis = Vector3.TransformNormal(Vector3.UnitY, world);
-                axis = axis.LengthSquared() > 1e-8f ? Vector3.Normalize(axis) : Vector3.UnitZ;
+                    joint = _skin[def.Bone];
+                Vector3 head = SpellRibbonHistoryLaw.NodeWorld(def.Position, joint,
+                    instance.Transform);
+                Vector3 axis = SpellRibbonHistoryLaw.CrossSectionAxis(joint,
+                    instance.Transform);
                 float above = Math.Max(0, M2TrackSampling.Float(def.HeightAbove,
-                    instance.Model, sequence, instance.Age));
+                    instance.Model, sequence, trail.History.ClipAge));
                 float below = Math.Max(0, M2TrackSampling.Float(def.HeightBelow,
-                    instance.Model, sequence, instance.Age));
+                    instance.Model, sequence, trail.History.ClipAge));
                 Vector3 liveTop = head + axis * above, liveBottom = head - axis * below;
 
-                trail.Accumulator += Math.Max(0, def.EdgesPerSecond) * dt;
-                if (trail.Accumulator >= 1f && trail.Edges.Count < 512)
-                {
-                    trail.Accumulator -= MathF.Floor(trail.Accumulator);
-                    trail.Edges.Add(new Edge { Top = liveTop, Bottom = liveBottom, Born = instance.Age });
-                }
-                if (trail.Edges.Count == 0 || ResolveTexture(instance.Model, def) is not { } texture)
+                if (step.Commit)
+                    SpellRibbonHistoryLaw.Commit(trail.History, liveTop, liveBottom);
+                if (trail.History.Edges.Count == 0 ||
+                    ResolveTexture(instance.Model, def) is not { } texture)
                     continue;
 
                 Vector3 color = M2TrackSampling.Vector(def.Color, instance.Model, sequence,
-                    instance.Age, Vector3.One);
+                    trail.History.ClipAge, Vector3.One);
                 float alpha = M2TrackSampling.Fixed16(def.Alpha, instance.Model, sequence,
-                    instance.Age);
+                    trail.History.ClipAge);
                 trail.Texture = texture;
                 trail.Color = color;
                 trail.Alpha = alpha;
                 int rows = Math.Max(1, (int)def.TextureRows);
                 int columns = Math.Max(1, (int)def.TextureColumns);
-                int slot = Math.Clamp(M2TrackSampling.UShort(def.TextureSlot, instance.Model,
-                    sequence, instance.Age), 0, rows * columns - 1);
+                int slot = Math.Clamp((int)def.TextureSlot.Keys.FirstOrDefault(),
+                    0, Math.Max(0, rows * columns - 1));
                 int column = slot % columns, row = slot / columns;
                 trail.U0 = column / (float)columns;
                 trail.U1 = (column + 1f) / columns;
                 trail.V0 = row / (float)rows;
                 trail.V1 = (row + 1f) / rows;
-                int pairCount = trail.Edges.Count + 1;
+                int pairCount = trail.History.Edges.Count + 1;
                 float[] vertices = new float[pairCount * 2 * 9];
                 WritePair(vertices, 0, liveTop, liveBottom, camera.Position, 0, color, alpha,
                     trail.U0, trail.U1, trail.V0, trail.V1);
-                for (int n = 0; n < trail.Edges.Count; n++)
+                for (int n = 0; n < trail.History.Edges.Count; n++)
                 {
-                    Edge edge = trail.Edges[trail.Edges.Count - 1 - n];
-                    float u = Math.Clamp((instance.Age - edge.Born) / def.EdgeLifetime, 0, 1);
+                    SpellRibbonHistoryLaw.Edge edge =
+                        trail.History.Edges[trail.History.Edges.Count - 1 - n];
+                    float u = SpellRibbonHistoryLaw.EdgeAge01(trail.History, edge,
+                        def.EdgeLifetime);
                     WritePair(vertices, n + 1, edge.Top, edge.Bottom, camera.Position, u, color,
                         alpha, trail.U0, trail.U1, trail.V0, trail.V1);
                 }
@@ -176,7 +175,12 @@ public sealed class SpellRibbonRenderer : IDisposable
                 texture.Bind(0);
                 int blend = def.Material < instance.Model.RenderFlags.Count
                     ? instance.Model.RenderFlags[def.Material].BlendingMode : 3;
+                M2RenderFlag? renderFlag = def.Material < instance.Model.RenderFlags.Count
+                    ? instance.Model.RenderFlags[def.Material] : null;
                 trail.Blend = blend;
+                trail.FogPolicy = renderFlag?.Unfogged == true
+                    ? 0 : blend is 3 or 4 ? 2 : 1;
+                _shader.Set("uFogPolicy", trail.FogPolicy);
                 if (blend is 3 or 4) _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
                 else _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
                 _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
@@ -194,30 +198,29 @@ public sealed class SpellRibbonRenderer : IDisposable
         foreach (var key in _trails.Keys.Where(k => !seen.Contains(k)).ToArray())
         {
             Trail trail = _trails[key];
-            trail.CurrentAge += drainDt;
-            for (int e = trail.Edges.Count - 1; e >= 0; e--)
+            SpellRibbonHistoryLaw.AdvanceDrain(trail.History, rawWallDelta,
+                trail.Definition.EdgeLifetime, trail.Definition.Gravity);
+            trail.Color = M2TrackSampling.Vector(trail.Definition.Color, trail.Model,
+                trail.SequenceIndex, trail.History.ClipAge, Vector3.One);
+            trail.Alpha = M2TrackSampling.Fixed16(trail.Definition.Alpha, trail.Model,
+                trail.SequenceIndex, trail.History.ClipAge);
+            if (trail.History.Edges.Count < 2 || trail.Texture is null)
             {
-                if (trail.CurrentAge - trail.Edges[e].Born >= trail.Lifetime)
-                { trail.Edges.RemoveAt(e); continue; }
-                if (trail.Gravity != 0)
-                {
-                    float sag = 2f * trail.Gravity * drainDt;
-                    trail.Edges[e].Top.Z -= sag;
-                    trail.Edges[e].Bottom.Z -= sag;
-                }
+                if (trail.History.Edges.Count == 0) _trails.Remove(key);
+                continue;
             }
-            if (trail.Edges.Count < 2 || trail.Texture is null)
-            { if (trail.Edges.Count == 0) _trails.Remove(key); continue; }
-            int pairCount = trail.Edges.Count;
+            int pairCount = trail.History.Edges.Count;
             float[] vertices = new float[pairCount * 18];
             for (int n = 0; n < pairCount; n++)
             {
-                Edge edge = trail.Edges[pairCount - 1 - n];
-                float u = Math.Clamp((trail.CurrentAge - edge.Born) / trail.Lifetime, 0, 1);
+                SpellRibbonHistoryLaw.Edge edge = trail.History.Edges[pairCount - 1 - n];
+                float u = SpellRibbonHistoryLaw.EdgeAge01(trail.History, edge,
+                    trail.Definition.EdgeLifetime);
                 WritePair(vertices, n, edge.Top, edge.Bottom, camera.Position, u,
                     trail.Color, trail.Alpha, trail.U0, trail.U1, trail.V0, trail.V1);
             }
             trail.Texture.Bind(0);
+            _shader.Set("uFogPolicy", trail.FogPolicy);
             if (trail.Blend is 3 or 4)
                 _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One);
             else _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
@@ -288,14 +291,31 @@ layout(location=0) in vec3 aPosition;
 layout(location=1) in vec2 aUV;
 layout(location=2) in vec4 aColor;
 uniform mat4 uViewProjection;
+uniform mat4 uView;
 out vec2 vUV;
 out vec4 vColor;
-void main(){ vUV=aUV; vColor=aColor; gl_Position=uViewProjection*vec4(aPosition,1.0); }";
+out float vEyeDepth;
+void main(){ vUV=aUV; vColor=aColor; vEyeDepth=-(uView*vec4(aPosition,1.0)).z; gl_Position=uViewProjection*vec4(aPosition,1.0); }";
 
     private const string FragmentSource = @"#version 330 core
 in vec2 vUV;
 in vec4 vColor;
+in float vEyeDepth;
 uniform sampler2D uTexture;
+uniform int uFogEnabled;
+uniform int uFogPolicy;
+uniform vec3 uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform float uFarClip;
 out vec4 FragColor;
-void main(){ FragColor=texture(uTexture,vUV)*vColor; if(FragColor.a<=0.001) discard; }";
+void main(){
+    if(uFarClip>0.0 && vEyeDepth>uFarClip) discard;
+    FragColor=texture(uTexture,vUV)*vColor;
+    if(uFogEnabled!=0 && uFogPolicy!=0){
+        float visibility=clamp((uFogEnd-vEyeDepth)/max(0.001,uFogEnd-uFogStart),0.0,1.0);
+        vec3 target=uFogPolicy==2?vec3(0.0):uFogColor;
+        FragColor.rgb=mix(target,FragColor.rgb,visibility);
+    }
+}";
 }

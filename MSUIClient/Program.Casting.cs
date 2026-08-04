@@ -30,6 +30,7 @@ public sealed partial class GameLoop
         uint visual = EffectiveSpellVisual(info, packet.Caster);
         SpellVisualKitInfo? kit = ResolveSpellKit(visual, static s => s.Precast);
         ushort? anim = kit?.AnimationId;
+        _spellEffects?.BeginCast(packet.Caster);
         _spellSounds?.StopHold(packet.Caster);
         PlaySpellSound(packet.Caster, kit?.Sound);
         if (kit is { } precastKit)
@@ -107,7 +108,7 @@ public sealed partial class GameLoop
             }
             long missileVoice = 0;
             _spellEffects.SpawnMissile(packet.Caster, packet.SpellId, missilePath, target,
-                hasStages ? visualStages.MissileAttachment : (ushort)0x22,
+                hasStages ? visualStages.MissileAttachment : SpellVisualCatalog.NoMissileAttachment,
                 info.Value.Speed, now, missed, reason, anim, SpellEffectUnitPose,
                 (arrivedTarget, arrivedSpell, wasMissed, missReason) =>
                     OnSpellMissileArrived(arrivedTarget, arrivedSpell, visual, wasMissed, missReason),
@@ -280,9 +281,15 @@ public sealed partial class GameLoop
     private long PlaySpellSound(ulong unit, uint? soundId, bool forceLoop = false,
         bool trackHold = true)
     {
-        if (_spellSounds is null || soundId is not uint id || id == 0) return 0;
         SpellUnitPose pose = SpellEffectUnitPose(unit);
         Vector3 source = pose.Found ? pose.Position : _controller?.Position ?? Vector3.Zero;
+        return PlaySpellSoundAt(unit, soundId, source, forceLoop, trackHold);
+    }
+
+    private long PlaySpellSoundAt(ulong unit, uint? soundId, Vector3 source,
+        bool forceLoop = false, bool trackHold = true)
+    {
+        if (_spellSounds is null || soundId is not uint id || id == 0) return 0;
         Vector3 listener = _controller?.Position ?? source;
         return _spellSounds.Play(id, unit, source, listener, forceLoop, trackHold);
     }
@@ -468,7 +475,12 @@ public sealed partial class GameLoop
     {
         if (_net is not null && guid == _net.PlayerGuid && _controller is not null)
         { position = _controller.Position; return true; }
-        if (_entities.TryGet(guid, out WorldEntity unit)) { position = unit.Position; return true; }
+        if (_entities.TryGet(guid, out WorldEntity unit))
+        {
+            position = unit.Type == ObjectTypeId.DynamicObject
+                ? DynamicObjectWorldPosition(unit) : unit.Position;
+            return true;
+        }
         position = default; return false;
     }
 
@@ -479,8 +491,12 @@ public sealed partial class GameLoop
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;
         if (_entities.TryGet(guid, out WorldEntity unit))
-            return new SpellUnitPose(true, unit.Position, unit.Orientation,
-                Matrix4x4.CreateTranslation(unit.Position), null, null);
+        {
+            Vector3 position = unit.Type == ObjectTypeId.DynamicObject
+                ? DynamicObjectWorldPosition(unit) : unit.Position;
+            return new SpellUnitPose(true, position, unit.Orientation,
+                Matrix4x4.CreateTranslation(position), null, null);
+        }
         return SpellUnitPose.Missing;
     }
 
@@ -535,10 +551,9 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Dynamic-object area visuals (1.12: the server spawns a DynamicObject for every
-    /// persistent ground effect — Blizzard's snowfall, Rain of Fire, Consecration — and
-    /// the client plays the spell's IMPACT kit anchored at the object's position for the
-    /// object's lifetime; field layout vmangos UpdateFields_1_12_1.h:325-334).
+    /// Dynamic-object area visuals. SpellVisual fields 11/12 provide the looping centre model;
+    /// field 13's area kit provides the type-9 shard emitter and its looping sound. The two visual
+    /// paths are deliberately distinct in the 1.12 client.
     /// </summary>
     private void UpdateDynamicObjectVisuals(double now)
     {
@@ -548,31 +563,71 @@ public sealed partial class GameLoop
                      .Where(e => e.Type == ObjectTypeId.DynamicObject))
         {
             (seen ??= []).Add(obj.Guid);
-            if (_activeDynObjectFx.Contains(obj.Guid)) continue;
             uint spell = obj.Fields.GetU32(9) ?? 0;                       // DYNAMICOBJECT_SPELLID
-            Vector3 position = obj.Fields.GetF32(11) is { } x &&          // DYNAMICOBJECT_POS_X/Y/Z
-                               obj.Fields.GetF32(12) is { } y &&
-                               obj.Fields.GetF32(13) is { } z
-                ? new Vector3(x, y, z) : obj.Position;
+            float rawRadius = obj.Fields.GetF32(10) ?? 0f;              // DYNAMICOBJECT_RADIUS
+            float radius = float.IsFinite(rawRadius) ? Math.Max(0f, rawRadius) : 0f;
+            Vector3 position = DynamicObjectWorldPosition(obj);          // DYNAMICOBJECT_POS_X/Y/Z
             uint visual = _spellCatalog?.TryGet(spell, out SpellInfo info) == true
                 ? info.VisualId : 0;
-            if (spell != 0 && ResolveSpellKit(visual, static s => s.Impact) is { } areaKit &&
-                _spellEffects.SpawnKitAtLocation(obj.Guid, spell, areaKit, position, now, "AREA") > 0)
+            if (spell == 0 ||
+                _spellVisualCatalog?.TryGetAreaVisual(visual, out SpellAreaVisualInfo area) != true)
             {
-                Console.WriteLine($"[dynobj-fx] spawn guid=0x{obj.Guid:X12} spell={spell} " +
-                    $"pos=({position.X:0.0},{position.Y:0.0},{position.Z:0.0})");
-                _activeDynObjectFx.Add(obj.Guid);
+                if (_activeDynObjectFx.Remove(obj.Guid))
+                {
+                    _spellEffects.ReapArea(obj.Guid);
+                    _spellSounds?.StopHold(obj.Guid);
+                }
+                continue;
             }
+
+            var identity = new DynamicAreaFxIdentity(spell, visual);
+            if (_activeDynObjectFx.TryGetValue(obj.Guid, out DynamicAreaFxIdentity current) &&
+                current == identity)
+            {
+                _spellEffects.UpdateAreaVisual(obj.Guid, spell, position, radius);
+                continue;
+            }
+
+            if (_activeDynObjectFx.Remove(obj.Guid))
+            {
+                _spellEffects.ReapArea(obj.Guid);
+                _spellSounds?.StopHold(obj.Guid);
+            }
+            bool loopingSound = _spellSounds?.IsAuthoredLoop(area.Sound) == true;
+            Action<uint, ulong, Vector3>? birthSound = !loopingSound && area.Emitters.Count != 0
+                ? (sound, key, at) => PlaySpellSoundAt(key, sound, at, trackHold: false)
+                : null;
+            int spawned = _spellEffects.SpawnAreaVisual(
+                obj.Guid, spell, area, position, radius, now, birthSound);
+            if (loopingSound)
+                PlaySpellSoundAt(obj.Guid, area.Sound, position, forceLoop: true);
+            else if (area.Emitters.Count == 0)
+                PlaySpellSoundAt(obj.Guid, area.Sound, position, trackHold: false);
+            _activeDynObjectFx[obj.Guid] = identity;
+            Console.WriteLine($"[dynobj-fx] spawn guid=0x{obj.Guid:X12} spell={spell} " +
+                $"radius={radius:0.0} emitters={area.Emitters.Count} " +
+                $"rate={area.Emitters.Sum(e => e.InstancesPerSecond):0.0}/s loaded={spawned} " +
+                $"pos=({position.X:0.0},{position.Y:0.0},{position.Z:0.0})");
         }
         if (_activeDynObjectFx.Count == 0) return;
-        foreach (ulong stale in _activeDynObjectFx.Where(g => seen?.Contains(g) != true).ToArray())
+        foreach (ulong stale in _activeDynObjectFx.Keys.Where(g => seen?.Contains(g) != true).ToArray())
         {
             _spellEffects.ReapArea(stale);
+            _spellSounds?.StopHold(stale);
             _activeDynObjectFx.Remove(stale);
         }
     }
 
-    private readonly HashSet<ulong> _activeDynObjectFx = [];
+    private readonly record struct DynamicAreaFxIdentity(uint Spell, uint Visual);
+    private readonly Dictionary<ulong, DynamicAreaFxIdentity> _activeDynObjectFx = [];
+
+    private static Vector3 DynamicObjectWorldPosition(WorldEntity obj)
+    {
+        float? x = obj.Fields.GetF32(11), y = obj.Fields.GetF32(12), z = obj.Fields.GetF32(13);
+        return x is float px && y is float py && z is float pz &&
+               float.IsFinite(px) && float.IsFinite(py) && float.IsFinite(pz)
+            ? new Vector3(px, py, pz) : obj.Position;
+    }
 
     private void UpdateObservedChannels(double now)
     {

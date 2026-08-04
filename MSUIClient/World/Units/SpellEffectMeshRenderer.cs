@@ -7,6 +7,18 @@ using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World.Units;
 
+public readonly record struct SpellMeshDraw(
+    long Id,
+    string Path,
+    M2Model Model,
+    Matrix4x4 Transform,
+    float Age,
+    int SequenceIndex,
+    bool GroundAnchor,
+    string? CustomTexture,
+    Vector3 Tint,
+    float Opacity);
+
 /// <summary>
 /// Draws the mesh half of SpellVisualEffectName M2s. The particle half stays in
 /// ParticleRenderer; both consume the same SpellEffectSource instances so a
@@ -29,7 +41,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         public int Blend;
         public bool TwoSided;
         public bool NoZWrite;
+        public bool NoZTest;
         public bool Unlit;
+        public int FogPolicy;
         public GroundQuad? Ground;
         public bool AnimatedAlpha;
         public M2Batch Source = null!;
@@ -65,6 +79,17 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private readonly HashSet<string> _drawnPaths = new(StringComparer.OrdinalIgnoreCase);
     public bool WasDrawn(string path) => _drawnPaths.Contains(path);
 
+    public Vector3 SunDirection { get; set; } = Vector3.UnitZ;
+    public Vector3 SunColor { get; set; } = Vector3.One;
+    public float SunIntensity { get; set; } = .35f;
+    public Vector3 AmbientColor { get; set; } = Vector3.One;
+    public float AmbientIntensity { get; set; } = 1f;
+    public Vector3 FogColor { get; set; } = new(.56f, .71f, .85f);
+    public float FogStart { get; set; } = 350f;
+    public float FogEnd { get; set; } = 777f;
+    public float FarClip { get; set; } = 777f;
+    public bool FogEnabled { get; set; } = true;
+
     public SpellEffectMeshRenderer(GL gl, MpqMount mpq)
     {
         _gl = gl;
@@ -73,7 +98,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
 
     public unsafe void LoadShaders(string shaderDir)
     {
-        _shader = Shader.FromSource(_gl, "spell-effect-mesh", VertexSource, FragmentSource);
+        _shader = Shader.FromSource(_gl, "spell-effect-mesh",
+            SpellMeshSkinningLaw.VertexShaderSource, FragmentSource);
         _groundShader = Shader.FromSource(_gl, "spell-ground-decal", GroundVertexSource,
             GroundFragmentSource);
         _groundVao = _gl.GenVertexArray();
@@ -93,8 +119,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     }
 
     public unsafe void Render(Camera camera,
-        IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
-            float Age, int AnimationId, bool GroundAnchor, string? CustomTexture)> instances,
+        IEnumerable<SpellMeshDraw> instances,
         Func<float, float, float, float?>? sampleGround = null)
     {
         DrawnLastFrame = 0;
@@ -106,20 +131,25 @@ public sealed class SpellEffectMeshRenderer : IDisposable
 
         _shader.Use();
         _shader.Set("uCameraPos", Vector3.Zero);
-        _shader.Set("uSunDirection", Vector3.UnitZ);
-        _shader.Set("uSunColor", Vector3.One);
-        _shader.Set("uSunIntensity", .35f);
-        _shader.Set("uAmbientColor", Vector3.One);
-        _shader.Set("uAmbientIntensity", 1f);
+        _shader.Set("uView", camera.RelativeView);
+        _shader.Set("uSunDirection", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uShadowWrap", 1f);
-        _shader.Set("uFogStart", 10000f);
-        _shader.Set("uFogEnd", 20000f);
-        _shader.Set("uFogColor", Vector3.Zero);
+        _shader.Set("uFogEnabled", FogEnabled ? 1 : 0);
+        _shader.Set("uFogStart", FogStart);
+        _shader.Set("uFogEnd", FogEnd);
+        _shader.Set("uFogColor", FogColor);
+        _shader.Set("uFarClip", FarClip);
         _shader.Set("uTexture", 0);
 
         bool culling = true;
+        bool hadDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
+        bool depthTest = hadDepthTest;
         var groundDraws = new List<(float[] Vertices, Texture? Texture, int Blend,
-            Vector3 Tint, float Opacity)>();
+            Vector3 Tint, float Opacity, int FogPolicy)>();
         for (int pass = 0; pass < 2; pass++)
         {
             bool transparent = pass == 1;
@@ -128,20 +158,18 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             foreach (var item in ready)
             {
                 Mesh mesh = item.Mesh!;
-                Matrix4x4 model = item.Source.Transform;
-                model.M41 -= camera.Position.X;
-                model.M42 -= camera.Position.Y;
-                model.M43 -= camera.Position.Z;
+                Matrix4x4 model = SpellMeshSkinningLaw.CameraRelativeModel(
+                    item.Source.Transform, camera.Position);
                 _shader.Set("uModel", model);
                 _shader.Set("uModelViewProjection", model * camera.RelativeViewProjection);
                 int boneCount = 0;
                 if (mesh.Animator is not null && mesh.BoneCount > 0)
                 {
-                    M2Animator.Clip? clip = mesh.Animator.Find(item.Source.AnimationId) ??
-                        mesh.Animator.Clips.Values.FirstOrDefault();
+                    M2Animator.Clip? clip = mesh.Animator.FindSequenceOrBake(
+                        item.Source.SequenceIndex);
                     boneCount = Math.Min(mesh.BoneCount, M2Animator.MaxBones);
                     mesh.Animator.Evaluate(clip, item.Source.Age, item.Source.Age, _skin);
-                    ApplyBillboardBones(item.Source.Model, item.Source.Transform,
+                    SpellMeshSkinningLaw.ApplyBillboardBones(item.Source.Model, item.Source.Transform,
                         camera.Position, camera.Forward, boneCount, _skin);
                     M2Animator.Pack(_skin, boneCount, _packed);
                     _shader.SetVec4Array("uBones", _packed, boneCount * 3);
@@ -159,16 +187,16 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                     if (drawTexture is { } texture)
                     {
                         texture.Bind(0); _shader.Set("uHasTexture", 1);
-                        _shader.Set("uAlphaCutoff", batch.Blend == 1 ? .25f : 0f);
+                        _shader.Set("uAlphaCutoff", batch.Blend == 1 ? 224f / 255f : 0f);
                     }
                     else { _shader.Set("uHasTexture", 0); _shader.Set("uAlphaCutoff", 0f); }
-                    int sequence = item.Source.Model.TryFindSequenceIndexByAnimationId(item.Source.AnimationId);
-                    Vector3 tint = Vector3.One;
-                    float opacity = 1f;
+                    int sequence = item.Source.SequenceIndex;
+                    Vector3 tint = item.Source.Tint;
+                    float opacity = item.Source.Opacity;
                     if (batch.Source.ColorIndex >= 0 && batch.Source.ColorIndex < item.Source.Model.Colors.Count)
                     {
                         M2ColorAnimation color = item.Source.Model.Colors[batch.Source.ColorIndex];
-                        tint = M2TrackSampling.Vector(color.Color, item.Source.Model, sequence,
+                        tint *= M2TrackSampling.Vector(color.Color, item.Source.Model, sequence,
                             item.Source.Age, Vector3.One);
                         opacity *= M2TrackSampling.Fixed16(color.Alpha, item.Source.Model, sequence,
                             item.Source.Age);
@@ -185,12 +213,13 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                         item.Source.Path.Contains("Blizzard", StringComparison.OrdinalIgnoreCase) &&
                         Environment.TickCount64 % 1000 < 20)
                         Console.WriteLine($"[fx-trace] {Path.GetFileName(item.Source.Path)} " +
-                            $"age={item.Source.Age:0.00} anim={item.Source.AnimationId} seq={sequence} " +
+                            $"age={item.Source.Age:0.00} seq={sequence} " +
                             $"blend={batch.Blend} ground={batch.Ground is not null} " +
                             $"tint=({tint.X:0.00},{tint.Y:0.00},{tint.Z:0.00}) opacity={opacity:0.000}");
                     _shader.Set("uTint", tint);
                     _shader.Set("uOpacity", opacity);
                     _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                    _shader.Set("uFogPolicy", batch.FogPolicy);
                     if (item.Source.GroundAnchor && batch.Ground is { } ground)
                     {
                         // BuildGroundQuad needs the WORLD transform, not the camera-relative
@@ -198,12 +227,24 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                         // itself (once). Passing the already camera-relative `model` here double-
                         // subtracted the eye (~9000yd off) and fed world sampling garbage, which is
                         // why every ground-anchored ring (Frost Nova, Arcane Explosion) drew nothing.
-                        groundDraws.Add((BuildGroundQuad(ground, item.Source.Model, item.Source.Transform,
-                            camera.Position, sampleGround), drawTexture, batch.Blend, tint, opacity));
-                        _drawnPaths.Add(item.Source.Path);
+                        float[] projected = BuildGroundQuad(ground, item.Source.Model,
+                            item.Source.Transform, camera.Position, sampleGround);
+                        if (projected.Length > 0)
+                        {
+                            groundDraws.Add((projected, drawTexture, batch.Blend, tint, opacity,
+                                batch.FogPolicy));
+                            _drawnPaths.Add(item.Source.Path);
+                        }
                         continue;
                     }
                     if (transparent) ApplyBlend(batch.Blend);
+                    bool wantsDepthTest = !batch.NoZTest;
+                    if (wantsDepthTest != depthTest)
+                    {
+                        if (wantsDepthTest) _gl.Enable(EnableCap.DepthTest);
+                        else _gl.Disable(EnableCap.DepthTest);
+                        depthTest = wantsDepthTest;
+                    }
                     _gl.DepthMask(!transparent && !batch.NoZWrite);
                     _gl.DrawElements(PrimitiveType.Triangles, batch.Count,
                         DrawElementsType.UnsignedShort, (void*)(batch.Start * sizeof(ushort)));
@@ -215,7 +256,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         }
         if (!culling) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
+        if (!depthTest) { _gl.Enable(EnableCap.DepthTest); depthTest = true; }
         RenderGroundQuads(camera, groundDraws);
+        if (!hadDepthTest) _gl.Disable(EnableCap.DepthTest);
     }
 
     private unsafe Mesh? Resolve(string path, M2Model model)
@@ -229,20 +272,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             vertices[o] = v.PosX; vertices[o + 1] = v.PosY; vertices[o + 2] = v.PosZ;
             vertices[o + 3] = v.NormX; vertices[o + 4] = v.NormY; vertices[o + 5] = v.NormZ;
             vertices[o + 6] = v.TexU; vertices[o + 7] = v.TexV;
-            float total = v.BoneWeight0 + v.BoneWeight1 + v.BoneWeight2 + v.BoneWeight3;
-            if (total <= 0)
-            {
-                vertices[o + 8] = 1; vertices[o + 12] = 0;
-            }
-            else
-            {
-                vertices[o + 8] = v.BoneWeight0 / total; vertices[o + 9] = v.BoneWeight1 / total;
-                vertices[o + 10] = v.BoneWeight2 / total; vertices[o + 11] = v.BoneWeight3 / total;
-                vertices[o + 12] = v.BoneIndex0 < M2Animator.MaxBones ? v.BoneIndex0 : 0;
-                vertices[o + 13] = v.BoneIndex1 < M2Animator.MaxBones ? v.BoneIndex1 : 0;
-                vertices[o + 14] = v.BoneIndex2 < M2Animator.MaxBones ? v.BoneIndex2 : 0;
-                vertices[o + 15] = v.BoneIndex3 < M2Animator.MaxBones ? v.BoneIndex3 : 0;
-            }
+            SpellMeshSkinningLaw.VertexSkin resolved = SpellMeshSkinningLaw.Resolve(v);
+            vertices[o + 8] = resolved.Weights.X; vertices[o + 9] = resolved.Weights.Y;
+            vertices[o + 10] = resolved.Weights.Z; vertices[o + 11] = resolved.Weights.W;
+            vertices[o + 12] = resolved.Indices.X; vertices[o + 13] = resolved.Indices.Y;
+            vertices[o + 14] = resolved.Indices.Z; vertices[o + 15] = resolved.Indices.W;
         }
         ushort[] indices = model.Indices.ToArray();
         var mesh = new Mesh(_gl) { Vao = _gl.GenVertexArray(), Vbo = _gl.GenBuffer(), Ebo = _gl.GenBuffer() };
@@ -278,7 +312,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                 Blend = flags?.BlendingMode ?? 0,
                 TwoSided = flags?.TwoSided ?? true,
                 NoZWrite = flags?.NoZWrite ?? false,
+                NoZTest = flags?.NoZTest ?? false,
                 Unlit = flags?.Unlit ?? false,
+                FogPolicy = flags?.Unfogged == true ? 4 : FogPolicyForBlend(flags?.BlendingMode ?? 0),
                 Source = source,
                 Ground = FindGroundQuad(model, sub),
                 AnimatedAlpha = HasAnimatedAlpha(model, source),
@@ -289,6 +325,14 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                 Source = new M2Batch() });
         return _meshes[path] = mesh;
     }
+
+    private static int FogPolicyForBlend(int blend) => blend switch
+    {
+        3 or 4 => 1, // additive -> black
+        5 => 2,      // modulate -> white
+        6 => 3,      // modulate-2x -> neutral grey
+        _ => 0,      // ordinary scene fog
+    };
 
     private Texture? ResolveBatchTexture(M2Model model, M2Batch batch)
     {
@@ -343,21 +387,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         return new GroundQuad { Bone = bone, Corners = ordered };
     }
 
-    /// <summary>
-    /// Grid resolution per side for the ground-ring decal. A single flat 4-corner quad drapes an
-    /// expanding AoE ring (~19yd for Frost Nova) as one planar patch; over rolling terrain its far
-    /// half sinks below the curved ground and depth-fails, so only a consistent world-half (a
-    /// crescent) survives â€” the "half the ring renders" bug. Tessellating and snapping EVERY grid
-    /// vertex to the ground makes the ring hug the terrain everywhere â†’ a full 360-degree ring. This
-    /// is a cheap stand-in for benilla's true terrain-triangle projection (ground_fx.rs project_decal).
-    /// </summary>
-    private const int GroundTessellation = 10;
-
     private float[] BuildGroundQuad(GroundQuad quad, M2Model source, Matrix4x4 model,
         Vector3 camera, Func<float, float, float, float?>? sampleGround)
     {
         Matrix4x4 joint = quad.Bone >= 0 && quad.Bone < source.Bones.Count
-            ? Matrix4x4.CreateTranslation(source.Bones[quad.Bone].Pivot) * _skin[quad.Bone]
+            ? _skin[quad.Bone]
             : Matrix4x4.Identity;
         Matrix4x4 world = joint * model;
 
@@ -389,54 +423,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         if (FitFrame(cp) is { } frame && ProjectDecal(frame, cuv, camera) is { } projected)
             return projected;
 
-        // Fallback (no terrain under the quad, or no gatherer â€” WMO floors): the
-        // tessellated height-snapped grid. Coarser, but better than nothing.
-        int n = GroundTessellation;
-        var grid = new (Vector3 P, Vector2 UV)[(n + 1) * (n + 1)];
-        for (int gz = 0; gz <= n; gz++)
-        {
-            float v = gz / (float)n;
-            for (int gx = 0; gx <= n; gx++)
-            {
-                float u = gx / (float)n;
-                Vector3 p = Bilerp(cp[0], cp[1], cp[2], cp[3], u, v);
-                if (sampleGround?.Invoke(p.X, p.Y, p.Z) is float height) p.Z = height + .015f;
-                p -= camera;
-                grid[gz * (n + 1) + gx] = (p, Bilerp(cuv[0], cuv[1], cuv[2], cuv[3], u, v));
-            }
-        }
-
-        // Two triangles per cell, emitted as a triangle list (culling is off, so winding is moot).
-        float[] vertices = new float[n * n * 6 * 6];
-        int o = 0;
-        for (int gz = 0; gz < n; gz++)
-            for (int gx = 0; gx < n; gx++)
-            {
-                var a = grid[gz * (n + 1) + gx];
-                var b = grid[gz * (n + 1) + gx + 1];
-                var c = grid[(gz + 1) * (n + 1) + gx];
-                var d = grid[(gz + 1) * (n + 1) + gx + 1];
-                WriteGroundVert(vertices, ref o, a);
-                WriteGroundVert(vertices, ref o, b);
-                WriteGroundVert(vertices, ref o, c);
-                WriteGroundVert(vertices, ref o, c);
-                WriteGroundVert(vertices, ref o, b);
-                WriteGroundVert(vertices, ref o, d);
-            }
-        return vertices;
+        // The reference hides projected ground effects when no projectable terrain exists.
+        return [];
     }
-
-    private static void WriteGroundVert(float[] dst, ref int o, (Vector3 P, Vector2 UV) v)
-    {
-        dst[o++] = v.P.X; dst[o++] = v.P.Y; dst[o++] = v.P.Z;
-        dst[o++] = v.UV.X; dst[o++] = v.UV.Y; dst[o++] = 1f;
-    }
-
-    private static Vector3 Bilerp(Vector3 bl, Vector3 br, Vector3 tl, Vector3 tr, float u, float v)
-        => (1 - u) * (1 - v) * bl + u * (1 - v) * br + (1 - u) * v * tl + u * v * tr;
-
-    private static Vector2 Bilerp(Vector2 bl, Vector2 br, Vector2 tl, Vector2 tr, float u, float v)
-        => (1 - u) * (1 - v) * bl + u * (1 - v) * br + (1 - u) * v * tl + u * v * tr;
 
     // â”€â”€ Ground-decal projector (benilla decal.rs/ground_fx.rs, trace Â§9) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     //
@@ -554,30 +543,39 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     }
 
     /// <summary>
-    /// The 1.12 area-targeting reticle: the AURARUNE circle projected onto the real
-    /// terrain triangles at the cursor's ground point, sized to the spell radius,
-    /// tinted green and drawn additively. No ground under the cursor â†’ no marker
+    /// The 1.12 area-targeting reticle: Blizzard's Spell-Shadow-Acceptable circle projected onto
+    /// the real terrain triangles at the cursor's ground point, sized to the spell radius,
+    /// preserving the texture's authored green and alpha. No ground under the cursor â†’ no marker
     /// (the 1.12 mid-air gate).
     /// </summary>
     public void RenderTargetingMarker(Camera camera, Vector3 centre, float radius)
     {
         if (_groundShader is null) return;
-        Texture? rune = ResolveTexture(@"SPELLS\AURARUNE256.BLP");
+        Texture? rune = ResolveTexture(@"Interface\SpellShadow\Spell-Shadow-Acceptable.blp");
         if (rune is null) return;
         var frame = new DecalFrame(centre, 0f, 1f, radius, radius, 2f * radius);
         Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
         float[]? vertices = ProjectDecal(frame, uv, camera.Position);
         if (vertices is null) return;
-        RenderGroundQuads(camera, [(vertices, rune, 4, new Vector3(.25f, 1f, .35f), 1f)]);
+        // GxRs blend-mode 2: the texture's authored alpha preserves the fine rings and glyphs.
+        // Additive blending blooms those details into the broad neon arcs seen in the old marker.
+        RenderGroundQuads(camera, [(vertices, rune, 2, Vector3.One, 1f, 0)]);
     }
 
     private unsafe void RenderGroundQuads(Camera camera,
-        List<(float[] Vertices, Texture? Texture, int Blend, Vector3 Tint, float Opacity)> draws)
+        List<(float[] Vertices, Texture? Texture, int Blend, Vector3 Tint, float Opacity,
+            int FogPolicy)> draws)
     {
         if (_groundShader is null || draws.Count == 0) return;
         _groundShader.Use();
         _groundShader.Set("uViewProjection", camera.RelativeViewProjection);
+        _groundShader.Set("uView", camera.RelativeView);
         _groundShader.Set("uTexture", 0);
+        _groundShader.Set("uFogEnabled", FogEnabled ? 1 : 0);
+        _groundShader.Set("uFogColor", FogColor);
+        _groundShader.Set("uFogStart", FogStart);
+        _groundShader.Set("uFogEnd", FogEnd);
+        _groundShader.Set("uFarClip", FarClip);
         _gl.BindVertexArray(_groundVao);
         _gl.Enable(EnableCap.Blend);
         _gl.DepthMask(false);
@@ -586,9 +584,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _gl.PolygonOffset(-1f, -8192f); // benilla GROUND_FX_DEPTH_BIAS: coplanar decal must beat the opaque ground
         foreach (var draw in draws)
         {
+            if (draw.Vertices.Length == 0) continue;
             _groundShader.Set("uHasTexture", draw.Texture is null ? 0 : 1);
             _groundShader.Set("uTint", draw.Tint);
             _groundShader.Set("uOpacity", draw.Opacity);
+            _groundShader.Set("uFogPolicy", draw.FogPolicy);
             draw.Texture?.Bind(0);
             ApplyBlend(draw.Blend);
             _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _groundVbo);
@@ -625,108 +625,6 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         else _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
     }
 
-    private static void ApplyBillboardBones(M2Model model, Matrix4x4 modelTransform,
-        Vector3 cameraWorld, Vector3 cameraForwardWorld, int boneCount, Matrix4x4[] skin)
-    {
-        if (!Matrix4x4.Invert(modelTransform, out Matrix4x4 inverse)) return;
-        Vector3 camera = Vector3.Transform(cameraWorld, inverse);
-        Vector3 forward = NormalizeOr(Vector3.TransformNormal(cameraForwardWorld, inverse),
-            -Vector3.UnitZ);
-        Vector3 cameraRightWorld = NormalizeOr(Vector3.Cross(cameraForwardWorld, Vector3.UnitZ),
-            Vector3.UnitY);
-        Vector3 right = NormalizeOr(Vector3.TransformNormal(cameraRightWorld, inverse),
-            Vector3.UnitX);
-        Vector3 cameraUpWorld = NormalizeOr(Vector3.Cross(cameraRightWorld, cameraForwardWorld),
-            Vector3.UnitZ);
-        Vector3 up = NormalizeOr(Vector3.TransformNormal(cameraUpWorld, inverse),
-            Vector3.UnitY);
-
-        // Keep the original globals so a child local can be recovered, then
-        // walk in bone order and compose it onto a billboard-rewritten parent.
-        // Benilla applies the law to the joint palette rather than only to the
-        // directly weighted vertices; frost sheets and similar child-skinned
-        // geometry depend on that propagation.
-        var original = new Matrix4x4[boneCount];
-        var replaced = new bool[boneCount];
-        for (int i = 0; i < boneCount; i++)
-            original[i] = Matrix4x4.CreateTranslation(model.Bones[i].Pivot) * skin[i];
-
-        for (int i = 0; i < boneCount && i < model.Bones.Count; i++)
-        {
-            M2Bone bone = model.Bones[i];
-            int parent = bone.ParentBone;
-            bool parentChanged = parent >= 0 && parent < i && replaced[parent];
-            uint flags = bone.Flags;
-            bool ignoreParentRotation = (flags & 0x04) != 0;
-            uint billboard = flags & 0x78;
-            if (!parentChanged && !ignoreParentRotation && billboard == 0) continue;
-
-            Matrix4x4 global = original[i];
-            if (parentChanged && Matrix4x4.Invert(original[parent], out Matrix4x4 parentInverse))
-            {
-                Matrix4x4 local = original[i] * parentInverse;
-                Matrix4x4 newParent = Matrix4x4.CreateTranslation(model.Bones[parent].Pivot) *
-                    skin[parent];
-                global = local * newParent;
-            }
-
-            if (!Matrix4x4.Decompose(global, out Vector3 scale, out Quaternion kept,
-                    out Vector3 position))
-                continue;
-
-            if (ignoreParentRotation)
-            {
-                global = Matrix4x4.CreateScale(scale) * Matrix4x4.CreateTranslation(position);
-            }
-            else if (billboard != 0)
-            {
-                Vector3 bx, by, bz;
-                if ((billboard & 0x08) != 0) // spherical
-                {
-                    bx = -forward;
-                    by = right;
-                    bz = up;
-                }
-                else if ((billboard & 0x40) != 0) // keep authored WoW Z
-                {
-                    bz = NormalizeOr(Vector3.Transform(Vector3.UnitY, kept), Vector3.UnitY);
-                    by = NormalizeOr(Vector3.Cross(forward, bz), right);
-                    bx = NormalizeOr(Vector3.Cross(by, bz), -forward);
-                }
-                else if ((billboard & 0x10) != 0) // keep authored WoW X
-                {
-                    bx = NormalizeOr(Vector3.Transform(Vector3.UnitX, kept), -forward);
-                    bz = NormalizeOr(Vector3.Cross(forward, bx), up);
-                    by = NormalizeOr(Vector3.Cross(bz, bx), right);
-                }
-                else // 0x20: keep authored WoW Y
-                {
-                    by = NormalizeOr(Vector3.Transform(-Vector3.UnitZ, kept), right);
-                    bx = NormalizeOr(Vector3.Cross(forward, by), -forward);
-                    bz = NormalizeOr(Vector3.Cross(bx, by), up);
-                }
-
-                // M2Reader stores model space as (x, z, -y) from WoW:
-                // local X=WoW X, local Y=WoW Z, local Z=-WoW Y. (The previous
-                // basis here was benilla/Bevy's local convention â€” wrong for
-                // MSUI verts; it turned every billboard edge-on to the camera.)
-                Matrix4x4 facing = new(
-                    bx.X, bx.Y, bx.Z, 0,
-                    bz.X, bz.Y, bz.Z, 0,
-                    -by.X, -by.Y, -by.Z, 0,
-                    0, 0, 0, 1);
-                global = Matrix4x4.CreateScale(scale) * facing *
-                    Matrix4x4.CreateTranslation(position);
-            }
-
-            skin[i] = Matrix4x4.CreateTranslation(-bone.Pivot) * global;
-            replaced[i] = true;
-        }
-    }
-
-    private static Vector3 NormalizeOr(Vector3 value, Vector3 fallback) =>
-        value.LengthSquared() > 1e-8f ? Vector3.Normalize(value) : fallback;
-
     public void Dispose()
     {
         foreach (Mesh? mesh in _meshes.Values) mesh?.Dispose();
@@ -737,47 +635,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _groundShader?.Dispose();
     }
 
-    private const string VertexSource = @"#version 330 core
-layout(location=0) in vec3 aPosition;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-layout(location=3) in vec4 aBoneWeights;
-layout(location=4) in vec4 aBoneIndices;
-uniform mat4 uModel;
-uniform mat4 uModelViewProjection;
-const int MAX_BONES = 160;
-uniform vec4 uBones[MAX_BONES * 3];
-uniform int uBoneCount;
-out vec3 vWorldPos;
-out vec3 vNormal;
-out vec2 vUV;
-vec3 skinPoint(vec3 p, int b) {
-    vec4 h=vec4(p,1.0);
-    return vec3(dot(uBones[b*3],h),dot(uBones[b*3+1],h),dot(uBones[b*3+2],h));
-}
-vec3 skinVector(vec3 v, int b) {
-    return vec3(dot(uBones[b*3].xyz,v),dot(uBones[b*3+1].xyz,v),dot(uBones[b*3+2].xyz,v));
-}
-void main() {
-    vec3 p=aPosition; vec3 n=aNormal;
-    if (uBoneCount > 0) {
-        vec3 sp=vec3(0.0); vec3 sn=vec3(0.0); float sum=0.0;
-        for (int i=0;i<4;i++) {
-            float w=aBoneWeights[i]; int b=int(aBoneIndices[i]+0.5);
-            if (w<=0.0 || b<0 || b>=uBoneCount) continue;
-            sp += skinPoint(aPosition,b)*w; sn += skinVector(aNormal,b)*w; sum += w;
-        }
-        if (sum>0.0001) { p=sp/sum; n=sn/sum; }
-    }
-    vec4 world=uModel*vec4(p,1.0);
-    vWorldPos=world.xyz; vNormal=normalize(mat3(uModel)*n); vUV=aUV;
-    gl_Position=uModelViewProjection*vec4(p,1.0);
-}";
-
     private const string FragmentSource = @"#version 330 core
 in vec3 vWorldPos;
 in vec3 vNormal;
 in vec2 vUV;
+in float vEyeDepth;
 uniform sampler2D uTexture;
 uniform int uHasTexture;
 uniform float uAlphaCutoff;
@@ -792,8 +654,12 @@ uniform float uAmbientIntensity;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3 uFogColor;
+uniform int uFogEnabled;
+uniform int uFogPolicy;
+uniform float uFarClip;
 out vec4 FragColor;
 void main() {
+    if (uFarClip > 0.0 && vEyeDepth > uFarClip) discard;
     vec4 tex = uHasTexture != 0 ? texture(uTexture, vUV) : vec4(1.0);
     vec4 base = vec4(tex.rgb * uTint, tex.a * uOpacity);
     if (base.a < uAlphaCutoff || base.a <= 0.001) discard;
@@ -802,8 +668,16 @@ void main() {
         float n = max(dot(normalize(vNormal), normalize(uSunDirection)), 0.0);
         light = uAmbientColor * uAmbientIntensity + uSunColor * uSunIntensity * n;
     }
-    float fog = clamp((length(vWorldPos) - uFogStart) / max(0.001, uFogEnd-uFogStart), 0.0, 1.0);
-    FragColor = vec4(mix(base.rgb * light, uFogColor, fog), base.a);
+    vec3 rgb = base.rgb * light;
+    if (uFogEnabled != 0 && uFogPolicy != 4) {
+        float visibility = clamp((uFogEnd-vEyeDepth) / max(0.001,uFogEnd-uFogStart), 0.0, 1.0);
+        vec3 target = uFogColor;
+        if (uFogPolicy == 1) target = vec3(0.0);
+        else if (uFogPolicy == 2) target = vec3(1.0);
+        else if (uFogPolicy == 3) target = vec3(0.50196078);
+        rgb = mix(target, rgb, visibility);
+    }
+    FragColor = vec4(rgb, base.a);
 }";
 
     private const string GroundVertexSource = @"#version 330 core
@@ -811,18 +685,40 @@ layout(location=0) in vec3 aPosition;
 layout(location=1) in vec2 aUV;
 layout(location=2) in float aAlpha;
 uniform mat4 uViewProjection;
+uniform mat4 uView;
 out vec2 vUV;
 out float vAlpha;
-void main(){vUV=aUV;vAlpha=aAlpha;gl_Position=uViewProjection*vec4(aPosition,1.0);}";
+out float vEyeDepth;
+void main(){vUV=aUV;vAlpha=aAlpha;vEyeDepth=-(uView*vec4(aPosition,1.0)).z;gl_Position=uViewProjection*vec4(aPosition,1.0);}";
 
     private const string GroundFragmentSource = @"#version 330 core
 in vec2 vUV;
 in float vAlpha;
+in float vEyeDepth;
 uniform sampler2D uTexture;
 uniform int uHasTexture;
 uniform vec3 uTint;
 uniform float uOpacity;
+uniform int uFogEnabled;
+uniform int uFogPolicy;
+uniform vec3 uFogColor;
+uniform float uFogStart;
+uniform float uFogEnd;
+uniform float uFarClip;
 out vec4 FragColor;
-void main(){vec4 t=uHasTexture!=0?texture(uTexture,vUV):vec4(1.0);FragColor=vec4(t.rgb*uTint,t.a*uOpacity*vAlpha);if(FragColor.a<=0.001)discard;}";
+void main(){
+    if(uFarClip>0.0 && vEyeDepth>uFarClip)discard;
+    vec4 t=uHasTexture!=0?texture(uTexture,vUV):vec4(1.0);
+    FragColor=vec4(t.rgb*uTint,t.a*uOpacity*vAlpha);
+    if(FragColor.a<=0.001)discard;
+    if(uFogEnabled!=0 && uFogPolicy!=4){
+        float visibility=clamp((uFogEnd-vEyeDepth)/max(0.001,uFogEnd-uFogStart),0.0,1.0);
+        vec3 target=uFogColor;
+        if(uFogPolicy==1)target=vec3(0.0);
+        else if(uFogPolicy==2)target=vec3(1.0);
+        else if(uFogPolicy==3)target=vec3(0.50196078);
+        FragColor.rgb=mix(target,FragColor.rgb,visibility);
+    }
+}";
 }
 

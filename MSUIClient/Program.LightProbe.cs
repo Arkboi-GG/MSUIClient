@@ -128,6 +128,11 @@ public sealed partial class GameLoop
                 ? _exteriorLight.Params(applied.Contributors[^1].ParamsId)
                 : null;
 
+            // FFXGlow's sole authored input is the active LightParams row's glow weight.
+            // Keep the configured value only as the no-data fallback.
+            if (_glow is not null && _atmosphere.UseAuthoredData && dominant is not null)
+                _glow.Gain = dominant.Glow;
+
             _atmosphere.SetAuthoredWater(
                 applied.Colors[LightIntBandTable.OceanCloseBand],
                 applied.Colors[LightIntBandTable.OceanFarBand],

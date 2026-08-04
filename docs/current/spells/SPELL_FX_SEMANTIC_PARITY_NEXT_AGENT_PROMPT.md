@@ -3,23 +3,24 @@
 Prepared: 2026-08-03  
 Repository: `C:\Users\nico\source\repos\MSUIClient`  
 Authority target: original World of Warcraft 1.12.1 client, build 5875  
-Immediate next slice: **M-017, multi-weight effect-mesh skinning and nonzero-pivot inverse-bind composition**
+Immediate next slice: **D-001, WMO-floor decal projection and proven no-surface behavior**
 
 ## Assignment
 
 Continue the spell-FX parity work from the current dirty working tree. Do not restart the broad audit and do
 not accept an older `MATCH` label without retracing its semantic frames, owners, clocks, and evidence.
 
-The next unresolved implementation/investigation item is M-017. Trace the complete effect-mesh skinning path,
-prove the four-weight and pivot law against Benilla and mounted 1.12 data, correct production code if the
-proof exposes a divergence, add an executable corpus/fixture validator, run all neighboring regressions, and
-record exactly what remains unverified.
+M-017 is now `STATIC/DATA_COMPLETE`: the production skinning contract, 83,681-check validator, complete
+mounted census, Rake/Undying/Arcane Shot fixtures, inverse-transpose normal correction, and neighboring
+regressions pass. Do not redo it blindly; mesh-only MSUI/original captures remain evidence work, not an open
+implementation law.
 
-The current shader already consumes four weights and `M2Animator` already produces matrices containing an
-inverse-pivot fold. That is a lead, not a verdict. Determine whether the end-to-end row-vector packing,
-matrix order, billboard palette rewriting, invalid-index behavior, normals, and bind-pose behavior actually
-match the reference before changing code. If the implementation is already correct, preserve it and close
-the row with adversarial executable evidence instead of forcing a cosmetic rewrite.
+The next unresolved implementation item is D-001. Trace the complete effect-ground-decal surface path from
+animated M2 corners through the current terrain gatherer and every available WMO geometry/collision source.
+Determine which WMO triangles are valid projectable floor receivers in the original/Benilla law, connect the
+shared surface source without spell-specific exceptions, prove coordinate/winding/height-slab/UV/depth-bias
+behavior, preserve the honest no-surface result, add executable real/synthetic fixtures, and run all spell-FX
+regressions. Original-client evidence is still required to certify exact indoor pixels.
 
 ## Non-negotiable claim boundary
 
@@ -73,11 +74,11 @@ Known limits of the reference comparison:
 | DynamicObject/type-9 persistent areas | `REFERENCE_LIMITED` with mounted static/data audit complete | All 8 type-9 rows, 7 literal assets, distribution/rate/update/despawn ownership, one-shot shard lifetimes; 100,104 checks. | Exact original random/birth phase and impact-sound trigger instant; second original comparison spell. |
 | Ground-target radius selection | `REFERENCE_LIMITED` with mounted static/data audit complete | All populated effect lanes, 24-row radius table, 218 location-target rows, maximum-positive rule, explicit 8-yard zero fallback; 779 checks. | Original mixed-radius and zero-radius presentation rule; exact marker texture/orientation/animation. |
 | Geometry-model particles and recursive child pools | `STATIC_IMPLEMENTED` + `ASSET_CONFIRMED` | Code paths, tumble, child ownership/drain, 55 geometry and 13 recursion references resolved in the recorded census. | Lane-isolated runtime trace/captures and original comparison. Blizzard is not a fixture for either branch. |
-| Effect mesh skinning | `UNSCOPED` for M-017 | Four weights are uploaded; skin matrices and billboard rewrites exist. This has not been accepted as an end-to-end proof. | **Immediate next item:** multi-weight, nonzero-pivot, bind-pose and animated-pose proof; fix any discovered matrix/normal/index divergence. |
+| Effect mesh skinning | `STATIC/DATA_COMPLETE` for M-017 | Four-weight/nonzero-pivot/hierarchy/scale/normal/billboard/root-camera/packing laws; 83,681-check validator; full referenced mounted census. | Mesh-only MSUI trace and matched original pixels. |
 | Effect mesh/ribbon/particle fog, depth, blend, alpha, lighting | `STATIC_IMPLEMENTED` | Static changes exist for fog/far clip, unfogged/no-depth-test flags, blend classes, alpha-key cutoff, authored lighting, ramp/value-zero semantics, and faint-alpha discard removal. | Controlled numeric fragment/framebuffer evidence and matched original pixels. |
 | Billboard hierarchy | `CAPTURED` for the recorded Frost Armor basis fix only | One multi-angle fixture exposed and fixed a basis error. | Full axis-flag matrix, child propagation, and original comparison. |
 | Terrain ground decal | `CAPTURED` for terrain only | Frost Nova terrain clipping/projection was observed. | WMO floors and repeated sloped fixtures. |
-| WMO-floor ground projection | `KNOWN_MISMATCH` / open | No complete WMO triangle source is proven in the current projector. | Implement and verify WMO participation or prove the original no-surface behavior for the fixture. |
+| WMO-floor ground projection | `KNOWN_MISMATCH` / open | No complete WMO triangle source is proven in the current projector. | **Immediate next item:** implement and verify WMO participation or prove the original no-surface behavior for the fixture. |
 | Cone of Cold / `CLOUDS.BLP` | `KNOWN_MISMATCH` | Dropped HDR/DXT experiments did not fix the square appearance. | Decoder pixel dump, Benilla/original reference, alpha/blend diagnosis, and correction. |
 | FFXGlow/framebuffer color policy | `STATIC_IMPLEMENTED`, numeric proof open | Gamma-byte combine and active `LightParams.glow` feed exist. | Controlled black/gray/color probes with explicit sRGB state and original output pixels. |
 
@@ -156,7 +157,40 @@ Known limits of the reference comparison:
 - These are not Benilla-certified laws. Keep both lanes `REFERENCE_LIMITED` until original evidence decides
   exact phase/random/audio and mixed/zero-radius visual presentation.
 
-## Immediate next item — M-017 effect-mesh skinning
+## Immediate next item — D-001 WMO-floor decal projection
+
+### Decision to settle
+
+Determine the original/reference receiver law for effect ground decals on WMO floors and the exact MSUI
+production source of those triangles. The current projector already animates and skins the authored M2 quad,
+fits its world footprint, clips terrain triangles, bilerp-interpolates authored corner UVs, emits
+camera-relative triangles once, and hides when its gatherer returns no surface. The unresolved gap is whether
+and how complete WMO floor geometry reaches that same gatherer.
+
+Trace at minimum:
+
+1. `SpellEffectMeshRenderer.BuildGroundQuad`, `FitFrame`, `ProjectDecal`, and the `sampleGround`/triangle-gather
+   callbacks from the spell draw call into terrain/world ownership.
+2. Every parsed/runtime WMO triangle representation, including render meshes, collision/projectable meshes,
+   group transforms, indoor/outdoor flags, portals, doodads, and any vmap-backed alternative. Do not assume a
+   render mesh is automatically the original decal receiver set.
+3. Coordinate conversion and placement composition from WMO-local authored coordinates to game world,
+   followed by camera subtraction exactly once after clipping.
+4. Triangle winding/normal/floor eligibility, vertical slab bounds, edge clipping, UV bilerp, depth test/write,
+   and bias. Include sloped and multi-level floors plus a wall/ceiling negative.
+5. Benilla `ground_fx.rs` and its WMO collider-gather path as an implementation oracle, then original-client
+   evidence for the selected indoor fixture. Keep doodads, units, liquid, and arbitrary render backfaces out
+   unless the reference explicitly includes them.
+
+Add a dedicated validator or extend the smallest production-bound existing check. It must use the real
+projector/gatherer contract, pin at least one mounted WMO floor asset and a synthetic transform/clip case,
+prove no-surface hiding rather than grid fallback, and report any unavailable mounted collision source as a
+limitation instead of manufacturing coverage.
+
+Expected evidence ceiling without matched original pixels: `STATIC/DATA_COMPLETE` for the bounded receiver/
+projection law, never `PARITY_CERTIFIED`.
+
+## Completed item — M-017 effect-mesh skinning (do not redo blindly)
 
 ### Decision to settle
 
@@ -239,7 +273,7 @@ If GL execution is impractical in the headless validator, extract the matrix pac
 into a small production law used by both the renderer and validator, and separately keep a shader-source
 interface assertion. Do not validate a newly invented test-only implementation.
 
-### Acceptance criteria for M-017
+### Recorded acceptance criteria for M-017
 
 - The full path is documented using data source, semantic owner, input frame, output frame, sampling time,
   transform-after-birth rule where applicable, fixture, invariant, verdict, and evidence level.
@@ -255,7 +289,7 @@ interface assertion. Do not validate a newly invented test-only implementation.
 
 ### Implementation or unresolved-law work
 
-1. WMO-floor decal projection: connect projectable WMO triangles and prove the no-surface behavior.
+1. **Immediate:** WMO-floor decal projection: connect projectable WMO triangles and prove the no-surface behavior.
 2. Cone of Cold `CLOUDS.BLP`: settle decoder alpha and the fragment/blend path behind the visible squares.
 3. Controlled shader/framebuffer/glow policy: numeric sRGB/gamma/fog/blend/glow probes.
 4. Any head/tail particle quad or mesh-normal divergence exposed by the fixture census.
@@ -297,12 +331,13 @@ dotnet run --project tools\spell-animation-lifecycle-check\spell-animation-lifec
 dotnet run --project tools\spell-particle-motion-check\spell-particle-motion-check.csproj -- MSUIClient\client-config.json
 dotnet run --project tools\spell-missile-pipeline-check\spell-missile-pipeline-check.csproj -- MSUIClient\client-config.json
 dotnet run --project tools\spell-ribbon-history-check\spell-ribbon-history-check.csproj -- MSUIClient\client-config.json
+dotnet run --project tools\spell-mesh-skinning-check\spell-mesh-skinning-check.csproj -- MSUIClient\client-config.json
 dotnet run --project tools\spell-area-visual-check\spell-area-visual-check.csproj -- MSUIClient\client-config.json
 dotnet run --project tools\spell-target-radius-check\spell-target-radius-check.csproj -- MSUIClient\client-config.json
 dotnet run --project tools\interface-wire-check\interface-wire-check.csproj
 ```
 
-After M-017, add its validator to this list. If a validator is already built and inputs are unchanged,
+The M-017 validator is now part of this list. If a validator is already built and inputs are unchanged,
 `--no-build` is acceptable for iteration, but the final pass must compile the changed project. Record the
 actual output; do not copy expected counts into a completion claim without running it.
 
@@ -321,12 +356,20 @@ Current authoritative audit and session record:
 - `BENILLA_SPELL_SYSTEM_TRACE.md`
 - `MSUI_SPELL_SYSTEM_TRACE.md`
 
-Immediate M-017 production path:
+Immediate D-001 production path:
+
+- `MSUIClient\Program.cs` spell draw wiring (`GatherGround` currently receives terrain only)
+- `MSUIClient\World\Units\SpellEffectMeshRenderer.cs` ground-quad fit/clip/project path
+- `MSUIClient\World\TerrainRenderer.cs` current terrain triangle gatherer
+- `MSUIClient\Formats\WmoReader.cs`
+- `MSUIClient\World\Wmo\WmoRenderer.cs`
+
+Completed M-017 production path:
 
 - `MSUIClient\Formats\M2Reader.cs`
 - `MSUIClient\World\Units\M2Animator.cs`
+- `MSUIClient\World\Units\SpellMeshSkinningLaw.cs`
 - `MSUIClient\World\Units\SpellEffectMeshRenderer.cs`
-- the inline `VertexSource` in `SpellEffectMeshRenderer.cs`
 - `MSUIClient\World\Units\SpellEffectSource.cs`
 - `MSUIClient\World\Units\SpellAttachment.cs`
 - `MSUIClient\Shaders\character.vert` as a neighboring CPU/GPU skinning implementation, not automatic
@@ -338,13 +381,16 @@ Completed production-law helpers and validators:
 - `MSUIClient\World\Units\SpellEffectPlaybackLaw.cs`
 - `MSUIClient\World\Units\SpellMissileLaw.cs`
 - `MSUIClient\World\Units\SpellRibbonHistoryLaw.cs`
+- `MSUIClient\World\Units\SpellMeshSkinningLaw.cs`
+- `tools\spell-mesh-skinning-check\`
 - `tools\spell-*-check\`
 
 ## Working-tree and implementation guardrails
 
 - The working tree is intentionally dirty and contains the accumulated parity work. Preserve unrelated user
   changes. Do not reset, discard, or mass-format them.
-- Use a stable decision ID. M-017 already exists; update it rather than creating a competing row.
+- Use stable decision D-001 for the WMO-floor receiver law. M-017 is closed at static/data level; do not
+  create a competing mesh decision unless new evidence proves a distinct law.
 - Fix shared semantic laws, not individual spells. Do not special-case Blizzard, Cone of Cold, Fireball,
   Arcane Shot, or a chosen mesh fixture to hide a shared error.
 - Convert coordinate bases once and name the frame at every boundary. “Local,” “world,” “bone,” and “age”
@@ -363,16 +409,21 @@ Completed production-law helpers and validators:
 
 Deliver all of the following:
 
-1. The traced M-017 reference and MSUI laws, including coordinate and matrix-convention translation.
-2. The mounted-data influence/pivot/animation/billboard census and named adversarial fixtures.
-3. The production correction, or a documented proof that no correction was required.
-4. A dedicated executable validator tied to production code, with exact passing counts.
-5. Solution and neighboring-validator results.
-6. Updated audit/session documents with no contradictory stale status.
+1. The traced D-001 reference and MSUI receiver/projection laws, including exact coordinate, transform,
+   eligibility, winding, clipping, UV, depth, and no-surface behavior.
+2. The complete inventory of available WMO render/collision/projectable triangle sources and why the selected
+   source matches the bounded reference law.
+3. The shared production correction, or documented proof that original no-surface behavior is correct for a
+   named fixture; no spell-specific exceptions.
+4. A production-bound executable validator with at least one mounted WMO floor, transformed synthetic
+   floor/slope cases, and wall/ceiling/no-surface negatives, with exact passing counts.
+5. Solution, M-017, and all neighboring-validator results.
+6. Updated audit/session/next-agent documents with no contradictory stale status.
 7. An honest residual list split into implementation gaps, MSUI runtime captures, and original-client-only
    verification.
 8. The next unresolved item selected from that residual list.
 
-Success for the next slice means M-017 is no longer `UNSCOPED`, all four weights and nonzero pivots are
-adversarially pinned in the actual production contract, neighboring spell-FX behavior remains green, and
-the remaining verification burden is explicit. It does not mean global spell-FX pixel parity is certified.
+Success for the next slice means WMO floor participation or the exact bounded no-surface law is implemented
+and adversarially pinned through the real production gatherer, terrain behavior and M-017 remain green, and
+the remaining original-client evidence burden is explicit. It does not mean global spell-FX pixel parity is
+certified.

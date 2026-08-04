@@ -121,6 +121,8 @@ public sealed partial class GameLoop
         {
             _spellEffects = new SpellEffectSource(_mpq);
             _spellSounds = new World.Spells.SpellSoundSystem(_mpq);
+            _spellEffects.AnimationSoundEvent = (sound, unit, position) =>
+                PlaySpellSoundAt(unit, sound, position, forceLoop: false, trackHold: false);
             try
             {
                 _spellEffectMeshes = new SpellEffectMeshRenderer(gl, _mpq);
@@ -133,7 +135,7 @@ public sealed partial class GameLoop
                 string spellShaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
                 if (!File.Exists(Path.Combine(spellShaderDir, "spell_particle.vert")))
                     spellShaderDir = Path.Combine(_config.RepoRoot, "MSUIClient", "Shaders");
-                _spellParticles = new World.Spells.SpellParticleSystem(gl, _config);
+                _spellParticles = new World.Spells.SpellParticleSystem(gl, _config, _mpq);
                 _spellParticles.LoadShaders(spellShaderDir);
             }
             catch (Exception ex)

@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Numerics;
 using MSUIClient.Formats;
+using MSUIClient.World.Spells;
 
 namespace MSUIClient.World.Units;
 
@@ -33,6 +34,8 @@ public sealed class SpellEffectSource
         public double Started;
         public double Ends;
         public string Stage = "";
+        public SpellEffectPlayback Playback;
+        public double LastEventAge = -1e-9;
 
         /// <summary>Fixed world-point anchor (dynamic-object area visuals): the instance sits
         /// at <see cref="Position"/> with identity rotation, no unit pose involved.</summary>
@@ -45,6 +48,8 @@ public sealed class SpellEffectSource
         public Vector3? FixedDestination;
         public float Speed;
         public double ReleaseAt;
+        public bool ReleaseStrictlyAfter;
+        public double LaunchedAt;
         public double Remaining;
         public double TravelSeconds;
         public double LastMotionAt;
@@ -60,11 +65,27 @@ public sealed class SpellEffectSource
         public string? CustomTexture;
     }
 
+    private sealed class AreaEmitter
+    {
+        public Asset Asset = null!;
+        public ulong Key;
+        public uint Spell;
+        public Vector3 Position;
+        public float Radius;
+        public float Rate;
+        public float Accumulator;
+        public double LastTick;
+        public ulong RandomState;
+        public uint? BirthSound;
+        public Action<uint, ulong, Vector3>? BirthSoundEvent;
+    }
+
     private readonly MpqMount _mpq;
     private readonly ItemDisplayTable? _itemDisplays;
     private readonly Dictionary<string, Asset> _assets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _assetFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<Instance> _instances = [];
+    private readonly List<AreaEmitter> _areaEmitters = [];
     private long _nextId;
 
     public SpellEffectSource(MpqMount mpq)
@@ -74,6 +95,9 @@ public sealed class SpellEffectSource
             ? ItemDisplayTable.Parse(bytes) : null;
     }
     public int ActiveCount => _instances.Count;
+
+    /// <summary>Effect-model $SND/$DSL/$DSO markers crossed by live playback.</summary>
+    public Action<uint, ulong, Vector3>? AnimationSoundEvent { get; set; }
 
     public uint ItemSpellVisual(uint displayId) => _itemDisplays?.Find(displayId)?.SpellVisualId ?? 0;
 
@@ -105,18 +129,23 @@ public sealed class SpellEffectSource
         .ToArray();
 
     public int SpawnKit(ulong unit, uint spell, SpellVisualKitInfo kit, bool persistent,
-        double now, string stage, double lifetime = 1.25)
+        double now, string stage, double? lifetime = null)
         => SpawnKit(unit, spell, kit, persistent ? StageLife.Persistent : StageLife.SelfTerminating,
             now, stage, lifetime);
 
     public int SpawnKit(ulong unit, uint spell, SpellVisualKitInfo kit, StageLife life,
         double now, string stage, double? lifetime = null)
     {
-        if (life != StageLife.SelfTerminating)
-            _instances.RemoveAll(i => i.Unit == unit && i.Spell == spell && i.Life == life);
+        if (life == StageLife.Persistent)
+            _instances.RemoveAll(i => !i.Area && i.Unit == unit && i.Life == StageLife.Persistent);
+        else if (life == StageLife.AuraState)
+            _instances.RemoveAll(i => i.Unit == unit && i.Spell == spell &&
+                i.Life == StageLife.AuraState);
         int spawned = 0;
-        foreach (var (attachment, path) in kit.Effects)
+        foreach (SpellVisualKitEffect effect in kit.Effects)
         {
+            ushort attachment = effect.AttachmentId;
+            string path = effect.ModelPath;
             if (Load(path) is not { } asset || !SpellAttachment.HasVisibleContent(asset.Model)) continue;
             double span = lifetime ?? SpellAttachment.SelfTerminatingSpan(asset.Model);
             _instances.Add(new Instance
@@ -130,6 +159,7 @@ public sealed class SpellEffectSource
                 Started = now,
                 Ends = life == StageLife.SelfTerminating ? now + span : double.PositiveInfinity,
                 Stage = stage,
+                Playback = SpellEffectPlaybackLaw.Resolve(asset.Model, missile: false),
             });
             spawned++;
         }
@@ -140,15 +170,18 @@ public sealed class SpellEffectSource
     public void SpawnMissile(ulong caster, uint spell, string path, Vector3 from, Vector3 to,
         double now, double duration)
     {
+        Asset? asset = Load(path);
         _instances.Add(new Instance
         {
-            Id = ++_nextId, Asset = Load(path), Unit = caster, Spell = spell,
+            Id = ++_nextId, Asset = asset, Unit = caster, Spell = spell,
             Life = StageLife.SelfTerminating, Started = now, Ends = now + Math.Max(.05, duration),
             Missile = true, Launched = true, Position = from, Direction = to - from,
             FixedDestination = to, Target = 0, ReleaseAt = now,
+            LaunchedAt = now,
             Remaining = Math.Max(.05, duration), TravelSeconds = Math.Max(.05, duration),
             LastMotionAt = now,
             Stage = "MISSILE", DestinationAttachment = 0x22,
+            Playback = asset is null ? default : SpellEffectPlaybackLaw.Resolve(asset.Model, missile: true),
         });
     }
 
@@ -165,12 +198,13 @@ public sealed class SpellEffectSource
         Action? launched = null, Action? ended = null)
     {
         SpellUnitPose source = unitPose(caster);
-        Vector3 from = ResolveUnitPoint(source, 0x15);
-        ReleasePoint release = FindReleasePoint(source.Model, castAnimation);
+        Vector3 from = source.Position;
+        SpellMissileLaw.Release release = SpellMissileLaw.ResolveRelease(source.Model, castAnimation);
+        Asset? asset = string.IsNullOrWhiteSpace(path) ? null : Load(path);
         _instances.Add(new Instance
         {
             Id = ++_nextId,
-            Asset = string.IsNullOrWhiteSpace(path) ? null : Load(path),
+            Asset = asset,
             Unit = caster,
             Spell = spell,
             Life = StageLife.SelfTerminating,
@@ -181,11 +215,12 @@ public sealed class SpellEffectSource
             DestinationAttachment = destinationAttachment,
             Position = from,
             Speed = speed,
-            ReleaseAt = now + release.Delay,
+            ReleaseAt = now + release.DelaySeconds,
+            ReleaseStrictlyAfter = release.StrictlyAfterDelay,
             LastMotionAt = now,
             Missed = missed,
             MissReason = missReason,
-            HasReleaseMarker = release.HasMarker,
+            HasReleaseMarker = release.UsesMarker,
             ReleaseBone = release.Bone,
             ReleasePosition = release.Position,
             Arrived = arrived,
@@ -193,33 +228,73 @@ public sealed class SpellEffectSource
             EndEvent = ended,
             CustomTexture = customTexture,
             Stage = "MISSILE",
+            Playback = asset is null ? default : SpellEffectPlaybackLaw.Resolve(asset.Model, missile: true),
         });
     }
 
     /// <summary>
-    /// Spawn a kit anchored at a fixed world point â€” the dynamic-object area visual
-    /// (Blizzard's falling snow, Rain of Fire, consecrate rings). Keyed by the dynobj
-    /// guid so <see cref="Reap"/> removes it when the object despawns. Attachment is
-    /// forced to the base tag (0x13) so ground-anchored mesh batches drape terrain.
+    /// Arm both halves of a DynamicObject's area visual: its looping centre model and its
+    /// data-driven type-9 shard emitter. Shards are free, self-terminating instances scattered
+    /// uniformly across the wire radius; stopping the anchor does not cut their visible tails.
     /// </summary>
-    public int SpawnKitAtLocation(ulong key, uint spell, SpellVisualKitInfo kit,
-        Vector3 position, double now, string stage)
+    public int SpawnAreaVisual(ulong key, uint spell, SpellAreaVisualInfo visual,
+        Vector3 position, float radius, double now,
+        Action<uint, ulong, Vector3>? birthSoundEvent = null)
     {
-        _instances.RemoveAll(i => i.Unit == key && i.Spell == spell &&
+        float safeRadius = float.IsFinite(radius) ? Math.Max(0f, radius) : 0f;
+        _instances.RemoveAll(i => i.Area && i.Unit == key &&
             i.Life != StageLife.SelfTerminating);
+        _areaEmitters.RemoveAll(e => e.Key == key);
         int spawned = 0;
-        foreach (var (_, path) in kit.Effects)
+        if (visual.LoopingModelPath is { Length: > 0 } loopPath &&
+            Load(loopPath) is { } loopAsset && SpellAttachment.HasVisibleContent(loopAsset.Model))
         {
             _instances.Add(new Instance
             {
-                Id = ++_nextId, Asset = Load(path), Unit = key, Spell = spell,
+                Id = ++_nextId, Asset = loopAsset, Unit = key, Spell = spell,
                 Life = StageLife.Persistent, Attachment = 0x13, Started = now,
-                Ends = double.PositiveInfinity, Stage = stage, Area = true,
+                Ends = double.PositiveInfinity, Stage = "AREA_LOOP", Area = true,
                 Position = position,
+                Playback = SpellEffectPlaybackLaw.Resolve(loopAsset.Model, missile: false),
+            });
+            spawned++;
+        }
+        for (int lane = 0; lane < visual.Emitters.Count; lane++)
+        {
+            SpellAreaEmitterInfo emitter = visual.Emitters[lane];
+            if (Load(emitter.ModelPath) is not { } shardAsset ||
+                !SpellAttachment.HasVisibleContent(shardAsset.Model)) continue;
+            _areaEmitters.Add(new AreaEmitter
+            {
+                Asset = shardAsset, Key = key, Spell = spell, Position = position,
+                Radius = safeRadius, Rate = emitter.InstancesPerSecond,
+                LastTick = now,
+                RandomState = 0x9E3779B97F4A7C15UL ^ key ^ ((ulong)(lane + 1) * 0xD1B54A32D192ED03UL),
+                BirthSound = visual.Sound,
+                BirthSoundEvent = birthSoundEvent,
             });
             spawned++;
         }
         return spawned;
+    }
+
+    /// <summary>
+    /// Apply live DynamicObject field changes without restarting model clocks or
+    /// moving shards that have already been born into the world.
+    /// </summary>
+    public void UpdateAreaVisual(ulong key, uint spell, Vector3 position, float radius)
+    {
+        float safeRadius = float.IsFinite(radius) ? Math.Max(0f, radius) : 0f;
+        foreach (Instance instance in _instances)
+            if (instance.Area && instance.Life != StageLife.SelfTerminating &&
+                instance.Unit == key && instance.Spell == spell)
+                instance.Position = position;
+        foreach (AreaEmitter emitter in _areaEmitters)
+            if (emitter.Key == key && emitter.Spell == spell)
+            {
+                emitter.Position = position;
+                emitter.Radius = safeRadius;
+            }
     }
 
     public readonly record struct VisualInstance(long Id, string Stage, string Path, Vector3 Position,
@@ -243,20 +318,35 @@ public sealed class SpellEffectSource
         return rows;
     }
 
-    /// <summary>Remove every area-anchored visual keyed to a despawned dynamic object.</summary>
-    public void ReapArea(ulong key) => _instances.RemoveAll(i => i.Area && i.Unit == key);
+    /// <summary>Stop a despawned DynamicObject's loop and emitter. Already-fired shards finish.</summary>
+    public void ReapArea(ulong key)
+    {
+        _areaEmitters.RemoveAll(e => e.Key == key);
+        _instances.RemoveAll(i => i.Area && i.Unit == key && i.Life != StageLife.SelfTerminating);
+    }
 
     public void Reap(ulong unit, uint spell, StageLife? life = null)
         => _instances.RemoveAll(i => i.Unit == unit && i.Spell == spell &&
             i.Life != StageLife.SelfTerminating && (life is null || i.Life == life));
 
+    /// <summary>
+    /// Starting any new cast releases the unit's previous precast/channel hold,
+    /// even when the new spell has no effect model of its own. Aura-state and
+    /// dynamic-object owners are separate and survive this transition.
+    /// </summary>
+    public void BeginCast(ulong unit)
+        => _instances.RemoveAll(i => !i.Area && i.Unit == unit &&
+            i.Life == StageLife.Persistent);
+
     public void Tick(double now, Func<ulong, SpellUnitPose> unitPose)
     {
+        TickAreaEmitters(now);
         for (int i = _instances.Count - 1; i >= 0; i--)
         {
             Instance instance = _instances[i];
             if (!instance.Missile)
             {
+                FireAnimationSounds(instance, now, unitPose);
                 if (instance.Life == StageLife.SelfTerminating && now >= instance.Ends)
                     _instances.RemoveAt(i);
                 continue;
@@ -264,7 +354,9 @@ public sealed class SpellEffectSource
 
             if (!instance.Launched)
             {
-                if (now < instance.ReleaseAt) continue;
+                if (instance.ReleaseStrictlyAfter
+                    ? now <= instance.ReleaseAt
+                    : now < instance.ReleaseAt) continue;
                 SpellUnitPose launchPose = unitPose(instance.Unit);
                 SpellUnitPose targetPose = unitPose(instance.Target);
                 if (!launchPose.Found || instance.Target != 0 && !targetPose.Found)
@@ -275,14 +367,14 @@ public sealed class SpellEffectSource
                 }
                 instance.Position = instance.HasReleaseMarker
                     ? ResolveModelPoint(launchPose, instance.ReleaseBone, instance.ReleasePosition)
-                    : ResolveUnitPoint(launchPose, 0x15);
+                    : launchPose.Position;
                 Vector3 launchDestination = instance.Target == 0
                     ? instance.FixedDestination ?? instance.Position
                     : ResolveMissileDestination(targetPose, instance.DestinationAttachment);
                 double queuedSeconds = Math.Max(0, now - instance.Started);
-                instance.Remaining = instance.Speed > 0
-                    ? Vector3.Distance(instance.Position, launchDestination) / instance.Speed - queuedSeconds
-                    : 0;
+                instance.Remaining = SpellMissileLaw.RemainingAtRelease(
+                    Vector3.Distance(instance.Position, launchDestination), instance.Speed,
+                    queuedSeconds);
                 instance.TravelSeconds = Math.Max(0, instance.Remaining);
                 if (instance.Remaining <= 0)
                 {
@@ -292,9 +384,12 @@ public sealed class SpellEffectSource
                     continue;
                 }
                 instance.Launched = true;
+                instance.LaunchedAt = now;
                 instance.LastMotionAt = now;
                 instance.LaunchEvent?.Invoke();
             }
+
+            FireAnimationSounds(instance, now, unitPose);
 
             SpellUnitPose liveTarget = instance.Target == 0 ? default : unitPose(instance.Target);
             if (instance.Target != 0 && !liveTarget.Found)
@@ -307,8 +402,9 @@ public sealed class SpellEffectSource
                 ? instance.FixedDestination ?? instance.Position
                 : ResolveMissileDestination(liveTarget, instance.DestinationAttachment);
 
-            float dt = (float)Math.Clamp(now - instance.LastMotionAt, 0, .1);
-            if (instance.Remaining <= dt)
+            SpellMissileLaw.Motion motion = SpellMissileLaw.Advance(instance.Position,
+                destination, instance.Direction, instance.Remaining, now - instance.LastMotionAt);
+            if (motion.Arrived)
             {
                 // The impact handoff happens before a final visual snap, matching the reference
                 // projectile integrator and avoiding a one-frame teleport on moving targets.
@@ -318,88 +414,151 @@ public sealed class SpellEffectSource
                     instance.MissReason);
                 continue;
             }
-            Vector3 gap = destination - instance.Position;
-            instance.Position += gap * (float)(dt / instance.Remaining);
-            if (gap.LengthSquared() > 1e-8f) instance.Direction = gap;
-            instance.Remaining -= dt;
+            instance.Position = motion.Position;
+            instance.Direction = motion.Direction;
+            instance.Remaining = motion.RemainingSeconds;
             instance.LastMotionAt = now;
         }
     }
 
+    private void FireAnimationSounds(Instance instance, double now,
+        Func<ulong, SpellUnitPose> unitPose)
+    {
+        if (AnimationSoundEvent is null || instance.Asset is not { } asset ||
+            instance.Missile && !instance.Launched)
+            return;
+        double age = InstanceAge(instance, now);
+        if (instance.Life == StageLife.SelfTerminating && !instance.Missile &&
+            double.IsFinite(instance.Ends))
+            age = Math.Min(age, Math.Max(0, instance.Ends - instance.Started));
+        SpellEffectPlayback eventPlayback = instance.Life == StageLife.SelfTerminating &&
+            !instance.Missile
+            ? instance.Playback with { Looping = false }
+            : instance.Playback;
+        IReadOnlyList<SpellEffectSoundEvent> crossed =
+            SpellEffectPlaybackLaw.CrossedSoundEvents(asset.Model, eventPlayback,
+                instance.LastEventAge, age);
+        instance.LastEventAge = age;
+        if (crossed.Count == 0) return;
+        Vector3 position = instance.Area || instance.Missile
+            ? instance.Position
+            : unitPose(instance.Unit).Position;
+        foreach (SpellEffectSoundEvent sound in crossed)
+            AnimationSoundEvent(sound.SoundId, instance.Unit, position);
+    }
+
+    private void TickAreaEmitters(double now)
+    {
+        foreach (AreaEmitter emitter in _areaEmitters)
+        {
+            emitter.Accumulator += emitter.Rate * (float)Math.Max(0.0, now - emitter.LastTick);
+            emitter.LastTick = now;
+            while (emitter.Accumulator >= 1f)
+            {
+                emitter.Accumulator -= 1f;
+                Vector2 offset = SpellAreaVisualLaw.NextDiscOffset(
+                    ref emitter.RandomState, emitter.Radius);
+                double span = SpellAttachment.SelfTerminatingSpan(emitter.Asset.Model);
+                Vector3 position = emitter.Position + new Vector3(offset, 0f);
+                _instances.Add(new Instance
+                {
+                    Id = ++_nextId, Asset = emitter.Asset, Unit = emitter.Key,
+                    Spell = emitter.Spell, Life = StageLife.SelfTerminating,
+                    Attachment = 0x13, Started = now, Ends = now + span,
+                    Stage = "AREA_SHARD", Area = true,
+                    Position = position,
+                    Playback = SpellEffectPlaybackLaw.Resolve(emitter.Asset.Model, missile: false),
+                });
+                if (emitter.BirthSound is uint sound)
+                    emitter.BirthSoundEvent?.Invoke(sound, emitter.Key, position);
+            }
+        }
+    }
+
     public IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
-        int EmitterIndex, string TexturePath, double AnimationTime, int AnimationId,
-        Vector3? LocalOrigin, Quaternion? LocalRotation, bool Attached)> EmitterInstances(double now,
+        int EmitterIndex, string TexturePath, double AnimationTime, int SequenceIndex,
+        Vector3? LocalOrigin, Matrix4x4? LocalFrame, bool RootCarriesCloud,
+        bool HostAttachmentRotatesCloud)> EmitterInstances(double now,
         Func<ulong, SpellUnitPose> unitPose)
     {
         foreach (Instance instance in _instances)
         {
             if (instance.Asset is not { } asset || !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
-            double age = InstanceAge(instance, asset, now);
-            int animationId = instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0;
+            double age = InstanceAge(instance, now);
+            int sequence = instance.Playback.SequenceIndex;
             Matrix4x4[]? effectSkin = null;
             if (asset.Animator is { } animator)
             {
                 effectSkin = asset.Skin;
-                M2Animator.Clip? clip = animator.Find(animationId) ?? animator.Clips.Values.FirstOrDefault();
+                M2Animator.Clip? clip = animator.FindSequenceOrBake(sequence);
                 animator.Evaluate(clip, (float)age, (float)age, effectSkin);
             }
             for (int i = 0; i < asset.Emitters.Length; i++)
             {
                 M2ParticleEmitter emitter = asset.Emitters[i];
                 Vector3? origin = null;
-                Quaternion? rotation = null;
+                Matrix4x4? frame = null;
                 if (effectSkin is not null && emitter.Bone < effectSkin.Length &&
                     emitter.Bone < asset.Model.Bones.Count)
                 {
-                    origin = Vector3.Transform(new Vector3(emitter.PosX, emitter.PosY, emitter.PosZ),
-                        effectSkin[emitter.Bone]);
-                    Matrix4x4 global = Matrix4x4.CreateTranslation(asset.Model.Bones[emitter.Bone].Pivot) *
+                    Vector3 emitterPosition = new(emitter.PosX, emitter.PosY, emitter.PosZ);
+                    Vector3 pivot = asset.Model.Bones[emitter.Bone].Pivot;
+                    // The reference gives a joint-owned emitter the joint's complete live
+                    // Transform, not only its quaternion. Rebuild that TRS from the posed global
+                    // so animated/non-unit bone scale survives particle birth and model-space draw.
+                    // It also rebases the emitter record by the joint pivot before composing that
+                    // TRS; using the raw skin matrix for origin while decomposing vectors would
+                    // retain hierarchy shear in only half of the placement law.
+                    Matrix4x4 global = Matrix4x4.CreateTranslation(pivot) *
                         effectSkin[emitter.Bone];
-                    if (Matrix4x4.Decompose(global, out _, out Quaternion q, out _)) rotation = q;
+                    if (Matrix4x4.Decompose(global, out Vector3 scale, out Quaternion rotation,
+                        out Vector3 translation))
+                    {
+                        frame = Matrix4x4.CreateScale(scale) *
+                            Matrix4x4.CreateFromQuaternion(Quaternion.Normalize(rotation));
+                        origin = SpellParticleFrameLaw.RebasedEmitterOrigin(emitterPosition, pivot,
+                            translation, frame.Value);
+                    }
+                    else origin = Vector3.Transform(emitterPosition, effectSkin[emitter.Bone]);
                 }
                 yield return ($"spell:{asset.Path}#{instance.Id}", transform,
-                    emitter, i, asset.EmitterTextures[i], age, animationId, origin, rotation,
-                    !instance.Missile);
+                    emitter, i, asset.EmitterTextures[i], age, sequence, origin, frame,
+                    // Keep cloud translation and host-attachment rotation as independent laws.
+                    // Every effect model's ordinary particle cloud is translated by its live
+                    // model root. A free missile has no host-attachment rotation, so its root
+                    // carries translation without rotating already-stored particles.
+                    true,
+                    !instance.Missile && !instance.Area);
             }
         }
     }
 
     /// <summary>
-    /// Effect age driving animation and emitter gates. Area-anchored instances (dynamic-object
-    /// visuals) LOOP their first sequence: the authored clip is short (Blizzard_Impact_Base is
-    /// 3.3s) while the dynobj lives for the spell's whole duration â€” without the wrap the clip
-    /// clamps at its end, emission gates shut off and the falling-shard bones freeze.
+    /// Monotonic effect age. Individual authored tracks wrap or clamp from the
+    /// selected sequence flags; global sequences keep this independent clock.
     /// </summary>
-    private static double InstanceAge(Instance instance, Asset asset, double now)
+    private static double InstanceAge(Instance instance, double now)
     {
-        double age = Math.Max(0, now - (instance.Missile
-            ? Math.Max(instance.Started, instance.ReleaseAt) : instance.Started));
-        if (instance.Area && asset.Model.Sequences.FirstOrDefault() is { } seq)
-        {
-            double span = Math.Max(0.05, (seq.EndTimestamp - seq.StartTimestamp) / 1000.0);
-            age %= span;
-        }
-        return age;
+        return Math.Max(0, now - (instance.Missile ? instance.LaunchedAt : instance.Started));
     }
 
-    public IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
-        float Age, int AnimationId, bool GroundAnchor, string? CustomTexture)> MeshInstances(double now, Func<ulong, SpellUnitPose> unitPose)
+    public IEnumerable<SpellMeshDraw> MeshInstances(double now, Func<ulong, SpellUnitPose> unitPose)
     {
         foreach (Instance instance in _instances)
         {
             if (instance.Asset is not { } asset || !asset.Model.IsValid ||
                 !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
-            yield return (instance.Id, asset.Path, asset.Model, transform,
-                (float)InstanceAge(instance, asset, now),
-                instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0,
-                !instance.Missile && instance.Attachment == 0x13, instance.CustomTexture);
+            yield return new SpellMeshDraw(instance.Id, asset.Path, asset.Model, transform,
+                (float)InstanceAge(instance, now), instance.Playback.SequenceIndex,
+                !instance.Missile && instance.Attachment == 0x13, instance.CustomTexture,
+                Vector3.One, 1f);
         }
     }
 
     public IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
-        float Age, int AnimationId)> RibbonInstances(double now, Func<ulong, SpellUnitPose> unitPose)
+        float Age, int SequenceIndex)> RibbonInstances(double now, Func<ulong, SpellUnitPose> unitPose)
     {
         foreach (Instance instance in _instances)
         {
@@ -407,8 +566,7 @@ public sealed class SpellEffectSource
                 !instance.Launched && instance.Missile) continue;
             if (!TryTransform(instance, unitPose, out Matrix4x4 transform)) continue;
             yield return (instance.Id, asset.Path, asset.Model, transform,
-                (float)InstanceAge(instance, asset, now),
-                instance.Missile ? 144 : asset.Model.Sequences.FirstOrDefault()?.AnimationId ?? 0);
+                (float)InstanceAge(instance, now), instance.Playback.SequenceIndex);
         }
     }
 
@@ -428,48 +586,17 @@ public sealed class SpellEffectSource
         if (instance.Missile)
         {
             if (!instance.Launched) { transform = default; return false; }
-            Vector3 forward = instance.Direction.LengthSquared() > 1e-8f
-                ? Vector3.Normalize(instance.Direction) : Vector3.UnitX;
-            Vector3 referenceUp = MathF.Abs(Vector3.Dot(forward, Vector3.UnitZ)) > .98f
-                ? Vector3.UnitY : Vector3.UnitZ;
-            Vector3 side = Vector3.Normalize(Vector3.Cross(referenceUp, forward));
-            Vector3 up = Vector3.Normalize(Vector3.Cross(forward, side));
-            transform = new Matrix4x4(
-                forward.X, forward.Y, forward.Z, 0,
-                side.X, side.Y, side.Z, 0,
-                up.X, up.Y, up.Z, 0,
-                instance.Position.X, instance.Position.Y, instance.Position.Z, 1);
+            transform = SpellMissileLaw.FlightTransform(instance.Position, instance.Direction);
             return true;
         }
 
         SpellUnitPose pose = unitPose(instance.Unit);
         if (!pose.Found) { transform = default; return false; }
         if (pose.Model is not null && SpellAttachment.Resolve(pose.Model, instance.Attachment) is { } point)
-        {
             transform = SpellAttachment.World(pose.Model, point, pose.UnitTransform, pose.BoneMatrix);
-            // Some creature models resolve a kit attach (e.g. the impact chest tag 0x22) to a bone
-            // that sits far from the body â€” a mis-scaled prop joint that throws the effect dozens of
-            // yards off the target (same failure the missile destination hit). Clamp an implausible
-            // result to the unit's chest so an impact can't fly off; mirrors ResolveMissileDestination.
-            var at = new Vector3(transform.M41, transform.M42, transform.M43);
-            if (Vector3.Distance(at, pose.Position) > PlausibleAttachRadius)
-            {
-                transform.M41 = pose.Position.X + ChestOffset.X;
-                transform.M42 = pose.Position.Y + ChestOffset.Y;
-                transform.M43 = pose.Position.Z + ChestOffset.Z;
-            }
-        }
         else transform = pose.UnitTransform;
         return true;
     }
-
-    /// <summary>A real body/head/hand attach sits within a couple of yards of the unit even on
-    /// large creatures; anything past this is a mis-scaled prop joint, not a homing/impact target.</summary>
-    private const float PlausibleAttachRadius = 12f;
-
-    /// <summary>Approximate chest-height offset above a unit's base (world Z-up), used as the
-    /// body-centre fallback when an attach resolves implausibly far.</summary>
-    private static readonly Vector3 ChestOffset = new(0f, 0f, 1.5f);
 
     private static Vector3 ResolveUnitPoint(in SpellUnitPose pose, ushort attachment)
     {
@@ -480,48 +607,9 @@ public sealed class SpellEffectSource
         return new Vector3(transform.M41, transform.M42, transform.M43);
     }
 
-    /// <summary>
-    /// The world point a missile homes to on its target. Benilla resolves the DBC dest-attach
-    /// (SpellVisual field 9) to a body point; but some vanilla NPC models map that same tag
-    /// (0x22 for Fireball) to a bone that sits far from the body in model space and is amplified
-    /// by the model's render scale â€” resolving 60+ yards off, which sends the projectile arcing
-    /// into the sky. When the attach resolves implausibly far from the unit's base, fall back to
-    /// the target's body centre (the reference's practical body-homing target â€” see
-    /// benilla missile.rs, "homing aims at the dest attach point ... same body point in practice").
-    /// </summary>
+    /// <summary>Resolve the authored destination attachment and its normal 0x0f/0x13 fallback.</summary>
     private static Vector3 ResolveMissileDestination(in SpellUnitPose pose, ushort attachment)
-    {
-        if (!pose.Found) return pose.Position;
-        Vector3 attach = ResolveUnitPoint(pose, attachment);
-        return Vector3.Distance(attach, pose.Position) > PlausibleAttachRadius
-            ? pose.Position + ChestOffset   // chest-height body centre
-            : attach;
-    }
-
-    private readonly record struct ReleasePoint(double Delay, bool HasMarker,
-        ushort Bone, Vector3 Position);
-
-    private static ReleasePoint FindReleasePoint(M2Model? model, ushort? animationId)
-    {
-        if (model is null || animationId is null) return default;
-        int sequenceIndex = model.TryFindSequenceIndexByAnimationId(animationId.Value);
-        if (sequenceIndex < 0) return default;
-        M2Sequence sequence = model.Sequences[sequenceIndex];
-        string[] release = ["$CSL", "$CSR", "$CST", "$BWR"];
-        var found = model.Events.SelectMany(e => e.Times
-                .Where(t => t >= sequence.StartTimestamp && t <= sequence.EndTimestamp)
-                .Select(t => (Event: e, Time: t)))
-            .Where(x => release.Contains(x.Event.Identifier, StringComparer.Ordinal))
-            .OrderBy(x => x.Time).FirstOrDefault();
-        if (found.Event is not null)
-            return new ReleasePoint((found.Time - sequence.StartTimestamp) / 1000.0,
-                true, found.Event.Bone, found.Event.Position);
-        double duration = (sequence.EndTimestamp - sequence.StartTimestamp) / 1000.0;
-        // With no authored marker, the cast one-shot's completion is the
-        // release. A degenerate/missing playback gets the client's .25s poll
-        // backstop instead of waiting forever.
-        return new ReleasePoint(duration > .001 ? duration : .25, false, 0, default);
-    }
+        => pose.Found ? ResolveUnitPoint(pose, attachment) : pose.Position;
 
     private static Vector3 ResolveModelPoint(in SpellUnitPose pose, ushort bone, Vector3 local)
     {

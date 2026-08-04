@@ -21,17 +21,14 @@ namespace MSUIClient.Engine;
 /// glow: mid-tones (0.5 -> 0.25) barely bloom, highlights bloom fully — a bloom
 /// a linear composite cannot express.
 ///
-/// ADAPTED TO MSUI'S PIPELINE — the ONE deliberate difference from benilla.
-/// benilla renders the whole frame in gamma bytes and its FFXGlow combine owns
-/// the frame's single gamma->linear decode (its `srgb_to_linear`). MSUI does NOT
-/// use that gamma lane: it presents its shaders' output straight to the default
-/// framebuffer with no re-encode. Porting benilla's decode literally would shift
-/// every exterior colour. So this pass reproduces benilla's glow MECHANISM but
-/// composites it ADDITIVELY (glow term only, blend ONE,ONE) onto the frame the
-/// world already drew: the base scene passes through untouched — its lighting,
-/// fog and colour are exactly what they were — and only `w * blur^2` is added on
-/// top, saturating in the 8-bit framebuffer (that saturation IS benilla's
-/// min(.,1)). Set <see cref="Gain"/> to 0 to disable the pass entirely.
+/// MSUI's scene and RGBA8 post targets are a gamma-byte lane too: texture reads
+/// return normalized stored bytes, and the combine explicitly disables automatic
+/// framebuffer sRGB conversion. Benilla decodes the gamma result to linear and
+/// relies on the later presentation encode to restore those same bytes. MSUI's
+/// combine writes to the presentation framebuffer itself, so directly writing
+/// `min(scene + w*blur^2, 1)` with sRGB conversion disabled is the equivalent
+/// terminal operation. The full scene is replaced by that result; this is not a
+/// glow-only additive approximation.
 ///
 /// It runs after the world + particles and before the loading curtain and the
 /// HUD, so — like benilla, where the UI is composited over an already-glowed
@@ -102,6 +99,8 @@ public sealed class FfxGlow : IDisposable
         _gl.DepthMask(false);
         _gl.Disable(EnableCap.CullFace);
         _gl.Disable(EnableCap.Blend);
+        bool hadFramebufferSrgb = _gl.IsEnabled(EnableCap.FramebufferSrgb);
+        _gl.Disable(EnableCap.FramebufferSrgb);
         _gl.BindVertexArray(_vao);
 
         // 1. Resolve the default framebuffer (possibly multisampled) into the
@@ -138,17 +137,17 @@ public sealed class FfxGlow : IDisposable
         _gauss.Set("uAxis", new Vector2(0f, 1f));
         _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
 
-        // 5. Combine: draw ONLY the glow term (gain * blur^2), additively blended
-        //    onto the scene the world already left in the default framebuffer.
-        //    ONE,ONE add + the 8-bit fixed-point clamp == benilla's scene + w*blur^2
-        //    then min(.,1), without benilla's gamma decode (MSUI is not gamma-lane).
+        // 5. Gamma-byte combine. Benilla returns sRGB-to-linear here and later presents through
+        //    an sRGB encode. This is the presentation framebuffer itself, so a direct gamma write
+        //    with GL_FRAMEBUFFER_SRGB disabled is the same endpoint.
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         _gl.Viewport(x, y, (uint)w, (uint)h);
-        _gl.Enable(EnableCap.Blend);
-        _gl.BlendFunc(BlendingFactor.One, BlendingFactor.One);
+        _gl.Disable(EnableCap.Blend);
         _combine.Use();
-        Bind(_quarterTexA);
-        _combine.Set("uBlur", 0);
+        Bind(_resolveTex, TextureUnit.Texture0);
+        Bind(_quarterTexA, TextureUnit.Texture1);
+        _combine.Set("uScene", 0);
+        _combine.Set("uBlur", 1);
         _combine.Set("uGain", Gain);
         _gl.DrawArrays(PrimitiveType.Triangles, 0, 3);
 
@@ -157,6 +156,7 @@ public sealed class FfxGlow : IDisposable
         _gl.Enable(EnableCap.CullFace);
         _gl.DepthMask(true);
         _gl.Enable(EnableCap.DepthTest);
+        if (hadFramebufferSrgb) _gl.Enable(EnableCap.FramebufferSrgb);
         _gl.BindVertexArray(0);
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, 0);
@@ -164,7 +164,12 @@ public sealed class FfxGlow : IDisposable
 
     private void Bind(uint tex)
     {
-        _gl.ActiveTexture(TextureUnit.Texture0);
+        Bind(tex, TextureUnit.Texture0);
+    }
+
+    private void Bind(uint tex, TextureUnit unit)
+    {
+        _gl.ActiveTexture(unit);
         _gl.BindTexture(TextureTarget.Texture2D, tex);
     }
 
@@ -283,18 +288,19 @@ void main()
          + texture(uTex, vUv + 2.5 * t) * 0.125;
 }";
 
-    // Combine: emit ONLY the glow term. Additive blend (ONE,ONE) adds it to the
-    // scene already in the framebuffer; the 8-bit target saturates the sum. This
-    // is benilla's `scene + w*blur^2` clamped, minus its gamma decode (MSUI is not
-    // gamma-lane), so the base scene is left exactly as the world drew it.
+    // Full gamma-byte combine. The explicit clamp matches the reference's saturate
+    // before its decode/presentation-encode pair.
     private const string CombineFrag = @"#version 330 core
 in vec2 vUv;
+uniform sampler2D uScene;
 uniform sampler2D uBlur;
 uniform float uGain; // per-zone glow weight w
 out vec4 frag;
 void main()
 {
+    vec4 scene = texture(uScene, vUv);
+    vec3 sg = max(scene.rgb, vec3(0.0));
     vec3 bg = max(texture(uBlur, vUv).rgb, vec3(0.0));
-    frag = vec4(uGain * bg * bg, 0.0);
+    frag = vec4(min(sg + uGain * bg * bg, vec3(1.0)), scene.a);
 }";
 }

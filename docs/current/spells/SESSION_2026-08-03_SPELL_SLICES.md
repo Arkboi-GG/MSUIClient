@@ -175,7 +175,41 @@ height records, 214 animated-alpha records, 90 scale-animated chains, and 570 an
 Shot proves a later real InFlight bone/root pose cannot move a committed pair; Holy Smite distinguishes the
 clamped look clock from raw expiry; the thrown dagger pins Stand-off/InFlight-on visibility. This is
 `STATIC/DATA_COMPLETE`, not original-client pixel certification. The next unresolved implementation slice
-is multi-weight mesh/pivot composition.
+was multi-weight mesh/pivot composition; that M-017 slice is closed immediately below.
+
+## Effect-mesh multi-weight/pivot slice — static/data completion
+
+The mesh path was retraced from the raw 48-byte M2 vertex through the reader's single `(x,y,z)->(x,z,-y)`
+conversion, four byte weight normalization, exact sequence pose, row-vector inverse bind, billboard palette
+rewrite, three-row GPU packing, instance root, and camera-relative boundary. The existing position order was
+semantically correct, including `skin=T(-pivot)*jointGlobal` and four shader contributions, but it was not
+evidence-complete. The shader also contained a real hidden divergence: it transformed normals with the
+forward weighted 3x3. Benilla's Bevy 0.18.1 lane blends the skin matrix first and uses the inverse-transpose
+of the combined world linear map, which is observably different under non-uniform scale.
+
+`SpellMeshSkinningLaw` now owns the shared production contract consumed by the renderer and validator:
+normalization/zero fallback, raw-index upload with invalid-survivor renormalization, CPU versions of packed
+shader dots, inverse-transpose normals, parents-before-children billboard propagation, and one root/one camera
+subtraction. No spell-specific exception was added.
+
+`tools/spell-mesh-skinning-check` passes 83,681 checks. It scans 9,717 listed and 9,654 parsed build-5875 M2s,
+then bind-evaluates all 555 resolved SpellVisual assets and all 5,222 bones. The referenced mesh subset has
+37,399 one-, 2,485 two-, 170 three-, and 8 four-influence vertices. Sixteen referenced multi-weight models
+contain 2,643 vertices touching nonzero pivots; the keyed-chain counts are 1,264 translation, 2,663 rotation,
+and 264 scale. Referenced zero totals, non-255 totals, invalid indices, over-160 rigs, multi-weight billboard
+contacts, and multi-weight ignore-parent-rotation contacts are all exactly zero.
+
+The named real fixtures are `Spells\Rake.m2` vertex 302 (`64/64/64/63` on bones `4/14/5/16`) for all four
+contributions, `Spells\Undying_Strength_Impact_Chest.m2` vertex 378 for a three-weight live T/R/S chain, and
+`Spells\ArcaneShot_Missile.m2` as the seven-vertex all-single-weight control. Synthetic adversarial fixtures
+retain the zero-weight, invalid-index, non-uniform-normal, and billboard-child branches that the referenced
+corpus does not supply.
+
+The solution and every neighboring validator pass after the correction: frame, animation/lifecycle,
+particle motion, missile pipeline, ribbon history, area visuals, target radius, and interface wiring. This is
+`STATIC/DATA_COMPLETE`, not an OpenGL capture or original-client pixel certificate. Mesh-only Rake/Undying
+captures remain. The next unresolved implementation slice is **WMO-floor decal projection**; Cone of Cold
+decoder/alpha and controlled framebuffer/glow probes follow it.
 
 ## Method notes (why this session moved)
 

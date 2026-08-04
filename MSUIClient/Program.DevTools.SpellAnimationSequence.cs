@@ -40,12 +40,13 @@ public sealed partial class GameLoop
         (int Requested, int Played, AnimChoiceKind Kind) state =
             _lastAnimChoices.TryGetValue(("player", track), out var actual)
                 ? actual : (-1, -1, AnimChoiceKind.Missing);
-        (uint kitId, ushort? expected, IReadOnlyList<(ushort AttachmentId, string ModelPath)> effects) =
+        (uint kitId, ushort? expected, IReadOnlyList<SpellVisualKitEffect> effects) =
             ExpectedStage(spell, _animationSequenceStage);
         var sources = new List<string>();
         bool assetMissing = false;
-        foreach (var (_, rawPath) in effects)
+        foreach (SpellVisualKitEffect effect in effects)
         {
+            string rawPath = effect.ModelPath;
             string path = NormalizeModelPath(rawPath);
             var supplier = _mpq?.ReadFileWithSupplier(path);
             if (supplier is null) { sources.Add($"MISSING:{path}"); assetMissing = true; }
@@ -209,7 +210,7 @@ public sealed partial class GameLoop
             kit.Effects.Select(effect => NormalizeModelPath(effect.ModelPath)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() : [];
     }
 
-    private (uint KitId, ushort? Animation, IReadOnlyList<(ushort AttachmentId, string ModelPath)> Effects)
+    private (uint KitId, ushort? Animation, IReadOnlyList<SpellVisualKitEffect> Effects)
         ExpectedStage(in SpellInfo spell, string stage)
     {
         if (_spellVisualCatalog?.TryGetStages(spell.VisualId, out SpellVisualStages stages) != true)

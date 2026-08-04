@@ -94,8 +94,11 @@ public sealed partial class GameLoop
 
             float density = _particles.DensityScale;
             ImGui.SetNextItemWidth(160f);
-            if (ImGui.SliderFloat("Density", ref density, 0f, 2f, "%.2f"))
+            if (ImGui.SliderFloat("Density", ref density, 0.25f, 1f, "%.2f"))
+            {
                 _particles.DensityScale = density;
+                if (_spellParticles is not null) _spellParticles.DensityScale = density;
+            }
 
             float spriteSize = _particles.SpriteSizeScale;
             ImGui.SetNextItemWidth(160f);

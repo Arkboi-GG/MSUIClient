@@ -211,5 +211,31 @@ The audit above remains the original baseline. The following rows have now recei
   corpus includes 350 spell ribbons, 318 referenced ribbons, 80 missile ribbons, 102 gravity records, 142
   animated-height records, 214 animated-alpha records, 90 scale-animated chains, and 570 animated-bone
   chains. Arcane Shot, Holy Smite, and the thrown dagger are pinned adversarial fixtures.
-- This is `STATIC/DATA_COMPLETE`, not original-client pixel certification. The next implementation item is
-  multi-weight mesh/pivot composition.
+- This is `STATIC/DATA_COMPLETE`, not original-client pixel certification. M-017 below supersedes the former
+  multi-weight mesh/pivot follow-up.
+
+### M-017 effect-mesh skinning correction follow-up — 2026-08-03
+
+- Coarse baseline M-004 proved only that a pose was sampled before draw. It did not prove four-weight
+  normalization, nonzero-pivot inverse bind, parent/child order, palette packing, invalid indices, billboard
+  descendant propagation, normals under non-uniform scale, or the root/camera boundary. M-017 in
+  `SPELL_FX_SEMANTIC_FRAME_AUDIT.md` now owns that expanded claim.
+- `M2Reader` maps vertex position/normal and bone pivot/TRS into the same MSUI model frame exactly once.
+  `M2Animator` returns row-vector skin matrices `T(-pivot)*jointGlobal`; bind globals telescope to `T(pivot)`,
+  so all 5,222 bones across 555 resolved referenced effect rigs reduce to identity.
+- New shared production helper `SpellMeshSkinningLaw` owns four-byte-weight normalization, zero fallback,
+  invalid-index survivor renormalization, packed CPU/GPU dots, inverse-transpose normals, billboard palette
+  rewrite/child propagation, and the one-root/one-camera-subtraction boundary. `SpellEffectMeshRenderer`
+  consumes that helper and its shader source instead of maintaining parallel private formulas.
+- A real divergence was corrected: the old shader weighted forward 3x3 normal transforms. Benilla's Bevy
+  0.18.1 skinning path blends the skin matrix and applies the inverse-transpose of the combined world linear
+  map. The difference is adversarially large under non-uniform bone/root scale and is now pinned.
+- `tools/spell-mesh-skinning-check` passes 83,681 checks. The complete corpus has 9,717 listed/9,654 parsed
+  M2s; referenced assets contain 37,399 one-, 2,485 two-, 170 three-, and 8 four-influence vertices. Rake
+  vertex 302 pins four distinct live contributions; Undying Strength vertex 378 pins a three-weight T/R/S
+  chain; Arcane Shot's seven all-single-weight vertices are the real control. No referenced multi-weight
+  vertex touches a billboard/ignore-parent bone, so that condition is honestly reported as zero and retained
+  as a synthetic palette fixture.
+- M-017 is `STATIC/DATA_COMPLETE`, not runtime/image parity. Mesh-only Rake/Undying MSUI traces and synchronized
+  original-client pixels remain required. The next unresolved implementation item is WMO-floor decal
+  projection; it remains a production-path gap rather than capture-only work.

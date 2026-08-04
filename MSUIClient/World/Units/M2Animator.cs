@@ -110,32 +110,9 @@ public sealed class M2Animator
         public Vector3[] ScaleKeys;
     }
 
-    /// <summary>
-    /// Animations that play ONCE and hold their last frame. Everything else
-    /// repeats.
-    ///
-    /// This is a hardcoded list because the M2 does not reliably tell us.
-    /// M2Sequence.IsLooping reads bit 0x20 of the sequence flags on the strength
-    /// of a comment; empirically that bit is clear on Stand, Walk and Run in
-    /// HumanMale, so trusting it made EVERY clip a one-shot. Walk then ran for
-    /// its 0.93 seconds and clamped to its final frame forever - a character
-    /// that takes a few steps and freezes mid-stride, still correctly posed,
-    /// which is exactly what it looked like.
-    ///
-    /// It never showed in SuperUI because three.js's AnimationMixer loops by
-    /// default and never consulted the flag at all.
-    ///
-    /// Whether a vanilla sequence repeats is actually governed by the repetition
-    /// fields at +24 and +28, which M2Reader skips. Rather than parse them for
-    /// two animations, the flags are logged per clip and the list below is the
-    /// answer: locomotion and Ready cycles loop; jump brackets, melee actions,
-    /// wounds and defensive reactions play once.
-    /// </summary>
-    private static readonly HashSet<int> OneShotAnimations =
-        [1, 7, 9, 16, 17, 18, 19, 20, 21, 22, 23, 24, 30, 37, 39, 85, 87, 88, 117, 187];
-
     public sealed class Clip
     {
+        public int SequenceIndex;
         public int AnimationId;
         public string Name = "";
         public float DurationSeconds;
@@ -175,6 +152,7 @@ public sealed class M2Animator
     private readonly Matrix4x4[] _global;
 
     private readonly Dictionary<int, Clip> _clips = [];
+    private readonly Dictionary<int, Clip> _sequenceClips = [];
 
     public IReadOnlyDictionary<int, Clip> Clips => _clips;
     public int BoneCount => _boneCount;
@@ -305,7 +283,11 @@ public sealed class M2Animator
         foreach (int id in animationIds.Distinct())
         {
             var clip = animator.Bake(id, includeStaticSequences);
-            if (clip is not null) animator._clips[id] = clip;
+            if (clip is not null)
+            {
+                animator._clips[id] = clip;
+                animator._sequenceClips[clip.SequenceIndex] = clip;
+            }
         }
 
         return animator;
@@ -485,12 +467,34 @@ public sealed class M2Animator
 
     public Clip? Find(int animationId) => _clips.TryGetValue(animationId, out var c) ? c : null;
 
+    public Clip? FindSequence(int sequenceIndex)
+        => _sequenceClips.TryGetValue(sequenceIndex, out Clip? clip) ? clip : null;
+
+    /// <summary>
+    /// Bake one exact file-order sequence slot. Effect tracks are indexed by
+    /// this slot, so an AnimationData id is not a sufficient identity when a
+    /// model carries variations or duplicate ids.
+    /// </summary>
+    public Clip? FindSequenceOrBake(int sequenceIndex, bool includeStaticSequences = true)
+    {
+        if (_sequenceClips.TryGetValue(sequenceIndex, out Clip? cached)) return cached;
+        Clip? clip = BakeSequence(sequenceIndex, includeStaticSequences);
+        if (clip is null) return null;
+        _sequenceClips[sequenceIndex] = clip;
+        _clips.TryAdd(clip.AnimationId, clip);
+        return clip;
+    }
+
     /// <summary>Resolve an authored animation on first use and retain the baked clip.</summary>
     public Clip? FindOrBake(int animationId)
     {
         if (_clips.TryGetValue(animationId, out Clip? cached)) return cached;
         Clip? clip = Bake(animationId);
-        if (clip is not null) _clips[animationId] = clip;
+        if (clip is not null)
+        {
+            _clips[animationId] = clip;
+            _sequenceClips[clip.SequenceIndex] = clip;
+        }
         return clip;
     }
 
@@ -511,6 +515,7 @@ public sealed class M2Animator
         else if (bakeOnDemand && (clip = Bake(requestedId)) is not null)
         {
             _clips[requestedId] = clip;
+            _sequenceClips[clip.SequenceIndex] = clip;
             kind = ResolutionKind.BakedOnDemand;
         }
         else
@@ -521,7 +526,11 @@ public sealed class M2Animator
                 if (!_clips.TryGetValue(fallbackId, out clip) && bakeOnDemand)
                 {
                     clip = Bake(fallbackId);
-                    if (clip is not null) _clips[fallbackId] = clip;
+                    if (clip is not null)
+                    {
+                        _clips[fallbackId] = clip;
+                        _sequenceClips[clip.SequenceIndex] = clip;
+                    }
                 }
                 if (clip is null) continue;
                 break;
@@ -549,17 +558,25 @@ public sealed class M2Animator
         int seqIdx = _m2.TryFindSequenceIndexByAnimationId(animationId);
         if (seqIdx < 0) return null;
 
+        return BakeSequence(seqIdx, includeStaticSequences);
+    }
+
+    private Clip? BakeSequence(int seqIdx, bool includeStaticSequences)
+    {
+        if (seqIdx < 0 || seqIdx >= _m2.Sequences.Count) return null;
+
         var seq = _m2.Sequences[seqIdx];
         uint startMs = seq.StartTimestamp;
         uint endMs = seq.EndTimestamp;
 
         var clip = new Clip
         {
-            AnimationId = animationId,
-            Name = AnimationName(animationId),
+            SequenceIndex = seqIdx,
+            AnimationId = seq.AnimationId,
+            Name = AnimationName(seq.AnimationId),
             DurationSeconds = seq.DurationMs / 1000f,
             MoveSpeed = seq.MoveSpeed,
-            Looping = !OneShotAnimations.Contains(animationId),
+            Looping = seq.IsLooping,
             BlendSeconds = seq.BlendTimeMs / 1000f,
             SourceFlags = seq.Flags,
             Bones = new BoneChannels[_boneCount],

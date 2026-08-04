@@ -11,10 +11,12 @@ layout(location = 5) in vec4 aCellRect;
 layout(location = 6) in float aUvMode;
 
 uniform mat4 uViewProjection;
+uniform mat4 uView;
 uniform vec3 uCameraOrigin;
 
 out vec2 vUv;
 out vec4 vColour;
+out float vEyeDepth;
 
 void main()
 {
@@ -26,5 +28,7 @@ void main()
         localUv = vec2(localUv.y, 1.0 - localUv.x);
     vUv = aCellRect.xy + localUv * aCellRect.zw;
     vColour = aColour;
-    gl_Position = uViewProjection * vec4(rel + offset, 1.0);
+    vec3 vertex = rel + offset;
+    vEyeDepth = -(uView * vec4(vertex, 1.0)).z;
+    gl_Position = uViewProjection * vec4(vertex, 1.0);
 }

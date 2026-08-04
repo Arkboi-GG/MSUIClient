@@ -185,7 +185,9 @@ public class M2RenderFlag
     public ushort BlendingMode { get; set; }
 
     public bool Unlit => (Flags & 0x01) != 0;
+    public bool Unfogged => (Flags & 0x02) != 0;
     public bool TwoSided => (Flags & 0x04) != 0;
+    public bool NoZTest => (Flags & 0x08) != 0;
     public bool NoZWrite => (Flags & 0x10) != 0;
 }
 
@@ -298,7 +300,7 @@ public class M2Attachment
 ///     the SHARED per-track timeline (the timestamps array of each
 ///     M2AnimTrack). Duration of this sequence = end - start.
 ///
-///   Flags: bit 0x20 = looping. Other bits TBD.
+///   Flags: bit 0 set = clamp after one pass; bit 0 clear = loop.
 /// </summary>
 public class M2Sequence
 {
@@ -323,7 +325,11 @@ public class M2Sequence
     public uint DurationMs => EndTimestamp > StartTimestamp
         ? EndTimestamp - StartTimestamp
         : 0;
-    public bool IsLooping => (Flags & 0x20) != 0;
+    /// <summary>
+    /// Vanilla's authored repetition law. A clear low bit repeats the sequence;
+    /// a set low bit plays it once and holds its final sample.
+    /// </summary>
+    public bool IsLooping => (Flags & 0x1) == 0;
 }
 
 /// <summary>
@@ -523,10 +529,7 @@ public static class M2TrackSampling
         if (sequence < 0 || sequence >= model.Sequences.Count) return track.Keys[0];
         M2Sequence seq = model.Sequences[sequence];
         float durationSeconds = Math.Max(.001f, seq.DurationMs / 1000f);
-        // Vanilla's sequence flag bit 0 means "do not loop". M2Sequence's
-        // legacy IsLooping property predates that discovery and describes a
-        // different flag, so renderer track clocks use the actual file law.
-        bool looping = (seq.Flags & 0x1) == 0;
+        bool looping = seq.IsLooping;
         float local = looping ? seconds % durationSeconds : Math.Min(seconds, durationSeconds);
         int first = 0, last = track.Keys.Count - 1;
         if (sequence < track.Ranges.Count)
@@ -586,9 +589,8 @@ public static class M2TrackSampling
 //
 // The extended region is now read where its vanilla offsets are established:
 // atlas tail cells/time, inherited scale, spin/angular velocity, follow response,
-// spline points, and the enable track. Rendering still deliberately omits model-
-// particle geometry/recursive child emitters and wind/tumble behavior; those are
-// runtime features, not justification for silently discarding the authored data.
+// spline points, and the enable track. Geometry-model particles and tumble now run
+// in SpellParticleSystem, including the recursion model's first four private child emitters.
 // ════════════════════════════════════════════════════════════════════════════
 
 /// <summary>
@@ -620,7 +622,15 @@ public class M2ParticleEmitter
         if (index < 0 || index >= ScalarTracks.Length || OwnerModel is null) return fallback;
         int sequence = OwnerModel.TryFindSequenceIndexByAnimationId(animationId);
         if (sequence < 0 && OwnerModel.Sequences.Count > 0) sequence = 0;
-        return M2TrackSampling.Float(ScalarTracks[index], OwnerModel, sequence, (float)seconds, fallback);
+        return SampleScalarBySequence(index, seconds, sequence, fallback);
+    }
+
+    /// <summary>Sample against an already-resolved sequence slot.</summary>
+    public float SampleScalarBySequence(int index, double seconds, int sequence, float fallback)
+    {
+        if (index < 0 || index >= ScalarTracks.Length || OwnerModel is null) return fallback;
+        return M2TrackSampling.Float(ScalarTracks[index], OwnerModel, sequence,
+            (float)seconds, fallback);
     }
 
     /// <summary>Is emission gated ON this many seconds into the given animation? Empty gate = on.</summary>
@@ -629,10 +639,21 @@ public class M2ParticleEmitter
         if (EnabledTrack.Keys.Count == 0 || OwnerModel is null) return true;
         int sequence = OwnerModel.TryFindSequenceIndexByAnimationId(animationId);
         if (sequence < 0 && OwnerModel.Sequences.Count > 0) sequence = 0;
-        return M2TrackSampling.Float(EnabledTrack, OwnerModel, sequence, (float)seconds, 1f) > 0.5f;
+        return SampleEnabledBySequence(seconds, sequence);
+    }
+
+
+    /// <summary>Sample the enable gate against an already-resolved sequence slot.</summary>
+    public bool SampleEnabledBySequence(double seconds, int sequence)
+    {
+        if (EnabledTrack.Keys.Count == 0 || OwnerModel is null) return true;
+        return M2TrackSampling.Float(EnabledTrack, OwnerModel, sequence,
+            (float)seconds, 1f) > 0.5f;
     }
     public uint ParticleId { get; set; }
     public uint Flags { get; set; }
+    public string GeometryModel { get; set; } = "";
+    public string RecursionModel { get; set; } = "";
 
     /// <summary>
     /// Emitter origin, **converted to the same Y-up space as the render
@@ -1012,7 +1033,7 @@ public class M2ParticleEmitter
     /// <summary>Sample the three-key ramp at life fraction t, honouring MidPoint.</summary>
     public void SampleRamp(float t, out Vector4 rgba, out float scale)
     {
-        float mid = MathF.Min(MathF.Max(MidPoint, 0.001f), 0.999f);
+        float mid = Math.Clamp(MidPoint, 0.001f, 1f);
         int a, b;
         float f;
         if (t <= mid) { a = 0; b = 1; f = t / mid; }
@@ -1532,7 +1553,7 @@ public class M2Reader
     //   +4   uint32 startTimestamp  (ms on shared anim timeline)
     //   +8   uint32 endTimestamp
     //  +12   float  movespeed       (skipped)
-    //  +16   uint32 flags           (bit 0x20 = looping)
+    //  +16   uint32 flags           (bit 0 set = clamp; clear = loop)
     //  +20   uint16 frequency       (skipped)
     //  +22   uint16 padding
     //  +24   uint32 minimumRepetitions (skipped)
@@ -2107,6 +2128,14 @@ public class M2Reader
     private static float ReadFloat(byte[] data, int offset)
         => offset + 4 > data.Length ? 0f : BitConverter.ToSingle(data, offset);
 
+    private static string ReadArrayString(byte[] data, int offset)
+    {
+        uint count = ReadUInt32(data, offset);
+        uint at = ReadUInt32(data, offset + 4);
+        if (count == 0 || at == 0 || at + (long)count > data.Length) return "";
+        return Encoding.ASCII.GetString(data, (int)at, (int)count).TrimEnd('\0');
+    }
+
     private static ushort ValidAtlasDimension(ushort value)
         => value != 0 && (value & (value - 1)) == 0 ? value : (ushort)1;
     // ── Particle emitters (PLAN_14 §3) ───────────────────────────────────────
@@ -2139,6 +2168,8 @@ public class M2Reader
             {
                 ParticleId = ReadUInt32(data, o + 0),
                 Flags = ReadUInt32(data, o + 4),
+                GeometryModel = ReadArrayString(data, o + 0x18),
+                RecursionModel = ReadArrayString(data, o + 0x20),
                 // Z-up -> Y-up, the same swap ParseVertices applies. See the
                 // field's summary for what happens without it.
                 PosX = BitConverter.ToSingle(data, o + 8),
