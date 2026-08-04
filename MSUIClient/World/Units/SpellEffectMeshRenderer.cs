@@ -76,6 +76,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
     private readonly float[] _packed = new float[M2Animator.MaxBones * 12];
     public int DrawnLastFrame { get; private set; }
+    public bool Enabled { get; set; } = true;
     private readonly HashSet<string> _drawnPaths = new(StringComparer.OrdinalIgnoreCase);
     public bool WasDrawn(string path) => _drawnPaths.Contains(path);
 
@@ -124,7 +125,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     {
         DrawnLastFrame = 0;
         _drawnPaths.Clear();
-        if (_shader is null) return;
+        if (!Enabled || _shader is null) return;
         var ready = instances.Select(x => (Source: x, Mesh: Resolve(x.Path, x.Model)))
             .Where(x => x.Mesh is not null).ToArray();
         if (ready.Length == 0) return;

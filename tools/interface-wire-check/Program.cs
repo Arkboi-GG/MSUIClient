@@ -30,6 +30,79 @@ Check((ushort)Op.CMSG_ZONEUPDATE == 500, "CMSG_ZONEUPDATE opcode");
 Check(WorldSession.BuildZoneUpdateBody(12).SequenceEqual(Convert.FromHexString("0C000000")),
       "zone update body");
 string clientData = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
+using var spellbookMpq = new MpqMount(clientData);
+SpellCatalog spellbookSpells = SpellCatalog.Load(spellbookMpq) ??
+    throw new InvalidDataException("Spell DBC unavailable");
+SkillLineCatalog spellbookSkills = SkillLineCatalog.Load(spellbookMpq) ??
+    throw new InvalidDataException("Skill-line DBCs unavailable");
+SpellInfo BookSpell(uint id) => spellbookSpells.TryGet(id, out SpellInfo value) ? value
+    : throw new InvalidDataException($"spell {id} missing");
+const byte Human = 1, Warrior = 1, Mage = 8;
+Check(spellbookSkills.SpellTab(6603, Human, Mage) == 0, "Attack did not collapse into General");
+Check(spellbookSkills.SpellTab(133, Human, Mage) == 8, "Fireball did not route to Fire");
+Check(spellbookSkills.SpellTab(116, Human, Mage) == 6, "Frostbolt did not route to Frost");
+Check(spellbookSkills.SpellTab(1459, Human, Mage) == 237, "Arcane Intellect did not route to Arcane");
+Check(spellbookSkills.SpellTab(133, Human, Warrior) == 0,
+    "cross-class Fireball did not collapse into General");
+Check(SpellbookLaw.Eligible(BookSpell(133)), "Fireball failed the spellbook add-gate");
+Check(!SpellbookLaw.Eligible(BookSpell(668)), "Common language survived the spellbook add-gate");
+Check(SpellbookLaw.LeadingRankNumber("Rank 10") == 10 &&
+      SpellbookLaw.LeadingRankNumber("Apprentice (75)") == 75, "numeric rank parser drift");
+Check(SpellbookLaw.NameFontHeight == 12f && SpellbookLaw.RankFontHeight == 10f &&
+      SpellbookLaw.ButtonSize == 37f && SpellbookLaw.NameWidth == 103f &&
+      SpellbookLaw.NameMaxLines == 3 && SpellbookLaw.NameAnchorX == 4f &&
+      SpellbookLaw.NameAnchorYWithRank == 4f && SpellbookLaw.NameAnchorYWithoutRank == 2f &&
+      SpellbookLaw.RankWidth == 79f && SpellbookLaw.RankBoxHeight == 18f &&
+      SpellbookLaw.RankAnchorY == 4f && SpellbookLaw.PassiveNameColor == 0xff00a3c4 &&
+      SpellbookLaw.RankColor == 0xff003359,
+    "SpellButtonTemplate/GameFontNormal/SubSpellFont geometry or color drift");
+Check(SpellTooltipLaw.HeaderFontHeight == 14f && SpellTooltipLaw.TextFontHeight == 12f &&
+      SpellTooltipLaw.Pad == 10f && SpellTooltipLaw.LineGap == 2f &&
+      SpellTooltipLaw.DoubleGap == 40f && SpellTooltipLaw.WrapWidth == 260f,
+    "build-5875 GameTooltip line-stack constants drift");
+Check(spellbookMpq.ReadFile(SpellbookLaw.GeneralIcon + ".blp") is not null,
+    $"General tab icon absent: {SpellbookLaw.GeneralIcon}.blp");
+foreach (uint lineId in new uint[] { 6, 8, 237 })
+{
+    Check(spellbookSkills.TryGet(lineId, out SkillLineInfo line), $"mage line {lineId} missing");
+    string iconPath = line.IconPath.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)
+        ? line.IconPath : line.IconPath + ".blp";
+    Check(!iconPath.Contains(@"Interface\Icons\Interface\Icons", StringComparison.OrdinalIgnoreCase),
+        $"mage line {lineId} duplicated its icon prefix: {iconPath}");
+    Check(spellbookMpq.ReadFile(iconPath) is not null, $"mage line {lineId} icon absent: {iconPath}");
+}
+SpellTooltipView arcaneExplosion = SpellTooltipLaw.Build(BookSpell(1449), spellbookSpells, 60);
+const string ArcaneExplosionText = "Causes an explosion of arcane magic around the caster, causing 34 to 38 Arcane damage to all targets within 10 yards.";
+Check(arcaneExplosion.Description == ArcaneExplosionText,
+    $"Arcane Explosion tooltip drift: {arcaneExplosion.Description}; " +
+    $"levels={BookSpell(1449).SpellLevel}/{BookSpell(1449).MaxLevel}/{BookSpell(1449).BaseLevel}; " +
+    $"real={string.Join(',', BookSpell(1449).EffectRealPointsPerLevel ?? [])}; " +
+    $"dice={string.Join(',', BookSpell(1449).EffectDicePerLevel ?? [])}");
+Check(arcaneExplosion.Cost == "75 Mana", $"Arcane Explosion cost drift: {arcaneExplosion.Cost}");
+Check(arcaneExplosion.CastTime == "Instant cast",
+    $"Arcane Explosion cast line drift: {arcaneExplosion.CastTime}");
+Check(!arcaneExplosion.Description.Contains('$'), "Arcane Explosion retained a raw tooltip token");
+SpellTooltipView fireballTooltip = SpellTooltipLaw.Build(BookSpell(133), spellbookSpells);
+Check(fireballTooltip.Description.Contains("14 to 22", StringComparison.Ordinal),
+    $"Fireball effect bounds drift: {fireballTooltip.Description}");
+Check(fireballTooltip.Range?.Contains("yd range", StringComparison.Ordinal) == true,
+    "Fireball range line missing");
+string[] unresolvedSpellbookTokens = spellbookSpells.Spells.Where(spell => SpellbookLaw.Eligible(spell))
+    .Select(spell => (spell, resolved: SpellTooltipLaw.Substitute(spell.Description, spell, spellbookSpells)))
+    .Where(pair =>
+    {
+        string resolved = pair.resolved;
+        return resolved.Contains("$s", StringComparison.OrdinalIgnoreCase) ||
+            resolved.Contains("$a", StringComparison.OrdinalIgnoreCase) ||
+            resolved.Contains("$d", StringComparison.OrdinalIgnoreCase) ||
+            resolved.Contains("$t", StringComparison.OrdinalIgnoreCase) ||
+            resolved.Contains("$o", StringComparison.OrdinalIgnoreCase);
+    })
+    .Select(pair => $"{pair.spell.Id}:{pair.spell.Name} => {pair.resolved}")
+    .ToArray();
+Check(unresolvedSpellbookTokens.Length == 0,
+    $"{unresolvedSpellbookTokens.Length} eligible descriptions retain supported raw tokens: " +
+    string.Join(" | ", unresolvedSpellbookTokens));
 var northshireAdt = AdtTerrainReader.ReadFromMpq(clientData, "Azeroth", 48, 32);
 Check(northshire.AreaId(northshireAdt) == 9,
       "Northshire MCNK resolves live AreaTable ID 9 rather than login zone");
@@ -308,4 +381,71 @@ Check((ushort)Op.CMSG_GMTICKET_CREATE == 517 && (ushort)Op.SMSG_GMTICKET_CREATE 
       (ushort)Op.CMSG_GMTICKET_DELETETICKET == 535 && (ushort)Op.CMSG_GMTICKET_SYSTEMSTATUS == 538,
       "help ticket opcodes");
 
-Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding");
+// ---- gameplay text migration fence (docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md) ------------
+// Gameplay panels must draw text through GameText/FontObjectLaw (the derived 1.12 text law),
+// never raw AddText(ImGui.GetFont(), ...) - that path scales the supersampled atlas and
+// reintroduces the unit mismatch and softness the law removed. This is a RATCHET: the baseline
+// below is each file's remaining raw-draw count. New raw draws fail the check; migrating a
+// panel to zero (or fewer) is allowed and should be followed by lowering its baseline here.
+// FontObjectLaw's registry heights are asserted against the shipped Fonts.xml transcription.
+Check(FontObjectLaw.Get("GameFontNormal") ==
+          new FontObjectSpec(FontFace.FrizQt, 12f, 0xff00d1ff, 0xff000000, 0) &&
+      FontObjectLaw.Get("SubSpellFont") ==
+          new FontObjectSpec(FontFace.FrizQt, 10f, 0xff003359, null, 0) &&
+      FontObjectLaw.Get("GameTooltipHeaderText") ==
+          new FontObjectSpec(FontFace.FrizQt, 14f, 0xffffffff, null, 0) &&
+      FontObjectLaw.Get("GameTooltipText") ==
+          new FontObjectSpec(FontFace.FrizQt, 12f, 0xffffffff, null, 0) &&
+      FontObjectLaw.Get("NumberFontNormal") ==
+          new FontObjectSpec(FontFace.ArialN, 14f, 0xffffffff, null, 1) &&
+      FontObjectLaw.Get("NumberFontNormalSmall").Outline == 2,
+    "FontObjectLaw drift from the build-5875 Fonts.xml transcription");
+Check(FontObjectLaw.Get("GameTooltipHeaderText").Height == SpellTooltipLaw.HeaderFontHeight &&
+      FontObjectLaw.Get("GameTooltipText").Height == SpellTooltipLaw.TextFontHeight &&
+      FontObjectLaw.Get("GameFontNormal").Height == SpellbookLaw.NameFontHeight &&
+      FontObjectLaw.Get("SubSpellFont").Height == SpellbookLaw.RankFontHeight,
+    "FontObjectLaw heights disagree with the spellbook/tooltip law constants");
+
+var rawTextBaseline = new Dictionary<string, int>
+{
+    ["Program.Auction.cs"] = 5,
+    ["Program.Bank.cs"] = 1,
+    ["Program.CharacterPage.cs"] = 1,
+    ["Program.Chat.cs"] = 3,
+    ["Program.GameObjects.cs"] = 1,
+    ["Program.Guild.cs"] = 3,
+    ["Program.Help.cs"] = 4,
+    ["Program.Inventory.cs"] = 3,
+    ["Program.Keybindings.cs"] = 3,
+    ["Program.Loot.cs"] = 2,
+    ["Program.Macro.cs"] = 2,
+    ["Program.Mail.cs"] = 7,
+    ["Program.Minimap.cs"] = 1,
+    ["Program.Professions.cs"] = 6,
+    ["Program.Quest.cs"] = 4,
+    ["Program.Social.cs"] = 3,
+    ["Program.Tabard.cs"] = 1,
+    ["Program.Talents.cs"] = 2,
+    ["Program.Trade.cs"] = 2,
+    ["Program.Trainer.cs"] = 4,
+    ["Program.VanillaUi.cs"] = 4,
+    ["Program.Vendor.cs"] = 4,
+};
+string panelSourceDir = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
+var rawTextPattern = new System.Text.RegularExpressions.Regex(
+    @"AddText\s*\(\s*ImGui\s*\.\s*GetFont\s*\(\s*\)");
+foreach (string panelFile in Directory.GetFiles(panelSourceDir, "Program.*.cs"))
+{
+    string name = Path.GetFileName(panelFile);
+    int raw = rawTextPattern.Matches(File.ReadAllText(panelFile)).Count;
+    int allowed = rawTextBaseline.GetValueOrDefault(name, 0);
+    Check(raw <= allowed,
+        $"{name}: {raw} raw AddText(ImGui.GetFont()) draw(s) exceed the migration baseline " +
+        $"of {allowed}. Draw gameplay text through GameText/FontObjectLaw " +
+        "(docs/current/ui/UI_TEXT_PARITY_PLAYBOOK.md); never add raw default-font draws.");
+    if (raw < allowed)
+        Console.WriteLine($"[text-fence] {name} is below baseline ({raw}/{allowed}) - " +
+                          "lower its entry in interface-wire-check to lock in the migration");
+}
+
+Console.WriteLine("interface wire checks passed: minimap projection/area/zone + action icons + gossip + vendor + trainer + quest + loot + inventory + bank + mail + auction + profession + guild + social + trade + tabard + talents + gameobjects + taxi opcodes/bodies/bounds/state/render-binding + gameplay-text fence");

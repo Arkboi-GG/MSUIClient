@@ -1,6 +1,6 @@
 # Spell FX semantic parity — current-state next-agent prompt
 
-Prepared: 2026-08-03  
+Prepared: 2026-08-04
 Repository: `C:\Users\nico\source\repos\MSUIClient`  
 Authority target: original World of Warcraft 1.12.1 client, build 5875  
 Immediate next slice: **D-001, WMO-floor decal projection and proven no-surface behavior**
@@ -9,6 +9,30 @@ Immediate next slice: **D-001, WMO-floor decal projection and proven no-surface 
 
 Continue the spell-FX parity work from the current dirty working tree. Do not restart the broad audit and do
 not accept an older `MATCH` label without retracing its semantic frames, owners, clocks, and evidence.
+
+### 2026-08-04 empirically closed trail regression — do not revert
+
+The user visually revalidated Fireball, Frostbolt, and Blizzard in MSUI after the shared fixes below. This is
+`CAPTURED` MSUI evidence, not full original-client parity certification.
+
+- **Every spell-particle pass is two-sided.** Benilla uses `cull_mode: None` unconditionally for particle
+  materials. MSUI must disable `CullFace` for the complete `SpellParticleSystem.Render` draw interval and
+  restore the prior state afterward. Projected velocity-tail axes can have the opposite winding from ordinary
+  head billboards. Leaving inherited back-face culling enabled produced the exact signature “Blizzard shards
+  visible, but every `FROST3.BLP` tail absent” even though live/generated/texture/submission diagnostics passed.
+- **Free missile particles retain world history.** Missile effect instances use `RootCarriesCloud = false` and
+  `HostAttachmentRotatesCloud = false`; already-born Fireball/Frostbolt particles are not rigidly carried or
+  rotated by the current missile root. Hosted and area effects retain their root-anchored lane. Do not collapse
+  these storage laws into one generic effect-model rule.
+- **A ribbon and its particles are independent trail layers.** Fireball/Frostbolt need the continuous indexed
+  ribbon plus discrete free-history particle cards. A good ribbon alone still looks empty; good particles alone
+  do not replace the authored strip.
+- **Rangeless static tracks keep their time-zero keys.** Sequence bands beginning after time zero still sample
+  the nearest static width/alpha key. Filtering those keys out made Fireball's authored ribbon numerically zero.
+
+The executable guard for the first rule is `SpellParticleTrailLaw.CullBackFaces == false`, asserted by
+`tools/spell-particle-motion-check`. That check also proves the tail fixture's winding is opposite the head
+fixture. Do not remove the renderer state as “redundant” merely because head particles remain visible.
 
 M-017 is now `STATIC/DATA_COMPLETE`: the production skinning contract, 83,681-check validator, complete
 mounted census, Rake/Undying/Arcane Shot fixtures, inverse-transpose normal correction, and neighboring
@@ -67,10 +91,11 @@ Known limits of the reference comparison:
 | Lane | Current status | What is closed | What is still open |
 |---|---|---|---|
 | Animation selection, clocks, lifecycle, M2 sound markers | `STATIC/DATA_COMPLETE` | One exact sequence slot is shared by rig/material/particle/ribbon consumers; bit 0 clamp/loop semantics; monotonic instance age; global clocks; self-termination; cast-hold ownership; `$SND/$DSL/$DSO`; 5,788-check mounted audit. | Matched original timing, persistent clamp presentation, sound mix, and spatialization. |
-| Ordinary particle root/bone/cloud frame | `STATIC_FOUND` | Bone composes birth once; root translation carries the cloud; host attachment rotation is independent; production helper passes the moving-bone/moving-root/rotation checks. | Live Blizzard trace and capture after the correction, plus a second animated-bone asset. |
+| Ordinary particle root/bone/cloud frame | `STATIC_FOUND` + Blizzard `CAPTURED` | Bone composes birth once; root translation carries hosted/area clouds; free missiles retain world history; host attachment rotation is independent; Blizzard's angled shards and tails plus Fireball/Frostbolt trails were user-validated after correction. | Recorded numeric live trace, a second animated-bone asset, and matched original-client captures. |
 | Special particles `0x10`, `0x40`, `0x4000` | `STATIC/DATA_COMPLETE` | Full live joint/root TRS; model-space round trip; follow response; strict 30 Hz inherit gate/hold; shared 100 ms simulation clamp; 61-check mounted audit. | Isolated live runtime traces and matched original pixels for the pinned fixtures. |
-| Missile release/root/history/impact | `STATIC/DATA_COMPLETE` | Release event/fallback/backstop, actual-launch clock, fixed GO-time deadline, raw-dt homing, parsed flight basis, no-tag fallback, root-carried cloud, impact ordering; 54-check audit. | Matched Fireball/Arcane Shot/markerless/close-range captures; original interception and miss-deflection behavior. |
-| Ribbon committed-node history | `STATIC/DATA_COMPLETE` | World-committed pairs, parsed authored width axis, separate raw/clamped clocks, cadence, gravity, visibility, drain animation; 41-check mounted audit. | Matched moving-camera original pixels and exact original effect-controller owner-destruction wait. |
+| Missile release/root/history/impact | `STATIC/DATA_COMPLETE` + Fireball/Frostbolt `CAPTURED` | Release event/fallback/backstop, actual-launch clock, fixed GO-time deadline, raw-dt homing, parsed flight basis, no-tag fallback, free-missile world-history cloud, impact ordering; 53-check audit. | Matched recorded original/MSUI captures; Arcane Shot/markerless/close-range captures; original interception and miss-deflection behavior. |
+| Ribbon committed-node history | `STATIC/DATA_COMPLETE` + Fireball/Frostbolt `CAPTURED` | Indexed continuous strips, world-committed pairs, time-zero static tracks, parsed authored width axis, separate raw/clamped clocks, cadence, gravity, visibility, drain animation; 52-check mounted audit. | Matched moving-camera original pixels and exact original effect-controller owner-destruction wait. |
+| Particle head/tail raster state | `STATIC_FOUND` + Blizzard `CAPTURED` | Particle materials are globally two-sided; opposite-winding projected tails survive; prior GL cull state is restored after the pass. | Recorded synchronized original/MSUI Blizzard capture from multiple camera angles. |
 | DynamicObject/type-9 persistent areas | `REFERENCE_LIMITED` with mounted static/data audit complete | All 8 type-9 rows, 7 literal assets, distribution/rate/update/despawn ownership, one-shot shard lifetimes; 100,104 checks. | Exact original random/birth phase and impact-sound trigger instant; second original comparison spell. |
 | Ground-target radius selection | `REFERENCE_LIMITED` with mounted static/data audit complete | All populated effect lanes, 24-row radius table, 218 location-target rows, maximum-positive rule, explicit 8-yard zero fallback; 779 checks. | Original mixed-radius and zero-radius presentation rule; exact marker texture/orientation/animation. |
 | Geometry-model particles and recursive child pools | `STATIC_IMPLEMENTED` + `ASSET_CONFIRMED` | Code paths, tumble, child ownership/drain, 55 geometry and 13 recursion references resolved in the recorded census. | Lane-isolated runtime trace/captures and original comparison. Blizzard is not a fixture for either branch. |
@@ -107,10 +132,12 @@ Known limits of the reference comparison:
   animated effect-bone motion may not drag old ordinary particles.
 - Model-space `0x10` uses the live decomposed emitter-joint and root TRS for positions, velocities/tails,
   fixed-plane basis, and geometry-particle orientation.
+- All particle head/tail quads render two-sided. Tail-only Blizzard emitters 1/2 use `FROST3.BLP` with
+  authored tails of 1.7/1.2 seconds; visible shards do not prove those tail quads survived rasterization.
 - Follow `0x4000` and inherit `0x40` consume the shared `min(dt, 0.1)` simulation step. Inherit uses strict
   `> 1/30 s`, current-frame delta, an already-live-pool gate, and sample-and-hold behavior.
 - `tools/spell-frame-law-check`: passes moving-bone, moving-root, and attachment-rotation invariants.
-- `tools/spell-particle-motion-check`: `PASS (61 checks)`. Mounted corpus: 9,717 listed M2 paths, 9,654
+- `tools/spell-particle-motion-check`: `PASS (80 checks)`. Mounted corpus: 9,717 listed M2 paths, 9,654
   parsed, 7,860 emitters, 2,550 special records, 2,391 model-space, 124 inherit, 96 follow; 599 referenced
   effect paths include 505 model-space, 61 inherit, and 20 follow records. There are 115 special records
   beneath scale-animated chains, including 52 spell records.
@@ -124,11 +151,12 @@ Known limits of the reference comparison:
 - The arrival deadline is fixed at GO time: `distance / speed - already queued time`.
 - Homing uses raw elapsed time and `gap * dt / remaining`; it does not inherit the particle 100 ms clamp.
 - Authored +X faces flight; parsed +Y remains the roll-free world-up direction; parsed +Z closes the frame.
-- Ordinary missile particles ride root translation without receiving the free-model rotation after birth.
+- Ordinary free-missile particles keep absolute world history after birth; neither later root translation nor
+  the free-model flight rotation is folded into old particle positions.
 - Impact ownership changes before the final visual position can snap.
 - Missing/out-of-range destination attachment state uses the explicit no-tag sentinel and begins fallback at
   `0x0F/0x13/base`, never chest/attachment zero by accident.
-- `tools/spell-missile-pipeline-check`: `PASS (54 checks)`. Mounted corpus: 981 speed spells; 824 with visual
+- `tools/spell-missile-pipeline-check`: `PASS (53 checks)`. Mounted corpus: 981 speed spells; 824 with visual
   rows and 157 without; 64 distinct missile paths, 63 resolved; 45 particle models, 35 ribbon models, 25
   InFlight models, 169 emitters, 8 follow, and 5 inherit. The one unresolved shipped path is
   `Particles\FrostBolt_Missle.m2`.
@@ -141,11 +169,26 @@ Known limits of the reference comparison:
 - Width uses live rotation only; scale is discarded for the cross-section direction.
 - Raw source/wall age expires pairs and advances longitudinal U. A separate `min(dt, 0.1)` clock advances
   emission, sag, height/color/alpha tracks, including during owner-loss drain.
-- `tools/spell-ribbon-history-check`: `PASS (41 checks)`. Mounted corpus: 176 ribbon models, 590 records,
+- `tools/spell-ribbon-history-check`: `PASS (52 checks)`. Mounted corpus: 176 ribbon models, 590 records,
   350 spell ribbons, 318 referenced ribbons, 80 missile ribbons, 102 gravity, 142 animated height, 214
   animated alpha, 90 scale-animated chains, and 570 animated-bone chains. The adversarial fixtures are
   `Spells\ArcaneShot_Missile.m2`, `Spells\HolySmite_Low_Chest.m2`, and
   `Item\ObjectComponents\Weapon\Thrown_1H_Dagger_A_01.m2`.
+
+### Trail non-regression checklist
+
+When one spell loses a trail, do not tune that spell first. Verify the shared lanes in this order:
+
+1. Particle diagnostics: live count, generated heads/tails, texture ready, and submitted count.
+2. Raster state: `CullFace` disabled for the particle pass, then restored. If submitted tail-only quads are
+   invisible while heads survive, this is the first suspect.
+3. Storage owner: free missile particle history is world-fixed; hosted/area clouds use their root anchor.
+4. Ribbon data: retained time-zero width/alpha keys, indexed adjacency, committed-node history, and texture.
+5. Only after those pass should authored per-emitter size/alpha/rate/tail values be questioned.
+
+Required smoke set after any particle/ribbon/frame change: Fireball, Frostbolt, and Blizzard. Fireball and
+Frostbolt must show both continuous ribbons and discrete trail particles. Blizzard must show angled falling
+shards and the long `FROST3` tail layer, not only snowflakes or shard heads.
 
 ### DynamicObject area and target radius
 
@@ -280,8 +323,8 @@ interface assertion. Do not validate a newly invented test-only implementation.
 - Any real mismatch is corrected in shared production code without spell-specific exceptions.
 - The dedicated validator passes pure adversarial cases, real mounted fixtures, and the full relevant corpus.
 - The solution and all existing spell validators pass.
-- `SPELL_FX_SEMANTIC_FRAME_AUDIT.md`, `SPELL_RENDERER_DECISION_AUDIT.md`, and
-  `SESSION_2026-08-03_SPELL_SLICES.md` are updated consistently.
+- `SPELL_FX_SEMANTIC_PARITY_NEXT_AGENT_PROMPT.md`, `SPELL_FX_SEMANTIC_FRAME_AUDIT.md`, and
+  `SPELL_RENDERER_DECISION_AUDIT.md` are updated consistently.
 - The final claim is no higher than the evidence. Without matched original output, the expected ceiling is
   `STATIC/DATA_COMPLETE`, not `PARITY_CERTIFIED`.
 
@@ -296,12 +339,12 @@ interface assertion. Do not validate a newly invented test-only implementation.
 
 ### Runtime/MSUI capture work for already implemented laws
 
-1. Blizzard after the ordinary root/bone/cloud correction: two descent times, two camera angles, recorded
-   root, emitter, bone offset, cloud principal axis, and span.
+1. Blizzard is visually revalidated after the frame and two-sided-tail corrections; still record two descent
+   times/two camera angles plus root, emitter, bone offset, cloud principal axis, and span.
 2. A second animated-bone ordinary emitter and a moving-root/static-bone effect.
 3. Isolated `0x10`, `0x4000`, and `0x40` fixtures with uneven/hitch timing.
-4. Fireball and Arcane Shot after the missile/ribbon corrections, plus markerless launch and close-range
-   no-flight impact.
+4. Fireball/Frostbolt are visually revalidated after the free-history/ribbon corrections; still record matched
+   captures. Arcane Shot, markerless launch, and close-range no-flight impact remain unobserved here.
 5. Arcane Shot/Holy Smite ribbon width, world-history sag, visibility, and owner-loss drain.
 6. Geometry-model and recursive-particle fixtures independently.
 7. Multi-weight mesh fixtures selected by M-017, including a mesh-only capture.
@@ -349,12 +392,11 @@ claiming the whole tree is permanently warning-free.
 
 Current authoritative audit and session record:
 
+- `SPELL_FX_SEMANTIC_PARITY_NEXT_AGENT_PROMPT.md` (this file; latest empirical addendum first)
 - `SPELL_FX_SEMANTIC_FRAME_AUDIT.md`
-- `SESSION_2026-08-03_SPELL_SLICES.md`
 - `SPELL_RENDERER_DECISION_AUDIT.md` — historical 96-row baseline plus follow-ups; lower baseline labels may
   be stale and must not be copied forward automatically.
 - `BENILLA_SPELL_SYSTEM_TRACE.md`
-- `MSUI_SPELL_SYSTEM_TRACE.md`
 
 Immediate D-001 production path:
 
@@ -378,6 +420,7 @@ Completed M-017 production path:
 Completed production-law helpers and validators:
 
 - `MSUIClient\World\Spells\SpellParticleFrameLaw.cs`
+- `MSUIClient\World\Spells\SpellParticleTrailLaw.cs` (includes the mandatory no-cull contract)
 - `MSUIClient\World\Units\SpellEffectPlaybackLaw.cs`
 - `MSUIClient\World\Units\SpellMissileLaw.cs`
 - `MSUIClient\World\Units\SpellRibbonHistoryLaw.cs`

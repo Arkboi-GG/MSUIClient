@@ -52,6 +52,13 @@ public sealed class SpellParticleSystem : IDisposable
     public float FarClip { get; set; } = 777f;
     public bool FogEnabled { get; set; } = true;
     public float DensityScale { get; set; } = 1f;
+    public bool Enabled { get; set; } = true;
+    public bool DrawHeads { get; set; } = true;
+    public bool DrawTails { get; set; } = true;
+    public bool DepthTest { get; set; } = true;
+    public float TailLengthScale { get; set; } = 1f;
+    public float SizeScale { get; set; } = 1f;
+    public float AlphaScale { get; set; } = 1f;
 
     public int LiveParticles { get; private set; }
     public int ActivePools { get; private set; }
@@ -123,6 +130,11 @@ public sealed class SpellParticleSystem : IDisposable
         public bool GatePrev;               // benilla accumulate_emission rising-edge latch (burst + gate reset)
         public bool TouchedThisFrame;
         public int DrawnLastFrame;
+        public int HeadQuadsLastFrame;
+        public int TailQuadsLastFrame;
+        public int GeneratedHeadsLastFrame;
+        public int GeneratedTailsLastFrame;
+        public bool TextureReadyLastFrame;
         public uint Seed = 0x9E3779B9;
         public bool HasPreviousEmitterWorld;
         public Vector3 FollowDelta;
@@ -766,7 +778,16 @@ public sealed class SpellParticleSystem : IDisposable
 
     public void Render(Camera camera)
     {
-        if (_shader is null || _pools.Count == 0) return;
+        foreach (Pool pool in PoolsWithChildren())
+        {
+            pool.DrawnLastFrame = 0;
+            pool.HeadQuadsLastFrame = 0;
+            pool.TailQuadsLastFrame = 0;
+            pool.GeneratedHeadsLastFrame = 0;
+            pool.GeneratedTailsLastFrame = 0;
+            pool.TextureReadyLastFrame = false;
+        }
+        if (!Enabled || _shader is null || _pools.Count == 0) return;
 
         // Group by (texture, blend); one draw per combination.
         var groups = new Dictionary<(string Tex, byte Blend, int FogPolicy), List<Pool>>();
@@ -802,33 +823,57 @@ public sealed class SpellParticleSystem : IDisposable
         _shader.Set("uFarClip", FarClip);
 
         bool hadDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
-        _gl.Enable(EnableCap.DepthTest);
+        bool hadCullFace = _gl.IsEnabled(EnableCap.CullFace);
+        if (DepthTest) _gl.Enable(EnableCap.DepthTest);
+        else _gl.Disable(EnableCap.DepthTest);
+        // Benilla's particle material is unconditionally two-sided (cull_mode: None).
+        // This is essential for velocity tails: their projected right/up basis can have
+        // the opposite winding from the camera billboard basis used by particle heads.
+        // Regression signature: Blizzard shards render, but their FROST3 tails vanish.
+        if (SpellParticleTrailLaw.CullBackFaces) _gl.Enable(EnableCap.CullFace);
+        else _gl.Disable(EnableCap.CullFace);
         _gl.BindVertexArray(_vao);
 
         foreach (var ((texPath, blend, fogPolicy), pools) in
             groups.OrderBy(g => g.Key.Blend is 0 or 1 ? 0 : 1))
         {
             _scratch.Clear();
-            foreach (Pool pool in pools) Fill(pool, right, up);
+            var counts = new List<(Pool Pool, QuadCounts Counts)>();
+            foreach (Pool pool in pools)
+            {
+                QuadCounts count = Fill(pool, right, up);
+                pool.GeneratedHeadsLastFrame = count.Heads;
+                pool.GeneratedTailsLastFrame = count.Tails;
+                counts.Add((pool, count));
+            }
             if (_scratch.Count == 0) continue;
 
             SetBlend(blend);
             _shader.Set("uFogPolicy", fogPolicy);
             Texture? tex = ResolveTexture(texPath);
             if (tex is null) continue;
+            foreach (Pool pool in pools) pool.TextureReadyLastFrame = true;
             _gl.ActiveTexture(TextureUnit.Texture0);
             _gl.BindTexture(TextureTarget.Texture2D, tex.Handle);
 
             UploadInstances();
             _gl.DrawArraysInstanced(PrimitiveType.TriangleStrip, 0, 4, (uint)_scratch.Count);
-            foreach (Pool pool in pools) pool.DrawnLastFrame = pool.Particles.Count;
+            foreach ((Pool pool, QuadCounts count) in counts)
+            {
+                pool.HeadQuadsLastFrame = count.Heads;
+                pool.TailQuadsLastFrame = count.Tails;
+                pool.DrawnLastFrame = count.Heads + count.Tails;
+            }
         }
 
         _gl.BindVertexArray(0);
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
         _gl.BindTexture(TextureTarget.Texture2D, 0);
         _gl.DepthMask(true);
-        if (!hadDepthTest) _gl.Disable(EnableCap.DepthTest);
+        if (hadDepthTest) _gl.Enable(EnableCap.DepthTest);
+        else _gl.Disable(EnableCap.DepthTest);
+        if (hadCullFace) _gl.Enable(EnableCap.CullFace);
+        else _gl.Disable(EnableCap.CullFace);
         _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         _gl.Disable(EnableCap.Blend);
     }
@@ -910,10 +955,13 @@ public sealed class SpellParticleSystem : IDisposable
         }
     }
 
-    private void Fill(Pool pool, Vector3 cameraRight, Vector3 cameraUp)
+    private readonly record struct QuadCounts(int Heads, int Tails);
+
+    private QuadCounts Fill(Pool pool, Vector3 cameraRight, Vector3 cameraUp)
     {
         M2ParticleEmitter e = pool.Emitter;
         Matrix4x4 emitterFrame = EmitterLinearFrame(pool);
+        int heads = 0, tails = 0;
         foreach (Particle p in pool.Particles)
         {
             float t = p.Life > 0f ? p.Age / p.Life : 1f;
@@ -921,8 +969,9 @@ public sealed class SpellParticleSystem : IDisposable
             float noise = TwinkleNoise(e.TwinkleSpeed, p.Age, p.Phase);
             if (e.TwinklePercent < 1f && noise > e.TwinklePercent) continue;
             float instanceScale = (e.Flags & 0x20) != 0 ? pool.Scale : 1f;
-            float half = size * e.Twinkle(noise) * instanceScale;
+            float half = size * e.Twinkle(noise) * instanceScale * SizeScale;
             if (half <= 0f) continue;
+            rgba.W = Math.Clamp(rgba.W * AlphaScale, 0f, 8f);
 
             Vector3 centre;
             Vector3 velocity;
@@ -943,8 +992,8 @@ public sealed class SpellParticleSystem : IDisposable
                     : p.Velocity;
             }
 
-            bool drawHead = e.HeadOrTail is 0 or 2;
-            bool drawTail = e.HeadOrTail >= 1;
+            bool drawHead = DrawHeads && SpellParticleTrailLaw.DrawsHead(e.HeadOrTail);
+            bool drawTail = DrawTails && SpellParticleTrailLaw.DrawsTail(e.HeadOrTail);
             if (drawHead)
             {
                 Vector3 baseRight = cameraRight;
@@ -962,27 +1011,20 @@ public sealed class SpellParticleSystem : IDisposable
                 Vector3 axisRight = (baseRight * cosine + baseUp * sine) * half;
                 Vector3 axisUp = (baseUp * cosine - baseRight * sine) * half;
                 AddQuad(centre, axisRight, axisUp, rgba, e.SampleHeadCellRect(t), 0f);
+                heads++;
             }
             if (drawTail)
             {
-                float effectiveTime = (e.Flags & 0x400) != 0
-                    ? MathF.Min(e.TailTime, p.Age) : e.TailTime;
-                Vector3 tail = -velocity * effectiveTime;
-                float tr = Vector3.Dot(tail, cameraRight);
-                float tu = Vector3.Dot(tail, cameraUp);
-                float projectedLengthSquared = tr * tr + tu * tu;
-                if (projectedLengthSquared < 7.7e-4f)
-                    AddQuad(centre, cameraRight * half, cameraUp * half, rgba,
-                        e.SampleTailCellRect(t), 0f);
-                else
-                {
-                    Vector3 perpendicular = (cameraUp * tr - cameraRight * tu) *
-                        (half / MathF.Sqrt(projectedLengthSquared));
-                    AddQuad(centre + tail * .5f, perpendicular, tail * .5f, rgba,
-                        e.SampleTailCellRect(t), 1f);
-                }
+                SpellParticleTrailLaw.Quad quad = SpellParticleTrailLaw.TailQuad(
+                    centre, velocity, half, cameraRight, cameraUp,
+                    e.TailTime * TailLengthScale, p.Age,
+                    clampToParticleAge: (e.Flags & 0x400) != 0);
+                AddQuad(quad.Centre, quad.AxisRight, quad.AxisUp, rgba,
+                    e.SampleTailCellRect(t), quad.Streak ? 1f : 0f);
+                tails++;
             }
         }
+        return new QuadCounts(heads, tails);
     }
 
     private void AddQuad(Vector3 centre, Vector3 axisRight, Vector3 axisUp,
@@ -1131,7 +1173,10 @@ public sealed class SpellParticleSystem : IDisposable
         foreach (Pool p in _pools.Values.OrderBy(p => p.TexturePath).ThenBy(p => p.EmitterIndex))
         {
             sb.Append($" | e{p.EmitterIndex}[{(p.ModelSpace ? "model" : "world")}] blend={p.Emitter.BlendingType} " +
-                $"live={p.Particles.Count} drawn={p.DrawnLastFrame} " +
+                $"mode={p.Emitter.HeadOrTail} tail={p.Emitter.TailTime:0.###}s " +
+                $"live={p.Particles.Count} generated={p.GeneratedHeadsLastFrame + p.GeneratedTailsLastFrame} " +
+                $"texture={(p.TextureReadyLastFrame ? "ready" : "missing")} submitted={p.DrawnLastFrame} " +
+                $"heads={p.HeadQuadsLastFrame} tails={p.TailQuadsLastFrame} " +
                 $"root=({p.RootCloudAnchorWorld.X:0.##},{p.RootCloudAnchorWorld.Y:0.##},{p.RootCloudAnchorWorld.Z:0.##}) " +
                 $"emitter=({p.EmitterWorld.X:0.##},{p.EmitterWorld.Y:0.##},{p.EmitterWorld.Z:0.##}) " +
                 $"{CloudTrace(p)} " +
@@ -1140,12 +1185,23 @@ public sealed class SpellParticleSystem : IDisposable
             {
                 Pool child = p.Children[i];
                 sb.Append($" child{i}[e{child.EmitterIndex}] blend={child.Emitter.BlendingType} " +
-                    $"live={child.Particles.Count} drawn={child.DrawnLastFrame} " +
+                    $"mode={child.Emitter.HeadOrTail} tail={child.Emitter.TailTime:0.###}s " +
+                    $"live={child.Particles.Count} quads={child.DrawnLastFrame} " +
+                    $"heads={child.HeadQuadsLastFrame} tails={child.TailQuadsLastFrame} " +
                     $"tex={Path.GetFileName(child.TexturePath)}");
             }
         }
         return sb.ToString();
     }
+
+    public readonly record struct Diagnostic(string Texture, int Emitter, byte Mode,
+        int Live, int GeneratedHeads, int GeneratedTails, bool TextureReady, int Submitted);
+
+    public IReadOnlyList<Diagnostic> Diagnostics()
+        => PoolsWithChildren().Select(p => new Diagnostic(Path.GetFileName(p.TexturePath),
+            p.EmitterIndex, p.Emitter.HeadOrTail, p.Particles.Count,
+            p.GeneratedHeadsLastFrame, p.GeneratedTailsLastFrame,
+            p.TextureReadyLastFrame, p.DrawnLastFrame)).ToArray();
 
     private static string CloudTrace(Pool pool)
     {

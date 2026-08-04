@@ -264,10 +264,35 @@ public static partial class Program
         // before the window exists: ImGui rasterises its glyph atlas when the
         // controller is constructed, and there is no supported way to swap the
         // font afterwards. Null falls back to ImGui's bitmap font.
+        string? uiFontPath = MSUIClient.Engine.UI.UiFont.Extract(config.ClientDataPath);
+        string? arialFontPath = MSUIClient.Engine.UI.UiFont.Extract(
+            config.ClientDataPath, MSUIClient.Engine.UI.UiFont.ArialN);
+
+        // The gameplay text law needs the extracted faces and the bake set BEFORE the window
+        // builds its atlas: gameplay panels draw text by FrameXML font-object name (GameText /
+        // FontObjectLaw) from fonts rasterised at their exact on-screen pixel size. The em
+        // targets themselves are seeded from the REAL framebuffer in ClientWindow.HandleLoad
+        // and retargeted per frame. See Engine/UI/GameTextLaw.cs.
+        var gameplayFaces = new List<(string Face, string Path)>();
+        if (uiFontPath is not null)
+            gameplayFaces.Add((MSUIClient.Engine.UI.FontFace.FrizQt, uiFontPath));
+        if (arialFontPath is not null)
+            gameplayFaces.Add((MSUIClient.Engine.UI.FontFace.ArialN, arialFontPath));
+        if (gameplayFaces.Count > 0)
+        {
+            MSUIClient.Engine.UI.GameTextLaw.Configure(gameplayFaces);
+            MSUIClient.Engine.UI.GameTextLaw.SetBakeRequests(
+                MSUIClient.Engine.UI.FontObjectLaw.DefaultBakePairs());
+        }
+
         using var window = new ClientWindow(config)
         {
-            UiFontPath = MSUIClient.Engine.UI.UiFont.Extract(config.ClientDataPath),
+            UiFontPath = uiFontPath,
             UiFontSize = MSUIClient.Engine.UI.UiFont.SizeFor(config.Window.UiScale),
+            // Same conversion GameplayUiScale applies at runtime, for the load-time retarget
+            // (a window that opens maximised must bake for its real size, not the config's).
+            GameplayTextScaleRule = (w, h) =>
+                GameLoop.GameplayUiScaleFor(w, h, config.Window.UiScale),
         };
 
         var game = new GameLoop(window, config, portraitBatch, variantBatch, movementSuite, liveRun) { SettingsFile = settings };
@@ -1466,6 +1491,7 @@ public sealed partial class GameLoop : IDisposable
         // player - and equally while the settings modal is up, or you walk into a
         // lake while dragging a slider.
         bool typing = ImGui.GetIO().WantCaptureKeyboard || _settingsOpen;
+        UpdateSpellFxInspectorInput(typing);
         UpdateActionBarInput(typing);
         UpdateInventoryInput(typing);
         UpdateCharacterPageInput(typing);
@@ -2342,6 +2368,12 @@ public sealed partial class GameLoop : IDisposable
 
     public void Gui()
     {
+        // The gameplay text atlases must track the scale actually being rendered - a maximise
+        // or a UI-scale change retargets the em sizes and ClientWindow rebuilds the atlas
+        // between frames. Without this, gameplay text silently upscales the nearest bake and
+        // goes soft (the exact defect GameTextLaw exists to remove).
+        _window.EnsureGameplayTextScale(GameplayUiScale());
+
         // The native loading curtain is an exclusive screen. ImGui is composited
         // after the world pass, so allowing it to run here would paint gameplay
         // bars, auras, unit frames and developer windows over the loading art.
@@ -2394,6 +2426,7 @@ public sealed partial class GameLoop : IDisposable
         if (ImGui.Begin("MSUI Client", ImGuiWindowFlags.NoCollapse))
         {
             ImGui.Text($"{_window.Fps:F0} fps   {_window.FrameMs:F2} ms");
+            if (ImGui.Button("Spell FX inspector (F7)")) _spellFxInspectorOpen = true;
 
             // VSync and multisampling moved to the settings modal (Escape).
             // They are preferences, not instruments - PLAN_11 section 6. VSync is
@@ -3241,6 +3274,7 @@ public sealed partial class GameLoop : IDisposable
             }
         }
         ImGui.End();
+        DrawSpellFxInspector();
 
         // The Water Tuning and Foliage Tuning windows are gone: every knob in
         // both is now Escape / Graphics, under Water and Ground clutter, where it

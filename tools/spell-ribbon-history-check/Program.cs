@@ -246,6 +246,92 @@ _ = arcaneNode1;
 NearV(arcaneHistory.Edges[0].Top, committedArcaneTop, 0f,
     "real Arcane Shot committed edge followed a later pose");
 
+// Frostbolt is the shortest common missile with authored ribbons. Keep its actual data in the
+// executable fixture set so a nominal ribbon census cannot hide a production path that never
+// resolves a texture, never enters InFlight, or cannot commit before a close-range arrival.
+M2Model frostbolt = Model(@"Spells\Frostbolt.m2");
+int frostboltFlight = frostbolt.TryFindSequenceIndexByAnimationId(
+    SpellEffectPlaybackLaw.InFlightAnimationId);
+Check(frostbolt.Sequences.Count == 1 && frostboltFlight == -1 &&
+      frostbolt.RibbonEmitters.Count == 2,
+    "Frostbolt sequence/ribbon fixture drift");
+Check(frostbolt.Textures.Count > 2 &&
+      frostbolt.Textures[2].Filename.Equals(@"Particles\RibbonBlur1b.blp",
+          StringComparison.OrdinalIgnoreCase),
+    "Frostbolt ribbon texture fixture drift");
+Check(frostbolt.RibbonEmitters.Select(r => r.EdgesPerSecond).SequenceEqual([10f, 12f]) &&
+      frostbolt.RibbonEmitters.All(r => MathF.Abs(r.EdgeLifetime - .6f) < 1e-6f &&
+          r.Texture == 2 && r.HeightAbove.Keys.SequenceEqual([.22222222f]) &&
+          r.HeightBelow.Keys.SequenceEqual([.22222222f]) &&
+          r.Alpha.Keys.SequenceEqual([(short)9830])),
+    "Frostbolt authored ribbon law drift");
+Console.WriteLine($"[ribbon-frostbolt] sequences={frostbolt.Sequences.Count} " +
+    $"in-flight={frostboltFlight} textures={string.Join('|', frostbolt.Textures.Select((t, i) =>
+        $"{i}:type{t.Type}:{t.Filename}"))}");
+for (int i = 0; i < frostbolt.RibbonEmitters.Count; i++)
+{
+    M2RibbonEmitter ribbon = frostbolt.RibbonEmitters[i];
+    Console.WriteLine($"[ribbon-frostbolt] e{i} texture={ribbon.Texture} " +
+        $"rate={ribbon.EdgesPerSecond:0.###} lifetime={ribbon.EdgeLifetime:0.###} " +
+        $"height={string.Join('|', ribbon.HeightAbove.Keys)}+{string.Join('|', ribbon.HeightBelow.Keys)} " +
+        $"alpha={string.Join('|', ribbon.Alpha.Keys)} visibility={string.Join('|', ribbon.Visibility.Keys)}");
+}
+int FrostboltEdges(float visibleSeconds, M2RibbonEmitter ribbon)
+{
+    var state = new SpellRibbonHistoryLaw.State();
+    for (float age = 0f; age <= visibleSeconds + 1e-6f; age += 1f / 60f)
+        if (SpellRibbonHistoryLaw.AdvanceLive(state, age, ribbon.EdgesPerSecond,
+                ribbon.EdgeLifetime, ribbon.Gravity).Commit)
+            SpellRibbonHistoryLaw.Commit(state, new Vector3(age, 0, 1),
+                new Vector3(age, 0, -1));
+    return state.Edges.Count;
+}
+float frostboltTenYardFlight = 10f / 28f;
+Check(FrostboltEdges(frostboltTenYardFlight, frostbolt.RibbonEmitters[0]) >= 3 &&
+      FrostboltEdges(frostboltTenYardFlight, frostbolt.RibbonEmitters[1]) >= 4,
+    "ten-yard Frostbolt cannot build a readable authored ribbon history");
+
+// Fireball is the production control for the combined particle + ribbon missile path.
+// Its mesh can render even when both dynamic lanes are silently rejected, so pin the
+// authored ribbon facts separately from the broad mounted census.
+M2Model fireball = Model(@"Spells\Fireball_Missile_Low.m2");
+int fireballFlight = fireball.TryFindSequenceIndexByAnimationId(
+    SpellEffectPlaybackLaw.InFlightAnimationId);
+Check(fireball.ParticleEmitters.Count == 3 && fireball.RibbonEmitters.Count == 2,
+    "Fireball dynamic-emitter fixture drift");
+Console.WriteLine($"[ribbon-fireball] sequences={fireball.Sequences.Count} " +
+    $"bands={string.Join('|', fireball.Sequences.Select((s, i) => $"{i}:{s.AnimationId}:{s.StartTimestamp}-{s.EndTimestamp}"))} " +
+    $"in-flight={fireballFlight} textures={string.Join('|', fireball.Textures.Select((t, i) =>
+        $"{i}:type{t.Type}:{t.Filename}"))}");
+for (int i = 0; i < fireball.RibbonEmitters.Count; i++)
+{
+    M2RibbonEmitter ribbon = fireball.RibbonEmitters[i];
+    int sequence = fireballFlight >= 0 ? fireballFlight : 0;
+    Vector3 sampledColor = M2TrackSampling.Vector(ribbon.Color, fireball, sequence, 0f,
+        Vector3.One);
+    float sampledAlpha = M2TrackSampling.Fixed16(ribbon.Alpha, fireball, sequence, 0f);
+    float sampledAbove = M2TrackSampling.Float(ribbon.HeightAbove, fireball, sequence, 0f);
+    float sampledBelow = M2TrackSampling.Float(ribbon.HeightBelow, fireball, sequence, 0f);
+    int blend = ribbon.Material < fireball.RenderFlags.Count
+        ? fireball.RenderFlags[ribbon.Material].BlendingMode : -1;
+    Console.WriteLine($"[ribbon-fireball] e{i} texture={ribbon.Texture} " +
+        $"material={ribbon.Material} blend={blend} bone={ribbon.Bone} pos={ribbon.Position} " +
+        $"rate={ribbon.EdgesPerSecond:0.###} lifetime={ribbon.EdgeLifetime:0.###} " +
+        $"height={string.Join('|', ribbon.HeightAbove.Keys)}+{string.Join('|', ribbon.HeightBelow.Keys)} " +
+        $"height-ts={string.Join('|', ribbon.HeightAbove.Timestamps)}+{string.Join('|', ribbon.HeightBelow.Timestamps)} " +
+        $"height-ranges={string.Join('|', ribbon.HeightAbove.Ranges.Select(r => $"{r.Start}-{r.End}"))}+{string.Join('|', ribbon.HeightBelow.Ranges.Select(r => $"{r.Start}-{r.End}"))} " +
+        $"alpha={string.Join('|', ribbon.Alpha.Keys)} visibility={string.Join('|', ribbon.Visibility.Keys)} " +
+        $"visibility-ranges={string.Join('|', ribbon.Visibility.Ranges.Select(r => $"{r.Start}-{r.End}"))} " +
+        $"sample=color({sampledColor.X:0.###},{sampledColor.Y:0.###},{sampledColor.Z:0.###}) " +
+        $"alpha({sampledAlpha:0.###}) height({sampledAbove:0.###}+{sampledBelow:0.###})");
+    Near(sampledAbove, .22222222f, 1e-6f,
+        $"Fireball ribbon {i} lost its pre-band static height-above key");
+    Near(sampledBelow, .22222222f, 1e-6f,
+        $"Fireball ribbon {i} lost its pre-band static height-below key");
+    Near(sampledAlpha, 16384f / 32767f, 1e-5f,
+        $"Fireball ribbon {i} lost its pre-band static alpha key");
+}
+
 Console.WriteLine($"[ribbon-census] paths={paths.Count} parsed={parsed} " +
     $"models={ribbonModels} ribbons={ribbons} spell-models={spellModels} spell-ribbons={spellRibbons}");
 Console.WriteLine($"[ribbon-census] referenced-models={referencedModels} " +

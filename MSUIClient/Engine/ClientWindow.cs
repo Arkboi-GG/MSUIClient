@@ -281,6 +281,23 @@ public sealed class ClientWindow : IDisposable
     public int UiFontSize { get; set; } = 13;
 
     /// <summary>
+    /// Maps a framebuffer size to the gameplay text scale (set by Program.Main to the same rule
+    /// GameplayUiScale uses). Load-time seed for GameTextLaw so a window that opens maximised
+    /// still bakes exact-size gameplay fonts for its REAL size, not the configured one.
+    /// </summary>
+    public Func<float, float, float>? GameplayTextScaleRule { get; set; }
+
+    /// <summary>
+    /// The gameplay scale the game loop actually rendered with this frame. When the em targets
+    /// it implies differ from the baked atlas (maximise, UI-scale change), the atlas rebuilds
+    /// between frames - gameplay text must come from exact-size rasters, never an upscaled bake.
+    /// </summary>
+    public void EnsureGameplayTextScale(float scale) => _pendingGameplayTextScale = scale;
+
+    private float _pendingGameplayTextScale = -1f;
+    private uint _rebakedFontTexture;
+
+    /// <summary>
     /// How many times larger than its display size the TTF atlas is rasterised. The glue screen
     /// draws this font much larger than the in-game UI (labels 17*s, the typed line 18*s, the red
     /// button captions up to ~29 px), so a 12 px atlas was being up-scaled and blurred. Rasterising
@@ -343,7 +360,20 @@ public sealed class ClientWindow : IDisposable
             font = new ImGuiFontConfig(UiFontPath, rasterPx);
         }
 
-        _imgui = new ImGuiController(_gl, _window, _input, font);
+        // The exact-size gameplay text fonts (spellbook, tooltips) join the same one-shot atlas
+        // build. onConfigureIO is the only seam between "UI font added" and "atlas baked".
+        // See Engine/UI/GameTextLaw.cs for why the supersampled atlas cannot serve them.
+        // Retarget from the REAL framebuffer first: the config size the em targets were seeded
+        // from is wrong the moment the window opens maximised or DPI-scaled.
+        if (GameplayTextScaleRule is not null)
+            UI.GameTextLaw.Retarget(GameplayTextScaleRule(
+                _window.FramebufferSize.X, _window.FramebufferSize.Y));
+        _imgui = new ImGuiController(_gl, _window, _input, font,
+            () => UI.GameTextLaw.BakeInto(ImGui.GetIO()));
+
+        // The atlas exists now; apply the client's floor(advance)+1 glyph-step law to the
+        // gameplay fonts (a no-op if none were baked).
+        UI.GameTextLaw.ApplyAdvanceLaw();
 
         // Reapply after context creation. Some Windows/driver combinations do
         // not honor the creation-time hint, which leaves automatic swaps free
@@ -628,6 +658,12 @@ public sealed class ClientWindow : IDisposable
 
     private void HandleRender(float dt)
     {
+        // Between frames is the only safe moment to rebuild the font atlas (never inside
+        // NewFrame..Render). Retarget is a cheap set-compare; it only fires a rebuild when the
+        // gameplay em targets actually changed (maximise, resize, UI-scale preference).
+        if (_pendingGameplayTextScale > 0f && UI.GameTextLaw.Retarget(_pendingGameplayTextScale))
+            RebuildFontAtlas();
+
         _fpsAccumulator += dt;
         _framesSinceSample++;
         if (_fpsAccumulator >= 0.5)
@@ -681,12 +717,61 @@ public sealed class ClientWindow : IDisposable
         if (size.X <= 0 || size.Y <= 0) return;
         _gl.Viewport(size);
         Camera.AspectRatio = (float)size.X / size.Y;
+        // Gameplay text scale moves with the framebuffer; queue the em-target check even before
+        // the game loop reports its own scale (it will refine the value every frame anyway).
+        if (GameplayTextScaleRule is not null)
+            _pendingGameplayTextScale = GameplayTextScaleRule(size.X, size.Y);
+    }
+
+    /// <summary>
+    /// Rebuild the whole ImGui font atlas: the supersampled UI font exactly as the controller's
+    /// constructor added it, plus the gameplay fonts at their CURRENT exact em sizes, then a
+    /// fresh GL texture handed to ImGui. The controller's own texture object is simply no longer
+    /// referenced by the atlas; it is disposed with the controller at shutdown.
+    /// </summary>
+    private unsafe void RebuildFontAtlas()
+    {
+        var io = ImGui.GetIO();
+        io.Fonts.Clear();
+        bool realFont = !string.IsNullOrEmpty(UiFontPath) && File.Exists(UiFontPath);
+        if (realFont)
+        {
+            int rasterPx = Math.Clamp((int)Math.Round(UiFontSize * (double)FontSupersample), 16, 72);
+            io.Fonts.AddFontFromFileTTF(UiFontPath, rasterPx);
+        }
+        else io.Fonts.AddFontDefault();
+        UI.GameTextLaw.BakeInto(io);
+        io.Fonts.Build();
+
+        io.Fonts.GetTexDataAsRGBA32(out nint pixels, out int width, out int height, out _);
+        uint texture = _gl.GenTexture();
+        _gl.BindTexture(TextureTarget.Texture2D, texture);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8, (uint)width, (uint)height,
+            0, PixelFormat.Rgba, PixelType.UnsignedByte, (void*)pixels);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+            (int)TextureMinFilter.Linear);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+            (int)TextureMagFilter.Linear);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS,
+            (int)TextureWrapMode.ClampToEdge);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT,
+            (int)TextureWrapMode.ClampToEdge);
+        _gl.BindTexture(TextureTarget.Texture2D, 0);
+        io.Fonts.SetTexID((nint)texture);
+        io.Fonts.ClearTexData();
+
+        if (_rebakedFontTexture != 0) _gl.DeleteTexture(_rebakedFontTexture);
+        _rebakedFontTexture = texture;
+        UI.GameTextLaw.ApplyAdvanceLaw();
+        Console.WriteLine($"[game-text] font atlas rebuilt {width}x{height}: " +
+                          UI.GameTextLaw.DescribeBake());
     }
 
     private void HandleClosing()
     {
         OnClosing?.Invoke();
         _window.GLContext?.MakeCurrent();
+        if (_rebakedFontTexture != 0) _gl.DeleteTexture(_rebakedFontTexture);
         _imgui.Dispose();
         _input.Dispose();
         _gl.Dispose();

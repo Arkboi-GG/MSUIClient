@@ -20,9 +20,16 @@ public sealed class FactionCatalog
 {
     public const string MpqPath = @"DBFilesClient\Faction.dbc";
     private readonly Dictionary<int, FactionInfo> _byReputationIndex = new();
+    // Every faction by id (name + parent), including group headers (reputationIndex == -1)
+    // that carry no standing of their own but head the reputation-pane categories.
+    private readonly Dictionary<uint, string> _nameById = new();
 
     public bool TryGetByReputationIndex(int index, out FactionInfo row) =>
         _byReputationIndex.TryGetValue(index, out row!);
+
+    /// <summary>The display name of any faction id, e.g. a ParentFaction group header.</summary>
+    public bool TryGetName(uint factionId, out string name) =>
+        _nameById.TryGetValue(factionId, out name!);
 
     public static FactionCatalog? Parse(byte[] bytes)
     {
@@ -31,6 +38,7 @@ public sealed class FactionCatalog
         var result = new FactionCatalog();
         for (int row = 0; row < dbc.RecordCount; row++)
         {
+            result._nameById[dbc.GetUInt(row, 0)] = dbc.GetString(row, 19);
             int reputationIndex = dbc.GetInt(row, 1);
             if (reputationIndex is < 0 or >= 64) continue;
             uint[] raceMasks = new uint[4], classMasks = new uint[4];

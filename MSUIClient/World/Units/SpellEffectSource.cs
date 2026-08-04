@@ -524,11 +524,12 @@ public sealed class SpellEffectSource
                 }
                 yield return ($"spell:{asset.Path}#{instance.Id}", transform,
                     emitter, i, asset.EmitterTextures[i], age, sequence, origin, frame,
-                    // Keep cloud translation and host-attachment rotation as independent laws.
-                    // Every effect model's ordinary particle cloud is translated by its live
-                    // model root. A free missile has no host-attachment rotation, so its root
-                    // carries translation without rotating already-stored particles.
-                    true,
+                    // Free missiles bake ordinary births into world history: old sparks and ice
+                    // motes remain behind the moving projectile instead of being translated with
+                    // its live root. Hosted/area effects retain their root anchor. This split is
+                    // empirically required by the 1.12 Fireball/Frostbolt trails and matches the
+                    // earlier MSUI lane that produced them correctly.
+                    !instance.Missile,
                     !instance.Missile && !instance.Area);
             }
         }

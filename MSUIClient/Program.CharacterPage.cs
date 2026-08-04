@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -13,6 +14,7 @@ public sealed partial class GameLoop
     private int _characterTab;
     private SkillLineCatalog? _skillLines;
     private readonly HashSet<uint> _collapsedSkillCategories = new();
+    private readonly HashSet<uint> _collapsedReputationHeaders = new();
     private int _skillScroll;
     private uint _selectedSkill;
 
@@ -140,12 +142,13 @@ public sealed partial class GameLoop
             DrawUnitPortraitImage(dl, player, p + new Vector2(7, 6) * s, 60f * s, 0, true);
 
         string name = _net?.PlayerName ?? "";
-        // CharacterNameText is a 300x12 region at (48,18), centered at (198,24).
-        DrawCenteredText(dl, p + new Vector2(198, 24) * s, name, 12f * s, 0xffffffff);
+        // CharacterNameText inherits GameFontNormal but CharacterFrame.xml overrides its
+        // <Color> to white (1,1,1) - the name is white, not GameFontNormal's default gold.
+        GameText.DrawCentered(dl, "GameFontNormal", name, p + new Vector2(198, 24) * s, s, 0xffffffff);
         var bytes = player.Fields.Bytes0;
         string level = $"Level {player.Level} {RaceName(bytes.Race)} {ClassName(bytes.Class)}";
-        // CharacterLevelText is TOP of CharacterNameText BOTTOM -6.
-        DrawCenteredText(dl, p + new Vector2(198, 41) * s, level, 10f * s, VanillaGold);
+        // CharacterLevelText inherits GameFontNormalSmall; TOP of CharacterNameText BOTTOM -6.
+        GameText.DrawCentered(dl, "GameFontNormalSmall", level, p + new Vector2(198, 41) * s, s);
 
         Vector2 close = p + new Vector2(324, 9) * s;
         DrawImageButton(dl, "##char-close", close, new Vector2(32) * s,
@@ -244,10 +247,12 @@ public sealed partial class GameLoop
                 new Vector2(0, 0), new Vector2(0.8984375f, 0.609375f));
         }
 
-        string[] labels = ["Strength", "Agility", "Stamina", "Intellect", "Spirit"];
+        // PaperDollFrame.lua SetStats appends ":" to SPELL_STATi_NAME; ARMOR_COLON is
+        // "Armor:" (GlobalStrings.lua). The value is the same stat number either way.
+        string[] labels = ["Strength:", "Agility:", "Stamina:", "Intellect:", "Spirit:"];
         for (int i = 0; i < 5; i++) DrawStatRow(dl, basePos + new Vector2(6, 3 + i * 13) * s,
             labels[i], f.Stat(i).ToString(), s);
-        DrawStatRow(dl, basePos + new Vector2(6, 68) * s, "Armor", f.Resistance(0).ToString(), s);
+        DrawStatRow(dl, basePos + new Vector2(6, 68) * s, "Armor:", f.Resistance(0).ToString(), s);
 
         float speed = f.MainAttackTime > 0 ? f.MainAttackTime / 1000f : 0;
         string damage = f.MaxDamage > 0 ? $"{f.MinDamage:0.#}-{f.MaxDamage:0.#}" : "0-0";
@@ -263,9 +268,9 @@ public sealed partial class GameLoop
 
     private static void DrawStatRow(ImDrawListPtr dl, Vector2 p, string label, string value, float s, float width = 104)
     {
-        dl.AddText(ImGui.GetFont(), 10f * s, p, VanillaGold, label);
-        Vector2 text = ImGui.CalcTextSize(value);
-        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(width * s - text.X, 0), 0xffffffff, value);
+        GameText.Draw(dl, "GameFontNormalSmall", label, p, s);
+        GameText.DrawRightAligned(dl, "GameFontHighlightSmall", value,
+            new Vector2(p.X + width * s, p.Y), s);
     }
 
     private void DrawResistances(ImDrawListPtr dl, Vector2 p, float s, ObjectFields f)
@@ -281,57 +286,161 @@ public sealed partial class GameLoop
             if (art != 0) dl.AddImage((nint)art, min, min + new Vector2(32, 29) * s,
                 new Vector2(0, tops[i]), new Vector2(1, tops[i] + 0.11328125f));
             string v = f.Resistance(schools[i]).ToString();
-            DrawCenteredText(dl, min + new Vector2(16, 17) * s, v, 10f * s, 0xffffffff);
+            GameText.DrawCentered(dl, "GameFontHighlightSmall", v, min + new Vector2(16, 17) * s, s);
         }
     }
 
     private void DrawCharacterTabs(ImDrawListPtr dl, Vector2 p, float s)
     {
+        // CharacterFrame.xml statically defines all five tabs, but PetPaperDollFrame.lua's
+        // PetTab_Update() HIDES CharacterFrameTab2 (Pet) when HasPetUI() is false and
+        // re-anchors Reputation into its slot (Tab3 LEFT -> Tab2 LEFT, offset 0), so a
+        // petless character shows four tabs with the strip closed up. TryGetControlledPet
+        // is this client's HasPetUI(): a summoned/charmed unit with a pet UI.
+        bool hasPetUI = TryGetControlledPet(out _);
         string[] labels = ["Character", "Pet", "Reputation", "Skills", "Honor"];
-        float[] widths = labels.Select(label => VanillaCharacterTabWidth(label, s, 0)).ToArray();
-        // CharacterFrameTab1 CENTER is (60, frame bottom - 62). The remaining
-        // tabs anchor LEFT to the preceding RIGHT with a deliberate -16 overlap.
-        float x = 60 - widths[0] * .5f;
+        // CharacterFrameTab1 CENTER is (60, frame bottom - 62). The remaining tabs anchor
+        // LEFT to the preceding RIGHT with a deliberate -16 overlap; a hidden Pet tab
+        // consumes no slot, which lands Reputation exactly where Pet's LEFT was.
+        float x = 60 - VanillaCharacterTabWidth(labels[0], s, 0) * .5f;
         for (int tab = 0; tab < labels.Length; tab++)
         {
+            if (tab == 1 && !hasPetUI) continue;
+            float width = VanillaCharacterTabWidth(labels[tab], s, 0);
             if (VanillaTab(dl, $"##char-tab-{tab}", p + new Vector2(x, 434) * s,
-                    labels[tab], widths[tab], s, tab == _characterTab, tab != 1))
+                    labels[tab], width, s, tab == _characterTab))
                 _characterTab = tab;
-            x += widths[tab] - 16;
+            x += width - 16;
         }
     }
 
     private void DrawReputationPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
     {
-        var rows = new List<(FactionInfo Info, int Standing)>();
+        // Factions with a live standing, grouped under their ParentFaction as the 1.12 pane does:
+        // the parent (e.g. Alliance) is a collapsible header with no bar of its own; parentless
+        // factions collect under "Other".
+        var factions = new List<(FactionInfo Info, int Standing)>();
         if (_factionCatalog is not null)
             for (int i = 0; i < _reputation.Length; i++)
                 if ((_reputation[i].Flags & 1) != 0 && _factionCatalog.TryGetByReputationIndex(i, out FactionInfo info))
-                    rows.Add((info, info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) + _reputation[i].Standing));
+                    factions.Add((info, info.BaseStanding(player.Fields.Bytes0.Race, player.Fields.Bytes0.Class) + _reputation[i].Standing));
+        // A faction that heads a group (some other faction's parent) is shown only as that
+        // header, never also as its own bar - Alliance is a header, not a row under "Other".
+        var parentIds = factions.Select(x => x.Info.ParentFaction).Where(id => id != 0).ToHashSet();
+        factions = factions.Where(x => !parentIds.Contains(x.Info.Id)).ToList();
+        var groups = factions
+            .GroupBy(x => x.Info.ParentFaction)
+            .Select(g => (Key: g.Key,
+                Name: g.Key != 0 && _factionCatalog!.TryGetName(g.Key, out string header) ? header : "Other",
+                Factions: g.OrderBy(x => x.Info.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+            .OrderBy(g => g.Name.Equals("Other", StringComparison.Ordinal) ? 1 : 0).ThenBy(g => g.Name)
+            .ToList();
+        var display = new List<(bool Header, uint Key, string Name, FactionInfo Info, int Standing)>();
+        foreach (var group in groups)
+        {
+            display.Add((true, group.Key, group.Name, default!, 0));
+            if (!_collapsedReputationHeaders.Contains(group.Key))
+                foreach (var fac in group.Factions)
+                    display.Add((false, fac.Info.Id, fac.Info.Name, fac.Info, fac.Standing));
+        }
 
-        DrawCenteredText(dl, p + new Vector2(115, 64) * s, "Faction", 11f * s, VanillaGold);
-        DrawCenteredText(dl, p + new Vector2(255, 64) * s, "Standing", 11f * s, VanillaGold);
-        _reputationScroll = Math.Clamp(_reputationScroll, 0, Math.Max(0, rows.Count - 15));
-        Vector2 listMin = p + new Vector2(25, 86) * s;
+        // ReputationFrameFactionLabel/StandingLabel inherit GameFontHighlight (white).
+        GameText.DrawCentered(dl, "GameFontHighlight", "Faction", p + new Vector2(115, 64) * s, s);
+        GameText.DrawCentered(dl, "GameFontHighlight", "Standing", p + new Vector2(243, 64) * s, s);
+        const int visibleRows = 15;
+        _reputationScroll = Math.Clamp(_reputationScroll, 0, Math.Max(0, display.Count - visibleRows));
+        Vector2 listMin = p + new Vector2(24, 80) * s;
         ImGui.SetCursorScreenPos(listMin);
         ImGui.InvisibleButton("##reputation-scroll", new Vector2(300, 360) * s);
         if (ImGui.IsItemHovered() && ImGui.GetIO().MouseWheel != 0)
-            _reputationScroll = Math.Clamp(_reputationScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, Math.Max(0, rows.Count - 15));
-        for (int row = 0; row < 15 && row + _reputationScroll < rows.Count; row++)
+            _reputationScroll = Math.Clamp(_reputationScroll - Math.Sign(ImGui.GetIO().MouseWheel), 0, Math.Max(0, display.Count - visibleRows));
+
+        uint repFrame = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-ReputationBar") ?? 0;
+        uint repFill = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar") ?? 0;
+        uint repHighlight = _gameplayArt?.AdditiveHandle(@"Interface\PaperDollInfoFrame\UI-Character-ReputationBar-Highlight") ?? 0;
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        // REPUTATIONFRAME_FACTIONHEIGHT = 26 (ReputationFrame.lua:2).
+        for (int r = 0; r < visibleRows && r + _reputationScroll < display.Count; r++)
         {
-            var value = rows[row + _reputationScroll];
-            var rank = ReputationRank(value.Standing);
-            Vector2 min = p + new Vector2(25, 87 + row * 23) * s;
-            dl.AddText(ImGui.GetFont(), 11f * s, min, 0xffffffff, value.Info.Name);
-            Vector2 barMin = min + new Vector2(137, 0) * s;
-            Vector2 barSize = new Vector2(137, 13) * s;
-            dl.AddRectFilled(barMin, barMin + barSize, 0xff202020);
-            float fraction = Math.Clamp((float)(value.Standing - rank.Floor) / Math.Max(1, rank.Ceiling - rank.Floor), 0, 1);
-            dl.AddRectFilled(barMin, barMin + new Vector2(barSize.X * fraction, barSize.Y), rank.Color);
-            DrawCenteredText(dl, barMin + barSize * .5f, rank.Name, 10f * s, 0xffffffff);
+            var row = display[r + _reputationScroll];
+            Vector2 rowMin = p + new Vector2(24, 80 + r * 26) * s;
+            if (row.Header)
+            {
+                // Category header: expand/collapse toggle drawn like the skill categories.
+                uint glyph = _gameplayArt?.Handle(_collapsedReputationHeaders.Contains(row.Key)
+                    ? @"Interface\Buttons\UI-PlusButton-Up" : @"Interface\Buttons\UI-MinusButton-Up") ?? 0;
+                if (glyph != 0) dl.AddImage((nint)glyph, rowMin, rowMin + new Vector2(16) * s);
+                GameText.Draw(dl, "GameFontNormal", row.Name, rowMin + new Vector2(20, 2) * s, s);
+                Vector2 hdrMax = rowMin + new Vector2(285, 16) * s;
+                if (mouse.X >= rowMin.X && mouse.X < hdrMax.X && mouse.Y >= rowMin.Y && mouse.Y < hdrMax.Y &&
+                    ImGui.IsMouseClicked(ImGuiMouseButton.Left) &&
+                    !_collapsedReputationHeaders.Add(row.Key))
+                    _collapsedReputationHeaders.Remove(row.Key);
+                continue;
+            }
+            // ReputationBarTemplate: a dark name box on the LEFT and a bordered CHANNEL on the
+            // RIGHT (the top strip's right half is a frame with a transparent interior; native
+            // x122/256 onward). The frame's rounded LEFT end is baked in; its right end is a
+            // separate cap piece (V0.34375.., u0..0.0625). Skills-BarBorder is overlaid on the
+            // channel so the inner border reads crisply at this scale. Name (LEFT anchor) and
+            // standing (CENTER anchor) are vertically centered in the box (xml:95/104).
+            var rank = ReputationRank(row.Standing);
+            // Box nearly fills the 26px pitch so rows sit close together (1.12 has a ~2px gap).
+            Vector2 boxMin = rowMin + new Vector2(10, 1) * s;
+            Vector2 boxSize = new Vector2(262, 24) * s;
+            bool hovered = mouse.X >= boxMin.X && mouse.X < boxMin.X + boxSize.X &&
+                mouse.Y >= boxMin.Y && mouse.Y < boxMin.Y + boxSize.Y;
+            float capW = 12f * s;
+            Vector2 boxMax = boxMin + boxSize;
+            float bodyW = boxSize.X - capW;   // the frame body spans native x0..256 across bodyW
+            int earned = row.Standing - rank.Floor, band = Math.Max(1, rank.Ceiling - rank.Floor);
+            float fraction = Math.Clamp((float)earned / band, 0, 1);
+            // The channel's transparent hole, MEASURED in the frame texture: native x127..250,
+            // y6..bottom of the 256x22 top band. Map it to the box. Draw the fill FIRST, extended
+            // a few px under the frame on the left/top/bottom, then the frame ON TOP: the green
+            // shows only through the hole - flush to the single border on every side - and its
+            // overflow is masked, so it never pokes past the border and always touches the left.
+            float holeLeft = boxMin.X + bodyW * (127f / 256f);
+            float holeRight = boxMin.X + bodyW * (250f / 256f);
+            float holeTop = boxMin.Y + boxSize.Y * (6f / 22f);
+            float holeW = holeRight - holeLeft;
+            if (repFill != 0 && fraction > 0)
+                dl.AddImage((nint)repFill, new Vector2(holeLeft - 3 * s, holeTop - 3 * s),
+                    new Vector2(holeLeft + holeW * fraction, boxMax.Y - 2 * s),
+                    Vector2.Zero, Vector2.One, rank.Color);
+            if (repFrame != 0)
+            {
+                dl.AddImage((nint)repFrame, boxMin, new Vector2(boxMax.X - capW, boxMax.Y),
+                    Vector2.Zero, new Vector2(1f, 0.34375f), 0xffffffff);
+                dl.AddImage((nint)repFrame, new Vector2(boxMax.X - capW, boxMin.Y), boxMax,
+                    new Vector2(0f, 0.34375f), new Vector2(0.0625f, 0.71875f), 0xffffffff);
+            }
+            float chanLeft = holeLeft, chanRight = holeRight;   // standing text centers over the hole
+            // Hover: additive ReputationBar-Highlight. Template Highlight1 is 256x28 over a 256x22
+            // frame (offset out), so draw it LARGER than the row and stack it for a thick, bright
+            // yellow glow (ReputationFrame.lua Highlight1/2 OnEnter).
+            if (hovered && repHighlight != 0)
+            {
+                Vector2 hlMin = boxMin - new Vector2(3, 4) * s;
+                Vector2 hlMax = boxMax + new Vector2(3, 4) * s;
+                float hlCap = 16f * s;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    dl.AddImage((nint)repHighlight, hlMin, new Vector2(hlMax.X - hlCap, hlMax.Y),
+                        Vector2.Zero, new Vector2(1f, 0.4375f), 0xffffffff);
+                    dl.AddImage((nint)repHighlight, new Vector2(hlMax.X - hlCap, hlMin.Y), hlMax,
+                        new Vector2(0f, 0.4375f), new Vector2(0.06640625f, 0.875f), 0xffffffff);
+                }
+            }
+            int em = GameText.EmPixels("GameFontHighlightSmall", s);
+            float textTop = boxMin.Y + (boxSize.Y - em) * 0.5f;
+            GameText.Draw(dl, "GameFontHighlightSmall", row.Name, new Vector2(boxMin.X + 10 * s, textTop), s);
+            GameText.DrawCentered(dl, "GameFontHighlightSmall",
+                hovered ? $"{earned} / {band}" : rank.Name,
+                new Vector2((chanLeft + chanRight) * 0.5f, boxMin.Y + boxSize.Y * 0.5f), s);
         }
-        if (rows.Count == 0)
-            DrawCenteredText(dl, p + new Vector2(190, 220) * s, "No known reputations", 12f * s, 0xffaaaaaa);
+        if (display.Count == 0)
+            GameText.DrawCentered(dl, "GameFontDisable", "No known reputations", p + new Vector2(190, 220) * s, s);
     }
 
     private void DrawHonorPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
@@ -343,25 +452,44 @@ public sealed partial class GameLoop
         ObjectFields f = player.Fields;
         var session = f.SessionKills; var yesterday = f.YesterdayKills;
         var week = f.ThisWeekKills; var last = f.LastWeekKills;
-        DrawCenteredText(dl, p + new Vector2(192, 88) * s, "Honor", 14f * s, VanillaGold);
-        DrawHonorBlock(dl, p, s, 112, "Today", session.Honorable, null);
-        DrawHonorBlock(dl, p, s, 176, "Yesterday", yesterday.Honorable, f.YesterdayContribution);
-        DrawHonorBlock(dl, p, s, 240, "This Week", week.Honorable, f.ThisWeekContribution);
-        DrawHonorBlock(dl, p, s, 304, "Last Week", last.Honorable, f.LastWeekContribution);
-        dl.AddText(ImGui.GetFont(), 11f * s, p + new Vector2(45, 384) * s, VanillaGold, "Lifetime");
-        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, 405) * s, 0xffffffff,
-            $"Honorable Kills: {f.LifetimeHonorableKills}");
-        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, 421) * s, 0xffffffff,
-            $"Dishonorable Kills: {f.LifetimeDishonorableKills}");
+        // HonorFrameCurrentPVPTitle: GameFontNormal, TOP anchor (0,-87) - the centered rank
+        // title box. MSUI has no PVP-rank data, so this stands in for it.
+        GameText.DrawCentered(dl, "GameFontNormal", "Honor", p + new Vector2(192, 93) * s, s);
+        // Section title tops are the FrameXML anchors (Today 112, then BOTTOMLEFT chains at
+        // -41/-43/-42/-64 → 165/220/274/350); MSUI previously used a flat 64px pitch, which
+        // drifted the text off the art boxes. HK green, DK red, Contribution gold - value
+        // right-aligned at the 278-wide row edge (x=46+278=324), per HonorFrameTemplates.xml.
+        const uint green = 0xff1aff1a, red = 0xff1a1aff, gold = 0xff00d1ff;
+        DrawHonorSection(dl, p, s, 112, "Today",
+            ("Honorable Kills", session.Honorable.ToString(), green),
+            ("Dishonorable Kills", session.Dishonorable.ToString(), red));
+        DrawHonorSection(dl, p, s, 165, "Yesterday",
+            ("Honorable Kills", yesterday.Honorable.ToString(), green),
+            ("Honor", f.YesterdayContribution.ToString(), gold));
+        DrawHonorSection(dl, p, s, 220, "This Week",
+            ("Honorable Kills", week.Honorable.ToString(), green),
+            ("Honor", f.ThisWeekContribution.ToString(), gold));
+        DrawHonorSection(dl, p, s, 274, "Last Week",
+            ("Honorable Kills", last.Honorable.ToString(), green),
+            ("Honor", f.LastWeekContribution.ToString(), gold));
+        DrawHonorSection(dl, p, s, 350, "Lifetime",
+            ("Honorable Kills", f.LifetimeHonorableKills.ToString(), green),
+            ("Dishonorable Kills", f.LifetimeDishonorableKills.ToString(), red));
     }
 
-    private static void DrawHonorBlock(ImDrawListPtr dl, Vector2 p, float s, float y, string title,
-        uint kills, uint? contribution)
+    private static void DrawHonorSection(ImDrawListPtr dl, Vector2 p, float s, float titleY,
+        string title, params (string Label, string Value, uint Color)[] rows)
     {
-        dl.AddText(ImGui.GetFont(), 11f * s, p + new Vector2(45, y) * s, VanillaGold, title);
-        dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, y + 20) * s, 0xffffffff, $"Honorable Kills: {kills}");
-        if (contribution is { } cp)
-            dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(55, y + 36) * s, 0xffffffff, $"Honor: {cp}");
+        GameText.Draw(dl, "GameFontNormal", title, p + new Vector2(36, titleY) * s, s);
+        for (int i = 0; i < rows.Length; i++)
+        {
+            float rowY = titleY + 15 + i * 14;
+            // Label GameFontHighlightSmall white (LEFT); value the same face recolored per
+            // GameFontGreen/Red/NormalSmall via the runtime color override, right-aligned.
+            GameText.Draw(dl, "GameFontHighlightSmall", rows[i].Label, p + new Vector2(46, rowY) * s, s);
+            GameText.DrawRightAligned(dl, "GameFontHighlightSmall", rows[i].Value,
+                p + new Vector2(324, rowY) * s, s, rows[i].Color);
+        }
     }
 
     private void DrawSkillsPage(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player)
@@ -387,12 +515,17 @@ public sealed partial class GameLoop
                     ? c : new SkillCategoryInfo(g.Key, "Other", 99),
                 Skills: g.OrderBy(x => x.Info.Name, StringComparer.OrdinalIgnoreCase).ToList()))
             .OrderBy(g => g.Category.DisplayOrder).ThenBy(g => g.Category.Id).ToList();
-        var rows = new List<(bool Header, uint Key, string Name, ushort Value, ushort Max, int Bonus)>();
+        // SkillFrame.lua greys a skill (grey bar, no rank number) when skillMaxRank == 1 - the
+        // proficiency case. The mage's Class Skills (spell schools) render this way in 1.12, so
+        // treat that whole category as proficiency-style too.
+        var rows = new List<(bool Header, uint Key, string Name, ushort Value, ushort Max, int Bonus, bool Grey)>();
         foreach (var group in groups)
         {
-            rows.Add((true, group.Category.Id, group.Category.Name, 0, 0, 0));
+            bool classCategory = group.Category.Name.Equals("Class Skills", StringComparison.OrdinalIgnoreCase);
+            rows.Add((true, group.Category.Id, group.Category.Name, 0, 0, 0, false));
             if (!_collapsedSkillCategories.Contains(group.Category.Id))
-                rows.AddRange(group.Skills.Select(x => (false, x.Info.Id, x.Info.Name, x.Value, x.Max, x.Bonus)));
+                rows.AddRange(group.Skills.Select(x => (false, x.Info.Id, x.Info.Name, x.Value, x.Max,
+                    x.Bonus, classCategory || x.Max <= 1)));
         }
 
         _skillScroll = Math.Clamp(_skillScroll, 0, Math.Max(0, rows.Count - 12));
@@ -411,7 +544,7 @@ public sealed partial class GameLoop
                 uint glyph = _gameplayArt?.Handle(_collapsedSkillCategories.Contains(row.Key)
                     ? @"Interface\Buttons\UI-PlusButton-Up" : @"Interface\Buttons\UI-MinusButton-Up") ?? 0;
                 if (glyph != 0) dl.AddImage((nint)glyph, rowMin, rowMin + new Vector2(16) * s);
-                dl.AddText(ImGui.GetFont(), 12f * s, rowMin + new Vector2(25, 0) * s, 0xffffffff, row.Name);
+                GameText.Draw(dl, "GameFontHighlight", row.Name, rowMin + new Vector2(25, 0) * s, s);
                 ImGui.SetCursorScreenPos(rowMin);
                 ImGui.InvisibleButton($"##skill-group-{row.Key}", new Vector2(285, 14) * s);
                 if (ImGui.IsItemClicked())
@@ -423,37 +556,156 @@ public sealed partial class GameLoop
             {
                 Vector2 barMin = rowMin + new Vector2(16, 0) * s;
                 Vector2 barMax = barMin + new Vector2(271, 15) * s;
-                uint bar = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar") ?? 0;
-                uint border = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder") ?? 0;
-                float fraction = row.Max > 0 ? Math.Clamp((float)row.Value / row.Max, 0, 1) : 0;
-                if (bar != 0 && fraction > 0)
-                    dl.AddImage((nint)bar, barMin, new Vector2(barMin.X + (barMax.X - barMin.X) * fraction, barMax.Y),
-                        Vector2.Zero, new Vector2(fraction, 1), 0xffbf4040);
-                if (border != 0) dl.AddImage((nint)border, barMin - new Vector2(5, 8) * s, barMin + new Vector2(276, 24) * s);
-                if (_selectedSkill == row.Key)
-                {
-                    uint hi = _gameplayArt?.Handle(@"Interface\Buttons\UI-Listbox-Highlight2") ?? 0;
-                    if (hi != 0) dl.AddImage((nint)hi, barMin - new Vector2(5, 0), barMax + new Vector2(5, 0));
-                }
-                dl.AddText(ImGui.GetFont(), 10f * s, barMin + new Vector2(6, 1) * s, VanillaGold, row.Name);
-                string rank = row.Bonus == 0 ? $"{row.Value} / {row.Max}" : $"{row.Value} + {row.Bonus} / {row.Max}";
-                dl.AddText(ImGui.GetFont(), 10f * s, barMin + new Vector2(177, 1) * s,
-                    row.Bonus < 0 ? 0xff4040ff : row.Bonus > 0 ? 0xff40ff40 : 0xffffffff, rank);
+                // The row hit-rect is the SkillStatusBarTemplate $parentBorder Button. Submit it
+                // first so its hover state is known before the highlight draws; only OnClick has a
+                // handler (SkillBar_OnClick) - hover never fills the detail pane, it only glows.
                 ImGui.SetCursorScreenPos(barMin);
                 ImGui.InvisibleButton($"##skill-{row.Key}", new Vector2(271, 15) * s);
+                bool rowHovered = ImGui.IsItemHovered();
                 if (ImGui.IsItemClicked()) _selectedSkill = row.Key;
+                uint bar = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar") ?? 0;
+                uint border = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder") ?? 0;
+                if (row.Grey)
+                {
+                    // maxRank==1 proficiency: full-width grey bar, no rank number.
+                    if (bar != 0) dl.AddImage((nint)bar, barMin, barMax, Vector2.Zero, Vector2.One, 0xff909090);
+                }
+                else
+                {
+                    float fraction = row.Max > 0 ? Math.Clamp((float)row.Value / row.Max, 0, 1) : 0;
+                    if (bar != 0 && fraction > 0)
+                        dl.AddImage((nint)bar, barMin, new Vector2(barMin.X + (barMax.X - barMin.X) * fraction, barMax.Y),
+                            Vector2.Zero, new Vector2(fraction, 1), 0xffbf4040);
+                }
+                if (border != 0) dl.AddImage((nint)border, barMin - new Vector2(5, 8) * s, barMin + new Vector2(276, 24) * s);
+                // $parentBorder's HighlightTexture is UI-Character-Skills-BarBorderHighlight (ADD).
+                // SkillFrame_SetStatusBar LockHighlight()s it for the selected row; a mouse-over
+                // shows it on any row. Both are the same additive glow over the 281x32 border rect.
+                if (rowHovered || _selectedSkill == row.Key)
+                {
+                    uint hl = _gameplayArt?.AdditiveHandle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorderHighlight") ?? 0;
+                    if (hl != 0) dl.AddImage((nint)hl, barMin - new Vector2(5, 8) * s, barMin + new Vector2(276, 24) * s);
+                }
+                GameText.Draw(dl, "GameFontNormalSmall", row.Name, barMin + new Vector2(6, 1) * s, s);
+                if (!row.Grey)
+                {
+                    string rank = row.Bonus == 0 ? $"{row.Value} / {row.Max}" : $"{row.Value} + {row.Bonus} / {row.Max}";
+                    uint? rankColor = row.Bonus != 0 ? (row.Bonus < 0 ? 0xff4040ff : (uint?)0xff40ff40) : null;
+                    GameText.Draw(dl, "GameFontHighlightSmall", rank, barMin + new Vector2(177, 1) * s, s, rankColor);
+                }
             }
         }
 
-        DrawArt(dl, @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar",
-            p + new Vector2(15, 305) * s, new Vector2(331, 16), s);
-        if (_selectedSkill != 0 && _skillLines is not null && _skillLines.TryGet(_selectedSkill, out SkillLineInfo selected))
+        // SkillFrame ARTWORK layer: the divider above the detail pane. Two runs of
+        // UI-ClassTrainer-HorizontalBar anchored TOPLEFT (15,-290) - a 256px left run (v0..0.25)
+        // then a 75px right run (v0.25..0.5). (SkillFrame.xml SkillFrameHorizontalBarLeft.)
+        uint hbar = _gameplayArt?.Handle(@"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar") ?? 0;
+        if (hbar != 0)
         {
-            dl.AddText(ImGui.GetFont(), 12f * s, p + new Vector2(44, 329) * s, VanillaGold, selected.Name);
-            if (!string.IsNullOrWhiteSpace(selected.Description))
-                dl.AddText(ImGui.GetFont(), 10f * s, p + new Vector2(38, 353) * s, 0xffffffff,
-                    selected.Description);
+            dl.AddImage((nint)hbar, p + new Vector2(15, 290) * s, p + new Vector2(271, 306) * s,
+                new Vector2(0, 0), new Vector2(1f, 0.25f));
+            dl.AddImage((nint)hbar, p + new Vector2(271, 290) * s, p + new Vector2(346, 306) * s,
+                new Vector2(0, 0.25f), new Vector2(0.29296875f, 0.5f));
         }
+        // Clicking a skill row fills the detail pane (SkillBar_OnClick -> SetSelectedSkill ->
+        // SkillDetailFrame_SetStatusBar); hover never touches it. Look the selected skill's live
+        // value/max/bonus back up from the field-derived list so the detail bar fills correctly.
+        if (_selectedSkill != 0 && _skillLines is not null &&
+            _skillLines.TryGet(_selectedSkill, out SkillLineInfo selected))
+        {
+            var sel = skills.FirstOrDefault(x => x.Info.Id == _selectedSkill);
+            bool grey = sel.Info.Id == _selectedSkill &&
+                (sel.Max <= 1 || (_skillLines.TryGetCategory(sel.Info.CategoryId, out SkillCategoryInfo cat) &&
+                    cat.Name.Equals("Class Skills", StringComparison.OrdinalIgnoreCase)));
+            DrawSkillDetail(dl, p, s, selected, sel.Value, sel.Max, sel.Bonus, grey);
+        }
+    }
+
+    private void DrawSkillDetail(ImDrawListPtr dl, Vector2 p, float s, SkillLineInfo info,
+        ushort value, ushort max, int bonus, bool grey)
+    {
+        // SkillDetailStatusBar (SkillFrame.xml): 211x15, CENTER to SkillDetailScrollChildFrame.TOP
+        // offset (-10,-20). Resolving the anchor chain (list scroll TOPRIGHT (317,75) -> detail
+        // scroll TOPLEFT (21,303) -> child TOP (181,303)) puts the bar centre at frame-local
+        // (171,323), so its top-left is (65.5,315.5).
+        Vector2 boxMin = p + new Vector2(65.5f, 315.5f) * s;
+        Vector2 boxSize = new Vector2(211, 15) * s;
+        Vector2 boxMax = boxMin + boxSize;
+        // $parentBorder texture: 220x32, LEFT offset (-5,0) -> top-left (60.5,307). The same rounded
+        // frame as the list rows: its transparent channel reveals the fill, its border masks the
+        // overflow, so the fill is drawn across the full 15px bar and the frame clips it.
+        Vector2 borderMin = p + new Vector2(60.5f, 307f) * s;
+        Vector2 borderMax = borderMin + new Vector2(220, 32) * s;
+
+        // SkillDetailFrame_SetStatusBar colours (ABGR). Normal skill: bar SetStatusBarColor(0,0,1,
+        // 0.5), background SetVertexColor(0,0,0.75,0.5). Proficiency (skillMaxRank==1): bar
+        // (0.5,0.5,0.5) full, background white a0.5, no rank text.
+        uint fillColor = grey ? 0xff808080u : 0x7fff0000u;
+        uint bgColor = grey ? 0x80ffffffu : 0x7fbf0000u;
+        float fraction = grey ? 1f : (max > 0 ? Math.Clamp((float)value / max, 0, 1) : 0);
+
+        uint bar = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar") ?? 0;
+        uint border = _gameplayArt?.Handle(@"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder") ?? 0;
+        dl.AddRectFilled(boxMin, boxMax, bgColor);
+        if (bar != 0 && fraction > 0)
+            dl.AddImage((nint)bar, boxMin, new Vector2(boxMin.X + boxSize.X * fraction, boxMax.Y),
+                Vector2.Zero, new Vector2(fraction, 1), fillColor);
+        if (border != 0) dl.AddImage((nint)border, borderMin, borderMax);
+
+        // $parentSkillName GameFontNormalSmall (10px gold) LEFT +(6,1); $parentSkillRank
+        // GameFontHighlightSmall (10px white) LEFT to name RIGHT +13 (SkillFrame.lua). Both are
+        // vertically centred in the 15px bar (justifyV MIDDLE), nudged up 1px by the (x,1) offset.
+        int em = GameText.EmPixels("GameFontNormalSmall", s);
+        float textTop = boxMin.Y + (boxSize.Y - em) * 0.5f - 1f * s;
+        float nameLeft = boxMin.X + 6f * s;
+        GameText.Draw(dl, "GameFontNormalSmall", info.Name, new Vector2(nameLeft, textTop), s);
+        if (!grey)
+        {
+            float rankLeft = nameLeft + GameText.MeasureWidth("GameFontNormalSmall", info.Name, s) + 13f * s;
+            if (bonus == 0)
+                GameText.Draw(dl, "GameFontHighlightSmall", $"{value}/{max}", new Vector2(rankLeft, textTop), s);
+            else
+            {
+                // "value (" white, "±mod" in GREEN/RED_FONT_COLOR_CODE, ")/max" white (SkillFrame.lua).
+                uint modColor = bonus > 0 ? 0xff20ff20u : 0xff2020ffu;
+                string pre = $"{value} (", mod = bonus > 0 ? $"+{bonus}" : bonus.ToString(), post = $")/{max}";
+                float x = rankLeft;
+                GameText.Draw(dl, "GameFontHighlightSmall", pre, new Vector2(x, textTop), s);
+                x += GameText.MeasureWidth("GameFontHighlightSmall", pre, s);
+                GameText.Draw(dl, "GameFontHighlightSmall", mod, new Vector2(x, textTop), s, modColor);
+                x += GameText.MeasureWidth("GameFontHighlightSmall", mod, s);
+                GameText.Draw(dl, "GameFontHighlightSmall", post, new Vector2(x, textTop), s);
+            }
+        }
+
+        // SkillDetailDescriptionText GameFontHighlightSmall (white), width 275, LEFT/TOP. For a
+        // normal skill (no cost text) SkillFrame.lua anchors its TOP to SkillDetailCostText's TOP =
+        // child TOP + (-10,-40) -> top-centre frame-local (171,343); left edge 171-137.5=33.5.
+        if (!string.IsNullOrWhiteSpace(info.Description))
+        {
+            float descLeft = p.X + 33.5f * s, descTop = p.Y + 343f * s, wrapPx = 275f * s;
+            float pitch = GameText.LinePitch("GameFontHighlightSmall", s);
+            List<string> lines = WrapSkillDescription(info.Description, "GameFontHighlightSmall", s, wrapPx);
+            for (int i = 0; i < lines.Count; i++)
+                GameText.Draw(dl, "GameFontHighlightSmall", lines[i], new Vector2(descLeft, descTop + i * pitch), s);
+        }
+    }
+
+    private static List<string> WrapSkillDescription(string text, string fontObject, float uiScale,
+        float maxWidthPx)
+    {
+        string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        List<string> lines = [];
+        string current = "";
+        foreach (string word in words)
+        {
+            string candidate = current.Length == 0 ? word : current + " " + word;
+            if (current.Length > 0 && GameText.MeasureWidth(fontObject, candidate, uiScale) > maxWidthPx)
+            { lines.Add(current); current = word; }
+            else current = candidate;
+        }
+        if (current.Length > 0) lines.Add(current);
+        return lines;
     }
 
     private void DrawImageButton(ImDrawListPtr dl, string id, Vector2 min, Vector2 size,

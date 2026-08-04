@@ -69,6 +69,35 @@ NearV(SpellParticleFrameLaw.FollowCorrectionWorld(false, Vector3.UnitX, hitchSte
         2.5f, .1f, 16.666667f, .9f, storedFrameRidesEmitter: true),
     Vector3.Zero, 0f, "unflagged emitter received follow correction");
 
+Check(SpellParticleTrailLaw.DrawsHead(0) && !SpellParticleTrailLaw.DrawsTail(0) &&
+      !SpellParticleTrailLaw.DrawsHead(1) && SpellParticleTrailLaw.DrawsTail(1) &&
+      SpellParticleTrailLaw.DrawsHead(2) && SpellParticleTrailLaw.DrawsTail(2) &&
+      SpellParticleTrailLaw.DrawsHead(3) && SpellParticleTrailLaw.DrawsTail(3),
+    "particle head/tail mode routing drift");
+Check(!SpellParticleTrailLaw.CullBackFaces,
+    "particle renderer must remain two-sided; back-face culling erases projected tails");
+SpellParticleTrailLaw.Quad streak = SpellParticleTrailLaw.TailQuad(
+    new Vector3(10, 20, 30), Vector3.UnitZ * 2f, .25f,
+    Vector3.UnitX, Vector3.UnitZ, 1.5f, .2f, clampToParticleAge: false);
+Check(streak.Streak, "projected tail collapsed to a billboard");
+NearV(streak.Tail, -Vector3.UnitZ * 3f, 1e-6f, "tail vector drift");
+NearV(streak.Centre, new Vector3(10, 20, 28.5f), 1e-6f,
+    "tail quad did not span head to tip");
+Near(streak.AxisRight.Length(), .25f, 1e-6f, "tail width drift");
+Vector3 headWinding = Vector3.Normalize(Vector3.Cross(Vector3.UnitX, Vector3.UnitZ));
+Vector3 tailWinding = Vector3.Normalize(Vector3.Cross(streak.AxisRight, streak.AxisUp));
+Check(Vector3.Dot(headWinding, tailWinding) < -.999f,
+    "tail fixture no longer proves why two-sided particle rasterization is required");
+SpellParticleTrailLaw.Quad young = SpellParticleTrailLaw.TailQuad(
+    Vector3.Zero, Vector3.UnitZ * 2f, .25f, Vector3.UnitX, Vector3.UnitZ,
+    1.5f, .2f, clampToParticleAge: true);
+NearV(young.Tail, -Vector3.UnitZ * .4f, 1e-6f,
+    "age-clamped tail used its full authored time");
+SpellParticleTrailLaw.Quad viewParallel = SpellParticleTrailLaw.TailQuad(
+    Vector3.Zero, Vector3.UnitY, .25f, Vector3.UnitX, Vector3.UnitZ,
+    1f, 1f, clampToParticleAge: false);
+Check(!viewParallel.Streak, "view-parallel tail did not use billboard fallback");
+
 // Inherit response: strict >1/30 trigger, current-frame delta only, live gate, and held value.
 float accumulator = 0f;
 Vector3 held = new(99f, 0f, 0f);
@@ -197,6 +226,70 @@ Check((bloodlust.Flags & 0x50) == 0x50, "Bloodlust model+inherit fixture drift")
 Near(bloodlust.InheritScale, 3f, 1e-5f, "Bloodlust inherit scale drift");
 M2ParticleEmitter abolish = Emitter(@"Spells\AbolishMagic_Base.m2", 0);
 Check((abolish.Flags & 0x40) != 0, "Abolish Magic inherit fixture drift");
+
+M2Model blizzard = M2Reader.Parse(mpq.ReadFile(@"Spells\Blizzard_Impact_Base.m2") ??
+    throw new InvalidOperationException("Blizzard fixture missing")) ??
+    throw new InvalidOperationException("Blizzard fixture invalid");
+Check(blizzard.ParticleEmitters.Count == 5 &&
+      blizzard.ParticleEmitters.Count(e => e.HeadOrTail == 1) == 3 &&
+      blizzard.ParticleEmitters.All(e => e.GeometryModel.Length == 0),
+    "Blizzard head/tail fixture drift");
+Check(blizzard.ParticleEmitters.Skip(1).Take(3).Select(e => e.TailTime)
+    .SequenceEqual([1.6999999f, 1.2000002f, 1.05f]),
+    "Blizzard authored tail times drift");
+for (int i = 0; i < blizzard.ParticleEmitters.Count; i++)
+{
+    M2ParticleEmitter emitter = blizzard.ParticleEmitters[i];
+    string texture = emitter.Texture < blizzard.Textures.Count
+        ? blizzard.Textures[emitter.Texture].Filename : "(invalid)";
+    emitter.SampleRamp(.25f, out Vector4 rgba25, out float size25);
+    Console.WriteLine($"[motion-blizzard] e{i} head-tail={emitter.HeadOrTail} blend={emitter.BlendingType} " +
+        $"texture={texture} geometry={emitter.GeometryModel} speed={emitter.EmissionSpeed:0.###} " +
+        $"shape={emitter.Shape} cone={emitter.VerticalRange:0.###}/{emitter.HorizontalRange:0.###} " +
+        $"area={emitter.EmissionAreaLength:0.###}/{emitter.EmissionAreaWidth:0.###} " +
+        $"gravity={emitter.Gravity:0.###} tail={emitter.TailTime:0.###} life={emitter.Lifespan:0.###} " +
+        $"rate={emitter.EmissionRate:0.###} rate-keys={string.Join('|', emitter.ScalarTracks[6].Keys)} " +
+        $"atlas={emitter.TextureRows}x{emitter.TextureCols} " +
+        $"tail-cells={string.Join('|', emitter.TailCellBegin)}->{string.Join('|', emitter.TailCellEnd)} " +
+        $"size@25={size25:0.###} alpha@25={rgba25.W:0.###} flags=0x{emitter.Flags:X}");
+}
+
+var blizzardSource = new SpellEffectSource(mpq);
+var blizzardVisual = new SpellAreaVisualInfo(null,
+    [new SpellAreaEmitterInfo(0, @"Spells\Blizzard_Impact_Base.m2", 5f)], null);
+Check(blizzardSource.SpawnAreaVisual(77, 10, blizzardVisual, Vector3.Zero, 0f, 100) == 1,
+    "Blizzard trail fixture did not arm");
+blizzardSource.Tick(100.21, _ => default);
+Vector3 BlizzardEmitter(int emitter, double now)
+{
+    var instance = blizzardSource.EmitterInstances(now, _ => default)
+        .Single(x => x.EmitterIndex == emitter);
+    Check(instance.LocalOrigin.HasValue,
+        $"Blizzard emitter {emitter} lost its posed production origin");
+    return Vector3.Transform(instance.LocalOrigin!.Value, instance.Transform);
+}
+Vector3 BlizzardCentralVelocity(int emitter, double now)
+{
+    var instance = blizzardSource.EmitterInstances(now, _ => default)
+        .Single(x => x.EmitterIndex == emitter);
+    Check(instance.LocalFrame.HasValue,
+        $"Blizzard emitter {emitter} lost its posed production frame");
+    Vector3 direction = Vector3.TransformNormal(Vector3.UnitY,
+        instance.LocalFrame!.Value * instance.Transform);
+    return direction.LengthSquared() > 1e-8f ? Vector3.Normalize(direction) : Vector3.Zero;
+}
+Vector3 blizzardE1AtBirth = BlizzardEmitter(1, 100.21);
+Vector3 blizzardE1Later = BlizzardEmitter(1, 100.51);
+Vector3 blizzardE2AtBirth = BlizzardEmitter(2, 100.21);
+Vector3 blizzardE2Later = BlizzardEmitter(2, 100.51);
+Vector3 blizzardE1Velocity = BlizzardCentralVelocity(1, 100.21);
+Vector3 blizzardE2Velocity = BlizzardCentralVelocity(2, 100.21);
+Check(Vector3.Distance(blizzardE1AtBirth, blizzardE1Later) > 5f &&
+      Vector3.Distance(blizzardE2AtBirth, blizzardE2Later) > 4f,
+    "Blizzard production emitter feed lost its animated shard descent");
+Console.WriteLine($"[motion-blizzard-source] e1 {blizzardE1AtBirth} -> {blizzardE1Later}; " +
+    $"e2 {blizzardE2AtBirth} -> {blizzardE2Later}; " +
+    $"central-velocity e1={blizzardE1Velocity} e2={blizzardE2Velocity}");
 
 // The runtime source must expose the complete live joint TRS, not regress to origin+quaternion.
 const string scaledPath = @"Spells\AbolishMagic_Base.m2";

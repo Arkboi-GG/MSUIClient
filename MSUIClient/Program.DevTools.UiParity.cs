@@ -20,6 +20,14 @@ public sealed partial class GameLoop
 
     private void ArmUiParityCapture(string panel)
     {
+        // Dev-only capture affordance: "character-frame:N" opens the character frame at tab N
+        // (0 Character, 2 Reputation, 3 Skills, 4 Honor) so each sub-page can be captured.
+        int characterTab = 0;
+        if (panel.StartsWith("character-frame:", StringComparison.Ordinal))
+        {
+            int.TryParse(panel["character-frame:".Length..], out characterTab);
+            panel = "character-frame";
+        }
         if (!_config.DevTools || panel is not ("game-menu" or "options" or "keybindings" or "macro" or "tooltip" or "ui-errors" or "static-popup" or "player-frame" or "target-frame" or "party-frame" or
             "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade")) return;
         _uiParityPanel = panel;
@@ -31,7 +39,7 @@ public sealed partial class GameLoop
         if (panel == "game-menu") OpenSettings();
         if (panel == "options") { OpenSettings(); _menuPage=MenuPage.Video; }
         if (panel == "backpack") _backpackOpen = true;
-        if (panel == "character-frame") { _characterOpen = true; _characterTab = 0; _paperDollDirty = true; }
+        if (panel == "character-frame") { _characterOpen = true; _characterTab = characterTab; _paperDollDirty = true; }
         if (panel == "spellbook") { _spellbookOpen = true; _characterOpen = false; }
         if (panel == "talent-frame") _talentOpen = true;
         if (panel == "quest-log") _questLogOpen = true;

@@ -34,6 +34,9 @@ public static class UiFont
     /// <summary>Quest titles and the big headers. Not used yet; here so the path is recorded.</summary>
     public const string Morpheus = @"Fonts\MORPHEUS.TTF";
 
+    /// <summary>Number/hotkey/chat face (Number*/ChatFont* font objects). See FontObjectLaw.</summary>
+    public const string ArialN = @"Fonts\ARIALN.TTF";
+
     /// <summary>
     /// Archives to try, in the order the client's own load order tries them:
     /// patches beat base, higher-numbered patches beat lower. A retexture patch

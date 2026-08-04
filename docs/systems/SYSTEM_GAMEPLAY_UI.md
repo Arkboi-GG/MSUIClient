@@ -15,7 +15,7 @@ exist; it does not mean the result has passed live visual or interaction validat
 | Player/target portraits | **Reworked 2026-07-30; needs a live screenshot before any status change** | Root presentation defect identified from the reference: the ring chrome's corners are TRANSPARENT (a thin band), so a square bake can never hide behind it. Live portrait textures are now pre-masked to the inscribed circle at bake time (`PortraitRenderTarget.ApplyCircularMask`), replicating the reference's shader-side circular cut without `AddImageRounded`. Also: booth clear colour matched to the reference (0.055, 0.045, 0.04 opaque), degenerate authored cameras (eye == target) fall back to bounds framing instead of NaN, and the undead stand-in art token fixed to "Scourge". Do not mark portraits fixed without a new live screenshot. |
 | World-entry combat animation | **Root cause found + fixed 2026-07-30, unverified live** | The flinch was client-made: `ApplySpellImpact` synthesized a wound reaction whenever a spell impact kit had NO authored animation, and the server casts the login visual (LOGINEFFECT, spell 836) on every player at world entry. Reference law (benilla wound.rs / combat_log.rs): spell impacts animate the victim only through the kit's own anim id, and only the CombatWound family 8/9/10 routes to a wound. The fallback is removed; authored non-wound impact ids now play as one-shots. Verify live: enter world, no flinch; then take a real hit and confirm the melee wound still plays. |
 | Corpse looting | **Implemented 2026-07-30; entirely unverified live** | Full solo-loot slice: dead units are pickable again, right-click on a dead+`UNIT_DYNFLAG_LOOTABLE` creature sends `CMSG_LOOT` (kneel plays at send), `SMSG_LOOT_RESPONSE` (both shapes) / `LOOT_REMOVED` / `CLEAR_MONEY` / `RELEASE_RESPONSE` are handled with benilla's invariants (single session, wire slots never renumber, auto-release only on the transition to empty, guid-matched idempotent clears), and the authored LootFrame renders (UI-LootPanel, skull, quest-parchment name plates, quality colours, coin row by denomination, 4-row pages with the >4 pager, close button). Items leave via `CMSG_AUTOSTORE_LOOT_ITEM` with the wire slot; coins via `CMSG_LOOT_MONEY`. Escape and walking away release. `SMSG_ITEM_PUSH_RESULT` drives a green "You receive loot" line. Loot refusals surface the 1.12 error strings. |
-| Spellbook and action slots | **UI present; live behavior unverified** | Learned-spell/action models, casting packets, bar state and visuals exist and compile. Casting, cancellation, targeting, cooldowns, action persistence and effect visuals still require live-realm verification. |
+| Spellbook and action slots | **FrameXML/data correction applied 2026-08-04; awaiting live visual sign-off** | Spellbook labels now use the authored `GameFontNormal` 12 / `SubSpellFont` 10 dark-brown typography and anchors. Spellbook and all spell action buttons share the full DBC-resolved tooltip; action buttons use `GameTooltip_SetDefaultAnchor` at screen bottom-right, while spellbook hover uses `ANCHOR_RIGHT`. Tooltip width is measured from its lines with the 260px wrapped-line ceiling rather than forced to that width. Rank remains visible in spellbook tooltips by explicit product choice. Casting, cancellation, targeting, cooldowns, action persistence and effect visuals retain their separate live checks. |
 | Backpack and equipped bags | **UI present; live behavior unverified** | Backpack/bag drawing and move/use/equip packet paths exist. Opening, cross-container moves, equipment moves, item use, server reconciliation and relog persistence have not been signed off live. |
 | Character/skills page | **Implemented; partially visually checked** | Genuine assets and data paths exist. Final compositing, paper-doll/portrait presentation, values and interaction still need a structured live pass. |
 | Loading-screen HUD exclusion | **Implemented; not yet signed off here** | Gameplay ImGui is gated through curtain fade and the synthetic blue bar was replaced with the 1.12 fill/border assets. Keep this in the live checklist. |
@@ -64,12 +64,17 @@ wanted. Keep reaction-aware overhead names; do not reintroduce selected-target p
 - Gameplay UI is laid out on the original 1024×768 logical canvas. `GameplayUiScale()` derives the
   physical scale from the current framebuffer (constrained by both axes), so the bar, unit frames,
   inventory, spellbook, character/skills page and casting bar retain approximately the same fraction
-  of the screen at 1920×1080, 2560×1440 and 3840×2160. The configured 1.8 UI scale is the neutral
-  100% preference and remains an accessibility multiplier instead of a high-resolution size cap.
+  of the screen at 1920×1080, 2560×1440 and 3840×2160. Same-resolution 1.12/MSUI A/B pins configured
+  1.8 to the client's 90% presentation; 2.0 is raw FrameXML 100%. It remains an accessibility
+  multiplier instead of a high-resolution size cap.
 - `P` opens the original four-quadrant spellbook. Its contents come only from
   `SMSG_INITIAL_SPELLS`/learn/supercede state joined to `Spell.dbc`, `SpellIcon.dbc`,
   `SkillLine.dbc` and `SkillLineAbility.dbc`. Pages contain 12 real spells; spells can be cast or
-  dragged to the action bar.
+  dragged to the action bar. Spell names/ranks use the exact `Fonts.xml` font heights, colors and
+  `SpellButtonTemplate` anchors; do not replace them with generic ImGui text spacing. Spellbook and
+  action-bar spell hovers use one content-measured tooltip renderer. The original caller difference
+  is documented: build 5875 `SetSpell` hides rank while `SetAction` shows it; MSUI deliberately shows
+  the same right-aligned rank in both.
 - `B` opens the 16-slot backpack. A permanent five-button bag bar opens the four streamed equipped
   bags. Bag windows use `UI-BackpackBackground` or stitched `UI-Bag-Components`, real item icons,
   stack counts and money. Click-carry supports backpack↔backpack, backpack↔bag, bag↔bag and
@@ -155,8 +160,9 @@ The 2026-07-30 pass (portrait circular mask + booth parity, action-bar state tin
 the wound-on-entry root fix, and the complete solo-loot slice) is code-complete but has had NO live
 run — it was authored and reviewed statically. Backpack/bag behavior and the complete spell/casting/
 visual chain remain unverified. Effect-M2 mesh bone animation and particle tracks are implemented;
-ribbon emitters remain a separate renderer type. Aura duration packets, tooltips and the self
-insertion-order cache are not implemented. Broader work remains: complete item/stat/spell tooltips,
+ribbon emitters remain a separate renderer type. Aura duration packets and the self insertion-order
+cache are not implemented. Core DBC-resolved spell tooltips are present; broader work remains for
+complete item/stat/aura/talent tooltip coverage,
 stack splitting and locked-slot prediction, bank/vendor/buyback, talents, macro/stance/multibar
 pages, the remaining usability gates (reagents, stances, aura states), corpse sparkle + loot cursor,
 group loot rolls, and a real chat frame for the receive/error lines now riding the center text.

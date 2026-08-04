@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 
 namespace MSUIClient;
 
@@ -107,7 +108,11 @@ public sealed partial class GameLoop
             // PanelTemplates_TabResize changes only the 88px middle region.
             float cap = MathF.Min(20f, logicalWidth * .5f);
             float middle = MathF.Max(0f, logicalWidth - cap * 2f);
-            Vector2 artMin = min + new Vector2(0, selected ? 5f : 0f) * scale;
+            // The selected tab's ACTIVE textures are anchored TOPLEFT (0,+5) in the template;
+            // +y is UP in FrameXML (the frame itself sits at y=-104), so the active art rises
+            // 5px into the panel - device -5, not +5. A +5 sinks the selected tab below its
+            // neighbors, which reads as a broken, misaligned strip.
+            Vector2 artMin = min + new Vector2(0, selected ? -5f : 0f) * scale;
             Vector2 artMax = artMin + new Vector2(logicalWidth, 32) * scale;
             draw.AddImage((nint)art, artMin, artMin + new Vector2(cap, 32) * scale,
                 new Vector2(0, 0), new Vector2(.15625f, 1));
@@ -115,7 +120,10 @@ public sealed partial class GameLoop
                 draw.AddImage((nint)art, artMin + new Vector2(cap, 0) * scale,
                     artMax - new Vector2(cap, 0) * scale,
                     new Vector2(.15625f, 0), new Vector2(.84375f, 1));
-            draw.AddImage((nint)art, artMax - new Vector2(cap, 0) * scale, artMax,
+            // Right cap: top-left must sit at the TOP edge (artMin.Y). Deriving it from
+            // artMax left both corners at artMax.Y - a zero-height, invisible quad, which
+            // is why every tab was missing its right border.
+            draw.AddImage((nint)art, artMin + new Vector2(logicalWidth - cap, 0) * scale, artMax,
                 new Vector2(.84375f, 0), Vector2.One);
         }
         ImGui.SetCursorScreenPos(min);
@@ -123,8 +131,14 @@ public sealed partial class GameLoop
         ImGui.InvisibleButton(id, size * scale);
         bool clicked = enabled && ImGui.IsItemClicked();
         if (!enabled) ImGui.EndDisabled();
-        DrawCenteredText(draw, min + new Vector2(logicalWidth * .5f, 14) * scale,
-            caption, 10f * scale, !enabled ? 0xff777777 : selected ? 0xffffffff : VanillaGold);
+        // CharacterFrameTabButtonTemplate: NormalFont GameFontNormalSmall (gold),
+        // HighlightFont/DisabledFont GameFontHighlightSmall. A disabled tab is not a
+        // separate font object - PanelTemplates applies a gray SetDisabledTextColor over
+        // the same face, so it's the highlight font recolored gray, never GameFontDisable*.
+        string tabFont = selected ? "GameFontHighlightSmall" : "GameFontNormalSmall";
+        uint? disabledColor = enabled ? null : 0xff808080u;
+        GameText.DrawCentered(draw, tabFont, caption,
+            min + new Vector2(logicalWidth * .5f, 14) * scale, scale, disabledColor);
         return clicked;
     }
 
@@ -132,8 +146,7 @@ public sealed partial class GameLoop
     // CharacterFrameTabButtonTemplate caps. Lua treats padding=0 as truthy.
     private static float VanillaCharacterTabWidth(string caption, float scale, float padding)
     {
-        float textWidth = ImGui.CalcTextSize(caption).X *
-            (10f * scale / MathF.Max(1f, ImGui.GetFontSize()));
+        float textWidth = GameText.MeasureWidth("GameFontNormalSmall", caption, scale);
         return MathF.Ceiling(textWidth / MathF.Max(scale, .001f) + padding + 40f);
     }
 
@@ -154,7 +167,9 @@ public sealed partial class GameLoop
             draw.AddImage((nint)art, artMin + new Vector2(cap, 0) * scale,
                 artMax - new Vector2(cap, 0) * scale,
                 new Vector2(.25f, 0), new Vector2(.75f, 1));
-            draw.AddImage((nint)art, artMax - new Vector2(cap, 0) * scale, artMax,
+            // Right cap top-left at the TOP edge (artMin.Y); deriving from artMax collapses
+            // it to a zero-height, invisible quad (the missing right border).
+            draw.AddImage((nint)art, artMin + new Vector2(logicalWidth - cap, 0) * scale, artMax,
                 new Vector2(.75f, 0), Vector2.One);
         }
         ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton(id, size * scale);

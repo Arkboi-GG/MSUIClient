@@ -62,7 +62,8 @@ Scope: current `benilla-main` checkout at `C:\Users\nico\Desktop\benilla-main` v
 | P-022 | Particle spin | Spin uses the `+0x198` value; the negative half of the random domain flips direction. | `crates/benilla-formats/src/particles.rs:428-435`; `crates/benilla/src/particles/quads.rs:35-50` | `MSUIClient/Formats/M2Reader.cs:2188-2198`; `MSUIClient/World/Spells/SpellParticleSystem.cs:578-582` | MATCH | Card rotation has the same signed distribution. |
 | P-023 | Particle size | Flag `0x20` multiplies ramped size by the spell-effect instance scale. | `crates/benilla-formats/src/particles.rs:481-485`; `crates/benilla/src/particles/quads.rs:86-92` | `MSUIClient/World/Spells/SpellParticleSystem.cs:540-551` | MATCH | Scaled spell instances retain proportional particle cards. |
 | P-024 | Particle quads | `headTail != 1` draws the head card and `headTail >= 1` draws the tail, each with its own cell ramp. | `crates/benilla/src/particles/quads.rs:179-220` | `MSUIClient/World/Spells/SpellParticleSystem.cs:559-605` | MATCH | Head-only, tail-only, and combined particles choose the correct geometry and atlas cell. |
-| P-025 | Particle quads | Tail age may clamp via `0x400`; projected tail uses velocity and falls back to a head card below the same degeneracy threshold. | `crates/benilla-formats/src/particles.rs:502-505`; `crates/benilla/src/particles/quads.rs:220-259` | `MSUIClient/World/Spells/SpellParticleSystem.cs:584-605` | MATCH | Short/slow tails do not explode into invalid quads. |
+| P-025 | Particle quads | Tail age may clamp via `0x400`; projected tail uses velocity and falls back to a head card below the same degeneracy threshold. | `crates/benilla-formats/src/particles.rs:502-505`; `crates/benilla/src/particles/quads.rs:220-259` | `MSUIClient/World/Spells/SpellParticleSystem.cs`; `MSUIClient/World/Spells/SpellParticleTrailLaw.cs`; `tools/spell-particle-motion-check/Program.cs` | MATCH | Short/slow tails do not explode into invalid quads. |
+| P-054 | Particle raster state | Particle cards are unconditionally two-sided (`cull_mode: None`). Projected velocity-tail axes may reverse winding relative to camera-facing head cards, so culling cannot be inferred safe from visible heads. | `crates/benilla/src/particles.rs:622-654`; `crates/benilla/src/particles/quads.rs:179-259` | `MSUIClient/World/Spells/SpellParticleSystem.cs` captures/restores `CullFace` and disables it for the pass; `SpellParticleTrailLaw.CullBackFaces`; opposite-winding assertion in `tools/spell-particle-motion-check` | MATCH + MSUI CAPTURED | Before correction, Blizzard snowflakes/shards rendered while all submitted `FROST3.BLP` tail-only quads vanished. User visually confirmed the shared fix on 2026-08-04. This is a renderer invariant, never a Blizzard asset override. |
 | P-026 | Particle quads | Flag `0x1000` selects the XY-plane quad basis instead of camera-facing axes. | `crates/benilla-formats/src/particles.rs:538-547`; `crates/benilla/src/particles/quads.rs:93-110` | `MSUIClient/World/Spells/SpellParticleSystem.cs:568-576` | MATCH | Ground-plane particle cards keep their authored orientation. |
 | P-027 | Particle lifecycle | Each emitter caps at 1,024 quads; when the owner vanishes it drains existing particles and despawns only after pools/children empty. | `crates/benilla/src/particles/sim.rs:407-431,599-723` | `MSUIClient/World/Spells/SpellParticleSystem.cs:34-40,94-132,474-532` | MATCH | Effects finish naturally without unbounded particle growth. |
 | P-028 | Particle blend | Particle modes 3/4 are additive and mode 2 is alpha in both lanes. | `crates/benilla-formats/src/particles.rs:634-639` | `MSUIClient/World/Spells/SpellParticleSystem.cs:622-631` | MATCH | The common additive/alpha spell materials use the intended equation. |
@@ -134,11 +135,24 @@ The audit above remains the original baseline. The following rows have now recei
 ### Semantic-frame correction follow-up — 2026-08-03
 
 - New stable decision **P-046** supersedes the translation/anchor portion of coarse row P-039: ordinary
-  non-model particle births are composed by the evaluated emitter bone but persistent positions are stored
-  relative to the effect/model root cloud anchor. Draw must not reapply the current emitter-bone translation.
+  non-model particle births are composed by the evaluated emitter bone. Hosted/area persistent positions are
+  stored relative to the effect/model root cloud anchor, while free missile particles retain absolute world
+  history. Draw must not reapply the current emitter-bone translation in either lane.
 - `SPELL_FX_SEMANTIC_FRAME_AUDIT.md` contains the expanded-schema row, frame ledger, fixtures, evidence limits,
   and next implementation sequence. The bounded code correction and pure numeric regression check are
-  `STATIC_FOUND`; no post-correction Blizzard capture exists yet, so P-046 is not runtime/parity certified.
+  `STATIC_FOUND`; the 2026-08-04 user observation raises the named MSUI behavior to `CAPTURED`, but no recorded
+  matched original-client comparison exists, so P-046 is not parity certified.
+
+### Trail regression closure — 2026-08-04
+
+- The user visually revalidated Fireball/Frostbolt after restoring free-missile world-history particles and
+  the continuous indexed ribbon lane. Do not replace that owner-specific storage with a generic root-carried
+  effect-model cloud, even if a current Benilla comment/implementation appears to suggest it.
+- The user visually revalidated Blizzard's angled shards and tails after P-054 disabled back-face culling for
+  the entire particle pass. The renderer restores the prior GL state afterward. Visible heads do not prove the
+  tail path: Blizzard's tail-only projected quads can have the opposite winding and were all culled previously.
+- Required smoke set after particle/frame/ribbon changes is Fireball + Frostbolt + Blizzard. Diagnose shared
+  storage, raster state, static track retention, ribbon adjacency, and submission before tuning a named spell.
 
 ### Animation/lifecycle correction follow-up — 2026-08-03
 

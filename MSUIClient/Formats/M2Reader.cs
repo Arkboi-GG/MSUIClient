@@ -532,22 +532,32 @@ public static class M2TrackSampling
         bool looping = seq.IsLooping;
         float local = looping ? seconds % durationSeconds : Math.Min(seconds, durationSeconds);
         int first = 0, last = track.Keys.Count - 1;
+        bool hasSequenceRange = false;
         if (sequence < track.Ranges.Count)
         {
             AnimationRange range = track.Ranges[sequence];
             if (range.End >= range.Start && range.End < track.Keys.Count &&
                 track.Timestamps[(int)range.Start] >= seq.StartTimestamp &&
                 track.Timestamps[(int)range.End] <= seq.EndTimestamp)
-            { first = (int)range.Start; last = (int)range.End; }
+            {
+                first = (int)range.Start;
+                last = (int)range.End;
+                hasSequenceRange = true;
+            }
         }
-        while (first <= last && track.Timestamps[first] < seq.StartTimestamp) first++;
-        while (last >= first && track.Timestamps[last] > seq.EndTimestamp) last--;
-        if (first > last) return fallback;
+
+        // Range-less vanilla effect tracks live on the model's absolute timeline. A static
+        // value is commonly authored once at t=0 even when sequence zero occupies a later band
+        // (Fireball is 3333..4333 ms). The sequence sampler must retain the nearest key before
+        // the band and the first key after it; discarding out-of-band keys collapses valid
+        // ribbon widths to the numeric fallback. Explicit valid ranges remain authoritative.
+        if (hasSequenceRange && first > last) return fallback;
         float at = seq.StartTimestamp + local * 1000f;
         if (first == last || at <= track.Timestamps[first]) return track.Keys[first];
         for (int i = first + 1; i <= last; i++)
         {
             if (at > track.Timestamps[i]) continue;
+            if (at == track.Timestamps[i]) return track.Keys[i];
             if (!track.IsLinear || track.Timestamps[i] == track.Timestamps[i - 1])
                 return track.Keys[i - 1];
             float t = Math.Clamp((at - track.Timestamps[i - 1]) /
@@ -565,6 +575,7 @@ public static class M2TrackSampling
         for (int i = 1; i < values.Count; i++)
         {
             if (at > times[i]) continue;
+            if (at == times[i]) return values[i];
             if (!linear || times[i] == times[i - 1]) return values[i - 1];
             float t = Math.Clamp((at - times[i - 1]) / (times[i] - times[i - 1]), 0, 1);
             return lerp(values[i - 1], values[i], t);

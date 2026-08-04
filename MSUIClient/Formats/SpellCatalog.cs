@@ -13,10 +13,18 @@ public readonly record struct SpellInfo(
     uint[]? AuraIds = null, uint[]? ImplicitTargetsA = null, uint[]? ImplicitTargetsB = null,
     uint[]? EffectRadiusIndices = null, int[]? EffectMiscValues = null,
     uint[]? EffectItemTypes = null,
-    uint RequiredFocus = 0, uint Category = 0)
+    uint RequiredFocus = 0, uint Category = 0,
+    uint CastUi = 0, uint ProcChance = 0, string AuraDescription = "",
+    int[]? EffectDieSides = null, int[]? EffectBaseDice = null,
+    int[]? EffectBasePoints = null, uint[]? EffectAmplitudes = null,
+    float[]? EffectMultipleValues = null, uint[]? EffectChainTargets = null,
+    uint MaxLevel = 0, uint SpellLevel = 0, uint BaseLevel = 0,
+    float[]? EffectDicePerLevel = null, float[]? EffectRealPointsPerLevel = null)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
+    public bool TradeSkill => (Attributes & 0x20) != 0;
+    public bool InSpellbook => !HiddenClientSide && !TradeSkill && CastUi == 0;
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
     public bool AutoRepeat => (AttributesEx2 & 0x20) != 0;
     public bool OnNextSwing => (Attributes & 0x404) != 0;
@@ -171,7 +179,19 @@ public sealed class SpellCatalog
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 88 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 106 + i)).ToArray(),
                 Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 103 + i)).ToArray(),
-                spells.GetUInt(row, 15), spells.GetUInt(row, 2));
+                spells.GetUInt(row, 15), spells.GetUInt(row, 2),
+                CastUi: spells.GetUInt(row, 3), ProcChance: spells.GetUInt(row, 25),
+                AuraDescription: spells.GetString(row, 147),
+                EffectDieSides: Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 64 + i)).ToArray(),
+                EffectBaseDice: Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 67 + i)).ToArray(),
+                EffectBasePoints: Enumerable.Range(0, 3).Select(i => spells.GetInt(row, 76 + i)).ToArray(),
+                EffectAmplitudes: Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 94 + i)).ToArray(),
+                EffectMultipleValues: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 97 + i)).ToArray(),
+                EffectChainTargets: Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 100 + i)).ToArray(),
+                MaxLevel: spells.GetUInt(row, 27), SpellLevel: spells.GetUInt(row, 28),
+                BaseLevel: spells.GetUInt(row, 29),
+                EffectDicePerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 70 + i)).ToArray(),
+                EffectRealPointsPerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 73 + i)).ToArray());
             uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
                 .Where(x => x != 0).ToArray();
             if (tools.Length > 0) result._tools[id] = tools;

@@ -207,12 +207,14 @@ Check(arcane.ParticleEmitters.Count > 0 &&
     (arcane.ParticleEmitters[0].Flags & 0x4000) != 0,
     "Arcane Shot follow fixture drift");
 
-// Runtime source: missile clouds ride root translation but never host-attachment rotation.
+// Runtime source: free-missile ordinary particles retain world history and never inherit
+// host-attachment rotation. The continuous ribbon separately follows the live missile head.
 var source = new SpellEffectSource(mpq);
 source.SpawnMissile(1, 1, arcanePath, Vector3.Zero, Vector3.UnitX * 10, 0, 1);
 SpellUnitPose MissingPose(ulong _) => SpellUnitPose.Missing;
 var emitterFeed = source.EmitterInstances(0, MissingPose).First();
-Check(emitterFeed.RootCarriesCloud, "missile particle feed did not carry live root translation");
+Check(!emitterFeed.RootCarriesCloud,
+    "free missile particle feed stopped retaining world history");
 Check(!emitterFeed.HostAttachmentRotatesCloud,
     "free missile particle feed inherited host attachment rotation");
 SpellMeshDraw atStart = source.MeshInstances(0, MissingPose).First();
@@ -220,11 +222,6 @@ NearV(Vector3.TransformNormal(Vector3.UnitX, atStart.Transform), Vector3.UnitX, 
     "runtime missile mesh forward axis drift");
 NearV(Vector3.TransformNormal(Vector3.UnitY, atStart.Transform), Vector3.UnitZ, 1e-6f,
     "runtime missile mesh up axis drift");
-Vector3 storedCloudPoint = SpellParticleFrameLaw.StoreAtBirth(Vector3.UnitX * 2,
-    Vector3.Zero, Quaternion.Identity);
-NearV(SpellParticleFrameLaw.DrawWorld(storedCloudPoint, Vector3.UnitX * 5,
-    Quaternion.Identity), Vector3.UnitX * 7, 1e-6f,
-    "missile root translation did not carry an existing ordinary particle");
 source.Tick(.25, MissingPose);
 SpellMeshDraw afterHitch = source.MeshInstances(.25, MissingPose).First();
 NearV(new Vector3(afterHitch.Transform.M41, afterHitch.Transform.M42, afterHitch.Transform.M43),

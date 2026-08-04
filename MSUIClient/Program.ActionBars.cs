@@ -20,6 +20,7 @@ public sealed partial class GameLoop
     private int _pressedActionSlot = -1;
     private int _draggingActionSlot = -1;
     private Vector2 _actionPressPosition;
+    private uint _hoveredActionSpellId;
     private uint _pendingCastSpell;
     private uint _autoRepeatSpell;
     private uint _queuedMeleeSpell;
@@ -304,6 +305,7 @@ public sealed partial class GameLoop
     private void DrawActionBars()
     {
         if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
+        _hoveredActionSpellId = 0;
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
@@ -484,6 +486,11 @@ public sealed partial class GameLoop
                     verdict.ActionId, now, cooldownCategory);
                 if (cooldown > 0f) DrawCooldownSwipe(dl, buttonMin, buttonMax, cooldown);
 
+                // NormalTexture is below Pushed/Highlight/Checked in FrameXML. Drawing the ring
+                // after the hover layer partially masks the bright outline and reads as dimming.
+                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
+                    verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
+
                 if (activated)
                 {
                     _pressedActionSlot = wireSlot;
@@ -500,12 +507,22 @@ public sealed partial class GameLoop
                 }
                 if (verdict.Hover)
                 {
-                    uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
+                    uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
                     if (highlight != 0) dl.AddImage((nint)highlight, buttonMin, buttonMax);
-                    ImGui.BeginTooltip();
-                    ImGui.TextUnformatted(title);
-                    ImGui.TextDisabled($"Action {wireSlot + 1}");
-                    ImGui.EndTooltip();
+                    if (spellInfo is not null)
+                    {
+                        // ActionButton_OnEnter uses GameTooltip_SetDefaultAnchor + SetAction.
+                        // The shared spell renderer supplies SetAction's full spell data and
+                        // same-line rank instead of the old generic "Action N" ImGui popup.
+                        _hoveredActionSpellId = action.ActionId;
+                    }
+                    else
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(title);
+                        ImGui.TextDisabled($"Action {wireSlot + 1}");
+                        ImGui.EndTooltip();
+                    }
                 }
                 if (verdict.Checked)
                 {
@@ -523,10 +540,6 @@ public sealed partial class GameLoop
                             Vector2.One, ImGui.ColorConvertFloat4ToU32(new Vector4(0f, 1f, 0f, 0.35f)));
                     }
                 }
-
-                // The oom blue tints icon AND ring; grey-unusable resets the ring to white.
-                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
-                    verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
 
                 // Hotkey: red (1.0,0.1,0.1) while the selection is out of range, grey otherwise.
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
@@ -560,6 +573,9 @@ public sealed partial class GameLoop
 
         DrawMultiActionBars(display, barMin, scale);
         DrawMicroMenu(barMin, scale);
+        if (_hoveredActionSpellId != 0)
+            DrawSpellTooltip(_hoveredActionSpellId, scale,
+                SpellTooltipPlacement.DefaultBottomRight);
 
         if (_uiParityArmed && _uiParityPanel is "action-bar" or "action-button")
             MarkUiParityFrameComplete();
@@ -683,19 +699,29 @@ public sealed partial class GameLoop
 
             ImGui.SetCursorScreenPos(buttonMin);
             if (ImGui.InvisibleButton($"##{name}-{i}", buttonMax - buttonMin)) UseAction(slotNumber);
+            bool hovered = ImGui.IsItemHovered();
             if (_actions[slotNumber] is { } action)
             {
-                string iconPath = action.Kind == ActionSlot.Spell &&
-                    _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true
-                        ? ResolveSpellActionIcon(spell, _entities.TryGet(_net!.PlayerGuid,
-                            out WorldEntity owner) ? owner : null)
-                        : action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
-                            ? item.IconPath : action.Kind == ActionSlot.Macro ? MacroIcon(action.ActionId)
-                            : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                SpellInfo spell = default;
+                bool isSpell = action.Kind == ActionSlot.Spell &&
+                    _spellCatalog?.TryGet(action.ActionId, out spell) == true;
+                string iconPath = isSpell
+                    ? ResolveSpellActionIcon(spell, _entities.TryGet(_net!.PlayerGuid,
+                        out WorldEntity owner) ? owner : null)
+                    : action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
+                        ? item.IconPath : action.Kind == ActionSlot.Macro ? MacroIcon(action.ActionId)
+                        : @"Interface\Icons\INV_Misc_QuestionMark.blp";
                 uint icon = _gameplayArt.Handle(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax);
+                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
+                if (hovered)
+                {
+                    uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
+                    if (highlight != 0) dl.AddImage((nint)highlight, buttonMin, buttonMax);
+                    if (isSpell) _hoveredActionSpellId = action.ActionId;
+                }
             }
-            DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
+            else DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
         }
         if (proof && name == "MultiBarBottomLeft") MarkUiParityFrameComplete();
         ImGui.End();

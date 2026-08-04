@@ -3140,6 +3140,14 @@ let alpha_mode = match def.blend {
 Material recipe `particle_material` (`particles.rs:622-654`): `StandardMaterial` base with
 `base_color_texture = Some(texture)`, `unlit: true`, `cull_mode: None` (never backface),
 + `WowParticleExt`. Fog policy (`particles.rs:633-639`):
+
+> **2026-08-04 MSUI regression guard:** `cull_mode: None` is unconditional particle-pipeline state,
+> not a per-emitter/two-sided flag. Projected velocity tails can have the opposite winding from head
+> billboards. Inheriting world-mesh back-face culling left Blizzard heads/shards visible while silently
+> removing every submitted tail-only `FROST3.BLP` quad. The user visually confirmed that disabling culling
+> for the whole spell-particle pass restores those tails. Production pins this through
+> `SpellParticleTrailLaw.CullBackFaces == false` and restores the previous GL state after drawing.
+
 ```
 flags & 0x8 (unfogged) → 0.0 ;  Add → 2.0 (fog toward BLACK) ;  else → 1.0 (scene fog)
 ```

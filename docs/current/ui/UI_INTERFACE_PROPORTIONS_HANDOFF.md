@@ -58,13 +58,14 @@ Every gameplay panel is authored on a **fixed 1024×768 logical canvas** and mul
 
 ```
 resolutionScale = min(display.X/1024, display.Y/768)      // constrained by BOTH axes
-preference      = clamp((skin.Scale ?? 1.8)/1.8, 0.5, 2)  // 1.8 is the "neutral 100%"
+preference      = clamp((skin.Scale ?? 1.8)/2.0, 0.5, 2)  // captured 1.12 uses shipped 1.8 = 90%
 return max(0.5, resolutionScale * preference)
 ```
 
 - `1024f`/`768f` are the FrameXML logical canvas (`Program.GameplayLayout.cs:11,17`).
-- The MSUI default UI scale **1.8 is treated as neutral 100%** (`:18`). This constant is a prime suspect —
-  if a whole panel is uniformly too big/small, the `1.8` normalization or the panel's logical size is why.
+- The MSUI default UI scale **1.8 is the empirically matched 90% presentation** (`:18`); **2.0 is raw
+  FrameXML 100%**. This was pinned by a same-resolution 2048×1152 spellbook/HUD A/B on 2026-08-04.
+  Do not restore `1.8/1.8`: it makes every gameplay panel and tooltip about 10% too large.
 - Panels get scale via `BeginVanillaWindow(...)` → `scale = GameplayUiScale()`, origin `logicalOrigin *
   scale`, size `logicalSize * scale`; default panel origin `(0,104)` logical (`Program.VanillaUi.cs:16-30`).
   Every widget multiplies logical px by `scale`.
@@ -192,7 +193,7 @@ JSON across 1600×900 and a second resolution." Do this as you touch each panel.
 - **Do NOT trust "success" verdicts as proof of rendering.** Several harness steps inject synthetic
   verdicts that assert success without drawing anything. Only the **PNG** and the **`layout[]`/`uiScale`
   JSON** are real evidence. (This is the recurring trap on this project — verify behavior, not assertions.)
-- **`1.8` neutral scale** (`GameplayUiScale`) and per-panel **logical rects** are the two levers. Prefer
+- **`1.8` matched preference / `2.0` reference divisor** (`GameplayUiScale`) and per-panel **logical rects** are the two levers. Prefer
   fixing the logical rect to FrameXML over nudging global scale.
 - **WowSkin/glue numbers are Blizzard-verbatim** — correct them against FrameXML, don't eye-tune
   (`WowSkin.cs:34-37`; `SYSTEM_SETTINGS_UI.md:186` warns about "proportions that exist in no version of WoW").

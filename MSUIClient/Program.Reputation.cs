@@ -51,15 +51,18 @@ public sealed partial class GameLoop
         }
     }
 
+    // Colors are FACTION_BAR_COLORS (ReputationFrame.lua:3-12), ABGR-packed:
+    // hostile (0.8,0.3,0.22)=0xff384ccc, unfriendly (0.75,0.27,0)=0xff0045bf,
+    // neutral (0.9,0.7,0)=0xff00b2e6, friendly..exalted (0,0.6,0.1)=0xff1a9900.
     private static (string Name, int Floor, int Ceiling, uint Color) ReputationRank(int standing) => standing switch
     {
-        < -6000 => ("Hated", -42000, -6000, 0xff2020cc),
-        < -3000 => ("Hostile", -6000, -3000, 0xff2020cc),
-        < 0 => ("Unfriendly", -3000, 0, 0xff2060cc),
-        < 3000 => ("Neutral", 0, 3000, 0xff20d0dd),
-        < 9000 => ("Friendly", 3000, 9000, 0xff20c050),
-        < 21000 => ("Honored", 9000, 21000, 0xff20c050),
-        < 42000 => ("Revered", 21000, 42000, 0xff20c050),
-        _ => ("Exalted", 42000, 43000, 0xff20c050),
+        < -6000 => ("Hated", -42000, -6000, 0xff384ccc),
+        < -3000 => ("Hostile", -6000, -3000, 0xff384ccc),
+        < 0 => ("Unfriendly", -3000, 0, 0xff0045bf),
+        < 3000 => ("Neutral", 0, 3000, 0xff00b2e6),
+        < 9000 => ("Friendly", 3000, 9000, 0xff1a9900),
+        < 21000 => ("Honored", 9000, 21000, 0xff1a9900),
+        < 42000 => ("Revered", 21000, 42000, 0xff1a9900),
+        _ => ("Exalted", 42000, 43000, 0xff1a9900),
     };
 }
