@@ -366,6 +366,17 @@ public sealed partial class CharacterRenderer : IDisposable
     /// <summary>How far the body turned this frame, signed. Drives the turn-in-place shuffle.</summary>
     private float _bodyTurnStep;
 
+    /// <summary>
+    /// True only when this frame's <see cref="_moveYaw"/> is a STRAFE offset (the
+    /// body deliberately angled off the aim to strafe), so the torso/hip counter-
+    /// twist should apply. It is false when the same offset is the turn-in-place
+    /// FROZEN-CHASE lag: there the offset reaches the whole model heading and the
+    /// shuffle clip does the work, so twisting the torso on top wrings the upper
+    /// body round to track the camera - the "arms flail out while turning" bug.
+    /// Vanilla twists the torso only when strafing, never for a plain turn.
+    /// </summary>
+    private bool _strafeTwist;
+
     // ── landing ──────────────────────────────────────────────────────────────
     private M2Animator.Clip? _landClip;
     private float _landForward, _landStrafe;
@@ -388,11 +399,15 @@ public sealed partial class CharacterRenderer : IDisposable
     private const float StrafeBlendRate = 17.26f;
 
     /// <summary>
-    /// How much faster than the turn rate the body sweeps back onto the aim once
-    /// you stop steering. Eight is the client's own multiplier - about 63 ms to
-    /// close ninety degrees.
+    /// The body's catch-up pace as a multiple of <see cref="BodyTurnRate"/>, used
+    /// as a RATE CAP so the drawn body steps around with the shuffle instead of
+    /// snapping square. Benilla uses 8 (~63 ms to close 90° - an instant snap);
+    /// 1.12 resolves a turn as one or two ~45° foot-shuffle steps, which is a
+    /// bounded sub-second sweep. So the default is 0.8 (~145°/s: a bit faster than
+    /// one ~45° step per shuffle cycle). Tunable live in the Character panel; 8
+    /// restores the snap.
     /// </summary>
-    private const float StationaryChaseRate = 8f;
+    public float StationaryChaseRate { get; set; } = 0.8f;
 
     /// <summary>
     /// The body's turn rate, radians per second. Matches the aim's own standing
@@ -691,6 +706,7 @@ public sealed partial class CharacterRenderer : IDisposable
         ForceAngleDegrees = source.ForceAngleDegrees;
         DefaultBlendSeconds = source.DefaultBlendSeconds;
         StandingChaseCeilingDegrees = source.StandingChaseCeilingDegrees;
+        StationaryChaseRate = source.StationaryChaseRate;
         AnimationResolved = source.AnimationResolved;
         SunDirection = source.SunDirection;
         SunColor = source.SunColor;
@@ -2735,6 +2751,7 @@ public sealed partial class CharacterRenderer : IDisposable
     private void DriveBodyHeading(float dt, in UnitState state, bool airborne)
     {
         _bodyTurnStep = 0f;
+        _strafeTwist = false;
 
         if (!_hasBodyYaw)
         {
@@ -2742,11 +2759,13 @@ public sealed partial class CharacterRenderer : IDisposable
             _hasBodyYaw = true;
         }
 
-        // The test harness wins outright: hold the offset and drive nothing.
+        // The test harness wins outright: hold the offset and drive nothing. It
+        // exists to prove which half the twist moves, so the twist must be live.
         if (ForceAngleDegrees != 0f)
         {
             _moveYaw = ForceAngleDegrees * MathF.PI / 180f;
             _bodyYaw = WrapPi(state.Yaw + _moveYaw);
+            _strafeTwist = true;
             return;
         }
 
@@ -2777,6 +2796,11 @@ public sealed partial class CharacterRenderer : IDisposable
         float strafeOffset = Strafe == StrafeStyle.Clips ? 0f : StrafeBodyOffset(state);
         bool bodyTurns = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody;
 
+        // Only a real strafe offset earns the torso/hip counter-twist. The frozen
+        // chase below produces the same _moveYaw, but there it is a turn lag that
+        // belongs to the whole model heading, not a torso twist. See _strafeTwist.
+        _strafeTwist = strafeOffset != 0f;
+
         if (strafeOffset != 0f)
         {
             float current = WrapPi(_bodyYaw - state.Yaw);
@@ -2789,10 +2813,19 @@ public sealed partial class CharacterRenderer : IDisposable
             float ceiling = MathF.Max(0f, StandingChaseCeilingDegrees) * MathF.PI / 180f;
             float delta = WrapPi(state.Yaw - _bodyYaw);
 
-            float step = MathF.Max(MathF.Abs(delta) - ceiling, 0f);
-            if (!state.Steering) step += dt * BodyTurnRate * StationaryChaseRate;
+            // While steering, hold the ceiling of lag behind a leading aim;
+            // released, close the gap entirely. Either way the body may only turn
+            // BodyTurnRate*StationaryChaseRate per second - a RATE CAP, so a turn
+            // resolves as one or two ~45° shuffle steps (1.12) instead of snapping
+            // square in a frame. The old code closed the excess-over-ceiling
+            // instantly and only rate-limited the release, so a quick turn popped
+            // the body to its new facing while the feet were still shuffling.
+            float want = state.Steering
+                ? MathF.Max(MathF.Abs(delta) - ceiling, 0f)
+                : MathF.Abs(delta);
+            float maxStep = dt * BodyTurnRate * StationaryChaseRate;
 
-            _bodyTurnStep = MathF.CopySign(MathF.Min(step, MathF.Abs(delta)), delta);
+            _bodyTurnStep = MathF.CopySign(MathF.Min(want, maxStep), delta);
             _bodyYaw = WrapPi(_bodyYaw + _bodyTurnStep);
         }
         else
@@ -3135,8 +3168,12 @@ public sealed partial class CharacterRenderer : IDisposable
             // chase would be capped at the wrong angle.
             float maxTwist = MaxTwistDegrees * MathF.PI / 180f;
 
+            // Both twists are gated on _strafeTwist: a turn-in-place lag reaches
+            // the whole model heading (BuildTransform's bodyYaw) and must NOT also
+            // twist the torso/hips, or the upper body wrings round to chase the
+            // camera while the feet shuffle - the flail. Twist only when strafing.
             _animator.LowerBodyYaw =
-                BindPose || FrozenStandPose || Strafe != StrafeStyle.LowerBody
+                BindPose || FrozenStandPose || Strafe != StrafeStyle.LowerBody || !_strafeTwist
                     ? 0f
                     : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
@@ -3144,7 +3181,7 @@ public sealed partial class CharacterRenderer : IDisposable
             // delta is the REMAINDER, negative. TorsoFollow 1 leaves it with the
             // body (WholeBody); 0 holds it facing forward (LowerBody).
             _animator.TorsoYaw =
-                BindPose || FrozenStandPose || Strafe != StrafeStyle.Split
+                BindPose || FrozenStandPose || Strafe != StrafeStyle.Split || !_strafeTwist
                     ? 0f
                     : (Math.Clamp(TorsoFollow, 0f, 1f) - 1f) * _moveYaw;
             if (BindPose)

@@ -2951,6 +2951,17 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  strafe angle {_character.MoveYawDegrees,5:F0} deg" +
                            (_character.TwistBone < 0 ? "   HIP BONE NOT FOUND" : ""));
 
+                // Turn-in-place feel. Ceiling = how far the aim leads before the
+                // body follows; chase rate = how fast it catches up (~0.8 ≈ one or
+                // two ~45° shuffle steps; 8 is the old instant snap).
+                float chaseCeiling = _character.StandingChaseCeilingDegrees;
+                if (ImGui.SliderFloat("Turn: lag ceiling (deg)", ref chaseCeiling, 0f, 180f))
+                    _character.StandingChaseCeilingDegrees = chaseCeiling;
+
+                float chaseRate = _character.StationaryChaseRate;
+                if (ImGui.SliderFloat("Turn: catch-up rate", ref chaseRate, 0.25f, 8f))
+                    _character.StationaryChaseRate = chaseRate;
+
                 // Isolates the mechanism from the trigger. Stand still and drag.
                 float force = _character.ForceAngleDegrees;
                 if (ImGui.SliderFloat("Force angle (deg)", ref force, -120f, 120f))

@@ -280,6 +280,14 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.SendChatSay(text, Player?.FactionLanguage ?? 0); return true; } catch { return false; }
     }
+
+    /// <summary>Send chat of any type. <paramref name="type"/> is the wire CHAT_MSG_*
+    /// byte; <paramref name="target"/> is the whisper recipient or channel name, else null.</summary>
+    public bool SendChat(uint type, string? target, string text)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.SendChat(type, Player?.FactionLanguage ?? 0, target, text); return true; } catch { return false; }
+    }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
     public bool CastSpell(uint spellId, ulong targetGuid)
     {
