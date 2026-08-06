@@ -40,6 +40,20 @@ public sealed class WorldEntity
     public bool Engaged { get; internal set; }
     public ulong? CombatTarget { get; internal set; }
 
+    /// <summary>ClientUptime ms of the last remote MSG_MOVE_* applied to this unit (observer interpolation).</summary>
+    internal long LastMoveMs;
+
+    /// <summary>Last MSG_MOVE_* movement flags for a remote unit — direction (fwd/back/strafe/turn/swim)
+    /// for gait selection. Speed comes from the interpolation spline; direction can only come from here.</summary>
+    internal uint MoveFlags;
+
+    /// <summary>
+    /// True (creatures): the active spline drives facing toward the travel direction. False (remote
+    /// players): facing comes from the authoritative MSG_MOVE_* orientation instead, so a backpedalling
+    /// or strafing player keeps facing their aim rather than snapping to the movement vector.
+    /// </summary>
+    internal bool FacingFromSpline = true;
+
     /// <summary>True while a spline is actively moving this unit (drives future walk/run animation choice).</summary>
     public bool IsMoving => Spline is not null;
 }
@@ -138,6 +152,56 @@ public sealed class EntityStore
         e.Spline = new CreatureSpline(mm.Points, mm.DurationMs, mm.Flying, nowMs);
     }
 
+    /// <summary>Position-changing movement flags (turning/pitch alone do not relocate a unit).</summary>
+    private const uint LocomotionMask =
+        (uint)(MovementFlags.Forward | MovementFlags.Backward |
+               MovementFlags.StrafeLeft | MovementFlags.StrafeRight);
+
+    /// <summary>
+    /// Apply a broadcast MSG_MOVE_* for ANOTHER player, with observer interpolation. While the player
+    /// is locomoting we glide from their current interpolated spot to the newly reported one over the
+    /// inter-packet interval (a short 2-point <see cref="CreatureSpline"/>), so heartbeats ~500 ms apart
+    /// read as smooth motion and the derived AverageSpeed drives walk vs run. A stop / turn-in-place /
+    /// fall-land snaps to the authoritative pose. Facing always comes from the packet, not the spline.
+    /// </summary>
+    public void ApplyRemotePlayerMove(ulong guid, MovementInfo mi, long nowMs)
+    {
+        if (!_entities.TryGetValue(guid, out var e) || !e.IsPlayer) return;
+        e.FacingFromSpline = false;   // players face their reported aim, never the travel vector
+        e.MoveFlags = mi.Flags;       // direction bits for gait selection (speed comes from the spline)
+
+        if (e.IsDead || (mi.Flags & LocomotionMask) == 0)
+        {
+            // Dead, or a stop / turn-only / fall-land / reface: snap to the authoritative pose.
+            e.Spline = null;
+            e.Position = mi.Position;
+            e.Orientation = mi.Orientation;
+            e.LastMoveMs = nowMs;
+            return;
+        }
+
+        long last = e.LastMoveMs;
+        long dt = nowMs - last;
+        e.Orientation = mi.Orientation;
+        e.LastMoveMs = nowMs;
+
+        // Facing/heartbeat with negligible positional delta while already gliding: keep the current
+        // spline so we don't stutter to idle mid-run.
+        if (e.Spline is not null && Vector3.DistanceSquared(e.Position, mi.Position) < 0.04f)
+            return;
+
+        if (last == 0 || dt <= 0 || dt > 1000)
+        {
+            // First move after sighting/idle, or a gap too large to interpolate cleanly: snap.
+            e.Spline = null;
+            e.Position = mi.Position;
+            return;
+        }
+
+        // Glide from wherever we currently have them to the freshly reported spot over the packet gap.
+        e.Spline = new CreatureSpline(new[] { e.Position, mi.Position }, (uint)dt, flying: false, nowMs);
+    }
+
     /// <summary>Advance every active spline. Call once per frame with a monotonic ms clock.</summary>
     public void TickSplines(long nowMs)
     {
@@ -147,7 +211,7 @@ public sealed class EntityStore
             if (e.Spline is null) continue;
             bool running = e.Spline.Sample(nowMs, out Vector3 pos, out float? facing);
             e.Position = pos;
-            if (facing is { } f) e.Orientation = f;
+            if (facing is { } f && e.FacingFromSpline) e.Orientation = f;
             if (!running) e.Spline = null;   // finished — hold at the endpoint
         }
     }

@@ -33,6 +33,15 @@ public sealed class CharacterEquipment
         uint BorderColor, uint BackgroundColor);
     public GuildEmblemDesign? GuildEmblem { get; set; }
 
+    /// <summary>The wearer's body appearance bytes (skin/face/hair/facial). Carried on the kit so a
+    /// remote-player appearance worker can build the base atlas without a separate descriptor.</summary>
+    public readonly record struct PlayerAppearance(
+        byte Skin, byte Face, byte HairStyle, byte HairColor, byte FacialHair);
+    public PlayerAppearance? PlayerLook { get; set; }
+
+    /// <summary>Free-form content signature used by PlayerRenderer to cache identical looks. Not used by dressing.</summary>
+    public string Signature { get; set; } = "";
+
     /// <summary>Vanilla InventoryType values, the ones that matter for dressing.</summary>
     public static class Slot
     {

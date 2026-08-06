@@ -2069,7 +2069,11 @@ public sealed partial class GameLoop : IDisposable
         // the following Fade update lowers alpha and its otherwise-idle frame
         // carries the one-model curtained budget.
         if (WarmStage(4) &&
-            (!_worldLoading || _loadCurtainAlpha < 1f || stagedLoadWarmup)) DrawCreatures();
+            (!_worldLoading || _loadCurtainAlpha < 1f || stagedLoadWarmup))
+        {
+            DrawCreatures();
+            DrawPlayers();   // OTHER players (bots + real clients); opaque M2s, same pass
+        }
         else _creatures?.NoteKnownNotDrawn(_entities);
         _creatureRenderMilliseconds = Stopwatch.GetElapsedTime(creatureStarted).TotalMilliseconds;
         NoteLoadCreatureDraw(_creatures?.DrawnLastFrame ?? 0);
@@ -3309,6 +3313,7 @@ public sealed partial class GameLoop : IDisposable
         DisposeGameplayUi();
         DisposePortraits();
         _creatures?.Dispose();
+        _players?.Dispose();
         _selectionRing?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }

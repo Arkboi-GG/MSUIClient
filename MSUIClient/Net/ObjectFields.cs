@@ -259,6 +259,15 @@ public sealed class ObjectFields
         get { uint v = GetU32(UNIT_BYTES_0) ?? 0; return ((byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24)); }
     }
 
+    /// <summary>skin, face, hairStyle, hairColor from PLAYER_BYTES (the public player-appearance field).</summary>
+    public (byte Skin, byte Face, byte HairStyle, byte HairColor) PlayerBytes
+    {
+        get { uint v = GetU32(PLAYER_BYTES) ?? 0; return ((byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24)); }
+    }
+
+    /// <summary>Facial-hair variation (low byte of PLAYER_BYTES_2; the rest is bank-bag/rest-state).</summary>
+    public byte FacialHair => (byte)(GetU32(PLAYER_BYTES_2) ?? 0);
+
     /// <summary>Health fraction 0..1 (1 when maxhealth unknown).</summary>
     public float HealthFraction => MaxHealth > 0 ? Math.Clamp((float)Health / MaxHealth, 0f, 1f) : 1f;
 

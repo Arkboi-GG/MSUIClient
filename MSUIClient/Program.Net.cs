@@ -38,6 +38,7 @@ public sealed partial class GameLoop
     private GlueScene? _glue;                          // the login-screen glue scene (UI_MainMenu)
     private GlueBooth? _booth;                         // the character-select per-race booth (UI_<Race>)
     private CreatureRenderer? _creatures;              // draws the streamed creatures/NPCs (UPDATE_OBJECT)
+    private PlayerRenderer? _players;                  // draws OTHER players (bots + real clients); local is _character
     private SelectionRingRenderer? _selectionRing;
     private SpellEffectSource? _spellEffects;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
@@ -112,6 +113,15 @@ public sealed partial class GameLoop
             }
         }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
+
+        // The networked OTHER-player renderer. Shares the character composite/geoset/attachment
+        // helpers; builds each remote player (bot or real client) from their descriptor fields.
+        try
+        {
+            if (_mpq is not null)
+                _players = new PlayerRenderer(gl, _mpq, _config, _assetWorkers, _uploads);
+        }
+        catch (Exception pe) { Console.WriteLine($"[player] init failed: {pe.Message}"); }
         try { if (_mpq is not null) _selectionRing = new SelectionRingRenderer(gl, _mpq); }
         catch (Exception ex) { Console.WriteLine($"[target] selection ring unavailable: {ex.Message}"); }
 
@@ -443,6 +453,25 @@ public sealed partial class GameLoop
                                 _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
                             }
                         }
+                        break;
+                    // Broadcast movement for OTHER players (packed guid + MovementInfo). Drives the
+                    // observer interpolation that makes remote players walk/run smoothly (§ PlayerRenderer).
+                    case Op.MSG_MOVE_START_FORWARD:
+                    case Op.MSG_MOVE_START_BACKWARD:
+                    case Op.MSG_MOVE_STOP:
+                    case Op.MSG_MOVE_START_STRAFE_LEFT:
+                    case Op.MSG_MOVE_START_STRAFE_RIGHT:
+                    case Op.MSG_MOVE_STOP_STRAFE:
+                    case Op.MSG_MOVE_JUMP:
+                    case Op.MSG_MOVE_START_TURN_LEFT:
+                    case Op.MSG_MOVE_START_TURN_RIGHT:
+                    case Op.MSG_MOVE_STOP_TURN:
+                    case Op.MSG_MOVE_FALL_LAND:
+                    case Op.MSG_MOVE_START_SWIM:
+                    case Op.MSG_MOVE_STOP_SWIM:
+                    case Op.MSG_MOVE_SET_FACING:
+                    case Op.MSG_MOVE_HEARTBEAT:
+                        ApplyRemotePlayerMovement(body);
                         break;
                     case Op.SMSG_ACTION_BUTTONS:
                         _actions.ApplyButtons(body);
@@ -1015,6 +1044,29 @@ public sealed partial class GameLoop
     {
         if (_creatures is null || _net is null || !_net.IsInWorld) return;
         _creatures.Render(_window.Camera, _entities);
+    }
+
+    /// <summary>
+    /// A broadcast MSG_MOVE_* for another player: packed guid + MovementInfo. Feeds the observer
+    /// interpolation in EntityStore so remote players glide between heartbeats and animate walk/run.
+    /// Our own mover is driven by the controller, so a packet carrying our guid is ignored.
+    /// </summary>
+    private void ApplyRemotePlayerMovement(byte[] body)
+    {
+        var r = new PacketReader(body);
+        ulong guid = r.ReadPackedGuid();
+        if (guid == 0 || guid == _net?.PlayerGuid) return;
+        MovementInfo mi = MovementInfo.Read(r);
+        _entities.ApplyRemotePlayerMove(guid, mi, MovementInfo.ClientUptimeMs());
+    }
+
+    /// <summary>Draw OTHER players (bots + real clients). Local player is drawn by _character.</summary>
+    private void DrawPlayers()
+    {
+        if (_players is null || _net is null || !_net.IsInWorld) return;
+        _players.HoveredGuid = _hoveredGuid;
+        _players.SelectedGuid = _selectionGuid;
+        _players.Render(_window.Camera, _entities, _net.PlayerGuid, _net, _items);
     }
 
     // ── Glue screens: Login -> Character Select -> in-world status ──────────────────────────────
@@ -1943,6 +1995,19 @@ public sealed partial class GameLoop
             if (ImGui.Checkbox("Animate creatures", ref animC)) _creatures.Animate = animC;
             float adist = _creatures.AnimateDistance;
             if (ImGui.SliderFloat("Animate distance", ref adist, 20f, 300f)) _creatures.AnimateDistance = adist;
+        }
+        if (_players is not null)
+        {
+            ImGui.TextUnformatted($"players drawn: {_players.DrawnLastFrame}  animated {_players.AnimatedLastFrame}" +
+                                  (_players.Ok ? "" : "  (renderer off - char DBCs missing)"));
+            ImGui.TextUnformatted($"player looks: {_players.AppearanceCacheEntries} cached  " +
+                                  $"{_players.ModelCacheEntries} model(s)  {_players.PendingAppearances} building");
+            bool drawP = _players.Enabled;
+            if (ImGui.Checkbox("Draw players", ref drawP)) _players.Enabled = drawP;
+            bool animP = _players.Animate;
+            if (ImGui.Checkbox("Animate players", ref animP)) _players.Animate = animP;
+            int cap = _players.AnimatedCap;
+            if (ImGui.SliderInt("Player animate cap", ref cap, 1, 100)) _players.AnimatedCap = cap;
         }
         if (_controller is not null && ImGui.CollapsingHeader("Nearest units"))
         {
