@@ -1110,9 +1110,9 @@ public sealed class PlayerRenderer : IDisposable
     {
         var kit = new CharacterEquipment();
         (byte race, _, byte gender, _) = e.Fields.Bytes0;
-        (byte skin, byte face, byte hairStyle, byte hairColor) = e.Fields.PlayerBytes;
+        (byte skin, byte face, byte hairStyle, byte hairColor) = e.Fields.PlayerAppearance;
         kit.PlayerLook = new CharacterEquipment.PlayerAppearance(
-            skin, face, hairStyle, hairColor, e.Fields.FacialHair);
+            skin, face, hairStyle, hairColor, e.Fields.PlayerFacialHair);
 
         if (items is not null)
         {
@@ -1140,11 +1140,11 @@ public sealed class PlayerRenderer : IDisposable
     private string AppearanceSignature(WorldEntity e, byte race, byte gender,
         NetworkClient? net, ItemTemplateCache? items)
     {
-        (byte skin, byte face, byte hairStyle, byte hairColor) = e.Fields.PlayerBytes;
+        (byte skin, byte face, byte hairStyle, byte hairColor) = e.Fields.PlayerAppearance;
         var sb = new System.Text.StringBuilder(96);
         sb.Append(race).Append('/').Append(gender).Append('/')
           .Append(skin).Append('/').Append(face).Append('/')
-          .Append(hairStyle).Append('/').Append(hairColor).Append('/').Append(e.Fields.FacialHair).Append('|');
+          .Append(hairStyle).Append('/').Append(hairColor).Append('/').Append(e.Fields.PlayerFacialHair).Append('|');
         for (int slot = 0; slot < 19; slot++)
         {
             uint entry = e.Fields.PlayerVisibleItemEntry(slot);
