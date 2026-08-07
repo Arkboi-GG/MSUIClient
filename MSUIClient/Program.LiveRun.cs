@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text.Json;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -193,6 +194,40 @@ public sealed partial class GameLoop
                     }
                     else Log(false, $"{line} selected descriptor missing");
                     break;
+                case "bags":
+                    string[] bags = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (bags.Length == 2 && bags[1].Equals("backpack", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CloseAllBagWindows();
+                        long before = _spellSounds?.Plays ?? 0;
+                        ToggleBackpack();
+                        long soundDelta = (_spellSounds?.Plays ?? 0) - before;
+                        bool pass = _backpackOpen && !_equippedBagOpen.Any(x => x) && soundDelta == 1;
+                        EmitInterface("inventory", "backpack-binding", pass ? "PASS" : "FAIL",
+                            _net?.PlayerGuid ?? 0,
+                            $"backpack={_backpackOpen};equippedOpen={_equippedBagOpen.Count(x => x)};soundDelta={soundDelta}");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("open", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CloseAllBagWindows();
+                        long before = _spellSounds?.Plays ?? 0;
+                        bool changed = ToggleAllBags();
+                        long soundDelta = (_spellSounds?.Plays ?? 0) - before;
+                        bool pass = changed && _backpackOpen && _equippedBagOpen.Any(x => x) && soundDelta == 1;
+                        EmitInterface("inventory", "all-bags-binding", pass ? "PASS" : "FAIL",
+                            _net?.PlayerGuid ?? 0,
+                            $"backpack={_backpackOpen};equippedOpen={_equippedBagOpen.Count(x => x)};soundDelta={soundDelta}");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("keyring", StringComparison.OrdinalIgnoreCase) &&
+                             _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity bagPlayer) &&
+                             HasKey(bagPlayer))
+                    { SetBagWindowOpen(InventoryUiLaw.KeyringContainer, true); Log(_keyringOpen, line); }
+                    else if (bags.Length == 2 && bags[1].Equals("close", StringComparison.OrdinalIgnoreCase))
+                        Log(CloseAllBagWindows(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "wait": _liveWaitUntil=now+double.Parse(p[1],CultureInfo.InvariantCulture); Log(true,line); break;
                 case "waitfor":
                     string[] w=line[8..].Split(' '); double timeout=double.Parse(w[^1],CultureInfo.InvariantCulture);
@@ -324,6 +359,8 @@ public sealed partial class GameLoop
                     else if (p[1].Equals("inspect-log", StringComparison.OrdinalIgnoreCase)) Log(InspectQuestLog(), line);
                     else if (p[1].Equals("simulate", StringComparison.OrdinalIgnoreCase))
                     { SimulateQuestFlow(); Log(true, line); }
+                    else if (p[1].Equals("stage", StringComparison.OrdinalIgnoreCase) && p.Length > 2)
+                        Log(StageQuestFrameProof(p[2]), line);
                     else Log(false, $"unknown {line}");
                     break;
                 case "loot":
@@ -389,7 +426,32 @@ public sealed partial class GameLoop
                     else Log(false, $"unknown {line}");
                     break;
                 case "inventory":
-                    if (p[1].StartsWith("equip-entry", StringComparison.OrdinalIgnoreCase))
+                    string[] inventory = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (inventory.Length == 4 && inventory[1].Equals("equip-bag", StringComparison.OrdinalIgnoreCase))
+                        Log(LiveEquipBag(uint.Parse(inventory[2], CultureInfo.InvariantCulture),
+                            int.Parse(inventory[3], CultureInfo.InvariantCulture)), line);
+                    else if (inventory.Length == 3 && inventory[1].Equals("stage-bag", StringComparison.OrdinalIgnoreCase))
+                        Log(LiveStageBag(uint.Parse(inventory[2], CultureInfo.InvariantCulture)), line);
+                    else if (inventory.Length == 2 && inventory[1].Equals("require-key", StringComparison.OrdinalIgnoreCase))
+                        Log(_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity keyPlayer) &&
+                            HasKey(keyPlayer), line);
+                    else if (inventory.Length == 4 && inventory[1].Equals("require-bag", StringComparison.OrdinalIgnoreCase))
+                        Log(LiveRequireBag(int.Parse(inventory[2], CultureInfo.InvariantCulture), null,
+                            int.Parse(inventory[3], CultureInfo.InvariantCulture)), line);
+                    else if (inventory.Length == 5 && inventory[1].Equals("require-bag", StringComparison.OrdinalIgnoreCase))
+                        Log(LiveRequireBag(int.Parse(inventory[2], CultureInfo.InvariantCulture),
+                            uint.Parse(inventory[3], CultureInfo.InvariantCulture),
+                            int.Parse(inventory[4], CultureInfo.InvariantCulture)), line);
+                    else if (inventory.Length == 2 && inventory[1].Equals("inspect-bags", StringComparison.OrdinalIgnoreCase))
+                        Log(LiveInspectBags(), line);
+                    else if (inventory.Length == 5 && inventory[1].Equals("simulate-push", StringComparison.OrdinalIgnoreCase))
+                    {
+                        TriggerItemPushAnimation(byte.Parse(inventory[2], CultureInfo.InvariantCulture),
+                            uint.Parse(inventory[3], CultureInfo.InvariantCulture),
+                            uint.Parse(inventory[4], CultureInfo.InvariantCulture));
+                        Log(true, line);
+                    }
+                    else if (p[1].StartsWith("equip-entry", StringComparison.OrdinalIgnoreCase))
                         Log(EquipBackpackEntry(uint.Parse(p[2], CultureInfo.InvariantCulture)), line);
                     else if (p[1].StartsWith("unequip-slot", StringComparison.OrdinalIgnoreCase))
                         Log(UnequipSlot(int.Parse(p[2], CultureInfo.InvariantCulture)), line);
@@ -398,6 +460,38 @@ public sealed partial class GameLoop
                 case "action-icon":
                     Log(p.Length > 1 && p[1].Equals("attack", StringComparison.OrdinalIgnoreCase) &&
                         EmitAttackIconEvidence(), line);
+                    break;
+                case "action-stage":
+                    string[] stagedAction = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (stagedAction.Length == 3 &&
+                        int.TryParse(stagedAction[1], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out int stagedSlot) && stagedSlot is >= 0 and < 120 &&
+                        uint.TryParse(stagedAction[2], NumberStyles.Integer, CultureInfo.InvariantCulture,
+                            out uint stagedSpell))
+                    {
+                        _actions.Set(stagedSlot, new ActionSlot(ActionSlot.Spell, stagedSpell));
+                        Log(true, line);
+                    }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "action-grid":
+                    if (p[1].Equals("show", StringComparison.OrdinalIgnoreCase))
+                    { _draggingSpellId = 1459; Log(true, line); }
+                    else if (p[1].Equals("hide", StringComparison.OrdinalIgnoreCase))
+                    { _draggingSpellId = 0; Log(true, line); }
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "party-stage":
+                    Log(StagePartyFrameProof(), line);
+                    break;
+                case "party-invite-stage":
+                    StagePartyInviteProof(line.Length > "party-invite-stage".Length
+                        ? line["party-invite-stage".Length..].Trim() : "Clinical Tester");
+                    Log(true, line);
+                    break;
+                case "party-clear":
+                    ResetParty();
+                    Log(true, line);
                     break;
                 case "bank":
                     if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestBank(_selectionGuid), line);
@@ -426,6 +520,10 @@ public sealed partial class GameLoop
                     { SimulateMailList(); Log(true, line); }
                     else if (mail[1].Equals("simulate-actions", StringComparison.OrdinalIgnoreCase))
                     { SimulateMailActions(); Log(true, line); }
+                    else if (mail[1].Equals("tab-send", StringComparison.OrdinalIgnoreCase))
+                    { SetMailTab(1, playSound: true); Log(_mailOpen && _mailTab == 1, line); }
+                    else if (mail[1].Equals("open-first", StringComparison.OrdinalIgnoreCase) && _mail.Count > 0)
+                    { ToggleOpenMail(_mail[0]); Log(_openMailId == _mail[0].Id, line); }
                     else Log(false, $"unknown {line}");
                     break;
                 case "auction":
@@ -534,6 +632,8 @@ public sealed partial class GameLoop
                         "bank" => _bankOpen = true,
                         "trainer" => OpenLiveTrainer(),
                         "taxi" => OpenLiveTaxi(),
+                        "game-menu" => OpenLiveGameMenu(),
+                        "none" => true,
                         _ => false,
                     };
                     Log(opened, line);
@@ -805,6 +905,108 @@ public sealed partial class GameLoop
         _characterOpen = _spellbookOpen = _questLogOpen = _socialOpen = _worldMapOpen =
             _helpOpen = _keybindingsOpen = _macroOpen = _guildOpen = _auctionOpen = _mailOpen =
             _professionOpen = _talentOpen = _tradeOpen = _bankOpen = false;
+    }
+
+    private bool OpenLiveGameMenu()
+    {
+        OpenSettings();
+        return _settingsOpen;
+    }
+
+    private bool LiveEquipBag(uint entry, int container)
+    {
+        if (container is < 1 or > 4 || _net is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (FindCarriedEntry(player, entry) is not { } found) return false;
+        if (found.Container == container)
+        {
+            EmitInterface("inventory", "equip-bag", "REFUSED", found.Guid,
+                $"entry={entry};container={container};reason=source-inside-destination;use=inventory stage-bag {entry}");
+            return false;
+        }
+        int equipmentSlot = 18 + container;
+        ulong destination = player.Fields.PlayerInventorySlot(equipmentSlot);
+        PickupOrPlaceItem(found.Container, found.Slot, found.Guid, ignoreModifiers: true);
+        PickupOrPlaceItem(InventoryUiLaw.EquipmentContainer, equipmentSlot, destination,
+            ignoreModifiers: true);
+        return !HasCarriedItem;
+    }
+
+    private (int Container, int Slot, ulong Guid)? FindCarriedEntry(WorldEntity player, uint entry)
+    {
+        for (int slot = 0; slot < InventoryUiLaw.BackpackSlots; slot++)
+        {
+            ulong guid = player.Fields.PlayerBackpackSlot(slot);
+            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
+                return (0, slot, guid);
+        }
+        for (int bagIndex = 0; bagIndex < 4; bagIndex++)
+        {
+            ulong bagGuid = player.Fields.PlayerInventorySlot(19 + bagIndex);
+            if (bagGuid == 0 || !_entities.TryGet(bagGuid, out WorldEntity bag)) continue;
+            int slots = (int)Math.Min(bag.Fields.ContainerNumSlots, InventoryUiLaw.MaxContainerSlots);
+            for (int slot = 0; slot < slots; slot++)
+            {
+                ulong guid = bag.Fields.ContainerSlot(slot);
+                if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item) || item.Entry != entry) continue;
+                return (bagIndex + 1, slot, guid);
+            }
+        }
+        return null;
+    }
+
+    private bool LiveStageBag(uint entry)
+    {
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player) ||
+            FindCarriedEntry(player, entry) is not { } found) return false;
+        if (found.Container == 0) return true;
+        int empty = Enumerable.Range(0, InventoryUiLaw.BackpackSlots)
+            .FirstOrDefault(slot => player.Fields.PlayerBackpackSlot(slot) == 0, -1);
+        if (empty < 0)
+        {
+            EmitInterface("inventory", "stage-bag", "REFUSED", found.Guid,
+                $"entry={entry};sourceContainer={found.Container};reason=backpack-full");
+            return false;
+        }
+        PickupOrPlaceItem(found.Container, found.Slot, found.Guid, ignoreModifiers: true);
+        PickupOrPlaceItem(0, empty, 0, ignoreModifiers: true);
+        return !HasCarriedItem;
+    }
+
+    private bool LiveRequireBag(int container, uint? expectedEntry, int minimumSlots)
+    {
+        if (container is < 1 or > 4 || _net is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        {
+            EmitInterface("inventory", "require-bag", "FAIL", 0,
+                $"container={container};expectedEntry={expectedEntry};minimumSlots={minimumSlots};reason=player-unavailable");
+            return false;
+        }
+        ulong guid = player.Fields.PlayerInventorySlot(18 + container);
+        WorldEntity? bag = null;
+        bool found = guid != 0 && _entities.TryGet(guid, out bag);
+        uint entry = bag?.Entry ?? 0;
+        uint actualSlots = bag?.Fields.ContainerNumSlots ?? 0;
+        bool pass = found && (!expectedEntry.HasValue || entry == expectedEntry.Value) && actualSlots >= minimumSlots;
+        EmitInterface("inventory", "require-bag", pass ? "PASS" : "FAIL", guid,
+            $"container={container};entry={entry};expectedEntry={expectedEntry};actualSlots={actualSlots};minimumSlots={minimumSlots}");
+        return pass;
+    }
+
+    private bool LiveInspectBags()
+    {
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        var details = new List<string>();
+        for (int container = 1; container <= 4; container++)
+        {
+            ulong guid = player.Fields.PlayerInventorySlot(18 + container);
+            if (guid != 0 && _entities.TryGet(guid, out WorldEntity bag))
+                details.Add($"container{container}=entry:{bag.Entry}|slots:{bag.Fields.ContainerNumSlots}|guid:0x{guid:X16}");
+            else
+                details.Add($"container{container}=empty");
+        }
+        EmitInterface("inventory", "inspect-bags", "OBSERVED", player.Guid, string.Join(';', details));
+        return true;
     }
 
     private bool OpenLiveCharacter() { _characterOpen = true; _paperDollDirty = true; return true; }

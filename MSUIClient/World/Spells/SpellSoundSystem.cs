@@ -84,6 +84,12 @@ public sealed class SpellSoundSystem : IDisposable
         return voiceId;
     }
 
+    public long Play(string soundName, ulong unit, Vector3 source, Vector3 listener)
+    {
+        if (_catalog?.TryGet(soundName, out SoundEntry entry) != true) return 0;
+        return Play(entry.Id, unit, source, listener, trackHold: false);
+    }
+
     public bool IsAuthoredLoop(uint? soundId)
         => soundId is uint id && _catalog?.TryGet(id, out SoundEntry entry) == true && entry.Looping;
 

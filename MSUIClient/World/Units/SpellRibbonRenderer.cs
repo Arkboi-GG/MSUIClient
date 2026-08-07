@@ -78,7 +78,7 @@ public sealed class SpellRibbonRenderer : IDisposable
 
     public unsafe void Render(Camera camera,
         IEnumerable<(long Id, string Path, M2Model Model, Matrix4x4 Transform,
-            float Age, int SequenceIndex)> instances)
+            float Age, int SequenceIndex)> instances, bool billboardJointPoseB = false)
     {
         DrawnLastFrame = 0;
         CandidatesLastFrame = 0;
@@ -117,6 +117,9 @@ public sealed class SpellRibbonRenderer : IDisposable
             {
                 M2Animator.Clip? clip = animator.FindSequenceOrBake(sequence);
                 animator.Evaluate(clip, instance.Age, instance.Age, _skin);
+                SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(billboardJointPoseB,
+                    instance.Model, instance.Transform, camera.Position, camera.Forward,
+                    animator.BoneCount, _skin);
             }
 
             for (int r = 0; r < instance.Model.RibbonEmitters.Count; r++)

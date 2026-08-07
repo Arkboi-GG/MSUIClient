@@ -57,6 +57,13 @@ public sealed class EntityStore
 
     public bool TryGet(ulong guid, out WorldEntity entity) => _entities.TryGetValue(guid, out entity!);
 
+    /// <summary>Creator/DevTools: place (or replace) a locally synthesized entity. Never
+    /// used on the wire path - the server's create/delete blocks go through Apply.</summary>
+    public void AddSynthetic(WorldEntity entity) => _entities[entity.Guid] = entity;
+
+    /// <summary>Creator/DevTools: remove a locally synthesized entity.</summary>
+    public bool RemoveSynthetic(ulong guid) => _entities.Remove(guid);
+
     public void SetEngaged(ulong guid, bool engaged, ulong? victim = null)
     {
         if (_entities.TryGetValue(guid, out var entity))

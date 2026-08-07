@@ -202,7 +202,8 @@ public readonly record struct CreatureModelInfo(
     uint ExtHairColor,
     byte ExtFacialHair,
     uint[] ExtEquipment,     // 10 display ids: head, shoulder, shirt, chest, belt, pants, boots, wrist, gloves, tabard
-    string BakeName);
+    string BakeName,
+    bool IsPlayerAppearance = false);
 
 /// <summary>Resolves a UNIT_FIELD_DISPLAYID to a model path + scale + texture + geoset sources.</summary>
 public sealed class CreatureModelResolver

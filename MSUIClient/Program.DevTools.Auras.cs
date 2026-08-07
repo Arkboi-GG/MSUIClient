@@ -1,4 +1,5 @@
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World;
@@ -7,6 +8,8 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
+    private const uint IceBlockSpellId = 11958;
+
     // The 1.12 server is allowed to send the duration packet immediately before
     // the descriptor swaps the slot to its new spell, so timers are slot-keyed.
     private readonly record struct AuraTimer(uint DurationMs, double Expires,
@@ -14,7 +17,39 @@ public sealed partial class GameLoop
     private readonly Dictionary<byte, AuraTimer> _playerAuraDurations = [];
     private readonly List<(byte Slot, uint SpellId)> _playerAuraOrder = [];
 
-    private readonly record struct AuraSnapshot(byte Slot, uint SpellId, byte Flags, byte Stacks)
+    private void ResetPlayerAuras()
+    {
+        _playerAuraDurations.Clear();
+        _playerAuraOrder.Clear();
+    }
+
+    private bool PlayerHasAura(uint spellId)
+    {
+        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity? player))
+            return false;
+        return player.Fields.Auras().Any(a => a.SpellId == spellId);
+    }
+
+    private void UpdateIceBlockFreezeState()
+    {
+        bool auraActive = PlayerHasAura(IceBlockSpellId);
+        if (auraActive && !_iceBlockFrozen)
+        {
+            _iceBlockFrozen = true;
+            _iceBlockFacing = _controller?.Yaw ?? _window.Camera.Yaw;
+            Console.WriteLine($"[movement] Ice Block pose frozen at facing={_iceBlockFacing:F4}");
+        }
+        else if (_iceBlockFrozen && !auraActive)
+        {
+            _iceBlockFrozen = false;
+            if (_controller is not null)
+                _window.Camera.SetFacingKeepingView(_controller.Yaw);
+            Console.WriteLine("[movement] Ice Block pose released");
+        }
+    }
+
+    private readonly record struct AuraSnapshot(byte Slot, uint SpellId, byte Flags, byte Level,
+        byte Stacks)
     {
         public bool Helpful => Slot < 32;
         public bool Cancelable => Helpful && (Flags & 0x01) != 0;
@@ -22,7 +57,7 @@ public sealed partial class GameLoop
 
     private static Dictionary<byte, AuraSnapshot> SnapshotAuras(WorldEntity? entity) =>
         entity?.Fields.Auras().ToDictionary(a => a.Slot,
-            a => new AuraSnapshot(a.Slot, a.SpellId, a.Flags, a.Stacks)) ?? [];
+            a => new AuraSnapshot(a.Slot, a.SpellId, a.Flags, a.Level, a.Stacks)) ?? [];
 
     private void ObserveAuraObjectUpdate(ulong guid, Dictionary<byte, AuraSnapshot> before)
     {
@@ -70,7 +105,12 @@ public sealed partial class GameLoop
         var r = new PacketReader(body.ToArray());
         byte slot = r.ReadU8();
         uint duration = r.ReadU32();
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity? player)) return;
+        if (_net is null) return;
+        // The server is allowed to send this before the descriptor update that names the slot,
+        // including before the initial player object has finished parsing. Preserve the slot-keyed
+        // timer with spell 0; ObserveAuraObjectUpdate joins it to the newly visible aura.
+        WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity? foundPlayer)
+            ? foundPlayer : null;
         Dictionary<byte, AuraSnapshot> auras = SnapshotAuras(player);
         double now = NowSeconds();
         uint spell = auras.TryGetValue(slot, out AuraSnapshot current) ? current.SpellId : 0;
@@ -104,7 +144,7 @@ public sealed partial class GameLoop
     private bool SimulateAura(string action, byte slot, uint spellId, byte flags, byte stacks, uint durationMs)
     {
         ulong guid = _net?.PlayerGuid ?? 1;
-        var aura = new AuraSnapshot(slot, spellId, flags, stacks);
+        var aura = new AuraSnapshot(slot, spellId, flags, 0, stacks);
         if (action.Equals("duration", StringComparison.OrdinalIgnoreCase))
         {
             double now = NowSeconds();
@@ -171,5 +211,13 @@ public sealed partial class GameLoop
         spell = _spellCatalog?.TryGet(spellId, out SpellInfo found) == true ? found : null;
         if (spell is { HiddenClientSide: true }) return false;
         return spell?.AuraIds?.Any(type => type is 44 or 45 or 151) != true;
+    }
+
+    private static string AuraTimeText(double remainingSeconds)
+    {
+        remainingSeconds = Math.Max(0, remainingSeconds);
+        return remainingSeconds >= 3600 ? $"{Math.Ceiling(remainingSeconds / 3600)}h" :
+            remainingSeconds >= 60 ? $"{Math.Ceiling(remainingSeconds / 60)}m" :
+            $"{Math.Ceiling(remainingSeconds)}s";
     }
 }

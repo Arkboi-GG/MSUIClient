@@ -69,18 +69,23 @@ public sealed class ObjectFields
 
     public const ushort ITEM_STACK_COUNT = 14;
     public const ushort ITEM_FLAGS = 21;
+    public const ushort ITEM_FIELD_ENCHANTMENT = 22; // seven triples: id, duration, charges
+    public const ushort ITEM_TEXT_ID = 45;
     public const ushort ITEM_DURABILITY = 46;
     public const ushort ITEM_MAXDURABILITY = 47;
     public const ushort CONTAINER_NUM_SLOTS = 48;
     public const ushort CONTAINER_SLOT_1 = 50;
 
     public const ushort PLAYER_QUEST_LOG_1_1 = 198;
-    public const ushort PLAYER_VISIBLE_ITEM_1_0 = 254;
+    // PLAYER_VISIBLE_ITEM_1_CREATOR begins at 258 (two u32 guid fields); the public worn
+    // item ENTRY consumed by rendering/inspect is +2. Each equipment slot spans 12 fields.
+    public const ushort PLAYER_VISIBLE_ITEM_1_0 = 260;
     public const ushort PLAYER_INV_SLOT_HEAD = 486;
     public const ushort PLAYER_PACK_SLOT_1 = 532;
     public const ushort PLAYER_BANK_SLOT_1 = 564;
     public const ushort PLAYER_BANK_BAG_SLOT_1 = 612;
     public const ushort PLAYER_VENDOR_BUYBACK_SLOT_1 = 618;
+    public const ushort PLAYER_KEYRING_SLOT_1 = 648;
     public const ushort PLAYER_XP = 716;
     public const ushort PLAYER_NEXT_LEVEL_XP = 717;
     public const ushort PLAYER_SKILL_INFO_1_1 = 718;
@@ -97,6 +102,7 @@ public sealed class ObjectFields
     public const ushort PLAYER_RESISTANCEBUFFMODSPOSITIVE = 1187;
     public const ushort PLAYER_RESISTANCEBUFFMODSNEGATIVE = 1194;
     public const ushort PLAYER_FIELD_BUYBACK_PRICE_1 = 1220;
+    public const ushort PLAYER_AMMO_ID = 1223;
     public const ushort PLAYER_FIELD_SESSION_KILLS = 1244;
     public const ushort PLAYER_FIELD_YESTERDAY_KILLS = 1245;
     public const ushort PLAYER_FIELD_LAST_WEEK_KILLS = 1246;
@@ -259,6 +265,20 @@ public sealed class ObjectFields
         get { uint v = GetU32(UNIT_BYTES_0) ?? 0; return ((byte)v, (byte)(v >> 8), (byte)(v >> 16), (byte)(v >> 24)); }
     }
 
+    /// <summary>skin, face, hair style and hair colour from PLAYER_BYTES.</summary>
+    public (byte Skin, byte Face, byte HairStyle, byte HairColor) PlayerAppearance
+    {
+        get
+        {
+            uint value = GetU32(PLAYER_BYTES) ?? 0;
+            return ((byte)value, (byte)(value >> 8), (byte)(value >> 16),
+                (byte)(value >> 24));
+        }
+    }
+
+    /// <summary>Facial-hair variation from PLAYER_BYTES_2 byte zero.</summary>
+    public byte PlayerFacialHair => (byte)(GetU32(PLAYER_BYTES_2) ?? 0);
+
     /// <summary>Health fraction 0..1 (1 when maxhealth unknown).</summary>
     public float HealthFraction => MaxHealth > 0 ? Math.Clamp((float)Health / MaxHealth, 0f, 1f) : 1f;
 
@@ -266,6 +286,9 @@ public sealed class ObjectFields
 
     public uint ItemStackCount => GetU32(ITEM_STACK_COUNT) ?? 1;
     public uint ItemFlags => GetU32(ITEM_FLAGS) ?? 0;
+    public uint ItemEnchantmentId(int slot) => slot is >= 0 and < 7
+        ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3)) ?? 0 : 0;
+    public uint ItemTextId => GetU32(ITEM_TEXT_ID) ?? 0;
     public uint ItemDurability => GetU32(ITEM_DURABILITY) ?? 0;
     public uint ItemMaxDurability => GetU32(ITEM_MAXDURABILITY) ?? 0;
     public uint ContainerNumSlots => GetU32(CONTAINER_NUM_SLOTS) ?? 0;
@@ -277,7 +300,9 @@ public sealed class ObjectFields
     public ulong PlayerBankSlot(int index) => index is >= 0 and < 24 ? GetGuid((ushort)(PLAYER_BANK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBuybackSlot(int index) => index is >= 0 and < 12 ? GetGuid((ushort)(PLAYER_VENDOR_BUYBACK_SLOT_1 + index * 2)) ?? 0 : 0;
+    public ulong PlayerKeyringSlot(int index) => index is >= 0 and < 32 ? GetGuid((ushort)(PLAYER_KEYRING_SLOT_1 + index * 2)) ?? 0 : 0;
     public uint PlayerBuybackPrice(int index) => index is >= 0 and < 12 ? GetU32((ushort)(PLAYER_FIELD_BUYBACK_PRICE_1 + index)) ?? 0 : 0;
+    public uint PlayerAmmoId => GetU32(PLAYER_AMMO_ID) ?? 0;
     public uint Experience => GetU32(PLAYER_XP) ?? 0;
     public uint NextLevelExperience => GetU32(PLAYER_NEXT_LEVEL_XP) ?? 0;
     public uint RestStateExperience => GetU32(PLAYER_REST_STATE_EXPERIENCE) ?? 0;
@@ -315,6 +340,12 @@ public sealed class ObjectFields
     public uint RangedAttackTime => GetU32(UNIT_RANGEDATTACKTIME) ?? 0;
     public int AttackPower => (GetI32(UNIT_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
     public int RangedAttackPower => (GetI32(UNIT_RANGED_ATTACK_POWER) ?? 0) + PackedSignedLow(UNIT_RANGED_ATTACK_POWER_MODS) + PackedSignedHigh(UNIT_RANGED_ATTACK_POWER_MODS);
+    public int AttackPowerBase => GetI32(UNIT_ATTACK_POWER) ?? 0;
+    public int AttackPowerPositive => PackedSignedLow(UNIT_ATTACK_POWER_MODS);
+    public int AttackPowerNegative => PackedSignedHigh(UNIT_ATTACK_POWER_MODS);
+    public int RangedAttackPowerBase => GetI32(UNIT_RANGED_ATTACK_POWER) ?? 0;
+    public int RangedAttackPowerPositive => PackedSignedLow(UNIT_RANGED_ATTACK_POWER_MODS);
+    public int RangedAttackPowerNegative => PackedSignedHigh(UNIT_RANGED_ATTACK_POWER_MODS);
     public (ushort Honorable, ushort Dishonorable) SessionKills => PackedKills(PLAYER_FIELD_SESSION_KILLS);
     public (ushort Honorable, ushort Dishonorable) YesterdayKills => PackedKills(PLAYER_FIELD_YESTERDAY_KILLS);
     public (ushort Honorable, ushort Dishonorable) LastWeekKills => PackedKills(PLAYER_FIELD_LAST_WEEK_KILLS);

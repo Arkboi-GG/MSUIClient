@@ -31,7 +31,7 @@ public sealed partial class GameLoop
         if (VanillaButton(dl, "##unit-inspect", "Inspect", origin + new Vector2(14, 84) * s,
                 new Vector2(100, 22), s))
         {
-            _net?.Inspect(_unitPopupGuid);
+            RequestInspect(_unitPopupGuid);
             _unitPopupGuid = 0;
         }
         if (VanillaButton(dl, "##unit-cancel", "Cancel", origin + new Vector2(14, 109) * s,

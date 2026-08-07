@@ -186,10 +186,26 @@ public sealed partial class GameLoop
             !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        ImDrawListPtr dl = ImGui.GetBackgroundDrawList();
         Vector2 logicalDisplay = display / s;
         Vector2 frameMin = new(logicalDisplay.X - 255f, 13f);
         Vector2 framePhysical = frameMin * s;
+        // Own the buff region with a real transparent ImGui window. Raw screen-rectangle tests
+        // are not reliable when another HUD window owns hover; an InvisibleButton per icon gives
+        // tooltip and right-click cancellation the same input semantics as every other UI button.
+        Vector2 windowMin = new((logicalDisplay.X - 485f) * s, 8f * s);
+        Vector2 windowSize = new Vector2(290f, 135f) * s;
+        ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(windowSize, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+                                 ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+                                 ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoBringToFrontOnFocus;
+        if (!ImGui.Begin("##player-aura-bar", flags))
+        {
+            ImGui.End();
+            return;
+        }
+        ImDrawListPtr dl = ImGui.GetWindowDrawList();
         if (_uiParityArmed && _uiParityPanel == "buff-frame")
         {
             BeginUiParityFrame(framePhysical, s);
@@ -198,6 +214,10 @@ public sealed partial class GameLoop
                 offsetX: "-205", offsetY: "-13", strata: "LOW");
         }
         int shown = 0, buffShown = 0, debuffShown = 0;
+        AuraSnapshot? hoveredAura = null;
+        SpellInfo? hoveredSpell = null;
+        AuraTimer? hoveredTimer = null;
+        double now = NowSeconds();
         foreach (AuraSnapshot aura in OrderedAuras(player))
         {
             if (!TryVisibleAuraSpell(aura.SpellId, out SpellInfo? spell)) continue;
@@ -221,34 +241,87 @@ public sealed partial class GameLoop
                     fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "10", color: "#FFD100FF",
                     layer: "ARTWORK", strata: "LOW");
             }
-            dl.AddImage((nint)icon, min, max);
+            AuraTimer? activeTimer = null;
+            double remaining = double.PositiveInfinity;
+            if (_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) &&
+                timer.SpellId == aura.SpellId)
+            {
+                activeTimer = timer;
+                remaining = Math.Max(0, timer.Expires - now);
+            }
+            byte alpha = (byte)Math.Clamp(MathF.Round(
+                BuffUiLaw.WarningAlpha(now, remaining) * 255f), 0, 255);
+            dl.AddImage((nint)icon, min, max, Vector2.Zero, Vector2.One,
+                (uint)(alpha << 24) | 0x00ffffffu);
+            if (activeTimer is not null)
+                GameText.Draw(dl, "GameFontNormalSmall", AuraTimeText(remaining),
+                    new Vector2(min.X, max.Y + 1f * s), s);
             if (harmful)
             {
                 uint border = _gameplayArt.Handle(@"Interface\Buttons\UI-Debuff-Overlays");
                 if (border != 0)
                     dl.AddImage((nint)border, min - new Vector2(1.5f, 1f) * s,
                         max + new Vector2(1.5f, 1f) * s,
-                        new Vector2(.296875f, 0), new Vector2(.5703125f, .515625f));
+                        new Vector2(.296875f, 0), new Vector2(.5703125f, .515625f),
+                        ImGui.ColorConvertFloat4ToU32(BuffUiLaw.DebuffColor(spell?.DispelType ?? 0)));
             }
             if (aura.Stacks > 1)
                 dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
-            if (_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) &&
-                timer.SpellId == aura.SpellId)
+
+            ImGui.SetCursorScreenPos(min);
+            ImGui.InvisibleButton($"##player-aura-{aura.Slot}-{aura.SpellId}", max - min);
+            if (ImGui.IsItemHovered())
             {
-                double remaining = Math.Max(0, timer.Expires - NowSeconds());
-                string text = remaining >= 60 ? $"{Math.Ceiling(remaining / 60)}m" : $"{Math.Ceiling(remaining)}s";
-                dl.AddText(new Vector2(min.X, max.Y + 1 * s), 0xffffffff, text);
+                hoveredAura = aura;
+                hoveredSpell = spell;
+                hoveredTimer = activeTimer;
             }
-            if (ImGui.IsMouseHoveringRect(min, max, false) &&
-                ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-                CancelPlayerAura(new AuraSnapshot(aura.Slot, aura.SpellId, aura.Flags, aura.Stacks), "UI_RIGHT_CLICK");
+            if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+                CancelPlayerAura(aura, "UI_RIGHT_CLICK");
             if (++shown >= 24) break;
         }
         if (_uiParityArmed && _uiParityPanel == "buff-frame" && shown > 0) MarkUiParityFrameComplete();
+        ImGui.End();
+
+        if (hoveredAura is { } hovered)
+            DrawPlayerAuraTooltip(hovered, hoveredSpell, hoveredTimer, now);
+    }
+
+    private void DrawPlayerAuraTooltip(AuraSnapshot aura, SpellInfo? spell, AuraTimer? timer,
+        double now)
+    {
+        string name = spell?.Name ?? $"Spell {aura.SpellId}";
+        string rank = spell?.Rank ?? "";
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(rank) ? name : $"{name} ({rank})");
+        if (aura.Stacks > 1) ImGui.TextDisabled($"{aura.Stacks} stacks");
+
+        if (spell is { } info && _spellCatalog is not null)
+        {
+            string description = SpellTooltipLaw.Substitute(info.Description, info,
+                _spellCatalog, aura.Level);
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                ImGui.Separator();
+                ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + SpellTooltipLaw.WrapWidth);
+                ImGui.TextUnformatted(description);
+                ImGui.PopTextWrapPos();
+            }
+        }
+
+        if (timer is { } active && active.SpellId == aura.SpellId)
+        {
+            double remaining = Math.Max(0, active.Expires - now);
+            ImGui.Separator();
+            ImGui.TextUnformatted($"{AuraTimeText(remaining)} remaining");
+        }
+        if (aura.Helpful)
+            ImGui.TextDisabled(aura.Cancelable ? "Right-click to cancel" : "Cannot be cancelled");
+        ImGui.EndTooltip();
     }
 
     private void DrawUnitPortraitImage(ImDrawListPtr dl, WorldEntity unit, Vector2 min, float size,
-        uint liveTexture, bool playerFrame)
+        uint liveTexture, bool playerFrame, uint tint = 0xffffffff)
     {
         uint texture = liveTexture;
         Vector2 uv0 = new(0, 1), uv1 = new(1, 0);
@@ -278,7 +351,7 @@ public sealed partial class GameLoop
             // shader-side circular cut. ImGui.NET's rounded-image path emitted only one textured
             // fan triangle on this backend (the face-shaped wedge captured in-game), so it
             // cannot serve as a stencil.
-            dl.AddImage((nint)texture, min, min + new Vector2(size), uv0, uv1);
+            dl.AddImage((nint)texture, min, min + new Vector2(size), uv0, uv1, tint);
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World.Units;
@@ -274,6 +275,14 @@ public sealed partial class GameLoop
             SpellUnitPose pose = SpellEffectUnitPose(guid);
             return (pose.Found, pose.Position);
         });
+        if (_castBarPhase == CastBarPhase.Channel && now >= _castBarEnds)
+        {
+            _castBarPhase = CastBarPhase.Success;
+            _castBarFinishedAt = _castBarEnds;
+            _castBarDisplayUntil = _castBarFinishedAt + CastingBarUiLaw.FlashSeconds +
+                CastingBarUiLaw.FadeSeconds;
+            EmitCastBarVerdict("CHANNEL_STOP", _castBarSpell);
+        }
         if (_castBarPhase is CastBarPhase.Success or CastBarPhase.Failed && now >= _castBarDisplayUntil)
             _castBarPhase = CastBarPhase.Hidden;
     }
@@ -313,18 +322,19 @@ public sealed partial class GameLoop
         _castBarText = _spellCatalog?.TryGet(spell, out SpellInfo info) == true ? info.Name : _castBarText;
         _castBarFinishedAt = NowSeconds();
         // CastingBar.xml: flash grows at .2 per 30 Hz tick, then the frame fades at .05/tick.
-        _castBarDisplayUntil = _castBarFinishedAt + 1.0 / 6.0 + 1.0 / 1.5;
+        _castBarDisplayUntil = _castBarFinishedAt + CastingBarUiLaw.FlashSeconds +
+            CastingBarUiLaw.FadeSeconds;
         EmitCastBarVerdict("CAST_COMPLETE", spell);
     }
 
     private void FailCastBar(uint spell, string text)
     {
-        if (_castBarSpell != spell && _castBarPhase != CastBarPhase.Hidden) return;
-        _castBarSpell = spell;
+        if (_castBarPhase != CastBarPhase.Casting || _castBarSpell != spell) return;
         _castBarPhase = CastBarPhase.Failed;
         _castBarText = text;
         _castBarFinishedAt = NowSeconds();
-        _castBarDisplayUntil = _castBarFinishedAt + 1.0 + 1.0 / 1.5;
+        _castBarDisplayUntil = _castBarFinishedAt + CastingBarUiLaw.FailureHoldSeconds +
+            CastingBarUiLaw.FadeSeconds;
         EmitCastBarVerdict("CAST_FAILED", spell, cancelSource: text);
     }
 
@@ -345,7 +355,8 @@ public sealed partial class GameLoop
             {
                 _castBarPhase = CastBarPhase.Success;
                 _castBarFinishedAt = NowSeconds();
-                _castBarDisplayUntil = _castBarFinishedAt + 1.0 / 6.0 + 1.0 / 1.5;
+                _castBarDisplayUntil = _castBarFinishedAt + CastingBarUiLaw.FlashSeconds +
+                    CastingBarUiLaw.FadeSeconds;
                 EmitCastBarVerdict("CHANNEL_STOP", _castBarSpell);
                 EmitChannelVerdict("STOP", source: "MSG_CHANNEL_UPDATE");
             }
@@ -357,7 +368,9 @@ public sealed partial class GameLoop
             }
             return;
         }
+        double originalDuration = _castBarEnds - _castBarStarted;
         _castBarEnds = NowSeconds() + remainingMs / 1000.0;
+        _castBarStarted = _castBarEnds - originalDuration;
         EmitCastBarVerdict("CHANNEL_UPDATE", _castBarSpell, remainingMs);
         EmitChannelVerdict("UPDATE", remainingMs: remainingMs, source: "MSG_CHANNEL_UPDATE");
     }
@@ -399,7 +412,11 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 size = new(256, 64);
-        Vector2 barMin = new((display.X - 195f * s) * .5f, display.Y - 68f * s);
+        bool bottomMultiBar = Enumerable.Range(48, 24).Any(slot => _actions[slot] is not null);
+        bool petOrStance = TryGetControlledPet(out _);
+        float bottom = CastingBarUiLaw.BottomOffset(bottomMultiBar, petOrStance, reputation: false);
+        Vector2 barMin = new((display.X - CastingBarUiLaw.Width * s) * .5f,
+            display.Y - (bottom + CastingBarUiLaw.Height) * s);
         Vector2 p = barMin - new Vector2(30.5f, 28f) * s;
         Vector2 authored = p / s;
         CollectGameplayLayout("cast-bar", authored.X, authored.Y, size.X, size.Y, p, size * s);
@@ -429,8 +446,17 @@ public sealed partial class GameLoop
                 new Vector2(32) * s, parent: "CastingBarFrame", point: "CENTER",
                 texture: @"Interface\CastingBar\UI-CastingBar-Spark", layer: "OVERLAY", strata: "");
         }
-        dl.AddRectFilled(barMin, barMin + barSize * s, 0x80000000);
         double now = NowSeconds();
+        double finishedElapsed = Math.Max(0d, now - _castBarFinishedAt);
+        float frameAlpha = _castBarPhase switch
+        {
+            CastBarPhase.Success => CastingBarUiLaw.FrameAlpha(finishedElapsed, failed: false),
+            CastBarPhase.Failed => CastingBarUiLaw.FrameAlpha(finishedElapsed, failed: true),
+            _ => 1f,
+        };
+        uint whiteTint = ImGui.ColorConvertFloat4ToU32(new Vector4(1, 1, 1, frameAlpha));
+        dl.AddRectFilled(barMin, barMin + barSize * s,
+            ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, .5f * frameAlpha)));
         float fraction = _castBarPhase switch
         {
             CastBarPhase.Casting => (float)((now - _castBarStarted) / Math.Max(.001, _castBarEnds - _castBarStarted)),
@@ -441,16 +467,19 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel == "cast-bar") fraction = .5f;
         Vector4 color = _castBarPhase switch
         {
-            CastBarPhase.Success => new(0, 1, 0, 1),
-            CastBarPhase.Failed => new(1, 0, 0, 1),
-            _ => new(1, .7f, 0, 1),
+            CastBarPhase.Success => new(0, 1, 0, frameAlpha),
+            CastBarPhase.Failed => new(1, 0, 0, frameAlpha),
+            _ => new(1, .7f, 0, frameAlpha),
         };
         DrawVanillaStatusBar(dl, barMin, barSize * s, fraction, color);
-        DrawArt(dl, @"Interface\CastingBar\UI-CastingBar-Border", p, size, s);
-        DrawCenteredText(dl, barMin + new Vector2(97.5f, 3f) * s, _castBarText, 12f * s, 0xffffffff);
+        uint border = _gameplayArt.Handle(@"Interface\CastingBar\UI-CastingBar-Border");
+        if (border != 0) dl.AddImage((nint)border, p, p + size * s,
+            Vector2.Zero, Vector2.One, whiteTint);
+        DrawCenteredText(dl, barMin + new Vector2(97.5f, 3f) * s, _castBarText,
+            12f * s, whiteTint);
         if (_castBarPhase == CastBarPhase.Success)
         {
-            float flashAlpha = Math.Clamp((float)((now - _castBarFinishedAt) * 6.0), 0f, 1f);
+            float flashAlpha = CastingBarUiLaw.FlashAlpha(finishedElapsed) * frameAlpha;
             uint flash = _gameplayArt.AdditiveHandle(@"Interface\CastingBar\UI-CastingBar-Flash");
             if (flash != 0)
                 dl.AddImage((nint)flash, p, p + size * s, Vector2.Zero, Vector2.One,
@@ -473,7 +502,7 @@ public sealed partial class GameLoop
 
     private bool TryUnitPosition(ulong guid, out Vector3 position)
     {
-        if (_net is not null && guid == _net.PlayerGuid && _controller is not null)
+        if (guid == LocalPlayerGuid && _controller is not null)
         { position = _controller.Position; return true; }
         if (_entities.TryGet(guid, out WorldEntity unit))
         {
@@ -486,7 +515,7 @@ public sealed partial class GameLoop
 
     private SpellUnitPose SpellEffectUnitPose(ulong guid)
     {
-        if (_net is not null && guid == _net.PlayerGuid && _controller is not null)
+        if (guid == LocalPlayerGuid && _controller is not null)
             return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;

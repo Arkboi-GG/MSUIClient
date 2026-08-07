@@ -196,6 +196,19 @@ public sealed class Camera
     }
 
     /// <summary>
+    /// Restore a character facing without moving the visible camera. This is used when Ice
+    /// Block ends: mouse-look during the frozen pose is camera-only, so its displacement becomes
+    /// an orbit rather than snapping the character to the view on the next frame.
+    /// </summary>
+    public void SetFacingKeepingView(float facing)
+    {
+        float viewYaw = ViewYaw;
+        const float tau = MathF.PI * 2f;
+        Yaw = ((facing % tau) + tau) % tau;
+        OrbitYaw = Wrap(viewYaw - Yaw);
+    }
+
+    /// <summary>
     /// Ease the camera back behind the character. Called while moving, because
     /// that is when the real client re-centres.
     /// </summary>

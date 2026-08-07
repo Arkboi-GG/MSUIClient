@@ -145,6 +145,35 @@ M2Model billboardModel = new();
 billboardModel.Bones.Add(new M2Bone { ParentBone = -1, Pivot = new Vector3(2, 0, 0), Flags = 0x08u });
 billboardModel.Bones.Add(new M2Bone { ParentBone = 0, Pivot = new Vector3(5, 1, 0) });
 var billboardSkin = new[] { Matrix4x4.Identity, Matrix4x4.Identity };
+var disabledBillboardSkin = new[]
+{
+    Matrix4x4.CreateRotationX(.31f) * Matrix4x4.CreateTranslation(1, 2, 3),
+    Matrix4x4.CreateScale(1.2f, .8f, 1.1f) * Matrix4x4.CreateTranslation(4, 5, 6),
+};
+Matrix4x4[] disabledBillboardExpected = disabledBillboardSkin.ToArray();
+SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(false, billboardModel,
+    Matrix4x4.CreateTranslation(20, -4, 7), new Vector3(10, -10, 8),
+    Vector3.UnitY, 2, disabledBillboardSkin);
+for (int i = 0; i < disabledBillboardSkin.Length; i++)
+    NearM(disabledBillboardSkin[i], disabledBillboardExpected[i], 0f,
+        $"disabled billboard A/B gate changed palette bone {i}");
+
+M2Model nonBillboardModel = new();
+nonBillboardModel.Bones.Add(new M2Bone { ParentBone = -1, Pivot = new Vector3(2, 0, 0) });
+nonBillboardModel.Bones.Add(new M2Bone { ParentBone = 0, Pivot = new Vector3(5, 1, 0) });
+var nonBillboardSkin = new[]
+{
+    Matrix4x4.CreateRotationY(.2f),
+    Matrix4x4.CreateRotationZ(-.4f) * Matrix4x4.CreateTranslation(1, 2, 3),
+};
+Matrix4x4[] nonBillboardExpected = nonBillboardSkin.ToArray();
+SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(true, nonBillboardModel,
+    Matrix4x4.Identity, new Vector3(10, -10, 8), Vector3.UnitY, 2,
+    nonBillboardSkin);
+for (int i = 0; i < nonBillboardSkin.Length; i++)
+    NearM(nonBillboardSkin[i], nonBillboardExpected[i], 0f,
+        $"enabled A/B gate changed non-billboard control bone {i}");
+
 Matrix4x4 oldParentGlobal = Matrix4x4.CreateTranslation(billboardModel.Bones[0].Pivot);
 Matrix4x4 oldChildGlobal = Matrix4x4.CreateTranslation(billboardModel.Bones[1].Pivot);
 Check(Matrix4x4.Invert(oldParentGlobal, out Matrix4x4 oldParentInverse),
@@ -189,6 +218,54 @@ Check(shader.Contains("for (int i=0;i<4;i++)", StringComparison.Ordinal) &&
 
 ClientConfig config = ClientConfig.Load(args[0]);
 using var mpq = new MpqMount(config.ClientDataPath);
+
+// Fire/Frost Ward are ideal A/B fixtures: they are emitter-only assets (no mesh), and every
+// particle/ribbon joint descends from an authored billboard joint. A must leave their evaluated
+// palette exactly untouched; B must respond to the camera without changing attachment/root data.
+foreach (string wardPath in new[]
+{
+    @"Spells\FireWard_Impact_Chest.m2",
+    @"Spells\FrostWard_Impact_Chest.m2",
+})
+{
+    M2Model ward = LoadModel(mpq, wardPath);
+    Check(ward.Vertices.Count == 0 && ward.ParticleEmitters.Count == 4 &&
+          ward.RibbonEmitters.Count == 3 && ward.Bones.Count == 20,
+        $"ward A/B fixture drift: {wardPath}");
+    int[] carrierBones = ward.ParticleEmitters.Select(e => (int)e.Bone)
+        .Concat(ward.RibbonEmitters.Select(r => (int)r.Bone)).Distinct().ToArray();
+    Check(carrierBones.Length > 0 && carrierBones.All(b => HasBillboardAncestor(ward, b)),
+        $"ward emitter/ribbon carrier escaped billboard hierarchy: {wardPath}");
+
+    M2Animator wardAnimator = BuildQuiet(ward);
+    M2Animator.Clip wardClip = wardAnimator.FindSequenceOrBake(0) ??
+        throw new InvalidOperationException($"ward sequence zero missing: {wardPath}");
+    float wardAge = MathF.Min(.2f, wardClip.DurationSeconds * .37f);
+    var wardA = new Matrix4x4[wardAnimator.BoneCount];
+    wardAnimator.Evaluate(wardClip, wardAge, wardAge, wardA);
+    Matrix4x4[] wardExpected = wardA.ToArray();
+    SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(false, ward,
+        Matrix4x4.CreateTranslation(30, -12, 4), new Vector3(40, -2, 11),
+        Vector3.UnitX, wardAnimator.BoneCount, wardA);
+    for (int i = 0; i < wardA.Length; i++)
+        NearM(wardA[i], wardExpected[i], 0f, $"ward A changed bone {i}: {wardPath}");
+
+    Matrix4x4[] wardBForward = wardExpected.ToArray();
+    Matrix4x4[] wardBSide = wardExpected.ToArray();
+    SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(true, ward,
+        Matrix4x4.CreateTranslation(30, -12, 4), new Vector3(40, -2, 11),
+        Vector3.UnitY, wardAnimator.BoneCount, wardBForward);
+    SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(true, ward,
+        Matrix4x4.CreateTranslation(30, -12, 4), new Vector3(40, -2, 11),
+        Vector3.UnitX, wardAnimator.BoneCount, wardBSide);
+    Check(carrierBones.Any(b => MatrixDelta(wardExpected[b], wardBForward[b]) > 1e-4f),
+        $"ward B did not rewrite a particle/ribbon carrier: {wardPath}");
+    Check(carrierBones.Any(b => MatrixDelta(wardBForward[b], wardBSide[b]) > 1e-4f),
+        $"ward B carrier did not respond to camera direction: {wardPath}");
+    Console.WriteLine($"[mesh-fixture-ward-ab] {wardPath} carriers={carrierBones.Length} " +
+        $"particles={ward.ParticleEmitters.Count} ribbons={ward.RibbonEmitters.Count} mesh=0");
+}
+
 HashSet<string> referenced = ReferencedSpellModels(mpq);
 var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 foreach (string archive in Directory.GetFiles(config.ClientDataPath, "*.MPQ"))
@@ -528,6 +605,26 @@ static float[] MatrixValues(Matrix4x4 m) =>
     m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24,
     m.M31, m.M32, m.M33, m.M34, m.M41, m.M42, m.M43, m.M44,
 ];
+
+static float MatrixDelta(Matrix4x4 a, Matrix4x4 b)
+{
+    float[] av = MatrixValues(a), bv = MatrixValues(b);
+    float max = 0f;
+    for (int i = 0; i < av.Length; i++) max = MathF.Max(max, MathF.Abs(av[i] - bv[i]));
+    return max;
+}
+
+static bool HasBillboardAncestor(M2Model model, int bone)
+{
+    var seen = new HashSet<int>();
+    while (bone >= 0 && bone < model.Bones.Count && seen.Add(bone))
+    {
+        M2Bone current = model.Bones[bone];
+        if ((current.Flags & 0x78) != 0) return true;
+        bone = current.ParentBone;
+    }
+    return false;
+}
 
 static string InfluenceLine(int[] models, long[] vertices)
     => string.Join(" ", Enumerable.Range(0, 5)

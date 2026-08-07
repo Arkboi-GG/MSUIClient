@@ -28,8 +28,8 @@ public sealed partial class GameLoop
             int.TryParse(panel["character-frame:".Length..], out characterTab);
             panel = "character-frame";
         }
-        if (!_config.DevTools || panel is not ("game-menu" or "options" or "keybindings" or "macro" or "tooltip" or "ui-errors" or "static-popup" or "player-frame" or "target-frame" or "party-frame" or
-            "action-bar" or "action-button" or "multi-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade")) return;
+        if (!_config.DevTools || panel is not ("game-menu" or "options" or "keybindings" or "macro" or "tooltip" or "ui-errors" or "static-popup" or "player-frame" or "target-frame" or "party-frame" or "party-invite" or
+            "action-bar" or "action-button" or "multi-action-bar" or "pet-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "quest-frame" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade")) return;
         _uiParityPanel = panel;
         // Captures isolate the requested gameplay panel from persistent wire-opened utility
         // windows; this changes capture presentation only, never the panel draw path.
@@ -49,6 +49,7 @@ public sealed partial class GameLoop
         if (panel == "tooltip") _tooltipParityOpen = true;
         if (panel == "ui-errors") _uiErrorsParityOpen = true;
         if (panel == "static-popup") _staticPopupParityOpen = true;
+        if (panel == "pet-action-bar") StagePetActionBarProof();
         if (panel == "cast-bar")
         {
             _castBarPhase = CastBarPhase.Casting;

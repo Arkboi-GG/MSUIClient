@@ -251,7 +251,18 @@ public sealed class NetworkClient : IDisposable
         if (State == NetState.InWorld) { try { _session?.SendMovement(moveOp, info); } catch { /* dropped on disconnect */ } }
     }
 
+    public void MoveRootAck(ulong guid, uint counter, bool rooted, MovementInfo info)
+    {
+        if (State == NetState.InWorld)
+        {
+            try { _session?.MoveRootAck(guid, counter, rooted, info); }
+            catch { /* dropped on disconnect */ }
+        }
+    }
+
     public void CompleteCinematic() { try { _session?.CompleteCinematic(); } catch { } }
+    public bool LogoutRequest() => InWorld(s => s.LogoutRequest());
+    public bool LogoutCancel() => InWorld(s => s.LogoutCancel());
 
     public void TeleportAck(ulong guid, uint counter)
     {
@@ -263,6 +274,9 @@ public sealed class NetworkClient : IDisposable
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>
         InWorld(s => s.PetAction(petGuid, packedAction, targetGuid));
+    public bool PetStopAttack(ulong petGuid) => InWorld(s => s.PetStopAttack(petGuid));
+    public bool PetSetAction(ulong petGuid, IReadOnlyList<(uint Position, uint Packed)> entries) =>
+        InWorld(s => s.PetSetAction(petGuid, entries));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
     public Action<Op, ulong>? CombatSendObserved { get; set; }
     public void AttackSwing(ulong guid)
@@ -296,6 +310,11 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.CastSpellOnGameObject(spellId, gameObjectGuid); return true; }
         catch { return false; }
+    }
+    public bool CastSpellOnItem(uint spellId, ulong itemGuid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.CastSpellOnItem(spellId, itemGuid); return true; } catch { return false; }
     }
     public void CancelCast(uint spellId) { try { _session?.CancelCast(spellId); } catch { } }
     public void CancelChannelling(uint spellId) { try { _session?.CancelChannelling(spellId); } catch { } }
@@ -349,8 +368,12 @@ public sealed class NetworkClient : IDisposable
         => InWorld(s => s.SendMail(guid, receiver, subject, body, item, money, cod));
     public bool MailTakeMoney(ulong guid, uint id) => InWorld(s => s.MailTakeMoney(guid, id));
     public bool MailTakeItem(ulong guid, uint id) => InWorld(s => s.MailTakeItem(guid, id));
+    public bool MailMarkAsRead(ulong guid, uint id) => InWorld(s => s.MailMarkAsRead(guid, id));
     public bool MailReturn(ulong guid, uint id) => InWorld(s => s.MailReturn(guid, id));
     public bool MailDelete(ulong guid, uint id) => InWorld(s => s.MailDelete(guid, id));
+    public bool MailCreateTextItem(ulong guid, uint id) => InWorld(s => s.MailCreateTextItem(guid, id));
+    public bool ItemTextQuery(uint textId, uint mailId) => InWorld(s => s.ItemTextQuery(textId, mailId));
+    public bool QueryNextMailTime() => InWorld(s => s.QueryNextMailTime());
     public bool AuctionHello(ulong guid) => InWorld(s => s.AuctionHello(guid));
     public bool AuctionBrowse(ulong guid, uint page, string search, uint itemClass = uint.MaxValue) =>
         InWorld(s => s.AuctionBrowse(guid, page, search, itemClass));
@@ -395,9 +418,12 @@ public sealed class NetworkClient : IDisposable
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
+    public bool SetAmmo(uint entry) => InWorld(s => s.SetAmmo(entry));
     public bool SwapInventoryItems(byte sourceSlot, byte destinationSlot) => InWorld(s => s.SwapInventoryItems(sourceSlot, destinationSlot));
     public bool SwapItems(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
         InWorld(s => s.SwapItems(destinationBag, destinationSlot, sourceBag, sourceSlot));
+    public bool SplitItem(byte sourceBag, byte sourceSlot, byte destinationBag, byte destinationSlot,
+        byte count) => InWorld(s => s.SplitItem(sourceBag, sourceSlot, destinationBag, destinationSlot, count));
     public void NameQuery(ulong guid) { try { _session?.NameQuery(guid); } catch { } }
     public bool FriendList() => InWorld(s => s.FriendList());
     public bool AddFriend(string name) => InWorld(s => s.AddFriend(name));
@@ -406,6 +432,9 @@ public sealed class NetworkClient : IDisposable
     public bool AddIgnore(string name) => InWorld(s => s.AddIgnore(name));
     public bool DeleteIgnore(ulong guid) => InWorld(s => s.DeleteIgnore(guid));
     public bool GroupInvite(string name) => InWorld(s => s.GroupInvite(name));
+    public bool GroupAccept() => InWorld(s => s.GroupAccept());
+    public bool GroupDecline() => InWorld(s => s.GroupDecline());
+    public bool RequestPartyMemberStats(ulong guid) => InWorld(s => s.RequestPartyMemberStats(guid));
     public bool InitiateTrade(ulong guid) => InWorld(s => s.InitiateTrade(guid));
     public bool BeginTrade() => InWorld(s => s.BeginTrade());
     public bool AcceptTrade() => InWorld(s => s.AcceptTrade());
@@ -455,80 +484,92 @@ public sealed class NetworkClient : IDisposable
             _session = WorldSession.Connect(worldHost, worldPort, _account, logon.SessionKey,
                 timeout, _wireObserver, _socketWriteObserver);
 
-            // 3. character enum -> PARK at character select. We do NOT auto-log-in.
-            SetState(NetState.Authenticating, "requesting character list");
-            var chars = _session.CharEnum();
-            Characters = chars;
-
-            ulong wanted = 0;
-            // Dev fast path only: if the config names a character, skip the screen (benilla's WOW_CHAR).
-            if (!string.IsNullOrWhiteSpace(_cfg.CharacterName))
-                wanted = chars.FirstOrDefault(c =>
-                    string.Equals(c.Name, _cfg.CharacterName, StringComparison.OrdinalIgnoreCase))?.Guid ?? 0;
-
-            if (wanted == 0)
+            // 3-5 repeat on the same authenticated world socket. SMSG_LOGOUT_COMPLETE ends one
+            // character session, not the account session: refresh the roster, park again, and let
+            // the player choose another character without inventing a reconnect.
+            bool allowConfiguredFastPath = true;
+            while (_running)
             {
-                // Park at character select. The app may pick a character to enter the world, or fire a
-                // CREATE while still parked (benilla runs both over the pick channel). A create is
-                // serviced here on the worker: send CMSG_CHAR_CREATE, wait for the result, and on
-                // success re-enum so the new row appears - then stay parked for the next action.
-                while (true)
+                SetState(NetState.Authenticating, "requesting character list");
+                var chars = _session.CharEnum();
+                Characters = chars;
+
+                ulong wanted = 0;
+                // Dev fast path is consumed once. A deliberate logout must show character select,
+                // never bounce straight back into the configured character.
+                if (allowConfiguredFastPath && !string.IsNullOrWhiteSpace(_cfg.CharacterName))
+                    wanted = chars.FirstOrDefault(c =>
+                        string.Equals(c.Name, _cfg.CharacterName, StringComparison.OrdinalIgnoreCase))?.Guid ?? 0;
+                allowConfiguredFastPath = false;
+
+                if (wanted == 0)
                 {
-                    SetState(NetState.CharacterSelect,
-                        chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
-                    _pick.Reset();
-                    _pick.Wait();                 // parked until SelectCharacter / CreateCharacter / Stop
-                    if (!_running) return;
-
-                    ParkReq req = _parkReq;
-                    _parkReq = ParkReq.None;
-                    if (req == ParkReq.Create)
+                    // Park at character select. Create/delete are serviced on this worker so their
+                    // reply and the refreshed roster stay ordered on the socket.
+                    while (true)
                     {
-                        CharCreateParams create;
-                        lock (_createLock) create = _pendingCreate;
-                        SetState(NetState.CharacterSelect, $"creating {create.Name}...");
-                        byte code = _session.CreateCharacter(create);
-                        if (code == 0x2E)                 // CHAR_CREATE_SUCCESS: refresh the roster first
-                        {
-                            chars = _session.CharEnum();
-                            Characters = chars;
-                        }
-                        lock (_createLock) _createResult = code;   // publish AFTER the roster is fresh
-                        continue;                         // stay parked for the next pick/create
-                    }
-                    if (req == ParkReq.Delete)
-                    {
-                        ulong doomed;
-                        lock (_createLock) doomed = _pendingDelete;
-                        SetState(NetState.CharacterSelect, "deleting character...");
-                        byte code = _session.DeleteCharacter(doomed);
-                        if (code == 0x39)                 // CHAR_DELETE_SUCCESS: refresh the roster
-                        {
-                            chars = _session.CharEnum();
-                            Characters = chars;
-                        }
-                        lock (_createLock) _deleteResult = code;
-                        continue;                         // stay parked
-                    }
+                        SetState(NetState.CharacterSelect,
+                            chars.Count == 0 ? "no characters on this account" : $"character select - {chars.Count} character(s)");
+                        _pickGuid = 0;
+                        _pick.Reset();
+                        _pick.Wait();
+                        if (!_running) return;
 
-                    wanted = _pickGuid;
-                    if (wanted != 0) break;
+                        ParkReq req = _parkReq;
+                        _parkReq = ParkReq.None;
+                        if (req == ParkReq.Create)
+                        {
+                            CharCreateParams create;
+                            lock (_createLock) create = _pendingCreate;
+                            SetState(NetState.CharacterSelect, $"creating {create.Name}...");
+                            byte code = _session.CreateCharacter(create);
+                            if (code == 0x2E)
+                            {
+                                chars = _session.CharEnum();
+                                Characters = chars;
+                            }
+                            lock (_createLock) _createResult = code;
+                            continue;
+                        }
+                        if (req == ParkReq.Delete)
+                        {
+                            ulong doomed;
+                            lock (_createLock) doomed = _pendingDelete;
+                            SetState(NetState.CharacterSelect, "deleting character...");
+                            byte code = _session.DeleteCharacter(doomed);
+                            if (code == 0x39)
+                            {
+                                chars = _session.CharEnum();
+                                Characters = chars;
+                            }
+                            lock (_createLock) _deleteResult = code;
+                            continue;
+                        }
+
+                        wanted = _pickGuid;
+                        if (req == ParkReq.Enter && wanted != 0) break;
+                    }
                 }
+
+                Character? pick = chars.FirstOrDefault(c => c.Guid == wanted);
+                if (pick is null) { Fail("selected character not found in roster"); return; }
+                Player = pick;
+                PlayerGuid = pick.Guid;
+                PlayerName = pick.Name;
+
+                SetState(NetState.EnteringWorld, $"entering world as {pick.Name} (L{pick.Level})");
+                _session.PlayerLogin(pick.Guid);
+                _session.SetActiveMover(pick.Guid);
+
+                // LOGIN_VERIFY_WORLD flips us to InWorld. A clean logout returns true and loops
+                // back through CharEnum; socket failure still escapes through the outer catch.
+                if (!ReadLoop()) return;
+                Player = null;
+                PlayerGuid = 0;
+                PlayerName = "";
+                _pickGuid = 0;
+                _parkReq = ParkReq.None;
             }
-
-            Character? pick = chars.FirstOrDefault(c => c.Guid == wanted);
-            if (pick is null) { Fail("selected character not found in roster"); return; }
-            Player = pick;
-            PlayerGuid = pick.Guid;
-            PlayerName = pick.Name;
-
-            // 4. enter world.
-            SetState(NetState.EnteringWorld, $"entering world as {pick.Name} (L{pick.Level})");
-            _session.PlayerLogin(pick.Guid);
-            _session.SetActiveMover(pick.Guid);
-
-            // 5. stream. LOGIN_VERIFY_WORLD flips us to InWorld; everything else is queued for the app.
-            ReadLoop();
         }
         catch (Exception ex) when (_running)
         {
@@ -548,12 +589,14 @@ public sealed class NetworkClient : IDisposable
         }
     }
 
-    private void ReadLoop()
+    /// <returns>True only for a clean SMSG_LOGOUT_COMPLETE boundary.</returns>
+    private bool ReadLoop()
     {
         var session = _session!;
         while (_running)
         {
             (ushort opcode, byte[] body) = session.ReceivePacket();
+            bool logoutComplete = false;
             switch ((Op)opcode)
             {
                 case Op.SMSG_LOGIN_VERIFY_WORLD:
@@ -588,12 +631,17 @@ public sealed class NetworkClient : IDisposable
                         }
                         break;
                     }
+                case Op.SMSG_LOGOUT_COMPLETE:
+                    logoutComplete = true;
+                    break;
             }
             _inbound.Enqueue((opcode, body, Stopwatch.GetTimestamp()));
 
             // Keep the queue from growing without bound if the app stops draining.
             while (_inbound.Count > 4096 && _inbound.TryDequeue(out _)) { }
+            if (logoutComplete) return true;
         }
+        return false;
     }
 
     private void StartPing()

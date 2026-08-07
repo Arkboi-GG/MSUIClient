@@ -38,6 +38,9 @@ public sealed class ItemTemplate
     public uint Material;
     public uint Sheath;
     public byte UseSpellIndex;
+    public uint UseSpellId;
+    public uint UseSpellCategory;
+    public uint BagFamily;
 
     public static ItemTemplate? Parse(byte[] body)
     {
@@ -88,10 +91,12 @@ public sealed class ItemTemplate
         {
             uint spell = r.ReadU32();
             uint trigger = r.ReadU32();
-            r.ReadI32(); r.ReadI32(); r.ReadU32(); r.ReadI32();
+            r.ReadI32(); r.ReadI32(); uint category = r.ReadU32(); r.ReadI32();
             if (spell != 0 && trigger == 0 && !foundUseSpell)
             {
                 item.UseSpellIndex = block;
+                item.UseSpellId = spell;
+                item.UseSpellCategory = category;
                 foundUseSpell = true;
             }
         }
@@ -100,6 +105,13 @@ public sealed class ItemTemplate
         r.Skip(5 * 4);              // page text/language/page material/start quest/lock
         item.Material = r.ReadU32();
         item.Sheath = r.ReadU32();
+        r.ReadU32();                 // random property
+        r.ReadU32();                 // block
+        r.ReadU32();                 // item set
+        r.ReadU32();                 // max durability
+        r.ReadU32();                 // area
+        r.ReadU32();                 // map
+        item.BagFamily = r.ReadU32();
         return item;
     }
 }

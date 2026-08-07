@@ -113,6 +113,21 @@ public static class SpellMeshSkinningLaw
     }
 
     /// <summary>
+    /// A/B gate for non-mesh consumers of the billboard palette. Disabled is a strict no-op:
+    /// callers may pass their live palette without copying it and receive the current production
+    /// particle/ribbon behavior byte-for-byte. The inspector keeps this false by default while
+    /// the candidate path is validated against ward and known-good spell fixtures.
+    /// </summary>
+    public static void ApplyBillboardBonesIfEnabled(bool enabled, M2Model model,
+        Matrix4x4 modelTransform, Vector3 cameraWorld, Vector3 cameraForwardWorld,
+        int boneCount, Matrix4x4[] skin)
+    {
+        if (!enabled) return;
+        ApplyBillboardBones(model, modelTransform, cameraWorld, cameraForwardWorld,
+            boneCount, skin);
+    }
+
+    /// <summary>
     /// Rewrite billboard/ignore-parent-rotation joint globals, then fold each
     /// pivot back into the skin palette. Descendants are evaluated in a real
     /// parents-before-children order even if a malformed/synthetic model stores

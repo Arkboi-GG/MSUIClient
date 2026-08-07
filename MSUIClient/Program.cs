@@ -4,6 +4,7 @@ using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.Player;
@@ -339,6 +340,7 @@ public static partial class Program
         config.Window.Width = Math.Clamp(settings.Display.WindowWidth, 640, 7680);
         config.Window.Height = Math.Clamp(settings.Display.WindowHeight, 480, 4320);
         config.Window.VSync = settings.Display.VSync;
+        config.Window.Fullscreen = settings.Display.Fullscreen;
         config.Window.UiScale = Math.Clamp(settings.Display.UiScale, 0.5f, 4f);
 
         config.Render.MsaaSamples = Math.Clamp(settings.Display.MsaaSamples, 1, 16);
@@ -379,6 +381,9 @@ public sealed partial class GameLoop : IDisposable
 
     private TerrainRenderer? _terrain;
     private CharacterController? _controller;
+    private bool _movementRooted;
+    private bool _iceBlockFrozen;
+    private float _iceBlockFacing;
     private CollisionWorld? _collision;
     private VmapCollisionLoader? _vmaps;
     private MpqMount? _mpq;
@@ -817,7 +822,9 @@ public sealed partial class GameLoop : IDisposable
         // Networked mode stays stateless (no world, no character) until SMSG_LOGIN_VERIFY_WORLD
         // assigns a spawn point; PumpNet then sets _config.Start and calls BeginWorldLoad.
         InitNet(gl);
-        if (!_config.Server.Enabled)
+        // Interactive serverless boots sit at the glue front door (mode select +
+        // Enter World); only batch instruments still load the world immediately.
+        if (!_config.Server.Enabled && !GlueFrontDoorActive)
             BeginWorldLoad(gl);
     }
 
@@ -1371,7 +1378,9 @@ public sealed partial class GameLoop : IDisposable
         SnapshotLoadUnitsBeforePump();
         long loadNetStarted = Stopwatch.GetTimestamp();
         PumpNet(dt); // Phase 2 networking pump (no-op unless server.enabled)
+        UpdateMail(dt);
         _loadNetPumpMilliseconds = Stopwatch.GetElapsedTime(loadNetStarted).TotalMilliseconds;
+        UpdateIceBlockFreezeState();
         _character?.PumpAppearanceUpdate();
         // Live protocols must own their wall-clock before world entry as well as
         // in game. Keeping this below the world-ready guard made a bad realm or
@@ -1403,6 +1412,9 @@ public sealed partial class GameLoop : IDisposable
 
         // Networked: stay stateless (no world/character) until login assigns a spawn point.
         if (_config.Server.Enabled && !_worldLoadStarted) return;
+
+        // Glue front door: equally stateless until Enter World arms the load.
+        if (GlueFrontDoorActive) return;
 
         if (_movementSuiteOptions is not null)
         {
@@ -1486,11 +1498,15 @@ public sealed partial class GameLoop : IDisposable
         // menu, and quitting is a button inside it. See Program.Settings.cs.
         UpdateSettingsInput();
 
-        // Ignore keyboard input while ImGui owns the keyboard (typing in a text
-        // field such as the vantage name), so it does not turn/strafe/jump the
-        // player - and equally while the settings modal is up, or you walk into a
-        // lake while dragging a slider.
-        bool typing = ImGui.GetIO().WantCaptureKeyboard || _settingsOpen;
+        // A focused action button also sets WantCaptureKeyboard. Treating that broad flag as
+        // "typing" zeroed movement for one frame whenever an action was mouse-clicked, making
+        // Run switch to Stand and immediately back to Run. Only real text entry and explicit
+        // modal/key-capture states own gameplay movement.
+        bool typing = GameplayInputLaw.BlocksMovement(
+            ImGui.GetIO().WantCaptureKeyboard,
+            ImGui.GetIO().WantTextInput,
+            _settingsOpen,
+            _bindingCapture is not null);
         UpdateSpellFxInspectorInput(typing);
         UpdateActionBarInput(typing);
         UpdateInventoryInput(typing);
@@ -1584,6 +1600,23 @@ public sealed partial class GameLoop : IDisposable
         OverrideMovementInput(ref forward, ref strafe, ref turn, ref shift, ref scriptedJump);
         ApplyTaxiInputLockout(ref forward, ref strafe, ref turn, ref scriptedJump);
 
+        // Root and Ice Block are intentionally separate. A normal root removes translation and
+        // jump while leaving turning/casting live. Ice Block additionally freezes facing and the
+        // character pose; its aura state owns that stronger gate below.
+        if (_movementRooted)
+        {
+            forward = 0f;
+            strafe = 0f;
+            scriptedJump = false;
+        }
+        if (_iceBlockFrozen)
+        {
+            forward = 0f;
+            strafe = 0f;
+            turn = 0f;
+            scriptedJump = false;
+        }
+
         // TURNING IS SLOWER WHILE YOU ARE MOVING, and that is not a detail. The
         // reference turns at 180 deg/s planted and three quarters of that once
         // you are translating, which is why running a tight circle in vanilla
@@ -1605,16 +1638,17 @@ public sealed partial class GameLoop : IDisposable
         // it needs to know what was pressed and whether the aim is being steered.
         _moveForward = forward;
         _moveStrafe = strafe;
-        _steering = turn != 0f || mouseSteering;
+        _steering = !_iceBlockFrozen && (turn != 0f || mouseSteering);
 
         var input = new MovementInput
         {
             Forward = forward,
             Strafe = strafe,
-            Up = typing ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
+            Up = typing || _movementRooted || _iceBlockFrozen ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
                                 (_window.IsDown(Key.ControlLeft) ? 1f : 0f)),
-            Yaw = _window.Camera.Yaw,
-            Jump = _movementScript is not null ? scriptedJump : !typing && BindingDown(GameBinding.Jump),
+            Yaw = _iceBlockFrozen ? _iceBlockFacing : _window.Camera.Yaw,
+            Jump = !_movementRooted && !_iceBlockFrozen && (_movementScript is not null
+                ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
             Walking = (_walkToggled || shift) && !_controller.Flying,
             Boost = shift && _controller.Flying,
         };
@@ -1723,6 +1757,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateTargeting();
         UpdateCombatFeedback(dt);
         UpdateSpellPresentation();
+        UpdateCreatorSpellLoop();
 
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
@@ -1888,6 +1923,7 @@ public sealed partial class GameLoop : IDisposable
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
         Engaged = _net is not null && _combat.IsEngaged(_net.PlayerGuid),
+        FreezePose = _iceBlockFrozen,
 
         Forward = _moveForward,
         Strafe = _moveStrafe,
@@ -2086,7 +2122,8 @@ public sealed partial class GameLoop : IDisposable
         {
             var eye = _window.Camera.Position;
             _spellParticles.Simulate(dt, eye, _spellEffects.EmitterInstances(
-                spellNow, SpellEffectUnitPose), SpellParticleGroundHeight);
+                spellNow, SpellEffectUnitPose, _spellFxBillboardJointPoseB,
+                eye, _window.Camera.Forward), SpellParticleGroundHeight);
         }
 
         long spellEffectStarted = Stopwatch.GetTimestamp();
@@ -2110,7 +2147,7 @@ public sealed partial class GameLoop : IDisposable
         }
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
-                spellNow, SpellEffectUnitPose));
+                spellNow, SpellEffectUnitPose), _spellFxBillboardJointPoseB);
         _spellEffectRenderMilliseconds = Stopwatch.GetElapsedTime(spellEffectStarted).TotalMilliseconds;
 
         // Transparent particles are simulated after the unit draws have
@@ -2409,11 +2446,21 @@ public sealed partial class GameLoop : IDisposable
         // A modal DIALOG frame owns the foreground. Do not submit developer windows
         // behind its translucent backdrop; vanilla shows the world, not diagnostics,
         // through UI-DialogBox-Background.
+        if (LogoutUiActive)
+        {
+            DrawLogoutModal();
+            return;
+        }
         if (SettingsModalOpen || _escapePressed)
         {
             DrawSettingsModal();
             return;
         }
+
+        // Creator mode replaces the whole developer instrument stack with its own
+        // menus (drawn from NetHud) - the dev overlay never shows in the sandbox,
+        // and no mode shows it over the glue front door.
+        if (_creatorWorldRequested || CreatorLaunchActive || GlueFrontDoorActive) return;
 
         // Master dev-tooling switch (FOUNDATION_PLAN.md section 12): the whole
         // in-game overlay is developer tooling and is skipped in a release build.
@@ -2950,6 +2997,10 @@ public sealed partial class GameLoop : IDisposable
 
                 ImGui.Text($"  strafe angle {_character.MoveYawDegrees,5:F0} deg" +
                            (_character.TwistBone < 0 ? "   HIP BONE NOT FOUND" : ""));
+
+                float chaseRate = _character.StationaryChaseRate;
+                if (ImGui.SliderFloat("Turn: release catch-up rate", ref chaseRate, 0.25f, 2f))
+                    _character.StationaryChaseRate = chaseRate;
 
                 // Isolates the mechanism from the trigger. Stand still and drag.
                 float force = _character.ForceAngleDegrees;

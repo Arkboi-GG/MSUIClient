@@ -13,8 +13,13 @@ public sealed partial class GameLoop
     private PortraitRenderTarget? _playerPortrait;
     private PortraitRenderTarget? _targetPortrait;
     private PortraitRenderTarget? _paperDoll;
+    private PortraitRenderTarget? _inspectPaperDoll;
     private bool _playerPortraitDirty = true;
     private bool _paperDollDirty = true;
+    private bool _inspectPaperDollDirty = true;
+    private bool _inspectPaperDollUsable;
+    private ulong _inspectPaperDollGuid;
+    private ulong _inspectPaperDollAppearance;
     private bool _playerPortraitUsable;
     private bool _targetPortraitUsable;
     private bool _playerPortraitFailureDumped;
@@ -38,16 +43,19 @@ public sealed partial class GameLoop
             _playerPortrait = new PortraitRenderTarget(gl);
             _targetPortrait = new PortraitRenderTarget(gl);
             _paperDoll = new PortraitRenderTarget(gl, 466, 448);
+            _inspectPaperDoll = new PortraitRenderTarget(gl, 466, 600);
         }
         catch (Exception ex)
         {
             _playerPortrait?.Dispose();
             _targetPortrait?.Dispose();
             _paperDoll?.Dispose();
+            _inspectPaperDoll?.Dispose();
             _labPortrait?.Dispose();
             _playerPortrait = null;
             _targetPortrait = null;
             _paperDoll = null;
+            _inspectPaperDoll = null;
             _labPortrait = null;
             Console.WriteLine($"[portrait] render targets unavailable: {ex.Message}");
         }
@@ -209,6 +217,45 @@ public sealed partial class GameLoop
             camera.AspectRatio = 233f / 224f;
             WithPortraitLighting(() => _paperDoll.Bake(() => _character.Render(camera, state), transparent: true));
             _paperDollDirty = false;
+        }
+
+        if (_inspectOpen && _inspectPaperDoll is not null && _creatures is not null &&
+            _entities.TryGet(_inspectGuid, out WorldEntity inspected) && inspected.IsPlayer)
+        {
+            ulong appearance = unchecked((ulong)(uint)inspected.DisplayId + 1469598103934665603ul);
+            for (int slot = 0; slot < 19; slot++)
+                appearance = unchecked((appearance ^ inspected.Fields.PlayerVisibleItemEntry(slot)) *
+                    1099511628211ul);
+            if (_inspectPaperDollGuid != inspected.Guid ||
+                _inspectPaperDollAppearance != appearance)
+            {
+                _inspectPaperDollDirty = true;
+                _inspectPaperDollUsable = false;
+            }
+
+            if (_inspectPaperDollDirty &&
+                _creatures.TryGetPortraitFraming(inspected, out CreatureRenderer.PortraitFraming framing))
+            {
+                const float fov = 43f;
+                float window = MathF.Max(.75f, framing.Height * 1.10f);
+                float distance = (window * .5f) / MathF.Tan(fov * .5f * MathF.PI / 180f);
+                Camera camera = PortraitCamera(inspected.Position,
+                    inspected.Orientation + _inspectRotation, framing.Height * .52f, distance);
+                camera.FieldOfViewDegrees = fov;
+                camera.AspectRatio = 233f / 300f;
+                camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
+                bool drawn = false;
+                _inspectPaperDoll.Bake(
+                    () => drawn = _creatures.RenderPortrait(camera, inspected), transparent: true);
+                PortraitRenderTarget.ReadbackStats stats = _inspectPaperDoll.Analyze();
+                _inspectPaperDollUsable = drawn && stats.HasSubject;
+                if (_inspectPaperDollUsable)
+                {
+                    _inspectPaperDollDirty = false;
+                    _inspectPaperDollGuid = inspected.Guid;
+                    _inspectPaperDollAppearance = appearance;
+                }
+            }
         }
 
         if (_targetPortrait is null || _creatures is null || _selectionGuid == 0 ||
@@ -533,10 +580,12 @@ public sealed partial class GameLoop
         _playerPortrait?.Dispose();
         _targetPortrait?.Dispose();
         _paperDoll?.Dispose();
+        _inspectPaperDoll?.Dispose();
         _labPortrait?.Dispose();
         _playerPortrait = null;
         _targetPortrait = null;
         _paperDoll = null;
+        _inspectPaperDoll = null;
         _labPortrait = null;
     }
 }

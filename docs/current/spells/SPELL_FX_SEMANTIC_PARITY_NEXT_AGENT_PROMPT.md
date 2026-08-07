@@ -1,9 +1,14 @@
 # Spell FX semantic parity — current-state next-agent prompt
 
-Prepared: 2026-08-04
+Prepared: 2026-08-04; current-session addendum: 2026-08-06
 Repository: `C:\Users\nico\source\repos\MSUIClient`  
 Authority target: original World of Warcraft 1.12.1 client, build 5875  
 Immediate next slice: **D-001, WMO-floor decal projection and proven no-surface behavior**
+
+Before working this prompt, read
+`docs/current/project-context/SPELLS_CHARACTER_HANDOFF_2026-08-06.md`. It records the later ward,
+spell-behavior, aura/cooldown, and character-animation fixes and the regression boundaries that
+must not be disturbed by D-001.
 
 ## Assignment
 
@@ -34,7 +39,7 @@ The executable guard for the first rule is `SpellParticleTrailLaw.CullBackFaces 
 `tools/spell-particle-motion-check`. That check also proves the tail fixture's winding is opposite the head
 fixture. Do not remove the renderer state as “redundant” merely because head particles remain visible.
 
-M-017 is now `STATIC/DATA_COMPLETE`: the production skinning contract, 83,681-check validator, complete
+M-017 is now `STATIC/DATA_COMPLETE`: the production skinning contract, 84,393-check validator, complete
 mounted census, Rake/Undying/Arcane Shot fixtures, inverse-transpose normal correction, and neighboring
 regressions pass. Do not redo it blindly; mesh-only MSUI/original captures remain evidence work, not an open
 implementation law.
@@ -90,7 +95,7 @@ Known limits of the reference comparison:
 
 | Lane | Current status | What is closed | What is still open |
 |---|---|---|---|
-| Animation selection, clocks, lifecycle, M2 sound markers | `STATIC/DATA_COMPLETE` | One exact sequence slot is shared by rig/material/particle/ribbon consumers; bit 0 clamp/loop semantics; monotonic instance age; global clocks; self-termination; cast-hold ownership; `$SND/$DSL/$DSO`; 5,788-check mounted audit. | Matched original timing, persistent clamp presentation, sound mix, and spatialization. |
+| Animation selection, clocks, lifecycle, M2 sound markers | `STATIC/DATA_COMPLETE` | One exact sequence slot is shared by rig/material/particle/ribbon consumers; bit 0 clamp/loop semantics; monotonic instance age; global clocks; self-termination; cast-hold ownership; `$SND/$DSL/$DSO`; 5,810-check mounted audit. | Matched original timing, persistent clamp presentation, sound mix, and spatialization. |
 | Ordinary particle root/bone/cloud frame | `STATIC_FOUND` + Blizzard `CAPTURED` | Bone composes birth once; root translation carries hosted/area clouds; free missiles retain world history; host attachment rotation is independent; Blizzard's angled shards and tails plus Fireball/Frostbolt trails were user-validated after correction. | Recorded numeric live trace, a second animated-bone asset, and matched original-client captures. |
 | Special particles `0x10`, `0x40`, `0x4000` | `STATIC/DATA_COMPLETE` | Full live joint/root TRS; model-space round trip; follow response; strict 30 Hz inherit gate/hold; shared 100 ms simulation clamp; 61-check mounted audit. | Isolated live runtime traces and matched original pixels for the pinned fixtures. |
 | Missile release/root/history/impact | `STATIC/DATA_COMPLETE` + Fireball/Frostbolt `CAPTURED` | Release event/fallback/backstop, actual-launch clock, fixed GO-time deadline, raw-dt homing, parsed flight basis, no-tag fallback, free-missile world-history cloud, impact ordering; 53-check audit. | Matched recorded original/MSUI captures; Arcane Shot/markerless/close-range captures; original interception and miss-deflection behavior. |
@@ -99,7 +104,7 @@ Known limits of the reference comparison:
 | DynamicObject/type-9 persistent areas | `REFERENCE_LIMITED` with mounted static/data audit complete | All 8 type-9 rows, 7 literal assets, distribution/rate/update/despawn ownership, one-shot shard lifetimes; 100,104 checks. | Exact original random/birth phase and impact-sound trigger instant; second original comparison spell. |
 | Ground-target radius selection | `REFERENCE_LIMITED` with mounted static/data audit complete | All populated effect lanes, 24-row radius table, 218 location-target rows, maximum-positive rule, explicit 8-yard zero fallback; 779 checks. | Original mixed-radius and zero-radius presentation rule; exact marker texture/orientation/animation. |
 | Geometry-model particles and recursive child pools | `STATIC_IMPLEMENTED` + `ASSET_CONFIRMED` | Code paths, tumble, child ownership/drain, 55 geometry and 13 recursion references resolved in the recorded census. | Lane-isolated runtime trace/captures and original comparison. Blizzard is not a fixture for either branch. |
-| Effect mesh skinning | `STATIC/DATA_COMPLETE` for M-017 | Four-weight/nonzero-pivot/hierarchy/scale/normal/billboard/root-camera/packing laws; 83,681-check validator; full referenced mounted census. | Mesh-only MSUI trace and matched original pixels. |
+| Effect mesh skinning | `STATIC/DATA_COMPLETE` for M-017 | Four-weight/nonzero-pivot/hierarchy/scale/normal/billboard/root-camera/packing laws; 84,393-check validator; full referenced mounted census. | Mesh-only MSUI trace and matched original pixels. |
 | Effect mesh/ribbon/particle fog, depth, blend, alpha, lighting | `STATIC_IMPLEMENTED` | Static changes exist for fog/far clip, unfogged/no-depth-test flags, blend classes, alpha-key cutoff, authored lighting, ramp/value-zero semantics, and faint-alpha discard removal. | Controlled numeric fragment/framebuffer evidence and matched original pixels. |
 | Billboard hierarchy | `CAPTURED` for the recorded Frost Armor basis fix only | One multi-angle fixture exposed and fixed a basis error. | Full axis-flag matrix, child propagation, and original comparison. |
 | Terrain ground decal | `CAPTURED` for terrain only | Frost Nova terrain clipping/projection was observed. | WMO floors and repeated sloped fixtures. |
@@ -120,7 +125,7 @@ Known limits of the reference comparison:
 - Every new cast start releases the prior cast/channel hold even if the new spell has no visual; aura state is
   separately owned.
 - M2 `$SND`, `$DSL`, and `$DSO` events reach the spatial spell-audio path on crossed keyframes.
-- `tools/spell-animation-lifecycle-check`: `PASS (5,788 checks)`. Mounted corpus: 599 referenced paths,
+- `tools/spell-animation-lifecycle-check`: `PASS (5,810 checks)`. Mounted corpus: 599 referenced paths,
   555 resolved, 44 missing/stale, 157 multi-sequence, 339 with global sequences, 409 authored loop-decision
   corrections, 42 missile fallbacks, 579 exact rig-sequence probes, and 10 sound-marker models.
 
@@ -136,8 +141,9 @@ Known limits of the reference comparison:
   authored tails of 1.7/1.2 seconds; visible shards do not prove those tail quads survived rasterization.
 - Follow `0x4000` and inherit `0x40` consume the shared `min(dt, 0.1)` simulation step. Inherit uses strict
   `> 1/30 s`, current-frame delta, an already-live-pool gate, and sample-and-hold behavior.
-- `tools/spell-frame-law-check`: passes moving-bone, moving-root, and attachment-rotation invariants.
-- `tools/spell-particle-motion-check`: `PASS (80 checks)`. Mounted corpus: 9,717 listed M2 paths, 9,654
+- `tools/spell-frame-law-check`: passes moving-bone, moving-root, attachment-rotation, gameplay-input,
+  cooldown-presentation, and stationary-turn invariants.
+- `tools/spell-particle-motion-check`: `PASS (100 checks)`. Mounted corpus: 9,717 listed M2 paths, 9,654
   parsed, 7,860 emitters, 2,550 special records, 2,391 model-space, 124 inherit, 96 follow; 599 referenced
   effect paths include 505 model-space, 61 inherit, and 20 follow records. There are 115 special records
   beneath scale-animated chains, including 52 spell records.

@@ -86,7 +86,7 @@ public sealed partial class GameLoop
     private string _boxId = "";
 
     /// <summary>True while the menu owns input. Read by Update to stop the player walking.</summary>
-    public bool SettingsModalOpen => _settingsOpen;
+    public bool SettingsModalOpen => _settingsOpen || LogoutUiActive;
 
     private GameSettings Settings => SettingsFile?.Settings ?? _fallbackSettings;
     private readonly GameSettings _fallbackSettings = GameSettings.Defaults();
@@ -137,7 +137,10 @@ public sealed partial class GameLoop
         {
             // 1.12 Escape order: stop casting first, then close open panels (the loot
             // window), and only then open the game menu.
-            if (!TryCancelSpellOnEscape() && !TryCloseLootOnEscape() && !TryClosePlayerPanelOnEscape())
+            if (!TryCancelLogoutOnEscape() && !TryDismissPartyInviteOnEscape() &&
+                !TryDismissMailConfirmationOnEscape() &&
+                !TryDismissEnchantConfirmationOnEscape() && !TryCancelSpellOnEscape() &&
+                !TryCloseLootOnEscape() && !TryClosePlayerPanelOnEscape())
                 _escapePressed = true;
         }
         _escapeKeyDown = escape;
@@ -153,8 +156,9 @@ public sealed partial class GameLoop
             _bindingSnapshot = null; _keybindingsOpen = false; return true;
         }
         if (_tradeOpen) { _net?.CancelTrade(); ResetTrade(); return true; }
+        if (_inspectOpen) { CloseInspect(playSound: true); return true; }
         if (_auctionOpen) { ResetAuction(); return true; }
-        if (_mailOpen) { ResetMail(); return true; }
+        if (_mailOpen) { CloseMailSession(); return true; }
         if (_gossipMenu is not null || _gossipText is not null) { ResetGossip(); return true; }
         if (_vendor is not null) { _vendor = null; return true; }
         if (_trainer is not null) { _trainer = null; return true; }
@@ -172,7 +176,7 @@ public sealed partial class GameLoop
         if (_questLogOpen) { _questLogOpen = false; return true; }
         if (_spellbookOpen) { _spellbookOpen = false; return true; }
         if (_characterOpen) { _characterOpen = false; return true; }
-        if (_backpackOpen) { _backpackOpen = false; return true; }
+        if (CloseAllBagWindows()) return true;
         return false;
     }
 
@@ -184,6 +188,7 @@ public sealed partial class GameLoop
         _settingsPopupRequested = true;
         _menuPage = MenuPage.GameMenu;
         _settingsStatus = "";
+        PlayUiSound("igMainMenuOpen");
     }
 
     // ── the frame ────────────────────────────────────────────────────────────
@@ -348,6 +353,7 @@ public sealed partial class GameLoop
 
         _settingsOpen = false;
         ImGui.CloseCurrentPopup();
+        PlayUiSound("igMainMenuClose");
 
         if (!_settingsCancelling) CommitSettings();
         _settingsCancelling = false;
@@ -399,27 +405,28 @@ public sealed partial class GameLoop
         }
 
         Row("GameMenuButtonOptions", "Video Options", 26.5f, "CENTER", "", "TOP", "-37",
-            true, () => Go(MenuPage.Video));
+            true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Video); });
         Row("GameMenuButtonSoundOptions", "Sound Options", 48.5f, "TOP", "GameMenuButtonOptions", "BOTTOM", "-1",
             false, () => { },
             "There is no sound subsystem yet - this button exists so the menu does\n" +
             "not change shape when there is.");
         Row("GameMenuButtonUIOptions", "Interface Options", 70.5f, "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
-            true, () => Go(MenuPage.Controls));
+            true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Controls); });
         Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
-            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();OpenKeybindings(); });
+            true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenKeybindings(); });
         Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
-            true, () => { _settingsOpen=false;ImGui.CloseCurrentPopup();OpenMacros(); });
+            true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenMacros(); });
         Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
-            false, () => { }, "Character logout is not built yet.");
+            _net is { IsInWorld: true } && !LogoutUiActive, () => RequestLogout(quitting: false));
 
         // NOT _window.Close() - that runs the whole teardown synchronously and
         // the rest of this ImGui frame then draws into freed memory. Flag it and
         // let Update act between frames. See ConsumeQuitRequest.
         Row("GameMenuButtonQuit", "Exit Game", 158.5f, "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
-            true, () => _quitRequested = true);
+            !LogoutUiActive, () => RequestLogout(quitting: true));
         Row("GameMenuButtonContinue", "Return to Game", 195.5f, "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
         {
+            PlayUiSound("igMainMenuContinue");
             CommitSettings();
             _settingsOpen = false;
             ImGui.CloseCurrentPopup();
@@ -513,6 +520,10 @@ public sealed partial class GameLoop
 
             BeginBox("display", "Display");
             {
+                Check("Fullscreen", () => s.Display.Fullscreen,
+                    v => { s.Display.Fullscreen = v; _window.Fullscreen = v; },
+                    "True fullscreen at the desktop resolution. Alt+Enter toggles it any time.");
+
                 Check("VSync", () => s.Display.VSync, v => { s.Display.VSync = v; _window.VSync = v; },
                     "Caps the frame rate to the monitor and stops tearing. Turning it off is a\n" +
                     "DIAGNOSTIC as much as a preference - SYSTEM_STREAMING.md section 5A.17.");
@@ -1412,6 +1423,7 @@ public sealed partial class GameLoop
     private void ApplySettings(GameSettings s)
     {
         _window.VSync = s.Display.VSync;
+        _window.Fullscreen = s.Display.Fullscreen;
         _window.MultisamplingEnabled = s.Display.MultisamplingEnabled;
         if (_skin is not null) _skin.Textured = s.Display.TexturedFrame;
 
@@ -1636,6 +1648,7 @@ public sealed partial class GameLoop
     private void CaptureSettings(GameSettings s)
     {
         s.Display.VSync = _window.VSync;
+        s.Display.Fullscreen = _window.Fullscreen;
         s.Display.MultisamplingEnabled = _window.MultisamplingEnabled;
 
         var cam = _window.Camera;

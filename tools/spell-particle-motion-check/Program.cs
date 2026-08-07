@@ -23,6 +23,22 @@ void Near(float actual, float expected, float epsilon, string message)
 void NearV(Vector3 actual, Vector3 expected, float epsilon, string message)
     => Check(Vector3.Distance(actual, expected) <= epsilon,
         $"{message}: expected {expected}, got {actual}");
+float MatrixDelta(Matrix4x4 a, Matrix4x4 b)
+{
+    float[] av =
+    [
+        a.M11, a.M12, a.M13, a.M14, a.M21, a.M22, a.M23, a.M24,
+        a.M31, a.M32, a.M33, a.M34, a.M41, a.M42, a.M43, a.M44,
+    ];
+    float[] bv =
+    [
+        b.M11, b.M12, b.M13, b.M14, b.M21, b.M22, b.M23, b.M24,
+        b.M31, b.M32, b.M33, b.M34, b.M41, b.M42, b.M43, b.M44,
+    ];
+    float max = 0f;
+    for (int i = 0; i < av.Length; i++) max = MathF.Max(max, MathF.Abs(av[i] - bv[i]));
+    return max;
+}
 
 // Pure frame law: the complete joint scale and rotation survive draw and the inverse fold.
 Near(SpellParticleFrameLaw.SimulationStep(1f / 60f), 1f / 60f, 1e-7f,
@@ -290,6 +306,57 @@ Check(Vector3.Distance(blizzardE1AtBirth, blizzardE1Later) > 5f &&
 Console.WriteLine($"[motion-blizzard-source] e1 {blizzardE1AtBirth} -> {blizzardE1Later}; " +
     $"e2 {blizzardE2AtBirth} -> {blizzardE2Later}; " +
     $"central-velocity e1={blizzardE1Velocity} e2={blizzardE2Velocity}");
+
+// Live source-level ward A/B. The omitted/default argument is the shipping A path and must be
+// identical even when camera inputs are supplied. B changes only the evaluated carrier palette
+// and therefore must respond to camera direction without changing the root attachment transform.
+const string wardPath = @"Spells\FireWard_Impact_Chest.m2";
+var wardSource = new SpellEffectSource(mpq);
+var wardKit = new SpellVisualKitInfo(null, null,
+    [new SpellVisualKitEffect(0x22, wardPath)], []);
+Check(wardSource.SpawnKit(88, 543, wardKit, StageLife.SelfTerminating,
+        200, "WARD_AB") == 1,
+    "Fire Ward A/B fixture did not spawn");
+SpellUnitPose WardPose(ulong _) => new(true, Vector3.Zero, 0,
+    Matrix4x4.Identity, null, null);
+var wardA = wardSource.EmitterInstances(200.2, WardPose)
+    .OrderBy(e => e.EmitterIndex).ToArray();
+var wardAWithCamera = wardSource.EmitterInstances(200.2, WardPose, false,
+        new Vector3(10, -4, 7), Vector3.UnitX)
+    .OrderBy(e => e.EmitterIndex).ToArray();
+var wardBForward = wardSource.EmitterInstances(200.2, WardPose, true,
+        new Vector3(10, -4, 7), Vector3.UnitY)
+    .OrderBy(e => e.EmitterIndex).ToArray();
+var wardBSide = wardSource.EmitterInstances(200.2, WardPose, true,
+        new Vector3(10, -4, 7), Vector3.UnitX)
+    .OrderBy(e => e.EmitterIndex).ToArray();
+Check(wardA.Length == 4 && wardAWithCamera.Length == 4 &&
+      wardBForward.Length == 4 && wardBSide.Length == 4,
+    "Fire Ward A/B emitter fixture drift");
+for (int i = 0; i < wardA.Length; i++)
+{
+    Check(wardA[i].LocalOrigin.HasValue && wardA[i].LocalFrame.HasValue &&
+          wardAWithCamera[i].LocalOrigin.HasValue && wardAWithCamera[i].LocalFrame.HasValue,
+        $"Fire Ward A emitter {i} lost its posed carrier");
+    NearV(wardAWithCamera[i].LocalOrigin!.Value, wardA[i].LocalOrigin!.Value, 0f,
+        $"Fire Ward A camera input moved emitter {i}");
+    Check(MatrixDelta(wardAWithCamera[i].LocalFrame!.Value,
+            wardA[i].LocalFrame!.Value) == 0f,
+        $"Fire Ward A camera input rotated emitter {i}");
+    Check(wardAWithCamera[i].Transform == wardA[i].Transform &&
+          wardBForward[i].Transform == wardA[i].Transform &&
+          wardBSide[i].Transform == wardA[i].Transform,
+        $"Fire Ward A/B changed root attachment transform for emitter {i}");
+}
+Check(wardA.Zip(wardBForward).Any(pair =>
+        Vector3.Distance(pair.First.LocalOrigin!.Value, pair.Second.LocalOrigin!.Value) > 1e-4f ||
+        MatrixDelta(pair.First.LocalFrame!.Value, pair.Second.LocalFrame!.Value) > 1e-4f),
+    "Fire Ward B did not rewrite any live particle carrier");
+Check(wardBForward.Zip(wardBSide).Any(pair =>
+        Vector3.Distance(pair.First.LocalOrigin!.Value, pair.Second.LocalOrigin!.Value) > 1e-4f ||
+        MatrixDelta(pair.First.LocalFrame!.Value, pair.Second.LocalFrame!.Value) > 1e-4f),
+    "Fire Ward B particle carriers did not respond to camera direction");
+Console.WriteLine("[motion-ward-ab] A=no-op B=camera-responsive root-attachment=unchanged");
 
 // The runtime source must expose the complete live joint TRS, not regress to origin+quaternion.
 const string scaledPath = @"Spells\AbolishMagic_Base.m2";

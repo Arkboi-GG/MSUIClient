@@ -169,3 +169,16 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 /NIGHT_07/
 /NIGHT_*/
 /_to_delete/
+
+# Benilla/MSUI clinical parity workspace. Snapshots, generated reports, packet
+# workspaces, copied source evidence, screenshots, and historical ledger
+# iterations are local/regenerable artifacts and must not enter Git. The
+# durable reviewed state is the current trace + claim ledger below.
+/parity/snapshots/
+/parity/reports/
+/parity/packets/
+/parity/claims/*
+!/parity/claims/current.jsonl
+/parity/traces/*
+!/parity/traces/current.jsonl
+/parity/config.local.json

@@ -200,13 +200,46 @@ M2Animator? humanAnimator;
 try
 {
     Console.SetOut(TextWriter.Null);
-    humanAnimator = M2Animator.Build(human, characterLoops.Keys, includeStaticSequences: true);
+    humanAnimator = M2Animator.Build(human, characterLoops.Keys.Concat([11, 12]),
+        includeStaticSequences: true);
 }
 finally { Console.SetOut(savedOutput); }
 Check(humanAnimator is not null, "HumanMale did not produce an animator");
 foreach ((int animation, bool expectedLoop) in characterLoops)
     Check(humanAnimator!.Find(animation) is { } clip && clip.Looping == expectedLoop,
         $"HumanMale runtime loop law drift for animation {animation}");
+
+// HumanMale's turn clips key only 17 bones. They must ride over Stand so unkeyed shoulders
+// do not fall back to the outstretched bind pose. This is the exact real-data regression for
+// the stationary A/D arm flare.
+M2Animator.Clip humanStand = humanAnimator!.Find(0) ??
+    throw new InvalidOperationException("HumanMale Stand clip was not baked");
+SpellAttachment.Point rightHand = SpellAttachment.Resolve(human, 1) ??
+    throw new InvalidOperationException("HumanMale right-hand attachment is missing");
+SpellAttachment.Point leftHand = SpellAttachment.Resolve(human, 2) ??
+    throw new InvalidOperationException("HumanMale left-hand attachment is missing");
+var standSkin = new Matrix4x4[human.Bones.Count];
+humanAnimator.TurnBasePose = humanStand;
+foreach (int animation in new[] { 11, 12 })
+{
+    M2Animator.Clip turn = humanAnimator.Find(animation) ??
+        throw new InvalidOperationException($"HumanMale turn clip {animation} was not baked");
+    for (int sample = 0; sample <= 10; sample++)
+    {
+        float phase = sample / 10f;
+        float globalTime = humanStand.DurationSeconds * phase;
+        humanAnimator.Evaluate(humanStand, globalTime, globalTime, standSkin);
+        Vector3 standRight = Vector3.Transform(rightHand.Local, standSkin[rightHand.BoneIndex]);
+        Vector3 standLeft = Vector3.Transform(leftHand.Local, standSkin[leftHand.BoneIndex]);
+        float standSpan = Vector3.Distance(standRight, standLeft);
+
+        humanAnimator.Evaluate(turn, turn.DurationSeconds * phase, globalTime, standSkin);
+        Vector3 right = Vector3.Transform(rightHand.Local, standSkin[rightHand.BoneIndex]);
+        Vector3 left = Vector3.Transform(leftHand.Local, standSkin[leftHand.BoneIndex]);
+        Near(Vector3.Distance(right, left), standSpan, .01,
+            $"HumanMale turn {animation} restored unkeyed arms to bind pose at phase {phase:F2}");
+    }
+}
 
 const string oneShotPath = @"Spells\BattleShout_Cast_Base.m2";
 M2Model oneShotModel = M2Reader.Parse(mpq.ReadFile(oneShotPath) ??

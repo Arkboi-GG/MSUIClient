@@ -266,3 +266,29 @@ blend window without observable clipB state counts; on S3-format traces, a
 transition is a hard cut only when no outgoing clip/positive blend weight is
 present. One-shots may legitimately start their incoming clock at zero while
 still blending from the outgoing pose.
+
+## 2026-08-06 live character-turn correction
+
+This live-observation addendum supersedes two presentation assumptions without rewriting the
+historical Benilla source-reading record above.
+
+- HumanMale `ShuffleLeft`/`ShuffleRight` each key only 17 bones. Sampling them as complete poses
+  restored absent shoulder/hand channels to bind pose and widened the measured hand span from
+  roughly `0.705` (Stand) to `0.925`. `M2Animator.TurnBasePose`, supplied only by
+  `CharacterRenderer`, now layers those absent channels over the continuously sampled Stand pose.
+  Both turn directions stay within `0.01` of Stand hand span across eleven sampled phases while the
+  keyed foot shuffle remains authored.
+- Model load now selects Stand before the first render, removing the same arms-out bind-pose flash
+  at world entry.
+- The `8 x TURN_RATE` release chase described in the table above was visibly a four-frame snap in
+  MSUI and did not match Nico's 1.12 observation. Only the **released** stationary catch-up is now
+  capped at `0.8 x pi rad/s`: a full 90-degree lag closes in about 625 ms and is carried by one or
+  two shuffle cycles. While the turn key remains held, the existing 90-degree ceiling behavior is
+  unchanged. `Turn: release catch-up rate` is live-tunable in the Character panel.
+- Stationary frozen chase remains a whole-body heading lag. The torso counter-yaw is limited to
+  moving split-strafe (plus the explicit diagnostic), which prevents this correction from becoming
+  another shoulder-pose path.
+
+The bounded regression evidence is `spell-animation-lifecycle-check` at 5,810 checks and
+`spell-frame-law-check`'s held-ceiling/released-rate assertions. Nico visually approved the final
+arms and slower-release behavior on 2026-08-06.

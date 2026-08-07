@@ -110,6 +110,9 @@ public sealed partial class CharacterRenderer : IDisposable
         public bool Flying;
         public bool Engaged;
 
+        /// <summary>Hold the already-evaluated body pose and all of its animation clocks.</summary>
+        public bool FreezePose;
+
         // ── intent ───────────────────────────────────────────────────────────
         //
         // WHY THE RENDERER IS TOLD WHAT WAS PRESSED. It used to work the
@@ -388,11 +391,12 @@ public sealed partial class CharacterRenderer : IDisposable
     private const float StrafeBlendRate = 17.26f;
 
     /// <summary>
-    /// How much faster than the turn rate the body sweeps back onto the aim once
-    /// you stop steering. Eight is the client's own multiplier - about 63 ms to
-    /// close ninety degrees.
+    /// The body's catch-up pace as a multiple of <see cref="BodyTurnRate"/> after
+    /// steering is released. 0.8 closes ninety degrees in about 625 ms, allowing
+    /// one or two authored foot shuffles to carry the rotation instead of a
+    /// four-frame snap. Steering itself still holds the ninety-degree ceiling.
     /// </summary>
-    private const float StationaryChaseRate = 8f;
+    public float StationaryChaseRate { get; set; } = 0.8f;
 
     /// <summary>
     /// The body's turn rate, radians per second. Matches the aim's own standing
@@ -691,6 +695,7 @@ public sealed partial class CharacterRenderer : IDisposable
         ForceAngleDegrees = source.ForceAngleDegrees;
         DefaultBlendSeconds = source.DefaultBlendSeconds;
         StandingChaseCeilingDegrees = source.StandingChaseCeilingDegrees;
+        StationaryChaseRate = source.StationaryChaseRate;
         AnimationResolved = source.AnimationResolved;
         SunDirection = source.SunDirection;
         SunColor = source.SunColor;
@@ -797,6 +802,13 @@ public sealed partial class CharacterRenderer : IDisposable
         {
             _animator.ResolutionSink = (unit, track, resolution) =>
                 AnimationResolved?.Invoke(unit, track, resolution);
+            // Never expose the bind pose for the frame between model load and the first
+            // animation update. Stand is also the live upper-body base for the sparse
+            // ShuffleLeft/ShuffleRight tracks; without it those tracks restore unkeyed arms
+            // to their outstretched bind-pose rotations.
+            _clip = _animator.Find(0);
+            _clipTime = 0f;
+            _animator.TurnBasePose = _clip;
             _skin = new Matrix4x4[_animator.BoneCount];
             _packed = new float[M2Animator.MaxBones * 12];
 
@@ -2357,6 +2369,10 @@ public sealed partial class CharacterRenderer : IDisposable
     {
         if (_m2 is null || dt <= 0f) return;
 
+        // Ice Block is not a locomotion root or a stun animation. It preserves the exact pose
+        // reached by the cast and stops every character animation clock until the aura ends.
+        if (state.FreezePose) return;
+
         MeasureMotion(dt, state);
         ResolveMotion(state);
 
@@ -2789,10 +2805,8 @@ public sealed partial class CharacterRenderer : IDisposable
             float ceiling = MathF.Max(0f, StandingChaseCeilingDegrees) * MathF.PI / 180f;
             float delta = WrapPi(state.Yaw - _bodyYaw);
 
-            float step = MathF.Max(MathF.Abs(delta) - ceiling, 0f);
-            if (!state.Steering) step += dt * BodyTurnRate * StationaryChaseRate;
-
-            _bodyTurnStep = MathF.CopySign(MathF.Min(step, MathF.Abs(delta)), delta);
+            _bodyTurnStep = CharacterPoseLaw.StandingBodyStep(
+                delta, state.Steering, ceiling, dt, BodyTurnRate, StationaryChaseRate);
             _bodyYaw = WrapPi(_bodyYaw + _bodyTurnStep);
         }
         else
@@ -3140,13 +3154,12 @@ public sealed partial class CharacterRenderer : IDisposable
                     ? 0f
                     : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
-            // The torso keeps only part of what the body just turned, so its
-            // delta is the REMAINDER, negative. TorsoFollow 1 leaves it with the
-            // body (WholeBody); 0 holds it facing forward (LowerBody).
-            _animator.TorsoYaw =
-                BindPose || FrozenStandPose || Strafe != StrafeStyle.Split
-                    ? 0f
-                    : (Math.Clamp(TorsoFollow, 0f, 1f) - 1f) * _moveYaw;
+            // TorsoYaw is the moving-strafe counter-twist. The stationary frozen chase is a
+            // lag between aim and whole-body heading; its slower release catch-up is handled
+            // by StandingBodyStep, while sparse shuffle shoulders inherit Stand in M2Animator.
+            _animator.TorsoYaw = CharacterPoseLaw.TorsoCounterYaw(
+                BindPose, FrozenStandPose, Strafe == StrafeStyle.Split,
+                state.Moving, ForceAngleDegrees != 0f, TorsoFollow, _moveYaw);
             if (BindPose)
             {
                 _animator.Evaluate(null, 0f, _globalTime, _skin);

@@ -19,7 +19,10 @@ public readonly record struct SpellInfo(
     int[]? EffectBasePoints = null, uint[]? EffectAmplitudes = null,
     float[]? EffectMultipleValues = null, uint[]? EffectChainTargets = null,
     uint MaxLevel = 0, uint SpellLevel = 0, uint BaseLevel = 0,
-    float[]? EffectDicePerLevel = null, float[]? EffectRealPointsPerLevel = null)
+    float[]? EffectDicePerLevel = null, float[]? EffectRealPointsPerLevel = null,
+    uint DispelType = 0,
+    int EquippedItemClass = -1, uint EquippedItemSubclassMask = 0,
+    uint EquippedItemInventoryTypeMask = 0)
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
@@ -28,7 +31,10 @@ public readonly record struct SpellInfo(
     public bool Ranged => (Attributes & 0x2) != 0 || AutoRepeat;
     public bool AutoRepeat => (AttributesEx2 & 0x20) != 0;
     public bool OnNextSwing => (Attributes & 0x404) != 0;
-    public bool MovementInterrupts => (InterruptFlags & 0x08) != 0;
+    // SpellRec InterruptFlags: bit 0 is SPELL_INTERRUPT_FLAG_MOVEMENT. Bit 3 belongs
+    // to a different interrupt reason; treating it as movement made instant, movement-
+    // castable spells such as Blink send CMSG_CANCEL_CAST on the next move edge.
+    public bool MovementInterrupts => (InterruptFlags & 0x01) != 0;
     public bool MovementInterruptsChannel => (ChannelInterruptFlags & 0x08) != 0;
     public string CastClassification => ChannelInterruptFlags != 0 ? "CHANNEL" :
         CastTimeMs > 0 ? "CAST_TIME" : "INSTANT";
@@ -191,7 +197,11 @@ public sealed class SpellCatalog
                 MaxLevel: spells.GetUInt(row, 27), SpellLevel: spells.GetUInt(row, 28),
                 BaseLevel: spells.GetUInt(row, 29),
                 EffectDicePerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 70 + i)).ToArray(),
-                EffectRealPointsPerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 73 + i)).ToArray());
+                EffectRealPointsPerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 73 + i)).ToArray(),
+                DispelType: spells.GetUInt(row, 14),
+                EquippedItemClass: spells.GetInt(row, 58),
+                EquippedItemSubclassMask: spells.GetUInt(row, 59),
+                EquippedItemInventoryTypeMask: spells.GetUInt(row, 60));
             uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
                 .Where(x => x != 0).ToArray();
             if (tools.Length > 0) result._tools[id] = tools;

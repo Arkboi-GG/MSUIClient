@@ -81,6 +81,30 @@ public sealed class ClientWindow : IDisposable
     /// The live swap-interval request. Setting this after the context exists is
     /// important on drivers that ignore the value supplied during window creation.
     /// </summary>
+    /// <summary>True fullscreen at the desktop video mode. Live: flipping it
+    /// switches the window state immediately; leaving it restores the configured
+    /// windowed size. Alt+Enter routes here too.</summary>
+    public bool Fullscreen
+    {
+        get => _window is not null
+            ? _window.WindowState == WindowState.Fullscreen
+            : _config.Window.Fullscreen;
+        set
+        {
+            _config.Window.Fullscreen = value;
+            if (_window is null) return;
+            if (value)
+            {
+                _window.WindowState = WindowState.Fullscreen;
+            }
+            else
+            {
+                _window.WindowState = WindowState.Normal;
+                _window.Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height);
+            }
+        }
+    }
+
     public bool VSync
     {
         get => _window is not null ? _window.VSync : _config.Window.VSync;
@@ -321,6 +345,9 @@ public sealed class ClientWindow : IDisposable
             Title = _config.Window.Title,
             VSync = _config.Window.VSync,
             Samples = Math.Clamp(_config.Render.MsaaSamples, 0, 16),
+            // True fullscreen at the desktop video mode; Alt+Enter and the video
+            // settings toggle switch it live after creation.
+            WindowState = _config.Window.Fullscreen ? WindowState.Fullscreen : WindowState.Normal,
             // 3.3 core is the floor; anything modern exceeds it, and it keeps the
             // client runnable on older hardware and inside VMs.
             API = GraphicsApi,
@@ -410,6 +437,14 @@ public sealed class ClientWindow : IDisposable
         {
             kb.KeyDown += (_, key, _) => _held.Add(key);
             kb.KeyUp += (_, key, _) => _held.Remove(key);
+            // Alt+Enter: the universal fullscreen toggle, handled here so it
+            // works on every screen including the glue front door.
+            kb.KeyDown += (keyboard, key, _) =>
+            {
+                if (key == Key.Enter &&
+                    (keyboard.IsKeyPressed(Key.AltLeft) || keyboard.IsKeyPressed(Key.AltRight)))
+                    Fullscreen = !Fullscreen;
+            };
         }
 
         _mouse = _input.Mice.Count > 0 ? _input.Mice[0] : null;

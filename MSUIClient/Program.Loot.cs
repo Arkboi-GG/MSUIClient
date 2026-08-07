@@ -126,6 +126,7 @@ public sealed partial class GameLoop
         if (entry == 0) return;
         uint actualCount = Math.Max(1, count);
         if (_items is not null) _items.Require(entry, 0, _net);
+        TriggerItemPushAnimation(bagSlot, itemSlot, entry);
         _pendingReceives.Add((entry, actualCount, 120));
         EmitInterface("loot", "item", "RECEIVED", player,
             $"item={entry};count={actualCount};received={received};created={created};show={showInChat};" +

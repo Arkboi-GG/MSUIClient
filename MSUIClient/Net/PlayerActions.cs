@@ -9,6 +9,10 @@ public readonly record struct ActionSlot(byte Kind, uint ActionId)
 }
 
 public readonly record struct SpellCooldown(uint SpellId, uint Category, double StartedAt, double DurationSeconds);
+public readonly record struct CooldownDisplay(float? SweepFraction, float? FlashProgress)
+{
+    public const double FinishFlashSeconds = 1.0;
+}
 
 /// <summary>Authoritative local 120-slot bar plus the server-fed spellbook.</summary>
 public sealed class PlayerActions
@@ -122,6 +126,40 @@ public sealed class PlayerActions
         return (float)Math.Clamp(elapsed / cd.DurationSeconds, 0, 1);
     }
 
+    /// <summary>
+    /// The authored CooldownFrame display phase. Expired clocks remain visible only for their
+    /// one-second finish flash; cast readiness still becomes true at the exact cooldown end.
+    /// </summary>
+    public bool TryCooldownDisplay(uint spell, double nowSeconds, uint category,
+        out CooldownDisplay display)
+    {
+        display = default;
+        bool found = TryDisplayClock(_spellCooldowns, spell, nowSeconds, out SpellCooldown winner);
+        if (category != 0 && TryDisplayClock(_categoryCooldowns, category, nowSeconds,
+                out SpellCooldown categoryClock) &&
+            (!found || categoryClock.StartedAt + categoryClock.DurationSeconds >
+                       winner.StartedAt + winner.DurationSeconds))
+        {
+            winner = categoryClock;
+            found = true;
+        }
+        if (!found || winner.DurationSeconds <= 0) return false;
+
+        double end = winner.StartedAt + winner.DurationSeconds;
+        if (nowSeconds < end)
+        {
+            float fraction = (float)Math.Clamp(
+                (nowSeconds - winner.StartedAt) / winner.DurationSeconds, 0.0, 1.0);
+            display = new CooldownDisplay(fraction, null);
+        }
+        else
+        {
+            float flash = (float)Math.Clamp(nowSeconds - end, 0.0, 1.0);
+            display = new CooldownDisplay(null, flash);
+        }
+        return true;
+    }
+
     public bool IsOnCooldown(uint spell, double nowSeconds, uint category = 0)
         => TryActiveCooldown(spell, category, nowSeconds, out _, out _);
 
@@ -163,8 +201,21 @@ public sealed class PlayerActions
         }
         remaining = cooldown.DurationSeconds - (nowSeconds - cooldown.StartedAt);
         if (remaining > 0) return true;
-        clocks.Remove(key);
+        // CooldownFrame's sequence 1 remains visible for one second after readiness returns.
+        // Retaining the inert record does not affect the active result above.
+        if (remaining <= -CooldownDisplay.FinishFlashSeconds) clocks.Remove(key);
         remaining = 0;
+        return false;
+    }
+
+    private static bool TryDisplayClock(Dictionary<uint, SpellCooldown> clocks, uint key,
+        double nowSeconds, out SpellCooldown cooldown)
+    {
+        if (!clocks.TryGetValue(key, out cooldown)) return false;
+        double end = cooldown.StartedAt + cooldown.DurationSeconds;
+        if (nowSeconds < end + CooldownDisplay.FinishFlashSeconds) return true;
+        clocks.Remove(key);
+        cooldown = default;
         return false;
     }
 }

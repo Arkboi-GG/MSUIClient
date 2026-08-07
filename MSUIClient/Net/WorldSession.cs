@@ -266,6 +266,12 @@ public sealed class WorldSession : IDisposable
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);
 
+    public void LogoutRequest() =>
+        SendPacket((ushort)Op.CMSG_LOGOUT_REQUEST, ReadOnlySpan<byte>.Empty);
+
+    public void LogoutCancel() =>
+        SendPacket((ushort)Op.CMSG_LOGOUT_CANCEL, ReadOnlySpan<byte>.Empty);
+
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void Inspect(ulong guid) => SendFullGuid(Op.CMSG_INSPECT, guid);
     public void PetAction(ulong petGuid, uint packedAction, ulong targetGuid)
@@ -273,6 +279,17 @@ public sealed class WorldSession : IDisposable
         var w = new PacketWriter(20);
         w.WriteU64(petGuid); w.WriteU32(packedAction); w.WriteU64(targetGuid);
         SendPacket((ushort)Op.CMSG_PET_ACTION, w.AsSpan());
+    }
+    public void PetStopAttack(ulong petGuid) => SendFullGuid(Op.CMSG_PET_STOP_ATTACK, petGuid);
+    public void PetSetAction(ulong petGuid, IReadOnlyList<(uint Position, uint Packed)> entries)
+    {
+        if (entries.Count is < 1 or > 2)
+            throw new ArgumentOutOfRangeException(nameof(entries), "pet set-action carries one or two entries");
+        var w = new PacketWriter(8 + entries.Count * 8);
+        w.WriteU64(petGuid);
+        foreach ((uint position, uint packed) in entries)
+        { w.WriteU32(position); w.WriteU32(packed); }
+        SendPacket((ushort)Op.CMSG_PET_SET_ACTION, w.AsSpan());
     }
     public void ZoneUpdate(uint zoneId) =>
         SendPacket((ushort)Op.CMSG_ZONEUPDATE, BuildZoneUpdateBody(zoneId));
@@ -381,6 +398,37 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)moveOp, w.AsSpan());
     }
 
+    public void CastSpellOnItem(uint spellId, ulong itemGuid)
+        => SendPacket((ushort)Op.CMSG_CAST_SPELL, BuildCastSpellOnItemBody(spellId, itemGuid));
+
+    public static byte[] BuildCastSpellOnItemBody(uint spellId, ulong itemGuid)
+    {
+        var w = new PacketWriter(14);
+        w.WriteU32(spellId);
+        w.WriteU16(0x0010); // TARGET_FLAG_ITEM
+        w.WritePackedGuid(itemGuid);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// Acknowledge SMSG_FORCE_MOVE_ROOT/UNROOT with the server's counter and the mover's
+    /// resulting MovementInfo. A root apply must carry MOVEFLAG_ROOT and no moving bits.
+    /// </summary>
+    public void MoveRootAck(ulong guid, uint counter, bool rooted, MovementInfo info)
+    {
+        SendPacket((ushort)(rooted ? Op.CMSG_FORCE_MOVE_ROOT_ACK :
+            Op.CMSG_FORCE_MOVE_UNROOT_ACK), BuildMoveRootAckBody(guid, counter, info));
+    }
+
+    public static byte[] BuildMoveRootAckBody(ulong guid, uint counter, MovementInfo info)
+    {
+        var w = new PacketWriter(48);
+        w.WriteU64(guid);
+        w.WriteU32(counter);
+        info.Write(w);
+        return w.ToArray();
+    }
+
     public void Ping(uint sequence, uint lastRttMs)
     {
         var w = new PacketWriter(8);
@@ -418,6 +466,12 @@ public sealed class WorldSession : IDisposable
         var w = new PacketWriter(name.Length + 1); w.WriteCString(name);
         SendPacket((ushort)Op.CMSG_GROUP_INVITE, w.AsSpan());
     }
+    public void GroupAccept()
+        => SendPacket((ushort)Op.CMSG_GROUP_ACCEPT, ReadOnlySpan<byte>.Empty);
+    public void GroupDecline()
+        => SendPacket((ushort)Op.CMSG_GROUP_DECLINE, ReadOnlySpan<byte>.Empty);
+    public void RequestPartyMemberStats(ulong guid)
+        => SendFullGuid(Op.CMSG_REQUEST_PARTY_MEMBER_STATS, guid);
     public void InitiateTrade(ulong guid) => SendFullGuid(Op.CMSG_INITIATE_TRADE, guid);
     public void BeginTrade() => SendPacket((ushort)Op.CMSG_BEGIN_TRADE, ReadOnlySpan<byte>.Empty);
     public void AcceptTrade()
@@ -571,16 +625,35 @@ public sealed class WorldSession : IDisposable
     public void MailTakeItem(ulong mailboxGuid, uint mailId)
         => SendPacket((ushort)Op.CMSG_MAIL_TAKE_ITEM, BuildMailActionBody(mailboxGuid, mailId));
 
+    public void MailMarkAsRead(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_MARK_AS_READ, BuildMailActionBody(mailboxGuid, mailId));
+
     public void MailReturn(ulong mailboxGuid, uint mailId)
         => SendPacket((ushort)Op.CMSG_MAIL_RETURN_TO_SENDER, BuildMailActionBody(mailboxGuid, mailId));
 
     public void MailDelete(ulong mailboxGuid, uint mailId)
         => SendPacket((ushort)Op.CMSG_MAIL_DELETE, BuildMailActionBody(mailboxGuid, mailId));
 
+    public void MailCreateTextItem(ulong mailboxGuid, uint mailId)
+        => SendPacket((ushort)Op.CMSG_MAIL_CREATE_TEXT_ITEM,
+            BuildMailCreateTextItemBody(mailboxGuid, mailId));
+
+    public void ItemTextQuery(uint textId, uint mailId)
+        => SendPacket((ushort)Op.CMSG_ITEM_TEXT_QUERY, BuildItemTextQueryBody(textId, mailId));
+
+    public void QueryNextMailTime()
+        => SendPacket((ushort)Op.MSG_QUERY_NEXT_MAIL_TIME, ReadOnlySpan<byte>.Empty);
+
     public static byte[] BuildMailGuidBody(ulong mailboxGuid) => BuildGuidBody(mailboxGuid);
 
     public static byte[] BuildMailActionBody(ulong mailboxGuid, uint mailId)
     { var w = new PacketWriter(12); w.WriteU64(mailboxGuid); w.WriteU32(mailId); return w.ToArray(); }
+
+    public static byte[] BuildMailCreateTextItemBody(ulong mailboxGuid, uint mailId)
+    { var w = new PacketWriter(16); w.WriteU64(mailboxGuid); w.WriteU32(mailId); w.WriteU32(0); return w.ToArray(); }
+
+    public static byte[] BuildItemTextQueryBody(uint textId, uint mailId)
+    { var w = new PacketWriter(12); w.WriteU32(textId); w.WriteU32(mailId); w.WriteU32(0); return w.ToArray(); }
 
     public static byte[] BuildSendMailBody(ulong mailboxGuid, string receiver, string subject, string body,
         ulong itemGuid, uint money, uint cod)
@@ -699,10 +772,26 @@ public sealed class WorldSession : IDisposable
             BuildSwapItemsBody(destinationBag, destinationSlot, sourceBag, sourceSlot));
     }
 
+    public void SetAmmo(uint entry)
+    {
+        SendPacket((ushort)Op.CMSG_SET_AMMO, BuildSetAmmoBody(entry));
+    }
+
+    public void SplitItem(byte sourceBag, byte sourceSlot, byte destinationBag, byte destinationSlot,
+        byte count)
+    {
+        SendPacket((ushort)Op.CMSG_SPLIT_ITEM,
+            BuildSplitItemBody(sourceBag, sourceSlot, destinationBag, destinationSlot, count));
+    }
+
     public static byte[] BuildAutoEquipBody(byte bag, byte slot) => [bag, slot];
+    public static byte[] BuildSetAmmoBody(uint entry) => BitConverter.GetBytes(entry);
     public static byte[] BuildSwapInventoryBody(byte sourceSlot, byte destinationSlot) => [sourceSlot, destinationSlot];
     public static byte[] BuildSwapItemsBody(byte destinationBag, byte destinationSlot, byte sourceBag, byte sourceSlot) =>
         [destinationBag, destinationSlot, sourceBag, sourceSlot];
+    public static byte[] BuildSplitItemBody(byte sourceBag, byte sourceSlot, byte destinationBag,
+        byte destinationSlot, byte count) =>
+        [sourceBag, sourceSlot, destinationBag, destinationSlot, count];
 
     /// <summary>CMSG_LOOT — request a corpse's loot window. Body = the full 8-byte guid
     /// (vmangos Server/Packets/Loot.cpp:8-11; GameObjects use CMSG_GAMEOBJ_USE instead).</summary>

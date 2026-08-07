@@ -169,7 +169,7 @@ The audit above remains the original baseline. The following rows have now recei
   not swept. Pushed visuals no longer inherit the old flat 1.25-second lifetime.
 - Effect-model `$SND`, `$DSL`, and `$DSO` markers now reach the spatial spell-audio path on crossed
   keyframes.
-- `tools/spell-animation-lifecycle-check` pins the full mounted corpus and passes 5,788 assertions: 409
+- `tools/spell-animation-lifecycle-check` pins the full mounted corpus and passes 5,810 assertions: 409
   corrected authored loop decisions, 579 exact selected rig sequences, 42 verified missile fallbacks, real
   M2 sound delivery, canonical character loop probes, and the cast/aura/deadline ownership cases. This is static/data evidence; the original
   baseline summary counts remain historical and no runtime-image parity label is implied.
@@ -244,7 +244,7 @@ The audit above remains the original baseline. The following rows have now recei
 - A real divergence was corrected: the old shader weighted forward 3x3 normal transforms. Benilla's Bevy
   0.18.1 skinning path blends the skin matrix and applies the inverse-transpose of the combined world linear
   map. The difference is adversarially large under non-uniform bone/root scale and is now pinned.
-- `tools/spell-mesh-skinning-check` passes 83,681 checks. The complete corpus has 9,717 listed/9,654 parsed
+- `tools/spell-mesh-skinning-check` passes 84,393 checks. The complete corpus has 9,717 listed/9,654 parsed
   M2s; referenced assets contain 37,399 one-, 2,485 two-, 170 three-, and 8 four-influence vertices. Rake
   vertex 302 pins four distinct live contributions; Undying Strength vertex 378 pins a three-weight T/R/S
   chain; Arcane Shot's seven all-single-weight vertices are the real control. No referenced multi-weight

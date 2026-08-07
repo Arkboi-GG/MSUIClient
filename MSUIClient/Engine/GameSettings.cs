@@ -42,7 +42,17 @@ public sealed class GameSettings
     /// <summary>The last character highlighted on the character-select screen.</summary>
     public ulong LastCharacterGuid { get; set; }
 
+    /// <summary>
+    /// What the client launches into: "Client" (the networked SuperUI client) or
+    /// "Creator" (the offline spell-creator sandbox). Empty means never chosen -
+    /// treated as "Client". Set from the login screen's Launch Options menu and
+    /// sticky across sessions. Batch instruments (portrait/variant/movement/live-run)
+    /// ignore it entirely.
+    /// </summary>
+    public string LaunchMode { get; set; } = "";
+
     public DisplaySettings Display { get; set; } = new();
+    public CreatorSettings Creator { get; set; } = new();
     public ViewSettings View { get; set; } = new();
     public DetailSettings Detail { get; set; } = new();
     public ClutterSettings Clutter { get; set; } = new();
@@ -54,6 +64,32 @@ public sealed class GameSettings
     // ── groups ───────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// Creator-mode preferences, dialable live from the creator bar's UI panel.
+    /// UiScale sizes the panels/buttons/widgets; TextScale sizes the text
+    /// independently - one knob scaling both reads as zoom, not as a setting.
+    /// The look (race/sex/dials/equipment) is sticky: whatever was worn when a
+    /// creator session ended comes back in the next one.
+    /// </summary>
+    public sealed class CreatorSettings
+    {
+        public float UiScale { get; set; } = 1f;     // live - widget/panel sizes
+        public float TextScale { get; set; } = 1f;   // live - font size only
+
+        public byte Race { get; set; } = 1;          // ChrRaces id, Human
+        public byte Sex { get; set; }                // 0 male, 1 female
+        public int[] Dials { get; set; } = new int[5];   // skin, face, hairStyle, hairColor, facialHair
+        public List<CreatorPieceSetting> Equipment { get; set; } = new();
+    }
+
+    /// <summary>One worn creator piece, as persisted (display id is the visual truth).</summary>
+    public sealed class CreatorPieceSetting
+    {
+        public string Name { get; set; } = "";
+        public uint DisplayId { get; set; }
+        public int InventoryType { get; set; }
+    }
+
+    /// <summary>
     /// Window, buffers and the UI itself. Three of these cannot change without a
     /// restart: Silk requests the sample count at window creation, the resolution
     /// is the window, and anisotropy is selected once per texture at upload.
@@ -63,6 +99,7 @@ public sealed class GameSettings
     {
         public int WindowWidth { get; set; } = 1600;              // restart
         public int WindowHeight { get; set; } = 900;              // restart
+        public bool Fullscreen { get; set; }                      // live (Alt+Enter toggles too)
         public bool VSync { get; set; } = true;                   // live
         public int MsaaSamples { get; set; } = 1;                 // restart
         public bool MultisamplingEnabled { get; set; } = true;    // live (the GL enable, not the count)

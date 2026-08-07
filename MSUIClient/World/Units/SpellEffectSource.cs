@@ -479,7 +479,8 @@ public sealed class SpellEffectSource
         int EmitterIndex, string TexturePath, double AnimationTime, int SequenceIndex,
         Vector3? LocalOrigin, Matrix4x4? LocalFrame, bool RootCarriesCloud,
         bool HostAttachmentRotatesCloud)> EmitterInstances(double now,
-        Func<ulong, SpellUnitPose> unitPose)
+        Func<ulong, SpellUnitPose> unitPose, bool billboardJointPoseB = false,
+        Vector3 cameraWorld = default, Vector3 cameraForwardWorld = default)
     {
         foreach (Instance instance in _instances)
         {
@@ -493,6 +494,9 @@ public sealed class SpellEffectSource
                 effectSkin = asset.Skin;
                 M2Animator.Clip? clip = animator.FindSequenceOrBake(sequence);
                 animator.Evaluate(clip, (float)age, (float)age, effectSkin);
+                SpellMeshSkinningLaw.ApplyBillboardBonesIfEnabled(billboardJointPoseB,
+                    asset.Model, transform, cameraWorld, cameraForwardWorld,
+                    animator.BoneCount, effectSkin);
             }
             for (int i = 0; i < asset.Emitters.Length; i++)
             {
@@ -625,6 +629,26 @@ public sealed class SpellEffectSource
         return new Vector3(world.M41, world.M42, world.M43);
     }
 
+    // Creator-mode override layer: patched M2 bytes keyed by resolved model path.
+    // Load() prefers these over the archive, so a reap + respawn picks up an
+    // in-memory patch with no MPQ rebuild - the realtime tuning loop.
+    private readonly Dictionary<string, byte[]> _modelOverrides = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Replace (or with null bytes, clear) the bytes behind a spell-effect model
+    /// and drop its cached asset so the next spawn parses the override.</summary>
+    public void SetModelOverride(string rawPath, byte[]? bytes)
+    {
+        string path = SpellVisualCatalog.ModelPath(rawPath);
+        if (bytes is null) _modelOverrides.Remove(path);
+        else _modelOverrides[path] = bytes;
+        _assets.Remove(path);
+        _assetFailures.Remove(path);
+    }
+
+    /// <summary>The original archive bytes for a spell-effect model (override ignored).</summary>
+    public byte[]? ReadOriginalModel(string rawPath) =>
+        _mpq.ReadFile(SpellVisualCatalog.ModelPath(rawPath));
+
     private Asset? Load(string rawPath)
     {
         string path = SpellVisualCatalog.ModelPath(rawPath);
@@ -633,7 +657,8 @@ public sealed class SpellEffectSource
         if (_assetFailures.TryGetValue(path, out double failedAt) && now - failedAt < 10.0)
             return null;
         long t0 = Stopwatch.GetTimestamp();
-        byte[]? bytes = _mpq.ReadFile(path);
+        byte[]? bytes = _modelOverrides.TryGetValue(path, out byte[]? overridden)
+            ? overridden : _mpq.ReadFile(path);
         long t1 = Stopwatch.GetTimestamp();
         M2Model? model = bytes is null ? null : M2Reader.Parse(bytes);
         long t2 = Stopwatch.GetTimestamp();

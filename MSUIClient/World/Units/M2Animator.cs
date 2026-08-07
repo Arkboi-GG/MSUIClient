@@ -158,6 +158,14 @@ public sealed class M2Animator
     public int BoneCount => _boneCount;
 
     /// <summary>
+    /// Base pose for the sparse ShuffleLeft/ShuffleRight clips. Those clips only key the
+    /// turning bones; treating every absent channel as bind pose lifts the character's arms.
+    /// CharacterRenderer supplies Stand here. Other M2 users leave it null, so spell and
+    /// creature animation playback is unchanged.
+    /// </summary>
+    public Clip? TurnBasePose { get; set; }
+
+    /// <summary>
     /// Extra yaw applied to the LOWER BODY only, in radians about the model's
     /// vertical axis. Zero for normal playback.
     ///
@@ -695,6 +703,10 @@ public sealed class M2Animator
 
         float t = ClipTime(clip, timeSeconds);
         float tPrevious = ClipTime(previous, previousTimeSeconds);
+        Clip? basePose = IsSparseTurn(clip) ? TurnBasePose : null;
+        Clip? previousBasePose = IsSparseTurn(previous) ? TurnBasePose : null;
+        float basePoseTime = ClipTime(basePose, globalTimeSeconds);
+        float previousBasePoseTime = ClipTime(previousBasePose, globalTimeSeconds);
 
         float weight = previous is null ? 0f : Math.Clamp(previousWeight, 0f, 1f);
         if (float.IsNaN(weight)) weight = 0f;
@@ -721,11 +733,12 @@ public sealed class M2Animator
 
         foreach (int i in _order)
         {
-            SampleLocal(clip, t, i, out var translation, out var rotation, out var scale);
+            SampleLocal(clip, t, basePose, basePoseTime, i,
+                out var translation, out var rotation, out var scale);
 
             if (blending)
             {
-                SampleLocal(previous, tPrevious, i,
+                SampleLocal(previous, tPrevious, previousBasePose, previousBasePoseTime, i,
                             out var outTranslation, out var outRotation, out var outScale);
 
                 translation = Vector3.Lerp(translation, outTranslation, weight);
@@ -789,6 +802,9 @@ public sealed class M2Animator
         return t < 0f ? t + clip.DurationSeconds : t;
     }
 
+    private static bool IsSparseTurn(Clip? clip)
+        => clip?.AnimationId is 11 or 12;
+
     /// <summary>
     /// One bone's animated local TRS at a clip time, rest pose included.
     ///
@@ -813,6 +829,32 @@ public sealed class M2Animator
         if (c.RotationTimes.Length > 0)
             rotation = SampleQuaternion(c.RotationTimes, c.RotationKeys, t);
 
+        if (c.ScaleTimes.Length > 0)
+            scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
+    }
+
+    /// <summary>
+    /// Sample a sparse clip over a live base pose. Each channel is independent: a keyed turn
+    /// rotation replaces Stand's rotation while an absent hand/shoulder channel keeps Stand.
+    /// </summary>
+    private void SampleLocal(Clip? clip, float t, Clip? basePose, float basePoseTime, int bone,
+                             out Vector3 translation, out Quaternion rotation, out Vector3 scale)
+    {
+        if (basePose is null)
+        {
+            SampleLocal(clip, t, bone, out translation, out rotation, out scale);
+            return;
+        }
+
+        SampleLocal(basePose, basePoseTime, bone, out translation, out rotation, out scale);
+        if (clip is null) return;
+
+        BoneChannels c = clip.Bones[bone];
+        if (c.TranslationTimes.Length > 0)
+            translation = _restTranslation[bone] +
+                SampleVector3(c.TranslationTimes, c.TranslationKeys, t);
+        if (c.RotationTimes.Length > 0)
+            rotation = SampleQuaternion(c.RotationTimes, c.RotationKeys, t);
         if (c.ScaleTimes.Length > 0)
             scale = SampleVector3(c.ScaleTimes, c.ScaleKeys, t);
     }

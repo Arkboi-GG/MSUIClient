@@ -121,6 +121,12 @@ public sealed partial class GameLoop
         if (_net is not { IsInWorld: true } || _controller is null) outcome = "REFUSED_NOT_IN_WORLD";
         else if (!_entities.TryGet(guid, out go) || !go.IsGameObject) outcome = "REFUSED_NOT_GAMEOBJECT";
         else if ((distance = Vector3.Distance(_controller.Position, go.Position)) > GameObjectInteractDistance) outcome = "REFUSED_RANGE";
+        else if (go.GameObjectType == 19)
+        {
+            // Mailbox use is a local panel open. The mail window's CheckInbox equivalent owns the
+            // first CMSG_GET_MAIL_LIST; build 5875 sends no CMSG_GAMEOBJ_USE for a mailbox.
+            outcome = RequestMail(guid) ? "OPENED_MAIL" : "REFUSED_MAIL";
+        }
         else
         {
             uint opener = FindKnownOpenLockSpell(go.Entry);
@@ -134,12 +140,13 @@ public sealed partial class GameLoop
         if (outcome.StartsWith("SENT", StringComparison.Ordinal))
         { _gameObjectGuid = guid; _gameObjectAnimation = 0; _gameObjectPages.Clear(); }
         uint lockSpell = go is null ? 0 : FindKnownOpenLockSpell(go.Entry);
-        string body = lockSpell != 0
+        string body = go?.GameObjectType == 19 ? "LOCAL_MAIL_OPEN" : lockSpell != 0
             ? Convert.ToHexString(WorldSession.BuildCastSpellOnGameObjectBody(lockSpell, guid))
             : Convert.ToHexString(WorldSession.BuildGameObjectUseBody(guid));
         EmitInterface("gameobject", "use", outcome, guid,
             $"entry={go?.Entry ?? 0};type={go?.GameObjectType ?? 0};kind={GameObjectKind(go?.GameObjectType ?? uint.MaxValue)};distance={distance:R};limit={GameObjectInteractDistance:R};openSpell={lockSpell};body={body}");
-        return outcome.StartsWith("SENT", StringComparison.Ordinal);
+        return outcome.StartsWith("SENT", StringComparison.Ordinal) ||
+            outcome.Equals("OPENED_MAIL", StringComparison.Ordinal);
     }
 
     private uint FindKnownOpenLockSpell(uint gameObjectEntry)

@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -211,7 +212,8 @@ public sealed partial class GameLoop
             PartyMember m = _partyMembers[i];
             VanillaListRow(dl, $"##raid-{m.Guid}", origin + new Vector2(24, 76 + i * 16) * s,
                 new Vector2(320, 16), s, $"Group {m.Subgroup + 1}    {m.Name}", false,
-                m.Online != 0 ? 0xffffffff : 0xff808080);
+                PartyFrameUiLaw.Has(m.Status, PartyFrameUiLaw.Online)
+                    ? 0xffffffff : 0xff808080);
         }
     }
 }

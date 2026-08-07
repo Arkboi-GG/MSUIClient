@@ -11,7 +11,7 @@ public sealed partial class GameLoop
     {
         if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true ||
             _spellVisualCatalog?.TryGetStages(info.VisualId, out SpellVisualStages stages) != true ||
-            _net is null || _spellEffects is null) return false;
+            _spellEffects is null) return false;
         uint kitId = stage.ToLowerInvariant() switch
         {
             "precast" => stages.Precast,
@@ -22,9 +22,9 @@ public sealed partial class GameLoop
             _ => 0,
         };
         if (kitId == 0 || !_spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit)) return false;
-        if (_presentedEffectSpell != 0) _spellEffects.Reap(_net.PlayerGuid, _presentedEffectSpell);
+        if (_presentedEffectSpell != 0) _spellEffects.Reap(LocalPlayerGuid, _presentedEffectSpell);
         _presentedEffectSpell = spellId;
-        _spellEffects.SpawnKit(_net.PlayerGuid, spellId, kit,
+        _spellEffects.SpawnKit(LocalPlayerGuid, spellId, kit,
             persistent: stage is "precast" or "state" or "channel", NowSeconds(), stage.ToUpperInvariant());
         if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
             stage.Equals("channel", StringComparison.OrdinalIgnoreCase))

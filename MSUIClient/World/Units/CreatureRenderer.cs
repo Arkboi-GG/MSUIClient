@@ -10,9 +10,9 @@ using Texture = MSUIClient.Engine.Texture;
 
 namespace MSUIClient.World.Units;
 
-// Draws the networked entity stream: every CREATURE/NPC as its M2 model at the
-// server-given position / orientation / scale, SKINNED, ANIMATED, TEXTURED, and (for
-// humanoid NPCs) GEOSET-FILTERED so only the right hairstyle/beard/armour variants draw.
+// Draws the networked unit stream: creatures/NPCs and remote players as their M2 models
+// at the server-given position / orientation / scale, skinned, animated and textured.
+// Player appearance/equipment is explicitly gated from the established NPC path.
 //
 // TRANSFORM (camera-relative, matches CharacterRenderer):
 //   Scale * RotationY(heading) * Basis * Translate(pos), eye subtracted from the row.
@@ -59,6 +59,7 @@ public sealed partial class CreatureRenderer : IDisposable
     public float HeadingOffsetDegrees { get; set; } = 90f;
     public float ScaleMultiplier { get; set; } = 1f;
     public int DrawnLastFrame { get; private set; }
+    public int PlayersDrawnLastFrame { get; private set; }
     public int AnimatedLastFrame { get; private set; }
     public double LoadMillisecondsThisFrame { get; private set; }
     public int LoadsThisFrame { get; private set; }
@@ -67,7 +68,15 @@ public sealed partial class CreatureRenderer : IDisposable
     public int CombatActionsActive => _combatActions.Count;
     public ulong HoveredGuid { get; set; }
     public ulong SelectedGuid { get; set; }
+    public ulong SelfPlayerGuid { get; set; }
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
+
+    /// <summary>
+    /// Read-only bridge to the game loop's ask-once item-template cache. Remote players expose
+    /// public item entries rather than display ids; rendering waits until every non-empty entry
+    /// has a settled lookup so the first visible frame is already dressed.
+    /// </summary>
+    public Func<uint, (bool Settled, ItemTemplate? Item)>? PlayerItemResolver { get; set; }
 
     public readonly record struct PortraitSpecimen(int DisplayId, string ModelPath);
     private IReadOnlyList<PortraitSpecimen> _portraitSpecimens = Array.Empty<PortraitSpecimen>();
@@ -302,6 +311,7 @@ public sealed partial class CreatureRenderer : IDisposable
     public void Render(Camera camera, EntityStore entities)
     {
         DrawnLastFrame = 0;
+        PlayersDrawnLastFrame = 0;
         AnimatedLastFrame = 0;
         LoadMillisecondsThisFrame = 0;
         LoadsThisFrame = 0;
@@ -332,35 +342,37 @@ public sealed partial class CreatureRenderer : IDisposable
 
         _orderedUnits.Clear();
         foreach (WorldEntity entity in entities.Units)
-            if (entity.IsCreature) _orderedUnits.Add(entity);
+            if (entity.IsUnit && (!entity.IsPlayer || entity.Guid != SelfPlayerGuid))
+                _orderedUnits.Add(entity);
         _sortCameraPosition = camPos;
         _orderedUnits.Sort(CompareUnitDistance);
 
         foreach (var e in _orderedUnits)
         {
+            CreatureLifecycleTracker? lifecycle = e.IsCreature ? _lifecycle : null;
             if (e.DisplayId <= 0)
             {
-                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.QUERY_PENDING);
+                lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.QUERY_PENDING);
                 continue;
             }
-            if (!_resolver.TryResolve(e.DisplayId, out CreatureModelInfo info))
+            if (!TryResolveRenderInfo(e, out CreatureModelInfo info))
             {
-                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
+                lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
                 continue;
             }
-            _lifecycle?.NoteDisplayResolved(e.Guid, e.DisplayId, info.ModelPath);
+            lifecycle?.NoteDisplayResolved(e.Guid, e.DisplayId, info.ModelPath);
 
             string modelKey = info.ModelPath;
             bool spentLoadSlot = false;
             if (!_modelCache.TryGetValue(modelKey, out var model))
             {
-                bool firstEnqueue = _lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
+                bool firstEnqueue = lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
                 if (firstEnqueue)
                     Console.WriteLine($"[creature-lifecycle] {e.Guid:X16} enqueue world-render {info.ModelPath}");
                 if (!EligibleForLoad(e, camPos, camera.Target, viewProj) ||
                     LoadMillisecondsThisFrame >= FinalizeBudgetMs)
                     continue;
-                _lifecycle?.NoteModelLoading(e.Guid);
+                lifecycle?.NoteModelLoading(e.Guid);
                 if (!TryAcquireModel(info, allowFinalize: true, out model, out bool finalizedModel))
                     continue;
                 if (finalizedModel)
@@ -370,7 +382,7 @@ public sealed partial class CreatureRenderer : IDisposable
             }
             if (model is null)
             {
-                _lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
+                lifecycle?.NoteReason(e.Guid, CreatureLifecycleTracker.ReasonCode.RESOLVE_FAILED);
                 continue;
             }
 
@@ -379,19 +391,19 @@ public sealed partial class CreatureRenderer : IDisposable
             {
                 if (!spentLoadSlot)
                 {
-                    bool firstEnqueue = _lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
+                    bool firstEnqueue = lifecycle?.NoteLoadEnqueued(e.Guid, "world-render") == true;
                     if (firstEnqueue)
                         Console.WriteLine($"[creature-lifecycle] {e.Guid:X16} enqueue world-render {info.ModelPath}");
                     if (!EligibleForLoad(e, camPos, camera.Target, viewProj) ||
                         LoadMillisecondsThisFrame >= FinalizeBudgetMs)
                         continue;
                 }
-                _lifecycle?.NoteModelLoading(e.Guid);
+                lifecycle?.NoteModelLoading(e.Guid);
                 if (!TryAcquireAppearance(model, info, allowFinalize: true,
                         out appearance, out bool finalizedAppearance))
                     continue;
             }
-            _lifecycle?.NoteModelReady(e.Guid, appearance is not null);
+            lifecycle?.NoteModelReady(e.Guid, appearance is not null);
             if (appearance is null) continue;
 
             _seen.Add(e.Guid);
@@ -415,7 +427,7 @@ public sealed partial class CreatureRenderer : IDisposable
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
                 (e.IsDead || Vector3.Distance(e.Position, camPos) <= AnimateDistance))
             {
-                string unit = $"creature:{e.DisplayId}";
+                string unit = e.IsPlayer ? $"player:{e.Guid:X16}" : $"creature:{e.DisplayId}";
                 if (!_animTime.TryGetValue(e.Guid, out float at)) at = InitialPhase(e.Guid);
                 M2Animator.Clip? clip;
                 float rate;
@@ -490,10 +502,14 @@ public sealed partial class CreatureRenderer : IDisposable
                 appearance.Textures[batchIndex]?.Bind(0);
                 DrawElements(b.Start, b.Count);
             }
-            DrawnLastFrame++;
-            _lifecycle?.NoteFirstDraw(e.Guid);
+            if (e.IsPlayer) PlayersDrawnLastFrame++;
+            else
+            {
+                DrawnLastFrame++;
+                _lifecycle?.NoteFirstDraw(e.Guid);
+            }
 
-            DrawNpcAttachments(camera, e, model, info, m,
+            DrawUnitAttachments(camera, e, model, info, m,
                 boneCount > 0 ? _skin : _bindSkin);
             // The attachment path has its own shader; restore ours before the
             // next streamed unit uploads its model/bone uniforms.
@@ -510,6 +526,67 @@ public sealed partial class CreatureRenderer : IDisposable
     public bool TryGetSpellPose(ulong guid, out SpellUnitPose pose)
         => _spellPoses.TryGetValue(guid, out pose);
 
+    private bool TryResolveRenderInfo(WorldEntity entity, out CreatureModelInfo info)
+    {
+        info = default;
+        if (_resolver is null || !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo model))
+            return false;
+        if (!entity.IsPlayer)
+        {
+            info = model;
+            return true;
+        }
+
+        return TryBuildPlayerModelInfo(entity, model, PlayerItemResolver, out info);
+    }
+
+    /// <summary>Pure remote-player adapter used by the live renderer and wire regression checks.</summary>
+    public static bool TryBuildPlayerModelInfo(WorldEntity entity, CreatureModelInfo model,
+        Func<uint, (bool Settled, ItemTemplate? Item)>? itemResolver,
+        out CreatureModelInfo info)
+    {
+        info = default;
+        if (!entity.IsPlayer) return false;
+        (byte race, _, byte sex, _) = entity.Fields.Bytes0;
+        if (race is < 1 or > 8 || sex > 1) return false;
+        (byte skin, byte face, byte hairStyle, byte hairColor) =
+            entity.Fields.PlayerAppearance;
+
+        // CreatureDisplayInfoExtra's ten equipment columns are head, shoulder, then the eight
+        // composited body slots. Append cloak as an MSUI-only eleventh value; NPC rows remain ten.
+        var equipment = new uint[11];
+        (int VisibleSlot, int AppearanceSlot)[] slots =
+        [
+            (0, 0), (2, 1), (3, 2), (4, 3), (5, 4), (6, 5),
+            (7, 6), (8, 7), (9, 8), (18, 9), (14, 10),
+        ];
+        foreach ((int visibleSlot, int appearanceSlot) in slots)
+        {
+            uint entry = entity.Fields.PlayerVisibleItemEntry(visibleSlot);
+            if (entry == 0) continue;
+            if (itemResolver is null) return false;
+            (bool settled, ItemTemplate? item) = itemResolver(entry);
+            if (!settled) return false;
+            equipment[appearanceSlot] = item?.DisplayInfoId ?? 0;
+        }
+
+        info = model with
+        {
+            HasExtended = true,
+            ExtRace = race,
+            ExtSex = sex,
+            ExtSkin = skin,
+            ExtFace = face,
+            ExtHairStyle = hairStyle,
+            ExtHairColor = hairColor,
+            ExtFacialHair = entity.Fields.PlayerFacialHair,
+            ExtEquipment = equipment,
+            BakeName = "",
+            IsPlayerAppearance = true,
+        };
+        return true;
+    }
+
     private int CompareUnitDistance(WorldEntity left, WorldEntity right) =>
         Vector3.DistanceSquared(left.Position, _sortCameraPosition)
             .CompareTo(Vector3.DistanceSquared(right.Position, _sortCameraPosition));
@@ -517,11 +594,12 @@ public sealed partial class CreatureRenderer : IDisposable
     private bool EligibleForLoad(WorldEntity entity, Vector3 cameraPosition, Vector3 cameraTarget,
         Matrix4x4 viewProjection)
     {
+        CreatureLifecycleTracker? lifecycle = entity.IsCreature ? _lifecycle : null;
         float radius = MathF.Max(1f, UnitRenderScale(entity.Scale, ScaleMultiplier) * 2f);
         float distanceSq = Vector3.DistanceSquared(entity.Position, cameraPosition);
         if (distanceSq > AnimateDistance * AnimateDistance)
         {
-            _lifecycle?.NoteAdmission(entity.Guid, distanceSq,
+            lifecycle?.NoteAdmission(entity.Guid, distanceSq,
                 CreatureLifecycleTracker.AdmissionCode.OUT_OF_RADIUS,
                 entity.Position, cameraPosition, cameraTarget);
             return false;
@@ -530,7 +608,7 @@ public sealed partial class CreatureRenderer : IDisposable
         bool visible = Camera.BoxInFrustum(viewProjection,
             relative - new Vector3(radius, radius, radius),
             relative + new Vector3(radius, radius, radius * 1.5f));
-        _lifecycle?.NoteAdmission(entity.Guid, distanceSq, visible
+        lifecycle?.NoteAdmission(entity.Guid, distanceSq, visible
                 ? CreatureLifecycleTracker.AdmissionCode.VISIBLE
                 : CreatureLifecycleTracker.AdmissionCode.OUT_OF_FRUSTUM,
             entity.Position, cameraPosition, cameraTarget);
@@ -546,32 +624,39 @@ public sealed partial class CreatureRenderer : IDisposable
                     CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
     }
 
-    private void DrawNpcAttachments(Camera camera, WorldEntity entity, LoadedModel model,
+    private void DrawUnitAttachments(Camera camera, WorldEntity entity, LoadedModel model,
         in CreatureModelInfo info, Matrix4x4 transform, Matrix4x4[] skin)
     {
+        if (model.Source.Attachments.Count == 0 || _attachedItems is null) return;
         uint head = info.HasExtended && info.ExtEquipment.Length > 0
             ? info.ExtEquipment[0] : 0;
         uint shoulders = info.HasExtended && info.ExtEquipment.Length > 1
             ? info.ExtEquipment[1] : 0;
-        uint d0 = entity.Fields.VirtualItemDisplay(0);
-        uint d1 = entity.Fields.VirtualItemDisplay(1);
-        uint d2 = entity.Fields.VirtualItemDisplay(2);
-        if ((head | shoulders | d0 | d1 | d2) == 0 || model.Source.Attachments.Count == 0 ||
-            _attachedItems is null) return;
-
         string suffix = RaceGenderCode(info.ExtRace, info.ExtSex);
-        string signature = $"npc:{head}:{shoulders}:{suffix}|" +
-            $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
-            $"{d1}:{entity.Fields.VirtualItemInfo(1)}:{entity.Fields.VirtualItemSheath(1)}|" +
-            $"{d2}:{entity.Fields.VirtualItemInfo(2)}:{entity.Fields.VirtualItemSheath(2)}";
-        if (!_unitAttachments.TryGetValue(entity.Guid, out UnitAttachments? state))
+        var equipment = new CharacterEquipment();
+        string signature;
+        if (entity.IsPlayer)
         {
-            state = new UnitAttachments();
-            _unitAttachments[entity.Guid] = state;
+            var parts = new List<string>(19);
+            for (int slot = 0; slot < 19; slot++)
+            {
+                uint entry = entity.Fields.PlayerVisibleItemEntry(slot);
+                if (entry == 0 || PlayerItemResolver is null) continue;
+                (bool settled, ItemTemplate? item) = PlayerItemResolver(entry);
+                if (!settled || item is null || item.DisplayInfoId == 0) continue;
+                equipment.Add($"player visible slot {slot}", item.DisplayInfoId,
+                    (int)item.InventoryType, slot, (byte)item.Class, (byte)item.Subclass,
+                    (byte)item.Material, (byte)item.Sheath);
+                parts.Add($"{slot}:{item.DisplayInfoId}:{item.InventoryType}:{item.Sheath}");
+            }
+            signature = $"player:{suffix}:{string.Join('|', parts)}";
         }
-        if (state.Signature != signature)
+        else
         {
-            var equipment = new CharacterEquipment();
+            uint d0 = entity.Fields.VirtualItemDisplay(0);
+            uint d1 = entity.Fields.VirtualItemDisplay(1);
+            uint d2 = entity.Fields.VirtualItemDisplay(2);
+            if ((head | shoulders | d0 | d1 | d2) == 0) return;
             if (head != 0)
                 equipment.Add("NPC head", head, CharacterEquipment.Slot.Head);
             if (shoulders != 0)
@@ -579,6 +664,20 @@ public sealed partial class CreatureRenderer : IDisposable
             AddVirtualPiece(equipment, entity.Fields, 0, d0);
             AddVirtualPiece(equipment, entity.Fields, 1, d1);
             AddVirtualPiece(equipment, entity.Fields, 2, d2);
+            signature = $"npc:{head}:{shoulders}:{suffix}|" +
+                $"{d0}:{entity.Fields.VirtualItemInfo(0)}:{entity.Fields.VirtualItemSheath(0)}|" +
+                $"{d1}:{entity.Fields.VirtualItemInfo(1)}:{entity.Fields.VirtualItemSheath(1)}|" +
+                $"{d2}:{entity.Fields.VirtualItemInfo(2)}:{entity.Fields.VirtualItemSheath(2)}";
+        }
+        if (equipment.Pieces.Count == 0) return;
+
+        if (!_unitAttachments.TryGetValue(entity.Guid, out UnitAttachments? state))
+        {
+            state = new UnitAttachments();
+            _unitAttachments[entity.Guid] = state;
+        }
+        if (state.Signature != signature)
+        {
             equipment.Resolve(_itemDisplay);
             _attachedItems.RaceGenderCode = suffix;
             state.Mounts = _attachedItems.BuildMountSet(equipment);
@@ -671,7 +770,7 @@ public sealed partial class CreatureRenderer : IDisposable
     public bool RenderPortrait(Camera camera, WorldEntity entity)
     {
         if (_shader is null || !TryGetModel(entity, out LoadedModel? model) || model is null ||
-            _resolver is null || !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info)) return false;
+            !TryResolveRenderInfo(entity, out CreatureModelInfo info)) return false;
         string appearanceKey = AppearanceKey(info);
         if (!_appearanceCache.TryGetValue(appearanceKey, out Appearance? appearance))
         {
@@ -735,7 +834,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         _lifecycle?.NoteFirstDraw(entity.Guid);
-        DrawNpcAttachments(camera, entity, model, info, transform,
+        DrawUnitAttachments(camera, entity, model, info, transform,
             boneCount > 0 ? _skin : _bindSkin);
         return true;
     }
@@ -744,8 +843,8 @@ public sealed partial class CreatureRenderer : IDisposable
         [CallerMemberName] string caller = "")
     {
         model = null;
-        if (!Ok || !Enabled || _resolver is null || !entity.IsCreature || entity.DisplayId <= 0 ||
-            !_resolver.TryResolve(entity.DisplayId, out CreatureModelInfo info))
+        if (!Ok || !Enabled || _resolver is null || !entity.IsUnit || entity.DisplayId <= 0 ||
+            !TryResolveRenderInfo(entity, out CreatureModelInfo info))
         {
             if (entity.IsCreature)
                 _lifecycle?.NoteReason(entity.Guid, entity.DisplayId <= 0
@@ -854,11 +953,16 @@ public sealed partial class CreatureRenderer : IDisposable
     }
 
     private static string AppearanceKey(in CreatureModelInfo info) =>
-        info.HasExtended
-            ? $"{info.ModelPath}|npc:{info.ExtRace}/{info.ExtSex}/{info.ExtSkin}/{info.ExtHairStyle}/{info.ExtFacialHair}/{info.BakeName}/{string.Join('.', info.ExtEquipment)}"
-            : $"{info.ModelPath}|{string.Join(",", info.Textures)}";
+        info.IsPlayerAppearance
+            ? $"{info.ModelPath}|player:{info.ExtRace}/{info.ExtSex}/{info.ExtSkin}/{info.ExtFace}/" +
+              $"{info.ExtHairStyle}/{info.ExtHairColor}/{info.ExtFacialHair}/" +
+              $"{string.Join('.', info.ExtEquipment)}"
+            : info.HasExtended
+                ? $"{info.ModelPath}|npc:{info.ExtRace}/{info.ExtSex}/{info.ExtSkin}/{info.ExtHairStyle}/{info.ExtFacialHair}/{info.BakeName}/{string.Join('.', info.ExtEquipment)}"
+                : $"{info.ModelPath}|{string.Join(",", info.Textures)}";
 
-    // Build the NPC's EquipGeosets from its 10 CreatureDisplayInfoExtra equipment display ids.
+    // Build EquipGeosets from the shared appearance layout. NPC rows carry ten display ids;
+    // streamed players append cloak as an eleventh value after resolving their public items.
     private EquipGeosets? BuildNpcEquip(in CreatureModelInfo info)
     {
         if (_itemDisplay is null || info.ExtEquipment.Length < 10) return null;
@@ -871,7 +975,12 @@ public sealed partial class CreatureRenderer : IDisposable
         }
         if (eq[0] != 0 && _itemDisplay.Find(eq[0]) is { } head)   // helm hides hair
             e.HelmVis = (head.HelmetGeosetVis1, head.HelmetGeosetVis2);
-        return e;   // NPCs carry no cloak column
+        if (eq.Length > 10 && eq[10] != 0 && _itemDisplay.Find(eq[10]) is { } cloak)
+        {
+            e.HasCloak = cloak.ModelTexture1.Length > 0 || cloak.ModelTexture2.Length > 0;
+            e.CloakGroup = cloak.GeosetGroup[0];
+        }
+        return e;
     }
 
     private bool TryAcquireModel(in CreatureModelInfo info, bool allowFinalize,
@@ -1218,8 +1327,10 @@ public sealed partial class CreatureRenderer : IDisposable
                 if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
                 {
                     M2TextureRef reference = m2.Textures[textureIndex];
+                    bool liveCharacterComposite = info.IsPlayerAppearance;
                     if (bareHead is not null &&
-                        IsNpcBareHeadBatch(reference.Type, geosetId))
+                        (liveCharacterComposite ? reference.Type == 1
+                            : IsNpcBareHeadBatch(reference.Type, geosetId)))
                     {
                         preparedTexture = bareHead;
                         prepared.Textures.Add(preparedTexture);
@@ -1418,9 +1529,11 @@ public sealed partial class CreatureRenderer : IDisposable
                     if (textureIndex >= 0 && textureIndex < m2.Textures.Count)
                     {
                         M2TextureRef reference = m2.Textures[textureIndex];
+                        bool liveCharacterComposite = info.IsPlayerAppearance;
                         if (bareHeadTexture is not null &&
-                            IsNpcBareHeadBatch(reference.Type,
-                                m2.Submeshes[batch.SubmeshIndex].Id))
+                            (liveCharacterComposite ? reference.Type == 1
+                                : IsNpcBareHeadBatch(reference.Type,
+                                    m2.Submeshes[batch.SubmeshIndex].Id)))
                         {
                             texture = bareHeadTexture;
                         }
@@ -1465,8 +1578,12 @@ public sealed partial class CreatureRenderer : IDisposable
             }
             case 1:
                 return NpcBodySkinCandidates(info);
+            case 2 when info.IsPlayerAppearance:
+                return CharacterCapeTextureCandidates(info);
             case 6:
                 return NpcHairTextureCandidates(info);
+            case 7 when info.IsPlayerAppearance:
+                return NpcFacialHairTextureCandidates(info);
             default:
                 if (info.Textures.Length > 0 && !string.IsNullOrEmpty(info.Textures[0]))
                     return new[] { UnderDir(modelDir, info.Textures[0]) };
@@ -1509,6 +1626,45 @@ public sealed partial class CreatureRenderer : IDisposable
         return CharacterTextureCandidates(row.Texture1, info.ExtRace, info.ExtSex).ToArray();
     }
 
+    private IReadOnlyList<string> NpcFacialHairTextureCandidates(in CreatureModelInfo info)
+    {
+        if (!info.HasExtended || _charSections is null) return Array.Empty<string>();
+        CharSectionRow? row = _charSections.Find(
+            info.ExtRace, info.ExtSex, CharSectionsTable.SectionFacialHair,
+            info.ExtFacialHair, (int)info.ExtHairColor);
+        return row is null || row.Texture1.Length == 0
+            ? Array.Empty<string>()
+            : CharacterTextureCandidates(row.Texture1, info.ExtRace, info.ExtSex).ToArray();
+    }
+
+    private IReadOnlyList<string> CharacterCapeTextureCandidates(in CreatureModelInfo info)
+    {
+        if (_itemDisplay is null || info.ExtEquipment.Length <= 10 ||
+            _itemDisplay.Find(info.ExtEquipment[10]) is not { } cloak)
+            return Array.Empty<string>();
+        string suffix = info.ExtSex == 1 ? "F" : "M";
+        var result = new List<string>();
+        foreach (string partial in new[] { cloak.ModelTexture1, cloak.ModelTexture2 }
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            string stem = partial.Replace('/', '\\').TrimStart('\\');
+            bool hasDirectory = stem.Contains('\\');
+            if (stem.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) stem = stem[..^4];
+            if (hasDirectory) result.Add(stem + ".blp");
+            else
+            {
+                result.Add($@"Item\ObjectComponents\Cape\{stem}.blp");
+                result.Add($@"Item\TextureComponents\Cape\{stem}.blp");
+                result.Add($@"Item\ObjectComponents\Cape\{stem}_{suffix}.blp");
+                result.Add($@"Item\ObjectComponents\Cape\{stem}_U.blp");
+                result.Add($@"Item\TextureComponents\Cape\{stem}_{suffix}.blp");
+                result.Add($@"Item\TextureComponents\Cape\{stem}_U.blp");
+            }
+        }
+        return result;
+    }
+
     private static bool IsNpcBareHeadBatch(uint textureType, int geosetId)
     {
         if (textureType != 1) return false;
@@ -1520,7 +1676,8 @@ public sealed partial class CreatureRenderer : IDisposable
     private static string NpcBareDescriptor(in CreatureModelInfo info) =>
         $"composite://npc-bare/r{info.ExtRace}-s{info.ExtSex}-" +
         $"sk{info.ExtSkin}-f{info.ExtFace}-h{info.ExtHairStyle}-" +
-        $"hc{info.ExtHairColor}-fh{info.ExtFacialHair}";
+        $"hc{info.ExtHairColor}-fh{info.ExtFacialHair}" +
+        (info.IsPlayerAppearance ? $"-eq{string.Join('.', info.ExtEquipment)}" : "");
 
     private PreparedTexture? PrepareNpcBareComposite(in CreatureModelInfo info)
     {
@@ -1607,6 +1764,16 @@ public sealed partial class CreatureRenderer : IDisposable
             Overlay(hair.Texture3, upper: true);
         }
 
+        // A streamed player needs its public item display ids painted over the live
+        // CharSections composite in the same canonical order as the local CharacterRenderer.
+        if (info.IsPlayerAppearance &&
+            info.ExtEquipment.Any(display => display != 0))
+        {
+            CharacterEquipment equipment = BuildAppearanceEquipment(info);
+            atlas = equipment.Composite(atlas, atlasWidth, atlasHeight,
+                DecodeEquipmentTexture);
+        }
+
         return new PreparedTexture
         {
             Path = NpcBareDescriptor(info),
@@ -1614,6 +1781,46 @@ public sealed partial class CreatureRenderer : IDisposable
             Width = atlasWidth,
             Height = atlasHeight,
         };
+    }
+
+    private CharacterEquipment BuildAppearanceEquipment(in CreatureModelInfo info)
+    {
+        var equipment = new CharacterEquipment
+        {
+            GenderSuffix = info.ExtSex == 1 ? "F" : "M",
+        };
+        int[] inventoryTypes =
+        [
+            CharacterEquipment.Slot.Head,
+            CharacterEquipment.Slot.Shoulders,
+            CharacterEquipment.Slot.Shirt,
+            CharacterEquipment.Slot.Chest,
+            CharacterEquipment.Slot.Waist,
+            CharacterEquipment.Slot.Legs,
+            CharacterEquipment.Slot.Feet,
+            CharacterEquipment.Slot.Wrists,
+            CharacterEquipment.Slot.Hands,
+            CharacterEquipment.Slot.Tabard,
+            CharacterEquipment.Slot.Cloak,
+        ];
+        for (int i = 0; i < info.ExtEquipment.Length && i < inventoryTypes.Length; i++)
+            if (info.ExtEquipment[i] != 0)
+                equipment.Add($"streamed appearance slot {i}", info.ExtEquipment[i],
+                    inventoryTypes[i]);
+        equipment.Resolve(_itemDisplay);
+        return equipment;
+    }
+
+    private (byte[] bgra, int w, int h)? DecodeEquipmentTexture(string path)
+    {
+        byte[]? bytes = _mpq.ReadFile(path);
+        if (bytes is null) return null;
+        try
+        {
+            byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            return (pixels, width, height);
+        }
+        catch { return null; }
     }
 
     private static string RaceFolder(byte race) => race switch

@@ -13,14 +13,17 @@ public sealed partial class GameLoop
 {
     private readonly PlayerActions _actions = new();
     private SpellCatalog? _spellCatalog;
+    private EnchantCatalog? _enchantCatalog;
     private SpellVisualCatalog? _spellVisualCatalog;
     private GameplayArt? _gameplayArt;
     private readonly bool[] _actionKeyWasDown = new bool[12];
+    private readonly bool[] _multiActionKeyWasDown = new bool[24];
     private long _actionUses;
     private int _pressedActionSlot = -1;
     private int _draggingActionSlot = -1;
     private Vector2 _actionPressPosition;
     private uint _hoveredActionSpellId;
+    private int _hoveredActionSlot = -1;
     private uint _pendingCastSpell;
     private uint _autoRepeatSpell;
     private uint _queuedMeleeSpell;
@@ -37,6 +40,7 @@ public sealed partial class GameLoop
         try
         {
             _spellCatalog = SpellCatalog.Load(_mpq);
+            _enchantCatalog = EnchantCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
             Console.WriteLine(_spellCatalog is null
@@ -57,6 +61,20 @@ public sealed partial class GameLoop
             if (down && !_actionKeyWasDown[i] && !typing && _net is { IsInWorld: true })
                 UseAction(ActionWireSlot(i));
             _actionKeyWasDown[i] = down;
+        }
+        for (int barIndex = 0; barIndex < 2; barIndex++)
+        {
+            BottomMultiActionBar bar = barIndex == 0
+                ? BottomMultiActionBar.Left : BottomMultiActionBar.Right;
+            for (int i = 0; i < MultiActionBarUiLaw.ButtonsPerBar; i++)
+            {
+                int stateIndex = barIndex * MultiActionBarUiLaw.ButtonsPerBar + i;
+                bool down = BindingDown(MultiActionBinding(bar, i));
+                if (MultiActionBarUiLaw.UseOnKeyRelease(_multiActionKeyWasDown[stateIndex], down,
+                        typing, _net is { IsInWorld: true }))
+                    UseAction(MultiActionBarUiLaw.WireSlot(bar, i));
+                _multiActionKeyWasDown[stateIndex] = down;
+            }
         }
     }
 
@@ -173,14 +191,24 @@ public sealed partial class GameLoop
         }
 
         CastTargetVerdict targetVerdict = ResolveCastTarget(spell);
+        if (_itemCastSpell != 0 && _itemCastSpell != spellId) CancelItemTargeting();
         ulong target = targetVerdict.Guid;
         if (targetVerdict.Kind == CastTargetKind.Ground)
         {
             // 1.12 targeting-cursor mode: the cast is armed, not sent — the next world
             // left-click binds a terrain point and commits (Program.Targeting.cs), a
             // right-click cancels. All the gates above have already passed.
+            CancelItemTargeting();
             _groundCastSpell = spellId;
             EmitCastVerdict(spellId, CastTargetReason.GroundTargeting, 0, sent: false);
+            return;
+        }
+        if (targetVerdict.Kind == CastTargetKind.Item)
+        {
+            _groundCastSpell = 0;
+            ClearEnchantConfirmation();
+            _itemCastSpell = spellId;
+            EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, 0, sent: false);
             return;
         }
         if (targetVerdict.Kind == CastTargetKind.Refused)
@@ -241,6 +269,36 @@ public sealed partial class GameLoop
 
     /// <summary>Armed ground-target spell awaiting a terrain click; 0 = not targeting.</summary>
     private uint _groundCastSpell;
+
+    /// <summary>Armed item-target spell awaiting an occupied bag or paper-doll click.</summary>
+    private uint _itemCastSpell;
+
+    private void CommitItemCast(uint spellId, ulong itemGuid)
+    {
+        if (_net is null || _spellCatalog is null ||
+            !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
+        bool sent = _net.CastSpellOnItem(spellId, itemGuid);
+        EmitCastVerdict(spellId, CastTargetReason.ItemTargeting, itemGuid, sent);
+        if (!sent) return;
+        _itemCastSpell = 0;
+        ClearEnchantConfirmation();
+        if (spell.AutoRepeat) _autoRepeatSpell = spellId;
+        else if (spell.OnNextSwing) _queuedMeleeSpell = spellId;
+        else _pendingCastSpell = spellId;
+        if (spell.StartRecoveryMs > 0)
+        {
+            double now = NowSeconds();
+            _globalCooldownUntil = now + spell.StartRecoveryMs / 1000.0;
+            _actions.StartCooldown(spellId, spell.StartRecoveryCategory, 0,
+                spell.StartRecoveryMs, now);
+        }
+    }
+
+    private void CancelItemTargeting()
+    {
+        _itemCastSpell = 0;
+        ClearEnchantConfirmation();
+    }
 
     private void RefuseCast(uint spellId, string reason, string text) =>
         ShowSpellError(spellId, reason, text, "LOCAL_GATE");
@@ -306,6 +364,7 @@ public sealed partial class GameLoop
     {
         if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
         _hoveredActionSpellId = 0;
+        _hoveredActionSlot = -1;
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
@@ -386,14 +445,17 @@ public sealed partial class GameLoop
             ImGui.GetForegroundDrawList().AddText(
                 ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
                 "Select target area");
-        int hoveredSlot = -1;
+        else if (_itemCastSpell != 0 && !_window.MouseCaptured)
+            ImGui.GetForegroundDrawList().AddText(
+                ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
+                "Select item");
         if (_pressedActionSlot >= 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _actionPressPosition) > 6f * scale)
             _draggingActionSlot = _pressedActionSlot;
 
         // Reference: an empty slot swaps to the UI-Quickslot grid ring only while a cursor
         // payload is held (BENILLA_ACTIONBAR_GRID_SHOWN); otherwise it keeps UI-Quickslot2.
-        bool gridShown = _carriedBag >= 0 || _draggingSpellId != 0 || _draggingActionSlot >= 0;
+        bool gridShown = HasCarriedItem || _draggingSpellId != 0 || _draggingActionSlot >= 0;
         // Attack/auto-repeat flash is a plain 0.4 s show/hide toggle (ATTACK_BUTTON_FLASH_TIME).
         bool flashPhase = now % 0.8 < 0.4;
         WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
@@ -434,7 +496,7 @@ public sealed partial class GameLoop
             bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
             bool activated = ImGui.IsItemActivated();
             bool pushed = ImGui.IsItemActive() || BindingDown(ActionBinding(i));
-            if (hovered) hoveredSlot = wireSlot;
+            if (hovered) _hoveredActionSlot = wireSlot;
 
             if (slot is { } action)
             {
@@ -482,9 +544,14 @@ public sealed partial class GameLoop
 
                 uint cooldownCategory = !verdict.IsItem && _spellCatalog?.TryGet(verdict.ActionId,
                     out SpellInfo cooldownSpell) == true ? cooldownSpell.Category : 0;
-                float cooldown = verdict.IsItem ? 0f : _actions.CooldownFraction(
-                    verdict.ActionId, now, cooldownCategory);
-                if (cooldown > 0f) DrawCooldownSwipe(dl, buttonMin, buttonMax, cooldown);
+                if (!verdict.IsItem && _actions.TryCooldownDisplay(verdict.ActionId, now,
+                        cooldownCategory, out CooldownDisplay cooldown))
+                {
+                    if (cooldown.SweepFraction is { } sweep)
+                        DrawCooldownSwipe(dl, buttonMin, buttonMax, sweep);
+                    else if (cooldown.FlashProgress is { } flash)
+                        DrawCooldownFlash(dl, buttonMin, buttonMax, flash);
+                }
 
                 // NormalTexture is below Pushed/Highlight/Checked in FrameXML. Drawing the ring
                 // after the hover layer partially masks the bright outline and reads as dimming.
@@ -571,11 +638,7 @@ public sealed partial class GameLoop
             ChangeActionPage(-1);
         ImGui.End();
 
-        DrawMultiActionBars(display, barMin, scale);
         DrawMicroMenu(barMin, scale);
-        if (_hoveredActionSpellId != 0)
-            DrawSpellTooltip(_hoveredActionSpellId, scale,
-                SpellTooltipPlacement.DefaultBottomRight);
 
         if (_uiParityArmed && _uiParityPanel is "action-bar" or "action-button")
             MarkUiParityFrameComplete();
@@ -595,63 +658,52 @@ public sealed partial class GameLoop
                     Vector2.Zero, Vector2.One, 0xccffffff);
             }
         }
-        if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
-        {
-            if (_draggingMacroId != 0)
-            {
-                if (hoveredSlot >= 0)
-                {
-                    var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
-                    _actions.Set(hoveredSlot, macroAction);
-                    _net?.SetActionButton((byte)hoveredSlot, macroAction.Packed);
-                }
-                _draggingMacroId = 0;
-                _pressedMacroId = 0;
-            }
-            else if (_draggingSpellId != 0)
-            {
-                if (hoveredSlot >= 0)
-                {
-                    var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
-                    _actions.Set(hoveredSlot, spellAction);
-                    _net?.SetActionButton((byte)hoveredSlot, spellAction.Packed);
-                }
-                _draggingSpellId = 0;
-            }
-            else if (_draggingActionSlot >= 0)
-            {
-                if (hoveredSlot >= 0) SwapActions(_draggingActionSlot, hoveredSlot);
-                else ClearAction(_draggingActionSlot);
-            }
-            _pressedActionSlot = -1;
-            _draggingActionSlot = -1;
-        }
     }
 
-    private void DrawMultiActionBars(Vector2 display, Vector2 barMin, float scale)
+    private void DrawMultiActionBars()
     {
+        if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        float scale = GameplayUiScale();
+        Vector2 barMin = GameplayBarMin(display, scale);
         bool proof = _uiParityArmed && _uiParityPanel == "multi-action-bar";
-        (string Name, int FirstSlot, bool Vertical, Vector2 Origin)[] bars =
+        bool gridShown = HasCarriedItem || _draggingSpellId != 0 || _draggingMacroId != 0 ||
+            _draggingActionSlot >= 0;
+        double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        bool flashPhase = now % 0.8 < 0.4;
+        WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
+        (string Name, int FirstSlot, bool Vertical, Vector2 Origin, BottomMultiActionBar? BindingBar)[] bars =
         [
-            ("MultiBarBottomLeft", 60, false,
-                new Vector2(barMin.X + 8 * scale, display.Y - 95 * scale)),
-            ("MultiBarBottomRight", 48, false,
-                new Vector2(barMin.X + 518 * scale, display.Y - 95 * scale)),
+            ("MultiBarBottomLeft", MultiActionBarUiLaw.BottomLeftBase, false,
+                new Vector2(barMin.X + 8 * scale, display.Y - 95 * scale), BottomMultiActionBar.Left),
+            ("MultiBarBottomRight", MultiActionBarUiLaw.BottomRightBase, false,
+                new Vector2(barMin.X + 518 * scale, display.Y - 95 * scale), BottomMultiActionBar.Right),
+            // These two were already implemented by MSUI. They are outside Benilla's requested
+            // bottom-bar scope, so preserve them instead of deleting a present MSUI feature.
             ("MultiBarRight", 24, true,
-                new Vector2(display.X - 45 * scale, display.Y - 598 * scale)),
+                new Vector2(display.X - 45 * scale, display.Y - 598 * scale), null),
             ("MultiBarLeft", 36, true,
-                new Vector2(display.X - 88 * scale, display.Y - 598 * scale)),
+                new Vector2(display.X - 88 * scale, display.Y - 598 * scale), null),
         ];
         foreach (var bar in bars)
         {
-            bool populated = Enumerable.Range(bar.FirstSlot, 12).Any(slot => _actions[slot] is not null);
-            if (!populated && !(proof && bar.Name == "MultiBarBottomLeft")) continue;
-            DrawMultiActionBar(bar.Name, bar.FirstSlot, bar.Vertical, bar.Origin, scale, proof);
+            bool populated = Enumerable.Range(bar.FirstSlot, MultiActionBarUiLaw.ButtonsPerBar)
+                .Any(slot => _actions[slot] is not null);
+            bool bottomReferenceBar = bar.BindingBar is not null;
+            if (!bottomReferenceBar && !populated) continue;
+            DrawMultiActionBar(bar.Name, bar.FirstSlot, bar.Vertical, bar.Origin, scale, proof,
+                gridShown, now, flashPhase, player, bar.BindingBar);
         }
+
+        if (_hoveredActionSpellId != 0)
+            DrawSpellTooltip(_hoveredActionSpellId, scale,
+                SpellTooltipPlacement.DefaultBottomRight);
+        FinishActionDrag();
     }
 
     private void DrawMultiActionBar(string name, int firstSlot, bool vertical,
-        Vector2 origin, float scale, bool proof)
+        Vector2 origin, float scale, bool proof, bool gridShown, double now, bool flashPhase,
+        WorldEntity? player, BottomMultiActionBar? bindingBar)
     {
         if (_gameplayArt is null) return;
         Vector2 logicalSize = vertical ? new Vector2(38, 500) : new Vector2(500, 38);
@@ -672,12 +724,12 @@ public sealed partial class GameLoop
                 offsetX: "0", offsetY: "17", strata: "HIGH");
         }
 
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < MultiActionBarUiLaw.ButtonsPerBar; i++)
         {
             Vector2 buttonMin = origin + (vertical
-                ? new Vector2(2, i * 42)
-                : new Vector2(i * 42, 2)) * scale;
-            Vector2 buttonMax = buttonMin + new Vector2(36) * scale;
+                ? new Vector2(2, i * MultiActionBarUiLaw.ButtonStep)
+                : new Vector2(i * MultiActionBarUiLaw.ButtonStep, 2)) * scale;
+            Vector2 buttonMax = buttonMin + new Vector2(MultiActionBarUiLaw.ButtonSize) * scale;
             int slotNumber = firstSlot + i;
             string button = name + "Button" + (i + 1);
             if (proof && name == "MultiBarBottomLeft" && i == 0)
@@ -698,33 +750,165 @@ public sealed partial class GameLoop
             }
 
             ImGui.SetCursorScreenPos(buttonMin);
-            if (ImGui.InvisibleButton($"##{name}-{i}", buttonMax - buttonMin)) UseAction(slotNumber);
-            bool hovered = ImGui.IsItemHovered();
+            bool clicked = ImGui.InvisibleButton($"##{name}-{i}", buttonMax - buttonMin,
+                ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+            bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+            bool activated = ImGui.IsItemActivated();
+            bool pushed = ImGui.IsItemActive() ||
+                bindingBar is { } bindBar && BindingDown(MultiActionBinding(bindBar, i));
+            if (hovered) _hoveredActionSlot = slotNumber;
+
             if (_actions[slotNumber] is { } action)
             {
-                SpellInfo spell = default;
-                bool isSpell = action.Kind == ActionSlot.Spell &&
-                    _spellCatalog?.TryGet(action.ActionId, out spell) == true;
-                string iconPath = isSpell
-                    ? ResolveSpellActionIcon(spell, _entities.TryGet(_net!.PlayerGuid,
-                        out WorldEntity owner) ? owner : null)
-                    : action.Kind == ActionSlot.Item && _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
-                        ? item.IconPath : action.Kind == ActionSlot.Macro ? MacroIcon(action.ActionId)
-                        : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                string iconPath = @"Interface\Icons\INV_Misc_QuestionMark.blp";
+                SpellInfo? spellInfo = null;
+                ItemTemplate? itemInfo = null;
+                string fallbackTitle = $"Action {action.ActionId}";
+                if (action.Kind == ActionSlot.Spell &&
+                    _spellCatalog?.TryGet(action.ActionId, out SpellInfo spell) == true)
+                {
+                    spellInfo = spell;
+                    iconPath = ResolveSpellActionIcon(spell, player);
+                    fallbackTitle = spell.Rank.Length > 0
+                        ? $"{spell.Name} ({spell.Rank})" : spell.Name;
+                }
+                else if (action.Kind == ActionSlot.Item &&
+                         _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null)
+                {
+                    itemInfo = item;
+                    iconPath = item.IconPath;
+                    fallbackTitle = item.Name;
+                }
+                else if (action.Kind == ActionSlot.Macro)
+                {
+                    iconPath = MacroIcon(action.ActionId);
+                    fallbackTitle = action.ActionId is > 0 and <= 18
+                        ? _macros[(int)action.ActionId - 1].Name : "Macro";
+                }
+
+                ActionButtonVerdict verdict = ComputeButtonVerdict(
+                    slotNumber, action, spellInfo, player, pushed, hovered, gridShown);
+                CollectGameplayAction(verdict);
+                EmitActionButtonVerdict(verdict);
+                uint iconTint = verdict.Usability switch
+                {
+                    ButtonUsability.NotEnoughPower => 0xffff8080u,
+                    ButtonUsability.Usable => 0xffffffffu,
+                    _ => 0xff666666u,
+                };
                 uint icon = _gameplayArt.Handle(iconPath);
-                if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax);
-                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
-                if (hovered)
+                if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax,
+                    Vector2.Zero, Vector2.One, iconTint);
+                if (verdict.Flashing && flashPhase)
+                {
+                    uint flash = _gameplayArt.Handle(@"Interface\Buttons\UI-QuickslotRed");
+                    if (flash != 0) dl.AddImage((nint)flash, buttonMin, buttonMax);
+                }
+                uint cooldownCategory = !verdict.IsItem && _spellCatalog?.TryGet(verdict.ActionId,
+                    out SpellInfo cooldownSpell) == true ? cooldownSpell.Category : 0;
+                if (!verdict.IsItem && _actions.TryCooldownDisplay(verdict.ActionId, now,
+                        cooldownCategory, out CooldownDisplay cooldown))
+                {
+                    if (cooldown.SweepFraction is { } sweep)
+                        DrawCooldownSwipe(dl, buttonMin, buttonMax, sweep);
+                    else if (cooldown.FlashProgress is { } flash)
+                        DrawCooldownFlash(dl, buttonMin, buttonMax, flash);
+                }
+                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
+                    verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
+                if (activated)
+                {
+                    _pressedActionSlot = slotNumber;
+                    _actionPressPosition = ImGui.GetIO().MousePos;
+                }
+                if (clicked && _draggingActionSlot < 0 && !PlaceCarriedItemOnAction(slotNumber))
+                    UseAction(slotNumber);
+                if (verdict.Pushed)
+                {
+                    uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");
+                    if (depress != 0) dl.AddImage((nint)depress, buttonMin, buttonMax);
+                }
+                if (verdict.Hover)
                 {
                     uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
                     if (highlight != 0) dl.AddImage((nint)highlight, buttonMin, buttonMax);
-                    if (isSpell) _hoveredActionSpellId = action.ActionId;
+                    if (spellInfo is not null) _hoveredActionSpellId = action.ActionId;
+                    else if (itemInfo is not null) DrawItemTooltip(itemInfo, 1);
+                    else
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(fallbackTitle);
+                        ImGui.TextDisabled($"Action {slotNumber + 1}");
+                        ImGui.EndTooltip();
+                    }
                 }
+                if (verdict.Checked)
+                {
+                    uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
+                    if (check != 0) dl.AddImage((nint)check, buttonMin, buttonMax);
+                }
+                if (verdict.EquippedBorder)
+                {
+                    uint border = _gameplayArt.AdditiveHandle(@"Interface\Buttons\UI-ActionButton-Border");
+                    if (border != 0)
+                    {
+                        Vector2 center = (buttonMin + buttonMax) * .5f;
+                        Vector2 half = new(31f * scale);
+                        dl.AddImage((nint)border, center - half, center + half, Vector2.Zero,
+                            Vector2.One, ImGui.ColorConvertFloat4ToU32(new Vector4(0, 1, 0, .35f)));
+                    }
+                }
+                GameBinding? binding = bindingBar is { } hotkeyBar
+                    ? MultiActionBinding(hotkeyBar, i) : null;
+                string hotkey = binding is { } command ? FriendlyKey(BoundKey(command)) ?? "" : "";
+                if (hotkey.Length == 0 && verdict.Range == ButtonRange.OutOfRange) hotkey = "●";
+                DrawActionText(dl, buttonMin, hotkey, scale,
+                    verdict.Range == ButtonRange.OutOfRange ? 0xff1a1affu : 0xff999999u);
+                if (verdict.IsItem && verdict.StackCount > 0)
+                    DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
             }
-            else DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale);
+            else
+            {
+                if (clicked) PlaceCarriedItemOnAction(slotNumber);
+                if (MultiActionBarUiLaw.ShowEmptyWell(gridShown))
+                    DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot", scale);
+            }
         }
         if (proof && name == "MultiBarBottomLeft") MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private void FinishActionDrag()
+    {
+        if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left)) return;
+        if (_draggingMacroId != 0)
+        {
+            if (_hoveredActionSlot >= 0)
+            {
+                var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
+                _actions.Set(_hoveredActionSlot, macroAction);
+                _net?.SetActionButton((byte)_hoveredActionSlot, macroAction.Packed);
+            }
+            _draggingMacroId = 0;
+            _pressedMacroId = 0;
+        }
+        else if (_draggingSpellId != 0)
+        {
+            if (_hoveredActionSlot >= 0)
+            {
+                var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
+                _actions.Set(_hoveredActionSlot, spellAction);
+                _net?.SetActionButton((byte)_hoveredActionSlot, spellAction.Packed);
+            }
+            _draggingSpellId = 0;
+        }
+        else if (_draggingActionSlot >= 0)
+        {
+            if (_hoveredActionSlot >= 0) SwapActions(_draggingActionSlot, _hoveredActionSlot);
+            else ClearAction(_draggingActionSlot);
+        }
+        _pressedActionSlot = -1;
+        _draggingActionSlot = -1;
     }
 
     private void DrawMicroMenu(Vector2 barMin, float scale)
@@ -1030,6 +1214,7 @@ public sealed partial class GameLoop
     private static void DrawActionText(ImDrawListPtr dl, Vector2 buttonMin, string text, float scale,
         uint color)
     {
+        if (string.IsNullOrEmpty(text)) return;
         float size = 12f * scale;
         ImFontPtr font = ImGui.GetFont();
         // This binding has no CalcTextSizeA; scale the base measure instead (see WowSkin.cs).
@@ -1204,19 +1389,21 @@ public sealed partial class GameLoop
 
     private static void DrawCooldownSwipe(ImDrawListPtr dl, Vector2 min, Vector2 max, float elapsedFraction)
     {
+        uint shade = ImGui.ColorConvertFloat4ToU32(
+            new Vector4(0, 0, 0, CooldownVisualLaw.WipeAlpha));
+        foreach (CooldownVisualLaw.Quad q in CooldownVisualLaw.BuildWipe(min, max, elapsedFraction))
+            dl.AddQuadFilled(q.A, q.B, q.C, q.D, shade);
+    }
+
+    private void DrawCooldownFlash(ImDrawListPtr dl, Vector2 min, Vector2 max, float progress)
+    {
+        uint star = _gameplayArt?.AdditiveHandle(@"Interface\Cooldown\star4") ?? 0;
+        if (star == 0) return;
         Vector2 center = (min + max) * 0.5f;
-        float radius = (max.X - min.X) * 0.72f;
-        float start = -MathF.PI * 0.5f + elapsedFraction * MathF.Tau;
-        const int segments = 28;
-        uint shade = ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, 0.60f));
-        for (int i = 0; i < segments; i++)
-        {
-            float a0 = start + (MathF.Tau - (start + MathF.PI * 0.5f)) * i / segments;
-            float a1 = start + (MathF.Tau - (start + MathF.PI * 0.5f)) * (i + 1) / segments;
-            Vector2 p0 = center + new Vector2(MathF.Cos(a0), MathF.Sin(a0)) * radius;
-            Vector2 p1 = center + new Vector2(MathF.Cos(a1), MathF.Sin(a1)) * radius;
-            dl.AddTriangleFilled(center, p0, p1, shade);
-        }
+        Vector2 half = (max - min) * 0.5f * CooldownVisualLaw.FlashScale(progress);
+        uint tint = ImGui.ColorConvertFloat4ToU32(
+            new Vector4(1f, 1f, 1f, CooldownVisualLaw.FlashAlpha(progress)));
+        dl.AddImage((nint)star, center - half, center + half, Vector2.Zero, Vector2.One, tint);
     }
 
     private void DisposeGameplayUi()

@@ -169,6 +169,12 @@ public sealed partial class GameLoop
         DrawInspectFrame();
         DrawSpellbook();
         DrawHelpFrame();
+        // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
+        // MEDIUM panels (including bags) and before dialog confirmations.
+        DrawMultiActionBars();
+        DrawPartyInvite();
+        DrawMailConfirmation();
+        DrawEnchantConfirmation();
     }
 
     private void DrawPlayerFrame()

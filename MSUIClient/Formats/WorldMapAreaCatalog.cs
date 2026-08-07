@@ -15,6 +15,9 @@ public sealed class WorldMapAreaCatalog
     public bool TryGetArea(uint areaId, out WorldMapAreaInfo area) => _byArea.TryGetValue(areaId, out area);
     public bool TryGetContinent(uint mapId, out WorldMapAreaInfo area) => _continents.TryGetValue(mapId, out area);
 
+    /// <summary>Every zone-level entry (creator mode's map picker lists these).</summary>
+    public IEnumerable<WorldMapAreaInfo> Areas => _byArea.Values;
+
     public static WorldMapAreaCatalog? Load(MpqMount mpq)
     {
         byte[]? bytes = mpq.ReadFile(Path);

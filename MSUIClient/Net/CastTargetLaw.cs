@@ -2,7 +2,7 @@ using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
-public enum CastTargetKind { SelfImplicit, Unit, Ground, Refused }
+public enum CastTargetKind { SelfImplicit, Unit, Ground, Item, Refused }
 
 public enum CastTargetReason
 {
@@ -11,6 +11,8 @@ public enum CastTargetReason
     SelectedUnit,
     SelfFallback,
     GroundTargeting,
+    ItemTargeting,
+    InvalidItemTarget,
     NoValidUnit,
     UnavailableOrPassive,
     AlreadyQueued,
@@ -49,6 +51,7 @@ public static class CastTargetLaw
     // the bound point as three raw floats (SpellCastTargetsInfo.cpp:169-174).
     private const ushort SourceLocation = 0x0020, DestLocation = 0x0040;
     private const ushort LocationBits = SourceLocation | DestLocation;
+    private const ushort ItemBits = 0x0010 | 0x1000;
 
     public static ushort TargetMask(in SpellInfo spell)
     {
@@ -79,6 +82,8 @@ public static class CastTargetLaw
         // can't bind (item/string) keep refusing below.
         if ((word & LocationBits) != 0 && (word & ~(UnitBits | LocationBits)) == 0)
             return new(CastTargetKind.Ground, CastTargetReason.GroundTargeting);
+        if ((word & ItemBits) != 0 && (word & ~(UnitBits | ItemBits)) == 0)
+            return new(CastTargetKind.Item, CastTargetReason.ItemTargeting);
         if ((word & ~UnitBits) != 0)
             return new(CastTargetKind.Refused, CastTargetReason.UnsupportedTargetShape);
         if (selection is { } selected && ClearSatisfied(word, selected) == 0)

@@ -20,6 +20,7 @@ public enum MovementFlags : uint
     TurnLeft      = 0x00000010,
     TurnRight     = 0x00000020,
     WalkMode      = 0x00000100,
+    Root          = 0x00001000,
     FallingFar    = 0x00004000,
     Falling       = 0x00002000, // JUMPING — carries the ballistic tail
     Swimming      = 0x00200000, // carries the swim-pitch f32

@@ -349,6 +349,10 @@ public static class GameTextLaw
         float uiScale, Vector2 pos, uint color, uint? shadowColor = null, int outline = 0,
         bool snap = true)
     {
+        // ImGui.NET's sized AddText overload throws ArgumentNullException (chars) for an
+        // empty managed string. Empty tooltip paragraphs are intentional vertical spacer rows:
+        // their height is accounted for by the caller, but there is no glyph submission to make.
+        if (text.Length == 0) return;
         if (snap) pos = new Vector2(MathF.Round(pos.X), MathF.Round(pos.Y));
         int em = EmPixels(fontHeight, uiScale);
         if (!TryResolve(face, em, outline >= 2, out ImFontPtr font, out float drawSize))

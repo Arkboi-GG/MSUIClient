@@ -37,7 +37,7 @@ public sealed partial class GameLoop
     private GL? _gl;                                   // kept so we can start the world load after login
     private GlueScene? _glue;                          // the login-screen glue scene (UI_MainMenu)
     private GlueBooth? _booth;                         // the character-select per-race booth (UI_<Race>)
-    private CreatureRenderer? _creatures;              // draws the streamed creatures/NPCs (UPDATE_OBJECT)
+    private CreatureRenderer? _creatures;              // draws streamed creatures and remote players (UPDATE_OBJECT)
     private SelectionRingRenderer? _selectionRing;
     private SpellEffectSource? _spellEffects;
     private SpellEffectMeshRenderer? _spellEffectMeshes;
@@ -76,9 +76,10 @@ public sealed partial class GameLoop
     private void InitNet(GL gl)
     {
         _gl = gl;
-        if (!_config.Server.Enabled)
+        bool creator = CreatorLaunchActive;
+        if (!_config.Server.Enabled && !GlueFrontDoorActive)
         {
-            Console.WriteLine("[net] disabled (server.enabled = false) - offline mode");
+            Console.WriteLine("[net] disabled (server.enabled = false) - offline batch mode");
             return;
         }
 
@@ -100,8 +101,8 @@ public sealed partial class GameLoop
         }
         catch (Exception ex) { Console.WriteLine($"[booth] init failed: {ex.Message}"); }
 
-        // The networked creature/NPC renderer. Loads the creature DBCs; draws
-        // every streamed Unit as its M2 once we are in world. Best-effort.
+        // The networked unit renderer. Loads the creature DBCs; draws streamed NPCs and
+        // remote players as M2s once we are in world. Best-effort.
         try
         {
             if (_mpq is not null)
@@ -159,6 +160,16 @@ public sealed partial class GameLoop
         }
         catch (Exception ex) { Console.WriteLine($"[target] faction init failed: {ex.Message}"); }
 
+        // No server configured: the front door + presentation stack above is all an
+        // interactive session needs - never construct the network client. (With a
+        // server configured the client is still created so the login screen works
+        // if the user switches modes, but auto-login is suppressed for creator.)
+        if (!_config.Server.Enabled)
+        {
+            Console.WriteLine("[creator] no server configured - front door up, network skipped");
+            return;
+        }
+
         try
         {
             NetSettings netSettings = _config.ToNetSettings();
@@ -171,7 +182,7 @@ public sealed partial class GameLoop
             _net = new NetworkClient(netSettings, CaptureWirePacket,
                 _config.DevTools ? ObserveSocketWrite : null);
             _net.CombatSendObserved = ObserveCombatSend;
-            if (_config.Server.AutoConnect &&
+            if (!creator && _config.Server.AutoConnect &&
                 !string.IsNullOrWhiteSpace(_config.Server.Account) &&
                 !string.IsNullOrWhiteSpace(_config.Server.Password))
             {
@@ -212,6 +223,10 @@ public sealed partial class GameLoop
             _entities.Clear();
             _combat.Clear();
             _actions.Clear();
+            ResetPlayerAuras();
+            _movementRooted = false;
+            _iceBlockFrozen = false;
+            _iceBlockFacing = enter.Orientation;
             _movementSender.Reset(enter.Orientation);
             ResetTargeting();
             ResetCombatFeedback();
@@ -223,6 +238,7 @@ public sealed partial class GameLoop
             ResetTaxi();
             ResetGossip();
             ResetMail();
+            _net.QueryNextMailTime();
             ResetAuction();
             ResetGuild();
             ResetTabard();
@@ -331,11 +347,40 @@ public sealed partial class GameLoop
             {
                 switch ((Op)opcode)
                 {
+                    case Op.SMSG_LOGOUT_RESPONSE:
+                        ApplyLogoutResponse(body);
+                        break;
+                    case Op.SMSG_LOGOUT_CANCEL_ACK:
+                        ApplyLogoutCancelAck();
+                        break;
+                    case Op.SMSG_LOGOUT_COMPLETE:
+                        ApplyLogoutComplete();
+                        break;
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
                         break;
+                    case Op.SMSG_GROUP_INVITE:
+                        ApplyPartyInvite(body);
+                        break;
+                    case Op.SMSG_GROUP_DECLINE:
+                        // This packet informs an inviter that the named invitee declined. It is
+                        // not the pending-invite popup's cancel signal.
+                        break;
+                    case Op.SMSG_PARTY_MEMBER_STATS:
+                    case Op.SMSG_PARTY_MEMBER_STATS_FULL:
+                        ApplyPartyMemberStats(body);
+                        break;
                     case Op.SMSG_PET_SPELLS:
                         ApplyPetSpells(body);
+                        break;
+                    case Op.SMSG_PET_MODE:
+                        ApplyPetMode(body);
+                        break;
+                    case Op.SMSG_PET_ACTION_FEEDBACK:
+                        ApplyPetActionFeedback(body);
+                        break;
+                    case Op.SMSG_PET_CAST_FAILED:
+                        ApplyPetCastFailed(body);
                         break;
                     case Op.SMSG_INSPECT:
                         ApplyInspect(body);
@@ -405,6 +450,32 @@ public sealed partial class GameLoop
                             _movementSender.Reset(destination.Orientation);
                             ObserveTeleportApplied(moverGuid, counter, destination);
                             _net.TeleportAck(moverGuid, counter);
+                        }
+                        break;
+                    case Op.SMSG_FORCE_MOVE_ROOT:
+                    case Op.SMSG_FORCE_MOVE_UNROOT:
+                        {
+                            var rootReader = new PacketReader(body);
+                            ulong moverGuid = rootReader.ReadPackedGuid();
+                            uint counter = rootReader.ReadU32();
+                            if (rootReader.Remaining != 0)
+                                throw new InvalidDataException(
+                                    $"{(Op)opcode} has {rootReader.Remaining} trailing byte(s)");
+                            if (_controller is null || moverGuid != _net.PlayerGuid)
+                            {
+                                Console.WriteLine($"[movement] ignored {(Op)opcode} for mover " +
+                                                  $"0x{moverGuid:X16}");
+                                break;
+                            }
+
+                            bool rooted = (Op)opcode == Op.SMSG_FORCE_MOVE_ROOT;
+                            _movementRooted = rooted;
+                            if (rooted) _movementSender.ParkForRoot(_net, _controller);
+                            MovementInfo ack = MovementInfo.Create(_controller.Position,
+                                _controller.Yaw, rooted ? MovementFlags.Root : MovementFlags.None);
+                            _net.MoveRootAck(moverGuid, counter, rooted, ack);
+                            Console.WriteLine($"[movement] mover {(rooted ? "rooted" : "unrooted")} " +
+                                              $"counter={counter} ackFlags=0x{ack.Flags:X8}");
                         }
                         break;
                     case Op.SMSG_UPDATE_OBJECT:
@@ -537,8 +608,14 @@ public sealed partial class GameLoop
                     case Op.SMSG_SEND_MAIL_RESULT:
                         ApplyMailResult(body);
                         break;
+                    case Op.SMSG_ITEM_TEXT_QUERY_RESPONSE:
+                        ApplyMailItemText(body);
+                        break;
                     case Op.SMSG_RECEIVED_MAIL:
                         ApplyReceivedMail(body);
+                        break;
+                    case Op.MSG_QUERY_NEXT_MAIL_TIME:
+                        ApplyNextMailTime(body);
                         break;
                     case Op.MSG_AUCTION_HELLO:
                         ApplyAuctionHello(body);
@@ -959,8 +1036,13 @@ public sealed partial class GameLoop
     private void DrawGlueScene()
     {
         if (_glue is not { Ok: true } || _gl is null) return;
-        if (!_config.Server.Enabled || _net is null || _worldLoadStarted) return;
-        if (_net.State == NetState.CharacterSelect) return;   // the per-race booth draws here instead
+        if (_worldLoadStarted) return;
+        // The front door renders the same UI_MainMenu scene with no net at all.
+        if (!GlueFrontDoorActive)
+        {
+            if (!_config.Server.Enabled || _net is null) return;
+            if (_net.State == NetState.CharacterSelect) return;   // the per-race booth draws here instead
+        }
 
         Span<int> vp = stackalloc int[4];
         _gl.GetInteger(GetPName.Viewport, vp);
@@ -1008,10 +1090,12 @@ public sealed partial class GameLoop
         _booth.Render(w, h);
     }
 
-    /// <summary>Draw the streamed creatures/NPCs. Called from Render() world pass; in-world only.</summary>
+    /// <summary>Draw streamed NPCs and remote players. Called from the in-world render pass.</summary>
     private void DrawCreatures()
     {
-        if (_creatures is null || _net is null || !_net.IsInWorld) return;
+        if (_creatures is null) return;
+        if (!_creatorWorldRequested && (_net is null || !_net.IsInWorld)) return;
+        _creatures.SelfPlayerGuid = LocalPlayerGuid;
         _creatures.Render(_window.Camera, _entities);
     }
 
@@ -1020,6 +1104,13 @@ public sealed partial class GameLoop
     /// <summary>Called from Gui(). Draws whichever glue/status screen matches the connection state.</summary>
     private void NetHud()
     {
+        // Creator sandbox owns the world: its own overlay, no net states involved.
+        if (_creatorWorldRequested) { DrawCreatorHud(); return; }
+
+        // The glue front door: the login screen doubles as the launch menu, even
+        // with no network client at all. Enter World commits the chosen mode.
+        if (GlueFrontDoorActive) { DrawLoginScreen(); DrawGlueTuning(); return; }
+
         if (!_config.Server.Enabled || _net is null) return;
 
         NetState st = _net.State;
@@ -1102,30 +1193,68 @@ public sealed partial class GameLoop
         GlueText(dl, "Copyright 2004-2006  Blizzard Entertainment. All Rights Reserved.",
                  cx, disp.Y - 17f * s, 12f * s, WowSkin.GlueGold, 1);
 
-        // Account + password fields (160x37, bottom-anchored 345 / 270, centered). Password Enter submits.
-        float boxW = 160f * s, boxH = 37f * s;
-        LoginField(dl, "Account Name", "##acct", _acctBuf, cx, disp.Y - 345f * s, boxW, boxH, s, false, out _);
-        LoginField(dl, "Account Password", "##pass", _passBuf, cx, disp.Y - 270f * s, boxW, boxH, s, true, out bool submit);
-
-        // Login (170x45, TOP 519, centered). Height is live-tunable (grows downward from 519).
+        // Creator mode and serverless client mode have no account. Serverless
+        // shows BOTH destinations as their own buttons - clicking one IS the
+        // mode selection (saved sticky), so there is no way to land in the
+        // wrong world. Networked client mode keeps the account + password
+        // fields (160x37, bottom-anchored 345 / 270, centered; password Enter
+        // submits) and the Login button.
+        bool creatorMode = CreatorLaunchActive;
+        bool serverless = !_config.Server.Enabled;
         var loginSize = new Vector2(170f * s, 45f * s * GlueTune.ButtonHeightMul);
-        ImGui.SetCursorScreenPos(new Vector2(cx - loginSize.X * 0.5f, 519f * s));
-        bool loginClick = _skin?.GlueButton("Login", loginSize) ?? ImGui.Button("Login", loginSize);
-        if (loginClick || submit)
+        if (serverless)
         {
-            string a = BufToString(_acctBuf), p = BufToString(_passBuf);
-            if (a.Length > 0 && p.Length > 0)
+            var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
+            ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s));
+            if (_skin?.GlueButton("Enter Spell Creator", bigSize) ?? ImGui.Button("Enter Spell Creator", bigSize))
             {
-                _config.Server.Account = _rememberAccount ? a : "";
-                _net!.Login(a, p);
+                SetLaunchMode(LaunchModeCreator);
+                EnterOfflineWorld(creator: true);
+            }
+            ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s + bigSize.Y + 10f * s));
+            if (_skin?.GlueButton("Offline World Viewer", bigSize) ?? ImGui.Button("Offline World Viewer", bigSize))
+            {
+                SetLaunchMode(LaunchModeClient);
+                EnterOfflineWorld(creator: false);
             }
         }
-        if (_net!.State == NetState.Failed && !string.IsNullOrEmpty(_net.Status))
-            GlueText(dl, _net.Status, cx, 519f * s + loginSize.Y + 6f * s, 12f * s, new Vector4(1f, 0.5f, 0.4f, 1f), 1);
+        else if (creatorMode)
+        {
+            if (!_launchMenuOpen)   // the Launch Options modal sits over this spot
+            {
+                GlueText(dl, "Spell Creator Mode", cx, disp.Y - 320f * s, 15f * s, WowSkin.GlueGold, 1);
+                GlueText(dl, "An offline sandbox for building and tuning spells.",
+                         cx, disp.Y - 296f * s, 12f * s, WowSkin.Muted, 1);
+            }
+            ImGui.SetCursorScreenPos(new Vector2(cx - loginSize.X * 0.5f, 519f * s));
+            if (_skin?.GlueButton("Enter Creator", loginSize) ?? ImGui.Button("Enter Creator", loginSize))
+                EnterOfflineWorld(creator: true);
+        }
+        else
+        {
+            float boxW = 160f * s, boxH = 37f * s;
+            LoginField(dl, "Account Name", "##acct", _acctBuf, cx, disp.Y - 345f * s, boxW, boxH, s, false, out _);
+            LoginField(dl, "Account Password", "##pass", _passBuf, cx, disp.Y - 270f * s, boxW, boxH, s, true, out bool submit);
+
+            // Login (170x45, TOP 519, centered). Height is live-tunable (grows downward from 519).
+            ImGui.SetCursorScreenPos(new Vector2(cx - loginSize.X * 0.5f, 519f * s));
+            bool loginClick = _skin?.GlueButton("Login", loginSize) ?? ImGui.Button("Login", loginSize);
+            if (loginClick || submit)
+            {
+                string a = BufToString(_acctBuf), p = BufToString(_passBuf);
+                if (a.Length > 0 && p.Length > 0 && _net is not null)
+                {
+                    _config.Server.Account = _rememberAccount ? a : "";
+                    _net.Login(a, p);
+                }
+            }
+            if (_net is { State: NetState.Failed } failedNet && !string.IsNullOrEmpty(failedNet.Status))
+                GlueText(dl, failedNet.Status, cx, 519f * s + loginSize.Y + 6f * s, 12f * s, new Vector4(1f, 0.5f, 0.4f, 1f), 1);
+        }
 
         // Remember Account Name checkbox (at 17,653). Box + label sizes are live-tunable - the label
         // needs an explicit glue size or it renders at the tiny ambient font next to the s-scaled box.
-        if (_skin is not null)
+        if (_skin is not null && !creatorMode && !serverless)
         {
             ImGui.SetCursorScreenPos(new Vector2(17f * s, 653f * s));
             _skin.CheckBox("Remember Account Name", ref _rememberAccount,
@@ -1145,19 +1274,27 @@ public sealed partial class GameLoop
         GlueMenuButton("Manage Account", new Vector2(leftX, 565f * s), small);
         GlueMenuButton("Community Site", new Vector2(leftX, 607f * s), small);
 
+        // Launch Options - the one wired menu button: what does this client boot into?
+        ImGui.SetCursorScreenPos(new Vector2(rightX, 300f * s + 3f * gap));
+        if (_skin?.GlueButton("Launch Options", small) == true)
+            _launchMenuOpen = !_launchMenuOpen;
+
         // The realm line (opens the realm modal in Stage B) and Quit (150x38, BOTTOMRIGHT 5,29).
         var quitSize = new Vector2(150f * s, 38f * s * GlueTune.ButtonHeightMul);
         float quitTop = disp.Y - 29f * s - quitSize.Y;
-        string realm = RealmDisplayName();   // the realm NAME once connected, else configured name, else host:port
-        GlueText(dl, "Realm", disp.X - 6f * s, quitTop - 46f * s, 11f * s, WowSkin.Muted, 2);
-        float rScale = ImGui.GetFontSize() > 0f ? (13f * s / ImGui.GetFontSize()) : 1f;
-        Vector2 rSz = ImGui.CalcTextSize(realm) * rScale;
-        var rPos = new Vector2(disp.X - 6f * s - rSz.X, quitTop - 32f * s);
-        ImGui.SetCursorScreenPos(rPos);
-        ImGui.InvisibleButton("##realm", new Vector2(MathF.Max(rSz.X, 40f), MathF.Max(rSz.Y, 12f * s)));
-        // Stage B wires this click to the realm-select modal; for now it's a hover affordance.
-        GlueText(dl, realm, disp.X - 6f * s, quitTop - 32f * s, 13f * s,
-                 ImGui.IsItemHovered() ? WowSkin.Highlight : WowSkin.GlueGold, 2);
+        if (!creatorMode && !serverless)
+        {
+            string realm = RealmDisplayName();   // the realm NAME once connected, else configured name, else host:port
+            GlueText(dl, "Realm", disp.X - 6f * s, quitTop - 46f * s, 11f * s, WowSkin.Muted, 2);
+            float rScale = ImGui.GetFontSize() > 0f ? (13f * s / ImGui.GetFontSize()) : 1f;
+            Vector2 rSz = ImGui.CalcTextSize(realm) * rScale;
+            var rPos = new Vector2(disp.X - 6f * s - rSz.X, quitTop - 32f * s);
+            ImGui.SetCursorScreenPos(rPos);
+            ImGui.InvisibleButton("##realm", new Vector2(MathF.Max(rSz.X, 40f), MathF.Max(rSz.Y, 12f * s)));
+            // Stage B wires this click to the realm-select modal; for now it's a hover affordance.
+            GlueText(dl, realm, disp.X - 6f * s, quitTop - 32f * s, 13f * s,
+                     ImGui.IsItemHovered() ? WowSkin.Highlight : WowSkin.GlueGold, 2);
+        }
 
         ImGui.SetCursorScreenPos(new Vector2(disp.X - 5f * s - quitSize.X, quitTop));
         if (_skin?.GlueButton("Quit", quitSize) ?? ImGui.Button("Quit", quitSize))
@@ -1169,6 +1306,9 @@ public sealed partial class GameLoop
             _glueTuneOpen = !_glueTuneOpen;
         GlueText(dl, "tune", disp.X - 6f * s, 6f * s, 12f * s,
                  (_glueTuneOpen || ImGui.IsItemHovered()) ? WowSkin.Highlight : WowSkin.Muted, 2);
+
+        // The Launch Options modal draws last so it sits over the rest of the login chrome.
+        DrawLaunchOptionsMenu(dl, s);
 
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
@@ -1925,6 +2065,7 @@ public sealed partial class GameLoop
         {
             ImGui.TextUnformatted($"creatures drawn: {_creatures.DrawnLastFrame}" +
                                   (_creatures.Ok ? "" : "  (renderer off - creature DBCs missing)"));
+            ImGui.TextUnformatted($"remote players drawn: {_creatures.PlayersDrawnLastFrame}");
             bool drawC = _creatures.Enabled;
             if (ImGui.Checkbox("Draw creatures", ref drawC)) _creatures.Enabled = drawC;
             float hoff = _creatures.HeadingOffsetDegrees;

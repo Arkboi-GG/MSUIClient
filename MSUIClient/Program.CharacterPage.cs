@@ -165,6 +165,19 @@ public sealed partial class GameLoop
             dl.AddImage((nint)_paperDoll.TextureHandle, modelMin, modelMin + new Vector2(233, 224) * s,
                 new Vector2(0, 1), new Vector2(1, 0));
 
+        ImGui.SetCursorScreenPos(modelMin);
+        ImGui.InvisibleButton("##paper-model-drop", new Vector2(233, 224) * s,
+            ImGuiButtonFlags.MouseButtonLeft);
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left) && HasCarriedItem)
+            AutoEquipCarriedPaperDollItem();
+        if (ImGui.BeginDragDropTarget())
+        {
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && HasCarriedItem)
+                AutoEquipCarriedPaperDollItem();
+            ImGui.EndDragDropTarget();
+        }
+
         DrawRotationButton(dl, p + new Vector2(65, 78) * s, true, s);
         DrawRotationButton(dl, p + new Vector2(100, 78) * s, false, s);
 
@@ -180,6 +193,8 @@ public sealed partial class GameLoop
             DrawEquipmentSlot(dl, p + new Vector2(122 + i * 42, 385) * s, s, player,
                 WeaponPaperDollSlots[i].Slot, WeaponPaperDollSlots[i].Empty);
 
+        DrawAmmoSlot(dl, p + new Vector2(258, 390) * s, s, player);
+
         DrawCharacterStats(dl, p, s, player.Fields);
         DrawResistances(dl, p, s, player.Fields);
     }
@@ -190,11 +205,22 @@ public sealed partial class GameLoop
         DrawImageButton(dl, left ? "##paper-left" : "##paper-right", min, new Vector2(35) * s,
             $@"Interface\Buttons\{stem}-Up", $@"Interface\Buttons\{stem}-Down",
             @"Interface\Buttons\ButtonHilight-Round");
+        bool changed = false;
         if (ImGui.IsItemClicked())
         {
-            _paperDollRotation += left ? -0.12f : 0.12f;
-            _paperDollDirty = true;
+            // Preserve MSUI's existing tap increment; held rotation and its sound were absent.
+            _paperDollRotation = PaperDollUiLaw.ClickFacing(_paperDollRotation, left);
+            PlayBagSound("igInventoryRotateCharacter");
+            PlayBagSound("igInventoryRotateCharacter");
+            changed = true;
         }
+        if (ImGui.IsItemActive())
+        {
+            _paperDollRotation = PaperDollUiLaw.HeldFacing(_paperDollRotation, left,
+                ImGui.GetIO().DeltaTime);
+            changed = true;
+        }
+        if (changed) _paperDollDirty = true;
     }
 
     private void DrawEquipmentSlot(ImDrawListPtr dl, Vector2 min, float s, WorldEntity player,
@@ -212,27 +238,175 @@ public sealed partial class GameLoop
 
         string art = item?.IconPath ?? $@"Interface\Paperdoll\UI-PaperDoll-Slot-{emptySuffix}";
         uint icon = _gameplayArt?.Handle(art) ?? 0;
-        if (icon != 0) dl.AddImage((nint)icon, min, max);
+        bool locked = IsInventorySlotLocked(InventoryUiLaw.EquipmentContainer, slot);
+        bool broken = instance is not null && instance.Fields.ItemMaxDurability > 0 &&
+            instance.Fields.ItemDurability == 0;
+        if (icon != 0) dl.AddImage((nint)icon, min, max, Vector2.Zero, Vector2.One,
+            PaperDollUiLaw.IconTint(locked, broken));
 
         ImGui.SetCursorScreenPos(min);
         ImGui.InvisibleButton($"##equip-{slot}", max - min,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
-        if (ImGui.IsItemClicked(ImGuiMouseButton.Left))
+        bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        if (_itemCastSpell != 0)
         {
-            PickupOrPlaceItem(255, slot, guid);
+            if (rightClicked)
+            {
+                CancelItemTargeting();
+                leftClicked = rightClicked = false;
+            }
+            else if (leftClicked)
+            {
+                if (instance is not null) TryBindItemCast(instance, item, bindConfirmed: false);
+                leftClicked = rightClicked = false;
+            }
+        }
+        if (_enchantConfirmation is not null) leftClicked = rightClicked = false;
+        PaperDollUiLaw.SlotClickAction action = PaperDollUiLaw.ClickAction(
+            leftClicked, rightClicked, ImGui.GetIO().KeyShift, ImGui.GetIO().KeyCtrl);
+        if (action == PaperDollUiLaw.SlotClickAction.PickupOrPlace)
+        {
+            PickupOrPlaceItem(InventoryUiLaw.EquipmentContainer, slot, guid);
             _paperDollDirty = true;
         }
-        if (ImGui.IsItemHovered() && item is not null)
-            DrawItemTooltip(item, instance?.Fields.ItemStackCount ?? 1,
-                instance?.Fields.ItemDurability ?? 0, instance?.Fields.ItemMaxDurability ?? 0);
+        else if (action == PaperDollUiLaw.SlotClickAction.Use && guid != 0)
+            _net?.UseItem(InventoryUiLaw.PlayerInventoryBag, (byte)slot, item?.UseSpellIndex ?? 0);
+        if (_itemCastSpell == 0 && _enchantConfirmation is null)
+            HandleInventoryDrag(InventoryUiLaw.EquipmentContainer, slot, guid, item);
+
+        bool hovered = ImGui.IsItemHovered();
+        if (hovered)
+        {
+            if (item is not null)
+                DrawItemTooltip(item, instance?.Fields.ItemStackCount ?? 1,
+                    instance?.Fields.ItemDurability ?? 0, instance?.Fields.ItemMaxDurability ?? 0);
+            else
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(emptySuffix);
+                ImGui.EndTooltip();
+            }
+        }
 
         uint ring = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot2") ?? 0;
         if (ring != 0)
         {
             Vector2 center = (min + max) * 0.5f + new Vector2(0, -s);
             Vector2 half = new(32f * s);
-            dl.AddImage((nint)ring, center - half, center + half);
+            ItemTemplate? carried = CarriedPaperDollTemplate();
+            bool fits = carried is not null &&
+                PaperDollUiLaw.FitsEquipmentSlot(carried.InventoryType, slot);
+            dl.AddImage((nint)ring, center - half, center + half, Vector2.Zero, Vector2.One,
+                PaperDollUiLaw.RingTint(fits, broken));
         }
+        if (ImGui.IsItemActive())
+        {
+            uint depress = _gameplayArt?.Handle(@"Interface\Buttons\UI-Quickslot-Depress") ?? 0;
+            if (depress != 0) dl.AddImage((nint)depress, min, max);
+        }
+        if (hovered)
+        {
+            uint highlight = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square") ?? 0;
+            if (highlight != 0) dl.AddImage((nint)highlight, min, max);
+        }
+        uint count = instance?.Fields.ItemStackCount ?? 0;
+        if (count > 1)
+            GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
+                new Vector2(max.X - 5f * s,
+                    max.Y - GameText.EmPixels("NumberFontNormal", s) - 2f * s), s);
+    }
+
+    private ItemTemplate? CarriedPaperDollTemplate()
+    {
+        if (_items is null || ResolveCarriedItem() is not { } carried) return null;
+        _items.TryGet(carried.Entry, out ItemTemplate? item);
+        return item;
+    }
+
+    private bool AutoEquipCarriedPaperDollItem(bool ammoOnly = false)
+    {
+        if (_net is null || ResolveCarriedItem() is not { } carried ||
+            CarriedPaperDollTemplate() is not { } item) return false;
+        if (ammoOnly && !PaperDollUiLaw.IsAmmo(item.InventoryType)) return false;
+        bool isAmmo = PaperDollUiLaw.IsAmmo(item.InventoryType);
+        bool sent;
+        if (isAmmo)
+            sent = _net.SetAmmo(carried.Entry);
+        else if (item.InventoryType != 0 &&
+                 InventoryUiLaw.ToWire(_carriedContainer, _carriedSlot) is { } wire)
+            sent = _net.AutoEquipItem(wire.Bag, wire.Slot);
+        else return false;
+        if (!sent) return false;
+        // SET_AMMO selects the carried stack's entry; it does not move that stack.
+        if (!isAmmo) AddPendingBagLock(_carriedContainer, _carriedSlot);
+        ClearCarriedItem();
+        _paperDollDirty = true;
+        return true;
+    }
+
+    private void DrawAmmoSlot(ImDrawListPtr dl, Vector2 min, float s, WorldEntity player)
+    {
+        if (_gameplayArt is null || _items is null || _net is null) return;
+        Vector2 max = min + new Vector2(27) * s;
+        Vector2 center = (min + max) * .5f;
+        uint frame = _gameplayArt.Handle(@"Interface\PaperdollInfoFrame\UI-Character-AmmoSlot");
+        if (frame != 0)
+        {
+            dl.AddImage((nint)frame, center - new Vector2(20.5f) * s,
+                center + new Vector2(20.5f) * s, Vector2.Zero, new Vector2(.640625f));
+        }
+
+        uint entry = player.Fields.PlayerAmmoId;
+        _items.Require(entry, 0, _net);
+        _items.TryGet(entry, out ItemTemplate? ammo);
+        uint count = entry == 0 ? 0 : CarriedAmmoCount(player, entry);
+        uint icon = _gameplayArt.Handle(ammo?.IconPath ?? "");
+        if (icon != 0) dl.AddImage((nint)icon, min, max);
+
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton("##paper-ammo", max - min, ImGuiButtonFlags.MouseButtonLeft);
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Left)) AutoEquipCarriedPaperDollItem(ammoOnly: true);
+        if (ImGui.BeginDragDropTarget())
+        {
+            ImGui.AcceptDragDropPayload("MSUI_INVENTORY_ITEM");
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left)) AutoEquipCarriedPaperDollItem(ammoOnly: true);
+            ImGui.EndDragDropTarget();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            if (ammo is not null) DrawItemTooltip(ammo, count);
+            else { ImGui.BeginTooltip(); ImGui.TextUnformatted("Ammo"); ImGui.EndTooltip(); }
+        }
+        if (count > 1)
+            GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
+                new Vector2(max.X - s, max.Y - GameText.EmPixels("NumberFontNormal", s) - 2f * s), s);
+
+        if (frame != 0)
+        {
+            Vector2 overlayCenter = center + new Vector2(-22, 0) * s;
+            dl.AddImage((nint)frame, overlayCenter - new Vector2(11.5f, 20.5f) * s,
+                overlayCenter + new Vector2(11.5f, 20.5f) * s,
+                new Vector2(.640625f, 0), new Vector2(1f, .640625f));
+        }
+    }
+
+    private uint CarriedAmmoCount(WorldEntity player, uint entry)
+    {
+        uint count = 0;
+        void Add(ulong guid)
+        {
+            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
+                count += Math.Max(1, item.Fields.ItemStackCount);
+        }
+        for (int slot = 0; slot < InventoryUiLaw.BackpackSlots; slot++) Add(player.Fields.PlayerBackpackSlot(slot));
+        for (int bagIndex = 0; bagIndex < 4; bagIndex++)
+        {
+            ulong bagGuid = player.Fields.PlayerInventorySlot(19 + bagIndex);
+            if (bagGuid == 0 || !_entities.TryGet(bagGuid, out WorldEntity bag)) continue;
+            for (int slot = 0; slot < bag.Fields.ContainerNumSlots; slot++) Add(bag.Fields.ContainerSlot(slot));
+        }
+        return count;
     }
 
     private void DrawCharacterStats(ImDrawListPtr dl, Vector2 p, float s, ObjectFields f)
@@ -243,7 +417,8 @@ public sealed partial class GameLoop
         {
             dl.AddImage((nint)bg, basePos, basePos + new Vector2(115, 85) * s,
                 new Vector2(0, 0), new Vector2(0.8984375f, 0.609375f));
-            dl.AddImage((nint)bg, basePos + new Vector2(115, 0) * s, basePos + new Vector2(230, 85) * s,
+            dl.AddImage((nint)bg, basePos + new Vector2(115, 0) * s,
+                basePos + new Vector2(230, 85) * s,
                 new Vector2(0, 0), new Vector2(0.8984375f, 0.609375f));
         }
 
@@ -251,26 +426,38 @@ public sealed partial class GameLoop
         // "Armor:" (GlobalStrings.lua). The value is the same stat number either way.
         string[] labels = ["Strength:", "Agility:", "Stamina:", "Intellect:", "Spirit:"];
         for (int i = 0; i < 5; i++) DrawStatRow(dl, basePos + new Vector2(6, 3 + i * 13) * s,
-            labels[i], f.Stat(i).ToString(), s);
-        DrawStatRow(dl, basePos + new Vector2(6, 68) * s, "Armor:", f.Resistance(0).ToString(), s);
+            labels[i], f.Stat(i).ToString(), s, valueColor: PaperDollUiLaw.ModifierTextColor(
+                f.StatPositive(i), f.StatNegative(i)));
+        DrawStatRow(dl, basePos + new Vector2(6, 68) * s, "Armor:", f.Resistance(0).ToString(), s,
+            valueColor: PaperDollUiLaw.ModifierTextColor(f.ResistancePositive(0),
+                f.ResistanceNegative(0)));
 
         float speed = f.MainAttackTime > 0 ? f.MainAttackTime / 1000f : 0;
         string damage = f.MaxDamage > 0 ? $"{f.MinDamage:0.#}-{f.MaxDamage:0.#}" : "0-0";
-        DrawStatRow(dl, basePos + new Vector2(122, 2) * s, "Attack", speed > 0 ? speed.ToString("0.00") : "—", s);
-        DrawStatRow(dl, basePos + new Vector2(127, 15) * s, "Attack Power", f.AttackPower.ToString(), s, 99);
+        DrawStatRow(dl, basePos + new Vector2(122, 2) * s, "Attack",
+            speed > 0 ? speed.ToString("0.00") : "—", s);
+        DrawStatRow(dl, basePos + new Vector2(127, 15) * s, "Attack Power",
+            f.AttackPower.ToString(), s, 99,
+            PaperDollUiLaw.ModifierTextColor(f.AttackPowerPositive, f.AttackPowerNegative));
         DrawStatRow(dl, basePos + new Vector2(127, 28) * s, "Damage", damage, s, 99);
         float rangedSpeed = f.RangedAttackTime > 0 ? f.RangedAttackTime / 1000f : 0;
-        string rangedDamage = f.MaxRangedDamage > 0 ? $"{f.MinRangedDamage:0.#}-{f.MaxRangedDamage:0.#}" : "—";
-        DrawStatRow(dl, basePos + new Vector2(122, 47) * s, "Ranged", rangedSpeed > 0 ? rangedSpeed.ToString("0.00") : "—", s);
-        DrawStatRow(dl, basePos + new Vector2(127, 60) * s, "Ranged Power", f.RangedAttackPower.ToString(), s, 99);
+        string rangedDamage = f.MaxRangedDamage > 0
+            ? $"{f.MinRangedDamage:0.#}-{f.MaxRangedDamage:0.#}" : "—";
+        DrawStatRow(dl, basePos + new Vector2(122, 47) * s, "Ranged",
+            rangedSpeed > 0 ? rangedSpeed.ToString("0.00") : "—", s);
+        DrawStatRow(dl, basePos + new Vector2(127, 60) * s, "Ranged Power",
+            f.RangedAttackPower.ToString(), s, 99,
+            PaperDollUiLaw.ModifierTextColor(f.RangedAttackPowerPositive,
+                f.RangedAttackPowerNegative));
         DrawStatRow(dl, basePos + new Vector2(127, 73) * s, "Damage", rangedDamage, s, 99);
     }
 
-    private static void DrawStatRow(ImDrawListPtr dl, Vector2 p, string label, string value, float s, float width = 104)
+    private static void DrawStatRow(ImDrawListPtr dl, Vector2 p, string label, string value, float s,
+        float width = 104, uint? valueColor = null)
     {
         GameText.Draw(dl, "GameFontNormalSmall", label, p, s);
         GameText.DrawRightAligned(dl, "GameFontHighlightSmall", value,
-            new Vector2(p.X + width * s, p.Y), s);
+            new Vector2(p.X + width * s, p.Y), s, valueColor);
     }
 
     private void DrawResistances(ImDrawListPtr dl, Vector2 p, float s, ObjectFields f)
@@ -286,7 +473,9 @@ public sealed partial class GameLoop
             if (art != 0) dl.AddImage((nint)art, min, min + new Vector2(32, 29) * s,
                 new Vector2(0, tops[i]), new Vector2(1, tops[i] + 0.11328125f));
             string v = f.Resistance(schools[i]).ToString();
-            GameText.DrawCentered(dl, "GameFontHighlightSmall", v, min + new Vector2(16, 17) * s, s);
+            GameText.DrawCentered(dl, "GameFontHighlightSmall", v, min + new Vector2(16, 17) * s, s,
+                PaperDollUiLaw.ModifierTextColor(f.ResistancePositive(schools[i]),
+                    f.ResistanceNegative(schools[i])));
         }
     }
 

@@ -30,6 +30,7 @@ public sealed partial class GameLoop
 
     private void ResetTargeting()
     {
+        CloseInspect(playSound: false);
         _hoveredGuid = 0;
         _selectionGuid = 0;
         _attackTargetGuid = 0;
@@ -39,10 +40,11 @@ public sealed partial class GameLoop
 
     private void UpdateTargeting()
     {
-        if (_net is not { IsInWorld: true }) return;
+        // Creator mode targets its locally spawned practice dummies with no net at all.
+        if (_net is not { IsInWorld: true } && !_creatorWorldRequested) return;
 
         // Reconcile the speculative local attack latch with the authoritative echo.
-        if (_combat.AttackRevision != _targetCombatSeen)
+        if (_net is not null && _combat.AttackRevision != _targetCombatSeen)
         {
             _targetCombatSeen = _combat.AttackRevision;
             ulong previousAttack = _attackTargetGuid;
@@ -110,7 +112,7 @@ public sealed partial class GameLoop
                     CommitSelection(picked, beginAttack: false);
                     _unitPopupGuid = picked;
                     _unitPopupPosition = click.Position;
-                    if (!_playerNames.ContainsKey(picked)) _net.NameQuery(picked);
+                    if (!_playerNames.ContainsKey(picked)) _net?.NameQuery(picked);
                 }
                 else CommitSelection(picked, beginAttack: true); // empty right preserves
             }
@@ -121,6 +123,7 @@ public sealed partial class GameLoop
             _creatures.HoveredGuid = _hoveredGuid;
             _creatures.SelectedGuid = _selectionGuid;
         }
+        UpdateInspectLifecycle();
     }
 
     private void DrawSelectionRing()
@@ -147,9 +150,10 @@ public sealed partial class GameLoop
 
     private void CommitSelection(ulong guid, bool beginAttack)
     {
-        if (_net is null) return;
+        if (_net is null && !_creatorWorldRequested) return;
 
-        bool wasAttacking = _attackTargetGuid != 0 || _combat.IsEngaged(_net.PlayerGuid);
+        bool wasAttacking = _attackTargetGuid != 0 ||
+            (_net is not null && _combat.IsEngaged(_net.PlayerGuid));
         bool changed = guid != _selectionGuid;
         if (changed && wasAttacking)
         {
@@ -161,8 +165,8 @@ public sealed partial class GameLoop
         if (changed)
         {
             _selectionGuid = guid;
-            _net.SetSelection(guid);
-            if (guid != 0 && _entities.TryGet(guid, out WorldEntity identity))
+            _net?.SetSelection(guid);
+            if (guid != 0 && _net is not null && _entities.TryGet(guid, out WorldEntity identity))
             {
                 if (identity.IsPlayer && _queriedPlayerNames.Add(guid)) _net.NameQuery(guid);
                 else if (identity.IsCreature && identity.Entry != 0 && _queriedCreatureNames.Add(identity.Entry))
@@ -171,8 +175,9 @@ public sealed partial class GameLoop
         }
 
         // A running swing follows a valid target switch. A clean right click
-        // starts it when it was not already active.
-        if (guid != 0 && (beginAttack || (changed && wasAttacking)) &&
+        // starts it when it was not already active. Never offline - the creator
+        // dummy is scenery, not an opponent.
+        if (_net is not null && guid != 0 && (beginAttack || (changed && wasAttacking)) &&
             _entities.TryGet(guid, out WorldEntity entity) && CanAttack(entity))
         {
             if (_attackTargetGuid != guid)
@@ -279,7 +284,7 @@ public sealed partial class GameLoop
             if (_vplateHits[i].Rect.Contains(pixel)) return _vplateHits[i].Guid;
 
         var ray = _window.Camera.ScreenPointToRay(pixel, _window.FramebufferSize);
-        if (ray is null || _net is null) return 0;
+        if (ray is null) return 0;
 
         (Vector3 origin, Vector3 direction) = ray.Value;
         float nearest = TargetPickDistance;
@@ -289,7 +294,7 @@ public sealed partial class GameLoop
         {
             // Corpses stay pickable - selecting and right-click looting a dead unit is a
             // 1.12 behavior, not an exception. Only NOT_SELECTABLE and the player skip.
-            if (entity.Guid == _net.PlayerGuid ||
+            if (entity.Guid == LocalPlayerGuid ||
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;
 

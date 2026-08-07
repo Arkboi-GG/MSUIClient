@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Numerics;
 using Silk.NET.Input;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -13,6 +14,14 @@ public sealed partial class GameLoop
         Jump, ToggleRun, TargetNearestEnemy, OpenBackpack, OpenCharacter,
         OpenSpellbook, OpenWorldMap, Sheath, Action1, Action2, Action3, Action4,
         Action5, Action6, Action7, Action8, Action9, Action10, Action11, Action12,
+        MultiActionBar1Button1, MultiActionBar1Button2, MultiActionBar1Button3,
+        MultiActionBar1Button4, MultiActionBar1Button5, MultiActionBar1Button6,
+        MultiActionBar1Button7, MultiActionBar1Button8, MultiActionBar1Button9,
+        MultiActionBar1Button10, MultiActionBar1Button11, MultiActionBar1Button12,
+        MultiActionBar2Button1, MultiActionBar2Button2, MultiActionBar2Button3,
+        MultiActionBar2Button4, MultiActionBar2Button5, MultiActionBar2Button6,
+        MultiActionBar2Button7, MultiActionBar2Button8, MultiActionBar2Button9,
+        MultiActionBar2Button10, MultiActionBar2Button11, MultiActionBar2Button12,
     }
 
     private static readonly (string Category, GameBinding Binding, string Label, Key Default)[] BindingRows =
@@ -43,6 +52,30 @@ public sealed partial class GameLoop
         ("Action Bar", GameBinding.Action10, "Action Button 10", Key.Number0),
         ("Action Bar", GameBinding.Action11, "Action Button 11", Key.Minus),
         ("Action Bar", GameBinding.Action12, "Action Button 12", Key.Equal),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button1, "Action Button 1", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button2, "Action Button 2", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button3, "Action Button 3", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button4, "Action Button 4", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button5, "Action Button 5", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button6, "Action Button 6", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button7, "Action Button 7", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button8, "Action Button 8", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button9, "Action Button 9", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button10, "Action Button 10", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button11, "Action Button 11", Key.Unknown),
+        ("MultiActionBar 1", GameBinding.MultiActionBar1Button12, "Action Button 12", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button1, "Action Button 1", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button2, "Action Button 2", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button3, "Action Button 3", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button4, "Action Button 4", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button5, "Action Button 5", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button6, "Action Button 6", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button7, "Action Button 7", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button8, "Action Button 8", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button9, "Action Button 9", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button10, "Action Button 10", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button11, "Action Button 11", Key.Unknown),
+        ("MultiActionBar 2", GameBinding.MultiActionBar2Button12, "Action Button 12", Key.Unknown),
     ];
 
     private readonly record struct BindingPair(Key Primary, Key Secondary)
@@ -136,6 +169,11 @@ public sealed partial class GameLoop
         (BindingDown(positive) ? 1f : 0f) - (BindingDown(negative) ? 1f : 0f);
 
     private GameBinding ActionBinding(int index) => (GameBinding)((int)GameBinding.Action1 + index);
+
+    private static GameBinding MultiActionBinding(BottomMultiActionBar bar, int index) =>
+        (GameBinding)((bar == BottomMultiActionBar.Left
+            ? (int)GameBinding.MultiActionBar1Button1
+            : (int)GameBinding.MultiActionBar2Button1) + Math.Clamp(index, 0, 11));
 
     private void UpdateTargetBinding(bool typing)
     {

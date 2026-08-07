@@ -36,6 +36,13 @@ public sealed class LocalMovementSender
         LastOpcode = null;
     }
 
+    /// <summary>
+    /// Flush moving flags before acknowledging a server root. The subsequent root ack carries
+    /// MOVEFLAG_ROOT itself; the ordinary movement stream remains parked until input is ungated.
+    /// </summary>
+    public void ParkForRoot(NetworkClient net, CharacterController controller)
+        => Park(net, controller.Position, Normalize(controller.Yaw));
+
     public void Update(
         NetworkClient net,
         CharacterController controller,

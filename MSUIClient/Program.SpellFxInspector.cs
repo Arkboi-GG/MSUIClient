@@ -13,6 +13,7 @@ public sealed partial class GameLoop
     private bool _spellFxInspectorOpen = true;
     private bool _spellFxInspectorLocked;
     private bool _spellFxInspectorKeyDown;
+    private bool _spellFxBillboardJointPoseB = true;
 
     private void UpdateSpellFxInspectorInput(bool typing)
     {
@@ -43,6 +44,20 @@ public sealed partial class GameLoop
         ImGui.Checkbox("Lock window", ref _spellFxInspectorLocked);
         ImGui.SameLine();
         ImGui.TextDisabled("F7 shows/hides");
+
+        ImGui.SeparatorText("Billboard joint pose A/B");
+        if (ImGui.Checkbox("Use B for particles + ribbons", ref _spellFxBillboardJointPoseB))
+            ApplySpellFxPreset(true, true, true);
+        ImGui.SameLine();
+        ImGui.TextColored(_spellFxBillboardJointPoseB
+                ? new Vector4(.35f, 1f, .45f, 1f)
+                : new Vector4(1f, .82f, .25f, 1f),
+            _spellFxBillboardJointPoseB
+                ? "B: production default"
+                : "A: rollback baseline");
+        ImGui.TextWrapped("B applies the existing mesh billboard-joint palette to particle and " +
+            "ribbon descendants. A remains available as the unchanged rollback baseline; neither " +
+            "path changes spell data or attachments.");
 
         if (ImGui.Button("All normal")) ApplySpellFxPreset(true, true, true);
         ImGui.SameLine();
