@@ -417,37 +417,96 @@ public class M2AnimTrack<T> where T : struct
     public IEnumerable<(uint timeMs, T value)> EnumerateSequenceKeys(
         int sequenceIndex, uint startTimestampMs, uint endTimestampMs)
     {
-        if (!UsesSequence(sequenceIndex, startTimestampMs, endTimestampMs)) yield break;
+        bool any = false;
 
-        if (TryGetRangeSlice(sequenceIndex, startTimestampMs, endTimestampMs,
-                             out int rangeStart, out int rangeEnd))
+        if (UsesSequence(sequenceIndex, startTimestampMs, endTimestampMs))
         {
-            // AnimationRange.End is INCLUSIVE — it is the index of the sequence's
-            // LAST keyframe. For a looping clip that final key sits at the band
-            // end and holds the loop-closing pose (equal to the key at the band
-            // start). Iterating [start, end) dropped it, so every clip ran a
-            // keyframe short of its own duration: the pose held its penultimate
-            // frame for the tail (up to ~200 ms) then SNAPPED back to the start —
-            // the "animation resets instead of looping" bug. Iterate INCLUSIVE and
-            // rebase to the band start so the clip runs 0..duration. A key whose
-            // timestamp falls outside the band is a whole-track sentinel reaching
-            // into another sequence — skip it (matches benilla's in_band filter).
-            for (int i = rangeStart; i <= rangeEnd; i++)
+            if (TryGetRangeSlice(sequenceIndex, startTimestampMs, endTimestampMs,
+                                 out int rangeStart, out int rangeEnd))
             {
-                uint t = Timestamps[i];
-                if (t < startTimestampMs || t > endTimestampMs) continue;
-                yield return (t - startTimestampMs, Keys[i]);
+                // AnimationRange.End is INCLUSIVE — it is the index of the sequence's
+                // LAST keyframe. For a looping clip that final key sits at the band
+                // end and holds the loop-closing pose (equal to the key at the band
+                // start). Iterating [start, end) dropped it, so every clip ran a
+                // keyframe short of its own duration: the pose held its penultimate
+                // frame for the tail (up to ~200 ms) then SNAPPED back to the start —
+                // the "animation resets instead of looping" bug. Iterate INCLUSIVE and
+                // rebase to the band start so the clip runs 0..duration. A key whose
+                // timestamp falls outside the band is a whole-track sentinel reaching
+                // into another sequence — skip it (matches benilla's in_band filter).
+                for (int i = rangeStart; i <= rangeEnd; i++)
+                {
+                    uint t = Timestamps[i];
+                    if (t < startTimestampMs || t > endTimestampMs) continue;
+                    any = true;
+                    yield return (t - startTimestampMs, Keys[i]);
+                }
             }
-            yield break;
+            else
+            {
+                for (int i = 0; i < Timestamps.Count; i++)
+                {
+                    uint t = Timestamps[i];
+                    if (t < startTimestampMs) continue;
+                    if (t > endTimestampMs) break; // Timestamps is monotonic
+                    any = true;
+                    yield return (t - startTimestampMs, Keys[i]);
+                }
+            }
         }
 
-        for (int i = 0; i < Timestamps.Count; i++)
+        // EMPTY BAND. A bone keyed only in OTHER sequences has no keyframe inside
+        // this one's window. Yielding nothing bakes an empty channel, which
+        // SampleLocal renders as the IDENTITY (bind) pose — so an arm keyed only in
+        // Walk/Run snaps to the bind A-pose during the stationary Shuffle, and the
+        // Stand↔Shuffle cross-fade swings it out and back (the "arms flail while
+        // turning" bug). Hold the bracket pose as one constant key instead, so the
+        // bone keeps its resting pose across the band. Global-sequence tracks are
+        // excluded — they run on their own clock (TrySampleGlobal). Matches benilla
+        // benilla-formats/src/models/anim.rs ChannelTrack::band empty-band branch.
+        if (!any && GlobalSequence < 0 &&
+            TryHoldPose(sequenceIndex, startTimestampMs, out T hold))
+            yield return (0u, hold);
+    }
+
+    /// <summary>
+    /// The pose a bone HOLDS through a sequence whose band contains none of its
+    /// keyframes. Vanilla character tracks key a bone only in the sequences that
+    /// move it; every other sequence's band is empty, and an empty channel falls
+    /// to the identity/bind pose at eval rather than the bone's resting pose. This
+    /// returns the track's value at the band start, bounded to the sequence's own
+    /// key window (<see cref="Ranges"/>[sequenceIndex]); a whole-track sentinel
+    /// range degrades to a bounded search over every key and lands on the same
+    /// held pose. Mirrors benilla's sample_window / ChannelTrack::band so the baked
+    /// constant matches its arms-flush result exactly.
+    /// </summary>
+    private bool TryHoldPose(int sequenceIndex, uint startTimestampMs, out T value)
+    {
+        value = default;
+        if (Timestamps.Count == 0) return false;
+
+        int lo = 0, hi = Timestamps.Count - 1;
+        if (sequenceIndex >= 0 && sequenceIndex < Ranges.Count)
         {
-            uint t = Timestamps[i];
-            if (t < startTimestampMs) continue;
-            if (t > endTimestampMs) break; // Timestamps is monotonic
-            yield return (t - startTimestampMs, Keys[i]);
+            AnimationRange range = Ranges[sequenceIndex];
+            if (range.End >= range.Start &&
+                range.End < (uint)Timestamps.Count && range.End < (uint)Keys.Count)
+            {
+                lo = (int)range.Start;
+                hi = (int)range.End;
+            }
         }
+
+        // The last key at or before the band start within the window; if the band
+        // starts before the window's first key, hold that first key.
+        int k = lo;
+        for (int i = lo; i <= hi; i++)
+        {
+            if (Timestamps[i] <= startTimestampMs) k = i;
+            else break;
+        }
+        value = Keys[k];
+        return true;
     }
 
     private bool TryGetRangeSlice(int sequenceIndex,

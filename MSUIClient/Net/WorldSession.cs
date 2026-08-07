@@ -299,11 +299,21 @@ public sealed class WorldSession : IDisposable
     }
     public void AttackSwing(ulong guid) => SendFullGuid(Op.CMSG_ATTACKSWING, guid);
     public void AttackStop() => SendPacket((ushort)Op.CMSG_ATTACKSTOP, ReadOnlySpan<byte>.Empty);
-    public void SendChatSay(string text, uint language)
+    public void SendChatSay(string text, uint language) =>
+        SendChat(0 /* CHAT_MSG_SAY */, language, null, text);
+
+    /// <summary>
+    /// CMSG_MESSAGECHAT for any type. Wire body: uint32 type, uint32 language,
+    /// then (WHISPER) the target name or (CHANNEL) the channel name as a cstring,
+    /// then the message cstring. language is the character's faction tongue -
+    /// VMaNGOS rejects a client-chosen Universal.
+    /// </summary>
+    public void SendChat(uint type, uint language, string? target, string text)
     {
-        var w = new PacketWriter(System.Text.Encoding.UTF8.GetByteCount(text) + 9);
-        w.WriteU32(0); // CHAT_MSG_SAY
-        w.WriteU32(language); // logged-in character's faction tongue; VMaNGOS rejects client Universal
+        var w = new PacketWriter(System.Text.Encoding.UTF8.GetByteCount(text) + 24);
+        w.WriteU32(type);
+        w.WriteU32(language);
+        if (target is not null) w.WriteCString(target);
         w.WriteCString(text);
         SendPacket((ushort)Op.CMSG_MESSAGECHAT, w.AsSpan());
     }
