@@ -203,6 +203,73 @@ public class M2ParticlePatcher
         return totalPatched > 0 ? result : (byte[])m2Data.Clone();
     }
 
+    /// <summary>
+    /// Hue-shift the inline start/mid/end colors of SPECIFIC primary emitters only,
+    /// leaving every other emitter untouched. This is the per-texture (per-BLP) hue
+    /// dial: the caller groups emitters by the texture they reference (see
+    /// M2TextureParser.ParseTextures / M2TextureEntry.ReferencedByEmitters) and
+    /// shifts each group toward its own target color. Same HSL-preserving rotation
+    /// as the whole-model UseHueShift mode. Returns the number of emitters patched.
+    /// </summary>
+    public static int HueShiftEmitters(byte[] m2Data, uint targetRgb, IReadOnlyCollection<int> emitterIndices)
+    {
+        if (m2Data == null || m2Data.Length < MIN_HEADER_SIZE) return 0;
+        if (Encoding.ASCII.GetString(m2Data, 0, 4) != "MD20") return 0;
+        if (emitterIndices.Count == 0) return 0;
+
+        uint count = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY);
+        uint offset = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY + 4);
+        if (count == 0 || offset == 0 || offset >= m2Data.Length) return 0;
+
+        int patched = 0;
+        for (uint i = 0; i < count; i++)
+        {
+            if (!emitterIndices.Contains((int)i)) continue;
+            int emitterBase = (int)(offset + i * PARTICLE_STRUCT_SIZE_PRIMARY);
+            if (emitterBase + PARTICLE_STRUCT_SIZE_PRIMARY > m2Data.Length) break;
+
+            int particleId = BitConverter.ToInt32(m2Data, emitterBase);
+            if (particleId != -1 && (particleId < 0 || particleId > 100)) continue;
+
+            int colorOfs = emitterBase + REL_COLOR_VALUES;
+            if (colorOfs + 12 > m2Data.Length) continue;
+            for (int c = 0; c < 3; c++)
+            {
+                int off = colorOfs + c * 4;
+                uint original = BitConverter.ToUInt32(m2Data, off);
+                WriteUInt32(m2Data, off, HueShiftArgb(original, targetRgb));
+            }
+            patched++;
+        }
+        return patched;
+    }
+
+    /// <summary>
+    /// Silence one primary emitter wholesale: every emission-rate keyframe is
+    /// zeroed (no new particles are ever born) and the inline scale triple is
+    /// zeroed as a belt-and-braces for rate tracks with no keyframes. The
+    /// creator's per-emitter On/Off toggle. Returns true when the emitter was
+    /// found and patched.
+    /// </summary>
+    public static bool DisableEmitter(byte[] m2Data, int emitterIndex)
+    {
+        if (m2Data == null || m2Data.Length < MIN_HEADER_SIZE) return false;
+        if (Encoding.ASCII.GetString(m2Data, 0, 4) != "MD20") return false;
+
+        uint count = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY);
+        uint offset = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY + 4);
+        if (count == 0 || offset == 0 || offset >= m2Data.Length) return false;
+        if (emitterIndex < 0 || emitterIndex >= (int)count) return false;
+
+        int emitterBase = (int)(offset + (uint)emitterIndex * PARTICLE_STRUCT_SIZE_PRIMARY);
+        if (emitterBase + PARTICLE_STRUCT_SIZE_PRIMARY > m2Data.Length) return false;
+
+        PatchM2TrackValues(m2Data, emitterBase, REL_M2TRACK_EMISSION_RATE, _ => 0f, "emissionRate");
+        for (int s = 0; s < 3; s++)
+            WriteFloat(m2Data, emitterBase + REL_SCALE_VALUES + s * 4, 0f);
+        return true;
+    }
+
     private static int PatchEmitterArray(byte[] data, int headerOffset, int structSize,
         ParticlePatchParams p, bool isPrimary)
     {

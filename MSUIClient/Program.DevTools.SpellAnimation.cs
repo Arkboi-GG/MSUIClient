@@ -7,7 +7,25 @@ public sealed partial class GameLoop
 {
     private uint _presentedEffectSpell;
 
-    private bool PresentSpellEffect(uint spellId, string stage)
+    /// <summary>The unit the current presented kit is anchored to. Usually the local
+    /// player; the creator loop anchors IMPACT on the spawned target instead.</summary>
+    private ulong _presentedEffectGuid;
+
+    /// <summary>Reap the presented effect wherever it was spawned (player and/or target).</summary>
+    private void ReapPresentedEffect()
+    {
+        if (_presentedEffectSpell == 0 || _spellEffects is null) return;
+        _spellEffects.Reap(LocalPlayerGuid, _presentedEffectSpell);
+        if (_presentedEffectGuid != 0 && _presentedEffectGuid != LocalPlayerGuid)
+            _spellEffects.Reap(_presentedEffectGuid, _presentedEffectSpell);
+        _presentedEffectSpell = 0;
+        _presentedEffectGuid = 0;
+    }
+
+    /// <summary>Present one visual-kit stage. <paramref name="onGuid"/> anchors the kit
+    /// on another unit (the creator loop lands impact on the spawned target); the
+    /// character animation always plays on the local player either way.</summary>
+    private bool PresentSpellEffect(uint spellId, string stage, ulong? onGuid = null)
     {
         if (_spellCatalog?.TryGet(spellId, out SpellInfo info) != true ||
             _spellVisualCatalog?.TryGetStages(info.VisualId, out SpellVisualStages stages) != true ||
@@ -22,12 +40,28 @@ public sealed partial class GameLoop
             _ => 0,
         };
         if (kitId == 0 || !_spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit)) return false;
-        if (_presentedEffectSpell != 0) _spellEffects.Reap(LocalPlayerGuid, _presentedEffectSpell);
+        ReapPresentedEffect();
+        ulong anchor = onGuid ?? LocalPlayerGuid;
         _presentedEffectSpell = spellId;
-        _spellEffects.SpawnKit(LocalPlayerGuid, spellId, kit,
+        _presentedEffectGuid = anchor;
+        _spellEffects.SpawnKit(anchor, spellId, kit,
             persistent: stage is "precast" or "state" or "channel", NowSeconds(), stage.ToUpperInvariant());
-        if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
-            stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
+        if (anchor != LocalPlayerGuid)
+        {
+            // Anchored on another unit (creator-loop impact on the spawned
+            // target): the kit's animation is the VICTIM's reaction - play it on
+            // that unit, exactly like the networked impact path, and leave the
+            // local character alone (ReleaseSpellVisual would make the PLAYER
+            // flinch with the victim's wound animation).
+            if (kit.AnimationId is { } victimAnim && victimAnim != 0)
+                _creatures?.ReleaseSpellVisual(anchor, victimAnim);
+            else
+                // Kit authors no victim animation - fall back to the plain
+                // landed-hit flinch (CombatWound) so the impact still reads.
+                _creatures?.TriggerCombatReaction(anchor, 0, landedHit: true);
+        }
+        else if (stage.Equals("precast", StringComparison.OrdinalIgnoreCase) ||
+                 stage.Equals("channel", StringComparison.OrdinalIgnoreCase))
             _character?.BeginSpellVisual(kit.AnimationId);
         else _character?.ReleaseSpellVisual(kit.AnimationId);
         EmitSpellAnimation(info, stage.ToUpperInvariant(), kitId, kit.AnimationId, "DBC_EFFECT_SUPPLIER");

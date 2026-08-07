@@ -7,8 +7,9 @@ namespace MSUIClient;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Creator-mode world tools: teleport presets + a click-to-teleport world map,
-// and the practice target dummy (a locally synthesized creature - it animates,
-// it can be clicked and targeted, it never fights back).
+// and the target spawner - a searchable creature browser over the vmangos
+// creature_template dump (creator-creatures.tsv), spawning locally synthesized
+// creatures that animate, can be clicked and targeted, and never fight back.
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
@@ -59,57 +60,50 @@ public sealed partial class GameLoop
             _controller.Teleport(x, y, ground + 0.5f);
             _window.Camera.Target = _controller.Position;
         }
-        if (ok) _creatorPanel = CreatorPanel.None;   // get the menus out of the view
+        if (ok)
+        {
+            _creatorPanel = CreatorPanel.None;   // get the menus out of the view
+            UpdateCreatorLocationPersist(force: true);   // a teleport is worth remembering immediately
+        }
         return ok;
     }
 
-    private float _creatorTeleportPanelW = 400f;   // unscaled; follows content each frame
-
-    private partial void DrawCreatorTeleportPanel()
+    private partial void RegisterCreatorTeleportSections()
     {
-        if (!BeginCreatorPanel("Teleport", _creatorTeleportPanelW)) return;
-        float cs = CreatorUiScale;
-        EnsureInstanceData();
-
-        // Both columns size to the widest preset name at the LIVE text scale, and
-        // the panel follows, so no dial combination clips a destination. Each
-        // group is a vanilla +/- drill-down so the panel stays compact.
-        float columnW = CreatorColumnWidth(CreatorTeleports.Select(p => p.Name));
-        float rowH = CreatorRowHeight;
-        _creatorTeleportPanelW = MathF.Max(400f, (columnW * 2f + 40f * cs) / cs);
-
         foreach (string group in CreatorTeleports.Select(p => p.Group).Distinct())
         {
-            if (!CreatorCategory($"tp-{group}", group, defaultOpen: group == "Capitals")) continue;
-            ImGui.Indent(10f * cs);
-            int column = 0;
-            foreach (var preset in CreatorTeleports.Where(p => p.Group == group))
-            {
-                if (column++ % 2 == 1) ImGui.SameLine(columnW + 24f * cs);
-                if (_skin?.PanelButton(preset.Name, new Vector2(columnW, rowH))
-                    ?? ImGui.Button(preset.Name, new Vector2(columnW, rowH)))
-                    CreatorTeleport(preset.Map, preset.X, preset.Y, preset.Z, preset.Name);
-            }
-            ImGui.Unindent(10f * cs);
-            ImGui.Spacing();
+            string g = group;
+            CreatorSection("Teleport", $"tp-{g}", g, g == "Capitals", () => DrawCreatorTeleportGroup(g));
         }
+        CreatorSection("Teleport", "tp-map", "World Map - click anywhere to go there", false,
+            DrawCreatorMapPicker);
+    }
 
-        if (CreatorCategory("tp-map", "World Map - click anywhere to go there"))
-            DrawCreatorMapPicker();
-
-        if (!string.IsNullOrEmpty(_travelStatus))
+    /// <summary>One preset group as a button grid. Columns follow the live window
+    /// width, so widening the panel packs more destinations per row.</summary>
+    private void DrawCreatorTeleportGroup(string group)
+    {
+        EnsureInstanceData();
+        NotePanelField("buttons");
+        float cs = CreatorUiScale;
+        float columnW = CreatorColumnWidth(CreatorTeleports.Select(p => p.Name)) * CreatorButtonMul;
+        float rowH = CreatorButtonHeight;
+        int columns = Math.Max(1, (int)(ImGui.GetContentRegionAvail().X / (columnW + 24f * cs)));
+        int column = 0;
+        foreach (var preset in CreatorTeleports.Where(p => p.Group == group))
         {
-            ImGui.Spacing();
-            ImGui.TextWrapped(_travelStatus);
+            if (column % columns != 0) ImGui.SameLine(column % columns * (columnW + 24f * cs));
+            column++;
+            if (CreatorAnchoredButton(preset.Name, new Vector2(columnW, rowH)))
+                CreatorTeleport(preset.Map, preset.X, preset.Y, preset.Z, preset.Name);
         }
-
-        EndCreatorPanel();
     }
 
     /// <summary>Continent/zone tile map with click-to-teleport, driven by WorldMapArea.dbc
     /// bounds (the same inversion the vanilla world map's player marker uses, reversed).</summary>
     private void DrawCreatorMapPicker()
     {
+        EnsureInstanceData();
         EnsureWorldMapAreas();
         if (_worldMapAreas is null || _gameplayArt is null)
         {
@@ -151,10 +145,11 @@ public sealed partial class GameLoop
             return;
         }
 
-        // The authored map is 1002x668 inside 12 256px tiles; drawn around half
-        // scale, following the UI-scale dial.
-        float mapW = 501f * cs, mapH = 334f * cs;
-        float tile = 128f * cs;
+        // The authored map is 1002x668 inside 12 256px tiles. Drawn to fit the
+        // live window width (freely resizable), keeping the authored aspect.
+        float mapW = MathF.Max(ImGui.GetContentRegionAvail().X - 4f * cs, 240f * cs);
+        float mapH = mapW * (668f / 1002f);
+        float tileW = mapW / 4f, tileH = mapH / 3f;
         Vector2 origin = ImGui.GetCursorScreenPos();
         var dl = ImGui.GetWindowDrawList();
         dl.PushClipRect(origin, origin + new Vector2(mapW, mapH), true);
@@ -165,8 +160,8 @@ public sealed partial class GameLoop
             uint texture = _gameplayArt.Handle(
                 $@"Interface\WorldMap\{area.Directory}\{area.Directory}{index}.blp");
             if (texture == 0) continue;
-            Vector2 min = origin + new Vector2(col * tile, row * tile);
-            dl.AddImage((nint)texture, min, min + new Vector2(tile, tile));
+            Vector2 min = origin + new Vector2(col * tileW, row * tileH);
+            dl.AddImage((nint)texture, min, min + new Vector2(tileW, tileH));
         }
         dl.PopClipRect();
 
@@ -183,59 +178,200 @@ public sealed partial class GameLoop
         }
     }
 
-    // ── Target dummy ─────────────────────────────────────────────────────────
+    // ── Target spawner ───────────────────────────────────────────────────────
+    // Synthetic guids count up from the base so any number of creatures can
+    // stand around at once; every spawn is tracked for despawn and as a missile
+    // target.
 
     private const ulong CreatorDummyGuid = 0xF000_0000_0000_0100UL;
-    private int _creatorDummyDisplayId = 1141;   // any CreatureDisplayInfo id works here
-    private float _creatorDummyScale = 1f;
-    private bool _creatorDummySpawned;
 
-    private partial void DrawCreatorTargetPanel()
+    private CreatorCreatureTable? _creatorCreatures;
+    private bool _creatorCreaturesTried;
+    private readonly byte[] _creatorCreatureSearchBuf = new byte[64];
+    private List<CreatorCreatureTable.Creature>? _creatorCreatureResults;
+    private bool _creatorCreatureSearchDirty = true;
+    private CreatorCreatureTable.Creature? _creatorSelectedCreature;
+    private float _creatorSpawnScale = 1f;
+    private int _creatorDummyDisplayId = 1141;   // manual display-id spawn
+    private ulong _creatorNextSpawnGuid = CreatorDummyGuid;
+    private readonly List<(ulong Guid, string Name, uint DisplayId)> _creatorSpawns = new();
+
+    private partial void RegisterCreatorTargetSections()
     {
-        if (!BeginCreatorPanel("Target", 320f)) return;
-
-        float cs = CreatorUiScale;
-        ImGui.TextWrapped("A practice target: it stands there, animates, and can be " +
-                          "clicked and targeted. It never fights back.");
-        ImGui.Spacing();
-        ImGui.SetNextItemWidth(120f * cs);
-        ImGui.InputInt("Display id", ref _creatorDummyDisplayId);
-        ImGui.SetNextItemWidth(120f * cs);
-        ImGui.SliderFloat("Scale", ref _creatorDummyScale, 0.25f, 4f);
-
-        if (CreatorButton(_creatorDummySpawned ? "Respawn" : "Spawn", 100f * cs))
-            SpawnCreatorDummy();
-        ImGui.SameLine();
-        if (CreatorButton("Despawn", 100f * cs) && _creatorDummySpawned)
-        {
-            if (_selectionGuid == CreatorDummyGuid) CommitSelection(0, beginAttack: false);
-            _entities.RemoveSynthetic(CreatorDummyGuid);
-            _creatorDummySpawned = false;
-        }
-
-        EndCreatorPanel();
+        CreatorSection("Target", "spawn-browse", "Browse Creatures", true, DrawCreatorCreatureBrowser);
+        CreatorSection("Target", "spawn-active",
+            _creatorSpawns.Count > 0 ? $"Spawned ({_creatorSpawns.Count})" : "Spawned", true,
+            DrawCreatorSpawnList);
+        CreatorSection("Target", "spawn-advanced", "Advanced (raw display id)", false,
+            DrawCreatorSpawnAdvanced);
     }
 
-    /// <summary>Place the dummy 8 yards in front of the player, on the ground.</summary>
-    private void SpawnCreatorDummy()
+    private void EnsureCreatorCreatures()
+    {
+        if (_creatorCreaturesTried) return;
+        _creatorCreaturesTried = true;
+        _creatorCreatures = CreatorCreatureTable.Load(_config.RepoRoot);
+    }
+
+    /// <summary>Type a name (or an entry id), browse the matches, spawn them.
+    /// Click selects, double-click spawns immediately.</summary>
+    private void DrawCreatorCreatureBrowser()
+    {
+        EnsureCreatorCreatures();
+        float cs = CreatorUiScale;
+
+        if (_creatorCreatures is null)
+        {
+            ImGui.TextWrapped("creator-creatures.tsv is missing at the repo root. Regenerate it " +
+                              "from MangosSuperUI (/Database/Export/mangos/creature_template).");
+            return;
+        }
+
+        ImGui.SetNextItemWidth(220f * cs);
+        if (ImGui.InputText("##creature-search", _creatorCreatureSearchBuf,
+                (uint)_creatorCreatureSearchBuf.Length))
+            _creatorCreatureSearchDirty = true;
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(120f * cs);
+        ImGui.SliderFloat("Scale", ref _creatorSpawnScale, 0.25f, 4f, "%.2fx");
+
+        string query = BufToString(_creatorCreatureSearchBuf);
+        if (_creatorCreatureSearchDirty)
+        {
+            _creatorCreatureSearchDirty = false;
+            _creatorCreatureResults = query.Length >= 2 ? _creatorCreatures.Search(query) : null;
+        }
+
+        if (query.Length < 2)
+            ImGui.TextDisabled($"Type at least 2 letters ({_creatorCreatures.Count} creatures).");
+        else
+            ImGui.TextDisabled($"{_creatorCreatureResults?.Count ?? 0} result(s) - " +
+                               "click to select, double-click to spawn");
+
+        if (_creatorCreatureResults is { Count: > 0 } results)
+        {
+            if (BeginCreatorResults("##creature-results", results.Count, 0.60f))
+            {
+                foreach (var creature in results)
+                {
+                    bool selected = _creatorSelectedCreature?.Entry == creature.Entry;
+                    string rank = CreatorCreatureTable.RankName(creature.Rank);
+                    string levels = creature.LevelMin == creature.LevelMax
+                        ? $"{creature.LevelMin}" : $"{creature.LevelMin}-{creature.LevelMax}";
+                    string sub = creature.SubName.Length > 0 ? $" <{creature.SubName}>" : "";
+                    string tag = rank.Length > 0 ? $"  [{rank}]" : "";
+                    if (CreatorResultRow($"{creature.Name}{sub}  (lvl {levels}){tag}##{creature.Entry}", selected))
+                        _creatorSelectedCreature = creature;
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip($"entry {creature.Entry}  display {creature.DisplayId}");
+                        if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left))
+                        {
+                            _creatorSelectedCreature = creature;
+                            SpawnCreatorCreature(creature.Name, creature.DisplayId, creature.Scale);
+                        }
+                    }
+                }
+            }
+            EndCreatorResults();
+        }
+
+        bool canSpawn = _creatorSelectedCreature is not null;
+        if (!canSpawn) ImGui.BeginDisabled();
+        if (CreatorButton("Spawn", 100f * cs) && _creatorSelectedCreature is { } pick)
+            SpawnCreatorCreature(pick.Name, pick.DisplayId, pick.Scale);
+        if (!canSpawn) ImGui.EndDisabled();
+        if (_creatorSelectedCreature is { } sel)
+        {
+            ImGui.SameLine();
+            ImGui.TextUnformatted($"{sel.Name}  (display {sel.DisplayId})");
+        }
+    }
+
+    /// <summary>Everything currently spawned, with per-row despawn.</summary>
+    private void DrawCreatorSpawnList()
+    {
+        float cs = CreatorUiScale;
+        if (_creatorSpawns.Count == 0)
+        {
+            ImGui.TextDisabled("Nothing spawned. They stand there, animate, and can be " +
+                               "clicked and targeted - they never fight back.");
+            return;
+        }
+
+        ulong? removeGuid = null;
+        foreach (var spawn in _creatorSpawns)
+        {
+            ImGui.PushID((int)(spawn.Guid & 0xFFFF));
+            if (ImGui.SmallButton("x")) removeGuid = spawn.Guid;
+            ImGui.SameLine();
+            bool targeted = _selectionGuid == spawn.Guid;
+            ImGui.TextUnformatted($"{spawn.Name}  (display {spawn.DisplayId}){(targeted ? "  [targeted]" : "")}");
+            ImGui.PopID();
+        }
+        if (removeGuid is { } gone) DespawnCreatorCreature(gone);
+
+        ImGui.Spacing();
+        if (CreatorButton("Despawn all", 120f * cs))
+            while (_creatorSpawns.Count > 0)
+                DespawnCreatorCreature(_creatorSpawns[^1].Guid);
+    }
+
+    /// <summary>Spawn any CreatureDisplayInfo id directly, for ids the template
+    /// dump does not cover.</summary>
+    private void DrawCreatorSpawnAdvanced()
+    {
+        float cs = CreatorUiScale;
+        ImGui.SetNextItemWidth(120f * cs);
+        ImGui.InputInt("Display id", ref _creatorDummyDisplayId);
+        ImGui.SameLine();
+        if (CreatorButton("Spawn id", 90f * cs) && _creatorDummyDisplayId > 0)
+            SpawnCreatorCreature($"Display {_creatorDummyDisplayId}", (uint)_creatorDummyDisplayId, 0f);
+        ImGui.TextDisabled("Spawns use the Scale dial from the browser above.");
+    }
+
+    /// <summary>Place a creature in front of the player, on the ground, fanned out
+    /// a little so consecutive spawns stand side by side instead of stacking.</summary>
+    private void SpawnCreatorCreature(string name, uint displayId, float dbScale)
     {
         if (_controller is null) return;
         float yaw = _controller.Yaw;
-        var forward = new Vector3(MathF.Cos(yaw), MathF.Sin(yaw), 0f);
+        // Fan alternating left/right of straight ahead: 0, +25, -25, +50, ...
+        int n = _creatorSpawns.Count;
+        float fan = (n + 1) / 2 * 0.44f * ((n & 1) == 0 ? 1f : -1f);
+        float angle = yaw + fan;
+        var forward = new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0f);
         Vector3 spot = _controller.Position + forward * 8f;
         if (_terrain?.SampleHeight(spot.X, spot.Y) is float ground) spot.Z = ground;
 
+        float scale = (dbScale <= 0f ? 1f : dbScale) * _creatorSpawnScale;
+        ulong guid = _creatorNextSpawnGuid++;
         _entities.AddSynthetic(new WorldEntity
         {
-            Guid = CreatorDummyGuid,
+            Guid = guid,
             Type = ObjectTypeId.Unit,
-            Fields = ObjectFields.ForSyntheticUnit(_creatorDummyDisplayId, _creatorDummyScale),
+            Fields = ObjectFields.ForSyntheticUnit((int)displayId, scale),
             Position = spot,
-            Orientation = yaw + MathF.PI,   // face the player
+            Orientation = angle + MathF.PI,   // face the player
         });
-        _creatorDummySpawned = true;
-        Console.WriteLine($"[creator] dummy display {_creatorDummyDisplayId} " +
+        _creatorSpawns.Add((guid, name, displayId));
+        Console.WriteLine($"[creator] spawned '{name}' display {displayId} scale {scale:F2} " +
                           $"at ({spot.X:F1}, {spot.Y:F1}, {spot.Z:F1})");
     }
 
+    private void DespawnCreatorCreature(ulong guid)
+    {
+        if (_selectionGuid == guid) CommitSelection(0, beginAttack: false);
+        _entities.RemoveSynthetic(guid);
+        _creatorSpawns.RemoveAll(s => s.Guid == guid);
+    }
+
+    /// <summary>The missile target: the targeted spawn if one is targeted, else the
+    /// most recent spawn, else nothing (the caller fires straight ahead).</summary>
+    private ulong CreatorMissileTargetGuid()
+    {
+        foreach (var spawn in _creatorSpawns)
+            if (spawn.Guid == _selectionGuid) return spawn.Guid;
+        return _creatorSpawns.Count > 0 ? _creatorSpawns[^1].Guid : 0;
+    }
 }

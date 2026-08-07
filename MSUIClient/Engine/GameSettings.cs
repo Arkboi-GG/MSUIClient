@@ -72,13 +72,69 @@ public sealed class GameSettings
     /// </summary>
     public sealed class CreatorSettings
     {
-        public float UiScale { get; set; } = 1f;     // live - widget/panel sizes
-        public float TextScale { get; set; } = 1f;   // live - font size only
+        public float UiScale { get; set; } = 1f;     // live - MODAL widget/panel sizes
+        public float TextScale { get; set; } = 1f;   // live - MODAL font size only
+
+        // The top menu bar (Character/Gear/Teleport/Target/Spells/UI) sizes
+        // independently of the modals - its own button and caption dials.
+        public float BarScale { get; set; } = 1f;
+        public float BarTextScale { get; set; } = 1f;
+
+        /// <summary>Chrome fill opacity for the creator panels (0.3 - 1).</summary>
+        public float PanelAlpha { get; set; } = 0.62f;
+
+        /// <summary>Multiplier over the creator panels' window padding.</summary>
+        public float PaddingScale { get; set; } = 1f;
+
+        /// <summary>Multiplier over the creator panels' item spacing.</summary>
+        public float SpacingScale { get; set; } = 1f;
 
         public byte Race { get; set; } = 1;          // ChrRaces id, Human
         public byte Sex { get; set; }                // 0 male, 1 female
         public int[] Dials { get; set; } = new int[5];   // skin, face, hairStyle, hairColor, facialHair
         public List<CreatorPieceSetting> Equipment { get; set; } = new();
+
+        // The last creator-session location. LocMap -1 = never saved; the world
+        // then loads at the client-config start position as before.
+        public int LocMap { get; set; } = -1;
+        public string LocMapName { get; set; } = "";
+        public float LocX { get; set; }
+        public float LocY { get; set; }
+        public float LocZ { get; set; }
+        public float LocYaw { get; set; }
+
+        /// <summary>Per-panel ordering of the drill-down sections, user-arranged by
+        /// dragging headers. Keyed by panel id; unknown ids are ignored on load.</summary>
+        public Dictionary<string, List<string>> SectionOrder { get; set; } = new();
+
+        /// <summary>Sections torn off into their own floating windows, as "panel/section".</summary>
+        public List<string> PoppedSections { get; set; } = new();
+
+        /// <summary>Expanded/collapsed state of every drill-down, by stable id - the
+        /// arrangement you leave a panel in is the arrangement it reopens with.</summary>
+        public Dictionary<string, bool> SectionOpen { get; set; } = new();
+
+        /// <summary>Per-modal layout dials (the gear button on each window). These
+        /// multiply ON TOP of the shared modal dials above, so one window can have
+        /// its own "perfect" layout without moving the others.</summary>
+        public Dictionary<string, PanelTuneSetting> PanelTuning { get; set; } = new();
+
+        /// <summary>Hand-placed widget positions from the gear popup's "Move
+        /// buttons" edit mode: [panel][widget key] = offset from the widget's
+        /// natural flow position, in unscaled units (scale-independent).</summary>
+        public Dictionary<string, Dictionary<string, float[]>> WidgetOffsets { get; set; } = new();
+    }
+
+    public sealed class PanelTuneSetting
+    {
+        public float Text { get; set; } = 1f;      // font size in this window
+        public float Widget { get; set; } = 1f;    // slider/input/thumbnail sizing
+        public float Button { get; set; } = 1f;    // red button size
+        public float Icon { get; set; } = 1f;      // section headers + the +/- art
+        public float Spacing { get; set; } = 1f;   // row spacing
+
+        public bool IsNeutral =>
+            Text == 1f && Widget == 1f && Button == 1f && Icon == 1f && Spacing == 1f;
     }
 
     /// <summary>One worn creator piece, as persisted (display id is the visual truth).</summary>

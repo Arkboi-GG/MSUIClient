@@ -643,6 +643,30 @@ public sealed class SpellEffectSource
         else _modelOverrides[path] = bytes;
         _assets.Remove(path);
         _assetFailures.Remove(path);
+        Console.WriteLine($"[fx-load] override {(bytes is null ? "cleared" : $"set ({bytes.Length}b)")} " +
+            $"for {Path.GetFileName(path)}");
+
+        // Long-lived holders captured their Asset reference at spawn: the area
+        // shard emitters (each newly ticked shard reads emitter.Asset), the
+        // looping AREA_LOOP centre, and persistent precast/channel holds. Left
+        // stale, a byte-patch shows up only in instances spawned through Load()
+        // afterwards - the creator's Blizzard recolor changed the one respawning
+        // impact while the continuing rain kept the old colors. Re-resolve them
+        // against the fresh bytes in place.
+        bool referenced = _areaEmitters.Any(e =>
+                string.Equals(e.Asset.Path, path, StringComparison.OrdinalIgnoreCase)) ||
+            _instances.Any(i => i.Asset is { } held &&
+                string.Equals(held.Path, path, StringComparison.OrdinalIgnoreCase));
+        if (referenced && Load(path) is { } fresh)
+        {
+            foreach (AreaEmitter emitter in _areaEmitters)
+                if (string.Equals(emitter.Asset.Path, path, StringComparison.OrdinalIgnoreCase))
+                    emitter.Asset = fresh;
+            foreach (Instance instance in _instances)
+                if (instance.Asset is { } held &&
+                    string.Equals(held.Path, path, StringComparison.OrdinalIgnoreCase))
+                    instance.Asset = fresh;
+        }
     }
 
     /// <summary>The original archive bytes for a spell-effect model (override ignored).</summary>
@@ -680,6 +704,10 @@ public sealed class SpellEffectSource
             asset.EmitterTextures[i] = texture >= 0 && texture < model.Textures.Count
                 ? model.Textures[texture].Filename : "";
         }
+        if (_modelOverrides.ContainsKey(path))
+            Console.WriteLine($"[fx-load] {Path.GetFileName(path)} loaded from OVERRIDE: " +
+                $"emitterTex=[{string.Join(", ", asset.EmitterTextures.Select((t, i) => $"e{i}={Path.GetFileName(t)}" +
+                    (asset.Emitters[i].GeometryModel.Length > 0 ? $"(geo:{Path.GetFileName(asset.Emitters[i].GeometryModel)})" : "")))}]");
         _assetFailures.Remove(path);
         _assets[path] = asset;
         return asset;

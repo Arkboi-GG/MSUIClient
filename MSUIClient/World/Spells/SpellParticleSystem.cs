@@ -31,6 +31,7 @@ public sealed class SpellParticleSystem : IDisposable
     private int _instanceCapacity;
 
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _textureTints = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, M2Model?> _geometryModels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<PoolKey, Pool> _pools = new();
     private readonly List<GpuParticle> _scratch = new();
@@ -217,6 +218,10 @@ public sealed class SpellParticleSystem : IDisposable
             pool.TouchedThisFrame = true;
             pool.Transform = transform;
             pool.Emitter = emitter;
+            if (pool.TexturePath.Length > 0 &&
+                !string.Equals(pool.TexturePath, texPath, StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine($"[fx-tex] {Path.GetFileName(path)} e{index}: " +
+                    $"'{Path.GetFileName(pool.TexturePath)}' -> '{Path.GetFileName(texPath)}'");
             pool.TexturePath = texPath;
             pool.EmitterIndex = index;
             pool.ModelSpace = (emitter.Flags & 0x10) != 0;
@@ -941,13 +946,39 @@ public sealed class SpellParticleSystem : IDisposable
         }
     }
 
+    private readonly Dictionary<string, byte[]> _geometryOverrides = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Replace (or with null, restore) the bytes behind a particle GEOMETRY model
+    /// - the little M2 an emitter spawns per particle (Cone of Cold's cloud
+    /// puffs). These load through their own cache, NOT SpellEffectSource, so the
+    /// creator's byte-patches must be pushed here too or geometry particles keep
+    /// the authored art forever.
+    /// </summary>
+    public void SetGeometryModelOverride(string path, byte[]? bytes)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        path = SpellVisualCatalog.ModelPath(path);
+        if (bytes is null) _geometryOverrides.Remove(path);
+        else _geometryOverrides[path] = bytes;
+        bool wasCached = _geometryModels.Remove(path);   // re-parse on next use
+        Console.WriteLine($"[geo-model] override {(bytes is null ? "cleared" : $"set ({bytes.Length}b)")} " +
+            $"for {Path.GetFileName(path)} (was cached: {wasCached})");
+    }
+
     private M2Model? ResolveGeometryModel(string path)
     {
         if (_geometryModels.TryGetValue(path, out M2Model? cached)) return cached;
         try
         {
-            byte[]? bytes = _mpq.ReadFile(path);
-            return _geometryModels[path] = bytes is null ? null : M2Reader.Parse(bytes);
+            bool overridden = _geometryOverrides.TryGetValue(path, out byte[]? over);
+            byte[]? bytes = overridden ? over : _mpq.ReadFile(path);
+            M2Model? parsed = bytes is null ? null : M2Reader.Parse(bytes);
+            if (parsed is not null)
+                Console.WriteLine($"[geo-model] parsed {Path.GetFileName(path)}" +
+                    $"{(overridden ? " (OVERRIDE)" : "")}: " +
+                    $"tex=[{string.Join(", ", parsed.Textures.Select(t => Path.GetFileName(t.Filename)))}]");
+            return _geometryModels[path] = parsed;
         }
         catch
         {
@@ -1062,6 +1093,29 @@ public sealed class SpellParticleSystem : IDisposable
         }
     }
 
+    /// <summary>
+    /// Palette-swap a texture toward a target color (0x00RRGGBB), or null to
+    /// restore the authored pixels. Creator-mode's per-BLP tint dial: the pixels
+    /// themselves are hue-mapped on decode, so textures whose color is baked
+    /// into the art (where emitter-color hue does nothing) truly change color.
+    /// </summary>
+    public void SetTextureTint(string path, uint? targetRgb)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        bool had = _textureTints.TryGetValue(path, out uint current);
+        if (targetRgb is uint want)
+        {
+            if (had && current == want) return;
+            _textureTints[path] = want;
+        }
+        else
+        {
+            if (!had) return;
+            _textureTints.Remove(path);
+        }
+        if (_textures.Remove(path, out Texture? old)) old?.Dispose();   // re-decode next frame
+    }
+
     private Texture? ResolveTexture(string path)
     {
         if (path.Length == 0) return null;
@@ -1070,6 +1124,8 @@ public sealed class SpellParticleSystem : IDisposable
         try
         {
             var decoded = AdtTerrainReader.ReadBlpPixels(_config.ClientDataPath, path);
+            if (decoded is { } tint && _textureTints.TryGetValue(path, out uint target))
+                BlpRecolor.HueMapBgra(tint.bgra, target);
             tex = decoded is { } d ? Texture.From2D(_gl, d.bgra, d.width, d.height,
                 mipmaps: true, repeat: true) : null;
         }

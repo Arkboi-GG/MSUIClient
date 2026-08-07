@@ -1204,31 +1204,28 @@ public sealed partial class GameLoop
         var loginSize = new Vector2(170f * s, 45f * s * GlueTune.ButtonHeightMul);
         if (serverless)
         {
+            // No server configured: creator mode IS the offline world, so one
+            // button covers it (the separate offline viewer was redundant).
             var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
             ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s));
-            if (_skin?.GlueButton("Enter Spell Creator", bigSize) ?? ImGui.Button("Enter Spell Creator", bigSize))
+            if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
             {
                 SetLaunchMode(LaunchModeCreator);
-                EnterOfflineWorld(creator: true);
-            }
-            ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s + bigSize.Y + 10f * s));
-            if (_skin?.GlueButton("Offline World Viewer", bigSize) ?? ImGui.Button("Offline World Viewer", bigSize))
-            {
-                SetLaunchMode(LaunchModeClient);
-                EnterOfflineWorld(creator: false);
+                EnterOfflineWorld();
             }
         }
         else if (creatorMode)
         {
             if (!_launchMenuOpen)   // the Launch Options modal sits over this spot
             {
-                GlueText(dl, "Spell Creator Mode", cx, disp.Y - 320f * s, 15f * s, WowSkin.GlueGold, 1);
-                GlueText(dl, "An offline sandbox for building and tuning spells.",
+                GlueText(dl, "Creator Mode", cx, disp.Y - 320f * s, 15f * s, WowSkin.GlueGold, 1);
+                GlueText(dl, "The offline sandbox: spells, characters, gear and world tools.",
                          cx, disp.Y - 296f * s, 12f * s, WowSkin.Muted, 1);
             }
-            ImGui.SetCursorScreenPos(new Vector2(cx - loginSize.X * 0.5f, 519f * s));
-            if (_skin?.GlueButton("Enter Creator", loginSize) ?? ImGui.Button("Enter Creator", loginSize))
-                EnterOfflineWorld(creator: true);
+            var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
+            ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 519f * s));
+            if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
+                EnterOfflineWorld();
         }
         else
         {

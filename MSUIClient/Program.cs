@@ -576,6 +576,10 @@ public sealed partial class GameLoop : IDisposable
 
     private bool _disposed;
 
+    /// <summary>Last window fullscreen state the persistence watcher accepted;
+    /// null until the window first agrees with the saved setting (boot guard).</summary>
+    private bool? _observedFullscreen;
+
     // A player can stand half a tile diagonal from its centre. Keeping objects
     // for that reach plus draw distance and a small large-model margin means a
     // tile transition never reveals an object that was not resident already.
@@ -1366,6 +1370,9 @@ public sealed partial class GameLoop : IDisposable
         // button, which is what makes it worth a comment.
         if (ConsumeQuitRequest()) return;
 
+        // Scripted creator-mode texture-swap reproduction (MSUI_CREATOR_PROBE).
+        UpdateCreatorProbe();
+
         long updateStarted = Stopwatch.GetTimestamp();
         _loadNetPumpMilliseconds = 0;
         _loadStepMilliseconds = 0;
@@ -1758,6 +1765,31 @@ public sealed partial class GameLoop : IDisposable
         UpdateCombatFeedback(dt);
         UpdateSpellPresentation();
         UpdateCreatorSpellLoop();
+        UpdateCreatorLocationPersist();
+
+        // Alt+Enter's live fullscreen toggle must stick across sessions - but the
+        // watcher must not fire during BOOT, where the window reports windowed
+        // for a few frames while GLFW is still entering fullscreen (a naive
+        // mismatch-save clobbered the setting back to false). It arms only once
+        // the observed state has agreed with the setting, then persists real
+        // transitions.
+        // A scripted probe run is not the user's session: never persist display
+        // state from it (a probe boot clobbered Fullscreen back to false once).
+        bool fullscreenNow = _window.Fullscreen;
+        if (ProbeSpec is not null) { }
+        else if (_observedFullscreen is null)
+        {
+            if (fullscreenNow == Settings.Display.Fullscreen) _observedFullscreen = fullscreenNow;
+        }
+        else if (fullscreenNow != _observedFullscreen)
+        {
+            _observedFullscreen = fullscreenNow;
+            if (Settings.Display.Fullscreen != fullscreenNow)
+            {
+                Settings.Display.Fullscreen = fullscreenNow;
+                SettingsFile?.Save();
+            }
+        }
 
         _updateMilliseconds = Stopwatch.GetElapsedTime(updateStarted).TotalMilliseconds;
     }
@@ -3338,6 +3370,9 @@ public sealed partial class GameLoop : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // The creator location must be flushed before anything is torn down.
+        try { UpdateCreatorLocationPersist(force: true); } catch { /* never block shutdown */ }
 
         _net?.Dispose();
         StopSocketTrace();

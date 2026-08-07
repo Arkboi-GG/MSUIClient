@@ -31,6 +31,8 @@ public sealed class SpellRibbonRenderer : IDisposable
     private readonly MpqMount _mpq;
     private readonly Dictionary<(long Instance, int Ribbon), Trail> _trails = [];
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _textureTints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _modelColorHues = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, M2Animator?> _animators = new(StringComparer.OrdinalIgnoreCase);
     private readonly Matrix4x4[] _skin = new Matrix4x4[M2Animator.MaxBones];
     private Shader? _shader;
@@ -174,6 +176,15 @@ public sealed class SpellRibbonRenderer : IDisposable
 
                 Vector3 color = M2TrackSampling.Vector(def.Color, instance.Model, sequence,
                     trail.History.ClipAge, Vector3.One);
+                // A recolored trail must move its authored color track too - the
+                // trail is colored by texture x track, and a red track would
+                // keep a recolored texture visibly red. The per-texture tint
+                // wins over the whole-model hue when both are set.
+                if (RibbonTexturePath(instance.Model, def) is { } tintPath &&
+                    _textureTints.TryGetValue(tintPath, out uint tintTarget))
+                    color = BlpRecolor.HueMapColor(color, tintTarget);
+                else if (_modelColorHues.TryGetValue(instance.Path, out uint hueTarget))
+                    color = BlpRecolor.HueMapColor(color, hueTarget);
                 float alpha = Math.Clamp(M2TrackSampling.Fixed16(def.Alpha, instance.Model,
                     sequence, trail.History.ClipAge) * AlphaScale, 0f, 8f);
                 trail.Texture = texture;
@@ -336,17 +347,64 @@ public sealed class SpellRibbonRenderer : IDisposable
             model.Sequences.Select(s => (int)s.AnimationId), includeStaticSequences: true);
     }
 
-    private Texture? ResolveTexture(M2Model model, M2RibbonEmitter ribbon)
+    /// <summary>The trail texture path for a ribbon emitter (normalized), or null.</summary>
+    private static string? RibbonTexturePath(M2Model model, M2RibbonEmitter ribbon)
     {
         if (ribbon.Texture >= model.Textures.Count) return null;
         string path = model.Textures[ribbon.Texture].Filename.Replace('/', Path.DirectorySeparatorChar);
-        if (path.Length == 0) return null;
+        return path.Length == 0 ? null : path;
+    }
+
+    /// <summary>
+    /// Hue-map a model's ribbon COLOR track toward a target color (0x00RRGGBB),
+    /// or null to restore. This is the creator's whole-model hue dial reaching
+    /// the trail: the M2ParticlePatcher can rotate emitter colors in the bytes,
+    /// but ribbon color tracks are keyframed M2 data the byte patcher does not
+    /// touch - so the master hue routes here instead. A per-texture tint (below)
+    /// overrides this for its ribbon.
+    /// </summary>
+    public void SetModelColorHue(string modelPath, uint? targetRgb)
+    {
+        if (string.IsNullOrEmpty(modelPath)) return;
+        if (targetRgb is uint want) _modelColorHues[modelPath] = want;
+        else _modelColorHues.Remove(modelPath);
+    }
+
+    /// <summary>
+    /// Palette-swap a trail texture toward a target color (0x00RRGGBB), or null to
+    /// restore. Mirrors the particle/mesh renderers' tint layer; the authored
+    /// ribbon COLOR track is hue-mapped at sample time too (see Render), because
+    /// a red trail is red from BOTH its texture and its color track.
+    /// </summary>
+    public void SetTextureTint(string path, uint? targetRgb)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        path = path.Replace('/', Path.DirectorySeparatorChar);
+        bool had = _textureTints.TryGetValue(path, out uint current);
+        if (targetRgb is uint want)
+        {
+            if (had && current == want) return;
+            _textureTints[path] = want;
+        }
+        else
+        {
+            if (!had) return;
+            _textureTints.Remove(path);
+        }
+        if (_textures.Remove(path, out Texture? old)) old?.Dispose();
+    }
+
+    private Texture? ResolveTexture(M2Model model, M2RibbonEmitter ribbon)
+    {
+        if (RibbonTexturePath(model, ribbon) is not { } path) return null;
         if (_textures.TryGetValue(path, out Texture? cached)) return cached;
         byte[]? bytes = _mpq.ReadFile(path);
         if (bytes is null) return _textures[path] = null;
         try
         {
             byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            if (_textureTints.TryGetValue(path, out uint target))
+                BlpRecolor.HueMapBgra(pixels, target);
             return _textures[path] = Texture.From2D(_gl, pixels, width, height,
                 mipmaps: true, repeat: true);
         }

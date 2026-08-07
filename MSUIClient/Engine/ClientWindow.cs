@@ -95,6 +95,13 @@ public sealed class ClientWindow : IDisposable
             if (_window is null) return;
             if (value)
             {
+                // Size to the monitor's DESKTOP mode before flipping the state:
+                // GLFW picks the fullscreen video mode from the window size, so
+                // entering at the configured windowed size (1600x900 on a 4K
+                // panel) rendered the client into a fraction of the screen.
+                var resolution = _window.Monitor?.VideoMode.Resolution;
+                if (resolution is { X: > 0, Y: > 0 } native)
+                    _window.Size = native;
                 _window.WindowState = WindowState.Fullscreen;
             }
             else
@@ -102,6 +109,9 @@ public sealed class ClientWindow : IDisposable
                 _window.WindowState = WindowState.Normal;
                 _window.Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height);
             }
+            // The transition does not reliably raise FramebufferResize on every
+            // driver - sync the viewport/aspect to the real framebuffer now.
+            if (_gl is not null) HandleResize(_window.FramebufferSize);
         }
     }
 
@@ -345,9 +355,12 @@ public sealed class ClientWindow : IDisposable
             Title = _config.Window.Title,
             VSync = _config.Window.VSync,
             Samples = Math.Clamp(_config.Render.MsaaSamples, 0, 16),
-            // True fullscreen at the desktop video mode; Alt+Enter and the video
-            // settings toggle switch it live after creation.
-            WindowState = _config.Window.Fullscreen ? WindowState.Fullscreen : WindowState.Normal,
+            // ALWAYS created windowed: creating directly in fullscreen picks the
+            // video mode from the configured windowed size, which on a high-res
+            // panel rendered the client into a fraction of the screen. HandleLoad
+            // flips to fullscreen through the property, which sizes to the
+            // monitor's desktop mode first and syncs the viewport.
+            WindowState = WindowState.Normal,
             // 3.3 core is the floor; anything modern exceeds it, and it keeps the
             // client runnable on older hardware and inside VMs.
             API = GraphicsApi,
@@ -549,6 +562,15 @@ public sealed class ClientWindow : IDisposable
         startup.Restart();
         OnLoad?.Invoke(_gl);
         Console.WriteLine($"[startup] game load callback     {startup.Elapsed.TotalSeconds,6:F2}s");
+
+        // Fullscreen is entered HERE, not at window creation - through the
+        // property so the window sizes to the monitor's desktop mode first and
+        // the viewport is synced (see the creation options note).
+        if (_config.Window.Fullscreen && _window.WindowState != WindowState.Fullscreen)
+        {
+            Fullscreen = true;
+            Console.WriteLine($"[display] fullscreen at {_window.FramebufferSize.X}x{_window.FramebufferSize.Y}");
+        }
     }
 
     private void BeginWorldPress(MouseButton button, Vector2 position)

@@ -10,12 +10,19 @@ namespace MSUIClient;
 // ─────────────────────────────────────────────────────────────────────────────
 // Creator-mode HUD: a top-left row of red glue buttons opening skinned panels.
 // Character (race/sex/appearance), Gear (tier sets + item search), Teleport
-// (preset locations + world map), Target (spawn/despawn a practice dummy),
-// Spells (the Phase 3 spell workshop).
+// (preset locations + world map), Target (creature browser + spawns),
+// Spells (the spell workshop).
 //
 // The bar is its own small auto-sized ImGui window (NOT full-screen - a
-// full-screen invisible window would steal the camera's mouse input). Panels
-// are skinned-ImGui windows, the settings-modal approach.
+// full-screen invisible window would steal the camera's mouse input).
+//
+// PANELS ARE BUILT FROM SECTIONS. Every panel registers its drill-down groups
+// as (panel, id, label, body) each frame; the panel window renders them in a
+// user-arranged order (drag a header onto another to reorder), and any section
+// can be POPPED OUT into its own floating window (the header's corner button;
+// the popped window's X docks it back). Order + popped state persist in
+// GameSettings.Creator. All windows are freely resizable by their edges and
+// corners; ImGui's own ini file remembers each window's rect.
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
@@ -65,32 +72,248 @@ public sealed partial class GameLoop
         new(0.90f, 0.80f, 0.50f, 1f),   // artifact
     };
 
-    /// <summary>Widget/panel size multiplier (GameSettings.Creator.UiScale, persisted).</summary>
-    private float CreatorUiScale => Math.Clamp(Settings.Creator.UiScale, 0.6f, 2.5f);
+    // ── per-modal layout dials ───────────────────────────────────────────────
+    // Every window has a gear button opening ITS OWN dial set (PanelTuning in
+    // the settings), multiplying on top of the shared modal dials - so each
+    // modal can be dialed into its own "perfect" layout independently.
 
-    /// <summary>Text-only size multiplier (GameSettings.Creator.TextScale, persisted).</summary>
-    private float CreatorTextScale => Math.Clamp(Settings.Creator.TextScale, 0.6f, 2.5f);
+    /// <summary>The window whose per-modal dials apply to widgets drawn right now.</summary>
+    private string? _activePanelTune;
+
+    /// <summary>The window whose layout popup (the gear button) is open.</summary>
+    private string? _openPanelTuneId;
+
+    private static readonly GameSettings.PanelTuneSetting CreatorNeutralTune = new();
+
+    private GameSettings.PanelTuneSetting ActivePanelTune =>
+        _activePanelTune is { } id &&
+        Settings.Creator.PanelTuning.TryGetValue(id, out var tune) ? tune : CreatorNeutralTune;
+
+    private GameSettings.PanelTuneSetting PanelTuneFor(string id)
+    {
+        if (!Settings.Creator.PanelTuning.TryGetValue(id, out var tune))
+            Settings.Creator.PanelTuning[id] = tune = new GameSettings.PanelTuneSetting();
+        return tune;
+    }
+
+    // Which field kinds each window actually drew last frame, so the layout
+    // popup only offers dials for what exists in that window.
+    private readonly Dictionary<string, HashSet<string>> _panelFieldKinds = new();
+
+    private void NotePanelField(string kind)
+    {
+        if (_activePanelTune is not { } id) return;
+        if (!_panelFieldKinds.TryGetValue(id, out var kinds))
+            _panelFieldKinds[id] = kinds = new HashSet<string>();
+        kinds.Add(kind);
+    }
+
+    /// <summary>MODAL widget/panel size multiplier: the shared dial times the
+    /// active window's own Widget dial.</summary>
+    private float CreatorUiScale => Math.Clamp(Settings.Creator.UiScale, 0.6f, 2.5f)
+        * Math.Clamp(ActivePanelTune.Widget, 0.5f, 2.5f);
+
+    /// <summary>MODAL text-only size multiplier: shared dial times the window's own.</summary>
+    private float CreatorTextScale => Math.Clamp(Settings.Creator.TextScale, 0.6f, 2.5f)
+        * Math.Clamp(ActivePanelTune.Text, 0.5f, 2.5f);
+
+    /// <summary>The active window's red-button size dial.</summary>
+    private float CreatorButtonMul => Math.Clamp(ActivePanelTune.Button, 0.5f, 2.5f);
+
+    /// <summary>The active window's header/+- icon size dial.</summary>
+    private float CreatorIconMul => Math.Clamp(ActivePanelTune.Icon, 0.5f, 3f);
+
+    /// <summary>Red-button height under the active window's dials.</summary>
+    private float CreatorButtonHeight => CreatorRowHeight * CreatorButtonMul;
+
+    /// <summary>Top-bar button size multiplier - independent of the modal dials.</summary>
+    private float CreatorBarScale => Math.Clamp(Settings.Creator.BarScale, 0.6f, 2.5f);
+
+    /// <summary>Top-bar caption size multiplier - independent of the modal dials.</summary>
+    private float CreatorBarTextScale => Math.Clamp(Settings.Creator.BarTextScale, 0.6f, 2.5f);
 
     private bool _creatorUiOptionsOpen;
 
-    /// <summary>The creator-mode overlay: menu bar + whichever panel is open.</summary>
+    /// <summary>While > 0, every creator window re-asserts its default rect (the
+    /// "Reset window layout" button). Decremented once per frame.</summary>
+    private int _creatorLayoutResetFrames;
+
+    // ── section registry ─────────────────────────────────────────────────────
+    // Rebuilt every frame (closures are cheap); the registry is what lets a
+    // popped-out section keep drawing after its parent panel is closed.
+
+    private readonly record struct CreatorSectionDef(
+        string Panel, string Id, string Label, bool DefaultOpen, Action Body);
+
+    private readonly List<CreatorSectionDef> _creatorSectionDefs = new();
+
+    private void CreatorSection(string panel, string id, string label, bool defaultOpen, Action body)
+        => _creatorSectionDefs.Add(new CreatorSectionDef(panel, id, label, defaultOpen, body));
+
+    /// <summary>The creator-mode overlay: menu bar, the open panel, popped-out sections.</summary>
     private void DrawCreatorHud()
     {
+        _creatorSectionDefs.Clear();
+        RegisterCreatorCharacterSections();
+        RegisterCreatorGearSections();
+        RegisterCreatorTeleportSections();
+        RegisterCreatorTargetSections();
+        RegisterCreatorSpellsSections();
+
         DrawCreatorMenuBar();
         switch (_creatorPanel)
         {
-            case CreatorPanel.Character: DrawCreatorCharacterPanel(); break;
-            case CreatorPanel.Gear: DrawCreatorGearPanel(); break;
-            case CreatorPanel.Teleport: DrawCreatorTeleportPanel(); break;
-            case CreatorPanel.Target: DrawCreatorTargetPanel(); break;
-            case CreatorPanel.Spells: DrawCreatorSpellsPanel(); break;
+            case CreatorPanel.Character: DrawCreatorSectionPanel("Character", "Character", 500f, 560f); break;
+            case CreatorPanel.Gear: DrawCreatorSectionPanel("Gear", "Gear", 400f, 480f); break;
+            case CreatorPanel.Teleport: DrawCreatorSectionPanel("Teleport", "Teleport", 480f, 560f); break;
+            case CreatorPanel.Target: DrawCreatorSectionPanel("Target", "Target", 430f, 560f); break;
+            case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
         }
+        DrawPoppedCreatorSections();
         if (_creatorSearchOpen) DrawCreatorItemSearch();
+        DrawCreatorTextureSwapPicker();
+        DrawCreatorPanelTunePopup();
+        if (_creatorLayoutResetFrames > 0) _creatorLayoutResetFrames--;
+
+        // Escape dismisses the transient windows, innermost first (never the
+        // panels - Escape in the world keeps its normal meaning once these are
+        // gone). Skipped while typing so a text field's own Escape still works.
+        if (ImGui.IsKeyPressed(ImGuiKey.Escape) && !ImGui.GetIO().WantTextInput)
+        {
+            if (_texSwapTarget is not null) _texSwapTarget = null;
+            else if (_openPanelTuneId is not null)
+            {
+                _openPanelTuneId = null;
+                _creatorEditLayoutPanel = null;
+            }
+            else if (_creatorSearchOpen) _creatorSearchOpen = false;
+            else if (_creatorUiOptionsOpen) _creatorUiOptionsOpen = false;
+        }
+    }
+
+    /// <summary>One shared control width so sliders and inputs line up into a
+    /// clean column whatever the window width: about half the row, clamped.</summary>
+    private float CreatorControlWidth =>
+        Math.Clamp(ImGui.GetContentRegionAvail().X * 0.52f,
+            140f * CreatorUiScale, 300f * CreatorUiScale);
+
+    // ── search result lists ──────────────────────────────────────────────────
+    // One consistent treatment for every results box (spells, creatures, items,
+    // splice sources): near-opaque dark plate so rows read against any world,
+    // comfortable row height, and a height that GROWS with the result count up
+    // to a fraction of the window - resizing the window resizes the list.
+
+    private float CreatorResultRowHeight => ImGui.GetTextLineHeight() + 8f * CreatorUiScale;
+
+    private bool BeginCreatorResults(string id, int itemCount, float maxFraction = 0.45f)
+    {
+        float cs = CreatorUiScale;
+        float rowStride = CreatorResultRowHeight + ImGui.GetStyle().ItemSpacing.Y;
+        float desired = MathF.Max(itemCount, 1) * rowStride + 14f * cs;
+        float cap = MathF.Max(ImGui.GetContentRegionAvail().Y * maxFraction, 150f * cs);
+        float height = MathF.Min(desired, cap);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.07f, 0.07f, 0.08f, 0.97f));
+        return ImGui.BeginChild(id, new Vector2(0f, height), true);
+    }
+
+    private void EndCreatorResults()
+    {
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+    }
+
+    /// <summary>A comfortable, full-width result row.</summary>
+    private bool CreatorResultRow(string label, bool selected = false)
+        => ImGui.Selectable(label, selected, ImGuiSelectableFlags.None,
+            new Vector2(0f, CreatorResultRowHeight));
+
+    /// <summary>The per-window layout popup opened by a window's gear button:
+    /// dials for exactly the field kinds that window draws, persisted per window
+    /// on top of the shared modal dials.</summary>
+    private void DrawCreatorPanelTunePopup()
+    {
+        if (_openPanelTuneId is not { } id) return;
+        _activePanelTune = null;   // the popup itself follows only the shared dials
+        float cs = CreatorUiScale;
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
+        var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
+        ImGui.SetNextWindowPos(new Vector2(300f * s, 120f * s), cond);
+        ImGui.SetNextWindowSize(new Vector2(340f * cs, 430f * cs), cond);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(250f * cs, 190f * cs),
+            new Vector2(float.MaxValue, float.MaxValue));
+        PushCreatorStyle();
+        bool open = true;
+        if (ImGui.Begin("###creator-panel-tune", CreatorChromeFlags))
+        {
+            ClampCreatorWindowOnScreen();
+            if (DrawCreatorPanelChrome($"Layout: {id}")) open = false;
+            ImGui.SetWindowFontScale(CreatorTextScale);
+            BeginCreatorContent();
+            var tune = PanelTuneFor(id);
+            var kinds = _panelFieldKinds.GetValueOrDefault(id);
+            bool save = false;
+
+            bool Dial(string label, Func<float> get, Action<float> set, float max = 2.5f)
+            {
+                float value = get();
+                ImGui.SetNextItemWidth(170f * cs);
+                if (ImGui.SliderFloat(label, ref value, 0.5f, max, "%.2fx")) set(value);
+                return ImGui.IsItemDeactivatedAfterEdit();
+            }
+
+            ImGui.TextDisabled("SIZES");
+            save |= Dial("Text size", () => tune.Text, v => tune.Text = v);
+            save |= Dial("Widget size", () => tune.Widget, v => tune.Widget = v);
+            if (kinds?.Contains("buttons") == true)
+                save |= Dial("Button size", () => tune.Button, v => tune.Button = v);
+            if (kinds?.Contains("headers") == true)
+                save |= Dial("Header / +- icon size", () => tune.Icon, v => tune.Icon = v, 3f);
+            save |= Dial("Row spacing", () => tune.Spacing, v => tune.Spacing = v);
+            if (CreatorButton("Reset sizes"))
+            {
+                tune.Text = tune.Widget = tune.Button = tune.Icon = tune.Spacing = 1f;
+                save = true;
+            }
+
+            if (kinds?.Contains("buttons") == true)
+            {
+                ImGui.Spacing();
+                ImGui.TextDisabled("PLACEMENT");
+                bool editing = _creatorEditLayoutPanel == id;
+                if (CreatorButton(editing ? "Done moving" : "Move buttons"))
+                    _creatorEditLayoutPanel = editing ? null : id;
+                ImGui.SameLine();
+                if (CreatorButton("Reset positions"))
+                {
+                    Settings.Creator.WidgetOffsets.Remove(id);
+                    save = true;
+                }
+                ImGui.TextWrapped(editing
+                    ? "Drag any green-outlined button in the window to place it. " +
+                      "Buttons do not fire while moving. Click Done moving to finish."
+                    : "Move buttons puts this window in edit mode: drag its buttons " +
+                      "wherever you think they should be. Positions persist.");
+            }
+
+            ImGui.TextDisabled("Applies to this window only, on top of the shared UI dials.");
+            if (save) SettingsFile?.Save();
+            EndCreatorContent();
+            ImGui.SetWindowFontScale(1f);
+        }
+        ImGui.End();
+        PopCreatorStyle();
+        if (!open)
+        {
+            _openPanelTuneId = null;
+            if (_creatorEditLayoutPanel == id) _creatorEditLayoutPanel = null;
+        }
     }
 
     private void DrawCreatorMenuBar()
     {
-        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorUiScale;
+        // The bar sizes with its OWN dials (BarScale / BarTextScale), not the
+        // modal dials - so the modals can be dialed in without moving the bar.
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorBarScale;
         ImGui.SetNextWindowPos(new Vector2(8f * s, 6f * s), ImGuiCond.Always);
         var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
                   | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.AlwaysAutoResize
@@ -100,20 +323,25 @@ public sealed partial class GameLoop
         float savedScale = _skin?.Scale ?? 1f;
         if (_skin is not null) _skin.Scale = s;
         var size = new Vector2(118f * s, 30f * s);
+        // The explicit caption size replicates GlueButton's auto rule (height x
+        // ratio, floored at the base font) so BarTextScale 1.0 is bit-identical
+        // to the auto caption, and other values scale from there.
+        float captionPx = MathF.Max(size.Y * GlueTune.CaptionSizeRatio, ImGui.GetFontSize())
+                          * CreatorBarTextScale;
 
-        CreatorBarButton("Character", CreatorPanel.Character, size);
+        CreatorBarButton("Character", CreatorPanel.Character, size, captionPx);
         ImGui.SameLine();
-        CreatorBarButton("Gear", CreatorPanel.Gear, size);
+        CreatorBarButton("Gear", CreatorPanel.Gear, size, captionPx);
         ImGui.SameLine();
-        CreatorBarButton("Teleport", CreatorPanel.Teleport, size);
+        CreatorBarButton("Teleport", CreatorPanel.Teleport, size, captionPx);
         ImGui.SameLine();
-        CreatorBarButton("Target", CreatorPanel.Target, size);
+        CreatorBarButton("Target", CreatorPanel.Target, size, captionPx);
         ImGui.SameLine();
-        CreatorBarButton("Spells", CreatorPanel.Spells, size);
+        CreatorBarButton("Spells", CreatorPanel.Spells, size, captionPx);
 
-        // The UI-options toggle: scale dials live in their own little panel.
+        // The UI-options toggle: layout/scale dials live in their own panel.
         ImGui.SameLine();
-        if (_skin?.GlueButton("UI", new Vector2(46f * s, 30f * s)) ?? ImGui.SmallButton("UI"))
+        if (_skin?.GlueButton("UI", new Vector2(46f * s, 30f * s), true, captionPx) ?? ImGui.SmallButton("UI"))
             _creatorUiOptionsOpen = !_creatorUiOptionsOpen;
 
         if (_skin is not null) _skin.Scale = savedScale;
@@ -122,50 +350,110 @@ public sealed partial class GameLoop
         if (_creatorUiOptionsOpen) DrawCreatorUiOptions();
     }
 
-    /// <summary>Creator UI options: separate dials for widget size and text size,
-    /// each live while dragging and saved when the drag ends.</summary>
+    /// <summary>Creator UI options: everything that sizes or arranges the creator
+    /// windows - widget/text scale, panel opacity, padding and spacing dials, and
+    /// the layout reset. Every dial is live while dragging, saved on release.</summary>
     private void DrawCreatorUiOptions()
     {
+        _activePanelTune = "Creator UI";
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
-        ImGui.SetNextWindowPos(new Vector2(640f * s, 64f * s), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(300f * cs, 0f), ImGuiCond.Always);
+        var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
+        ImGui.SetNextWindowPos(new Vector2(620f * s, 64f * s), cond);
+        ImGui.SetNextWindowSize(new Vector2(340f * cs, 420f * cs), cond);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(260f * cs, 200f * cs),
+            new Vector2(float.MaxValue, float.MaxValue));
         PushCreatorStyle();
         bool open = true;
-        if (ImGui.Begin("###creator-ui-options", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse))
+        if (ImGui.Begin("###creator-ui-options", CreatorChromeFlags))
         {
-            if (DrawCreatorPanelChrome("Creator UI")) open = false;
+            ClampCreatorWindowOnScreen();
+            if (DrawCreatorPanelChrome("Creator UI", "Creator UI")) open = false;
             ImGui.SetWindowFontScale(CreatorTextScale);
+            BeginCreatorContent();
+            var creator = Settings.Creator;
+            bool save = false;
 
-            float ui = Settings.Creator.UiScale;
+            ImGui.TextDisabled("TOP BAR (the 6 buttons)");
+            float bar = creator.BarScale;
             ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Widget scale", ref ui, 0.6f, 2f, "%.2fx"))
-                Settings.Creator.UiScale = ui;
-            bool save = ImGui.IsItemDeactivatedAfterEdit();
-
-            float text = Settings.Creator.TextScale;
-            ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Text scale", ref text, 0.6f, 2f, "%.2fx"))
-                Settings.Creator.TextScale = text;
+            if (ImGui.SliderFloat("Bar button size", ref bar, 0.6f, 2f, "%.2fx")) creator.BarScale = bar;
             save |= ImGui.IsItemDeactivatedAfterEdit();
 
-            if (ImGui.Button("Reset"))
+            float barText = creator.BarTextScale;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Bar text size", ref barText, 0.6f, 2f, "%.2fx")) creator.BarTextScale = barText;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("MODALS (all panels share these)");
+            float ui = creator.UiScale;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Widget scale", ref ui, 0.6f, 2f, "%.2fx")) creator.UiScale = ui;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            float text = creator.TextScale;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Text scale", ref text, 0.6f, 2f, "%.2fx")) creator.TextScale = text;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            float alpha = creator.PanelAlpha;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Background opacity", ref alpha, 0.2f, 1f, "%.2f")) creator.PanelAlpha = alpha;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            float pad = creator.PaddingScale;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Padding", ref pad, 0.4f, 2f, "%.2fx")) creator.PaddingScale = pad;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            float spacing = creator.SpacingScale;
+            ImGui.SetNextItemWidth(180f * cs);
+            if (ImGui.SliderFloat("Row spacing", ref spacing, 0.4f, 2f, "%.2fx")) creator.SpacingScale = spacing;
+            save |= ImGui.IsItemDeactivatedAfterEdit();
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("LAYOUT");
+            ImGui.TextWrapped("Drag any panel edge or corner to resize it; sizes are remembered. " +
+                              "Drag a section header onto another to reorder. The corner button on a " +
+                              "header pops that section out into its own window; the popped window's " +
+                              "close button docks it back.");
+            if (CreatorButton("Reset dials"))
             {
-                Settings.Creator.UiScale = 1f;
-                Settings.Creator.TextScale = 1f;
+                creator.BarScale = 1f;
+                creator.BarTextScale = 1f;
+                creator.UiScale = 1f;
+                creator.TextScale = 1f;
+                creator.PanelAlpha = 0.62f;
+                creator.PaddingScale = 1f;
+                creator.SpacingScale = 1f;
                 save = true;
             }
+            ImGui.SameLine();
+            if (CreatorButton("Reset window layout"))
+            {
+                creator.SectionOrder.Clear();
+                creator.PoppedSections.Clear();
+                _creatorLayoutResetFrames = 2;
+                save = true;
+            }
+
             if (save) SettingsFile?.Save();
+            EndCreatorContent();
             ImGui.SetWindowFontScale(1f);
         }
         ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
         if (!open) _creatorUiOptionsOpen = false;
     }
 
-    private void CreatorBarButton(string label, CreatorPanel panel, Vector2 size)
+    private void CreatorBarButton(string label, CreatorPanel panel, Vector2 size, float captionPx)
     {
-        bool clicked = _skin?.GlueButton(label, size) ?? ImGui.Button(label, size);
+        bool clicked = _skin?.GlueButton(label, size, true, captionPx) ?? ImGui.Button(label, size);
+        if (_creatorPanel == panel)   // the open panel's button wears the gold rim
+            ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(),
+                VanillaGold, 3f, ImDrawFlags.None, 2f);
         if (clicked) _creatorPanel = _creatorPanel == panel ? CreatorPanel.None : panel;
     }
 
@@ -192,11 +480,14 @@ public sealed partial class GameLoop
         C(ImGuiCol.FrameBg, new Vector4(0.13f, 0.13f, 0.14f, 0.90f));     // grey input/slider wells
         C(ImGuiCol.ChildBg, new Vector4(0.06f, 0.06f, 0.07f, 0.45f));
 
-        // Breathing room, following the widget dial: the skin's paddings are
-        // tuned for the dense settings modal and read cramped in the creator.
+        // Breathing room, following the widget + padding dials: the skin's
+        // paddings are tuned for the dense settings modal and read cramped here.
         float ps = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorUiScale;
-        V(ImGuiStyleVar.WindowPadding, new Vector2(20f, 18f) * ps);
-        V(ImGuiStyleVar.ItemSpacing, new Vector2(10f, 9f) * ps);
+        float padMul = Math.Clamp(Settings.Creator.PaddingScale, 0.4f, 2f);
+        float spaceMul = Math.Clamp(Settings.Creator.SpacingScale, 0.4f, 2f)
+                         * Math.Clamp(ActivePanelTune.Spacing, 0.5f, 2.5f);
+        V(ImGuiStyleVar.WindowPadding, new Vector2(20f, 18f) * ps * padMul);
+        V(ImGuiStyleVar.ItemSpacing, new Vector2(10f, 9f) * ps * spaceMul);
         V(ImGuiStyleVar.FramePadding, new Vector2(9f, 6f) * ps);
     }
 
@@ -214,7 +505,7 @@ public sealed partial class GameLoop
     /// the round UI-Panel-MinimizeButton close. Returns true when close was
     /// clicked. Call right after a successful Begin on a NoTitleBar window.
     /// </summary>
-    private bool DrawCreatorPanelChrome(string title)
+    private bool DrawCreatorPanelChrome(string title, string? tuneId = null)
     {
         var dl = ImGui.GetWindowDrawList();
         Vector2 min = ImGui.GetWindowPos();
@@ -225,11 +516,13 @@ public sealed partial class GameLoop
         // the window clip rect would eat it, so override while painting chrome.
         dl.PushClipRect(min - new Vector2(64f * ps, 64f * ps),
                         max + new Vector2(64f * ps, 64f * ps), false);
-        // Semi-grey fill like the in-game menus, a touch darker, INSET from the
-        // window rect so nothing bleeds past the border art's rounded corners.
+        // Semi-grey fill like the in-game menus (opacity is a UI-options dial),
+        // INSET from the window rect so nothing bleeds past the border art's
+        // rounded corners.
         var fillInset = new Vector2(5f, 5f) * ps;
+        float alpha = Math.Clamp(Settings.Creator.PanelAlpha, 0.2f, 1f);
         dl.AddRectFilled(min + fillInset, max - fillInset,
-            ImGui.ColorConvertFloat4ToU32(new Vector4(0.11f, 0.11f, 0.12f, 0.62f)));
+            ImGui.ColorConvertFloat4ToU32(new Vector4(0.11f, 0.11f, 0.12f, alpha)));
         if (_skin is not null)
         {
             float saved = _skin.Scale;
@@ -249,6 +542,36 @@ public sealed partial class GameLoop
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
+
+        // The gear: this window's own layout dials, tucked left of the close
+        // button. Deliberately NOT scaled by the creator dials (it is the one
+        // knob that must stay reachable however the window is tuned): it follows
+        // the window's width a little and stays inside the top "navbar" strip.
+        if (tuneId is not null)
+        {
+            float baseS = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f);
+            float gear = Math.Clamp((max.X - min.X) * 0.030f, 11f * baseS, 16f * baseS);
+            float closeCentreY = min.Y + 1f * ps + closeSize.Y * 0.5f;
+            var gearPos = new Vector2(closePos.X - gear - 6f * baseS, closeCentreY - gear * 0.5f);
+            ImGui.SetCursorScreenPos(gearPos);
+            bool gearClicked = ImGui.InvisibleButton($"##creator-gear-{title}", new Vector2(gear, gear));
+            bool gearHovered = ImGui.IsItemHovered();
+            uint col = gearHovered || _openPanelTuneId == tuneId
+                ? 0xffffffff : VanillaGold;
+            Vector2 centre = gearPos + new Vector2(gear, gear) * 0.5f;
+            float rim = gear * 0.32f;
+            float stroke = MathF.Max(1.2f, 1.5f * baseS);
+            dl.AddCircle(centre, rim, col, 12, stroke);
+            dl.AddCircleFilled(centre, gear * 0.10f, col);
+            for (int spoke = 0; spoke < 8; spoke++)
+            {
+                float a = spoke * MathF.PI / 4f;
+                var dir = new Vector2(MathF.Cos(a), MathF.Sin(a));
+                dl.AddLine(centre + dir * rim, centre + dir * (rim + gear * 0.16f), col, stroke);
+            }
+            if (gearHovered) ImGui.SetTooltip("Layout dials for this window");
+            if (gearClicked) _openPanelTuneId = _openPanelTuneId == tuneId ? null : tuneId;
+        }
         ImGui.SetCursorPos(keep);
 
         // Clear the plaque's visible plate before content begins.
@@ -258,25 +581,72 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Begin a creator panel window under the bar, dressed in the real 1.12
-    /// dialog chrome. Returns false when closed. Width and text both follow the
-    /// creator dials - widths are re-asserted every frame (cond Always) so the
-    /// dial applies live; the panels are fixed-layout, so losing manual resize
-    /// costs nothing.
+    /// dialog chrome. Freely resizable by edges/corners (the rect persists via
+    /// ImGui's ini); the default rect only applies on first use or layout reset.
+    /// Returns false when closed.
     /// </summary>
-    private bool BeginCreatorPanel(string title, float width)
+    /// <summary>Every creator window's content flags: the OUTER window never
+    /// scrolls - content lives in the inset scroll region (BeginCreatorContent),
+    /// so rows clip inside the frame and the scrollbar sits inside the border.</summary>
+    private const ImGuiWindowFlags CreatorChromeFlags =
+        ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse |
+        ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+
+    /// <summary>Keep a dragged window reachable: at least a sliver on screen
+    /// horizontally, and the header strip always below the top edge.</summary>
+    private void ClampCreatorWindowOnScreen()
     {
+        var disp = ImGui.GetIO().DisplaySize;
+        const float keep = 60f;
+        // Minimized / mid-resize the display reports tiny or zero - clamping
+        // then would invert the range (min > max threw at boot) and there is
+        // nothing sensible to clamp against anyway.
+        if (disp.X < keep * 3f || disp.Y < keep * 3f) return;
+        Vector2 pos = ImGui.GetWindowPos();
+        Vector2 size = ImGui.GetWindowSize();
+        float minX = keep - size.X, maxX = disp.X - keep;
+        float minY = 24f, maxY = disp.Y - keep;
+        if (maxX < minX || maxY < minY) return;
+        float x = Math.Clamp(pos.X, minX, maxX);
+        float y = Math.Clamp(pos.Y, minY, maxY);
+        if (x != pos.X || y != pos.Y) ImGui.SetWindowPos(new Vector2(x, y));
+    }
+
+    /// <summary>The inset scroll region every chrome window's content lives in.
+    /// Ends above the border ring; fonts re-applied (a child is its own window).</summary>
+    private void BeginCreatorContent()
+    {
+        float ps = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorUiScale;
+        ImGui.BeginChild("##creator-content", new Vector2(0f, -10f * ps));
+        ImGui.SetWindowFontScale(CreatorTextScale);
+    }
+
+    private void EndCreatorContent()
+    {
+        ImGui.SetWindowFontScale(1f);
+        ImGui.EndChild();
+    }
+
+    private bool BeginCreatorPanel(string title, string tuneId, float defaultW, float defaultH)
+    {
+        _activePanelTune = tuneId;
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
-        ImGui.SetNextWindowPos(new Vector2(8f * s, 64f * s), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(width * cs, 0f), ImGuiCond.Always);
+        var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
+        ImGui.SetNextWindowPos(new Vector2(8f * s, 64f * s), cond);
+        ImGui.SetNextWindowSize(new Vector2(defaultW * cs, defaultH * cs), cond);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(250f * cs, 170f * cs),
+            new Vector2(float.MaxValue, float.MaxValue));
         PushCreatorStyle();
-        if (!ImGui.Begin($"###creator-{title}", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse))
+        if (!ImGui.Begin($"###creator-{title}", CreatorChromeFlags))
         {
             ImGui.End();
             PopCreatorStyle();
+            _activePanelTune = null;
             return false;
         }
-        if (DrawCreatorPanelChrome(title)) _creatorPanel = CreatorPanel.None;
+        ClampCreatorWindowOnScreen();
+        if (DrawCreatorPanelChrome(title, tuneId)) _creatorPanel = CreatorPanel.None;
         ImGui.SetWindowFontScale(CreatorTextScale);
         return true;
     }
@@ -286,6 +656,288 @@ public sealed partial class GameLoop
         ImGui.SetWindowFontScale(1f);
         ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
+    }
+
+    // ── section rendering ────────────────────────────────────────────────────
+
+    /// <summary>A panel window whose content is its registered sections, drawn in
+    /// the user-arranged order with reorder + pop-out affordances.</summary>
+    /// <summary>One line of live context per panel, shown in its fixed toolbar.</summary>
+    private string CreatorPanelStatus(string panelId) => panelId switch
+    {
+        "Teleport" => _travelStatus ?? "",
+        "Spells" => _creatorSpell is { } doc ? $"{doc.Info.Id}  {doc.Info.Name}" : "no spell selected",
+        "Target" => _creatorSpawns.Count > 0 ? $"{_creatorSpawns.Count} spawned" : "",
+        _ => "",
+    };
+
+    private void SetAllPanelSections(string panelId, bool open)
+    {
+        foreach (var def in _creatorSectionDefs)
+            if (def.Panel == panelId)
+                Settings.Creator.SectionOpen[$"{panelId}/{def.Id}"] = open;
+        SettingsFile?.Save();
+    }
+
+    /// <summary>The fixed strip under the plaque: live status on the left,
+    /// expand/collapse-all on the right. Never scrolls with the content.</summary>
+    private void DrawCreatorPanelToolbar(string panelId)
+    {
+        float cs = CreatorUiScale;
+        float avail = ImGui.GetContentRegionAvail().X;
+        float expandW = ImGui.CalcTextSize("Expand all").X + 14f * cs;
+        float collapseW = ImGui.CalcTextSize("Collapse all").X + 14f * cs;
+        float buttons = expandW + collapseW + 10f * cs;
+
+        string status = CreatorPanelStatus(panelId);
+        if (status.Length > 0)
+        {
+            float maxW = MathF.Max(avail - buttons - 12f * cs, 40f);
+            while (status.Length > 4 && ImGui.CalcTextSize(status).X > maxW)
+                status = status[..^4] + "...";
+            ImGui.TextDisabled(status);
+            if (ImGui.IsItemHovered() && status.EndsWith("..."))
+                ImGui.SetTooltip(CreatorPanelStatus(panelId));
+            ImGui.SameLine(MathF.Max(avail - buttons, 0f));
+        }
+        else
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + MathF.Max(avail - buttons, 0f));
+        }
+        if (ImGui.SmallButton("Expand all")) SetAllPanelSections(panelId, true);
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Collapse all")) SetAllPanelSections(panelId, false);
+        ImGui.Separator();
+    }
+
+    private void DrawCreatorSectionPanel(string panelId, string title, float defaultW, float defaultH)
+    {
+        if (!BeginCreatorPanel(title, panelId, defaultW, defaultH)) return;
+        float cs = CreatorUiScale;
+
+        if (_creatorEditLayoutPanel == panelId)
+            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.35f, 1f),
+                "MOVE MODE - drag any outlined button to place it");
+        DrawCreatorPanelToolbar(panelId);
+        BeginCreatorContent();
+
+        foreach (string id in OrderedSectionIds(panelId))
+        {
+            int at = _creatorSectionDefs.FindIndex(d => d.Panel == panelId && d.Id == id);
+            if (at < 0) continue;
+            var def = _creatorSectionDefs[at];
+            if (IsSectionPopped(panelId, id))
+            {
+                if (CreatorPoppedPlaceholder(def)) TogglePoppedSection(panelId, id, false);
+                continue;
+            }
+            bool openSection = CreatorSectionHeader(def);
+            if (!openSection) continue;
+            ImGui.PushID(id);
+            ImGui.Indent(10f * cs);
+            def.Body();
+            ImGui.Unindent(10f * cs);
+            ImGui.PopID();
+            ImGui.Spacing();
+        }
+
+        EndCreatorContent();
+        EndCreatorPanel();
+    }
+
+    /// <summary>Popped-out sections draw as their own chrome windows, panel open or
+    /// not. The chrome X docks the section back into its panel.</summary>
+    private void DrawPoppedCreatorSections()
+    {
+        if (Settings.Creator.PoppedSections.Count == 0) return;
+        float cs = CreatorUiScale;
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
+        int slot = 0;
+        foreach (var def in _creatorSectionDefs.ToList())
+        {
+            if (!IsSectionPopped(def.Panel, def.Id)) continue;
+            string key = $"{def.Panel}/{def.Id}";
+            _activePanelTune = def.Panel;   // popped windows follow their parent panel's dials
+            var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
+            ImGui.SetNextWindowPos(new Vector2((340f + 30f * slot) * s, (100f + 30f * slot) * s), cond);
+            ImGui.SetNextWindowSize(new Vector2(400f * cs, 340f * cs), cond);
+            ImGui.SetNextWindowSizeConstraints(new Vector2(220f * cs, 140f * cs),
+                new Vector2(float.MaxValue, float.MaxValue));
+            slot++;
+            PushCreatorStyle();
+            bool open = true;
+            if (ImGui.Begin($"###creator-pop-{key}", CreatorChromeFlags))
+            {
+                ClampCreatorWindowOnScreen();
+                if (DrawCreatorPanelChrome(def.Label, def.Panel)) open = false;
+                ImGui.SetWindowFontScale(CreatorTextScale);
+                BeginCreatorContent();
+                ImGui.PushID(key);
+                def.Body();
+                ImGui.PopID();
+                EndCreatorContent();
+                ImGui.SetWindowFontScale(1f);
+            }
+            ImGui.End();
+            PopCreatorStyle();
+            _activePanelTune = null;
+            if (!open) TogglePoppedSection(def.Panel, def.Id, false);
+        }
+    }
+
+    /// <summary>Stored order filtered to sections that exist this frame, with any
+    /// new sections appended in registration order.</summary>
+    private List<string> OrderedSectionIds(string panelId)
+    {
+        var current = new List<string>();
+        foreach (var def in _creatorSectionDefs)
+            if (def.Panel == panelId) current.Add(def.Id);
+
+        if (!Settings.Creator.SectionOrder.TryGetValue(panelId, out var stored))
+            return current;
+        var result = stored.Where(current.Contains).ToList();
+        foreach (string id in current)
+            if (!result.Contains(id)) result.Add(id);
+        return result;
+    }
+
+    private void MoveSectionBefore(string panel, string dragged, string before)
+    {
+        var order = OrderedSectionIds(panel);
+        if (!order.Remove(dragged)) return;
+        int at = order.IndexOf(before);
+        order.Insert(at < 0 ? order.Count : at, dragged);
+        Settings.Creator.SectionOrder[panel] = order;
+        SettingsFile?.Save();
+    }
+
+    private bool IsSectionPopped(string panel, string id)
+        => Settings.Creator.PoppedSections.Contains($"{panel}/{id}");
+
+    private void TogglePoppedSection(string panel, string id, bool popped)
+    {
+        var list = Settings.Creator.PoppedSections;
+        string key = $"{panel}/{id}";
+        if (popped) { if (!list.Contains(key)) list.Add(key); }
+        else list.Remove(key);
+        SettingsFile?.Save();
+    }
+
+    // Side-band drag state, the inventory drag-drop pattern: the payload is a
+    // marker; the actual "what is being dragged" lives here.
+    private string? _dragSectionPanel;
+    private string? _dragSectionId;
+
+    /// <summary>
+    /// A top-level section header: the quest-log +/- art and gold label, a
+    /// drag-source/target for reordering, and the pop-out corner button.
+    /// Returns true while the section is expanded.
+    /// </summary>
+    private bool CreatorSectionHeader(in CreatorSectionDef def)
+    {
+        NotePanelField("headers");
+        string key = $"{def.Panel}/{def.Id}";
+        bool open = GetSectionOpen(key, def.DefaultOpen);
+        float cs = CreatorUiScale;
+        float icon = 18f * cs * CreatorIconMul;
+        float h = MathF.Max(CreatorRowHeight, icon + 4f * cs);
+        var dl = ImGui.GetWindowDrawList();
+        Vector2 pos = ImGui.GetCursorScreenPos();
+        float avail = MathF.Max(ImGui.GetContentRegionAvail().X, 80f);
+        float popW = MathF.Min(22f * cs * CreatorIconMul, h);
+        float headW = MathF.Max(avail - popW - 8f * cs, 50f);
+
+        if (ImGui.InvisibleButton($"##sec-{key}", new Vector2(headW, h)))
+        {
+            open = !open;
+            SetSectionOpen(key, open);
+        }
+        bool hovered = ImGui.IsItemHovered();
+
+        // A full-width header band: warm plate behind the label so sections read
+        // as one bar (hover brightens it), with a shadow line separating rows.
+        dl.AddRectFilled(pos, pos + new Vector2(avail, h),
+            ImGui.ColorConvertFloat4ToU32(new Vector4(0.36f, 0.28f, 0.12f, hovered ? 0.55f : 0.30f)),
+            3f * cs);
+        dl.AddLine(pos + new Vector2(0f, h), pos + new Vector2(avail, h), 0x55000000, 1f);
+
+        if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceNoDisableHover))
+        {
+            _dragSectionPanel = def.Panel;
+            _dragSectionId = def.Id;
+            ImGui.SetDragDropPayload("CREATOR_SECTION", IntPtr.Zero, 0);
+            ImGui.TextUnformatted(def.Label);
+            ImGui.EndDragDropSource();
+        }
+        if (ImGui.BeginDragDropTarget())
+        {
+            ImGui.AcceptDragDropPayload("CREATOR_SECTION");
+            if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
+                _dragSectionPanel == def.Panel && _dragSectionId is { } dragged && dragged != def.Id)
+            {
+                MoveSectionBefore(def.Panel, dragged, def.Id);
+                _dragSectionPanel = _dragSectionId = null;
+            }
+            ImGui.EndDragDropTarget();
+        }
+
+        var iconMin = pos + new Vector2(0f, (h - icon) * 0.5f);
+        uint plusMinus = _gameplayArt?.Handle(open
+            ? @"Interface\Buttons\UI-MinusButton-Up"
+            : @"Interface\Buttons\UI-PlusButton-Up") ?? 0;
+        if (plusMinus != 0)
+            dl.AddImage((nint)plusMinus, iconMin, iconMin + new Vector2(icon, icon));
+        else
+            dl.AddText(iconMin, 0xffffffff, open ? "-" : "+");
+
+        var textPos = new Vector2(pos.X + icon + 6f * cs, pos.Y + (h - ImGui.GetTextLineHeight()) * 0.5f);
+        dl.AddText(textPos + new Vector2(1f, 1f), 0xdd000000, def.Label);
+        dl.AddText(textPos, hovered ? 0xffffffff : VanillaGold, def.Label);
+
+        ImGui.SameLine(0f, 8f * cs);
+        if (CreatorPopButton($"##pop-{key}", popW, h))
+            TogglePoppedSection(def.Panel, def.Id, true);
+
+        return open;
+    }
+
+    /// <summary>The small corner button on a section header that tears it off.</summary>
+    private bool CreatorPopButton(string id, float w, float h)
+    {
+        var dl = ImGui.GetWindowDrawList();
+        Vector2 pos = ImGui.GetCursorScreenPos();
+        bool clicked = ImGui.InvisibleButton(id, new Vector2(w, h));
+        bool hovered = ImGui.IsItemHovered();
+        float box = MathF.Min(w, h);
+        var boxMin = pos + new Vector2(0f, (h - box) * 0.5f);
+        uint col = hovered ? 0xffffffff : VanillaGold;
+        // A window glyph: outer frame + a bold "title bar" line, drawn by hand so
+        // no font/art dependency can leave the button invisible.
+        dl.AddRect(boxMin + new Vector2(2f, 2f), boxMin + new Vector2(box - 2f, box - 2f), col, 2f);
+        dl.AddLine(boxMin + new Vector2(3f, 5f), boxMin + new Vector2(box - 3f, 5f), col, 2f);
+        if (hovered)
+            ImGui.SetTooltip("Pop this section out into its own window.\n" +
+                             "Drag the section header to reorder sections.");
+        return clicked;
+    }
+
+    /// <summary>The dim in-panel row standing in for a popped-out section.
+    /// Returns true when clicked (dock the section back).</summary>
+    private bool CreatorPoppedPlaceholder(in CreatorSectionDef def)
+    {
+        string key = $"{def.Panel}/{def.Id}";
+        float cs = CreatorUiScale;
+        float h = CreatorRowHeight;
+        var dl = ImGui.GetWindowDrawList();
+        Vector2 pos = ImGui.GetCursorScreenPos();
+        float avail = MathF.Max(ImGui.GetContentRegionAvail().X, 80f);
+        bool clicked = ImGui.InvisibleButton($"##dock-{key}", new Vector2(avail, h));
+        bool hovered = ImGui.IsItemHovered();
+        string label = $"{def.Label}  (popped out - click to dock)";
+        var textPos = new Vector2(pos.X + 4f * cs, pos.Y + (h - ImGui.GetTextLineHeight()) * 0.5f);
+        dl.AddText(textPos, hovered ? 0xffffffff : 0x88ffffff, label);
+        return clicked;
     }
 
     // ── text-aware sizing ────────────────────────────────────────────────────
@@ -296,40 +948,122 @@ public sealed partial class GameLoop
     /// <summary>Control height that always fits the current text scale.</summary>
     private float CreatorRowHeight => ImGui.GetTextLineHeight() + 8f * CreatorUiScale;
 
-    /// <summary>A button at least minWidth wide, grown to fit its caption, as tall as the
-    /// text - drawn with the real UI-Panel-Button art (the vanilla in-game button).</summary>
-    private bool CreatorButton(string label, float minWidth = 0f)
+    // ── movable buttons (the gear popup's "Move buttons" edit mode) ──────────
+    // In edit mode every red button in the window grows a green outline and can
+    // be dragged anywhere; its offset from the natural flow position persists.
+    // The original flow slot stays occupied (a Dummy) so nothing else reflows.
+
+    private string? _creatorEditLayoutPanel;   // panel id currently in edit mode
+    private string? _draggingWidgetKey;
+
+    private Vector2 GetWidgetOffset(string panel, string key)
+        => Settings.Creator.WidgetOffsets.TryGetValue(panel, out var map) &&
+           map.TryGetValue(key, out float[]? off) && off is { Length: 2 }
+            ? new Vector2(off[0], off[1]) : Vector2.Zero;
+
+    private void SetWidgetOffset(string panel, string key, Vector2 offset)
     {
-        Vector2 text = ImGui.CalcTextSize(label);
-        var size = new Vector2(MathF.Max(minWidth, text.X + 36f * CreatorUiScale), CreatorRowHeight);
-        return _skin?.PanelButton(label, size) ?? ImGui.Button(label, size);
+        if (!Settings.Creator.WidgetOffsets.TryGetValue(panel, out var map))
+            Settings.Creator.WidgetOffsets[panel] = map = new Dictionary<string, float[]>();
+        map[key] = new[] { offset.X, offset.Y };
     }
 
-    // ── drill-down categories ────────────────────────────────────────────────
+    /// <summary>Draw a red panel button honoring its hand-placed offset; in edit
+    /// mode it drags instead of clicking. All creator red buttons route here.</summary>
+    private bool CreatorAnchoredButton(string label, Vector2 size)
+    {
+        NotePanelField("buttons");
+        string panel = _activePanelTune ?? "";
+        string key = $"btn:{label}";
+        bool edit = panel.Length > 0 && _creatorEditLayoutPanel == panel;
+        float cs = CreatorUiScale;
+        Vector2 basePos = ImGui.GetCursorScreenPos();
+        Vector2 offset = GetWidgetOffset(panel, key) * cs;
+        bool displaced = offset != Vector2.Zero;
+        if (displaced) ImGui.SetCursorScreenPos(basePos + offset);
 
-    private readonly Dictionary<string, bool> _creatorCategoryOpen = new();
+        bool clicked = _skin?.PanelButton(label, size) ?? ImGui.Button(label, size);
+        if (edit)
+        {
+            clicked = false;   // edit mode: buttons move, they do not fire
+            var dl = ImGui.GetWindowDrawList();
+            dl.AddRect(ImGui.GetItemRectMin() - new Vector2(2f, 2f),
+                ImGui.GetItemRectMax() + new Vector2(2f, 2f),
+                0xff44dd44, 3f, ImDrawFlags.None, 2f);
+            if (ImGui.IsItemActive())
+            {
+                _draggingWidgetKey = key;
+                SetWidgetOffset(panel, key, (offset + ImGui.GetIO().MouseDelta) / cs);
+            }
+            else if (_draggingWidgetKey == key && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+            {
+                _draggingWidgetKey = null;
+                SettingsFile?.Save();
+            }
+        }
+        if (displaced)
+        {
+            // Keep the natural slot occupied so the surrounding layout is stable.
+            ImGui.SetCursorScreenPos(basePos);
+            ImGui.Dummy(size);
+        }
+        return clicked;
+    }
+
+    /// <summary>A button at least minWidth wide, grown to fit its caption, as tall as the
+    /// text - drawn with the real UI-Panel-Button art (the vanilla in-game button).
+    /// Follows the window's own Button dial, and can be hand-placed in edit mode.</summary>
+    private bool CreatorButton(string label, float minWidth = 0f)
+    {
+        float mul = CreatorButtonMul;
+        Vector2 text = ImGui.CalcTextSize(label);
+        var size = new Vector2(
+            MathF.Max(minWidth * mul, text.X + 36f * CreatorUiScale * mul),
+            CreatorButtonHeight);
+        return CreatorAnchoredButton(label, size);
+    }
+
+    // ── drill-down categories (nested, plain - no drag/pop) ──────────────────
+
+    /// <summary>Every expand/collapse is persisted - the arrangement you leave a
+    /// panel in is the arrangement it reopens with next session.</summary>
+    private bool GetSectionOpen(string key, bool defaultOpen)
+        => Settings.Creator.SectionOpen.TryGetValue(key, out bool open) ? open : defaultOpen;
+
+    private void SetSectionOpen(string key, bool open)
+    {
+        Settings.Creator.SectionOpen[key] = open;
+        SettingsFile?.Save();
+    }
 
     /// <summary>
     /// A vanilla expandable category row - the quest-log +/- button art with a
     /// gold header. Returns true while expanded. The id is stable storage for the
-    /// open state; the visible label may change freely.
+    /// open state; the visible label may change freely. Used for NESTED groups
+    /// (emitters inside a model editor); top-level groups are sections.
     /// </summary>
     private bool CreatorCategory(string id, string label, bool defaultOpen = false)
     {
-        if (!_creatorCategoryOpen.TryGetValue(id, out bool open)) open = defaultOpen;
+        NotePanelField("headers");
+        bool open = GetSectionOpen(id, defaultOpen);
         float cs = CreatorUiScale;
-        float h = CreatorRowHeight;
+        float icon = 18f * cs * CreatorIconMul;
+        float h = MathF.Max(CreatorRowHeight, icon + 4f * cs);
         var dl = ImGui.GetWindowDrawList();
         Vector2 pos = ImGui.GetCursorScreenPos();
         float avail = MathF.Max(ImGui.GetContentRegionAvail().X, 60f);
         if (ImGui.InvisibleButton($"##cat-{id}", new Vector2(avail, h)))
         {
             open = !open;
-            _creatorCategoryOpen[id] = open;
+            SetSectionOpen(id, open);
         }
         bool hovered = ImGui.IsItemHovered();
 
-        float icon = MathF.Min(h - 2f, 18f * cs);
+        // A dimmer band than top-level sections: nested groups read as sub-rows.
+        dl.AddRectFilled(pos, pos + new Vector2(avail, h),
+            ImGui.ColorConvertFloat4ToU32(new Vector4(0.30f, 0.24f, 0.11f, hovered ? 0.40f : 0.18f)),
+            2f * cs);
+
         var iconMin = pos + new Vector2(0f, (h - icon) * 0.5f);
         uint plusMinus = _gameplayArt?.Handle(open
             ? @"Interface\Buttons\UI-MinusButton-Up"
@@ -343,6 +1077,32 @@ public sealed partial class GameLoop
         dl.AddText(textPos + new Vector2(1f, 1f), 0xdd000000, label);
         dl.AddText(textPos, hovered ? 0xffffffff : VanillaGold, label);
         return open;
+    }
+
+    /// <summary>A small gold "(?)" after the previous item; hovering explains
+    /// exactly what the knob changes. Every creator knob carries one.</summary>
+    private void CreatorHelp(string text)
+    {
+        ImGui.SameLine(0f, 4f * CreatorUiScale);
+        ImGui.TextDisabled("(?)");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.BeginTooltip();
+            ImGui.PushTextWrapPos(340f * CreatorUiScale);
+            ImGui.TextUnformatted(text);
+            ImGui.PopTextWrapPos();
+            ImGui.EndTooltip();
+        }
+    }
+
+    /// <summary>A tiny reset button after the previous knob. Returns true when
+    /// clicked - the caller puts the knob back to its authored/default value.</summary>
+    private bool CreatorResetKnob(string id)
+    {
+        ImGui.SameLine(0f, 4f * CreatorUiScale);
+        bool clicked = ImGui.SmallButton($"x##rst{id}");
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Reset this knob");
+        return clicked;
     }
 
     /// <summary>The widest caption in a set, plus button padding - a grid column width.
@@ -362,84 +1122,82 @@ public sealed partial class GameLoop
 
     // ── Character ────────────────────────────────────────────────────────────
 
-    private void DrawCreatorCharacterPanel()
+    private void RegisterCreatorCharacterSections()
     {
-        if (!BeginCreatorPanel("Character", 490f)) return;
+        CreatorSection("Character", "char-race", "Race & Sex", true, DrawCreatorRaceBody);
+        CreatorSection("Character", "char-appearance", "Appearance", true, DrawCreatorAppearanceBody);
+    }
+
+    private void EnsureCreatorCatalog()
+    {
+        if (_creatorCatalogTried) return;
+        _creatorCatalogTried = true;
+        _creatorCatalog = CharCreateCatalog.Load(_config.ClientDataPath);
+    }
+
+    private void DrawCreatorRaceBody()
+    {
+        EnsureCreatorCatalog();
         float cs = CreatorUiScale;
-
-        if (!_creatorCatalogTried)
+        float raceW = CreatorColumnWidth(CreatorRaces.Select(r => r.Label));
+        var dl = ImGui.GetWindowDrawList();
+        NotePanelField("buttons");
+        for (int i = 0; i < CreatorRaces.Length; i++)
         {
-            _creatorCatalogTried = true;
-            _creatorCatalog = CharCreateCatalog.Load(_config.ClientDataPath);
+            if (i % 4 != 0) ImGui.SameLine();
+            bool active = _creatorRace == CreatorRaces[i].Race;
+            var size = new Vector2(raceW * CreatorButtonMul, CreatorButtonHeight);
+            bool clicked = CreatorAnchoredButton(CreatorRaces[i].Label, size);
+            if (active)   // gold rim marks the worn race, vanilla checked-tab style
+                dl.AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), VanillaGold, 0f,
+                    ImDrawFlags.None, MathF.Max(1f, 2f * cs));
+            if (clicked && !active)
+            {
+                _creatorRace = CreatorRaces[i].Race;
+                ClampCreatorDials();
+                ApplyCreatorLook(modelChanged: true);
+            }
         }
 
-        if (CreatorCategory("char-race", "Race & Sex", defaultOpen: true))
+        int sex = _creatorSex;
+        if (ImGui.RadioButton("Male", ref sex, 0) | ImGui.RadioButton("Female", ref sex, 1))
         {
-            ImGui.Indent(10f * cs);
-            float raceW = CreatorColumnWidth(CreatorRaces.Select(r => r.Label));
-            var dl = ImGui.GetWindowDrawList();
-            for (int i = 0; i < CreatorRaces.Length; i++)
+            if (sex != _creatorSex)
             {
-                if (i % 4 != 0) ImGui.SameLine();
-                bool active = _creatorRace == CreatorRaces[i].Race;
-                var size = new Vector2(raceW, CreatorRowHeight);
-                bool clicked = _skin?.PanelButton(CreatorRaces[i].Label, size)
-                               ?? ImGui.Button(CreatorRaces[i].Label, size);
-                if (active)   // gold rim marks the worn race, vanilla checked-tab style
-                    dl.AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(), VanillaGold, 0f,
-                        ImDrawFlags.None, MathF.Max(1f, 2f * cs));
-                if (clicked && !active)
-                {
-                    _creatorRace = CreatorRaces[i].Race;
-                    ClampCreatorDials();
-                    ApplyCreatorLook(modelChanged: true);
-                }
+                _creatorSex = (byte)sex;
+                ClampCreatorDials();
+                ApplyCreatorLook(modelChanged: true);
             }
-
-            int sex = _creatorSex;
-            if (ImGui.RadioButton("Male", ref sex, 0) | ImGui.RadioButton("Female", ref sex, 1))
-            {
-                if (sex != _creatorSex)
-                {
-                    _creatorSex = (byte)sex;
-                    ClampCreatorDials();
-                    ApplyCreatorLook(modelChanged: true);
-                }
-            }
-            ImGui.Unindent(10f * cs);
-            ImGui.Spacing();
         }
+    }
 
+    private void DrawCreatorAppearanceBody()
+    {
+        EnsureCreatorCatalog();
+        float cs = CreatorUiScale;
         int[] counts = _creatorCatalog?.DialCounts(_creatorRace, _creatorSex) ?? new[] { 10, 10, 10, 10, 10 };
-        if (CreatorCategory("char-appearance", "Appearance", defaultOpen: true))
+        string[] dialNames = { "Skin", "Face", "Hair style", "Hair color", _creatorSex == 1 ? "Markings" : "Facial hair" };
+        bool dialsChanged = false;
+        for (int i = 0; i < 5; i++)
         {
-            ImGui.Indent(10f * cs);
-            string[] dialNames = { "Skin", "Face", "Hair style", "Hair color", _creatorSex == 1 ? "Markings" : "Facial hair" };
-            bool dialsChanged = false;
-            for (int i = 0; i < 5; i++)
+            int max = Math.Max(counts[i] - 1, 0);
+            int value = Math.Min(_creatorDials[i], max);
+            ImGui.SetNextItemWidth(240f * cs);
+            if (ImGui.SliderInt(dialNames[i], ref value, 0, max) && value != _creatorDials[i])
             {
-                int max = Math.Max(counts[i] - 1, 0);
-                int value = Math.Min(_creatorDials[i], max);
-                ImGui.SetNextItemWidth(240f * cs);
-                if (ImGui.SliderInt(dialNames[i], ref value, 0, max) && value != _creatorDials[i])
-                {
-                    _creatorDials[i] = value;
-                    dialsChanged = true;
-                }
+                _creatorDials[i] = value;
+                dialsChanged = true;
             }
-            if (dialsChanged) ApplyCreatorLook(modelChanged: false);
-
-            if (CreatorButton("Randomize"))
-            {
-                var rng = Random.Shared;
-                for (int i = 0; i < 5; i++)
-                    _creatorDials[i] = counts[i] > 0 ? rng.Next(counts[i]) : 0;
-                ApplyCreatorLook(modelChanged: false);
-            }
-            ImGui.Unindent(10f * cs);
         }
+        if (dialsChanged) ApplyCreatorLook(modelChanged: false);
 
-        EndCreatorPanel();
+        if (CreatorButton("Randomize"))
+        {
+            var rng = Random.Shared;
+            for (int i = 0; i < 5; i++)
+                _creatorDials[i] = counts[i] > 0 ? rng.Next(counts[i]) : 0;
+            ApplyCreatorLook(modelChanged: false);
+        }
     }
 
     private void ClampCreatorDials()
@@ -564,59 +1322,53 @@ public sealed partial class GameLoop
         return kit;
     }
 
-    private void DrawCreatorGearPanel()
+    private void RegisterCreatorGearSections()
     {
-        if (!BeginCreatorPanel("Gear", 380f)) return;
+        CreatorSection("Gear", "gear-tiers", "Tier Sets", true, DrawCreatorTierBody);
+        CreatorSection("Gear", "gear-worn", "Worn Equipment", true, DrawCreatorWornBody);
+    }
+
+    private void DrawCreatorTierBody()
+    {
         float cs = CreatorUiScale;
-
-        if (CreatorCategory("gear-tiers", "Tier Sets", defaultOpen: true))
+        string[] classes = CreatorTierSets.Classes;
+        _creatorClassIndex = Math.Clamp(_creatorClassIndex, 0, classes.Length - 1);
+        ImGui.SetNextItemWidth(CreatorComboWidth(classes));
+        ImGui.Combo("Class", ref _creatorClassIndex, classes, classes.Length);
+        foreach (string tier in CreatorTierSets.Tiers)
         {
-            ImGui.Indent(10f * cs);
-            string[] classes = CreatorTierSets.Classes;
-            _creatorClassIndex = Math.Clamp(_creatorClassIndex, 0, classes.Length - 1);
-            ImGui.SetNextItemWidth(CreatorComboWidth(classes));
-            ImGui.Combo("Class", ref _creatorClassIndex, classes, classes.Length);
-            foreach (string tier in CreatorTierSets.Tiers)
-            {
-                if (tier != CreatorTierSets.Tiers[0]) ImGui.SameLine();
-                if (CreatorButton(tier, 56f * cs))
-                    ApplyCreatorTierSet(classes[_creatorClassIndex], tier);
-            }
-            ImGui.TextDisabled("Weapons are kept when swapping tier sets.");
-            ImGui.Unindent(10f * cs);
-            ImGui.Spacing();
+            if (tier != CreatorTierSets.Tiers[0]) ImGui.SameLine();
+            if (CreatorButton(tier, 56f * cs))
+                ApplyCreatorTierSet(classes[_creatorClassIndex], tier);
         }
+        ImGui.TextDisabled("Weapons are kept when swapping tier sets.");
+    }
 
-        if (CreatorCategory("gear-worn", "Worn Equipment", defaultOpen: true))
+    private void DrawCreatorWornBody()
+    {
+        int? removeKey = null;
+        foreach (var (key, piece) in CreatorEquip.OrderBy(p => p.Key))
         {
-            ImGui.Indent(10f * cs);
-            int? removeKey = null;
-            foreach (var (key, piece) in CreatorEquip.OrderBy(p => p.Key))
-            {
-                ImGui.PushID(key);
-                if (ImGui.SmallButton("x")) removeKey = key;
-                ImGui.SameLine();
-                ImGui.TextUnformatted($"{CreatorSlotName(key)}: {piece.Name}");
-                ImGui.PopID();
-            }
-            if (removeKey is { } gone)
-            {
-                CreatorEquip.Remove(gone);
-                ApplyCreatorLook(modelChanged: false);
-            }
-
-            ImGui.Spacing();
-            if (CreatorButton("Find item...")) _creatorSearchOpen = true;
+            ImGui.PushID(key);
+            if (ImGui.SmallButton("x")) removeKey = key;
             ImGui.SameLine();
-            if (CreatorButton("Undress"))
-            {
-                CreatorEquip.Clear();
-                ApplyCreatorLook(modelChanged: false);
-            }
-            ImGui.Unindent(10f * cs);
+            ImGui.TextUnformatted($"{CreatorSlotName(key)}: {piece.Name}");
+            ImGui.PopID();
+        }
+        if (removeKey is { } gone)
+        {
+            CreatorEquip.Remove(gone);
+            ApplyCreatorLook(modelChanged: false);
         }
 
-        EndCreatorPanel();
+        ImGui.Spacing();
+        if (CreatorButton("Find item...")) _creatorSearchOpen = true;
+        ImGui.SameLine();
+        if (CreatorButton("Undress"))
+        {
+            CreatorEquip.Clear();
+            ApplyCreatorLook(modelChanged: false);
+        }
     }
 
     private static string CreatorSlotName(int slotKey) => slotKey switch
@@ -654,16 +1406,22 @@ public sealed partial class GameLoop
             _creatorItems = CreatorItemTable.Load(_config.RepoRoot);
         }
 
+        _activePanelTune = "Find Item";
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
-        ImGui.SetNextWindowPos(new Vector2(390f * s, 64f * s), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(420f * cs, 480f * cs), ImGuiCond.FirstUseEver);
+        var cond = _creatorLayoutResetFrames > 0 ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
+        ImGui.SetNextWindowPos(new Vector2(390f * s, 64f * s), cond);
+        ImGui.SetNextWindowSize(new Vector2(440f * cs, 500f * cs), cond);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(280f * cs, 200f * cs),
+            new Vector2(float.MaxValue, float.MaxValue));
         PushCreatorStyle();
         bool open = true;
-        if (ImGui.Begin("###creator-find-item", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse))
+        if (ImGui.Begin("###creator-find-item", CreatorChromeFlags))
         {
-            if (DrawCreatorPanelChrome("Find Item")) open = false;
+            ClampCreatorWindowOnScreen();
+            if (DrawCreatorPanelChrome("Find Item", "Find Item")) open = false;
             ImGui.SetWindowFontScale(CreatorTextScale);
+            BeginCreatorContent();
             if (_creatorItems is null)
             {
                 ImGui.TextWrapped("creator-items.tsv is missing. Regenerate it from " +
@@ -694,13 +1452,14 @@ public sealed partial class GameLoop
                     ? "Type at least 2 letters, or pick a slot."
                     : $"{_creatorSearchResults.Count} result(s), click to equip");
 
-                if (ImGui.BeginChild("##results", new Vector2(0f, -4f)))
+                ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.07f, 0.07f, 0.08f, 0.97f));
+                if (ImGui.BeginChild("##results", new Vector2(0f, -4f), true))
                 {
                     foreach (var item in _creatorSearchResults)
                     {
                         var color = CreatorQualityColors[Math.Min(item.Quality, (byte)6)];
                         ImGui.PushStyleColor(ImGuiCol.Text, color);
-                        bool clicked = ImGui.Selectable($"{item.Name}##{item.Entry}");
+                        bool clicked = CreatorResultRow($"{item.Name}##{item.Entry}");
                         ImGui.PopStyleColor();
                         if (ImGui.IsItemHovered())
                             ImGui.SetTooltip($"entry {item.Entry}  display {item.DisplayId}\n" +
@@ -714,17 +1473,20 @@ public sealed partial class GameLoop
                     }
                 }
                 ImGui.EndChild();
+                ImGui.PopStyleColor();
             }
+            EndCreatorContent();
             ImGui.SetWindowFontScale(1f);
         }
         ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
         if (!open) _creatorSearchOpen = false;
     }
 
-    // ── Placeholders wired in the next slices ────────────────────────────────
+    // ── Registered in the world/spell slices ─────────────────────────────────
 
-    private partial void DrawCreatorTeleportPanel();
-    private partial void DrawCreatorTargetPanel();
-    private partial void DrawCreatorSpellsPanel();
+    private partial void RegisterCreatorTeleportSections();
+    private partial void RegisterCreatorTargetSections();
+    private partial void RegisterCreatorSpellsSections();
 }

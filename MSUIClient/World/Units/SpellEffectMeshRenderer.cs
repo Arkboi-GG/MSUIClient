@@ -46,6 +46,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         public int FogPolicy;
         public GroundQuad? Ground;
         public bool AnimatedAlpha;
+        public string? TexturePath;
         public M2Batch Source = null!;
         public bool Transparent => Blend >= 2 || NoZWrite || AnimatedAlpha;
     }
@@ -70,6 +71,55 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     private readonly MpqMount _mpq;
     private readonly Dictionary<string, Mesh?> _meshes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _textureTints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _modelColorHues = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Drop the cached mesh for a model so the next draw rebuilds it from the
+    /// CURRENT bytes. Meshes bake their batch textures at build time, so without
+    /// this a creator byte-patch / texture swap never reaches the mesh-drawn
+    /// parts of an effect (the Cone of Cold cloud, glow planes, ground rings) -
+    /// only particles updated.
+    /// </summary>
+    public void InvalidateModel(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        path = path.Replace('/', Path.DirectorySeparatorChar);
+        bool had = _meshes.Remove(path, out Mesh? mesh);
+        if (had) mesh?.Dispose();
+        Console.WriteLine($"[mesh-build] invalidate {Path.GetFileName(path)} (was cached: {had})");
+    }
+
+    /// <summary>Texture paths actually bound by mesh batches last frame, tagged
+    /// with the model that drew them ("Model.m2:TEXTURE.BLP"). Probe evidence.</summary>
+    private readonly HashSet<string> _boundTexturesLastFrame = new(StringComparer.OrdinalIgnoreCase);
+    public IReadOnlyCollection<string> BoundTexturesLastFrame => _boundTexturesLastFrame;
+
+    /// <summary>
+    /// Hue-map a model's authored mesh COLOR tracks toward a target (0x00RRGGBB),
+    /// or null to restore. Mesh submeshes are colored texture x color-track; the
+    /// byte patcher only reaches particle colors, so an authored blue glow plane
+    /// stays blue through every texture change without this. A per-texture tint
+    /// overrides it for its batches.
+    /// </summary>
+    public void SetModelColorHue(string modelPath, uint? targetRgb)
+    {
+        if (string.IsNullOrEmpty(modelPath)) return;
+        modelPath = modelPath.Replace('/', Path.DirectorySeparatorChar);
+        if (targetRgb is uint want) _modelColorHues[modelPath] = want;
+        else _modelColorHues.Remove(modelPath);
+    }
+
+    /// <summary>The texture path a mesh batch draws with (GetBatchTexture's
+    /// lookup, path only), or null.</summary>
+    private static string? BatchTexturePath(M2Model model, M2Batch batch)
+    {
+        if (batch.TextureIndex < 0 || batch.TextureIndex >= model.TextureLookup.Count) return null;
+        int index = model.TextureLookup[batch.TextureIndex];
+        if (index < 0 || index >= model.Textures.Count) return null;
+        string path = model.Textures[index].Filename.Replace('/', Path.DirectorySeparatorChar);
+        return path.Length == 0 ? null : path;
+    }
     private Shader? _shader;
     private Shader? _groundShader;
     private uint _groundVao, _groundVbo;
@@ -125,6 +175,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     {
         DrawnLastFrame = 0;
         _drawnPaths.Clear();
+        _boundTexturesLastFrame.Clear();
         if (!Enabled || _shader is null) return;
         var ready = instances.Select(x => (Source: x, Mesh: Resolve(x.Path, x.Model)))
             .Where(x => x.Mesh is not null).ToArray();
@@ -202,6 +253,19 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                         opacity *= M2TrackSampling.Fixed16(color.Alpha, item.Source.Model, sequence,
                             item.Source.Age);
                     }
+                    // Creator recolors must move the authored mesh color too: a
+                    // batch whose texture is tinted follows that tint; otherwise
+                    // the whole-model hue applies. Luminance is preserved.
+                    {
+                        uint? recolor = null;
+                        if (BatchTexturePath(item.Source.Model, batch.Source) is { } batchTex &&
+                            _textureTints.TryGetValue(batchTex, out uint texTarget))
+                            recolor = texTarget;
+                        else if (_modelColorHues.TryGetValue(item.Source.Path, out uint hueTarget))
+                            recolor = hueTarget;
+                        if (recolor is uint target)
+                            tint = BlpRecolor.HueMapColor(tint, target);
+                    }
                     if (batch.Source.TextureWeightIndex < item.Source.Model.TransparencyLookup.Count)
                     {
                         int track = item.Source.Model.TransparencyLookup[batch.Source.TextureWeightIndex];
@@ -235,6 +299,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                             groundDraws.Add((projected, drawTexture, batch.Blend, tint, opacity,
                                 batch.FogPolicy));
                             _drawnPaths.Add(item.Source.Path);
+                            _boundTexturesLastFrame.Add($"{Path.GetFileName(item.Source.Path)}:" +
+                                $"{Path.GetFileName(batch.TexturePath ?? "<untextured>")} (ground)");
                         }
                         continue;
                     }
@@ -250,6 +316,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                     _gl.DrawElements(PrimitiveType.Triangles, batch.Count,
                         DrawElementsType.UnsignedShort, (void*)(batch.Start * sizeof(ushort)));
                     _drawnPaths.Add(item.Source.Path);
+                    _boundTexturesLastFrame.Add($"{Path.GetFileName(item.Source.Path)}:" +
+                        $"{Path.GetFileName(batch.TexturePath ?? item.Source.CustomTexture ?? "<untextured>")}");
                 }
                 DrawnLastFrame++;
             }
@@ -310,6 +378,7 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             {
                 Start = sub.IndexStart, Count = sub.IndexCount,
                 Texture = ResolveBatchTexture(model, source),
+                TexturePath = BatchTexturePath(model, source),
                 Blend = flags?.BlendingMode ?? 0,
                 TwoSided = flags?.TwoSided ?? true,
                 NoZWrite = flags?.NoZWrite ?? false,
@@ -324,6 +393,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         if (mesh.Batches.Count == 0)
             mesh.Batches.Add(new Batch { Count = (uint)indices.Length, TwoSided = true,
                 Source = new M2Batch() });
+        Console.WriteLine($"[mesh-build] {Path.GetFileName(path)}: " +
+            $"tex=[{string.Join(", ", mesh.Batches.Select(b => Path.GetFileName(b.TexturePath ?? "<none>")).Distinct())}]");
         return _meshes[path] = mesh;
     }
 
@@ -345,6 +416,33 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         return ResolveTexture(path);
     }
 
+    /// <summary>
+    /// Palette-swap a texture toward a target color (0x00RRGGBB), or null to
+    /// restore the authored pixels. Mirrors SpellParticleSystem.SetTextureTint
+    /// for the mesh-drawn side of an effect (e.g. Blizzard's looping centre).
+    /// Meshes cache their batch textures, so the mesh cache is dropped too and
+    /// rebuilds lazily - cheap at creator-mode scale.
+    /// </summary>
+    public void SetTextureTint(string path, uint? targetRgb)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        path = path.Replace('/', Path.DirectorySeparatorChar);
+        bool had = _textureTints.TryGetValue(path, out uint current);
+        if (targetRgb is uint want)
+        {
+            if (had && current == want) return;
+            _textureTints[path] = want;
+        }
+        else
+        {
+            if (!had) return;
+            _textureTints.Remove(path);
+        }
+        if (_textures.Remove(path, out Texture? old)) old?.Dispose();
+        foreach (Mesh? mesh in _meshes.Values) mesh?.Dispose();
+        _meshes.Clear();
+    }
+
     private Texture? ResolveTexture(string path)
     {
         path = path.Replace('/', Path.DirectorySeparatorChar);
@@ -355,6 +453,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         try
         {
             byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            if (_textureTints.TryGetValue(path, out uint target))
+                BlpRecolor.HueMapBgra(pixels, target);
             Texture texture = Texture.From2D(_gl, pixels, width, height, mipmaps: true, repeat: false);
             double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 /
                 System.Diagnostics.Stopwatch.Frequency;
