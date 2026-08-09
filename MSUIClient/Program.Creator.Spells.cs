@@ -967,10 +967,11 @@ public sealed partial class GameLoop
             Settings.Creator.SpellAdvancedMode = advanced;
             SettingsFile?.Save();
         }
-        CreatorHelp("Simple mode keeps spell phases, model-wide look controls, images, " +
-            "audio, and emitter visibility/on-off switches in view. Advanced mode opens " +
-            "individual M2 emitter internals and is where " +
-            "bones, animation tracks, ribbons and other format-level controls will live.");
+        CreatorHelp("Simple mode preserves the complete original spell workshop: phases, " +
+            "model-wide look controls, images, audio, emitter creation/removal, enable, " +
+            "blend, birth shape, rate, speed, gravity, lifespan, spread, area and scale. " +
+            "Advanced mode only adds the newer technical layer: composition/placement, " +
+            "zSource, drag, billboard spin, behavior flags, and future bone/model controls.");
     }
 
     private void DrawCreatorLoopBody()
@@ -1575,7 +1576,7 @@ public sealed partial class GameLoop
                 // Grow the effect from this image: clone an emitter onto this
                 // slot (its own emitter when it has one, else any authored one
                 // retargeted here) and tune the clone like any other emitter.
-                if (advanced && model.OriginalEmitterCount > 0 &&
+                if (model.OriginalEmitterCount > 0 &&
                     model.OriginalEmitterCount + model.AddedEmitters.Count < 255)
                 {
                     ImGui.SameLine();
@@ -1625,9 +1626,8 @@ public sealed partial class GameLoop
             }
         }
 
-        // The emitter list and its enable switch are part of the simple mental
-        // model: users need to isolate each visible ingredient to learn what it
-        // contributes. Format-level mutation remains advanced.
+        // Preserve the complete pre-Advanced emitter workshop in Simple mode.
+        // Only the newly researched placement/motion/flag layer is gated below.
         // The emitter->texture names come from the texture table's
         // back-references and EmitterSnapshot (offset 0x016, the real textureId).
         var texByEmitter = new Dictionary<int, string>();
@@ -1646,9 +1646,10 @@ public sealed partial class GameLoop
               "blend mode, spray shape and motion. These sliders set ABSOLUTE values (the " +
               "model dials above are multipliers over them). A * on a slider means the " +
               "authored track is animated over time; the slider overrides its first key."
-            : "Each emitter is one visible ingredient in this model. Expand an emitter and " +
-              "switch it off to isolate what it contributes; Advanced mode exposes its " +
-              "blend, shape, motion, duplication and removal controls.");
+            : "Each emitter is one visible ingredient in this model. The complete original " +
+              "workshop remains here: add/remove/duplicate, enable, blend, birth shape, " +
+              "rate, speed, gravity, lifespan, spread, area and scale. Advanced mode adds " +
+              "technical composition, placement, drag/spin and behavior controls.");
         foreach (var emitter in model.Emitters)
         {
             // Category id is model path + index: stable while blend/type in the
@@ -1662,7 +1663,7 @@ public sealed partial class GameLoop
                 ? CreatorSlotColor(slot) : null;
             string formatDetails = advanced
                 ? $", blend {emitter.BlendMode}, shape {emitter.EmitterType}, bone {emitter.Bone}"
-                : "";
+                : $", blend {emitter.BlendMode}, shape {emitter.EmitterType}";
             if (!CreatorCategory($"ws-{model.Path}-em{emitter.Index}",
                 $"Emitter {emitter.Index}  " +
                 $"({texName}{formatDetails})" +
@@ -1672,7 +1673,7 @@ public sealed partial class GameLoop
             ImGui.PushID(emitter.Index);
             ImGui.Indent(10f * cs);
 
-            if (advanced && isAdded)
+            if (isAdded)
             {
                 if (ImGui.SmallButton("Remove emitter"))
                 {
@@ -1686,8 +1687,7 @@ public sealed partial class GameLoop
                     ImGui.SetTooltip("Delete this added emitter (authored emitters can " +
                                      "only be disabled, never removed).");
             }
-            else if (advanced &&
-                     model.OriginalEmitterCount + model.AddedEmitters.Count < 255 &&
+            else if (model.OriginalEmitterCount + model.AddedEmitters.Count < 255 &&
                      ImGui.SmallButton("Duplicate"))
             {
                 model.AddedEmitters.Add(new CreatorAddedEmitter
@@ -1697,7 +1697,7 @@ public sealed partial class GameLoop
                 });
                 dirty = true;
             }
-            if (advanced && !isAdded &&
+            if (!isAdded &&
                 model.OriginalEmitterCount + model.AddedEmitters.Count < 255 &&
                 ImGui.IsItemHovered())
                 ImGui.SetTooltip("ADD a copy of this emitter to the model - then tune the " +
@@ -1714,17 +1714,18 @@ public sealed partial class GameLoop
                 "particles are born, everything else keeps playing. Isolate emitters one " +
                 "at a time to learn which does what. Re-enabling restores its authored " +
                 "values and any Advanced-mode edits.");
-            if (emitterOff || !advanced)
+            if (emitterOff)
             {
                 ImGui.Unindent(10f * cs);
                 ImGui.PopID();
-                continue;   // simple mode ends at on/off; silenced emitters need no tuning
+                continue;   // no point editing a silenced emitter
             }
 
             EmitterPatch edit = model.Edits.TryGetValue(emitter.Index, out var found)
                 ? found : new EmitterPatch { EmitterIndex = emitter.Index };
 
-            if (!isAdded && model.OriginalEmitterCount + model.AddedEmitters.Count <= 253)
+            if (advanced && !isAdded &&
+                model.OriginalEmitterCount + model.AddedEmitters.Count <= 253)
             {
                 ImGui.TextDisabled("COMPOSE A SOURCE LINE");
                 ImGui.SetNextItemWidth(130f * cs);
@@ -1783,29 +1784,32 @@ public sealed partial class GameLoop
                 "cannot invent the required path).\n\nThis is the verified 16-bit M2 shape field; " +
                 "the older Point/Sphere/Plane mapping edited a padding byte and had no effect.");
 
-            var position = new Vector3(
-                edit.PositionX ?? emitter.PositionX,
-                edit.PositionY ?? emitter.PositionY,
-                edit.PositionZ ?? emitter.PositionZ);
-            ImGui.SetNextItemWidth(CreatorControlWidth);
-            if (ImGui.DragFloat3("Local position", ref position, 0.05f, -50f, 50f, "%.3f"))
+            if (advanced)
             {
-                edit.PositionX = position.X;
-                edit.PositionY = position.Y;
-                edit.PositionZ = position.Z;
-                model.Edits[emitter.Index] = edit;
-                dirty = true;
+                var position = new Vector3(
+                    edit.PositionX ?? emitter.PositionX,
+                    edit.PositionY ?? emitter.PositionY,
+                    edit.PositionZ ?? emitter.PositionZ);
+                ImGui.SetNextItemWidth(CreatorControlWidth);
+                if (ImGui.DragFloat3("Local position", ref position, 0.05f, -50f, 50f, "%.3f"))
+                {
+                    edit.PositionX = position.X;
+                    edit.PositionY = position.Y;
+                    edit.PositionZ = position.Z;
+                    model.Edits[emitter.Index] = edit;
+                    dirty = true;
+                }
+                if (CreatorResetKnob("position") &&
+                    (edit.PositionX is not null || edit.PositionY is not null || edit.PositionZ is not null))
+                {
+                    edit.PositionX = edit.PositionY = edit.PositionZ = null;
+                    model.Edits[emitter.Index] = edit;
+                    dirty = true;
+                }
+                CreatorHelp("Move this particle source inside its M2. Coordinates use WoW's authored " +
+                    "local frame: X/Y are the ground plane and Z is up. If the emitter rides an " +
+                    "animated bone, this offset moves with that bone; it does not rotate the bone.");
             }
-            if (CreatorResetKnob("position") &&
-                (edit.PositionX is not null || edit.PositionY is not null || edit.PositionZ is not null))
-            {
-                edit.PositionX = edit.PositionY = edit.PositionZ = null;
-                model.Edits[emitter.Index] = edit;
-                dirty = true;
-            }
-            CreatorHelp("Move this particle source inside its M2. Coordinates use WoW's authored " +
-                "local frame: X/Y are the ground plane and Z is up. If the emitter rides an " +
-                "animated bone, this offset moves with that bone; it does not rotate the bone.");
 
             bool TrackSlider(string label, string track, float min, float max,
                 Func<EmitterPatch, float?> get, Action<EmitterPatch, float?> set, string help)
@@ -1856,77 +1860,80 @@ public sealed partial class GameLoop
             dirty |= TrackSlider("Area W", "emissionAreaWidth", 0f, 20f,
                 e => e.EmissionAreaWidth, (e, v) => e.EmissionAreaWidth = v,
                 "Width (yards) of the emission region, paired with Area L.");
-            dirty |= TrackSlider("Z source", "zSource", -20f, 20f,
-                e => e.ZSource, (e, v) => e.ZSource = v,
-                "Pull particle velocity toward a point on the emitter's local Z axis. " +
-                "This is attraction/steering, not drag; 0 disables it.");
-
-            float drag = edit.Drag ?? emitter.Drag;
-            ImGui.SetNextItemWidth(CreatorControlWidth);
-            if (ImGui.SliderFloat("Drag", ref drag, 0f, 50f, "%.3f"))
-            { edit.Drag = drag; model.Edits[emitter.Index] = edit; dirty = true; }
-            if (CreatorResetKnob("drag") && edit.Drag is not null)
-            { edit.Drag = null; model.Edits[emitter.Index] = edit; dirty = true; }
-            CreatorHelp("Velocity damping per second. Higher drag rapidly contains a fast spray. " +
-                $"This is a plain M2 field, separate from Z source. Authored: {emitter.Drag:0.###}.");
-
-            float spriteSpin = edit.SpriteSpin ?? emitter.SpriteSpin;
-            ImGui.SetNextItemWidth(CreatorControlWidth);
-            if (ImGui.SliderFloat("Billboard spin", ref spriteSpin, -20f, 20f, "%.3f"))
-            { edit.SpriteSpin = spriteSpin; model.Edits[emitter.Index] = edit; dirty = true; }
-            if (CreatorResetKnob("spriteSpin") && edit.SpriteSpin is not null)
-            { edit.SpriteSpin = null; model.Edits[emitter.Index] = edit; dirty = true; }
-            CreatorHelp("Rotates each particle image over that particle's own age. It does not " +
-                "spin the entire spell or sweep the emitter through space; those effects usually " +
-                $"come from animated bones. Authored: {emitter.SpriteSpin:0.###} rad/s.");
-
-            ImGui.TextDisabled("BEHAVIOR FLAGS");
-            uint flags = edit.Flags ?? emitter.Flags;
-            bool FlagSwitch(string label, uint bit, string help)
+            if (advanced)
             {
-                bool on = (flags & bit) != 0;
-                if (!ImGui.Checkbox(label, ref on))
-                {
-                    CreatorHelp(help);
-                    return false;
-                }
-                flags = on ? flags | bit : flags & ~bit;
-                edit.Flags = flags;
-                model.Edits[emitter.Index] = edit;
-                CreatorHelp(help);
-                return true;
-            }
+                dirty |= TrackSlider("Z source", "zSource", -20f, 20f,
+                    e => e.ZSource, (e, v) => e.ZSource = v,
+                    "Pull particle velocity toward a point on the emitter's local Z axis. " +
+                    "This is attraction/steering, not drag; 0 disables it.");
 
-            dirty |= FlagSwitch("Model-space motion", 0x10,
-                "Keep particle motion in the moving/rotating model frame instead of leaving " +
-                "spawned particles behind in world space.");
-            dirty |= FlagSwitch("Scale with spell instance", 0x20,
-                "Multiply particle size by the spell effect instance's scale.");
-            dirty |= FlagSwitch("Inherit source motion", 0x40,
-                "Add the moving source's velocity when particles are born.");
-            dirty |= FlagSwitch("Kill outside sphere", 0x80,
-                "Sphere only: discard particles after they travel outside the authored shell.");
-            dirty |= FlagSwitch("Sphere points up", 0x100,
-                "Sphere only: emit upward instead of along the radial shell direction.");
-            dirty |= FlagSwitch("Random tumble sign", 0x200,
-                "Spawned-model particles only: randomly reverse tumble axes. Billboard images " +
-                "do not use model tumble.");
-            dirty |= FlagSwitch("Clamp tail to life", 0x400,
-                "Tail particles only: never draw a trail older than the particle itself.");
-            dirty |= FlagSwitch("Local XY quad", 0x1000,
-                "Draw quads in the emitter's local XY plane instead of camera-facing them.");
-            dirty |= FlagSwitch("Snap to ground", 0x2000,
-                "Place newly born particles on the sampled ground height when available.");
-            dirty |= FlagSwitch("Follow source", 0x4000,
-                "Steer existing particles as the source moves, using the emitter's authored " +
-                "follow response fields.");
-            dirty |= FlagSwitch("Burst once", 0x8000,
-                "Emit the rate as a one-time burst when the emitter becomes active instead of " +
-                "continuously accumulating particles per second.");
-            if (CreatorResetKnob("flags") && edit.Flags is not null)
-            { edit.Flags = null; model.Edits[emitter.Index] = edit; dirty = true; }
-            CreatorHelp($"Reset restores the complete authored flag word (0x{emitter.Flags:X}). " +
-                "Unlisted/unknown bits are preserved whenever one of these switches changes.");
+                float drag = edit.Drag ?? emitter.Drag;
+                ImGui.SetNextItemWidth(CreatorControlWidth);
+                if (ImGui.SliderFloat("Drag", ref drag, 0f, 50f, "%.3f"))
+                { edit.Drag = drag; model.Edits[emitter.Index] = edit; dirty = true; }
+                if (CreatorResetKnob("drag") && edit.Drag is not null)
+                { edit.Drag = null; model.Edits[emitter.Index] = edit; dirty = true; }
+                CreatorHelp("Velocity damping per second. Higher drag rapidly contains a fast spray. " +
+                    $"This is a plain M2 field, separate from Z source. Authored: {emitter.Drag:0.###}.");
+
+                float spriteSpin = edit.SpriteSpin ?? emitter.SpriteSpin;
+                ImGui.SetNextItemWidth(CreatorControlWidth);
+                if (ImGui.SliderFloat("Billboard spin", ref spriteSpin, -20f, 20f, "%.3f"))
+                { edit.SpriteSpin = spriteSpin; model.Edits[emitter.Index] = edit; dirty = true; }
+                if (CreatorResetKnob("spriteSpin") && edit.SpriteSpin is not null)
+                { edit.SpriteSpin = null; model.Edits[emitter.Index] = edit; dirty = true; }
+                CreatorHelp("Rotates each particle image over that particle's own age. It does not " +
+                    "spin the entire spell or sweep the emitter through space; those effects usually " +
+                    $"come from animated bones. Authored: {emitter.SpriteSpin:0.###} rad/s.");
+
+                ImGui.TextDisabled("BEHAVIOR FLAGS");
+                uint flags = edit.Flags ?? emitter.Flags;
+                bool FlagSwitch(string label, uint bit, string help)
+                {
+                    bool on = (flags & bit) != 0;
+                    if (!ImGui.Checkbox(label, ref on))
+                    {
+                        CreatorHelp(help);
+                        return false;
+                    }
+                    flags = on ? flags | bit : flags & ~bit;
+                    edit.Flags = flags;
+                    model.Edits[emitter.Index] = edit;
+                    CreatorHelp(help);
+                    return true;
+                }
+
+                dirty |= FlagSwitch("Model-space motion", 0x10,
+                    "Keep particle motion in the moving/rotating model frame instead of leaving " +
+                    "spawned particles behind in world space.");
+                dirty |= FlagSwitch("Scale with spell instance", 0x20,
+                    "Multiply particle size by the spell effect instance's scale.");
+                dirty |= FlagSwitch("Inherit source motion", 0x40,
+                    "Add the moving source's velocity when particles are born.");
+                dirty |= FlagSwitch("Kill outside sphere", 0x80,
+                    "Sphere only: discard particles after they travel outside the authored shell.");
+                dirty |= FlagSwitch("Sphere points up", 0x100,
+                    "Sphere only: emit upward instead of along the radial shell direction.");
+                dirty |= FlagSwitch("Random tumble sign", 0x200,
+                    "Spawned-model particles only: randomly reverse tumble axes. Billboard images " +
+                    "do not use model tumble.");
+                dirty |= FlagSwitch("Clamp tail to life", 0x400,
+                    "Tail particles only: never draw a trail older than the particle itself.");
+                dirty |= FlagSwitch("Local XY quad", 0x1000,
+                    "Draw quads in the emitter's local XY plane instead of camera-facing them.");
+                dirty |= FlagSwitch("Snap to ground", 0x2000,
+                    "Place newly born particles on the sampled ground height when available.");
+                dirty |= FlagSwitch("Follow source", 0x4000,
+                    "Steer existing particles as the source moves, using the emitter's authored " +
+                    "follow response fields.");
+                dirty |= FlagSwitch("Burst once", 0x8000,
+                    "Emit the rate as a one-time burst when the emitter becomes active instead of " +
+                    "continuously accumulating particles per second.");
+                if (CreatorResetKnob("flags") && edit.Flags is not null)
+                { edit.Flags = null; model.Edits[emitter.Index] = edit; dirty = true; }
+                CreatorHelp($"Reset restores the complete authored flag word (0x{emitter.Flags:X}). " +
+                    "Unlisted/unknown bits are preserved whenever one of these switches changes.");
+            }
 
             var scale = new Vector3(
                 edit.ScaleStart ?? emitter.ScaleStart,

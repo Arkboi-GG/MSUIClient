@@ -77,11 +77,13 @@ visuals exactly as designed. Design phase lives here; data phase lives there.
 
 ### Workshop niceties
 
-- **Simple mode** is the default: it keeps phase looping, model-wide look/image
-  controls, per-phase audio, and the emitter list with enable/disable switches
-  visible. The persisted **Advanced mode** toggle reveals emitter creation,
-  removal, and format-level tuning; future low-level controls belong behind the
-  same gate.
+- **Simple mode** is the default and preserves the complete original workshop:
+  phase looping, model-wide look/image controls, emitter creation/removal,
+  enable, blend, birth shape, rate, speed, gravity, lifespan, spread, area and
+  scale. Per-phase audio is added alongside those existing controls. The
+  persisted **Advanced mode** toggle reveals only the newer technical layer:
+  composition/placement, `zSource`, drag, billboard spin, behavior flags, and
+  future bone/model controls.
 - The always-visible **Audio** section resolves the authored cue for precast,
   cast, missile, impact, state, channel, and area phases. Each available phase
   can be previewed or replaced with a WAV/MP3. Imported bytes play immediately,
@@ -95,7 +97,7 @@ visuals exactly as designed. Design phase lives here; data phase lives there.
   records appended to the M2 (`M2ParticlePatcher.CloneEmitter` — relocated
   array at EOF, private copies of all ten scalar track arrays so edits
   never write through to the source), tunable and removable like any emitter.
-- Advanced emitter controls now use the runtime-verified v256 layout: true
+- Emitter patching now uses the runtime-verified v256 layout: true
   texture slot at `+0x016`, true 16-bit birth shape at `+0x02A`, raw local
   position, all ten scalar tracks (including `zSource`), drag, billboard spin,
   and the behavior flag word. The old `+0x029` "type" was padding and never
