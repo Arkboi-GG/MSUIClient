@@ -369,4 +369,14 @@ public enum Op : ushort
     SMSG_NOTIFICATION            = 0x01CB,
     SMSG_EMOTE                   = 0x0103,
     SMSG_TEXT_EMOTE              = 0x0105,
+
+    // --- SuperUI CRPG/RTS control extension (SuperUI-Core fork only; above the
+    // vanilla table, see docs/SUI_WIRE_PROTOCOL.md in SuperUI-Core) ---
+    CMSG_SUI_CONTROL_REQUEST     = 0x033C,
+    CMSG_SUI_CONTROL_RELEASE     = 0x033D,
+    CMSG_SUI_ORDER               = 0x033E,
+    SMSG_SUI_CONTROL_ROSTER      = 0x033F,
+    SMSG_SUI_CONTROL_ACK         = 0x0340,
+    SMSG_SUI_PROXY               = 0x0341,
+    SMSG_SUI_SNAPSHOT            = 0x0342,
 }

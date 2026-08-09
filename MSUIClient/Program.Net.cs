@@ -566,6 +566,12 @@ public sealed partial class GameLoop
                         // possessed bot's arrive wrapped in SMSG_SUI_PROXY and land in its store.
                         OwnActions.ApplyButtons(body);
                         break;
+                    case Op.SMSG_SUI_CONTROL_ACK:
+                        ApplySuiControlAck(body);
+                        break;
+                    case Op.SMSG_SUI_CONTROL_ROSTER:
+                        ApplySuiControlRoster(body);
+                        break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
                         ApplyAuraDuration(body);
                         break;

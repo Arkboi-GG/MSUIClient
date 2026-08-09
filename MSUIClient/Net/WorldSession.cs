@@ -262,6 +262,17 @@ public sealed class WorldSession : IDisposable
     /// <summary>Declare the unit we control — vmangos drops all MSG_MOVE_* until this "confirmed mover" is set.</summary>
     public void SetActiveMover(ulong guid) => SendFullGuid(Op.CMSG_SET_ACTIVE_MOVER, guid);
 
+    /// <summary>Ask to possess a party bot (SuperUI extension; answered by SMSG_SUI_CONTROL_ACK).</summary>
+    public void SuiControlRequest(ulong targetGuid) => SendFullGuid(Op.CMSG_SUI_CONTROL_REQUEST, targetGuid);
+
+    /// <summary>Release possession. mode 0 = back to own character, 1 = free view.</summary>
+    public void SuiControlRelease(byte mode)
+    {
+        var w = new PacketWriter(1);
+        w.WriteU8(mode);
+        SendPacket((ushort)Op.CMSG_SUI_CONTROL_RELEASE, w.ToArray());
+    }
+
     /// <summary>Acknowledge SMSG_TRIGGER_CINEMATIC as an immediate ESC-style skip.</summary>
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);

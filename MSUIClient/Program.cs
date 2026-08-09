@@ -1536,6 +1536,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateSpellbookInput(typing);
         UpdateWorldMapInput(typing);
         UpdateTargetBinding(typing);
+        UpdateControlInput(typing);
         UpdateRunBinding(typing);
         UpdateSheathInput(typing);
         UpdatePortraitLabInput(typing);

@@ -181,7 +181,10 @@ public sealed partial class GameLoop
 
     private void UpdateTargetBinding(bool typing)
     {
-        bool down = BindingDown(GameBinding.TargetNearestEnemy);
+        // Ctrl+Tab is the control-cycle chord (Program.Control.cs); with Ctrl held the
+        // target binding must not also fire.
+        bool ctrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        bool down = BindingDown(GameBinding.TargetNearestEnemy) && !ctrlHeld;
         if (down && !_targetNearestWasDown && !typing && _net is { IsInWorld: true } && _controller is not null)
         {
             WorldEntity? nearest = _entities.Units

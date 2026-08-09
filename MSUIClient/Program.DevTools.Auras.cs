@@ -38,7 +38,9 @@ public sealed partial class GameLoop
 
     private bool PlayerHasAura(uint spellId)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity? player))
+        // Gameplay helper despite the DevTools file: it feeds root/ice-block input gating,
+        // so it must track the CONTROLLED unit, not the session character.
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity? player))
             return false;
         return player.Fields.Auras().Any(a => a.SpellId == spellId);
     }
