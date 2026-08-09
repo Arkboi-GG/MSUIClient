@@ -32,6 +32,8 @@ public sealed class SpellSoundSystem : IDisposable
 
     private readonly MpqMount _mpq;
     private readonly SoundEntriesCatalog? _catalog;
+    private readonly ConcurrentDictionary<string, byte[]> _customFiles =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, string> _lastVariant = [];
     private readonly string _tempRoot;
     private long _nextVoice;
@@ -74,6 +76,13 @@ public sealed class SpellSoundSystem : IDisposable
 
     public IReadOnlyList<SoundPlayJournalEntry> JournalSnapshot() => _playJournal.ToArray();
 
+    /// <summary>Describe an authored cue without exposing the catalog owner.</summary>
+    public bool TryGetEntry(uint? soundId, out SoundEntry entry)
+    {
+        entry = default;
+        return soundId is uint id && id != 0 && _catalog?.TryGet(id, out entry) == true;
+    }
+
     public long Play(uint? soundId, ulong unit, Vector3 source, Vector3 listener,
         bool forceLoop = false, bool trackHold = true, string category = "spell")
     {
@@ -88,6 +97,38 @@ public sealed class SpellSoundSystem : IDisposable
         if (_catalog?.TryGet(soundName, out SoundEntry entry) != true || entry.Variants.Count == 0) return 0;
         return PlayResolved(soundName, category, entry, unit, source, listener,
             forceLoop: false, trackHold: false);
+    }
+
+    /// <summary>
+    /// Preview/play a creator-owned WAV or MP3 before it exists in an MPQ or in
+    /// SoundEntries.dbc. The virtual MPQ path is also the path written by the
+    /// creator exporter, so live preview and the produced patch name the same
+    /// asset. The ordinary worker, positional gain and lifecycle machinery are
+    /// deliberately reused.
+    /// </summary>
+    public long PlayCustom(string requestedCue, string virtualPath, byte[] bytes,
+        ulong unit, Vector3 source, Vector3 listener, float volume, bool looping,
+        bool noDuplicates, float minDistance, float cutoffDistance,
+        bool trackHold = false, string category = "creator", uint extraFlags = 0,
+        uint eax = 0)
+    {
+        if (string.IsNullOrWhiteSpace(virtualPath) || bytes.Length == 0) return 0;
+        virtualPath = virtualPath.Replace('/', '\\');
+        _customFiles[virtualPath] = bytes;
+        uint flags = extraFlags & ~(0x200u | 0x20u);
+        flags |= (looping ? 0x200u : 0u) | (noDuplicates ? 0x20u : 0u);
+        var entry = new SoundEntry(0, 1, requestedCue,
+            [new SoundVariant(virtualPath, 1)],
+            Math.Clamp(volume, 0f, 1f), flags,
+            Math.Max(0f, minDistance), Math.Max(0f, cutoffDistance), eax);
+        return PlayResolved(requestedCue, category, entry, unit, source, listener,
+            forceLoop: false, trackHold: trackHold);
+    }
+
+    public void RemoveCustomFile(string virtualPath)
+    {
+        if (!string.IsNullOrWhiteSpace(virtualPath))
+            _customFiles.TryRemove(virtualPath.Replace('/', '\\'), out _);
     }
 
     private long PlayResolved(string requestedCue, string category, in SoundEntry entry,
@@ -117,7 +158,8 @@ public sealed class SpellSoundSystem : IDisposable
         bool looping, bool trackHold, float gain)
     {
         if (looping && trackHold && _holds.Remove(unit, out long held)) StopOnWorker(held);
-        byte[]? bytes = _mpq.ReadFile(path);
+        byte[]? bytes = _customFiles.TryGetValue(path, out byte[]? custom)
+            ? custom : _mpq.ReadFile(path);
         if (bytes is null || bytes.Length == 0) return;
         Directory.CreateDirectory(_tempRoot);
         string extension = Path.GetExtension(path);

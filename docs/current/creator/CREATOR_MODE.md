@@ -61,7 +61,8 @@ the directory MSUIClient was launched from (`Program.Creator.Session.cs`).
 The file accumulates spells (same temp name = replace) and each entry carries
 the COMPLETE design: full tuning metadata (dials, per-BLP hues/tints/swaps,
 per-emitter edits, disabled emitters, added emitters) plus the patched M2
-bytes and recolored BLPs, base64-embedded. Whole-model hue on mesh/ribbon art
+bytes, recolored BLPs, and custom per-phase WAV/MP3 audio, base64-embedded.
+Whole-model hue on mesh/ribbon art
 (keyframed color tracks the byte patcher can't reach) is baked as hue-mapped
 BLP copies riding along like tints.
 
@@ -76,6 +77,16 @@ visuals exactly as designed. Design phase lives here; data phase lives there.
 
 ### Workshop niceties
 
+- **Simple mode** is the default: it keeps phase looping, model-wide look/image
+  controls, per-phase audio, and the emitter list with enable/disable switches
+  visible. The persisted **Advanced mode** toggle reveals emitter creation,
+  removal, and format-level tuning; future low-level controls belong behind the
+  same gate.
+- The always-visible **Audio** section resolves the authored cue for precast,
+  cast, missile, impact, state, channel, and area phases. Each available phase
+  can be previewed or replaced with a WAV/MP3. Imported bytes play immediately,
+  travel in the spell session, and direct patch export writes the audio plus
+  `SoundEntries.dbc` and the necessary visual/kit DBC overlays.
 - Every texture slot has an **identity color** (golden-angle palette) shown on
   its row and on every emitter drawing with it, so the texture↔emitter wiring
   reads at a glance per phase.
@@ -93,8 +104,8 @@ otherwise kept near-identical so upstream re-syncs stay diffs:
 `M2TextureParser`, `BlpWriterService`, and the managed MPQ stack
 (`MpqArchive`, `MpqCrypto`, `PkwareExplode`, `MpqArchiveWriter`,
 `MpqBuilderService`). `CreatorShims.cs` stands in for ASP.NET's `ILogger<T>`
-and the archive-remount hooks. `DbcWriterService`/`SpellVisualCloner` are not
-wired into the UI yet — they are the foundation for full custom-spell cloning
+and the archive-remount hooks. `DbcWriterService` is now used by custom-audio
+patch export; `SpellVisualCloner` remains the foundation for full custom-spell cloning
 (new DBC rows at the SuperUI ID floors: visuals/kits/effects start at 10000,
 spells 40000–49999).
 
@@ -137,7 +148,12 @@ so no dial combination clips a label.
   in the completed patch — a shared image/model changes everywhere it appears
   (same semantics as the patch-4 export). Per-spell isolation for those two
   would need geometry-path rewriting inside host M2 bytes.
-- Sounds and animation kits: cloned, never edited (same as SuperUI today).
+- Authored multi-file weighted sound variants cannot yet be assembled in the
+  workshop; the first audio slice imports one custom file per spell phase.
+- Custom audio is carried by session schema v2. The downstream Spell Completer
+  must consume each entry's `audio` array before its final unified patch can
+  reproduce those tracks; MSUIClient's direct `patch-4.MPQ` export already does.
+- Animation kits are cloned, never edited (same as SuperUI today).
 - Export writes `creator-exports/patch-4.MPQ` rather than into `GameData/Data`
   (the client may have a mounted `patch-3.MPQ` open; also avoids colliding with
   SuperUI's own patch-3 output).

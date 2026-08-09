@@ -8,8 +8,8 @@ namespace MSUIClient;
 // The spell SESSION: the design-phase product of creator mode. Each tuned spell
 // is given a temp name and appended to one ongoing JSON file in the directory
 // MSUIClient was launched from; the file accumulates one or more fully-specified
-// spells (complete tuning metadata PLUS the patched M2 bytes and tinted BLPs,
-// base64-embedded, so nothing depends on this machine's archives). That file is
+// spells (complete tuning metadata PLUS the patched M2 bytes, tinted BLPs and
+// custom audio, base64-embedded, so nothing depends on this machine's archives). That file is
 // then uploaded to MangosSuperUI's Spell Completer page, where the data phase
 // happens: real name, class, damage, ranks - and the unified patch build.
 //
@@ -18,7 +18,7 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     public const string CreatorSessionFileName = "spell-session.json";
-    private const int CreatorSessionFormatVersion = 1;
+    private const int CreatorSessionFormatVersion = 2;
 
     /// <summary>The launch directory, captured before anything can chdir - "the
     /// directory we launched MSUIClient from" is the contract for where the
@@ -26,7 +26,7 @@ public sealed partial class GameLoop
     private static readonly string CreatorSessionDir = Environment.CurrentDirectory;
 
     private readonly byte[] _creatorSessionNameBuf = new byte[48];
-    private List<(string Name, int Models)>? _creatorSessionEntries;   // null = reload
+    private List<(string Name, int Models, int Audio)>? _creatorSessionEntries;   // null = reload
 
     private static string CreatorSessionPath => Path.Combine(CreatorSessionDir, CreatorSessionFileName);
 
@@ -61,7 +61,7 @@ public sealed partial class GameLoop
         _creatorSessionEntries = null;   // re-list on next draw
     }
 
-    private List<(string Name, int Models)> CreatorSessionEntries()
+    private List<(string Name, int Models, int Audio)> CreatorSessionEntries()
     {
         if (_creatorSessionEntries is not null) return _creatorSessionEntries;
         _creatorSessionEntries = [];
@@ -69,8 +69,9 @@ public sealed partial class GameLoop
             LoadCreatorSession()["spells"] is JsonArray spells)
             foreach (JsonNode? node in spells)
                 if (node?["tempName"]?.GetValue<string>() is { Length: > 0 } name)
-                    _creatorSessionEntries.Add(
-                        (name, (node["models"] as JsonArray)?.Count ?? 0));
+                    _creatorSessionEntries.Add((name,
+                        (node["models"] as JsonArray)?.Count ?? 0,
+                        (node["audio"] as JsonArray)?.Count ?? 0));
         return _creatorSessionEntries;
     }
 
@@ -78,14 +79,14 @@ public sealed partial class GameLoop
 
     /// <summary>Append (or replace, when the temp name already exists) one fully
     /// specified spell into the session file. Carries EVERYTHING: the tuning
-    /// metadata per model AND the patched M2 bytes AND the tinted BLPs - the
-    /// authoritative product of the design phase.</summary>
+    /// metadata per model AND the patched M2 bytes AND the tinted BLPs AND the
+    /// custom phase audio - the authoritative product of the design phase.</summary>
     private void AddCreatorSpellToSession(CreatorSpellDoc doc, string tempName)
     {
         var modified = doc.Models.Values.Where(m => m.Modified).ToList();
-        if (modified.Count == 0)
+        if (modified.Count == 0 && doc.Audio.Count == 0)
         {
-            _creatorExportStatus = "Nothing modified - tune something before adding it.";
+            _creatorExportStatus = "Nothing modified - tune the look or audio before adding it.";
             return;
         }
 
@@ -111,6 +112,28 @@ public sealed partial class GameLoop
                 })),
             };
             models.Add(entry);
+        }
+
+        var audio = new JsonArray();
+        foreach ((CreatorAudioCue cue, CreatorAudioTrack track) in doc.Audio
+                     .OrderBy(pair => Array.IndexOf(CreatorAudioCueOrder, pair.Key)))
+        {
+            audio.Add(new JsonObject
+            {
+                ["cue"] = cue.ToString().ToLowerInvariant(),
+                ["sourceSoundId"] = CreatorAuthoredSound(doc, cue),
+                ["mpqPath"] = track.MpqPath,
+                ["sourceFile"] = Path.GetFileName(track.SourcePath),
+                ["volume"] = track.Volume,
+                ["looping"] = cue == CreatorAudioCue.Missile || track.Looping,
+                ["noDuplicates"] = track.NoDuplicates,
+                ["soundType"] = track.SoundType,
+                ["extraFlags"] = track.ExtraFlags,
+                ["eax"] = track.Eax,
+                ["minDistance"] = track.MinDistance,
+                ["cutoffDistance"] = track.CutoffDistance,
+                ["fileBase64"] = Convert.ToBase64String(track.Bytes),
+            });
         }
 
         // Tinted BLPs, re-encoded once here so the completer needs no access to
@@ -176,9 +199,11 @@ public sealed partial class GameLoop
             ["exportedAtUtc"] = DateTime.UtcNow.ToString("o"),
             ["models"] = models,
             ["tintedBlps"] = blps,
+            ["audio"] = audio,
         };
 
         JsonObject session = LoadCreatorSession();
+        session["version"] = CreatorSessionFormatVersion;
         var spells = (JsonArray)session["spells"]!;
         int existing = IndexOfSessionSpell(spells, tempName);
         if (existing >= 0) spells[existing] = spellEntry;
@@ -186,7 +211,8 @@ public sealed partial class GameLoop
         SaveCreatorSession(session);
 
         _creatorExportStatus = $"{(existing >= 0 ? "Replaced" : "Added")} '{tempName}' " +
-            $"({models.Count} model(s), {blps.Count} tinted BLP(s)) in {CreatorSessionPath}";
+            $"({models.Count} model(s), {blps.Count} tinted BLP(s), {audio.Count} audio track(s)) " +
+            $"in {CreatorSessionPath}";
         Console.WriteLine($"[creator] {_creatorExportStatus}");
     }
 
@@ -235,8 +261,8 @@ public sealed partial class GameLoop
         CreatorHelp("The design-phase product: give this tuned spell a TEMP name and add " +
             "it to the ongoing session file. The file accumulates every spell you add " +
             "(same temp name = replace) and carries the complete design - tuning data, " +
-            "patched models and recolored images - so MangosSuperUI's Spell Completer " +
-            "page can build the real spell from it: proper name, class, damage, ranks, " +
+            "patched models, recolored images and custom audio - so a session-v2-aware " +
+            "Spell Completer can build the real spell from it: proper name, class, damage, ranks, " +
             "and the final patch.\n\nFile: " + CreatorSessionPath);
 
         ImGui.SetNextItemWidth(180f * cs);
@@ -262,7 +288,7 @@ public sealed partial class GameLoop
             ImGui.TextDisabled("Session is empty.");
             return;
         }
-        foreach ((string name, int modelCount) in entries)
+        foreach ((string name, int modelCount, int audioCount) in entries)
         {
             ImGui.PushID($"sess-{name}");
             if (ImGui.SmallButton("x"))
@@ -273,7 +299,7 @@ public sealed partial class GameLoop
             }
             if (ImGui.IsItemHovered()) ImGui.SetTooltip("Remove this spell from the session");
             ImGui.SameLine();
-            ImGui.TextUnformatted($"{name}  ({modelCount} model(s))");
+            ImGui.TextUnformatted($"{name}  ({modelCount} model(s), {audioCount} audio)");
             ImGui.PopID();
         }
     }

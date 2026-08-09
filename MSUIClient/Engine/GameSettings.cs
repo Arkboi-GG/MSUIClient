@@ -75,6 +75,14 @@ public sealed class GameSettings
         public float UiScale { get; set; } = 1f;     // live - MODAL widget/panel sizes
         public float TextScale { get; set; } = 1f;   // live - MODAL font size only
 
+        /// <summary>
+        /// Exposes the spell workshop's format-level controls (individual M2
+        /// emitters today; bones, tracks, ribbons and other internals as they are
+        /// added). The default workshop stays concerned with the recognizable
+        /// spell phases, their look and their audio.
+        /// </summary>
+        public bool SpellAdvancedMode { get; set; }
+
         // The top menu bar (Character/Gear/Teleport/Target/Spells/UI) sizes
         // independently of the modals - its own button and caption dials.
         public float BarScale { get; set; } = 1f;

@@ -172,6 +172,7 @@ public sealed partial class GameLoop
         DrawPoppedCreatorSections();
         if (_creatorSearchOpen) DrawCreatorItemSearch();
         DrawCreatorTextureSwapPicker();
+        DrawCreatorAudioFilePicker();
         DrawCreatorPanelTunePopup();
         if (_creatorLayoutResetFrames > 0) _creatorLayoutResetFrames--;
 

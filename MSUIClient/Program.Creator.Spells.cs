@@ -45,6 +45,46 @@ public sealed partial class GameLoop
         public int TextureSlot;
     }
 
+    private enum CreatorAudioCue
+    {
+        Precast,
+        Cast,
+        Missile,
+        Impact,
+        State,
+        Channel,
+        Area,
+    }
+
+    private static readonly CreatorAudioCue[] CreatorAudioCueOrder =
+    [
+        CreatorAudioCue.Precast,
+        CreatorAudioCue.Cast,
+        CreatorAudioCue.Missile,
+        CreatorAudioCue.Impact,
+        CreatorAudioCue.State,
+        CreatorAudioCue.Channel,
+        CreatorAudioCue.Area,
+    ];
+
+    /// <summary>A creator-owned replacement for one phase's SoundEntries cue.
+    /// Bytes stay in memory for immediate preview and are embedded into both the
+    /// session document and exported patch.</summary>
+    private sealed class CreatorAudioTrack
+    {
+        public required string SourcePath;
+        public required string MpqPath;
+        public required byte[] Bytes;
+        public float Volume = 1f;
+        public bool Looping;
+        public bool NoDuplicates;
+        public uint SoundType = 1;
+        public uint ExtraFlags;
+        public uint Eax;
+        public float MinDistance;
+        public float CutoffDistance;
+    }
+
     /// <summary>Everything the workshop knows about one effect M2 being tuned.</summary>
     private sealed class CreatorModelDoc
     {
@@ -96,6 +136,7 @@ public sealed partial class GameLoop
         /// path -> the host model file that spawns them. Their art lives in their
         /// OWN texture tables, invisible from the host's slots.</summary>
         public readonly Dictionary<string, string> GeometryHosts = new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<CreatorAudioCue, CreatorAudioTrack> Audio = [];
     }
 
     private CreatorSpellDoc? _creatorSpell;
@@ -125,6 +166,13 @@ public sealed partial class GameLoop
     private double _creatorLoopCastAt = double.MaxValue;
     private double _creatorLoopMissileAt = double.MaxValue;
     private double _creatorLoopImpactAt = double.MaxValue;
+    private double _creatorMissileSoundEndsAt = double.MaxValue;
+    private readonly Dictionary<CreatorAudioCue, long> _creatorAudioVoices = [];
+    private readonly HashSet<CreatorAudioCue> _creatorSustainedAudio = [];
+    private long _creatorAudioPreviewVoice;
+    private CreatorAudioCue? _creatorAudioPickerCue;
+    private string _creatorAudioPickerDir = "";
+    private string _creatorAudioPickerError = "";
     private string _creatorExportStatus = "";
 
     // ── loop machine (called every Update while the creator owns the world) ──
@@ -144,30 +192,60 @@ public sealed partial class GameLoop
         double now = NowSeconds();
         uint spell = _creatorSpell.Info.Id;
 
+        UpdateCreatorSustainedAudio();
+        if (now >= _creatorMissileSoundEndsAt)
+        {
+            _creatorMissileSoundEndsAt = double.MaxValue;
+            StopCreatorAudio(CreatorAudioCue.Missile);
+        }
+
         if (now >= _creatorLoopCastAt)
         {
             _creatorLoopCastAt = double.MaxValue;
-            PresentSpellEffect(spell, "cast");
+            StopCreatorAudio(CreatorAudioCue.Precast);
+            if (PresentSpellEffect(spell, "cast"))
+                StartCreatorAudio(CreatorAudioCue.Cast, LocalPlayerGuid,
+                    _controller?.Position ?? Vector3.Zero);
         }
         if (now >= _creatorLoopMissileAt)
         {
             _creatorLoopMissileAt = double.MaxValue;
             double flight = SpawnCreatorMissile();
+            if (flight > 0)
+            {
+                StartCreatorAudio(CreatorAudioCue.Missile, LocalPlayerGuid,
+                    _controller?.Position ?? Vector3.Zero, forceLoop: true);
+                _creatorMissileSoundEndsAt = now + flight;
+            }
             if (_creatorLoopImpactPhase)
                 _creatorLoopImpactAt = now + (flight > 0 ? flight : 0.5);
         }
         if (now >= _creatorLoopImpactAt)
         {
             _creatorLoopImpactAt = double.MaxValue;
+            StopCreatorAudio(CreatorAudioCue.Missile);
+            _creatorMissileSoundEndsAt = double.MaxValue;
             ulong target = CreatorMissileTargetGuid();
-            PresentSpellEffect(spell, "impact", target != 0 ? target : null);
+            ulong anchor = target != 0 ? target : LocalPlayerGuid;
+            if (PresentSpellEffect(spell, "impact", target != 0 ? target : null))
+            {
+                var pose = SpellEffectUnitPose(anchor);
+                StartCreatorAudio(CreatorAudioCue.Impact, anchor,
+                    pose.Found ? pose.Position : _controller?.Position ?? Vector3.Zero);
+            }
         }
 
         if (now < _creatorLoopNextAt) return;
         _creatorLoopNextAt = now + Math.Max(_creatorLoopPeriod, 0.25f);
 
         bool any = false;
-        if (_creatorLoopPrecast) { PresentSpellEffect(spell, "precast"); any = true; }
+        if (_creatorLoopPrecast)
+        {
+            if (PresentSpellEffect(spell, "precast"))
+                StartCreatorAudio(CreatorAudioCue.Precast, LocalPlayerGuid,
+                    _controller?.Position ?? Vector3.Zero);
+            any = true;
+        }
         // Cast (and the missile it releases) waits out a short precast hold when
         // precast is looped too; otherwise it fires at the tick.
         double castDelay = _creatorLoopPrecast ? Math.Min(_creatorLoopPeriod * 0.35, 1.2) : 0.0;
@@ -184,7 +262,106 @@ public sealed partial class GameLoop
         if (_creatorLoopStateHold) { PresentSpellEffect(spell, "state"); any = true; }
         if (_creatorLoopChannelHold) { PresentSpellEffect(spell, "channel"); any = true; }
         if (_creatorLoopAreaHold) any = true;   // the hold runs continuously below
-        if (!any) _creatorLoopOn = false;   // nothing checked - stop rather than spin
+        if (!any)
+        {
+            _creatorLoopOn = false;   // nothing checked - stop rather than spin
+            StopAllCreatorAudio();
+        }
+    }
+
+    private uint? CreatorAuthoredSound(CreatorSpellDoc doc, CreatorAudioCue cue)
+    {
+        if (_spellVisualCatalog is null) return null;
+        if (cue == CreatorAudioCue.Missile)
+            return doc.Stages.MissileSound is 0 or uint.MaxValue ? null : doc.Stages.MissileSound;
+        if (cue == CreatorAudioCue.Area)
+            return _spellVisualCatalog.TryGetAreaVisual(doc.Info.VisualId,
+                out SpellAreaVisualInfo area) ? area.Sound : null;
+        uint kitId = cue switch
+        {
+            CreatorAudioCue.Precast => doc.Stages.Precast,
+            CreatorAudioCue.Cast => doc.Stages.Cast,
+            CreatorAudioCue.Impact => doc.Stages.Impact,
+            CreatorAudioCue.State => doc.Stages.State,
+            CreatorAudioCue.Channel => doc.Stages.Channel,
+            _ => 0,
+        };
+        return kitId != 0 && _spellVisualCatalog.TryGetKit(kitId, out SpellVisualKitInfo kit)
+            ? kit.Sound : null;
+    }
+
+    private uint CreatorAudioKitId(CreatorSpellDoc doc, CreatorAudioCue cue) => cue switch
+    {
+        CreatorAudioCue.Precast => doc.Stages.Precast,
+        CreatorAudioCue.Cast => doc.Stages.Cast,
+        CreatorAudioCue.Impact => doc.Stages.Impact,
+        CreatorAudioCue.State => doc.Stages.State,
+        CreatorAudioCue.Channel => doc.Stages.Channel,
+        CreatorAudioCue.Area => doc.Stages.AreaKit,
+        _ => 0,
+    };
+
+    private bool CreatorAudioAvailable(CreatorSpellDoc doc, CreatorAudioCue cue) => cue switch
+    {
+        CreatorAudioCue.Missile => doc.Info.Speed > 0 || doc.MissilePath is { Length: > 0 } ||
+                                   doc.Stages.MissileSound != 0,
+        _ => CreatorAudioKitId(doc, cue) != 0,
+    };
+
+    private long PlayCreatorAudio(CreatorAudioCue cue, ulong owner, Vector3 source,
+        bool forceLoop = false)
+    {
+        if (_creatorSpell is not { } doc || _spellSounds is null) return 0;
+        Vector3 listener = _controller?.Position ?? source;
+        if (doc.Audio.TryGetValue(cue, out CreatorAudioTrack? custom))
+            return _spellSounds.PlayCustom($"creator:{doc.Info.Id}:{cue}", custom.MpqPath,
+                custom.Bytes, owner, source, listener, custom.Volume,
+                forceLoop || custom.Looping, custom.NoDuplicates,
+                custom.MinDistance, custom.CutoffDistance, trackHold: false,
+                extraFlags: custom.ExtraFlags, eax: custom.Eax);
+        return _spellSounds.Play(CreatorAuthoredSound(doc, cue), owner, source, listener,
+            forceLoop, trackHold: false, category: $"creator-{cue.ToString().ToLowerInvariant()}");
+    }
+
+    private void StartCreatorAudio(CreatorAudioCue cue, ulong owner, Vector3 source,
+        bool forceLoop = false)
+    {
+        StopCreatorAudio(cue);
+        long voice = PlayCreatorAudio(cue, owner, source, forceLoop);
+        if (voice != 0) _creatorAudioVoices[cue] = voice;
+    }
+
+    private void StopCreatorAudio(CreatorAudioCue cue)
+    {
+        if (_creatorAudioVoices.Remove(cue, out long voice)) _spellSounds?.Stop(voice);
+    }
+
+    private void StopAllCreatorAudio()
+    {
+        foreach (long voice in _creatorAudioVoices.Values) _spellSounds?.Stop(voice);
+        _creatorAudioVoices.Clear();
+        _creatorSustainedAudio.Clear();
+        _creatorMissileSoundEndsAt = double.MaxValue;
+        if (_creatorAudioPreviewVoice != 0) _spellSounds?.Stop(_creatorAudioPreviewVoice);
+        _creatorAudioPreviewVoice = 0;
+    }
+
+    private void UpdateCreatorSustainedAudio()
+    {
+        void Sustain(CreatorAudioCue cue, bool wanted)
+        {
+            if (!wanted)
+            {
+                if (_creatorSustainedAudio.Remove(cue)) StopCreatorAudio(cue);
+                return;
+            }
+            if (!_creatorSustainedAudio.Add(cue)) return;
+            StartCreatorAudio(cue, LocalPlayerGuid,
+                _controller?.Position ?? Vector3.Zero);
+        }
+
+        Sustain(CreatorAudioCue.State, _creatorLoopStateHold);
+        Sustain(CreatorAudioCue.Channel, _creatorLoopChannelHold);
     }
 
     /// <summary>
@@ -206,6 +383,7 @@ public sealed partial class GameLoop
             {
                 _spellEffects?.ReapArea(CreatorAreaGuid);
                 _spellSounds?.StopHold(CreatorAreaGuid);
+                StopCreatorAudio(CreatorAudioCue.Area);
                 _creatorAreaActive = false;
             }
             return;
@@ -217,14 +395,21 @@ public sealed partial class GameLoop
         Vector3 position = CreatorAreaPosition();
         if (!_creatorAreaActive)
         {
-            bool loopingSound = _spellSounds?.IsAuthoredLoop(area.Sound) == true;
-            Action<uint, ulong, Vector3>? birthSound = !loopingSound && area.Emitters.Count != 0
+            bool customAudio = _creatorSpell.Audio.ContainsKey(CreatorAudioCue.Area);
+            bool loopingSound = customAudio
+                ? _creatorSpell.Audio[CreatorAudioCue.Area].Looping
+                : _spellSounds?.IsAuthoredLoop(area.Sound) == true;
+            Action<uint, ulong, Vector3>? birthSound = !customAudio && !loopingSound &&
+                area.Emitters.Count != 0
                 ? (sound, key, at) => PlaySpellSoundAt(key, sound, at, trackHold: false)
                 : null;
             int spawned = _spellEffects!.SpawnAreaVisual(
                 CreatorAreaGuid, spell, area, position, _creatorAreaRadius, now, birthSound);
-            if (loopingSound)
-                PlaySpellSoundAt(CreatorAreaGuid, area.Sound, position, forceLoop: true);
+            if (customAudio || loopingSound)
+                StartCreatorAudio(CreatorAudioCue.Area, LocalPlayerGuid, position,
+                    forceLoop: loopingSound);
+            else if (area.Emitters.Count == 0)
+                StartCreatorAudio(CreatorAudioCue.Area, LocalPlayerGuid, position);
             _creatorAreaActive = true;
             Console.WriteLine($"[creator] area visual up: spell {spell} radius {_creatorAreaRadius:0.0} " +
                               $"emitters {area.Emitters.Count} " +
@@ -370,6 +555,9 @@ public sealed partial class GameLoop
     {
         // Clear any overrides, tints and color hues the previous document installed.
         if (_creatorSpell is not null)
+        {
+            foreach (CreatorAudioTrack track in _creatorSpell.Audio.Values)
+                _spellSounds?.RemoveCustomFile(track.MpqPath);
             foreach (var model in _creatorSpell.Models.Values)
             {
                 _spellEffects?.SetModelOverride(model.Path, null);
@@ -381,6 +569,10 @@ public sealed partial class GameLoop
                 foreach (int texIndex in model.TextureTints.Keys)
                     SetCreatorTextureTint(model, texIndex, null);
             }
+        }
+        StopAllCreatorAudio();
+        _creatorAudioPickerCue = null;
+        _creatorAudioPickerError = "";
         _spellEffects?.ReapArea(CreatorAreaGuid);
         _spellSounds?.StopHold(CreatorAreaGuid);
         _creatorAreaActive = false;
@@ -617,10 +809,12 @@ public sealed partial class GameLoop
         CreatorSection("Spells", "ws-spell", _creatorSpell is null
             ? "Spell" : $"Spell: {_creatorSpell.Info.Name}", true, DrawCreatorSpellPickerBody);
 
-        if (_creatorSpell is not { } doc || doc.Models.Count == 0) return;
+        if (_creatorSpell is not { } doc) return;
 
         CreatorSection("Spells", "ws-loop", _creatorLoopOn ? "Loop  (running)" : "Loop", true,
             DrawCreatorLoopBody);
+        CreatorSection("Spells", "ws-audio", doc.Audio.Count == 0 ? "Audio" : "Audio *", true,
+            DrawCreatorAudioBody);
 
         // Per-model editors, grouped under the phases that use them. The id is
         // the model path (stable); the label's * marker may change per frame.
@@ -703,6 +897,17 @@ public sealed partial class GameLoop
         if (_creatorSpell is { } doc && doc.Models.Count == 0)
             ImGui.TextWrapped("This spell's visual has no effect models to tune " +
                               "(or the models failed to load).");
+
+        bool advanced = Settings.Creator.SpellAdvancedMode;
+        if (ImGui.Checkbox("Advanced mode", ref advanced))
+        {
+            Settings.Creator.SpellAdvancedMode = advanced;
+            SettingsFile?.Save();
+        }
+        CreatorHelp("Simple mode keeps spell phases, model-wide look controls, images, " +
+            "audio, and emitter visibility/on-off switches in view. Advanced mode opens " +
+            "individual M2 emitter internals and is where " +
+            "bones, animation tracks, ribbons and other format-level controls will live.");
     }
 
     private void DrawCreatorLoopBody()
@@ -776,7 +981,11 @@ public sealed partial class GameLoop
             _creatorLoopOn = !_creatorLoopOn;
             _creatorLoopNextAt = 0;
             _creatorLoopCastAt = _creatorLoopMissileAt = _creatorLoopImpactAt = double.MaxValue;
-            if (!_creatorLoopOn) ReapPresentedEffect();
+            if (!_creatorLoopOn)
+            {
+                ReapPresentedEffect();
+                StopAllCreatorAudio();
+            }
         }
         if (!anyPhase && !_creatorLoopOn) ImGui.EndDisabled();
 
@@ -786,6 +995,321 @@ public sealed partial class GameLoop
             ImGui.TextDisabled(CreatorMissileTargetGuid() != 0
                 ? "Impact lands on the spawned target."
                 : "Impact lands on you - spawn a target (Target menu) to see it land there.");
+    }
+
+    private static string CreatorAudioLabel(CreatorAudioCue cue) => cue switch
+    {
+        CreatorAudioCue.Precast => "Precast",
+        CreatorAudioCue.Cast => "Cast release",
+        CreatorAudioCue.Missile => "Missile flight",
+        CreatorAudioCue.Impact => "Impact",
+        CreatorAudioCue.State => "Persistent state",
+        CreatorAudioCue.Channel => "Channel",
+        CreatorAudioCue.Area => "Area",
+        _ => cue.ToString(),
+    };
+
+    private string CreatorAudioDescription(CreatorSpellDoc doc, CreatorAudioCue cue)
+    {
+        if (doc.Audio.TryGetValue(cue, out CreatorAudioTrack? custom))
+            return $"custom: {Path.GetFileName(custom.SourcePath)}";
+        uint? sound = CreatorAuthoredSound(doc, cue);
+        if (_spellSounds?.TryGetEntry(sound, out SoundEntry entry) == true)
+        {
+            string variants = string.Join(", ", entry.Variants.Take(2)
+                .Select(v => Path.GetFileName(v.Path)));
+            if (entry.Variants.Count > 2) variants += $" +{entry.Variants.Count - 2}";
+            return $"authored {entry.Id}: {(entry.Name.Length > 0 ? entry.Name : variants)}" +
+                   (entry.Looping ? "  (loop)" : "");
+        }
+        return "no authored cue";
+    }
+
+    private void DrawCreatorAudioBody()
+    {
+        if (_creatorSpell is not { } doc) return;
+        float cs = CreatorUiScale;
+        ImGui.TextWrapped("Each sound belongs to a spell phase. Preview the original cue or " +
+            "replace it with a WAV/MP3; custom audio is carried into both the session " +
+            "and the exported patch.");
+        CreatorHelp("A phase has one SoundEntries cue, which may itself contain several " +
+            "weighted variants. This first creator pass imports one file per phase; " +
+            "variant lists will expand here without changing the spell model.");
+
+        if (_creatorAudioPreviewVoice != 0)
+        {
+            if (ImGui.SmallButton("Stop preview"))
+            {
+                _spellSounds?.Stop(_creatorAudioPreviewVoice);
+                _creatorAudioPreviewVoice = 0;
+            }
+            ImGui.Spacing();
+        }
+
+        foreach (CreatorAudioCue cue in CreatorAudioCueOrder)
+        {
+            ImGui.PushID($"audio-{cue}");
+            bool available = CreatorAudioAvailable(doc, cue);
+            bool custom = doc.Audio.TryGetValue(cue, out CreatorAudioTrack? track);
+            if (!available) ImGui.BeginDisabled();
+
+            ImGui.TextUnformatted(CreatorAudioLabel(cue));
+            ImGui.SameLine();
+            ImGui.TextDisabled(CreatorAudioDescription(doc, cue));
+
+            bool hasSound = custom || CreatorAuthoredSound(doc, cue) is not null;
+            if (!hasSound) ImGui.BeginDisabled();
+            if (ImGui.SmallButton("Preview"))
+            {
+                if (_creatorAudioPreviewVoice != 0) _spellSounds?.Stop(_creatorAudioPreviewVoice);
+                Vector3 source = cue == CreatorAudioCue.Area
+                    ? CreatorAreaPosition() : _controller?.Position ?? Vector3.Zero;
+                _creatorAudioPreviewVoice = PlayCreatorAudio(cue, LocalPlayerGuid, source,
+                    forceLoop: cue == CreatorAudioCue.Missile);
+            }
+            if (!hasSound) ImGui.EndDisabled();
+            ImGui.SameLine();
+            if (ImGui.SmallButton(custom ? "Replace file" : "Import file"))
+                BeginCreatorAudioImport(cue);
+            if (custom)
+            {
+                ImGui.SameLine();
+                if (ImGui.SmallButton("Restore authored")) RemoveCreatorAudio(cue);
+
+                float volume = track!.Volume;
+                ImGui.SetNextItemWidth(150f * cs);
+                if (ImGui.SliderFloat("Volume", ref volume, 0f, 1f, "%.2f"))
+                    track.Volume = volume;
+                bool missileLoop = cue == CreatorAudioCue.Missile;
+                bool loop = missileLoop || track.Looping;
+                if (missileLoop) ImGui.BeginDisabled();
+                bool loopChanged = ImGui.Checkbox("Loop", ref loop);
+                if (missileLoop) ImGui.EndDisabled();
+                if (!missileLoop && loopChanged)
+                {
+                    track.Looping = loop;
+                    StopCreatorAudio(cue);
+                    _creatorSustainedAudio.Remove(cue);
+                    if (cue == CreatorAudioCue.Area && _creatorAreaActive)
+                    {
+                        _spellEffects?.ReapArea(CreatorAreaGuid);
+                        _creatorAreaActive = false;
+                    }
+                }
+                CreatorHelp(missileLoop
+                    ? "Missile audio loops automatically for exactly the projectile lifetime."
+                    : "Looping cues continue until their phase ends.");
+
+                if (Settings.Creator.SpellAdvancedMode)
+                {
+                    bool noDup = track.NoDuplicates;
+                    if (ImGui.Checkbox("No immediate duplicate", ref noDup))
+                        track.NoDuplicates = noDup;
+                    float min = track.MinDistance, cutoff = track.CutoffDistance;
+                    ImGui.SetNextItemWidth(150f * cs);
+                    if (ImGui.SliderFloat("Full volume distance", ref min, 0f, 50f, "%.1f yd"))
+                        track.MinDistance = Math.Min(min, track.CutoffDistance);
+                    ImGui.SetNextItemWidth(150f * cs);
+                    if (ImGui.SliderFloat("Cutoff distance", ref cutoff, 0f, 150f, "%.1f yd"))
+                    {
+                        track.CutoffDistance = cutoff;
+                        track.MinDistance = Math.Min(track.MinDistance, cutoff);
+                    }
+                }
+            }
+
+            if (!available)
+            {
+                ImGui.EndDisabled();
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("This source visual has no corresponding kit/flight lane yet.");
+            }
+            ImGui.Separator();
+            ImGui.PopID();
+        }
+    }
+
+    private void BeginCreatorAudioImport(CreatorAudioCue cue)
+    {
+        _creatorAudioPickerCue = cue;
+        _creatorAudioPickerError = "";
+        if (Directory.Exists(_creatorAudioPickerDir)) return;
+        string music = Environment.GetFolderPath(Environment.SpecialFolder.MyMusic);
+        string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        _creatorAudioPickerDir = new[] { music, desktop, Environment.CurrentDirectory }
+            .FirstOrDefault(Directory.Exists) ?? Environment.CurrentDirectory;
+    }
+
+    private static string CreatorAudioAssetToken(string value)
+    {
+        string token = new(value.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_'
+            ? char.ToLowerInvariant(c) : '_').ToArray());
+        while (token.Contains("__", StringComparison.Ordinal)) token = token.Replace("__", "_");
+        return token.Trim('_');
+    }
+
+    private void ImportCreatorAudio(CreatorAudioCue cue, string file)
+    {
+        if (_creatorSpell is not { } doc) return;
+        try
+        {
+            string full = Path.GetFullPath(file);
+            string ext = Path.GetExtension(full).ToLowerInvariant();
+            if (ext is not (".wav" or ".mp3"))
+                throw new InvalidDataException("Spell audio must be a WAV or MP3 file.");
+            byte[] bytes = File.ReadAllBytes(full);
+            if (bytes.Length == 0) throw new InvalidDataException("The selected file is empty.");
+            if (bytes.Length > 64 * 1024 * 1024)
+                throw new InvalidDataException("The selected file is larger than 64 MB.");
+            if (ext == ".wav" && (bytes.Length < 12 ||
+                !bytes.AsSpan(0, 4).SequenceEqual("RIFF"u8) ||
+                !bytes.AsSpan(8, 4).SequenceEqual("WAVE"u8)))
+                throw new InvalidDataException("The selected .wav is not a RIFF/WAVE file.");
+
+            string spell = CreatorAudioAssetToken(doc.Info.Name);
+            if (spell.Length == 0) spell = $"spell_{doc.Info.Id}";
+            string stem = CreatorAudioAssetToken(Path.GetFileNameWithoutExtension(full));
+            if (stem.Length == 0) stem = "audio";
+            string cueName = cue.ToString().ToLowerInvariant();
+            string mpqPath = $@"Sound\Spells\Custom\{doc.Info.Id}_{spell}\{cueName}_{stem}{ext}";
+
+            uint? sourceId = CreatorAuthoredSound(doc, cue);
+            SoundEntry source = default;
+            bool hasSource = _spellSounds?.TryGetEntry(sourceId, out source) == true;
+            var track = new CreatorAudioTrack
+            {
+                SourcePath = full,
+                MpqPath = mpqPath,
+                Bytes = bytes,
+                Volume = hasSource ? source.Volume : 1f,
+                Looping = cue == CreatorAudioCue.Missile || (hasSource && source.Looping) ||
+                          (!hasSource && cue is CreatorAudioCue.State or CreatorAudioCue.Channel or CreatorAudioCue.Area),
+                NoDuplicates = hasSource && source.NoDuplicates,
+                SoundType = hasSource ? source.Type : 1,
+                ExtraFlags = hasSource ? source.Flags & ~(0x200u | 0x20u) : 0,
+                Eax = hasSource ? source.Eax : 0,
+                MinDistance = hasSource ? source.MinDistance : 10f,
+                CutoffDistance = hasSource ? source.CutoffDistance : 80f,
+            };
+            if (doc.Audio.Remove(cue, out CreatorAudioTrack? old))
+                _spellSounds?.RemoveCustomFile(old.MpqPath);
+            doc.Audio[cue] = track;
+            StopCreatorAudio(cue);
+            _creatorSustainedAudio.Remove(cue);
+            if (_creatorAudioPreviewVoice != 0) _spellSounds?.Stop(_creatorAudioPreviewVoice);
+            _creatorAudioPreviewVoice = 0;
+            if (cue == CreatorAudioCue.Area && _creatorAreaActive)
+            {
+                _spellEffects?.ReapArea(CreatorAreaGuid);
+                _creatorAreaActive = false;
+            }
+            _creatorAudioPickerDir = Path.GetDirectoryName(full) ?? _creatorAudioPickerDir;
+            _creatorAudioPickerCue = null;
+            _creatorExportStatus = $"Imported {Path.GetFileName(full)} for {CreatorAudioLabel(cue)}.";
+        }
+        catch (Exception ex)
+        {
+            _creatorAudioPickerError = ex.Message;
+        }
+    }
+
+    private void RemoveCreatorAudio(CreatorAudioCue cue)
+    {
+        if (_creatorSpell is not { } doc || !doc.Audio.Remove(cue, out CreatorAudioTrack? track)) return;
+        _spellSounds?.RemoveCustomFile(track.MpqPath);
+        StopCreatorAudio(cue);
+        _creatorSustainedAudio.Remove(cue);
+        if (_creatorAudioPreviewVoice != 0) _spellSounds?.Stop(_creatorAudioPreviewVoice);
+        _creatorAudioPreviewVoice = 0;
+        if (cue == CreatorAudioCue.Area && _creatorAreaActive)
+        {
+            _spellEffects?.ReapArea(CreatorAreaGuid);
+            _creatorAreaActive = false;
+        }
+    }
+
+    private void DrawCreatorAudioFilePicker()
+    {
+        if (_creatorAudioPickerCue is not { } cue) return;
+        bool close = false;
+        float cs = CreatorUiScale;
+        ImGui.SetNextWindowSize(new Vector2(560f * cs, 520f * cs), ImGuiCond.FirstUseEver);
+        PushCreatorStyle();
+        if (ImGui.Begin("###creator-audio-file-picker", CreatorChromeFlags))
+        {
+            ClampCreatorWindowOnScreen();
+            if (DrawCreatorPanelChrome($"Import {CreatorAudioLabel(cue)} audio")) close = true;
+            ImGui.SetWindowFontScale(CreatorTextScale);
+            BeginCreatorContent();
+
+            ImGui.TextWrapped("Choose a WAV or MP3. The file is copied into the spell " +
+                "session and patch; MSUI never depends on this disk path after import.");
+            if (_creatorAudioPickerError.Length > 0)
+                ImGui.TextWrapped($"Could not import: {_creatorAudioPickerError}");
+
+            ImGui.TextDisabled(_creatorAudioPickerDir);
+            if (ImGui.SmallButton("Up"))
+            {
+                try
+                {
+                    DirectoryInfo? parent = Directory.GetParent(_creatorAudioPickerDir);
+                    if (parent is not null) _creatorAudioPickerDir = parent.FullName;
+                }
+                catch (Exception ex) { _creatorAudioPickerError = ex.Message; }
+            }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Cancel")) close = true;
+
+            ImGui.BeginChild("##creator-audio-files", new Vector2(0f, 380f * cs), true);
+            try
+            {
+                var dirs = new List<string>();
+                DirectoryInfo? parent = Directory.GetParent(_creatorAudioPickerDir);
+                if (parent is null && OperatingSystem.IsWindows())
+                    dirs.AddRange(DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.RootDirectory.FullName));
+                dirs.AddRange(Directory.EnumerateDirectories(_creatorAudioPickerDir)
+                    .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).Take(200));
+
+                string? nextDir = null;
+                foreach (string dir in dirs)
+                {
+                    string name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar));
+                    if (name.Length == 0) name = dir;
+                    if (ImGui.Selectable($"[folder] {name}##{dir}")) { nextDir = dir; break; }
+                }
+                if (nextDir is not null)
+                {
+                    _creatorAudioPickerDir = nextDir;
+                    _creatorAudioPickerError = "";
+                }
+                else
+                {
+                    foreach (string file in Directory.EnumerateFiles(_creatorAudioPickerDir)
+                                 .Where(f => Path.GetExtension(f).Equals(".wav", StringComparison.OrdinalIgnoreCase) ||
+                                             Path.GetExtension(f).Equals(".mp3", StringComparison.OrdinalIgnoreCase))
+                                 .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).Take(500))
+                    {
+                        if (!ImGui.Selectable($"{Path.GetFileName(file)}##{file}")) continue;
+                        ImportCreatorAudio(cue, file);
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _creatorAudioPickerError = ex.Message;
+            }
+            ImGui.EndChild();
+            EndCreatorContent();
+        }
+        ImGui.End();
+        PopCreatorStyle();
+        if (close)
+        {
+            _creatorAudioPickerCue = null;
+            _creatorAudioPickerError = "";
+        }
     }
 
     private void DrawCreatorExportBody()
@@ -816,6 +1340,9 @@ public sealed partial class GameLoop
                 model.GravityAdd = 0f;
                 RebuildCreatorModel(model);
             }
+            foreach (CreatorAudioCue cue in doc.Audio.Keys.ToArray())
+                RemoveCreatorAudio(cue);
+            StopAllCreatorAudio();
         }
         DrawCreatorSessionBody(doc);
         if (_creatorExportStatus.Length > 0) ImGui.TextWrapped(_creatorExportStatus);
@@ -824,6 +1351,7 @@ public sealed partial class GameLoop
     private void DrawCreatorModelEditor(CreatorModelDoc model, float cs)
     {
         bool dirty = false;
+        bool advanced = Settings.Creator.SpellAdvancedMode;
 
         // Whole-model dials, each with its own reset and explainer.
         ImGui.TextDisabled("MODEL DIALS (multipliers over the authored values)");
@@ -984,7 +1512,7 @@ public sealed partial class GameLoop
                 // Grow the effect from this image: clone an emitter onto this
                 // slot (its own emitter when it has one, else any authored one
                 // retargeted here) and tune the clone like any other emitter.
-                if (model.OriginalEmitterCount > 0)
+                if (advanced && model.OriginalEmitterCount > 0)
                 {
                     ImGui.SameLine();
                     if (ImGui.SmallButton("+Em"))
@@ -1033,8 +1561,11 @@ public sealed partial class GameLoop
             }
         }
 
-        // Per-emitter absolute values. The emitter->texture names come from the
-        // texture table's back-references (offset 0x016, the real textureId);
+        // The emitter list and its enable switch are part of the simple mental
+        // model: users need to isolate each visible ingredient to learn what it
+        // contributes. Format-level mutation remains advanced.
+        // The emitter->texture names come from the texture table's
+        // back-references (offset 0x016, the real textureId);
         // EmitterSnapshot.TextureId reads 0x02A which is particleColorIndex.
         var texByEmitter = new Dictionary<int, string>();
         var slotByEmitter = new Dictionary<int, int>();
@@ -1047,10 +1578,14 @@ public sealed partial class GameLoop
 
         ImGui.Spacing();
         ImGui.TextDisabled("EMITTERS");
-        CreatorHelp("Each emitter is one particle source inside the model - its own image, " +
-            "blend mode, spray shape and motion. These sliders set ABSOLUTE values (the " +
-            "model dials above are multipliers over them). A * on a slider means the " +
-            "authored track is animated over time; the slider overrides its first key.");
+        CreatorHelp(advanced
+            ? "Each emitter is one particle source inside the model - its own image, " +
+              "blend mode, spray shape and motion. These sliders set ABSOLUTE values (the " +
+              "model dials above are multipliers over them). A * on a slider means the " +
+              "authored track is animated over time; the slider overrides its first key."
+            : "Each emitter is one visible ingredient in this model. Expand an emitter and " +
+              "switch it off to isolate what it contributes; Advanced mode exposes its " +
+              "blend, shape, motion, duplication and removal controls.");
         foreach (var emitter in model.Emitters)
         {
             // Category id is model path + index: stable while blend/type in the
@@ -1062,16 +1597,19 @@ public sealed partial class GameLoop
             // as the image's row above, so the wiring reads at a glance.
             Vector4? marker = slotByEmitter.TryGetValue(emitter.Index, out int slot)
                 ? CreatorSlotColor(slot) : null;
+            string formatDetails = advanced
+                ? $", blend {emitter.BlendMode}, type {emitter.EmitterType}"
+                : "";
             if (!CreatorCategory($"ws-{model.Path}-em{emitter.Index}",
                 $"Emitter {emitter.Index}  " +
-                $"({texName}, blend {emitter.BlendMode}, type {emitter.EmitterType})" +
+                $"({texName}{formatDetails})" +
                 (isAdded ? "  [added]" : "") +
                 (emitterOff ? "  [OFF]" : ""), marker: marker))
                 continue;
             ImGui.PushID(emitter.Index);
             ImGui.Indent(10f * cs);
 
-            if (isAdded)
+            if (advanced && isAdded)
             {
                 if (ImGui.SmallButton("Remove emitter"))
                 {
@@ -1085,7 +1623,7 @@ public sealed partial class GameLoop
                     ImGui.SetTooltip("Delete this added emitter (authored emitters can " +
                                      "only be disabled, never removed).");
             }
-            else if (ImGui.SmallButton("Duplicate"))
+            else if (advanced && ImGui.SmallButton("Duplicate"))
             {
                 model.AddedEmitters.Add(new CreatorAddedEmitter
                 {
@@ -1094,7 +1632,7 @@ public sealed partial class GameLoop
                 });
                 dirty = true;
             }
-            if (!isAdded && ImGui.IsItemHovered())
+            if (advanced && !isAdded && ImGui.IsItemHovered())
                 ImGui.SetTooltip("ADD a copy of this emitter to the model - then tune the " +
                                  "copy independently (thicker layers, second color, etc).");
 
@@ -1107,13 +1645,13 @@ public sealed partial class GameLoop
             }
             CreatorHelp("Switch this emitter off wholesale - its emission is zeroed, no " +
                 "particles are born, everything else keeps playing. Isolate emitters one " +
-                "at a time to learn which does what. Sliders below show 0 while off; " +
-                "re-enabling restores the authored values.");
-            if (emitterOff)
+                "at a time to learn which does what. Re-enabling restores its authored " +
+                "values and any Advanced-mode edits.");
+            if (emitterOff || !advanced)
             {
                 ImGui.Unindent(10f * cs);
                 ImGui.PopID();
-                continue;   // no point editing a silenced emitter
+                continue;   // simple mode ends at on/off; silenced emitters need no tuning
             }
 
             EmitterPatch edit = model.Edits.TryGetValue(emitter.Index, out var found)
@@ -1438,7 +1976,8 @@ public sealed partial class GameLoop
     private void ExportCreatorPatch(CreatorSpellDoc doc)
     {
         var modified = doc.Models.Values.Where(m => m.Modified).ToList();
-        if (modified.Count == 0) { _creatorExportStatus = "Nothing modified - nothing to export."; return; }
+        if (modified.Count == 0 && doc.Audio.Count == 0)
+        { _creatorExportStatus = "Nothing modified - nothing to export."; return; }
 
         var builder = new MpqBuilderService(new Creator.ILogger<MpqBuilderService>());
         int models = 0;
@@ -1474,16 +2013,106 @@ public sealed partial class GameLoop
             }
         }
 
-        if (models == 0 && blps == 0)
+        int audio = 0, audioDbcs = 0;
+        try
+        {
+            (audio, audioDbcs) = AddCreatorAudioToPatch(doc, builder);
+        }
+        catch (Exception ex)
+        {
+            _creatorExportStatus = $"Audio patch build FAILED: {ex.Message}";
+            Console.WriteLine($"[creator] {_creatorExportStatus}");
+            return;
+        }
+
+        if (models == 0 && blps == 0 && audio == 0)
         {
             _creatorExportStatus = "Nothing modified - nothing to export.";
             return;
         }
         string output = Path.Combine(CreatorExportDir(), "patch-4.MPQ");
         _creatorExportStatus = builder.Build(output)
-            ? $"Wrote {models} model(s) + {blps} tinted BLP(s) to {output}"
+            ? $"Wrote {models} model(s) + {blps} tinted BLP(s) + {audio} audio file(s)" +
+              (audioDbcs > 0 ? $" + {audioDbcs} audio DBC(s)" : "") + $" to {output}"
             : "MPQ build FAILED - see the console.";
         Console.WriteLine($"[creator] {_creatorExportStatus}");
+    }
+
+    /// <summary>
+    /// Add custom phase files plus complete SoundEntries/kit/visual DBC overlays.
+    /// Direct patch export intentionally rewires the selected SOURCE visual, just
+    /// like its M2 tuning overwrites source paths; the session/completer path is
+    /// responsible for cloning these rows for an isolated final spell.
+    /// </summary>
+    private (int AudioFiles, int DbcFiles) AddCreatorAudioToPatch(
+        CreatorSpellDoc doc, MpqBuilderService builder)
+    {
+        if (doc.Audio.Count == 0) return (0, 0);
+        if (_mpq is null) throw new InvalidOperationException("The mounted client archives are unavailable.");
+
+        const string kitPath = @"DBFilesClient\SpellVisualKit.dbc";
+        const string visualPath = @"DBFilesClient\SpellVisual.dbc";
+        byte[] soundBytes = _mpq.ReadFile(SoundEntriesCatalog.MpqPath)
+            ?? throw new InvalidDataException("SoundEntries.dbc is missing.");
+        byte[] kitBytes = _mpq.ReadFile(kitPath)
+            ?? throw new InvalidDataException("SpellVisualKit.dbc is missing.");
+        byte[] visualBytes = _mpq.ReadFile(visualPath)
+            ?? throw new InvalidDataException("SpellVisual.dbc is missing.");
+
+        DbcWriterService sounds = DbcWriterService.ReadDbc(soundBytes, SoundEntriesCatalog.MpqPath);
+        DbcWriterService kits = DbcWriterService.ReadDbc(kitBytes, kitPath);
+        DbcWriterService visuals = DbcWriterService.ReadDbc(visualBytes, visualPath);
+        if (sounds.FieldCount < 29 || kits.FieldCount < 14 || visuals.FieldCount < 11)
+            throw new InvalidDataException("One of the spell-audio DBC schemas is not build 5875 compatible.");
+
+        uint nextSound = sounds.GetMaxId() + 1;
+        var kitOwners = new Dictionary<uint, CreatorAudioCue>();
+        bool touchedKits = false, touchedVisual = false;
+        foreach ((CreatorAudioCue cue, CreatorAudioTrack track) in doc.Audio
+                     .OrderBy(pair => Array.IndexOf(CreatorAudioCueOrder, pair.Key)))
+        {
+            uint soundId = nextSound++;
+            var row = new uint[sounds.RecordSize / 4];
+            row[0] = soundId;
+            row[1] = track.SoundType;
+            row[2] = sounds.AddString($"MSUI_{doc.Info.Id}_{cue}");
+            row[3] = sounds.AddString(Path.GetFileName(track.MpqPath));
+            row[13] = 1; // one weighted variant
+            string? directory = Path.GetDirectoryName(track.MpqPath);
+            row[23] = sounds.AddString(directory ?? "");
+            row[24] = DbcWriterService.FloatToUint(Math.Clamp(track.Volume, 0f, 1f));
+            bool looping = cue == CreatorAudioCue.Missile || track.Looping;
+            row[25] = track.ExtraFlags | (looping ? 0x200u : 0u) |
+                      (track.NoDuplicates ? 0x20u : 0u);
+            row[26] = DbcWriterService.FloatToUint(Math.Max(0f, track.MinDistance));
+            row[27] = DbcWriterService.FloatToUint(Math.Max(0f, track.CutoffDistance));
+            row[28] = track.Eax;
+            sounds.AddRow(row);
+            builder.AddFile(track.MpqPath, track.Bytes);
+
+            if (cue == CreatorAudioCue.Missile)
+            {
+                visuals.PatchRow(doc.Info.VisualId, 10, soundId);
+                touchedVisual = true;
+                continue;
+            }
+
+            uint kitId = CreatorAudioKitId(doc, cue);
+            if (kitId == 0)
+                throw new InvalidDataException($"{CreatorAudioLabel(cue)} has no kit to receive custom audio.");
+            if (kitOwners.TryGetValue(kitId, out CreatorAudioCue owner))
+                throw new InvalidDataException($"{CreatorAudioLabel(owner)} and {CreatorAudioLabel(cue)} " +
+                    $"share kit {kitId}; one kit cannot hold two different sounds.");
+            kitOwners[kitId] = cue;
+            kits.PatchRow(kitId, 13, soundId);
+            touchedKits = true;
+        }
+
+        builder.AddFile(SoundEntriesCatalog.MpqPath, sounds.Write());
+        int dbcs = 1;
+        if (touchedKits) { builder.AddFile(kitPath, kits.Write()); dbcs++; }
+        if (touchedVisual) { builder.AddFile(visualPath, visuals.Write()); dbcs++; }
+        return (doc.Audio.Count, dbcs);
     }
 
     /// <summary>Decode a BLP, hue-map its pixels toward targetRgb (0x00RRGGBB), and
@@ -1578,6 +2207,23 @@ public sealed partial class GameLoop
                 path = m.Path,
                 tuning = CreatorModelTuningPayload(m),
             }),
+            audio = doc.Audio.OrderBy(pair => Array.IndexOf(CreatorAudioCueOrder, pair.Key))
+                .Select(pair => new
+                {
+                    cue = pair.Key.ToString().ToLowerInvariant(),
+                    sourceSoundId = CreatorAuthoredSound(doc, pair.Key),
+                    mpqPath = pair.Value.MpqPath,
+                    sourceFile = Path.GetFileName(pair.Value.SourcePath),
+                    volume = pair.Value.Volume,
+                    looping = pair.Key == CreatorAudioCue.Missile || pair.Value.Looping,
+                    noDuplicates = pair.Value.NoDuplicates,
+                    soundType = pair.Value.SoundType,
+                    extraFlags = pair.Value.ExtraFlags,
+                    eax = pair.Value.Eax,
+                    minDistance = pair.Value.MinDistance,
+                    cutoffDistance = pair.Value.CutoffDistance,
+                    fileBase64 = Convert.ToBase64String(pair.Value.Bytes),
+                }),
         };
         string path = Path.Combine(CreatorExportDir(), $"spell-{doc.Info.Id}-tuning.json");
         File.WriteAllText(path, JsonSerializer.Serialize(payload,
