@@ -118,6 +118,7 @@ public sealed partial class GameLoop
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(guid);
             EnterPlayerAuraWorld(guid);
+            ApplyControlledCharacter();
             AddChatMessage($"You take control of {ResolveUnitName(guid)}.");
             return;
         }
@@ -130,6 +131,8 @@ public sealed partial class GameLoop
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(LocalPlayerGuid);
             EnterPlayerAuraWorld(LocalPlayerGuid);
+            PurgeSuiSnapshot();
+            ApplyControlledCharacter();
             if (wasPossessing)
                 AddChatMessage(result switch
                 {
@@ -219,6 +222,74 @@ public sealed partial class GameLoop
                 // COOLDOWN_EVENT / CLEAR_COOLDOWN and future whitelist growth: ignored in v1.0.
                 break;
         }
+    }
+
+    // ── SMSG_SUI_SNAPSHOT: read-only bags/talents for the possessed bot (M4) ──────────────────
+    // The wire never streams owner-only fields to a non-owner; the snapshot is injected into
+    // the bot's local WorldEntity fields + synthetic item entities so the already-parameterized
+    // inventory/talent UI renders it unchanged. Purged on release.
+
+    private readonly List<ulong> _suiSnapshotItemGuids = [];
+
+    private void ApplySuiSnapshot(byte[] body)
+    {
+        var r = new PacketReader(body);
+        if (r.Remaining < 18) return;
+        ulong source = r.ReadU64();
+        uint talentPoints = r.ReadU32();
+        uint coinage = r.ReadU32();
+        int count = r.ReadU16();
+        if (source != ControlledGuid || !_entities.TryGet(source, out WorldEntity bot)) return;
+
+        PurgeSuiSnapshot();
+        bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
+        bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
+
+        for (int i = 0; i < count && r.Remaining >= 19; i++)
+        {
+            byte bag = r.ReadU8();
+            byte slot = r.ReadU8();
+            ulong itemGuid = r.ReadU64();
+            uint entry = r.ReadU32();
+            uint stack = r.ReadU32();
+            byte bagSlots = r.ReadU8();
+
+            var fields = new ObjectFields().AsCreated();
+            fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
+            fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+            _entities.AddSynthetic(new WorldEntity
+            {
+                Guid = itemGuid,
+                Type = bagSlots > 0 ? ObjectTypeId.Container : ObjectTypeId.Item,
+                Fields = fields,
+            });
+            _suiSnapshotItemGuids.Add(itemGuid);
+
+            if (bag == 255)
+            {
+                // Character-held: equipment 0-18, bag slots 19-22, backpack 23-38, keyring 81+ —
+                // one contiguous guid array from PLAYER_INV_SLOT_HEAD.
+                bot.Fields.SetGuid((ushort)(ObjectFields.PLAYER_INV_SLOT_HEAD + slot * 2), itemGuid);
+            }
+            else
+            {
+                // Contents of an equipped bag; the bag row itself came earlier in the stream.
+                ulong bagGuid = bot.Fields.PlayerInventorySlot(bag);
+                if (bagGuid != 0 && _entities.TryGet(bagGuid, out WorldEntity bagEntity))
+                    bagEntity.Fields.SetGuid((ushort)(ObjectFields.CONTAINER_SLOT_1 + slot * 2), itemGuid);
+            }
+            if (_net is not null) _items?.Require(entry, itemGuid, _net);
+        }
+
+        // Gear templates may have just resolved — rebuild the possessed body once more.
+        ApplyControlledCharacter();
+    }
+
+    private void PurgeSuiSnapshot()
+    {
+        foreach (ulong guid in _suiSnapshotItemGuids)
+            _entities.RemoveSynthetic(guid);
+        _suiSnapshotItemGuids.Clear();
     }
 
     /// <summary>Snap the local, client-authoritative controller onto the ACK position.</summary>

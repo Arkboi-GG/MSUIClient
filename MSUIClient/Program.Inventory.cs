@@ -1195,8 +1195,11 @@ public sealed partial class GameLoop
         bool hovered = ImGui.IsItemHovered();
         bool repairReleased = _vendorRepairMode && hovered &&
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
-        bool leftClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
-        bool rightClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        // A possessed bot's bags are read-only in v1.0: every inventory mutation opcode is
+        // guid-less and acts on the SESSION character server-side. Hover/tooltips stay live.
+        bool interactive = ControlledGuid == LocalPlayerGuid;
+        bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
         if (repairReleased) TryRepairMerchantItem(instance?.Guid ?? 0);
         if (_itemCastSpell != 0)
         {

@@ -178,6 +178,16 @@ public sealed class ObjectFields
     /// <summary>Mark this as a CREATE snapshot (absent fields then read as 0).</summary>
     public ObjectFields AsCreated() { _created = true; return this; }
 
+    // --- SUI possession snapshot writes: client-side injection of owner-only data
+    // (bags, talent points, coinage) for a possessed bot, which the wire never
+    // streams to a non-owner session. See Program.Control.cs ApplySuiSnapshot. ---
+    public void SetU32(ushort index, uint value) => _fields[index] = value;
+    public void SetGuid(ushort index, ulong guid)
+    {
+        _fields[index] = unchecked((uint)guid);
+        _fields[(ushort)(index + 1)] = (uint)(guid >> 32);
+    }
+
     /// <summary>Overlay a VALUES delta's present fields; keeps this set's created flag.</summary>
     public void Merge(ObjectFields delta)
     {

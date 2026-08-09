@@ -57,6 +57,8 @@ public sealed partial class GameLoop
 
     private bool SpendTalent(uint talentId)
     {
+        // CMSG_LEARN_TALENT acts on the session character; a possessed bot's tree is read-only.
+        if (ControlledGuid != LocalPlayerGuid) return false;
         if (_net is null || _talents is null || !_talents.TryGet(talentId, out TalentInfo talent)) return false;
         int rank = TalentRank(talent);
         bool pass = TalentEligible(talent, out string reason);
