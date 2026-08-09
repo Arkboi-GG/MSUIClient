@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Net;
 using Silk.NET.Input;
 
@@ -83,8 +84,11 @@ public sealed partial class GameLoop
     // ── Control session state ─────────────────────────────────────────────────────────────────
     private readonly List<(ulong Guid, byte Flags)> _suiRoster = [];
     private double _controlPendingSince;
+    private ControlState _controlPendingReturn = ControlState.OwnChar;   // watchdog fallback
     private ulong _controlSwitchQueued;      // cycle target waiting for the in-flight release ACK
     private bool _controlCycleWasDown;
+    private bool _freecamKeyWasDown;
+    private bool _freecamRequested;          // the in-flight release asked for the free view
     private const byte SuiRosterControllable = 0x01;
     private const byte SuiRosterPossessed = 0x02;
     private const double ControlAckTimeoutSeconds = 3.0;
@@ -120,6 +124,23 @@ public sealed partial class GameLoop
             EnterPlayerAuraWorld(guid);
             ApplyControlledCharacter();
             AddChatMessage($"You take control of {ResolveUnitName(guid)}.");
+            return;
+        }
+
+        if (result == SuiAckReleasedFreecam && _freecamRequested)
+        {
+            // Enter the free view: nobody is driven, the whole party (own character
+            // included) runs on AI. The controller becomes the fly rig where it stands;
+            // RenderSelfGuid goes 0 so everyone renders from the entity stream.
+            _freecamRequested = false;
+            _controlTargetGuid = 0;
+            _controlState = ControlState.FreeCam;
+            _movementSender.Parked = false;       // the Flying branch parks it from here
+            if (_controller is not null) _controller.Flying = true;
+            if (_character is not null) _character.Enabled = false;
+            EnterPlayerAuraWorld(LocalPlayerGuid);
+            PurgeSuiSnapshot();
+            AddChatMessage("Free view: Ctrl+RightClick orders the party, Ctrl+F returns.");
             return;
         }
 
@@ -296,6 +317,9 @@ public sealed partial class GameLoop
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
         _movementSender.Parked = false;
+        _freecamRequested = false;
+        if (_controller is not null) _controller.Flying = false;   // exits the free-view fly rig
+        if (_character is not null) _character.Enabled = true;
         _controller?.Teleport(x, y, z);
         if (_controller is not null) _controller.Yaw = o;
         _window.Camera.Yaw = o;
@@ -317,6 +341,7 @@ public sealed partial class GameLoop
         _movementSender.ParkForRoot(_net, _controller);
         _movementSender.Parked = true;
         _controlState = ControlState.PossessPending;
+        _controlPendingReturn = ControlState.OwnChar;
         _controlPendingSince = NowSeconds();
         _net.SuiControlRequest(guid);
     }
@@ -329,8 +354,39 @@ public sealed partial class GameLoop
         _movementSender.ParkForRoot(_net, _controller);   // stops the bot dead at its position
         _movementSender.Parked = true;
         _controlState = ControlState.ReleasePending;
+        _controlPendingReturn = ControlState.Possessing;
         _controlPendingSince = NowSeconds();
+        _freecamRequested = toFreecam;
         _net.SuiControlRelease(toFreecam ? (byte)1 : (byte)0);
+    }
+
+    /// <summary>
+    /// Ctrl+F: enter/leave the CRPG free view. From the own character or a possessed bot
+    /// the server keeps/attaches the unattended AI (release mode 1); from the free view a
+    /// plain release (mode 0) returns to manual control of the own character.
+    /// </summary>
+    private void ToggleFreeView()
+    {
+        if (_net is not { IsInWorld: true } || _controller is null) return;
+        switch (_controlState)
+        {
+            case ControlState.OwnChar:
+                _movementSender.ParkForRoot(_net, _controller);
+                _movementSender.Parked = true;
+                _controlState = ControlState.ReleasePending;
+                _controlPendingReturn = ControlState.OwnChar;
+                _controlPendingSince = NowSeconds();
+                _freecamRequested = true;
+                _net.SuiControlRelease(1);
+                break;
+            case ControlState.Possessing:
+                RequestControlRelease(toFreecam: true);
+                break;
+            case ControlState.FreeCam:
+                // No pending state: stay in the fly rig until the ACK teleports us home.
+                _net.SuiControlRelease(0);
+                break;
+        }
     }
 
     /// <summary>
@@ -344,10 +400,10 @@ public sealed partial class GameLoop
         if (_controlState is ControlState.PossessPending or ControlState.ReleasePending &&
             NowSeconds() - _controlPendingSince > ControlAckTimeoutSeconds)
         {
-            _controlState = _controlState == ControlState.PossessPending
-                ? ControlState.OwnChar : ControlState.Possessing;
+            _controlState = _controlPendingReturn;
             _movementSender.Parked = false;
             _controlSwitchQueued = 0;
+            _freecamRequested = false;
             ShowUiError("No answer from the server (SUI control).");
         }
 
@@ -357,6 +413,50 @@ public sealed partial class GameLoop
         if (cyclePressed && !_controlCycleWasDown && !typing && _net is { IsInWorld: true })
             CycleControl(ShiftHeld() ? -1 : +1);
         _controlCycleWasDown = cyclePressed;
+
+        // Ctrl+F: free view toggle (plain F stays the local fly toggle).
+        bool freecamPressed = ctrl && InputKeyDown(Key.F);
+        if (freecamPressed && !_freecamKeyWasDown && !typing && _net is { IsInWorld: true })
+            ToggleFreeView();
+        _freecamKeyWasDown = freecamPressed;
+    }
+
+    /// <summary>
+    /// Free-view world click (routed from the targeting click queue). Left selects;
+    /// Ctrl+RightClick issues the RTS order: hostile under cursor → party attack,
+    /// otherwise ground point → party move.
+    /// </summary>
+    private void HandleFreeCamWorldClick(WorldMouseClick click)
+    {
+        if (click.Button == MouseButton.Left)
+        {
+            CommitSelection(PickUnit(click.Position), beginAttack: false);
+            return;
+        }
+        if (click.Button != MouseButton.Right) return;
+        bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        if (!ctrl) return;
+
+        ulong picked = PickUnit(click.Position);
+        if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
+            !target.IsDead && CanAttack(target))
+        {
+            _net?.SuiOrder(1, [], picked, 0, 0, 0);
+            AddChatMessage($"Party: attack {ResolveWorldUnitName(picked)}!");
+        }
+        else if (TryPickGround(click.Position, out System.Numerics.Vector3 point))
+        {
+            _net?.SuiOrder(0, [], 0, point.X, point.Y, point.Z);
+            AddChatMessage($"Party: move to ({point.X:F0}, {point.Y:F0}).");
+        }
+    }
+
+    private string ResolveWorldUnitName(ulong guid)
+    {
+        if (_playerNames.TryGetValue(guid, out string? playerName)) return playerName;
+        if (_entities.TryGet(guid, out WorldEntity unit) && unit.IsCreature &&
+            _creatureNames.TryGetValue(unit.Entry, out string? creatureName)) return creatureName;
+        return "target";
     }
 
     private void CycleControl(int direction)
@@ -407,9 +507,10 @@ public sealed partial class GameLoop
         string text = _controlState switch
         {
             ControlState.Possessing =>
-                $"Controlling {ResolveUnitName(_controlTargetGuid)} — Ctrl+Tab to switch",
+                $"Controlling {ResolveUnitName(_controlTargetGuid)} — Ctrl+Tab to switch, Ctrl+F free view",
             ControlState.PossessPending => "Taking control…",
             ControlState.ReleasePending => "Releasing control…",
+            ControlState.FreeCam => "Free view — Ctrl+RightClick: order party · Ctrl+F: return",
             _ => "",
         };
         if (text.Length == 0) return;

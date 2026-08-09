@@ -89,6 +89,12 @@ public sealed partial class GameLoop
         while (_window.TryDequeueWorldClick(out WorldMouseClick click))
         {
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
+            // CRPG free view: clicks are selection + RTS orders, never target/attack/loot.
+            if (_controlState == ControlState.FreeCam)
+            {
+                HandleFreeCamWorldClick(click);
+                continue;
+            }
             if (_groundCastSpell != 0)
             {
                 uint armed = _groundCastSpell;
