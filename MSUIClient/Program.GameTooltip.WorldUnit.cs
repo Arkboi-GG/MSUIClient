@@ -74,7 +74,7 @@ public sealed partial class GameLoop
         string name;
         if (unit.IsPlayer)
         {
-            name = unit.Guid == LocalPlayerGuid && _net is not null
+            name = unit.Guid == ControlledGuid && _net is not null
                 ? _net.PlayerName
                 : _playerNames.GetValueOrDefault(unit.Guid, "");
         }
@@ -97,7 +97,7 @@ public sealed partial class GameLoop
             if (bytes.Class != 0) @class = ClassName(bytes.Class);
         }
 
-        uint playerLevel = _entities.TryGet(LocalPlayerGuid, out WorldEntity player)
+        uint playerLevel = _entities.TryGet(ControlledGuid, out WorldEntity player)
             ? player.Level
             : 0;
         int reaction = WorldUnitGameTooltipReaction(

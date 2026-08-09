@@ -236,7 +236,7 @@ public sealed partial class GameLoop
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
             _combat.Clear();
-            _actions.Clear();
+            ResetActionStores();
             // TakeEnterWorld also carries SMSG_NEW_WORLD. Group state is session-owned and must
             // survive zoning; the disconnected/session edge above is the authoritative reset.
             ResetPetActionBar();
@@ -562,19 +562,21 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_ACTION_BUTTONS:
-                        _actions.ApplyButtons(body);
+                        // Un-proxied wire feeds always describe the logged-in character; a
+                        // possessed bot's arrive wrapped in SMSG_SUI_PROXY and land in its store.
+                        OwnActions.ApplyButtons(body);
                         break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
                         ApplyAuraDuration(body);
                         break;
                     case Op.SMSG_INITIAL_SPELLS:
-                        _actions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
+                        OwnActions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
                         break;
                     case Op.SMSG_LEARNED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
                             uint learned = spellReader.ReadU16();
-                            _actions.Learn(learned);
+                            OwnActions.Learn(learned);
                             ObserveTrainerLearned(learned);
                             ObserveProfessionLearned(learned);
                         }
@@ -582,14 +584,14 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUPERCEDED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
-                            _actions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
+                            OwnActions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
                         }
                         break;
                     case Op.SMSG_REMOVED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
                             uint removed = spellReader.ReadU16();
-                            _actions.Remove(removed);
+                            OwnActions.Remove(removed);
                             EmitInterface("talent", "spell-removed", "APPLIED", removed, "source=SMSG_REMOVED_SPELL");
                         }
                         break;
@@ -1156,7 +1158,7 @@ public sealed partial class GameLoop
     {
         if (_creatures is null) return;
         if (!_creatorWorldRequested && (_net is null || !_net.IsInWorld)) return;
-        _creatures.SelfPlayerGuid = LocalPlayerGuid;
+        _creatures.SelfPlayerGuid = RenderSelfGuid;
         _creatures.Render(_window.Camera, _entities);
     }
 

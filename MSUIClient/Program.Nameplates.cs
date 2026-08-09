@@ -40,7 +40,7 @@ public sealed partial class GameLoop
     private void DrawOverheadName(WorldEntity unit)
     {
         if (_net is null || _vplateUnits.Contains(unit.Guid)) return;
-        bool isSelf = unit.Guid == _net.PlayerGuid;
+        bool isSelf = unit.Guid == ControlledGuid;
         bool isTarget = unit.Guid == _selectionGuid;
         if (!isTarget && unit.IsDead && !unit.IsPlayer) return;
 
@@ -77,7 +77,7 @@ public sealed partial class GameLoop
     private void DrawEnemyPlates()
     {
         if (_net is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         Vector2 display = ImGui.GetIO().DisplaySize;
         float diagonal = MathF.Sqrt(display.X * display.X + display.Y * display.Y);
@@ -92,7 +92,7 @@ public sealed partial class GameLoop
 
         foreach (WorldEntity unit in _entities.Units)
         {
-            if (unit.Guid == _net.PlayerGuid || unit.IsDead ||
+            if (unit.Guid == ControlledGuid || unit.IsDead ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
                 Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) > 20f * 20f)
                 continue;
@@ -216,14 +216,14 @@ public sealed partial class GameLoop
     }
 
     private Vector3 UnitWorldPosition(WorldEntity unit) =>
-        _net is not null && unit.Guid == _net.PlayerGuid && _controller is not null
+        _net is not null && unit.Guid == ControlledGuid && _controller is not null
             ? _controller.Position : unit.Position;
 
     private float UnitOverheadHeight(WorldEntity unit)
     {
         if (unit.IsCreature && _creatures?.TryGetOverheadHeight(unit, out float height) == true)
             return height;
-        if (_net is not null && unit.Guid == _net.PlayerGuid && _character is not null)
+        if (_net is not null && unit.Guid == ControlledGuid && _character is not null)
             return MathF.Max(0.3f, _character.BindPoseHeight() * MathF.Max(0.01f, unit.Scale));
         return MathF.Max(0.3f, 2.2f * MathF.Max(0.01f, unit.Scale));
     }

@@ -185,7 +185,7 @@ public sealed partial class GameLoop
         if (down && !_targetNearestWasDown && !typing && _net is { IsInWorld: true } && _controller is not null)
         {
             WorldEntity? nearest = _entities.Units
-                .Where(x => x.Guid != _net.PlayerGuid && !x.IsDead && CanAttack(x))
+                .Where(x => x.Guid != ControlledGuid && !x.IsDead && CanAttack(x))
                 .OrderBy(x => Vector3.DistanceSquared(x.Position, _controller.Position))
                 .FirstOrDefault();
             if (nearest is not null) CommitSelection(nearest.Guid, beginAttack: false);

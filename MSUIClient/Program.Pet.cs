@@ -106,7 +106,7 @@ public sealed partial class GameLoop
         var r = new PacketReader(body);
         ulong caster = r.ReadU64();
         PlayerActions? store = caster != 0 && caster == _petGuid ? _petCooldowns :
-            _net is not null && caster == _net.PlayerGuid ? _actions : null;
+            caster == LocalPlayerGuid || caster == ControlledGuid ? ActionsFor(caster) : null;
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         while (r.Remaining > 0)
         {
@@ -184,7 +184,7 @@ public sealed partial class GameLoop
     private bool TryGetControlledPet(out WorldEntity pet)
     {
         pet = null!;
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         ulong guid = _petGuid != 0 ? _petGuid : player.Fields.Summon ?? player.Fields.Charm ?? 0;
         return guid != 0 && _entities.TryGet(guid, out pet) && pet.IsUnit;
     }
@@ -655,7 +655,7 @@ public sealed partial class GameLoop
         if (attack && pet is not null)
         {
             string? refusal = PetActionBarUiLaw.AttackRefusalKey(
-                pet.Fields.Health, pet.Fields.CharmedBy, _net?.PlayerGuid ?? 0,
+                pet.Fields.Health, pet.Fields.CharmedBy, ControlledGuid,
                 pet.Fields.UnitFlags, pet.Fields.MountDisplayId);
             if (refusal is not null)
             {

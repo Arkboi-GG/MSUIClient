@@ -100,7 +100,7 @@ public sealed partial class GameLoop
     private void DrawCharacterPage()
     {
         if (!_characterOpen || _net is null || _items is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         float scale = GameplayUiScale();
         Vector2 origin = new(0, 104f * scale);

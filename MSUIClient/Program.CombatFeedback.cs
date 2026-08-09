@@ -60,11 +60,11 @@ public sealed partial class GameLoop
 
         foreach (ulong victim in CombatFeedbackLaw.FeedbackVictims(combatEvent))
         {
-            if (victim == _net.PlayerGuid) _playerCombatFlash = 0.35f;
+            if (victim == ControlledGuid) _playerCombatFlash = 0.35f;
             if (victim == _selectionGuid) _targetCombatFlash = 0.35f;
         }
 
-        foreach (WorldCombatTextCue cue in CombatFeedbackLaw.WorldText(combatEvent, _net.PlayerGuid))
+        foreach (WorldCombatTextCue cue in CombatFeedbackLaw.WorldText(combatEvent, ControlledGuid))
         {
             if (!_entities.TryGet(cue.Target, out WorldEntity entity)) continue;
             int lane = _floatingCombatText.Count(t => t.Target == cue.Target);
@@ -87,7 +87,7 @@ public sealed partial class GameLoop
             _worldCombatTextSpawned++;
         }
 
-        foreach (CenterCombatTextCue cue in CombatFeedbackLaw.CenterText(combatEvent, _net.PlayerGuid))
+        foreach (CenterCombatTextCue cue in CombatFeedbackLaw.CenterText(combatEvent, ControlledGuid))
         {
             if (_centerCombatText.Count == 20) _centerCombatText.RemoveAt(0);
             _centerCombatText.Add(new CenterText
@@ -195,7 +195,7 @@ public sealed partial class GameLoop
 
     private void DrawPlayerFrame()
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         DrawVanillaUnitFrame(player, new Vector2(-19, 4), playerFrame: true,
             _net.PlayerName, FactionReaction.Friendly,
             _playerPortraitUsable ? _playerPortrait?.TextureHandle ?? 0 : 0,

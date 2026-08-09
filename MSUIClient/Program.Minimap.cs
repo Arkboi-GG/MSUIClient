@@ -26,7 +26,7 @@ public sealed partial class GameLoop
     private void DrawMinimap()
     {
         if (_net is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            !_entities.TryGet(ControlledGuid, out WorldEntity player))
         {
             UpdateAndQueueMinimapResourceTooltip(null);
             return;

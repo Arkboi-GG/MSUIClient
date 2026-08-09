@@ -1972,7 +1972,7 @@ public sealed partial class GameLoop : IDisposable
         FallTimeMs = _controller?.FallTimeMs ?? 0f,
         Walking = _walking,
         Flying = _controller?.Flying ?? false,
-        Engaged = _net is not null && _combat.IsEngaged(_net.PlayerGuid),
+        Engaged = _net is not null && _combat.IsEngaged(ControlledGuid),
         FreezePose = _iceBlockFrozen,
 
         Forward = _moveForward,

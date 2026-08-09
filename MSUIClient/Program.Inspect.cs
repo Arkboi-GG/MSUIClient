@@ -37,7 +37,7 @@ public sealed partial class GameLoop
         if (_net is null || _controller is null ||
             !_entities.TryGet(guid, out WorldEntity unit)) return false;
         bool canInspect = InspectUiLaw.CanInspect(
-            unit.IsPlayer, guid == _net.PlayerGuid, CanAttack(unit),
+            unit.IsPlayer, guid == ControlledGuid, CanAttack(unit),
             Vector3.DistanceSquared(_controller.Position, unit.Position));
         if (!canInspect) return false;
 

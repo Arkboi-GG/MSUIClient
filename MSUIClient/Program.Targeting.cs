@@ -57,7 +57,7 @@ public sealed partial class GameLoop
         {
             _targetCombatSeen = _combat.AttackRevision;
             ulong previousAttack = _attackTargetGuid;
-            _attackTargetGuid = _combat.TryGetAttackTarget(_net.PlayerGuid, out ulong victim)
+            _attackTargetGuid = _combat.TryGetAttackTarget(ControlledGuid, out ulong victim)
                 ? victim
                 : 0;
             if (previousAttack != _attackTargetGuid)
@@ -163,7 +163,7 @@ public sealed partial class GameLoop
         if (_net is null && !_creatorWorldRequested) return;
 
         bool wasAttacking = _attackTargetGuid != 0 ||
-            (_net is not null && _combat.IsEngaged(_net.PlayerGuid));
+            (_net is not null && _combat.IsEngaged(ControlledGuid));
         bool changed = guid != _selectionGuid;
         if (changed) StopPetAttackForOldTargetChange(_selectionGuid, guid);
         if (changed && wasAttacking)
@@ -210,7 +210,7 @@ public sealed partial class GameLoop
 
     private void StopAttack(string cause = "user-cancel")
     {
-        if (_net is null || (_attackTargetGuid == 0 && !_combat.IsEngaged(_net.PlayerGuid))) return;
+        if (_net is null || (_attackTargetGuid == 0 && !_combat.IsEngaged(ControlledGuid))) return;
         _net.AttackStop();
         ObserveCombatIntent(false, _attackTargetGuid, cause);
         _attackTargetGuid = 0;
@@ -218,7 +218,7 @@ public sealed partial class GameLoop
 
     private bool CanAttack(WorldEntity target)
     {
-        if (_net is null || target.Guid == _net.PlayerGuid || target.IsDead ||
+        if (_net is null || target.Guid == ControlledGuid || target.IsDead ||
             (target.Fields.UnitFlags & AttackDisqualifiers) != 0)
             return false;
 
@@ -232,7 +232,7 @@ public sealed partial class GameLoop
     private FactionReaction ReactionPlayerToward(WorldEntity target)
     {
         if (_net is null || _factions is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player) ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
             !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own) ||
             !_factions.TryGet(target.Fields.FactionTemplate, out FactionTemplateRow other))
             return FactionReaction.Neutral;
@@ -242,7 +242,7 @@ public sealed partial class GameLoop
     private FactionReaction ReactionTargetTowardPlayer(WorldEntity target)
     {
         if (_net is null || _factions is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player) ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player) ||
             !_factions.TryGet(target.Fields.FactionTemplate, out FactionTemplateRow other) ||
             !_factions.TryGet(player.Fields.FactionTemplate, out FactionTemplateRow own))
             return FactionReaction.Neutral;
@@ -312,7 +312,7 @@ public sealed partial class GameLoop
         {
             // Corpses stay pickable - selecting and right-click looting a dead unit is a
             // 1.12 behavior, not an exception. Only NOT_SELECTABLE and the player skip.
-            if (entity.Guid == LocalPlayerGuid ||
+            if (entity.Guid == ControlledGuid ||
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;
 
@@ -387,7 +387,7 @@ public sealed partial class GameLoop
             : _creatureNames.GetValueOrDefault(target.Entry, $"Creature {target.Entry}");
         uint portrait = target.IsCreature && _portraitTargetGuid == target.Guid
             ? _targetPortraitUsable ? _targetPortrait?.TextureHandle ?? 0 : 0
-            : target.IsPlayer && _net is not null && target.Guid == _net.PlayerGuid
+            : target.IsPlayer && _net is not null && target.Guid == ControlledGuid
                 ? _playerPortraitUsable ? _playerPortrait?.TextureHandle ?? 0 : 0
                 : 0;
         DrawVanillaUnitFrame(target, new Vector2(250, 4), playerFrame: false,

@@ -35,7 +35,7 @@ public sealed partial class GameLoop
         if (_net is not null && _controller is not null &&
             _entities.TryGet(_unitPopupGuid, out WorldEntity inspectUnit))
             inspectEnabled = InspectUiLaw.PopupRowEnabled(inspectUnit.IsPlayer,
-                _unitPopupGuid == _net.PlayerGuid, CanAttack(inspectUnit),
+                _unitPopupGuid == ControlledGuid, CanAttack(inspectUnit),
                 Vector3.DistanceSquared(_controller.Position, inspectUnit.Position));
         if (VanillaButton(dl, "##unit-inspect", "Inspect", origin + new Vector2(14, 84) * s,
                 new Vector2(100, 22), s, inspectEnabled))

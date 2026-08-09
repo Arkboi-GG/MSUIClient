@@ -18,7 +18,7 @@ public sealed partial class GameLoop
     private bool EmitAttackIconEvidence()
     {
         if (_spellCatalog?.TryGet(6603, out SpellInfo attack) != true || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         ulong weaponGuid = player.Fields.PlayerInventorySlot(15);
         uint entry = weaponGuid != 0 && _entities.TryGet(weaponGuid, out WorldEntity weapon) ? weapon.Entry : 0;
         string path = ResolveSpellActionIcon(attack, player);
