@@ -193,7 +193,13 @@ public sealed partial class GameLoop
             if (ring != 0) dl.AddImage((nint)ring, min - new Vector2(14) * s, min + new Vector2(50) * s);
             ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton($"##bank-item-{i}", new Vector2(37) * s);
             if (ImGui.IsItemClicked() && instance is not null) WithdrawBankEntry(instance.Entry);
-            if (ImGui.IsItemHovered() && item is not null) DrawItemTooltip(item, instance?.Fields.ItemStackCount ?? 1);
+            if (ImGui.IsItemHovered() && item is not null)
+            {
+                uint itemCount = instance?.Fields.ItemStackCount ?? 1;
+                ItemTooltipBodySnapshot tooltipBody =
+                    PrepareItemTooltipBodySnapshot(item, itemCount);
+                OfferPreparedItemTooltip(new("item:bank-item", (ulong)i), tooltipBody);
+            }
         }
         byte count = player.Fields.BankBagSlotCount; uint price = _bankPrices?.Price(count + 1) ?? 0;
         for (int i = 0; i < 6; i++)

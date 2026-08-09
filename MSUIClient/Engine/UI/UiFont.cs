@@ -31,7 +31,7 @@ public static class UiFont
     /// <summary>The 1.12 UI face. GameFontNormal and every panel label use it.</summary>
     public const string FrizQt = @"Fonts\FRIZQT__.TTF";
 
-    /// <summary>Quest titles and the big headers. Not used yet; here so the path is recorded.</summary>
+    /// <summary>Quest titles and parchment mail text.</summary>
     public const string Morpheus = @"Fonts\MORPHEUS.TTF";
 
     /// <summary>Number/hotkey/chat face (Number*/ChatFont* font objects). See FontObjectLaw.</summary>

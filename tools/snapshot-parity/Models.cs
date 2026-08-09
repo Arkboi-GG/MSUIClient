@@ -138,6 +138,7 @@ internal sealed class FactReference
 {
     public string Id { get; set; } = "";
     public string EvidenceSha256 { get; set; } = "";
+    public string FileSha256 { get; set; } = "";
 }
 
 internal sealed class ValidationResult
@@ -175,11 +176,13 @@ internal sealed class ReviewPacket
 internal sealed class PacketClaim
 {
     public string Id { get; set; } = "";
+    public List<string> TraceIds { get; set; } = [];
     public ClaimVerdict Verdict { get; set; }
     public string Summary { get; set; } = "";
     public string Behavior { get; set; } = "";
     public string NegativeBehavior { get; set; } = "";
     public List<string> VerificationIds { get; set; } = [];
+    public string? DecisionId { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -203,6 +206,28 @@ internal enum PacketWritePolicy { Blocked, Port, Repair, Preserve }
 [JsonConverter(typeof(JsonStringEnumConverter))]
 internal enum PacketAuditStatus { Unreviewed, Reviewed, Implemented, Verified, Blocked }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum AcceptanceResult { Unreviewed, Pass, NotApplicable, Fail }
+
+internal sealed class AcceptanceCheckpoint
+{
+    public AcceptanceResult Result { get; set; } = AcceptanceResult.Unreviewed;
+    public string Summary { get; set; } = "";
+    public List<string> Evidence { get; set; } = [];
+    public List<string> ArtifactIds { get; set; } = [];
+}
+
+internal sealed class TraceDisposition
+{
+    public string TraceId { get; set; } = "";
+    public PacketClassification Classification { get; set; } = PacketClassification.Unreviewed;
+    public PacketWritePolicy WritePolicy { get; set; } = PacketWritePolicy.Blocked;
+    public string Summary { get; set; } = "";
+    public List<string> ChangedSymbols { get; set; } = [];
+    public List<string> PreservedSymbols { get; set; } = [];
+    public List<string> Evidence { get; set; } = [];
+}
+
 internal sealed class PacketAudit
 {
     public int SchemaVersion { get; set; } = Schema.Version;
@@ -216,6 +241,9 @@ internal sealed class PacketAudit
     public AuditChange Change { get; set; } = new();
     public AuditSection MsuiAfter { get; set; } = new();
     public List<string> Verification { get; set; } = [];
+    public List<string> VerificationArtifactIds { get; set; } = [];
+    public Dictionary<string, AcceptanceCheckpoint> Acceptance { get; set; } = [];
+    public List<TraceDisposition> TraceDispositions { get; set; } = [];
     public string? DecisionId { get; set; }
     public string Reviewer { get; set; } = "";
     public DateTimeOffset? ReviewedUtc { get; set; }
@@ -241,6 +269,103 @@ internal sealed class PacketWorkspaceValidation
     public int BlockedCount { get; set; }
 }
 
+internal sealed class PacketEvidenceIndex
+{
+    public int SchemaVersion { get; set; } = Schema.Version;
+    public string PairId { get; set; } = "";
+    public string PacketId { get; set; } = "";
+    public string TargetSnapshotId { get; set; } = "";
+    public DateTimeOffset GeneratedUtc { get; set; }
+    public List<PacketEvidenceFile> Files { get; set; } = [];
+}
+
+internal sealed class PacketEvidenceFile
+{
+    public string Path { get; set; } = "";
+    public long Length { get; set; }
+    public string Sha256 { get; set; } = "";
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum VerificationArtifactKind
+{
+    SourceEvidence,
+    Build,
+    DeterministicTest,
+    LiveProtocol,
+    UiDraw,
+    UiDiff,
+    ScreenshotReview,
+    InputTrace,
+    StateTrace,
+    WireTrace,
+    SoundTrace,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum VerificationArtifactResult { Pass, Fail }
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+internal enum FixtureProvenance { Live, PacketReplay, SyntheticStage, StaticReview }
+
+internal sealed class VerificationArtifactManifest
+{
+    public int SchemaVersion { get; set; } = Schema.Version;
+    public string PairId { get; set; } = "";
+    public string PacketId { get; set; } = "";
+    public string ReferenceSnapshotSha256 { get; set; } = "";
+    public string TargetSnapshotSha256 { get; set; } = "";
+    public DateTimeOffset GeneratedUtc { get; set; }
+    public List<VerificationArtifact> Artifacts { get; set; } = [];
+}
+
+internal sealed class VerificationArtifact
+{
+    public string Id { get; set; } = "";
+    public VerificationArtifactKind Kind { get; set; }
+    public VerificationArtifactResult Result { get; set; }
+    public string ScenarioId { get; set; } = "";
+    public FixtureProvenance Provenance { get; set; }
+    public string ToolPath { get; set; } = "";
+    public string ToolSha256 { get; set; } = "";
+    public int AssertionsPassed { get; set; }
+    public int AssertionsFailed { get; set; }
+    public string ResultFile { get; set; } = "";
+    public List<string> CheckpointIds { get; set; } = [];
+    public List<string> TraceIds { get; set; } = [];
+    public List<string> Files { get; set; } = [];
+}
+
+internal sealed class VerificationResultEnvelope
+{
+    public int SchemaVersion { get; set; } = Schema.Version;
+    public string Kind { get; set; } = "snapshot-parity-verification-result";
+    public string PairId { get; set; } = "";
+    public string PacketId { get; set; } = "";
+    public string ReferenceSnapshotSha256 { get; set; } = "";
+    public string TargetSnapshotSha256 { get; set; } = "";
+    public string ArtifactId { get; set; } = "";
+    public VerificationArtifactKind ArtifactKind { get; set; }
+    public VerificationArtifactResult Result { get; set; }
+    public string ScenarioId { get; set; } = "";
+    public FixtureProvenance Provenance { get; set; }
+    public string ToolPath { get; set; } = "";
+    public string ToolSha256 { get; set; } = "";
+    public int AssertionsPassed { get; set; }
+    public int AssertionsFailed { get; set; }
+    public string ProofFile { get; set; } = "";
+    public string ProofKind { get; set; } = "";
+    public string Reviewer { get; set; } = "";
+    public DateTimeOffset GeneratedUtc { get; set; }
+    public List<VerificationResultFile> Files { get; set; } = [];
+}
+
+internal sealed class VerificationResultFile
+{
+    public string Path { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+}
+
 internal sealed class MigrationReport
 {
     public int SchemaVersion { get; set; } = Schema.Version;
@@ -258,5 +383,6 @@ internal sealed class MigrationDowngrade
     public string ClaimId { get; set; } = "";
     public ClaimVerdict OldVerdict { get; set; }
     public ClaimVerdict NewVerdict { get; set; }
+    public string Reason { get; set; } = "";
     public List<string> UnmappedTargetFactIds { get; set; } = [];
 }

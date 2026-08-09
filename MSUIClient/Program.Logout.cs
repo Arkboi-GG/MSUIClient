@@ -19,6 +19,16 @@ public sealed partial class GameLoop
 
     private bool LogoutUiActive => _logoutAwaitingResponse || _logoutDialog != LogoutDialogKind.None;
 
+    private void SetLogoutDialog(LogoutDialogKind next)
+    {
+        bool wasVisible = _logoutDialog != LogoutDialogKind.None;
+        bool willBeVisible = next != LogoutDialogKind.None;
+        if (_logoutDialog == next) return;
+        _logoutDialog = next;
+        string cue = GameMenuUiLaw.PopupVisibilitySound(wasVisible, willBeVisible);
+        if (cue.Length > 0) PlayUiSound(cue);
+    }
+
     private void RequestLogout(bool quitting)
     {
         if (LogoutUiActive) return;
@@ -50,18 +60,20 @@ public sealed partial class GameLoop
             case LogoutResponseAction.Refused:
                 _logoutAwaitingResponse = false;
                 _logoutQuitting = false;
+                SetLogoutDialog(LogoutDialogKind.None);
                 ShowUiError(LogoutUiLaw.RefusedText);
                 break;
             case LogoutResponseAction.AwaitCompletion:
                 // No popup. SMSG_LOGOUT_COMPLETE is already on its way.
+                SetLogoutDialog(LogoutDialogKind.None);
                 _logoutAwaitingResponse = true;
                 break;
             case LogoutResponseAction.ShowCampCountdown:
             case LogoutResponseAction.ShowQuitCountdown:
                 _logoutAwaitingResponse = false;
-                _logoutDialog = action == LogoutResponseAction.ShowQuitCountdown
+                SetLogoutDialog(action == LogoutResponseAction.ShowQuitCountdown
                     ? LogoutDialogKind.Quit
-                    : LogoutDialogKind.Camp;
+                    : LogoutDialogKind.Camp);
                 _logoutDeadline = Stopwatch.GetTimestamp() +
                     (long)(LogoutUiLaw.CountdownSeconds * Stopwatch.Frequency);
                 break;
@@ -72,7 +84,7 @@ public sealed partial class GameLoop
     {
         _logoutAwaitingResponse = false;
         _logoutQuitting = false;
-        _logoutDialog = LogoutDialogKind.None;
+        SetLogoutDialog(LogoutDialogKind.None);
         _logoutDeadline = 0;
         Console.WriteLine("[logout] server cancelled countdown");
     }
@@ -80,7 +92,7 @@ public sealed partial class GameLoop
     private void CancelLogoutCountdown()
     {
         if (_logoutDialog == LogoutDialogKind.None) return;
-        _logoutDialog = LogoutDialogKind.None;
+        SetLogoutDialog(LogoutDialogKind.None);
         _logoutDeadline = 0;
         _logoutAwaitingResponse = false;
         _logoutQuitting = false;
@@ -100,7 +112,7 @@ public sealed partial class GameLoop
         bool quit = _logoutQuitting;
         _logoutAwaitingResponse = false;
         _logoutQuitting = false;
-        _logoutDialog = LogoutDialogKind.None;
+        SetLogoutDialog(LogoutDialogKind.None);
         _logoutDeadline = 0;
         Console.WriteLine($"[logout] complete (quitting={quit})");
         if (quit)
@@ -117,6 +129,7 @@ public sealed partial class GameLoop
         _entities.Clear();
         _combat.Clear();
         _actions.Clear();
+        ResetPetActionBar();
         ResetPlayerAuras();
         ResetTargeting();
         ResetParty();
@@ -128,6 +141,7 @@ public sealed partial class GameLoop
         ResetHearth();
         ResetTaxi();
         ResetGossip();
+        ResetQuestSession(clearStatusStore: true);
         ResetMail();
         ResetAuction();
         ResetGuild();
@@ -163,7 +177,7 @@ public sealed partial class GameLoop
         {
             // The local timeout only narrates the server's timer. It must never manufacture a
             // completion or send a cancellation after reaching zero.
-            _logoutDialog = LogoutDialogKind.None;
+            SetLogoutDialog(LogoutDialogKind.None);
             _logoutDeadline = 0;
             _logoutAwaitingResponse = true;
             return;
@@ -200,7 +214,7 @@ public sealed partial class GameLoop
         {
             if (quitting)
             {
-                _logoutDialog = LogoutDialogKind.None;
+                SetLogoutDialog(LogoutDialogKind.None);
                 _logoutDeadline = 0;
                 _quitRequested = true;
             }

@@ -275,13 +275,19 @@ public sealed class WorldSession : IDisposable
     public void SetSelection(ulong guid) => SendFullGuid(Op.CMSG_SET_SELECTION, guid);
     public void Inspect(ulong guid) => SendFullGuid(Op.CMSG_INSPECT, guid);
     public void PetAction(ulong petGuid, uint packedAction, ulong targetGuid)
+        => SendPacket((ushort)Op.CMSG_PET_ACTION,
+            BuildPetActionBody(petGuid, packedAction, targetGuid));
+    public static byte[] BuildPetActionBody(ulong petGuid, uint packedAction, ulong targetGuid)
     {
         var w = new PacketWriter(20);
         w.WriteU64(petGuid); w.WriteU32(packedAction); w.WriteU64(targetGuid);
-        SendPacket((ushort)Op.CMSG_PET_ACTION, w.AsSpan());
+        return w.ToArray();
     }
     public void PetStopAttack(ulong petGuid) => SendFullGuid(Op.CMSG_PET_STOP_ATTACK, petGuid);
     public void PetSetAction(ulong petGuid, IReadOnlyList<(uint Position, uint Packed)> entries)
+        => SendPacket((ushort)Op.CMSG_PET_SET_ACTION, BuildPetSetActionBody(petGuid, entries));
+    public static byte[] BuildPetSetActionBody(ulong petGuid,
+        IReadOnlyList<(uint Position, uint Packed)> entries)
     {
         if (entries.Count is < 1 or > 2)
             throw new ArgumentOutOfRangeException(nameof(entries), "pet set-action carries one or two entries");
@@ -289,7 +295,15 @@ public sealed class WorldSession : IDisposable
         w.WriteU64(petGuid);
         foreach ((uint position, uint packed) in entries)
         { w.WriteU32(position); w.WriteU32(packed); }
-        SendPacket((ushort)Op.CMSG_PET_SET_ACTION, w.AsSpan());
+        return w.ToArray();
+    }
+    public void PetCancelAura(ulong petGuid, uint spellId)
+        => SendPacket((ushort)Op.CMSG_PET_CANCEL_AURA, BuildPetCancelAuraBody(petGuid, spellId));
+    public static byte[] BuildPetCancelAuraBody(ulong petGuid, uint spellId)
+    {
+        var w = new PacketWriter(12);
+        w.WriteU64(petGuid); w.WriteU32(spellId);
+        return w.ToArray();
     }
     public void ZoneUpdate(uint zoneId) =>
         SendPacket((ushort)Op.CMSG_ZONEUPDATE, BuildZoneUpdateBody(zoneId));
@@ -393,12 +407,29 @@ public sealed class WorldSession : IDisposable
     public void CancelAutoRepeat()
         => SendPacket((ushort)Op.CMSG_CANCEL_AUTO_REPEAT_SPELL, ReadOnlySpan<byte>.Empty);
 
+    /// <summary>
+    /// Abandon one complete skill line. There is no acknowledgement packet; the authoritative
+    /// removal returns later through PLAYER_SKILL_INFO field updates.
+    /// </summary>
+    public void UnlearnSkill(uint skillId)
+        => SendPacket((ushort)Op.CMSG_UNLEARN_SKILL, BuildUnlearnSkillBody(skillId));
+
+    public static byte[] BuildUnlearnSkillBody(uint skillId)
+    {
+        var w = new PacketWriter(4);
+        w.WriteU32(skillId);
+        return w.ToArray();
+    }
+
     public void SetActionButton(byte wireSlot, uint packed)
+        => SendPacket((ushort)Op.CMSG_SET_ACTION_BUTTON, BuildSetActionButtonBody(wireSlot, packed));
+
+    public static byte[] BuildSetActionButtonBody(byte wireSlot, uint packed)
     {
         var w = new PacketWriter(5);
         w.WriteU8(wireSlot);
         w.WriteU32(packed);
-        SendPacket((ushort)Op.CMSG_SET_ACTION_BUTTON, w.AsSpan());
+        return w.ToArray();
     }
 
     public void SendMovement(Op moveOp, MovementInfo info)
@@ -472,16 +503,123 @@ public sealed class WorldSession : IDisposable
     }
     public void DeleteIgnore(ulong guid) => SendFullGuid(Op.CMSG_DEL_IGNORE, guid);
     public void GroupInvite(string name)
-    {
-        var w = new PacketWriter(name.Length + 1); w.WriteCString(name);
-        SendPacket((ushort)Op.CMSG_GROUP_INVITE, w.AsSpan());
-    }
+        => SendPacket((ushort)Op.CMSG_GROUP_INVITE, BuildGroupInviteBody(name));
     public void GroupAccept()
-        => SendPacket((ushort)Op.CMSG_GROUP_ACCEPT, ReadOnlySpan<byte>.Empty);
+        => SendPacket((ushort)Op.CMSG_GROUP_ACCEPT, BuildGroupAcceptBody());
     public void GroupDecline()
-        => SendPacket((ushort)Op.CMSG_GROUP_DECLINE, ReadOnlySpan<byte>.Empty);
+        => SendPacket((ushort)Op.CMSG_GROUP_DECLINE, BuildGroupDeclineBody());
+    public void GroupUninvite(string name)
+        => SendPacket((ushort)Op.CMSG_GROUP_UNINVITE, BuildGroupUninviteBody(name));
+    public void GroupUninviteGuid(ulong guid)
+        => SendPacket((ushort)Op.CMSG_GROUP_UNINVITE_GUID, BuildGroupUninviteGuidBody(guid));
+    public void GroupSetLeader(ulong guid)
+        => SendPacket((ushort)Op.CMSG_GROUP_SET_LEADER, BuildGroupSetLeaderBody(guid));
+    public void GroupLootMethod(uint method, ulong lootMaster, uint threshold)
+        => SendPacket((ushort)Op.CMSG_LOOT_METHOD,
+            BuildGroupLootMethodBody(method, lootMaster, threshold));
+    public void GroupDisband()
+        => SendPacket((ushort)Op.CMSG_GROUP_DISBAND, BuildGroupDisbandBody());
     public void RequestPartyMemberStats(ulong guid)
-        => SendFullGuid(Op.CMSG_REQUEST_PARTY_MEMBER_STATS, guid);
+        => SendPacket((ushort)Op.CMSG_REQUEST_PARTY_MEMBER_STATS,
+            BuildRequestPartyMemberStatsBody(guid));
+    public void GroupChangeSubGroup(string name, byte groupNumber)
+        => SendPacket((ushort)Op.CMSG_GROUP_CHANGE_SUB_GROUP,
+            BuildGroupChangeSubGroupBody(name, groupNumber));
+    public void GroupSwapSubGroup(string name, string swapWith)
+        => SendPacket((ushort)Op.CMSG_GROUP_SWAP_SUB_GROUP,
+            BuildGroupSwapSubGroupBody(name, swapWith));
+    public void GroupRaidConvert()
+        => SendPacket((ushort)Op.CMSG_GROUP_RAID_CONVERT, BuildGroupRaidConvertBody());
+    public void GroupAssistantLeader(ulong guid, bool grant)
+        => SendPacket((ushort)Op.CMSG_GROUP_ASSISTANT_LEADER,
+            BuildGroupAssistantLeaderBody(guid, grant));
+    public void GroupMinimapPing(float x, float y)
+        => SendPacket((ushort)Op.MSG_MINIMAP_PING, BuildGroupMinimapPingBody(x, y));
+    public void SetRaidTarget(byte icon, ulong guid)
+        => SendPacket((ushort)Op.MSG_RAID_TARGET_UPDATE, BuildRaidTargetSetBody(icon, guid));
+    public void RequestRaidTargets()
+        => SendPacket((ushort)Op.MSG_RAID_TARGET_UPDATE, BuildRaidTargetRequestBody());
+    public void StartReadyCheck()
+        => SendPacket((ushort)Op.MSG_RAID_READY_CHECK, BuildReadyCheckStartBody());
+    public void AnswerReadyCheck(bool ready)
+        => SendPacket((ushort)Op.MSG_RAID_READY_CHECK, BuildReadyCheckAnswerBody(ready));
+
+    public static byte[] BuildGroupInviteBody(string name) => BuildGroupNameBody(name);
+    public static byte[] BuildGroupAcceptBody() => [];
+    public static byte[] BuildGroupDeclineBody() => [];
+    public static byte[] BuildGroupUninviteBody(string name) => BuildGroupNameBody(name);
+    public static byte[] BuildGroupUninviteGuidBody(ulong guid) => BuildGroupGuidBody(guid);
+    public static byte[] BuildGroupSetLeaderBody(ulong guid) => BuildGroupGuidBody(guid);
+    public static byte[] BuildRequestPartyMemberStatsBody(ulong guid) => BuildGroupGuidBody(guid);
+    public static byte[] BuildGroupDisbandBody() => [];
+    public static byte[] BuildGroupRaidConvertBody() => [];
+    public static byte[] BuildReadyCheckStartBody() => [];
+
+    public static byte[] BuildGroupLootMethodBody(uint method, ulong lootMaster, uint threshold)
+    {
+        var w = new PacketWriter(16);
+        w.WriteU32(method);
+        w.WriteU64(lootMaster);
+        w.WriteU32(threshold);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildGroupChangeSubGroupBody(string name, byte groupNumber)
+    {
+        var w = new PacketWriter(name.Length + 2);
+        w.WriteCString(name);
+        w.WriteU8(groupNumber);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildGroupSwapSubGroupBody(string name, string swapWith)
+    {
+        var w = new PacketWriter(name.Length + swapWith.Length + 2);
+        w.WriteCString(name);
+        w.WriteCString(swapWith);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildGroupAssistantLeaderBody(ulong guid, bool grant)
+    {
+        var w = new PacketWriter(9);
+        w.WriteU64(guid);
+        w.WriteU8(grant ? (byte)1 : (byte)0);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildGroupMinimapPingBody(float x, float y)
+    {
+        var w = new PacketWriter(8);
+        w.WriteF32(x);
+        w.WriteF32(y);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildRaidTargetSetBody(byte icon, ulong guid)
+    {
+        var w = new PacketWriter(9);
+        w.WriteU8(icon);
+        w.WriteU64(guid);
+        return w.ToArray();
+    }
+
+    public static byte[] BuildRaidTargetRequestBody() => [0xff];
+    public static byte[] BuildReadyCheckAnswerBody(bool ready) => [ready ? (byte)1 : (byte)0];
+
+    private static byte[] BuildGroupNameBody(string name)
+    {
+        var w = new PacketWriter(name.Length + 1);
+        w.WriteCString(name);
+        return w.ToArray();
+    }
+
+    private static byte[] BuildGroupGuidBody(ulong guid)
+    {
+        var w = new PacketWriter(8);
+        w.WriteU64(guid);
+        return w.ToArray();
+    }
     public void InitiateTrade(ulong guid) => SendFullGuid(Op.CMSG_INITIATE_TRADE, guid);
     public void BeginTrade() => SendPacket((ushort)Op.CMSG_BEGIN_TRADE, ReadOnlySpan<byte>.Empty);
     public void AcceptTrade()
@@ -740,7 +878,12 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_NPC_TEXT_QUERY, w.AsSpan());
     }
 
-    public void ListInventory(ulong guid) => SendFullGuid(Op.CMSG_LIST_INVENTORY, guid);
+    public void ListInventory(ulong guid)
+        => SendPacket((ushort)Op.CMSG_LIST_INVENTORY, BuildListInventoryBody(guid));
+    public static byte[] BuildListInventoryBody(ulong guid)
+    {
+        var w = new PacketWriter(8); w.WriteU64(guid); return w.ToArray();
+    }
     public void BuyItem(ulong vendorGuid, uint itemId, byte count)
         => SendPacket((ushort)Op.CMSG_BUY_ITEM, BuildBuyItemBody(vendorGuid, itemId, count));
     public static byte[] BuildBuyItemBody(ulong vendorGuid, uint itemId, byte count)
@@ -749,14 +892,28 @@ public sealed class WorldSession : IDisposable
         w.WriteU8(count); w.WriteU8(0); return w.ToArray();
     }
     public void SellItem(ulong vendorGuid, ulong itemGuid, byte count)
+        => SendPacket((ushort)Op.CMSG_SELL_ITEM,
+            BuildSellItemBody(vendorGuid, itemGuid, count));
+    public static byte[] BuildSellItemBody(ulong vendorGuid, ulong itemGuid, byte count)
     {
         var w = new PacketWriter(17); w.WriteU64(vendorGuid); w.WriteU64(itemGuid);
-        w.WriteU8(count); SendPacket((ushort)Op.CMSG_SELL_ITEM, w.AsSpan());
+        w.WriteU8(count); return w.ToArray();
     }
     public void BuybackItem(ulong vendorGuid, uint slot)
+        => SendPacket((ushort)Op.CMSG_BUYBACK_ITEM,
+            BuildBuybackItemBody(vendorGuid, slot));
+    public static byte[] BuildBuybackItemBody(ulong vendorGuid, uint absoluteSlot)
     {
-        var w = new PacketWriter(12); w.WriteU64(vendorGuid); w.WriteU32(slot);
-        SendPacket((ushort)Op.CMSG_BUYBACK_ITEM, w.AsSpan());
+        var w = new PacketWriter(12); w.WriteU64(vendorGuid); w.WriteU32(absoluteSlot);
+        return w.ToArray();
+    }
+    public void RepairItem(ulong vendorGuid, ulong itemGuid)
+        => SendPacket((ushort)Op.CMSG_REPAIR_ITEM,
+            BuildRepairItemBody(vendorGuid, itemGuid));
+    public static byte[] BuildRepairItemBody(ulong vendorGuid, ulong itemGuid)
+    {
+        var w = new PacketWriter(16); w.WriteU64(vendorGuid); w.WriteU64(itemGuid);
+        return w.ToArray();
     }
 
     public void UseItem(byte bag, byte slot, byte spellSlot)

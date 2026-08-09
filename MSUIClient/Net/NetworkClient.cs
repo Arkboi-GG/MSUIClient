@@ -277,6 +277,8 @@ public sealed class NetworkClient : IDisposable
     public bool PetStopAttack(ulong petGuid) => InWorld(s => s.PetStopAttack(petGuid));
     public bool PetSetAction(ulong petGuid, IReadOnlyList<(uint Position, uint Packed)> entries) =>
         InWorld(s => s.PetSetAction(petGuid, entries));
+    public bool PetCancelAura(ulong petGuid, uint spellId) =>
+        InWorld(s => s.PetCancelAura(petGuid, spellId));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
     public Action<Op, ulong>? CombatSendObserved { get; set; }
     public void AttackSwing(ulong guid)
@@ -332,6 +334,11 @@ public sealed class NetworkClient : IDisposable
         try { _session.CancelAura(spellId); return true; } catch { return false; }
     }
     public void CancelAutoRepeat() { try { _session?.CancelAutoRepeat(); } catch { } }
+    public bool UnlearnSkill(uint skillId)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.UnlearnSkill(skillId); return true; } catch { return false; }
+    }
     public void SetActionButton(byte wireSlot, uint packed) { try { _session?.SetActionButton(wireSlot, packed); } catch { } }
     public void CreatureQuery(uint entry, ulong guid) { try { _session?.CreatureQuery(entry, guid); } catch { } }
     public void GameObjectQuery(uint entry, ulong guid) { try { _session?.GameObjectQuery(entry, guid); } catch { } }
@@ -424,6 +431,7 @@ public sealed class NetworkClient : IDisposable
     public bool BuyItem(ulong vendor, uint item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuyItem(vendor,item,count); return true; } catch { return false; } }
     public bool SellItem(ulong vendor, ulong item, byte count) { if (State!=NetState.InWorld||_session is null) return false; try { _session.SellItem(vendor,item,count); return true; } catch { return false; } }
     public bool BuybackItem(ulong vendor, uint slot) { if (State!=NetState.InWorld||_session is null) return false; try { _session.BuybackItem(vendor,slot); return true; } catch { return false; } }
+    public bool RepairItem(ulong vendor, ulong item) => InWorld(s => s.RepairItem(vendor, item));
     public void UseItem(byte bag, byte slot, byte spellSlot) { try { _session?.UseItem(bag, slot, spellSlot); } catch { } }
     public bool AutoEquipItem(byte bag, byte slot) => InWorld(s => s.AutoEquipItem(bag, slot));
     public bool SetAmmo(uint entry) => InWorld(s => s.SetAmmo(entry));
@@ -442,7 +450,25 @@ public sealed class NetworkClient : IDisposable
     public bool GroupInvite(string name) => InWorld(s => s.GroupInvite(name));
     public bool GroupAccept() => InWorld(s => s.GroupAccept());
     public bool GroupDecline() => InWorld(s => s.GroupDecline());
+    public bool GroupUninvite(string name) => InWorld(s => s.GroupUninvite(name));
+    public bool GroupUninviteGuid(ulong guid) => InWorld(s => s.GroupUninviteGuid(guid));
+    public bool GroupSetLeader(ulong guid) => InWorld(s => s.GroupSetLeader(guid));
+    public bool GroupLootMethod(uint method, ulong lootMaster, uint threshold) =>
+        InWorld(s => s.GroupLootMethod(method, lootMaster, threshold));
+    public bool GroupDisband() => InWorld(s => s.GroupDisband());
     public bool RequestPartyMemberStats(ulong guid) => InWorld(s => s.RequestPartyMemberStats(guid));
+    public bool GroupChangeSubGroup(string name, byte groupNumber) =>
+        InWorld(s => s.GroupChangeSubGroup(name, groupNumber));
+    public bool GroupSwapSubGroup(string name, string swapWith) =>
+        InWorld(s => s.GroupSwapSubGroup(name, swapWith));
+    public bool GroupRaidConvert() => InWorld(s => s.GroupRaidConvert());
+    public bool GroupAssistantLeader(ulong guid, bool grant) =>
+        InWorld(s => s.GroupAssistantLeader(guid, grant));
+    public bool GroupMinimapPing(float x, float y) => InWorld(s => s.GroupMinimapPing(x, y));
+    public bool SetRaidTarget(byte icon, ulong guid) => InWorld(s => s.SetRaidTarget(icon, guid));
+    public bool RequestRaidTargets() => InWorld(s => s.RequestRaidTargets());
+    public bool StartReadyCheck() => InWorld(s => s.StartReadyCheck());
+    public bool AnswerReadyCheck(bool ready) => InWorld(s => s.AnswerReadyCheck(ready));
     public bool InitiateTrade(ulong guid) => InWorld(s => s.InitiateTrade(guid));
     public bool BeginTrade() => InWorld(s => s.BeginTrade());
     public bool AcceptTrade() => InWorld(s => s.AcceptTrade());

@@ -5,6 +5,8 @@ using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Spells;
+using Silk.NET.Input;
 
 namespace MSUIClient;
 
@@ -46,6 +48,11 @@ public sealed partial class GameLoop
     private bool _liveTeleportSent;
     private double _liveTeleportSentAt;
     private readonly HashSet<string> _liveHeld = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<Key> _liveInputHeld = [];
+    private long _liveSoundMarkSequence;
+    private int _liveInspectWireMarkCount;
+    private int _liveQuestWireMarkCount;
+    private long _liveSoundProtocolStartSequence;
     private List<string>? _liveSteps;
     private int _liveStep;
     private double _liveWaitUntil;
@@ -130,6 +137,8 @@ public sealed partial class GameLoop
                 Path.Combine(_config.RepoRoot,_liveRunOptions.Protocol!));
             _liveSteps=File.ReadLines(path).Select(x=>x.Split('#')[0].Trim()).Where(x=>x.Length>0).ToList();
             _liveStamp=DateTime.Now.ToString("yyyyMMdd-HHmmss",CultureInfo.InvariantCulture);
+            _liveSoundProtocolStartSequence = _spellSounds?.JournalSnapshot().LastOrDefault()?.Sequence ?? 0;
+            _multiActionProtocolFixtureStaged = false;
             _liveLog.Add($"START protocol={path}");
         }
         double now=NowSeconds();
@@ -196,7 +205,47 @@ public sealed partial class GameLoop
                     break;
                 case "bags":
                     string[] bags = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                    if (bags.Length == 2 && bags[1].Equals("backpack", StringComparison.OrdinalIgnoreCase))
+                    if (bags.Length == 2 && bags[1].Equals("reset", StringComparison.OrdinalIgnoreCase) &&
+                        _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity resetPlayer))
+                    {
+                        SetBagWindowOpen(0, false, playSound: false);
+                        for (int container = 1; container <= 4; container++)
+                            SetBagWindowOpen(container, false, playSound: false);
+                        SetBagWindowOpen(InventoryUiLaw.KeyringContainer, false, playSound: false);
+                        bool pass = !_backpackOpen && !_equippedBagOpen.Any(x => x) && !_keyringOpen;
+                        EmitInterface("inventory", "bag-input-setup", pass ? "PASS" : "FAIL",
+                            resetPlayer.Guid, "normalBags=closed;keyring=closed;sounds=suppressed");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("assert-backpack", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool pass = _backpackOpen && !_equippedBagOpen.Any(x => x);
+                        EmitInterface("inventory", "backpack-binding", pass ? "PASS" : "FAIL",
+                            _net?.PlayerGuid ?? 0,
+                            $"productionInput=true;backpack={_backpackOpen};equippedOpen={_equippedBagOpen.Count(x => x)}");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("assert-all", StringComparison.OrdinalIgnoreCase) &&
+                             _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity allPlayer))
+                    {
+                        bool[] exists = Enumerable.Range(1, 4)
+                            .Select(container => allPlayer.Fields.PlayerInventorySlot(18 + container) != 0).ToArray();
+                        bool statesMatch = Enumerable.Range(0, 4).All(i => _equippedBagOpen[i] == exists[i]);
+                        bool pass = _backpackOpen && exists.Any(x => x) && statesMatch;
+                        EmitInterface("inventory", "all-bags-binding", pass ? "PASS" : "FAIL",
+                            allPlayer.Guid,
+                            $"productionInput=true;backpack={_backpackOpen};existing={string.Join('|', exists.Select(x => x ? 1 : 0))};open={string.Join('|', _equippedBagOpen.Select(x => x ? 1 : 0))}");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("assert-closed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bool pass = !_backpackOpen && !_equippedBagOpen.Any(x => x);
+                        EmitInterface("inventory", "bag-binding-closed", pass ? "PASS" : "FAIL",
+                            _net?.PlayerGuid ?? 0,
+                            $"productionInput=true;backpack={_backpackOpen};equippedOpen={_equippedBagOpen.Count(x => x)}");
+                        Log(pass, line);
+                    }
+                    else if (bags.Length == 2 && bags[1].Equals("backpack", StringComparison.OrdinalIgnoreCase))
                     {
                         CloseAllBagWindows();
                         long before = _spellSounds?.Plays ?? 0;
@@ -226,6 +275,32 @@ public sealed partial class GameLoop
                     { SetBagWindowOpen(InventoryUiLaw.KeyringContainer, true); Log(_keyringOpen, line); }
                     else if (bags.Length == 2 && bags[1].Equals("close", StringComparison.OrdinalIgnoreCase))
                         Log(CloseAllBagWindows(), line);
+                    else Log(false, $"unknown {line}");
+                    break;
+                case "sound":
+                    string[] sound = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (sound.Length == 2 && sound[1].Equals("mark", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _liveSoundMarkSequence = _spellSounds?.JournalSnapshot().LastOrDefault()?.Sequence ?? 0;
+                        Log(true, $"{line} sequence={_liveSoundMarkSequence}");
+                    }
+                    else if (sound.Length is 4 or 5 && sound[1].Equals("assert", StringComparison.OrdinalIgnoreCase) &&
+                             int.TryParse(sound[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int expectedSounds))
+                    {
+                        IReadOnlyList<SpellSoundSystem.SoundPlayJournalEntry> events =
+                            _spellSounds?.JournalSnapshot().Where(x => x.Sequence > _liveSoundMarkSequence).ToArray() ?? [];
+                        string expectedCue = sound[3];
+                        string expectedCategory = sound.Length == 5 ? sound[4] : "ui.inventory";
+                        bool pass = events.Count == expectedSounds && events.All(x =>
+                            x.Category.Equals(expectedCategory, StringComparison.Ordinal) &&
+                            x.RequestedCue.Equals(expectedCue, StringComparison.OrdinalIgnoreCase));
+                        string actual = events.Count == 0 ? "none" : string.Join('|', events.Select(x =>
+                            $"{x.Sequence}:{x.Category}:{x.RequestedCue}:{x.SoundId}:{x.ResolvedPath}:owner=0x{x.Owner:X16}"));
+                        EmitInterface("ui-sound", "sound-contract", pass ? "PASS" : "FAIL",
+                            _net?.PlayerGuid ?? 0,
+                            $"after={_liveSoundMarkSequence};expected={expectedSounds}:{expectedCue}:{expectedCategory};actual={actual}");
+                        Log(pass, $"{line} actual={actual}");
+                    }
                     else Log(false, $"unknown {line}");
                     break;
                 case "wait": _liveWaitUntil=now+double.Parse(p[1],CultureInfo.InvariantCulture); Log(true,line); break;
@@ -343,7 +418,92 @@ public sealed partial class GameLoop
                     else Log(false, $"unknown {line}");
                     break;
                 case "quest":
-                    if (p[1].Equals("status", StringComparison.OrdinalIgnoreCase))
+                    string[] quest = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (quest.Length == 2 && quest[1].Equals("mark-wire", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _liveQuestWireMarkCount = _wire.SnapshotDetailed().Count(x =>
+                            x.Packet.Outgoing && IsQuestProtocolOpcode(x.Packet.Opcode));
+                        EmitInterface("quest", "wire-mark", "PASS", QuestGiverGuid(),
+                            $"outgoingQuestBaseline={_liveQuestWireMarkCount}");
+                        Log(true, $"{line} outgoingQuestBaseline={_liveQuestWireMarkCount}");
+                    }
+                    else if (quest.Length == 4 &&
+                             quest[1].Equals("assert-wire", StringComparison.OrdinalIgnoreCase) &&
+                             int.TryParse(quest[3], NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out int expectedQuestWire) &&
+                             TryQuestWireSpec(quest[2], out ushort expectedQuestOpcode,
+                                 out int expectedQuestPayloadSize))
+                    {
+                        WirePacketDetail[] allQuestPackets = _wire.SnapshotDetailed().Where(x =>
+                            x.Packet.Outgoing && IsQuestProtocolOpcode(x.Packet.Opcode)).ToArray();
+                        int delta = allQuestPackets.Length - _liveQuestWireMarkCount;
+                        WirePacketDetail[] newQuestPackets = delta > 0 && delta <= allQuestPackets.Length
+                            ? allQuestPackets[^delta..] : [];
+                        bool pass = delta == expectedQuestWire && newQuestPackets.All(x =>
+                            x.Packet.Opcode == expectedQuestOpcode &&
+                            x.Packet.Size == expectedQuestPayloadSize &&
+                            x.Prefix.Length == expectedQuestPayloadSize);
+                        string actual = newQuestPackets.Length == 0 ? "none" : string.Join('|',
+                            newQuestPackets.Select(x =>
+                                $"{x.Packet.OpcodeName}:{x.Packet.Size}:{Convert.ToHexString(x.Prefix)}"));
+                        EmitInterface("quest", "wire-contract", pass ? "PASS" : "FAIL",
+                            QuestGiverGuid(),
+                            $"expected={expectedQuestWire}:{WireRing.NameFor(expectedQuestOpcode)}:" +
+                            $"{expectedQuestPayloadSize};actual={actual}");
+                        Log(pass, $"{line} actual={actual}");
+                    }
+                    else if (quest.Length == 3 &&
+                             quest[1].Equals("assert-panel", StringComparison.OrdinalIgnoreCase) &&
+                             Enum.TryParse(quest[2], true, out QuestNpcPanel expectedPanel))
+                    {
+                        QuestNpcPanel actualPanel = QuestNpcPanelNow();
+                        bool pass = actualPanel == expectedPanel;
+                        EmitInterface("quest", "panel-state", pass ? "PASS" : "FAIL",
+                            QuestGiverGuid(), $"expected={expectedPanel};actual={actualPanel}");
+                        Log(pass, $"{line} actual={actualPanel}");
+                    }
+                    else if (quest.Length == 3 &&
+                             quest[1].Equals("assert-giver-kind", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ulong giver = QuestGiverGuid();
+                        string actualKind = giver == 0 ? "none" :
+                            GuidInfo.IsItem(giver) ? "item" : "world-unit";
+                        bool pass = actualKind.Equals(quest[2], StringComparison.OrdinalIgnoreCase);
+                        EmitInterface("quest", "giver-kind", pass ? "PASS" : "FAIL", giver,
+                            $"expected={quest[2]};actual={actualKind}");
+                        Log(pass, $"{line} actual={actualKind};giver=0x{giver:X16}");
+                    }
+                    else if (quest.Length == 4 &&
+                             quest[1].Equals("assert-greeting-counts", StringComparison.OrdinalIgnoreCase) &&
+                             int.TryParse(quest[2], NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out int expectedActive) &&
+                             int.TryParse(quest[3], NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out int expectedAvailable))
+                    {
+                        int active = _questList?.Quests.Count(x =>
+                            QuestFrameUiLaw.GreetingPool(x.Icon) == QuestGreetingPool.Active) ?? 0;
+                        int available = _questList?.Quests.Count(x =>
+                            QuestFrameUiLaw.GreetingPool(x.Icon) == QuestGreetingPool.Available) ?? 0;
+                        bool pass = active == expectedActive && available == expectedAvailable;
+                        EmitInterface("quest", "greeting-split", pass ? "PASS" : "FAIL",
+                            QuestGiverGuid(),
+                            $"expected={expectedActive}|{expectedAvailable};actual={active}|{available}");
+                        Log(pass, $"{line} actual={active}|{available}");
+                    }
+                    else if (quest.Length == 3 &&
+                             quest[1].Equals("assert-completable", StringComparison.OrdinalIgnoreCase) &&
+                             bool.TryParse(quest[2], out bool expectedCompletable))
+                    {
+                        bool actualCompletable = _questRequestItems?.Completable == true;
+                        bool pass = _questRequestItems is not null &&
+                            actualCompletable == expectedCompletable;
+                        EmitInterface("quest", "progress-completable", pass ? "PASS" : "FAIL",
+                            QuestGiverGuid(),
+                            $"expected={expectedCompletable};actual={actualCompletable};" +
+                            $"panel={QuestNpcPanelNow()}");
+                        Log(pass, $"{line} actual={actualCompletable};panel={QuestNpcPanelNow()}");
+                    }
+                    else if (p[1].Equals("status", StringComparison.OrdinalIgnoreCase))
                         Log(RequestQuestStatus(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
                     else if (p[1].Equals("hello", StringComparison.OrdinalIgnoreCase))
                         Log(RequestQuestHello(_selectionGuid), $"{line} guid=0x{_selectionGuid:X16}");
@@ -470,28 +630,34 @@ public sealed partial class GameLoop
                             out uint stagedSpell))
                     {
                         _actions.Set(stagedSlot, new ActionSlot(ActionSlot.Spell, stagedSpell));
-                        Log(true, line);
+                        _multiActionProtocolFixtureStaged = true;
+                        Log(true, $"{line} provenance=explicit-live-protocol-fixture");
                     }
                     else Log(false, $"unknown {line}");
                     break;
                 case "action-grid":
                     if (p[1].Equals("show", StringComparison.OrdinalIgnoreCase))
-                    { _draggingSpellId = 1459; Log(true, line); }
+                    {
+                        _draggingSpellId = 1459;
+                        _multiActionProtocolFixtureStaged = true;
+                        Log(true, $"{line} provenance=explicit-live-protocol-fixture");
+                    }
                     else if (p[1].Equals("hide", StringComparison.OrdinalIgnoreCase))
-                    { _draggingSpellId = 0; Log(true, line); }
+                    {
+                        _draggingSpellId = 0;
+                        _multiActionProtocolFixtureStaged = true;
+                        Log(true, $"{line} provenance=explicit-live-protocol-fixture");
+                    }
                     else Log(false, $"unknown {line}");
                     break;
                 case "party-stage":
-                    Log(StagePartyFrameProof(), line);
+                    Log(false, "party-stage rejected: Party proof requires observed wire/runtime state; no state mutated");
                     break;
                 case "party-invite-stage":
-                    StagePartyInviteProof(line.Length > "party-invite-stage".Length
-                        ? line["party-invite-stage".Length..].Trim() : "Clinical Tester");
-                    Log(true, line);
+                    Log(false, "party-invite-stage rejected: Party invite proof requires an inbound invitation; no state mutated");
                     break;
                 case "party-clear":
-                    ResetParty();
-                    Log(true, line);
+                    Log(false, "party-clear rejected: command cannot erase authenticated roster/invite state; no state mutated");
                     break;
                 case "bank":
                     if (p[1].Equals("open", StringComparison.OrdinalIgnoreCase)) Log(RequestBank(_selectionGuid), line);
@@ -637,6 +803,81 @@ public sealed partial class GameLoop
                         _ => false,
                     };
                     Log(opened, line);
+                    break;
+                case "game-menu":
+                    string[] gameMenu = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    bool gameMenuPass = gameMenu.Length == 2 &&
+                        (gameMenu[1].ToLowerInvariant() switch
+                        {
+                            "assert-open" => _settingsOpen && _menuPage == MenuPage.GameMenu,
+                            "assert-closed" => !_settingsOpen && !_settingsPopupCloseRequested,
+                            "assert-player-panels-closed" => !HasPlayerPanelForEscape() && !_loot.IsOpen,
+                            "assert-target-cleared" => _selectionGuid == 0,
+                            "assert-targeting-cleared" => _groundCastSpell == 0 && _itemCastSpell == 0,
+                            "assert-stack-split-closed" => _splitContainer == InventoryUiLaw.EmptyContainer,
+                            "assert-carried-cleared" => !HasCarriedItem,
+                            _ => false,
+                        });
+                    EmitInterface("game-menu", gameMenu.Length > 1 ? gameMenu[1] : "unknown",
+                        gameMenuPass ? "PASS" : "FAIL", _net?.PlayerGuid ?? 0,
+                        $"menuOpen={_settingsOpen};page={_menuPage};playerPanels={HasPlayerPanelForEscape()};" +
+                        $"loot={_loot.IsOpen};target=0x{_selectionGuid:X16};groundSpell={_groundCastSpell};" +
+                        $"itemSpell={_itemCastSpell};split={_splitContainer};carried={HasCarriedItem}");
+                    Log(gameMenuPass, line);
+                    break;
+                case "inspect":
+                    string[] inspect = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    IReadOnlyList<WirePacketDetail> inspectWire = _wire.SnapshotDetailed();
+                    bool inspectPass;
+                    string inspectStep = inspect.Length > 1 ? inspect[1].ToLowerInvariant() : "unknown";
+                    string inspectDetail;
+                    if (inspect.Length == 2 && inspectStep == "mark-wire")
+                    {
+                        _liveInspectWireMarkCount = inspectWire.Count(x => x.Packet.Outgoing &&
+                            x.Packet.Opcode == (ushort)Op.CMSG_INSPECT);
+                        inspectPass = true;
+                        inspectDetail = $"outgoingInspectBaseline={_liveInspectWireMarkCount}";
+                    }
+                    else if (inspect.Length == 3 && inspectStep == "assert-wire" &&
+                             int.TryParse(inspect[2], NumberStyles.Integer,
+                                 CultureInfo.InvariantCulture, out int expectedInspectWire))
+                    {
+                        WirePacketDetail[] current = inspectWire.Where(x => x.Packet.Outgoing &&
+                            x.Packet.Opcode == (ushort)Op.CMSG_INSPECT).ToArray();
+                        int delta = current.Length - _liveInspectWireMarkCount;
+                        WirePacketDetail[] newPackets = delta > 0 && delta <= current.Length
+                            ? current[^delta..] : [];
+                        inspectPass = delta == expectedInspectWire && newPackets.All(x =>
+                            x.Packet.Size == 8 && x.Prefix.Length == 8);
+                        inspectDetail = $"expected={expectedInspectWire};actual={delta};" +
+                            $"payloads={string.Join('|', newPackets.Select(x =>
+                                x.Prefix.Length == 8 ? $"0x{BitConverter.ToUInt64(x.Prefix):X16}" :
+                                $"invalid-{x.Prefix.Length}-bytes"))}";
+                    }
+                    else
+                    {
+                        inspectPass = inspect.Length == 2 && inspectStep switch
+                        {
+                            "assert-open" => _inspectOpen && _inspectGuid != 0 &&
+                                _entities.TryGet(_inspectGuid, out _),
+                            "assert-closed" => !_inspectOpen && _inspectGuid == 0,
+                            "assert-target-binding" => _inspectOpen &&
+                                _inspectBinding.Kind == InspectTokenKind.Target,
+                            "assert-party-binding" => _inspectOpen &&
+                                _inspectBinding.Kind == InspectTokenKind.Party &&
+                                _inspectBinding.PartyIndex >= 0,
+                            "assert-public-only" => _inspectOpen &&
+                                _entities.TryGet(_inspectGuid, out WorldEntity inspectedPlayer) &&
+                                inspectedPlayer.IsPlayer,
+                            _ => false,
+                        };
+                        inspectDetail = $"open={_inspectOpen};guid=0x{_inspectGuid:X16};" +
+                            $"binding={_inspectBinding.Kind};partyIndex={_inspectBinding.PartyIndex};" +
+                            $"selection=0x{_selectionGuid:X16}";
+                    }
+                    EmitInterface("inspect", inspectStep, inspectPass ? "PASS" : "FAIL",
+                        _inspectGuid, inspectDetail);
+                    Log(inspectPass, $"{line} {inspectDetail}");
                     break;
                 case "interface-blocked":
                     string[] blocked = line.Split(' ', 4, StringSplitOptions.RemoveEmptyEntries);
@@ -790,7 +1031,86 @@ public sealed partial class GameLoop
                     else { StopSocketTrace(); Log(true,line); }
                     break;
                 case "dump": _currentVantage=p[1]; ArmGameplayDump(); Log(true,line); break;
-                case "ui-parity": ArmUiParityCapture(p[1]); Log(_uiParityArmed,line); break;
+                case "ui-parity":
+                    ArmUiParityCapture(p[1], stageFixture: false);
+                    Log(_uiParityArmed, $"{line} provenance={UiParityProvenance}");
+                    break;
+                case "ui-parity-stage":
+                    ArmUiParityCapture(p[1], stageFixture: true);
+                    Log(_uiParityArmed, $"{line} provenance={UiParityProvenance}");
+                    break;
+                case "ui-parity-assert":
+                    string[] captureAssert = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    string expectedProvenance = captureAssert.Length > 2 ? captureAssert[2] : "";
+                    string expectedScenario = captureAssert.Length > 3
+                        ? string.Join(' ', captureAssert.Skip(3)) : "";
+                    bool capturePass = _uiParityCompletedPanel.Equals(p[1], StringComparison.Ordinal) &&
+                        _uiParityCaptureError.Length == 0 && _uiParityCompletedManifest.Length > 0 &&
+                        File.Exists(_uiParityCompletedManifest) && new FileInfo(_uiParityCompletedManifest).Length > 0 &&
+                        (expectedProvenance.Length == 0 || _uiParityCompletedProvenance.Equals(
+                            expectedProvenance, StringComparison.Ordinal)) &&
+                        (expectedScenario.Length == 0 || _uiParityCompletedScenario.Contains(
+                            expectedScenario, StringComparison.OrdinalIgnoreCase));
+                    EmitInterface("ui-parity", p[1], capturePass ? "PASS" : "FAIL", _net?.PlayerGuid ?? 0,
+                        $"completed={_uiParityCompletedPanel};manifest={_uiParityCompletedManifest};" +
+                        $"provenance={_uiParityCompletedProvenance};scenario={_uiParityCompletedScenario};" +
+                        $"error={_uiParityCaptureError}");
+                    Log(capturePass, $"{line} manifest={_uiParityCompletedManifest} " +
+                        $"provenance={_uiParityCompletedProvenance} scenario={_uiParityCompletedScenario} " +
+                        $"error={_uiParityCaptureError}");
+                    break;
+                case "enchant-confirm-capture-assert":
+                    string[] enchantCaptureAssert = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    string enchantCaptureDetail = "";
+                    bool enchantCapturePass = enchantCaptureAssert.Length == 3 &&
+                        ValidateEnchantConfirmCapture(enchantCaptureAssert[1],
+                            enchantCaptureAssert[2], out enchantCaptureDetail);
+                    if (enchantCaptureAssert.Length != 3)
+                        enchantCaptureDetail =
+                            "usage=enchant-confirm-capture-assert <bind|replace> <provenance>";
+                    EmitInterface("enchant-confirm", "ui-parity-capture",
+                        enchantCapturePass ? "PASS" : "FAIL", _net?.PlayerGuid ?? 0,
+                        enchantCaptureDetail);
+                    Log(enchantCapturePass, $"{line} {enchantCaptureDetail}");
+                    break;
+                case "inspect-frame-capture-assert":
+                    string[] inspectCaptureAssert = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    string inspectCaptureDetail = "";
+                    bool inspectCapturePass = inspectCaptureAssert.Length == 2 &&
+                        ValidateInspectFrameCapture(inspectCaptureAssert[1], out inspectCaptureDetail);
+                    if (inspectCaptureAssert.Length != 2)
+                        inspectCaptureDetail =
+                            "usage=inspect-frame-capture-assert <observed-runtime-state>";
+                    EmitInterface("inspect", "ui-parity-capture",
+                        inspectCapturePass ? "PASS" : "FAIL", _inspectGuid,
+                        inspectCaptureDetail);
+                    Log(inspectCapturePass, $"{line} {inspectCaptureDetail}");
+                    break;
+                case "skill-frame-capture-assert":
+                    string[] skillCaptureAssert = line.Split(' ',
+                        StringSplitOptions.RemoveEmptyEntries);
+                    string skillCaptureDetail = "";
+                    bool skillCapturePass = skillCaptureAssert.Length == 2 &&
+                        ValidateSkillFrameCapture(skillCaptureAssert[1], out skillCaptureDetail);
+                    if (skillCaptureAssert.Length != 2)
+                        skillCaptureDetail =
+                            "usage=skill-frame-capture-assert <observed-runtime-state>";
+                    EmitInterface("skill-frame", "ui-parity-capture",
+                        skillCapturePass ? "PASS" : "FAIL", _net?.PlayerGuid ?? 0,
+                        skillCaptureDetail);
+                    Log(skillCapturePass, $"{line} {skillCaptureDetail}");
+                    break;
+                case "bag-containment":
+                    Log(ArmBagContainmentCapture(p[1]), line);
+                    break;
+                case "bag-containment-assert":
+                    bool containmentPass = BagContainmentCapturePassed(p[1]);
+                    EmitInterface("ui-parity-containment-capture", p[1], containmentPass ? "PASS" : "FAIL",
+                        _net?.PlayerGuid ?? 0,
+                        $"completed={_bagContainmentCompletedElement};manifest={_bagContainmentCompletedManifest};error={_bagContainmentError}");
+                    Log(containmentPass,
+                        $"{line} manifest={_bagContainmentCompletedManifest} error={_bagContainmentError}");
+                    break;
                 case "ui-scale":
                     float requestedUiScale=float.Parse(p[1],CultureInfo.InvariantCulture);
                     if(_skin is null) Log(false,line);
@@ -798,6 +1118,16 @@ public sealed partial class GameLoop
                     break;
                 case "press": _liveHeld.Add(NormalizeMovementKey(p[1])); Log(true,line); break;
                 case "release": _liveHeld.Remove(NormalizeMovementKey(p[1])); Log(true,line); break;
+                case "key":
+                    string[] key = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    Key inputKey = Key.Unknown;
+                    bool parsed = key.Length == 3 && TryParseLiveInputKey(key[2], out inputKey);
+                    if (parsed && key[1].Equals("press", StringComparison.OrdinalIgnoreCase))
+                    { _liveInputHeld.Add(inputKey); Log(true, $"{line} productionBindingState=down"); }
+                    else if (parsed && key[1].Equals("release", StringComparison.OrdinalIgnoreCase))
+                    { _liveInputHeld.Remove(inputKey); Log(true, $"{line} productionBindingState=up"); }
+                    else Log(false, $"unknown {line}");
+                    break;
                 case "face":
                     float facing = float.Parse(p[1], CultureInfo.InvariantCulture);
                     if (_controller is null) Log(false, line);
@@ -1116,6 +1446,37 @@ public sealed partial class GameLoop
         if(appeared.Count>0) _liveSpawnBefore=null;
     }
 
+    private static bool IsQuestProtocolOpcode(ushort opcode) => opcode is
+        (ushort)Op.CMSG_QUEST_QUERY or
+        (ushort)Op.CMSG_QUESTGIVER_STATUS_QUERY or
+        (ushort)Op.CMSG_QUESTGIVER_HELLO or
+        (ushort)Op.CMSG_QUESTGIVER_QUERY_QUEST or
+        (ushort)Op.CMSG_QUESTGIVER_ACCEPT_QUEST or
+        (ushort)Op.CMSG_QUESTGIVER_COMPLETE_QUEST or
+        (ushort)Op.CMSG_QUESTGIVER_REQUEST_REWARD or
+        (ushort)Op.CMSG_QUESTGIVER_CHOOSE_REWARD or
+        (ushort)Op.CMSG_QUESTLOG_REMOVE_QUEST;
+
+    private static bool TryQuestWireSpec(string name, out ushort opcode, out int payloadSize)
+    {
+        (Op Op, int Size)? spec = name.ToLowerInvariant() switch
+        {
+            "template-query" => (Op.CMSG_QUEST_QUERY, 4),
+            "status" => (Op.CMSG_QUESTGIVER_STATUS_QUERY, 8),
+            "hello" => (Op.CMSG_QUESTGIVER_HELLO, 8),
+            "query" => (Op.CMSG_QUESTGIVER_QUERY_QUEST, 12),
+            "accept" => (Op.CMSG_QUESTGIVER_ACCEPT_QUEST, 12),
+            "complete" => (Op.CMSG_QUESTGIVER_COMPLETE_QUEST, 12),
+            "request-reward" => (Op.CMSG_QUESTGIVER_REQUEST_REWARD, 12),
+            "choose" => (Op.CMSG_QUESTGIVER_CHOOSE_REWARD, 16),
+            "abandon" => (Op.CMSG_QUESTLOG_REMOVE_QUEST, 1),
+            _ => null,
+        };
+        opcode = spec is null ? (ushort)0 : (ushort)spec.Value.Op;
+        payloadSize = spec?.Size ?? 0;
+        return spec is not null;
+    }
+
     private void Log(bool pass,string text)
     {
         RefreshLiveSpawnIdentities();
@@ -1124,7 +1485,7 @@ public sealed partial class GameLoop
 
     private void FinishProtocol()
     {
-        StopCombatTrace(); StopMovementTrace(); StopSocketTrace(); _wireLog.Stop(); _liveHeld.Clear();
+        StopCombatTrace(); StopMovementTrace(); StopSocketTrace(); _wireLog.Stop(); _liveHeld.Clear(); _liveInputHeld.Clear();
         string dir=Path.GetFullPath(Path.IsPathRooted(_liveRunOptions!.OutputDirectory)?_liveRunOptions.OutputDirectory:Path.Combine(_config.RepoRoot,_liveRunOptions.OutputDirectory));
         Directory.CreateDirectory(dir);
         string log=Path.Combine(dir,$"runner-{_liveStamp}.csv"), verdict=Path.Combine(dir,$"verdicts-{_liveStamp}.txt");
@@ -1143,10 +1504,420 @@ public sealed partial class GameLoop
         WriteSpellAuraCsv(spellAuraCsv);
         string spellErrorCsv=Path.Combine(dir,$"spell-error-{_liveStamp}.csv");
         WriteSpellErrorCsv(spellErrorCsv);
+        string soundCsv=Path.Combine(dir,$"sound-journal-{_liveStamp}.csv");
+        WriteSoundJournalCsv(soundCsv);
         int failures=_liveLog.Count(x=>x.Contains(",FAIL,"));
-        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}; errors={spellErrorCsv}");
+        Console.WriteLine($"[live-run] PROTOCOL_DONE failures={failures}; log={log}; verdicts={verdict}; spells={spellCsv}; castbar={castBarCsv}; animations={spellAnimationCsv}; channels={spellChannelCsv}; auras={spellAuraCsv}; errors={spellErrorCsv}; sounds={soundCsv}");
         LiveRunExitCode=failures==0?0:1;
         _quitRequested = true;
+    }
+
+    private static bool TryParseLiveInputKey(string value, out Key key)
+    {
+        string normalized = value.Replace("-", "", StringComparison.Ordinal)
+            .Replace("_", "", StringComparison.Ordinal);
+        if (normalized.Equals("LEFTSHIFT", StringComparison.OrdinalIgnoreCase)) normalized = nameof(Key.ShiftLeft);
+        if (normalized.Equals("RIGHTSHIFT", StringComparison.OrdinalIgnoreCase)) normalized = nameof(Key.ShiftRight);
+        return Enum.TryParse(normalized, ignoreCase: true, out key) && key != Key.Unknown;
+    }
+
+    private bool ValidateSkillFrameCapture(string expectedProvenance, out string detail)
+    {
+        var failures = new List<string>();
+        if (!expectedProvenance.Equals("observed-runtime-state", StringComparison.Ordinal))
+            failures.Add("provenance-must-be-observed-runtime-state");
+        if (!_uiParityCompletedPanel.Equals("skill-frame", StringComparison.Ordinal))
+            failures.Add($"completed-panel={_uiParityCompletedPanel}");
+        if (!_uiParityCompletedProvenance.Equals(expectedProvenance, StringComparison.Ordinal))
+            failures.Add($"provenance={_uiParityCompletedProvenance}");
+        if (_uiParityCaptureError.Length > 0) failures.Add($"capture-error={_uiParityCaptureError}");
+        if (_uiParityCompletedManifest.Length == 0 || !File.Exists(_uiParityCompletedManifest))
+        {
+            failures.Add("manifest-missing");
+            detail = string.Join('|', failures);
+            return false;
+        }
+
+        int rows = 0, instrumented = 0, notDrawn = 0, blankCoverage = -1;
+        string csvPath = "";
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                File.ReadAllText(_uiParityCompletedManifest));
+            JsonElement root = document.RootElement;
+            if (root.GetProperty("schemaVersion").GetInt32() != 3)
+                failures.Add("schema-version");
+            if (!root.GetProperty("panel").GetString()!.Equals(
+                    "skill-frame", StringComparison.Ordinal)) failures.Add("manifest-panel");
+            if (!root.GetProperty("provenance").GetString()!.Equals(
+                    expectedProvenance, StringComparison.Ordinal))
+                failures.Add("manifest-provenance");
+            if (!root.GetProperty("captureCommand").GetString()!.Equals(
+                    "ui-parity", StringComparison.Ordinal)) failures.Add("capture-command");
+            if (!root.GetProperty("sameRenderedFrame").GetBoolean())
+                failures.Add("csv-png-frame-not-shared");
+            rows = root.GetProperty("rows").GetInt32();
+            instrumented = root.GetProperty("instrumentedRows").GetInt32();
+            notDrawn = root.GetProperty("notDrawnRows").GetInt32();
+            blankCoverage = root.GetProperty("blankCoverageRows").GetInt32();
+            if (rows < 55 || instrumented < 35 || rows != instrumented + notDrawn)
+                failures.Add($"row-census={rows}/{instrumented}/{notDrawn}");
+            if (blankCoverage != 0) failures.Add($"blank-coverage={blankCoverage}");
+
+            JsonElement scenario = root.GetProperty("scenario");
+            if (!scenario.GetProperty("stateSource").GetString()!.Equals(
+                    "player-skill-fields", StringComparison.Ordinal))
+                failures.Add("state-source");
+            if (scenario.GetProperty("captureStateMutation").GetBoolean() ||
+                scenario.GetProperty("captureNetworkMutation").GetBoolean())
+                failures.Add("capture-mutation-contract");
+            if (!scenario.GetProperty("characterOpen").GetBoolean() ||
+                scenario.GetProperty("characterTab").GetInt32() != SkillFrameUiLaw.SkillsTab ||
+                scenario.GetProperty("skillsTab").GetInt32() != SkillFrameUiLaw.SkillsTab)
+                failures.Add("skills-pane-not-open");
+            if (scenario.GetProperty("skillCount").GetInt32() <= 0 ||
+                scenario.GetProperty("headerCount").GetInt32() <= 0 ||
+                scenario.GetProperty("rowCount").GetInt32() <= 0)
+                failures.Add("authoritative-skill-rows-empty");
+            if (scenario.GetProperty("visibleRows").GetInt32() !=
+                    SkillFrameUiLaw.VisibleRows ||
+                scenario.GetProperty("rowHitWidth").GetDouble() !=
+                    SkillFrameUiLaw.SkillRowHitWidth ||
+                scenario.GetProperty("rowHitHeight").GetDouble() !=
+                    SkillFrameUiLaw.SkillRowHitHeight ||
+                scenario.GetProperty("dividerTop").GetDouble() !=
+                    SkillFrameUiLaw.DividerLeftRect.Y)
+                failures.Add("list-geometry-contract");
+            if (!scenario.GetProperty("directBindingCommand").GetString()!.Equals(
+                    SkillFrameUiLaw.BindingCommand, StringComparison.Ordinal) ||
+                !scenario.GetProperty("directBindingLabel").GetString()!.Equals(
+                    SkillFrameUiLaw.BindingLabel, StringComparison.Ordinal))
+                failures.Add("direct-binding-contract");
+            if (!scenario.GetProperty("unlearnOpcode").GetString()!.Equals(
+                    "0x0202", StringComparison.Ordinal) ||
+                !scenario.GetProperty("authoritativeMutation").GetString()!.Equals(
+                    "PLAYER_SKILL_INFO-update-only", StringComparison.Ordinal))
+                failures.Add("unlearn-wire-boundary");
+            if (scenario.GetProperty("popupPresent").GetBoolean() &&
+                (!scenario.GetProperty("popupMatchesSelection").GetBoolean() ||
+                 !scenario.GetProperty("selectedAbandonable").GetBoolean()))
+                failures.Add("popup-selection-gate");
+
+            string manifestDirectory = Path.GetDirectoryName(_uiParityCompletedManifest)!;
+            foreach (JsonElement file in root.GetProperty("files").EnumerateArray())
+            {
+                string name = file.GetProperty("path").GetString() ?? "";
+                string path = Path.Combine(manifestDirectory, name);
+                if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                    failures.Add($"capture-file={name}");
+                if (name.EndsWith("-actual.csv", StringComparison.Ordinal)) csvPath = path;
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"manifest-read={ex.GetType().Name}");
+        }
+
+        if (csvPath.Length == 0 || !File.Exists(csvPath)) failures.Add("csv-missing");
+        else
+        {
+            string csv = File.ReadAllText(csvPath);
+            string[] requiredElements =
+            [
+                "CharacterFrame", "BenillaSkillFrame",
+                "BenillaSkillFrame/BackgroundTopLeft",
+                "BenillaSkillFrame/BackgroundTopRight",
+                "BenillaSkillFrame/BackgroundBottomLeft",
+                "BenillaSkillFrame/BackgroundBottomRight",
+                "BenillaSkillExpandButtonFrame", "BenillaSkillExpandTabLeft",
+                "BenillaSkillExpandTabMiddle", "BenillaSkillExpandTabRight",
+                "BenillaSkillCollapseAllButton", "BenillaSkillWheelCatcher",
+                "BenillaSkillListScrollFrame", "BenillaSkillListScrollFrameScrollBar",
+                "BenillaSkillListScrollFrameScrollBarScrollUpButton",
+                "BenillaSkillListScrollFrameScrollBarScrollDownButton",
+                "BenillaSkillListScrollFrameScrollBarThumbTexture",
+                "BenillaSkillTypeLabel1", "BenillaSkillRankFrame1",
+                "BenillaSkillHorizontalBarLeft", "BenillaSkillHorizontalBarRight",
+                "BenillaSkillDetailBar", "BenillaSkillDetailUnlearnButton", "StaticPopup1"
+            ];
+            foreach (string element in requiredElements)
+                if (!csv.Contains($"\"{element}\"", StringComparison.Ordinal))
+                    failures.Add($"element={element}");
+            if (!csv.Contains("\"281\",\"32\"", StringComparison.Ordinal))
+                failures.Add("281x32-row-hit-census");
+            if (csv.Contains("DRAWN-NOT-INSTRUMENTED", StringComparison.Ordinal))
+                failures.Add("drawn-not-instrumented");
+            if (csv.Contains("UNMEASURED", StringComparison.Ordinal))
+                failures.Add("unmeasured-interaction");
+            if (csv.Contains("MISSING:", StringComparison.OrdinalIgnoreCase))
+                failures.Add("missing-asset");
+        }
+
+        detail = $"manifest={_uiParityCompletedManifest};provenance={expectedProvenance};" +
+                 $"rows={rows};instrumented={instrumented};notDrawn={notDrawn};" +
+                 $"blankCoverage={blankCoverage};" +
+                 $"failures={(failures.Count == 0 ? "none" : string.Join('|', failures))}";
+        return failures.Count == 0;
+    }
+
+    private bool ValidateInspectFrameCapture(string expectedProvenance, out string detail)
+    {
+        var failures = new List<string>();
+        if (!expectedProvenance.Equals("observed-runtime-state", StringComparison.Ordinal))
+            failures.Add("provenance-must-be-observed-runtime-state");
+        if (!_uiParityCompletedPanel.Equals("inspect-frame", StringComparison.Ordinal))
+            failures.Add($"completed-panel={_uiParityCompletedPanel}");
+        if (!_uiParityCompletedProvenance.Equals(expectedProvenance, StringComparison.Ordinal))
+            failures.Add($"provenance={_uiParityCompletedProvenance}");
+        if (_uiParityCaptureError.Length > 0) failures.Add($"capture-error={_uiParityCaptureError}");
+        if (_uiParityCompletedManifest.Length == 0 || !File.Exists(_uiParityCompletedManifest))
+        {
+            failures.Add("manifest-missing");
+            detail = string.Join('|', failures);
+            return false;
+        }
+
+        int rows = 0, instrumented = 0, notDrawn = 0, blankCoverage = -1;
+        string csvPath = "";
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                File.ReadAllText(_uiParityCompletedManifest));
+            JsonElement root = document.RootElement;
+            if (root.GetProperty("schemaVersion").GetInt32() != 3) failures.Add("schema-version");
+            if (!root.GetProperty("panel").GetString()!.Equals(
+                    "inspect-frame", StringComparison.Ordinal)) failures.Add("manifest-panel");
+            if (!root.GetProperty("provenance").GetString()!.Equals(
+                    expectedProvenance, StringComparison.Ordinal)) failures.Add("manifest-provenance");
+            if (!root.GetProperty("captureCommand").GetString()!.Equals(
+                    "ui-parity", StringComparison.Ordinal)) failures.Add("capture-command");
+            if (!root.GetProperty("sameRenderedFrame").GetBoolean())
+                failures.Add("csv-png-frame-not-shared");
+            rows = root.GetProperty("rows").GetInt32();
+            instrumented = root.GetProperty("instrumentedRows").GetInt32();
+            notDrawn = root.GetProperty("notDrawnRows").GetInt32();
+            blankCoverage = root.GetProperty("blankCoverageRows").GetInt32();
+            if (rows < 150 || instrumented < 75 || rows != instrumented + notDrawn)
+                failures.Add($"row-census={rows}/{instrumented}/{notDrawn}");
+            if (blankCoverage != 0) failures.Add($"blank-coverage={blankCoverage}");
+
+            JsonElement scenario = root.GetProperty("scenario");
+            if (!scenario.GetProperty("stateSource").GetString()!.Equals(
+                    "inspect-runtime", StringComparison.Ordinal)) failures.Add("state-source");
+            if (scenario.GetProperty("captureStateMutation").GetBoolean() ||
+                scenario.GetProperty("captureNetworkMutation").GetBoolean())
+                failures.Add("capture-mutation-contract");
+            if (!scenario.GetProperty("inspectOpen").GetBoolean() ||
+                scenario.GetProperty("inspectedGuid").GetString() == "0x0000000000000000")
+                failures.Add("inspect-not-open");
+            if (scenario.GetProperty("frameWidth").GetInt32() != 384 ||
+                scenario.GetProperty("frameHeight").GetInt32() != 512 ||
+                scenario.GetProperty("slotCount").GetInt32() != 19)
+                failures.Add("frame-or-slot-geometry");
+            if (scenario.GetProperty("selectedTabEnabled").GetBoolean())
+                failures.Add("selected-tab-enabled");
+            if (!scenario.GetProperty("portraitAperture").GetString()!.Equals(
+                    "authored-background-overlay", StringComparison.Ordinal) ||
+                !scenario.GetProperty("slotTooltipAnchor").GetString()!.Equals(
+                    "ANCHOR_RIGHT", StringComparison.Ordinal))
+                failures.Add("containment-or-tooltip-anchor");
+            if (!scenario.GetProperty("equipmentDataSource").GetString()!.Equals(
+                    "PLAYER_VISIBLE_ITEM", StringComparison.Ordinal) ||
+                scenario.GetProperty("privateItemFieldsRead").GetBoolean())
+                failures.Add("public-equipment-boundary");
+            if (!scenario.GetProperty("modelUsable").GetBoolean())
+                failures.Add("paper-doll-model-unavailable");
+            if (scenario.GetProperty("hoveredSlots").GetInt32() != 0)
+                failures.Add("slot-hover-obscures-baseline");
+
+            string manifestDirectory = Path.GetDirectoryName(_uiParityCompletedManifest)!;
+            foreach (JsonElement file in root.GetProperty("files").EnumerateArray())
+            {
+                string name = file.GetProperty("path").GetString() ?? "";
+                string path = Path.Combine(manifestDirectory, name);
+                if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                    failures.Add($"capture-file={name}");
+                if (name.EndsWith("-actual.csv", StringComparison.Ordinal)) csvPath = path;
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"manifest-read={ex.GetType().Name}");
+        }
+
+        if (csvPath.Length == 0 || !File.Exists(csvPath)) failures.Add("actual-csv-missing");
+        else
+        {
+            string csv = File.ReadAllText(csvPath);
+            string[] requiredElements =
+            [
+                "InspectFrame", "InspectPaperDollFrame", "InspectFramePortrait",
+                "InspectPaperDollFrame/Texture", "InspectPaperDollFrame/Texture#2",
+                "InspectPaperDollFrame/Texture#3", "InspectPaperDollFrame/Texture#4",
+                "InspectNameText", "InspectLevelText", "InspectModel",
+                "InspectModelRotateLeftButton", "InspectModelRotateRightButton",
+                "InspectFrameTab1", "InspectFrameTab1/LeftTexture",
+                "InspectFrameTab1/MiddleTexture", "InspectFrameTab1/RightTexture",
+                "InspectFrameCloseButton", "InspectFrameCloseButton/NormalTexture",
+            ];
+            string[] slots =
+            [
+                "InspectHeadSlot", "InspectNeckSlot", "InspectShoulderSlot", "InspectBackSlot",
+                "InspectChestSlot", "InspectShirtSlot", "InspectTabardSlot", "InspectWristSlot",
+                "InspectHandsSlot", "InspectWaistSlot", "InspectLegsSlot", "InspectFeetSlot",
+                "InspectFinger0Slot", "InspectFinger1Slot", "InspectTrinket0Slot",
+                "InspectTrinket1Slot", "InspectMainHandSlot", "InspectSecondaryHandSlot",
+                "InspectRangedSlot",
+            ];
+            foreach (string element in requiredElements)
+                if (!csv.Contains($"\"{element}\"", StringComparison.Ordinal))
+                    failures.Add($"element={element}");
+            foreach (string slot in slots)
+                foreach (string suffix in new[] { "", "IconTexture", "NormalTexture" })
+                {
+                    string element = slot + suffix;
+                    if (!csv.Contains($"\"{element}\"", StringComparison.Ordinal))
+                        failures.Add($"element={element}");
+                }
+            if (csv.Contains("DRAWN-NOT-INSTRUMENTED", StringComparison.Ordinal))
+                failures.Add("drawn-not-instrumented");
+            if (csv.Contains("UNMEASURED", StringComparison.Ordinal))
+                failures.Add("unmeasured-interaction");
+            if (csv.Contains("MISSING:", StringComparison.OrdinalIgnoreCase))
+                failures.Add("missing-asset");
+        }
+
+        detail = $"manifest={_uiParityCompletedManifest};provenance={expectedProvenance};" +
+                 $"rows={rows};instrumented={instrumented};notDrawn={notDrawn};" +
+                 $"blankCoverage={blankCoverage};" +
+                 $"failures={(failures.Count == 0 ? "none" : string.Join('|', failures))}";
+        return failures.Count == 0;
+    }
+
+    private bool ValidateEnchantConfirmCapture(string expectedState, string expectedProvenance,
+        out string detail)
+    {
+        var failures = new List<string>();
+        expectedState = expectedState.ToLowerInvariant();
+        if (expectedState is not ("bind" or "replace")) failures.Add("invalid-expected-state");
+        if (!_uiParityCompletedPanel.Equals("enchant-confirm", StringComparison.Ordinal))
+            failures.Add($"completed-panel={_uiParityCompletedPanel}");
+        if (!_uiParityCompletedProvenance.Equals(expectedProvenance, StringComparison.Ordinal))
+            failures.Add($"provenance={_uiParityCompletedProvenance}");
+        if (_uiParityCaptureError.Length > 0) failures.Add($"capture-error={_uiParityCaptureError}");
+        if (_uiParityCompletedManifest.Length == 0 || !File.Exists(_uiParityCompletedManifest))
+        {
+            failures.Add("manifest-missing");
+            detail = string.Join('|', failures);
+            return false;
+        }
+
+        int rows = 0, instrumented = 0, notDrawn = 0, blankCoverage = -1;
+        string csvPath = "";
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                File.ReadAllText(_uiParityCompletedManifest));
+            JsonElement root = document.RootElement;
+            if (root.GetProperty("schemaVersion").GetInt32() != 3) failures.Add("schema-version");
+            if (!root.GetProperty("panel").GetString()!.Equals(
+                    "enchant-confirm", StringComparison.Ordinal)) failures.Add("manifest-panel");
+            if (!root.GetProperty("provenance").GetString()!.Equals(
+                    expectedProvenance, StringComparison.Ordinal)) failures.Add("manifest-provenance");
+            bool fixture = expectedProvenance.Equals(
+                "explicit-ui-parity-fixture", StringComparison.Ordinal);
+            string expectedCommand = fixture ? "ui-parity-stage" : "ui-parity";
+            if (!root.GetProperty("captureCommand").GetString()!.Equals(
+                    expectedCommand, StringComparison.Ordinal)) failures.Add("capture-command");
+            if (!root.GetProperty("sameRenderedFrame").GetBoolean())
+                failures.Add("csv-png-frame-not-shared");
+            rows = root.GetProperty("rows").GetInt32();
+            instrumented = root.GetProperty("instrumentedRows").GetInt32();
+            notDrawn = root.GetProperty("notDrawnRows").GetInt32();
+            blankCoverage = root.GetProperty("blankCoverageRows").GetInt32();
+            if (rows < 12 || instrumented < 10 || rows != instrumented + notDrawn)
+                failures.Add($"row-census={rows}/{instrumented}/{notDrawn}");
+            if (blankCoverage != 0) failures.Add($"blank-coverage={blankCoverage}");
+
+            JsonElement scenario = root.GetProperty("scenario");
+            if (!scenario.GetProperty("capturedState").GetString()!.Equals(
+                    expectedState, StringComparison.Ordinal)) failures.Add("captured-state");
+            if (fixture && !scenario.GetProperty("requestedState").GetString()!.Equals(
+                    expectedState, StringComparison.Ordinal)) failures.Add("requested-state");
+            string expectedSource = fixture ? "ui-parity-stage" : "item-target-runtime";
+            if (!scenario.GetProperty("stateSource").GetString()!.Equals(
+                    expectedSource, StringComparison.Ordinal)) failures.Add("state-source");
+            if (scenario.GetProperty("captureStateMutation").GetBoolean() ||
+                scenario.GetProperty("captureNetworkMutation").GetBoolean())
+                failures.Add("capture-mutation-contract");
+            if (scenario.GetProperty("buttonsInteractive").GetBoolean() == fixture)
+                failures.Add("fixture-button-interactivity");
+            if (!scenario.GetProperty("alertIconVisible").GetBoolean() ||
+                scenario.GetProperty("frameWidth").GetDouble() != EnchantConfirmUiLaw.FrameWidth ||
+                scenario.GetProperty("frameHeight").GetDouble() != EnchantConfirmUiLaw.FrameHeight ||
+                !scenario.GetProperty("layoutProfile").GetString()!.Equals(
+                    "msui-preserved-alert-360x96", StringComparison.Ordinal))
+                failures.Add("preserved-layout-contract");
+
+            string manifestDirectory = Path.GetDirectoryName(_uiParityCompletedManifest)!;
+            foreach (JsonElement file in root.GetProperty("files").EnumerateArray())
+            {
+                string name = file.GetProperty("path").GetString() ?? "";
+                string path = Path.Combine(manifestDirectory, name);
+                if (!File.Exists(path) || new FileInfo(path).Length == 0)
+                    failures.Add($"capture-file={name}");
+                if (name.EndsWith("-actual.csv", StringComparison.Ordinal)) csvPath = path;
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"manifest-read={ex.GetType().Name}");
+        }
+
+        if (csvPath.Length == 0 || !File.Exists(csvPath)) failures.Add("actual-csv-missing");
+        else
+        {
+            string csv = File.ReadAllText(csvPath);
+            string[] requiredElements =
+            [
+                "StaticPopup1", "StaticPopup1/BackdropBackground",
+                "StaticPopup1/BackdropBorder", "StaticPopup1AlertIcon",
+                "StaticPopup1Text1", "StaticPopup1Button1",
+                "StaticPopup1Button1/NormalTexture", "StaticPopup1Button1/Text",
+                "StaticPopup1Button2", "StaticPopup1Button2/NormalTexture",
+                "StaticPopup1Button2/Text",
+            ];
+            foreach (string element in requiredElements)
+                if (!csv.Contains($"\"{element}\"", StringComparison.Ordinal))
+                    failures.Add($"element={element}");
+            if (csv.Contains("DRAWN-NOT-INSTRUMENTED", StringComparison.Ordinal))
+                failures.Add("drawn-not-instrumented");
+            if (csv.Contains("UNMEASURED", StringComparison.Ordinal))
+                failures.Add("unmeasured-interaction");
+            if (csv.Contains("MISSING:", StringComparison.OrdinalIgnoreCase))
+                failures.Add("missing-asset");
+        }
+
+        detail = $"manifest={_uiParityCompletedManifest};state={expectedState};" +
+                 $"provenance={expectedProvenance};rows={rows};instrumented={instrumented};" +
+                 $"notDrawn={notDrawn};blankCoverage={blankCoverage};" +
+                 $"failures={(failures.Count == 0 ? "none" : string.Join('|', failures))}";
+        return failures.Count == 0;
+    }
+
+    private void WriteSoundJournalCsv(string path)
+    {
+        static string Csv(string value) => '"' + value.Replace("\"", "\"\"") + '"';
+        var lines = new List<string>
+        {
+            "sequence,time,category,requested_cue,resolved_id,resolved_path,owner,looping,track_hold"
+        };
+        foreach (SpellSoundSystem.SoundPlayJournalEntry e in (_spellSounds?.JournalSnapshot() ?? [])
+                     .Where(x => x.Sequence > _liveSoundProtocolStartSequence))
+            lines.Add(string.Join(',', e.Sequence, e.TimeSeconds.ToString("F3", CultureInfo.InvariantCulture),
+                Csv(e.Category), Csv(e.RequestedCue), e.SoundId, Csv(e.ResolvedPath),
+                $"0x{e.Owner:X16}", e.Looping ? "true" : "false", e.TrackHold ? "true" : "false"));
+        File.WriteAllLines(path, lines);
     }
 
     private void WriteSpellSweepCsv(string path)

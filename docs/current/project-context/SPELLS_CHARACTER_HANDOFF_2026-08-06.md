@@ -2,6 +2,13 @@
 
 Repository: `C:\Users\nico\source\repos\MSUIClient`
 
+> Snapshot-parity continuation: read
+> [`SNAPSHOT_PARITY_STATUS_2026-08-07.md`](SNAPSHOT_PARITY_STATUS_2026-08-07.md) and
+> [`SNAPSHOT_PARITY_WORKFLOW.md`](SNAPSHOT_PARITY_WORKFLOW.md) before resuming the Benilla-versus-MSUI
+> packet work. The status page contains the 2026-08-08 pause boundary, invalid-evidence corrections,
+> current validator baseline, and exact next packet. This document remains the underlying spells and
+> character-rendering context.
+
 This is the current-session entry point. Read it before continuing spell behavior, aura UI,
 cooldown presentation, or local/remote character animation work. The working tree is intentionally
 dirty and contains accumulated user work. Preserve unrelated changes, especially `vantages.json`;
@@ -107,4 +114,3 @@ Do this before changing another shared rendering or animation law:
   dated 2026-08-06 correction at the end governs sparse turns and release catch-up feel.
 - Gameplay live acceptance remains in `docs/current/project-context/CHECKS_GAMEPLAY.md`; use its M2
   standing/moving-turn check together with the seven-point smoke test above.
-

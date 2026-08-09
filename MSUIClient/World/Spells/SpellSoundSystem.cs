@@ -19,6 +19,10 @@ namespace MSUIClient.World.Spells;
 /// </summary>
 public sealed class SpellSoundSystem : IDisposable
 {
+    public sealed record SoundPlayJournalEntry(long Sequence, double TimeSeconds,
+        string Category, string RequestedCue, uint SoundId, string ResolvedPath,
+        ulong Owner, bool Looping, bool TrackHold);
+
     private sealed record Voice(long Id, string Alias, string File, SoundEntry Entry,
         ulong Unit, bool Looping, bool TrackHold);
 
@@ -38,9 +42,11 @@ public sealed class SpellSoundSystem : IDisposable
     private readonly Dictionary<long, Voice> _voices = [];
     private readonly Dictionary<ulong, long> _holds = [];
     private readonly ConcurrentDictionary<long, VoiceView> _views = new();
+    private readonly ConcurrentQueue<SoundPlayJournalEntry> _playJournal = new();
     private double _lastPollSeconds;
 
-    public long Plays { get; private set; }
+    public long Plays => Interlocked.Read(ref _plays);
+    private long _plays;
     public long Stops => Interlocked.Read(ref _stops);
     private long _stops;
     public string LastCue { get; private set; } = "";
@@ -66,28 +72,42 @@ public sealed class SpellSoundSystem : IDisposable
         foreach (long id in _voices.Keys.ToArray()) StopOnWorker(id);
     }
 
+    public IReadOnlyList<SoundPlayJournalEntry> JournalSnapshot() => _playJournal.ToArray();
+
     public long Play(uint? soundId, ulong unit, Vector3 source, Vector3 listener,
-        bool forceLoop = false, bool trackHold = true)
+        bool forceLoop = false, bool trackHold = true, string category = "spell")
     {
         if (soundId is not uint id || id == 0 || _catalog?.TryGet(id, out SoundEntry entry) != true ||
             entry.Variants.Count == 0) return 0;
+        return PlayResolved(id.ToString(), category, entry, unit, source, listener, forceLoop, trackHold);
+    }
+
+    public long Play(string soundName, ulong unit, Vector3 source, Vector3 listener,
+        string category = "ui")
+    {
+        if (_catalog?.TryGet(soundName, out SoundEntry entry) != true || entry.Variants.Count == 0) return 0;
+        return PlayResolved(soundName, category, entry, unit, source, listener,
+            forceLoop: false, trackHold: false);
+    }
+
+    private long PlayResolved(string requestedCue, string category, in SoundEntry entry,
+        ulong unit, Vector3 source, Vector3 listener, bool forceLoop, bool trackHold)
+    {
         SoundVariant variant = PickVariant(entry);
-        LastCue = $"{id}:{variant.Path}";
-        Plays++;
+        LastCue = $"{entry.Id}:{variant.Path}";
         bool looping = forceLoop || entry.Looping;
+        long sequence = Interlocked.Increment(ref _plays);
+        _playJournal.Enqueue(new(sequence, Environment.TickCount64 / 1000.0,
+            category, requestedCue, entry.Id, variant.Path, unit, looping, trackHold));
+        while (_playJournal.Count > 4096) _playJournal.TryDequeue(out _);
         if (!OperatingSystem.IsWindows()) return 0;
         float gain = Gain(entry, source, listener);
         if (gain <= 0) return 0;
         long voiceId = Interlocked.Increment(ref _nextVoice);
         string path = variant.Path;
-        _jobs.Add(() => PlayOnWorker(voiceId, path, entry, unit, looping, trackHold, gain));
+        SoundEntry resolvedEntry = entry;
+        _jobs.Add(() => PlayOnWorker(voiceId, path, resolvedEntry, unit, looping, trackHold, gain));
         return voiceId;
-    }
-
-    public long Play(string soundName, ulong unit, Vector3 source, Vector3 listener)
-    {
-        if (_catalog?.TryGet(soundName, out SoundEntry entry) != true) return 0;
-        return Play(entry.Id, unit, source, listener, trackHold: false);
     }
 
     public bool IsAuthoredLoop(uint? soundId)

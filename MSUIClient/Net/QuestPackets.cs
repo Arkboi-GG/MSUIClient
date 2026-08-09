@@ -15,6 +15,7 @@ public sealed record QuestRequestItems(ulong GiverGuid, uint QuestId, string Tit
 public readonly record struct QuestComplete(uint QuestId, uint Experience, int Money,
     IReadOnlyList<(uint ItemId, uint Count)> Rewards);
 public readonly record struct QuestKillUpdate(uint QuestId, uint Entry, uint Current, uint Required, ulong Guid);
+public readonly record struct QuestGiverFailure(uint QuestId, uint Reason);
 
 public static class QuestPackets
 {
@@ -57,7 +58,7 @@ public static class QuestPackets
         var r = new PacketReader(body); ulong guid = r.ReadU64(); uint id = r.ReadU32();
         string title = r.ReadCString(), bodyText = r.ReadCString(); r.Skip(12); uint money = r.ReadU32();
         var items = ReadItems(r, 4, "required item"); r.ReadU32(); uint flags = r.ReadU32(); r.Skip(8);
-        RequireEnd(r, "quest request items"); return new(guid, id, title, bodyText, money, items, (flags & 3) == 3);
+        RequireEnd(r, "quest request items"); return new(guid, id, title, bodyText, money, items, flags != 0);
     }
 
     public static QuestComplete ParseComplete(byte[] body)
@@ -75,6 +76,10 @@ public static class QuestPackets
     { var r = Exact(body, 8); return (r.ReadU32(), r.ReadU32()); }
     public static uint ParseQuestId(byte[] body)
     { var r = Exact(body, 4); return r.ReadU32(); }
+    public static uint ParseInvalidReason(byte[] body)
+    { var r = Exact(body, 4); return r.ReadU32(); }
+    public static QuestGiverFailure ParseGiverFailure(byte[] body)
+    { var r = Exact(body, 8); return new(r.ReadU32(), r.ReadU32()); }
 
     private static IReadOnlyList<QuestRewardItem> ReadItems(PacketReader r, uint maximum, string label)
     {

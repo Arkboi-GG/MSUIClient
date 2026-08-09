@@ -15,6 +15,7 @@ public sealed class SkillLineCatalog
     public const string AbilitiesPath = @"DBFilesClient\SkillLineAbility.dbc";
     public const string RaceClassPath = @"DBFilesClient\SkillRaceClassInfo.dbc";
     public const uint DisplaySortedFlag = 0x80;
+    public const uint UnlearnableFlag = 0x20;
     private readonly record struct RaceClassRoute(uint RaceMask, uint ClassMask, uint Flags);
     private readonly Dictionary<uint, SkillLineInfo> _lines = new();
     private readonly Dictionary<uint, SkillCategoryInfo> _categories = new();
@@ -45,6 +46,24 @@ public sealed class SkillLineCatalog
                 (route.ClassMask == 0 || (route.ClassMask & classBit) != 0))
                 return (route.Flags & DisplaySortedFlag) != 0 ? 0u : line;
         return 0;
+    }
+
+    /// <summary>
+    /// Whether the character's admitting SkillRaceClassInfo row permits abandoning this line.
+    /// Unknown identity, missing routing data, and a missing admitting row are deliberately false:
+    /// vmangos treats an invalid CMSG_UNLEARN_SKILL as an anticheat violation.
+    /// </summary>
+    public bool Abandonable(uint lineId, byte race, byte @class)
+    {
+        if (race is 0 or > 32 || @class is 0 or > 32 ||
+            !_raceClassRoutes.TryGetValue(lineId, out List<RaceClassRoute>? routes))
+            return false;
+        uint raceBit = 1u << (race - 1), classBit = 1u << (@class - 1);
+        foreach (RaceClassRoute route in routes)
+            if ((route.RaceMask == 0 || (route.RaceMask & raceBit) != 0) &&
+                (route.ClassMask == 0 || (route.ClassMask & classBit) != 0))
+                return (route.Flags & UnlearnableFlag) != 0;
+        return false;
     }
     public bool TryGetRecipe(uint spellId, out SkillRecipeInfo recipe) => _recipes.TryGetValue(spellId, out recipe);
     public IReadOnlyList<SkillRecipeInfo> Recipes(uint skillLineId) =>

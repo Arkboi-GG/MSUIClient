@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -13,6 +14,7 @@ public sealed partial class GameLoop
         SkillRecipeInfo Skill);
 
     private bool _professionOpen;
+    private ProfessionPanelKind? _professionPanelKind;
     private uint _professionLine;
     private int _professionSelected;
     private int _professionScroll;
@@ -35,13 +37,23 @@ public sealed partial class GameLoop
 
     private bool TryOpenProfession(uint spellId)
     {
-        if (_skillLines is null || _spellCatalog is null) return false;
+        if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo opener))
+            return false;
+        ProfessionPanelOpenerProvenance provenance = ProfessionPanelOpenerLaw.Resolve(
+            opener.EffectIds, opener.EffectMiscValues);
+        if (!provenance.IsProfessionOpener) return false;
+
+        // Effect-47 is intercepted before every ordinary cast gate and never reaches the wire.
+        // Missing SLA/recipe data can prevent a host window from opening, but cannot turn the
+        // client-local opener back into a CMSG_CAST_SPELL.
+        if (_skillLines is null) return true;
         uint line = _skillLines.SpellLine(spellId);
-        if (!IsCraftProfessionLine(line) || _spellCatalog.CreatedItem(spellId) != 0) return false;
+        if (!IsCraftProfessionLine(line) || _spellCatalog.CreatedItem(spellId) != 0) return true;
         bool hasKnownRecipe = _skillLines.Recipes(line).Any(r => _actions.KnownSpells.Contains(r.SpellId) &&
             (_spellCatalog.CreatedItem(r.SpellId) != 0 || _spellCatalog.Reagents(r.SpellId).Count > 0));
-        if (!hasKnownRecipe) return false;
-        return OpenProfession(line, spellId);
+        if (!hasKnownRecipe) return true;
+        _ = OpenProfession(line, spellId, provenance.PanelKind);
+        return true;
     }
 
     private bool OpenFirstProfession()
@@ -50,7 +62,7 @@ public sealed partial class GameLoop
         uint line = _actions.KnownSpells.Select(_skillLines.SpellLine).Where(IsCraftProfessionLine)
             .FirstOrDefault(x => _skillLines.Recipes(x).Any(r => _actions.KnownSpells.Contains(r.SpellId) &&
                 (_spellCatalog.CreatedItem(r.SpellId) != 0 || _spellCatalog.Reagents(r.SpellId).Count > 0)));
-        return line != 0 && OpenProfession(line, 0);
+        return line != 0 && OpenProfession(line, 0, panelKind: null);
     }
 
     private bool OpenProfessionNamed(string name)
@@ -61,7 +73,7 @@ public sealed partial class GameLoop
                 info.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
                 _skillLines.Recipes(x).Any(r => _actions.KnownSpells.Contains(r.SpellId) &&
                     (_spellCatalog.CreatedItem(r.SpellId) != 0 || _spellCatalog.Reagents(r.SpellId).Count > 0)));
-        return line != 0 && OpenProfession(line, 0);
+        return line != 0 && OpenProfession(line, 0, panelKind: null);
     }
 
     private void SnapshotProfessionRecipes()
@@ -85,7 +97,7 @@ public sealed partial class GameLoop
         }
     }
 
-    private bool OpenProfession(uint line, uint opener)
+    private bool OpenProfession(uint line, uint opener, ProfessionPanelKind? panelKind)
     {
         if (_skillLines is null || _spellCatalog is null || !IsCraftProfessionLine(line)) return false;
         _professionRecipes.Clear();
@@ -112,6 +124,7 @@ public sealed partial class GameLoop
         });
         _professionLine = line; _professionSelected = 0; _professionScroll = 0;
         _professionOpen = _professionRecipes.Count > 0;
+        _professionPanelKind = _professionOpen ? panelKind : null;
         _professionKnownSnapshot.Clear();
         foreach (uint known in _actions.KnownSpells) _professionKnownSnapshot.Add(known);
         GetSkillValue(line, out ushort value, out ushort max);

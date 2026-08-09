@@ -47,6 +47,7 @@ internal static class ReviewQueueWriter
                 SourceFact[] fixedSlice = allFileFacts.Skip(offset).Take(MaximumFactsPerPacket).ToArray();
                 SourceFact[] slice = fixedSlice.Where(f => !covered.Contains(f.Id)).ToArray();
                 var sliceIds = slice.Select(f => f.Id).ToHashSet(StringComparer.Ordinal);
+                var fixedSliceIds = fixedSlice.Select(f => f.Id).ToHashSet(StringComparer.Ordinal);
                 bool implementation = slice.Any(f => pendingIds.Contains(f.Id));
                 string seed = $"{pair.Id}\0{file.Key}\0{chunk}";
                 packets.Add(new ReviewPacket
@@ -60,11 +61,12 @@ internal static class ReviewQueueWriter
                     ReferenceFactIds = fixedSlice.Select(f => f.Id).ToList(),
                     UnresolvedReferenceFactIds = slice.Select(f => f.Id).ToList(),
                     MechanicalCandidateCount = fixedSlice.Count(f => candidateIds.Contains(f.Id)),
-                    Claims = pendingClaims.Where(c => claimFacts[c.Id].Overlaps(sliceIds)).Select(c => new PacketClaim
+                    Claims = claims.Where(c => claimFacts[c.Id].Overlaps(fixedSliceIds)).Select(c => new PacketClaim
                     {
-                        Id = c.Id, Verdict = c.Verdict, Summary = c.Summary,
+                        Id = c.Id, TraceIds = [.. c.TraceIds], Verdict = c.Verdict, Summary = c.Summary,
                         Behavior = c.Behavior, NegativeBehavior = c.NegativeBehavior,
                         VerificationIds = [.. c.VerificationIds],
+                        DecisionId = c.DecisionId,
                     }).ToList(),
                 });
             }

@@ -37,6 +37,14 @@ public sealed partial class GameLoop
         public Vector3 Color = new(1f, 0.4f, 0.1f);
     }
 
+    /// <summary>One user-added emitter: a clone of SourceIndex retargeted at
+    /// TextureSlot. Its live index is OriginalEmitterCount + list position.</summary>
+    private sealed class CreatorAddedEmitter
+    {
+        public int SourceIndex;
+        public int TextureSlot;
+    }
+
     /// <summary>Everything the workshop knows about one effect M2 being tuned.</summary>
     private sealed class CreatorModelDoc
     {
@@ -59,6 +67,12 @@ public sealed partial class GameLoop
         public readonly Dictionary<int, string> TextureSwaps = [];
         // Emitters switched off wholesale (their emission is zeroed in the bytes).
         public readonly HashSet<int> DisabledEmitters = [];
+        // User-added emitters (clones appended to the M2's emitter array), in
+        // append order. The authored array size is OriginalEmitterCount; added
+        // emitter i lives at index OriginalEmitterCount + i, so Edits and
+        // DisabledEmitters address clones exactly like authored emitters.
+        public readonly List<CreatorAddedEmitter> AddedEmitters = [];
+        public int OriginalEmitterCount;
         // Emitter index -> resolved geometry-model path for emitters that spawn a
         // per-particle M2. Those emitters NEVER draw their billboard texture: the
         // on-screen pixels come from the geometry file's OWN texture table, so a
@@ -400,6 +414,7 @@ public sealed partial class GameLoop
             var model = new CreatorModelDoc { Path = path, Original = original };
             model.Working = (byte[])original.Clone();
             model.Emitters = M2EmitterParser.ReadEmitters(model.Working);
+            model.OriginalEmitterCount = model.Emitters.Count;
             model.Textures = Creator.M2TextureParser.ParseTextures(model.Original);
             doc.Models[path] = model;
         }
@@ -428,6 +443,7 @@ public sealed partial class GameLoop
                 var geoModel = new CreatorModelDoc { Path = geoPath, Original = original };
                 geoModel.Working = (byte[])original.Clone();
                 geoModel.Emitters = M2EmitterParser.ReadEmitters(geoModel.Working);
+                geoModel.OriginalEmitterCount = geoModel.Emitters.Count;
                 geoModel.Textures = Creator.M2TextureParser.ParseTextures(geoModel.Original);
                 doc.Models[geoPath] = geoModel;
                 doc.GeometryHosts[geoPath] = Path.GetFileName(hostPath);
@@ -465,6 +481,27 @@ public sealed partial class GameLoop
                       ?? (byte[])model.Original.Clone();
         }
         else working = (byte[])model.Original.Clone();
+
+        // User-added emitters next, so the clones inherit the global dials and
+        // everything downstream (per-BLP hues, edits, disables) addresses the
+        // grown array. Each clone lands at OriginalEmitterCount + position; a
+        // failed clone still consumes its slot (a dead entry keeps later indices
+        // stable) - CloneEmitter only fails on malformed headers, which the
+        // parse at document build already screened out.
+        foreach (var added in model.AddedEmitters)
+        {
+            if (M2ParticlePatcher.CloneEmitter(working, added.SourceIndex, added.TextureSlot)
+                is { } cloned)
+                working = cloned.m2Data;
+            else
+                Console.WriteLine($"[creator] {Path.GetFileName(model.Path)}: emitter clone " +
+                    $"of {added.SourceIndex} failed - header rejected");
+        }
+        // The texture table's emitter back-references must see the clones (the
+        // per-BLP hue dials and the UI's texture<->emitter grouping key on them).
+        // Reparsed every rebuild so removing the last clone heals the refs too;
+        // swaps have not been applied yet, so filenames stay the authored ones.
+        model.Textures = Creator.M2TextureParser.ParseTextures(working);
 
         // Per-BLP hue dials AFTER the master hue: the per-texture target simply
         // wins for the emitters that reference that texture (the rotation sets
@@ -516,7 +553,8 @@ public sealed partial class GameLoop
         model.Working = working;
         model.Emitters = M2EmitterParser.ReadEmitters(working);
         bool bytesPatched = globalsActive || texHuesActive || model.Edits.Count > 0 ||
-                            model.TextureSwaps.Count > 0 || model.DisabledEmitters.Count > 0;
+                            model.TextureSwaps.Count > 0 || model.DisabledEmitters.Count > 0 ||
+                            model.AddedEmitters.Count > 0;
         // Tints live in the renderers' texture layer, not the M2 bytes, but they
         // count as "modified" so the export includes the recolored BLPs.
         model.Modified = bytesPatched || model.TextureTints.Any(t => t.Value.On);
@@ -525,6 +563,45 @@ public sealed partial class GameLoop
         // not SpellEffectSource - push the same override there (a no-op for
         // paths nothing spawns as geometry).
         _spellParticles?.SetGeometryModelOverride(renderPath, bytesPatched ? working : null);
+    }
+
+    /// <summary>The identity color of one texture slot: a stable golden-angle
+    /// palette, shown on the texture's row AND on every emitter drawing with it,
+    /// so the texture-to-emitter wiring reads at a glance when drilling a phase.</summary>
+    private static Vector4 CreatorSlotColor(int slotIndex)
+    {
+        float hue = slotIndex * 137.508f % 360f / 360f;
+        ImGui.ColorConvertHSVtoRGB(hue, 0.72f, 0.95f, out float r, out float g, out float b);
+        return new Vector4(r, g, b, 1f);
+    }
+
+    /// <summary>Drop one user-added emitter and re-key everything addressed by
+    /// emitter index. Only AUTHORED emitters may be clone sources (the UI offers
+    /// Duplicate on those alone), so removals never invalidate another clone's
+    /// source - but clones after the removed one slide down an index, and their
+    /// edits/disables must slide with them.</summary>
+    private static void RemoveCreatorAddedEmitter(CreatorModelDoc model, int emitterIndex)
+    {
+        int pos = emitterIndex - model.OriginalEmitterCount;
+        if (pos < 0 || pos >= model.AddedEmitters.Count) return;
+        model.AddedEmitters.RemoveAt(pos);
+
+        var edits = model.Edits.Values
+            .Where(e => e.EmitterIndex != emitterIndex)
+            .ToList();
+        model.Edits.Clear();
+        foreach (var edit in edits)
+        {
+            if (edit.EmitterIndex > emitterIndex) edit.EmitterIndex--;
+            model.Edits[edit.EmitterIndex] = edit;
+        }
+
+        var disabled = model.DisabledEmitters
+            .Where(i => i != emitterIndex)
+            .Select(i => i > emitterIndex ? i - 1 : i)
+            .ToList();
+        model.DisabledEmitters.Clear();
+        foreach (int i in disabled) model.DisabledEmitters.Add(i);
     }
 
     private static uint PackArgb(Vector3 rgb) =>
@@ -733,12 +810,14 @@ public sealed partial class GameLoop
                 model.TextureTints.Clear();
                 model.TextureSwaps.Clear();
                 model.DisabledEmitters.Clear();
+                model.AddedEmitters.Clear();
                 model.HueShift = false;
                 model.RateMul = model.ScaleMul = model.LifeMul = model.SpeedMul = 1f;
                 model.GravityAdd = 0f;
                 RebuildCreatorModel(model);
             }
         }
+        DrawCreatorSessionBody(doc);
         if (_creatorExportStatus.Length > 0) ImGui.TextWrapped(_creatorExportStatus);
     }
 
@@ -804,6 +883,15 @@ public sealed partial class GameLoop
             foreach (var tex in model.Textures)
             {
                 ImGui.PushID(1000 + tex.Index);
+                // Identity swatch: the same color marks every emitter below that
+                // draws with this image.
+                ImGui.ColorButton($"##slotc{tex.Index}", CreatorSlotColor(tex.Index),
+                    ImGuiColorEditFlags.NoTooltip | ImGuiColorEditFlags.NoDragDrop,
+                    new Vector2(12f * cs, 12f * cs));
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("This image's identity color - the emitters below " +
+                                     "wearing the same swatch draw with this image.");
+                ImGui.SameLine();
                 string effectivePath = EffectiveTexturePath(model, tex.Index);
                 float thumb = MathF.Min(26f * cs, 40f);
                 uint art = effectivePath.Length > 0 ? _gameplayArt?.AdditiveHandle(effectivePath) ?? 0 : 0;
@@ -893,6 +981,27 @@ public sealed partial class GameLoop
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip("Replace this image with any other BLP - from this " +
                                      "spell, any other spell, or a typed path.");
+                // Grow the effect from this image: clone an emitter onto this
+                // slot (its own emitter when it has one, else any authored one
+                // retargeted here) and tune the clone like any other emitter.
+                if (model.OriginalEmitterCount > 0)
+                {
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("+Em"))
+                    {
+                        int source = tex.ReferencedByEmitters
+                            .FirstOrDefault(e => e < model.OriginalEmitterCount, 0);
+                        model.AddedEmitters.Add(new CreatorAddedEmitter
+                        { SourceIndex = source, TextureSlot = tex.Index });
+                        dirty = true;
+                    }
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip("ADD an emitter drawing with this image: a clone of " +
+                            (tex.ReferencedByEmitters.Count > 0
+                                ? "this image's first emitter"
+                                : "emitter 0, retargeted to this image") +
+                            ", appended to the model. Tune or remove it in EMITTERS below.");
+                }
                 if (swapped)
                 {
                     ImGui.SameLine();
@@ -928,9 +1037,13 @@ public sealed partial class GameLoop
         // texture table's back-references (offset 0x016, the real textureId);
         // EmitterSnapshot.TextureId reads 0x02A which is particleColorIndex.
         var texByEmitter = new Dictionary<int, string>();
+        var slotByEmitter = new Dictionary<int, int>();
         foreach (var tex in model.Textures)
             foreach (int e in tex.ReferencedByEmitters)
+            {
                 texByEmitter[e] = Path.GetFileName(tex.Filename);
+                slotByEmitter[e] = tex.Index;
+            }
 
         ImGui.Spacing();
         ImGui.TextDisabled("EMITTERS");
@@ -944,13 +1057,46 @@ public sealed partial class GameLoop
             // label change as they are edited.
             string texName = texByEmitter.GetValueOrDefault(emitter.Index, "no tex");
             bool emitterOff = model.DisabledEmitters.Contains(emitter.Index);
+            bool isAdded = emitter.Index >= model.OriginalEmitterCount;
+            // The emitter wears its texture's identity color - the same swatch
+            // as the image's row above, so the wiring reads at a glance.
+            Vector4? marker = slotByEmitter.TryGetValue(emitter.Index, out int slot)
+                ? CreatorSlotColor(slot) : null;
             if (!CreatorCategory($"ws-{model.Path}-em{emitter.Index}",
                 $"Emitter {emitter.Index}  " +
                 $"({texName}, blend {emitter.BlendMode}, type {emitter.EmitterType})" +
-                (emitterOff ? "  [OFF]" : "")))
+                (isAdded ? "  [added]" : "") +
+                (emitterOff ? "  [OFF]" : ""), marker: marker))
                 continue;
             ImGui.PushID(emitter.Index);
             ImGui.Indent(10f * cs);
+
+            if (isAdded)
+            {
+                if (ImGui.SmallButton("Remove emitter"))
+                {
+                    RemoveCreatorAddedEmitter(model, emitter.Index);
+                    ImGui.Unindent(10f * cs);
+                    ImGui.PopID();
+                    RebuildCreatorModel(model);
+                    break;   // indices shifted - redraw next frame from the new list
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Delete this added emitter (authored emitters can " +
+                                     "only be disabled, never removed).");
+            }
+            else if (ImGui.SmallButton("Duplicate"))
+            {
+                model.AddedEmitters.Add(new CreatorAddedEmitter
+                {
+                    SourceIndex = emitter.Index,
+                    TextureSlot = slotByEmitter.GetValueOrDefault(emitter.Index, 0),
+                });
+                dirty = true;
+            }
+            if (!isAdded && ImGui.IsItemHovered())
+                ImGui.SetTooltip("ADD a copy of this emitter to the model - then tune the " +
+                                 "copy independently (thicker layers, second color, etc).");
 
             bool emitterOn = !emitterOff;
             if (ImGui.Checkbox("Enabled", ref emitterOn))
@@ -1362,6 +1508,61 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>One model's complete tuning: whole-model dials, per-BLP hues and
+    /// tints, swaps, per-emitter absolutes, off-switches, added clones, and the
+    /// mesh/ribbon texture list. EVERY workshop modification is represented here -
+    /// this object (plus the patched bytes) is what the session export and
+    /// MangosSuperUI's Spell Completer consume.</summary>
+    private object CreatorModelTuningPayload(CreatorModelDoc m) => new
+    {
+        dials = new
+        {
+            hueShift = m.HueShift,
+            hueColor = m.HueShift ? $"#{PackArgb(m.HueColor) & 0xFFFFFF:x6}" : null,
+            rateMultiplier = m.RateMul,
+            scaleMultiplier = m.ScaleMul,
+            lifespanMultiplier = m.LifeMul,
+            speedMultiplier = m.SpeedMul,
+            gravityAdd = m.GravityAdd,
+        },
+        textureHues = m.TextureHues.Where(h => h.Value.On).Select(h => new
+        {
+            slotIndex = h.Key,
+            filename = m.Textures.FirstOrDefault(t => t.Index == h.Key)?.Filename,
+            hueColor = $"#{PackArgb(h.Value.Color) & 0xFFFFFF:x6}",
+            emitters = m.Textures.FirstOrDefault(t => t.Index == h.Key)?.ReferencedByEmitters,
+        }),
+        textureTints = m.TextureTints.Where(t => t.Value.On).Select(t => new
+        {
+            slotIndex = t.Key,
+            filename = EffectiveTexturePath(m, t.Key),
+            tintColor = $"#{PackArgb(t.Value.Color) & 0xFFFFFF:x6}",
+        }),
+        textureSwaps = m.TextureSwaps.Select(sw => new
+        {
+            slotIndex = sw.Key,
+            original = m.Textures.FirstOrDefault(x => x.Index == sw.Key)?.Filename,
+            replacement = sw.Value,
+        }),
+        emitters = m.Edits.Values,
+        // Emitter off-switches and user-added clones: without these the
+        // consumer resurrects silenced emitters and drops added layers.
+        disabledEmitters = m.DisabledEmitters.OrderBy(i => i),
+        addedEmitters = m.AddedEmitters.Select((a, i) => new
+        {
+            index = m.OriginalEmitterCount + i,
+            sourceIndex = a.SourceIndex,
+            textureSlot = a.TextureSlot,
+        }),
+        // Ribbon/mesh color tracks are keyframed data the byte patcher
+        // cannot reach - the consumer approximates the whole-model hue on
+        // these by hue-mapping their BLPs (safe on a cloned spell's own
+        // texture copies).
+        meshOrRibbonTextures = m.Textures
+            .Where(t => t.ReferencedByEmitters.Count == 0 && t.Filename.Length > 0)
+            .Select(t => new { slotIndex = t.Index, filename = t.Filename }),
+    };
+
     /// <summary>The tuning as JSON: whole-model dials + per-BLP hues + per-emitter
     /// absolute values, keyed by model path - the document MangosSuperUI's tuning
     /// pipeline consumes.</summary>
@@ -1375,36 +1576,7 @@ public sealed partial class GameLoop
             models = doc.Models.Values.Where(m => m.Modified).Select(m => new
             {
                 path = m.Path,
-                dials = new
-                {
-                    hueShift = m.HueShift,
-                    hueColor = m.HueShift ? $"#{PackArgb(m.HueColor) & 0xFFFFFF:x6}" : null,
-                    rateMultiplier = m.RateMul,
-                    scaleMultiplier = m.ScaleMul,
-                    lifespanMultiplier = m.LifeMul,
-                    speedMultiplier = m.SpeedMul,
-                    gravityAdd = m.GravityAdd,
-                },
-                textureHues = m.TextureHues.Where(h => h.Value.On).Select(h => new
-                {
-                    slotIndex = h.Key,
-                    filename = m.Textures.FirstOrDefault(t => t.Index == h.Key)?.Filename,
-                    hueColor = $"#{PackArgb(h.Value.Color) & 0xFFFFFF:x6}",
-                    emitters = m.Textures.FirstOrDefault(t => t.Index == h.Key)?.ReferencedByEmitters,
-                }),
-                textureTints = m.TextureTints.Where(t => t.Value.On).Select(t => new
-                {
-                    slotIndex = t.Key,
-                    filename = EffectiveTexturePath(m, t.Key),
-                    tintColor = $"#{PackArgb(t.Value.Color) & 0xFFFFFF:x6}",
-                }),
-                textureSwaps = m.TextureSwaps.Select(sw => new
-                {
-                    slotIndex = sw.Key,
-                    original = m.Textures.FirstOrDefault(x => x.Index == sw.Key)?.Filename,
-                    replacement = sw.Value,
-                }),
-                emitters = m.Edits.Values,
+                tuning = CreatorModelTuningPayload(m),
             }),
         };
         string path = Path.Combine(CreatorExportDir(), $"spell-{doc.Info.Id}-tuning.json");

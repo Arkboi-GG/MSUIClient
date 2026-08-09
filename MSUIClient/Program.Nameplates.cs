@@ -245,8 +245,7 @@ public sealed partial class GameLoop
         if (_net is null) return;
         if (unit.IsPlayer && !_playerNames.ContainsKey(unit.Guid) && _queriedPlayerNames.Add(unit.Guid))
             _net.NameQuery(unit.Guid);
-        else if (unit.IsCreature && unit.Entry != 0 && !_creatureNames.ContainsKey(unit.Entry) &&
-                 _queriedCreatureNames.Add(unit.Entry))
+        else if (unit.IsCreature && TryBeginCreatureQuery(unit.Entry))
             _net.CreatureQuery(unit.Entry, unit.Guid);
     }
 

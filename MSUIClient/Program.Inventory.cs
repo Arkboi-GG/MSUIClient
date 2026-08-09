@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
@@ -25,6 +26,10 @@ public sealed partial class GameLoop
     private int _splitContainer = InventoryUiLaw.EmptyContainer;
     private int _splitSlot = -1;
     private int _splitMaximum;
+    private bool _shoppingTooltipParityCompletionPending;
+    private bool _shoppingTooltipParityRendererCollected;
+    private ImmutableArray<ShoppingTooltipParityExpectation>
+        _shoppingTooltipParityExpectations = [];
     private int _splitCount = 1;
     private int _itemPushContainer = InventoryUiLaw.EmptyContainer;
     private uint _itemPushEntry;
@@ -65,7 +70,7 @@ public sealed partial class GameLoop
         bool down = BindingDown(GameBinding.OpenBackpack);
         if (down && !_backpackKeyWasDown && !typing && _net is { IsInWorld: true })
         {
-            bool shift = _window.IsDown(Key.ShiftLeft) || _window.IsDown(Key.ShiftRight);
+            bool shift = InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
             if (InventoryUiLaw.BindingAction(shift) == InventoryUiLaw.BagBindingAction.ToggleAllBags)
                 ToggleAllBags();
             else
@@ -254,23 +259,30 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel == "backpack")
         {
             BeginUiParityFrame(frameMin, scale);
-            CollectUiParity("ContainerFrame1", "Frame", frameMin, frameSize * scale, parent: "",
-                point: "BOTTOMRIGHT", relativeTo: "UIParent", relativePoint: "BOTTOMRIGHT", offsetX: "0", offsetY: "70", strata: "MEDIUM");
-            CollectUiParity("ContainerFrame1BackgroundTop", "Texture", windowMin, new Vector2(256) * scale,
-                parent: "ContainerFrame1", point: "TOPRIGHT", relativeTo: "ContainerFrame1", relativePoint: "TOPRIGHT",
-                offsetX: "0", offsetY: "0", texture: @"Interface\ContainerFrame\UI-BackpackBackground", layer: "ARTWORK", strata: "MEDIUM", texCoords: "0,1,0,1");
-            CollectUiParity("ContainerFrame1Portrait", "Texture", frameMin + new Vector2(7, 5) * scale,
-                new Vector2(40) * scale, parent: "ContainerFrame1", point: "TOPLEFT", relativeTo: "ContainerFrame1",
-                relativePoint: "TOPLEFT", offsetX: "7", offsetY: "-5", texture: @"Interface\Buttons\Button-Backpack-Up", layer: "BACKGROUND", strata: "MEDIUM");
-            CollectUiParity("ContainerFrame1Name", "FontString", frameMin + new Vector2(47, 10) * scale,
-                new Vector2(112, 12) * scale, parent: "ContainerFrame1", point: "TOPLEFT", relativeTo: "ContainerFrame1",
-                relativePoint: "TOPLEFT", offsetX: "47", offsetY: "-10", font: "GameFontHighlight", fontPath: @"Fonts\FRIZQT__.TTF",
-                fontSize: "12", color: "1,1,1,1", layer: "ARTWORK", strata: "MEDIUM");
-            CollectUiParity("ContainerFrame1CloseButton", "Button", frameMin + new Vector2(160, 1) * scale,
-                new Vector2(32) * scale, parent: "ContainerFrame1", point: "TOPRIGHT", relativeTo: "ContainerFrame1",
-                relativePoint: "TOPRIGHT", offsetX: "0", offsetY: "-1", strata: "MEDIUM");
-            CollectUiParity("ContainerFrame1CloseButton/NormalTexture", "NormalTexture", frameMin + new Vector2(160, 1) * scale,
-                new Vector2(32) * scale, parent: "ContainerFrame1CloseButton", texture: @"Interface\Buttons\UI-Panel-MinimizeButton-Up", strata: "MEDIUM");
+            CollectUiParityDraw("ContainerFrame1", "Frame", frameMin, frameSize * scale, "",
+                new("", 0, "IMGUI_HOST", "BOTTOMRIGHT", "UIParent", "BOTTOMRIGHT", 0, 70));
+            CollectUiParityDraw("ContainerFrame1Portrait", "Texture", frameMin + new Vector2(7, 5) * scale,
+                new Vector2(40) * scale, "ContainerFrame1",
+                new(@"Interface\Buttons\Button-Backpack-Up", 0xffffffff, "BACKGROUND", "TOPLEFT",
+                    "ContainerFrame1", "TOPLEFT", 7, -5));
+            CollectUiParityDraw("ContainerFrame1BackgroundTop", "Texture", windowMin,
+                new Vector2(256) * scale, "ContainerFrame1",
+                new(@"Interface\ContainerFrame\UI-BackpackBackground", 0xffffffff, "ARTWORK", "TOPRIGHT",
+                    "ContainerFrame1", "TOPRIGHT", 0, 0));
+            CollectUiParityDraw("ContainerFrame1Name", "FontString", frameMin + new Vector2(47, 10) * scale,
+                new Vector2(112, 12) * scale, "ContainerFrame1",
+                new("", 0xffffffff, "ARTWORK", "TOPLEFT", "ContainerFrame1", "TOPLEFT", 47, -10,
+                    @"Fonts\FRIZQT__.TTF", 12));
+            CollectUiParityDraw("ContainerFrame1CloseButton", "Button", frameMin + new Vector2(160, 1) * scale,
+                new Vector2(32) * scale, "ContainerFrame1",
+                new("", 0, "IMGUI_HIT_TARGET", "TOPRIGHT", "ContainerFrame1", "TOPRIGHT", 0, -1,
+                    Enabled: true, InteractionState: "normal",
+                    HitMin: frameMin + new Vector2(160, 1) * scale,
+                    HitMax: frameMin + new Vector2(192, 33) * scale));
+            CollectUiParityDraw("ContainerFrame1CloseButton/NormalTexture", "NormalTexture",
+                frameMin + new Vector2(160, 1) * scale, new Vector2(32) * scale, "ContainerFrame1CloseButton",
+                new(@"Interface\Buttons\UI-Panel-MinimizeButton-Up", 0xffffffff, "ARTWORK", "CENTER",
+                    "ContainerFrame1CloseButton", "CENTER", 0, 0));
         }
 
         ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
@@ -306,15 +318,6 @@ public sealed partial class GameLoop
         {
             InventoryUiLaw.SlotGeometry cell = InventoryUiLaw.Slot(16, gameSlot, 240f, backpack: true);
             Vector2 slotMin = frameMin + new Vector2(cell.X, cell.Y) * scale;
-            if (_uiParityArmed && _uiParityPanel == "backpack" && gameSlot == 0)
-            {
-                CollectUiParity("ContainerFrame1Item1", "Button", slotMin, new Vector2(37) * scale,
-                    parent: "ContainerFrame1", point: "BOTTOMRIGHT", relativeTo: "ContainerFrame1", relativePoint: "BOTTOMRIGHT",
-                    offsetX: "-12", offsetY: "30", strata: "MEDIUM");
-                CollectUiParity("ContainerFrame1Item1NormalTexture", "NormalTexture", slotMin - new Vector2(13, 14) * scale,
-                    new Vector2(64) * scale, parent: "ContainerFrame1Item1", point: "CENTER", relativeTo: "ContainerFrame1Item1",
-                    relativePoint: "CENTER", offsetX: "0", offsetY: "-1", texture: @"Interface\Buttons\UI-Quickslot2", strata: "MEDIUM");
-            }
             DrawInventorySlot(dl, player, 0, gameSlot, slotMin, scale, $"pack-{gameSlot}");
         }
 
@@ -345,6 +348,15 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav))
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        bool parityProof = _uiParityArmed && _uiParityPanel == "bag-bar";
+        const string parityRoot = "MainMenuBarBagButtons";
+        if (parityProof)
+        {
+            BeginUiParityFrame(windowMin, s);
+            CollectUiParityDraw(parityRoot, "Frame", windowMin, new Vector2(windowWidth, 53) * s, "",
+                new("", 0, "IMGUI_HOST", "BOTTOMRIGHT", "MainMenuBar", "BOTTOMRIGHT",
+                    hasKey ? -250 : -226, 0));
+        }
         _bagButtonPositions.Clear();
         int[] containers = [4, 3, 2, 1, 0];
         for (int i = 0; i < containers.Length; i++)
@@ -373,11 +385,34 @@ public sealed partial class GameLoop
                     { bagTemplate = template; art = template.IconPath; }
                 }
             }
-            uint icon = _gameplayArt.Handle(art);
             bool locked = container != 0 && IsInventorySlotLocked(InventoryUiLaw.EquipmentContainer, equipmentSlot);
             bool menuDisabled = _settingsOpen && InventoryUiLaw.DisableWithGameMenu(container);
             uint tint = menuDisabled || locked ? 0xff666666 : 0xffffffff;
-            if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(buttonSize) * s,
+            uint icon = container == 0 ? _gameplayArt.Handle(art) : _gameplayArt.CircularHandle(art);
+            string parityButton = container == 0 ? "MainMenuBarBackpackButton" : $"CharacterBag{container - 1}Slot";
+            bool checkedState = container == 0 ? _backpackOpen : _equippedBagOpen[container - 1];
+            if (parityProof)
+            {
+                CollectUiParityDraw(parityButton, "CheckButton", min, new Vector2(buttonSize) * s,
+                    parityRoot, new("", 0, "IMGUI_HIT_TARGET", "ABSOLUTE", parityRoot, "TOPLEFT",
+                        (min.X - windowMin.X) / s, -((min.Y - windowMin.Y) / s),
+                        Enabled: !menuDisabled && !locked,
+                        InteractionState: menuDisabled || locked ? "disabled" : checkedState ? "checked" : "normal",
+                        HitMin: min, HitMax: min + new Vector2(buttonSize) * s));
+                CollectUiParityDraw(parityButton + "IconTexture",
+                    container == 0 ? "Texture" : "MaskedTexture", min, new Vector2(buttonSize) * s,
+                    parityButton, new(art, tint, "BACKGROUND", "CENTER", parityButton, "CENTER", 0, 0,
+                        TexCoords: "0|0|1|1",
+                        ClipRect: new Vector4(min.X, min.Y, min.X + buttonSize * s, min.Y + buttonSize * s),
+                        ClipMask: container == 0 ? "" : "ALPHA_CIRCLE_INSCRIBED",
+                        BlendMode: "BLEND", Visible: icon != 0));
+            }
+            BagIconContainmentLaw.Geometry barProof = BagIconContainmentLaw.BagBar;
+            bool drawDynamicIcon = container == 0 || BagContainmentDrawIcon(parityButton + "IconTexture",
+                min, new Vector2(buttonSize) * s,
+                min - new Vector2(barProof.ApertureOffset) * s,
+                new Vector2(barProof.CaptureSize) * s);
+            if (icon != 0 && drawDynamicIcon) dl.AddImage((nint)icon, min, min + new Vector2(buttonSize) * s,
                 Vector2.Zero, Vector2.One, tint);
             ImGui.SetCursorScreenPos(min);
             ImGui.InvisibleButton($"##bag-button-{container}", new Vector2(buttonSize) * s);
@@ -400,28 +435,63 @@ public sealed partial class GameLoop
             {
                 Vector2 center = min + new Vector2(18f) * s, half = new(33f * s);
                 dl.AddImage((nint)ring, center - half, center + half);
+                if (parityProof)
+                    CollectUiParityDraw(parityButton + "NormalTexture", "NormalTexture",
+                        center - half, half * 2, parityButton,
+                        new(@"Interface\Buttons\UI-Quickslot2", 0xffffffff, "ARTWORK", "CENTER",
+                            parityButton, "CENTER", 0, 0, TexCoords: "0|0|1|1",
+                            BlendMode: "BLEND", Visible: ring != 0));
             }
-            bool checkedState = container == 0 ? _backpackOpen : _equippedBagOpen[container - 1];
             if (checkedState)
             {
                 uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
                 if (check != 0) dl.AddImage((nint)check, min, min + new Vector2(buttonSize) * s);
+                if (parityProof)
+                    CollectUiParityDraw(parityButton + "CheckedTexture", "CheckedTexture", min,
+                        new Vector2(buttonSize) * s, parityButton,
+                        new(@"Interface\Buttons\CheckButtonHilight", 0xffffffff, "OVERLAY", "CENTER",
+                            parityButton, "CENTER", 0, 0));
             }
             if (hovered)
             {
                 uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
                 if (highlight != 0) dl.AddImage((nint)highlight, min, min + new Vector2(buttonSize) * s);
-                ImGui.BeginTooltip();
-                ImGui.TextUnformatted(container == 0
+                if (parityProof)
+                    CollectUiParityDraw(parityButton + "HighlightTexture", "HighlightTexture", min,
+                        new Vector2(buttonSize) * s, parityButton,
+                        new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff, "OVERLAY", "CENTER",
+                            parityButton, "CENTER", 0, 0));
+                string tooltipText = container == 0
                     ? $"Backpack ({BindingText(GameBinding.OpenBackpack)})"
-                    : bagTemplate?.Name ?? "Equip Container");
-                ImGui.EndTooltip();
+                    : bagTemplate?.Name ?? "Equip Container";
+                GameTooltipOwnerKey tooltipOwner = container == 0
+                    ? new("bag-button", 0)
+                    : new("item:inventory-bag-bar", (ulong)container);
+                OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted(tooltipText);
+                    ImGui.EndTooltip();
+                });
             }
         }
         if (hasKey)
         {
             Vector2 min = firstBagMin - new Vector2(24f, 1.5f) * s;
             _bagButtonPositions[InventoryUiLaw.KeyringContainer] = min;
+            if (parityProof)
+            {
+                CollectUiParityDraw("KeyRingButton", "CheckButton", min, new Vector2(18f, 39f) * s,
+                    parityRoot, new("", 0, "IMGUI_HIT_TARGET", "RIGHT", "CharacterBag3Slot", "LEFT", -6, 0,
+                        Enabled: !_settingsOpen,
+                        InteractionState: _settingsOpen ? "disabled" : _keyringOpen ? "checked" : "normal",
+                        HitMin: min, HitMax: min + new Vector2(18f, 39f) * s));
+                CollectUiParityDraw("KeyRingButtonNormalTexture", "NormalTexture", min,
+                    new Vector2(18f, 39f) * s, "KeyRingButton",
+                    new(@"Interface\Buttons\UI-Button-KeyRing", 0xffffffff, "ARTWORK", "CENTER",
+                        "KeyRingButton", "CENTER", 0, 0,
+                        TexCoords: "0|0|0.5625|0.609375", BlendMode: "BLEND"));
+            }
             uint icon = _gameplayArt.Handle(@"Interface\Buttons\UI-Button-KeyRing");
             if (icon != 0) dl.AddImage((nint)icon, min, min + new Vector2(18f, 39f) * s,
                 Vector2.Zero, new Vector2(.5625f, .609375f), 0xffffffff);
@@ -439,10 +509,16 @@ public sealed partial class GameLoop
             }
             if (ImGui.IsItemHovered())
             {
-                ImGui.BeginTooltip(); ImGui.TextUnformatted("Keyring"); ImGui.EndTooltip();
+                OfferPreservedSharedGameTooltipRenderer(new("keyring-button", 0), () =>
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted("Keyring");
+                    ImGui.EndTooltip();
+                });
             }
             if (!_settingsOpen) HandleKeyringDropTarget(player);
         }
+        if (parityProof) MarkUiParityFrameComplete();
         ImGui.End();
     }
 
@@ -478,10 +554,57 @@ public sealed partial class GameLoop
         { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
         Vector2 artMin = p - new Vector2(64, 0) * s;
-        // The portrait is a BACKGROUND layer in ContainerFrame.xml. Draw it first so the
-        // UI-Bag-Components ARTWORK layer masks the square icon to its circular recess.
-        uint portrait = _gameplayArt!.Handle(bagTemplate?.IconPath ?? @"Interface\Buttons\Button-Backpack-Up");
-        if (portrait != 0) dl.AddImage((nint)portrait, p + new Vector2(7, 5) * s, p + new Vector2(47, 45) * s);
+        Vector2 portraitMin = p + new Vector2(7, 5) * s;
+        bool parityProof = _uiParityArmed && _uiParityPanel == "equipped-bag" &&
+            bagIndex + 1 == _uiParityEquippedBagContainer;
+        string parityRoot = $"ContainerFrameBag{bagIndex + 1}";
+        if (parityProof)
+        {
+            BeginUiParityFrame(p, s);
+            CollectUiParityDraw(parityRoot, "Frame", p, new Vector2(192, height) * s, "",
+                new("", 0, "IMGUI_HOST", "BOTTOMRIGHT", "UIParent", "BOTTOMRIGHT", 0, 70));
+            CollectUiParityDraw(parityRoot + "Portrait", "MaskedTexture", portraitMin,
+                new Vector2(40) * s, parityRoot,
+                new(bagTemplate?.IconPath ?? @"Interface\Buttons\Button-Backpack-Up", 0xffffffff,
+                    "BACKGROUND", "TOPLEFT", parityRoot, "TOPLEFT", 7, -5,
+                    TexCoords: "0|0|1|1",
+                    ClipRect: new Vector4(portraitMin.X, portraitMin.Y,
+                        portraitMin.X + 40 * s, portraitMin.Y + 40 * s),
+                    ClipMask: "ALPHA_CIRCLE_INSCRIBED", BlendMode: "BLEND"));
+            CollectUiParityDraw(parityRoot + "BackgroundTop", "TextureUv", artMin,
+                new Vector2(256, geometry.TopHeight) * s, parityRoot,
+                new(@"Interface\ContainerFrame\UI-Bag-Components", 0xffffffff, "ARTWORK",
+                    "TOPRIGHT", parityRoot, "TOPRIGHT", 0, 0,
+                    TexCoords: $"0|{geometry.TopUvY.X:R}|1|{geometry.TopUvY.Y:R}", BlendMode: "BLEND"));
+            if (geometry.MiddleHeight > 0)
+                CollectUiParityDraw(parityRoot + "BackgroundMiddle", "TextureUv",
+                    artMin + new Vector2(0, geometry.TopHeight) * s,
+                    new Vector2(256, geometry.MiddleHeight) * s, parityRoot,
+                    new(@"Interface\ContainerFrame\UI-Bag-Components", 0xffffffff, "ARTWORK",
+                        "TOPRIGHT", parityRoot + "BackgroundTop", "BOTTOMRIGHT", 0, 0,
+                        TexCoords: $"0|{geometry.MiddleUvY.X:R}|1|{geometry.MiddleUvY.Y:R}", BlendMode: "BLEND"));
+            CollectUiParityDraw(parityRoot + "BackgroundBottom", "TextureUv",
+                artMin + new Vector2(0, height - 10) * s, new Vector2(256, 10) * s, parityRoot,
+                new(@"Interface\ContainerFrame\UI-Bag-Components", 0xffffffff, "ARTWORK",
+                    "TOPRIGHT", geometry.MiddleHeight > 0 ? parityRoot + "BackgroundMiddle" : parityRoot + "BackgroundTop",
+                    "BOTTOMRIGHT", 0, 0,
+                    TexCoords: $"0|{geometry.BottomUvY.X:R}|1|{geometry.BottomUvY.Y:R}", BlendMode: "BLEND"));
+            CollectUiParityDraw(parityRoot + "Name", "FontString", p + new Vector2(47, 10) * s,
+                new Vector2(112, 12) * s, parityRoot,
+                new("", 0xffffffff, "ARTWORK", "TOPLEFT", parityRoot, "TOPLEFT", 47, -10,
+                    @"Fonts\FRIZQT__.TTF", 12));
+        }
+        // The portrait is a BACKGROUND layer in ContainerFrame.xml. Its derived handle is alpha
+        // masked because the ring has transparent corners and cannot contain a square icon alone;
+        // the UI-Bag-Components ARTWORK still draws over it in the authored layer order.
+        uint portrait = _gameplayArt!.CircularHandle(bagTemplate?.IconPath ?? @"Interface\Buttons\Button-Backpack-Up");
+        BagIconContainmentLaw.Geometry portraitProof = BagIconContainmentLaw.HeaderPortrait;
+        bool drawPortrait = BagContainmentDrawIcon(parityRoot + "Portrait", portraitMin,
+            new Vector2(portraitProof.ApertureSize) * s,
+            portraitMin - new Vector2(portraitProof.ApertureOffset) * s,
+            new Vector2(portraitProof.CaptureSize) * s);
+        if (portrait != 0 && drawPortrait)
+            dl.AddImage((nint)portrait, portraitMin, portraitMin + new Vector2(40) * s);
         uint bg = _gameplayArt.Handle(@"Interface\ContainerFrame\UI-Bag-Components");
         if (bg != 0)
         {
@@ -504,11 +627,23 @@ public sealed partial class GameLoop
             DrawInventorySlot(dl, bag, bagIndex + 1, slot, min, s, $"bag-{bagIndex}-{slot}");
         }
         Vector2 closeMin = p + new Vector2(160, 1) * s;
+        if (parityProof)
+        {
+            CollectUiParityDraw(parityRoot + "CloseButton", "Button", closeMin, new Vector2(32) * s,
+                parityRoot, new("", 0, "IMGUI_HIT_TARGET", "TOPRIGHT", parityRoot, "TOPRIGHT", 0, -1,
+                    Enabled: true, InteractionState: "normal", HitMin: closeMin,
+                    HitMax: closeMin + new Vector2(32) * s));
+            CollectUiParityDraw(parityRoot + "CloseButton/NormalTexture", "NormalTexture", closeMin,
+                new Vector2(32) * s, parityRoot + "CloseButton",
+                new(@"Interface\Buttons\UI-Panel-MinimizeButton-Up", 0xffffffff, "ARTWORK", "CENTER",
+                    parityRoot + "CloseButton", "CENTER", 0, 0));
+        }
         uint close = _gameplayArt.Handle(@"Interface\Buttons\UI-Panel-MinimizeButton-Up");
         if (close != 0) dl.AddImage((nint)close, closeMin, closeMin + new Vector2(32) * s);
         ImGui.SetCursorScreenPos(closeMin);
         ImGui.InvisibleButton($"##bag-close-{bagIndex}", new Vector2(32) * s);
         if (ImGui.IsItemClicked()) SetBagWindowOpen(bagIndex + 1, false);
+        if (parityProof) MarkUiParityFrameComplete();
         ImGui.End();
     }
 
@@ -555,6 +690,12 @@ public sealed partial class GameLoop
         _carriedCount = null;
     }
 
+    private void ClearCarriedItemOnEscape()
+    {
+        if (HasCarriedItem) ClearCarriedItem();
+        ClearActionBarCursorOnEscape();
+    }
+
     private WorldEntity? ResolveCarriedItem()
     {
         return HasCarriedItem ? ResolveInventoryItem(_carriedContainer, _carriedSlot) : null;
@@ -562,34 +703,108 @@ public sealed partial class GameLoop
 
     private bool PlaceCarriedItemOnAction(int actionSlot)
     {
-        if (!HasCarriedItem || _net is null || ResolveCarriedItem() is not { } item) return false;
+        if (!HasCarriedItem) return false;
+        // A held cursor payload owns the click even when the destination refuses it. Falling
+        // through to UseAction would cast/use the action underneath a silently refused item.
+        if (_net is null || ResolveCarriedItem() is not { } item) return true;
+        _items?.Require(item.Entry, item.Guid, _net);
+        if (_items?.TryGet(item.Entry, out ItemTemplate? template) != true || template is null)
+            return true;
+        if (!MultiActionBarUiLaw.ItemMayBePlaced(template.InventoryType, template.UseSpellId))
+            return true;
+
         var action = new ActionSlot(ActionSlot.Item, item.Entry);
-        _actions.Set(actionSlot, action);
-        _net.SetActionButton((byte)actionSlot, action.Packed);
+        PlaceActionPayload(actionSlot, action);
         ClearCarriedItem();
         return true;
     }
 
     private void UseItemAction(uint entry)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        for (int i = 0; i < 16; i++)
+        if (_net is null || _items is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+
+        List<(byte Bag, byte Slot, WorldEntity Item, bool Worn)> all =
+            EnumerateActionItemCopies(player, entry).ToList();
+        if (all.Count == 0) return;
+        WorldEntity exemplar = all[0].Item;
+        _items.Require(entry, exemplar.Guid, _net);
+        if (!_items.TryGet(entry, out ItemTemplate? template) || template is null) return;
+
+        bool chargeFilter = template.InventoryType == 0 &&
+            MultiActionBarUiLaw.RequiresLiveCharges(template.SpellCharges0);
+        (byte Bag, byte Slot, WorldEntity Item, bool Worn)? any = null;
+        foreach (var candidate in all)
         {
-            ulong guid = player.Fields.PlayerBackpackSlot(i);
-            if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
-            { _net.UseItem(255, (byte)(23 + i), 0); return; }
+            if (chargeFilter && !MultiActionBarUiLaw.LiveChargeCandidate(
+                    candidate.Item.Fields.ContainerNumSlots > 0,
+                    candidate.Item.Fields.ItemSpellCharges(0))) continue;
+            any = candidate;
+            break;
         }
-        for (int bagIndex = 0; bagIndex < 4; bagIndex++)
+        (byte Bag, byte Slot, WorldEntity Item, bool Worn)? equipped =
+            all.FirstOrDefault(candidate => candidate.Worn) is { Worn: true } worn
+                ? worn : null;
+        MultiActionItemRoute route = MultiActionBarUiLaw.ItemUseRoute(template.InventoryType,
+            equipped is not null, any is not null);
+        if (route == MultiActionItemRoute.Use)
         {
-            ulong bagGuid = player.Fields.PlayerInventorySlot(19 + bagIndex);
-            if (bagGuid == 0 || !_entities.TryGet(bagGuid, out WorldEntity bag)) continue;
-            for (int slot = 0; slot < bag.Fields.ContainerNumSlots; slot++)
+            (byte Bag, byte Slot, WorldEntity Item, bool Worn) at = template.InventoryType != 0
+                ? equipped!.Value : any!.Value;
+            uint activeIconId = _spellCatalog?.TryGet(template.UseSpellId, out SpellInfo spell) == true
+                ? spell.ActiveIconId : 0;
+            bool matchingCancelableAura = player.Fields.Auras().Any(aura =>
+                aura.SpellId == template.UseSpellId && (aura.Flags & 0x1) != 0);
+            switch (MultiActionBarUiLaw.ItemUseDisposition(template.StartQuest,
+                        template.UseSpellId, activeIconId, matchingCancelableAura))
             {
-                ulong guid = bag.Fields.ContainerSlot(slot);
-                if (guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry)
-                { _net.UseItem((byte)(19 + bagIndex), (byte)slot, 0); return; }
+                case MultiActionItemUseDisposition.QuestOffer:
+                    _net.QuestgiverQuery(at.Item.Guid, template.StartQuest);
+                    break;
+                case MultiActionItemUseDisposition.ToggleCancel:
+                    _net.CancelAura(template.UseSpellId);
+                    break;
+                case MultiActionItemUseDisposition.Use:
+                    _net.UseItem(at.Bag, at.Slot, template.UseSpellIndex);
+                    break;
             }
         }
+        else if (route == MultiActionItemRoute.Equip && any is { } at)
+            _net.AutoEquipItem(at.Bag, at.Slot);
+    }
+
+    /// <summary>
+    /// The reference's mode-0x47 inventory walk. Order is observable when duplicate copies have
+    /// different remaining charges, and its wire bag bytes are not UI container ids.
+    /// </summary>
+    private IEnumerable<(byte Bag, byte Slot, WorldEntity Item, bool Worn)>
+        EnumerateActionItemCopies(WorldEntity player, uint entry)
+    {
+        (WorldEntity Item, bool Hit) Resolve(ulong guid) =>
+            guid != 0 && _entities.TryGet(guid, out WorldEntity item) && item.Entry == entry
+                ? (item, true) : (null!, false);
+
+        for (int slot = 0; slot < 19; slot++)
+            if (Resolve(player.Fields.PlayerInventorySlot(slot)) is { Hit: true } worn)
+                yield return (255, (byte)slot, worn.Item, true);
+        for (int bagIndex = 0; bagIndex < 4; bagIndex++)
+        {
+            byte bagSlot = (byte)(19 + bagIndex);
+            ulong bagGuid = player.Fields.PlayerInventorySlot(bagSlot);
+            if (Resolve(bagGuid) is { Hit: true } bagObject)
+                yield return (255, bagSlot, bagObject.Item, false);
+            if (bagGuid == 0 || !_entities.TryGet(bagGuid, out WorldEntity bag)) continue;
+            int slots = (int)Math.Min(bag.Fields.ContainerNumSlots, 36);
+            for (int slot = 0; slot < slots; slot++)
+                if (Resolve(bag.Fields.ContainerSlot(slot)) is { Hit: true } content)
+                    yield return (bagSlot, (byte)slot, content.Item, false);
+        }
+        for (int i = 0; i < 16; i++)
+            if (Resolve(player.Fields.PlayerBackpackSlot(i)) is { Hit: true } backpack)
+                yield return (255, (byte)(23 + i), backpack.Item, false);
+        for (int i = 0; i < 16; i++)
+            if (Resolve(player.Fields.PlayerKeyringSlot(i)) is { Hit: true } key)
+                yield return (255, (byte)(81 + i), key.Item, false);
     }
 
     private void UseBackpackItem(int slot, ItemTemplate item)
@@ -614,31 +829,310 @@ public sealed partial class GameLoop
                 count.ToString(), min + new Vector2(32f, 18f) * scale, scale);
     }
 
-    private static void DrawItemTooltip(ItemTemplate item, uint count, uint durability = 0, uint maxDurability = 0)
+    private static Vector4 ItemTooltipQualityColor(uint quality) => quality switch
     {
-        Vector4 quality = item.Quality switch
-        {
-            0 => new Vector4(0.62f, 0.62f, 0.62f, 1), 2 => new Vector4(0.12f, 1f, 0, 1),
-            3 => new Vector4(0, 0.44f, 0.87f, 1), 4 => new Vector4(0.64f, 0.21f, 0.93f, 1),
-            5 => new Vector4(1f, 0.50f, 0, 1), 6 => new Vector4(0.90f, 0.80f, 0.50f, 1),
-            _ => Vector4.One,
-        };
-        ImGui.BeginTooltip();
-        ImGui.TextColored(quality, item.Name);
-        if (item.Bonding == 1) ImGui.TextUnformatted("Binds when picked up");
-        else if (item.Bonding == 2) ImGui.TextUnformatted("Binds when equipped");
+        0 => new Vector4(0.62f, 0.62f, 0.62f, 1), 2 => new Vector4(0.12f, 1f, 0, 1),
+        3 => new Vector4(0, 0.44f, 0.87f, 1), 4 => new Vector4(0.64f, 0.21f, 0.93f, 1),
+        5 => new Vector4(1f, 0.50f, 0, 1), 6 => new Vector4(0.90f, 0.80f, 0.50f, 1),
+        _ => Vector4.One,
+    };
+
+    private enum PreparedItemTooltipPaintKind
+    {
+        Plain,
+        Disabled,
+        Colored,
+        Separator,
+    }
+
+    private readonly record struct PreparedItemTooltipPaintOp(
+        PreparedItemTooltipPaintKind Kind,
+        string Text,
+        Vector4 Color);
+
+    private readonly record struct ItemTooltipBodySnapshot(
+        ImmutableArray<PreparedItemTooltipPaintOp> Operations);
+
+    private readonly record struct PreparedPaperDollComparisonTooltip(
+        int TooltipNumber,
+        int EquipmentSlot,
+        ItemTooltipBodySnapshot Body,
+        Vector2 WindowPosition,
+        Vector2 WindowPivot,
+        float Scale,
+        string AnchorPoint,
+        string RelativePoint,
+        string ParentElement,
+        bool CaptureParity);
+
+    private readonly record struct ShoppingTooltipParityExpectation(
+        int TooltipNumber,
+        string ParentElement);
+
+    private static GameTooltipOwnerKey InventoryItemGameTooltipOwner(
+        int container,
+        int physicalButton)
+    {
+        if (physicalButton <= 0)
+            throw new ArgumentOutOfRangeException(nameof(physicalButton));
+        return new($"item:inventory-container:{container}", (ulong)physicalButton);
+    }
+
+    private static int HighestLiveComparisonOrdinal(IEnumerable<int> tooltipNumbers)
+        => tooltipNumbers.DefaultIfEmpty(0).Max();
+
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipPlain(string text)
+        => new(PreparedItemTooltipPaintKind.Plain, text, default);
+
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipDisabled(string text)
+        => new(PreparedItemTooltipPaintKind.Disabled, text, default);
+
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipColored(
+        string text,
+        Vector4 color)
+        => new(PreparedItemTooltipPaintKind.Colored, text, color);
+
+    private static PreparedItemTooltipPaintOp PreparedItemTooltipSeparator()
+        => new(PreparedItemTooltipPaintKind.Separator, "", default);
+
+    private static ItemTooltipBodySnapshot AppendPreparedItemTooltipBody(
+        in ItemTooltipBodySnapshot body,
+        params PreparedItemTooltipPaintOp[] tail)
+    {
+        if (body.Operations.IsDefault)
+            throw new ArgumentException("The prepared item tooltip body is uninitialized.",
+                nameof(body));
+        ArgumentNullException.ThrowIfNull(tail);
+        return new(body.Operations.AddRange(tail));
+    }
+
+    private static ItemTooltipBodySnapshot PrepareItemTooltipBodySnapshot(
+        ItemTemplate item,
+        uint count,
+        uint durability = 0,
+        uint maxDurability = 0,
+        bool compact = false)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var operations = ImmutableArray.CreateBuilder<PreparedItemTooltipPaintOp>();
+
+        // Resolve every mutable ItemTemplate field, Stats entry, and Damages entry into an
+        // immutable paint operation before the terminal tooltip stratum can invoke a renderer.
+        operations.Add(PreparedItemTooltipColored(item.Name,
+            compact ? Vector4.One : ItemTooltipQualityColor(item.Quality)));
+        if (item.Bonding == 1)
+            operations.Add(PreparedItemTooltipPlain("Binds when picked up"));
+        else if (item.Bonding == 2)
+            operations.Add(PreparedItemTooltipPlain("Binds when equipped"));
         foreach (ItemDamage damage in item.Damages)
-            ImGui.TextUnformatted($"{damage.Min:0.#} - {damage.Max:0.#} Damage");
-        if (item.Armor > 0) ImGui.TextUnformatted($"{item.Armor} Armor");
-        string[] statNames = ["Mana", "Health", "Agility", "Strength", "Intellect", "Spirit", "Stamina"];
+            operations.Add(PreparedItemTooltipPlain(
+                $"{damage.Min:0.#} - {damage.Max:0.#} Damage"));
+        if (item.Armor > 0)
+            operations.Add(PreparedItemTooltipPlain($"{item.Armor} Armor"));
+        string[] statNames =
+            ["Mana", "Health", "Agility", "Strength", "Intellect", "Spirit", "Stamina"];
         foreach (ItemStat stat in item.Stats)
-            ImGui.TextUnformatted($"{(stat.Value >= 0 ? "+" : "")}{stat.Value} {(stat.Type < statNames.Length ? statNames[stat.Type] : $"Stat {stat.Type}")}");
-        if (item.RequiredLevel > 0) ImGui.TextUnformatted($"Requires Level {item.RequiredLevel}");
-        if (item.ItemLevel > 0) ImGui.TextDisabled($"Item Level {item.ItemLevel}");
-        if (maxDurability > 0) ImGui.TextUnformatted($"Durability {durability} / {maxDurability}");
-        if (count > 1) ImGui.TextDisabled($"Stack: {count} / {Math.Max(1, item.Stackable)}");
-        if (!string.IsNullOrWhiteSpace(item.Description)) ImGui.TextColored(new Vector4(1f, .82f, 0f, 1f), item.Description);
-        ImGui.EndTooltip();
+        {
+            string statName = stat.Type < statNames.Length
+                ? statNames[stat.Type]
+                : $"Stat {stat.Type}";
+            operations.Add(PreparedItemTooltipPlain(
+                $"{(stat.Value >= 0 ? "+" : "")}{stat.Value} {statName}"));
+        }
+        if (item.RequiredLevel > 0)
+            operations.Add(PreparedItemTooltipPlain($"Requires Level {item.RequiredLevel}"));
+        if (item.ItemLevel > 0)
+            operations.Add(PreparedItemTooltipDisabled($"Item Level {item.ItemLevel}"));
+        if (maxDurability > 0)
+            operations.Add(PreparedItemTooltipPlain(
+                $"Durability {durability} / {maxDurability}"));
+        if (count > 1)
+            operations.Add(PreparedItemTooltipDisabled(
+                $"Stack: {count} / {Math.Max(1, item.Stackable)}"));
+        if (!compact && !string.IsNullOrWhiteSpace(item.Description))
+            operations.Add(PreparedItemTooltipColored(item.Description,
+                new Vector4(1f, .82f, 0f, 1f)));
+
+        return new(operations.ToImmutable());
+    }
+
+    private static void DrawPreparedItemTooltipBody(in ItemTooltipBodySnapshot body)
+    {
+        if (body.Operations.IsDefault)
+            throw new ArgumentException("The prepared item tooltip body is uninitialized.",
+                nameof(body));
+        foreach (PreparedItemTooltipPaintOp operation in body.Operations)
+        {
+            switch (operation.Kind)
+            {
+                case PreparedItemTooltipPaintKind.Plain:
+                    ImGui.TextUnformatted(operation.Text);
+                    break;
+                case PreparedItemTooltipPaintKind.Disabled:
+                    ImGui.TextDisabled(operation.Text);
+                    break;
+                case PreparedItemTooltipPaintKind.Colored:
+                    ImGui.TextColored(operation.Color, operation.Text);
+                    break;
+                case PreparedItemTooltipPaintKind.Separator:
+                    ImGui.Separator();
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown prepared item tooltip paint kind {operation.Kind}.");
+            }
+        }
+    }
+
+    private bool OfferPreparedItemTooltip(
+        in GameTooltipOwnerKey owner,
+        in ItemTooltipBodySnapshot body,
+        Vector2? nextWindowPosition = null,
+        int comparisonCount = 0,
+        Action? preparedFollowingRenderer = null)
+    {
+        if (body.Operations.IsDefault)
+            throw new ArgumentException("The prepared item tooltip body is uninitialized.",
+                nameof(body));
+        ItemTooltipBodySnapshot preparedBody = body;
+        Vector2? preparedPosition = nextWindowPosition;
+        Action? preparedFollowing = preparedFollowingRenderer;
+        bool offered = OfferPreservedSharedGameTooltipRenderer(owner, () =>
+        {
+            if (preparedPosition is Vector2 at)
+                ImGui.SetNextWindowPos(at, ImGuiCond.Always);
+            ImGui.BeginTooltip();
+            DrawPreparedItemTooltipBody(preparedBody);
+            ImGui.EndTooltip();
+            preparedFollowing?.Invoke();
+        });
+        if (!offered) return false;
+
+        GameTooltipOwnerToken token = CurrentSharedGameTooltipOwnerToken();
+        if (!SetSharedGameTooltipComparisonCount(token, comparisonCount))
+            throw new InvalidOperationException(
+                "A freshly offered item tooltip rejected its comparison ordinal.");
+        return true;
+    }
+
+    private ImmutableArray<PreparedPaperDollComparisonTooltip>
+        PreparePaperDollComparisonTooltips(ItemTemplate hoveredItem)
+    {
+        // Freeze the complete SHOW_COMPARE_TOOLTIP verdict at producer time. Equipped-item,
+        // ammo, and inspect adapters never enter this method, preserving the self-compare rule.
+        bool shift = ImGui.GetIO().KeyShift;
+        bool show = PaperDollUiLaw.ShowBagItemComparison(_characterOpen, _characterTab, shift,
+            sourceIsEquipped: false);
+        if (!show || _net is null || _items is null ||
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            return [];
+
+        float scale = GameplayUiScale();
+        Vector2 frameOrigin = new(0, 104f * scale);
+        bool captureParity = _uiParityArmed && _uiParityPanel == "character-frame";
+        int candidateCount = PaperDollUiLaw.ComparisonSlotCount(hoveredItem.InventoryType);
+        var prepared =
+            ImmutableArray.CreateBuilder<PreparedPaperDollComparisonTooltip>(candidateCount);
+        for (int ordinal = 0; ordinal < candidateCount; ordinal++)
+        {
+            int slot = PaperDollUiLaw.ComparisonSlot(hoveredItem.InventoryType, ordinal);
+            // Preserve the authored arm before its live slot listener decides whether content
+            // exists. Missing ordinal one cannot compact a surviving ShoppingTooltip2.
+            int tooltipNumber = ordinal + 1;
+            ulong equippedGuid = player.Fields.PlayerInventorySlot(slot);
+            if (equippedGuid == 0 || !_entities.TryGet(equippedGuid, out WorldEntity equipped))
+                continue;
+            _items.Require(equipped.Entry, equipped.Guid, _net);
+            if (!_items.TryGet(equipped.Entry, out ItemTemplate? equippedTemplate) ||
+                equippedTemplate is null)
+                continue;
+
+            PaperDollUiLaw.LogicalRect logical = PaperDollUiLaw.EquipmentSlotRect(slot);
+            Vector2 slotMin = frameOrigin + new Vector2(logical.X, logical.Y) * scale;
+            PaperDollUiLaw.TooltipAnchor anchor = PaperDollUiLaw.ShoppingTooltipAnchor(ordinal);
+            Vector2 windowAt = slotMin + new Vector2(logical.Width,
+                ordinal == 0 ? 0f : logical.Height) * scale;
+            prepared.Add(new(tooltipNumber, slot,
+                PrepareItemTooltipBodySnapshot(equippedTemplate,
+                    equipped.Fields.ItemStackCount, equipped.Fields.ItemDurability,
+                    equipped.Fields.ItemMaxDurability, compact: true),
+                windowAt, new Vector2(anchor.PivotX, anchor.PivotY), scale,
+                anchor.Point, anchor.RelativePoint, PaperDollSlotElement(slot), captureParity));
+        }
+        return prepared.ToImmutable();
+    }
+
+    private void DrawPreparedPaperDollComparisonTooltips(
+        ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons)
+    {
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration |
+                                 ImGuiWindowFlags.AlwaysAutoResize |
+                                 ImGuiWindowFlags.NoInputs |
+                                 ImGuiWindowFlags.NoSavedSettings |
+                                 ImGuiWindowFlags.NoFocusOnAppearing |
+                                 ImGuiWindowFlags.NoNav;
+        bool collected = false;
+        foreach (PreparedPaperDollComparisonTooltip comparison in comparisons)
+        {
+            ImGui.SetNextWindowPos(comparison.WindowPosition, ImGuiCond.Always,
+                comparison.WindowPivot);
+            ImGui.Begin($"##paper-doll-comparison-{comparison.TooltipNumber}", flags);
+            ImGui.SetWindowFontScale(
+                Math.Max(.5f, 10f * comparison.Scale / ImGui.GetFontSize()));
+            ImGui.TextDisabled("Currently Equipped");
+            DrawPreparedItemTooltipBody(comparison.Body);
+            if (comparison.CaptureParity)
+            {
+                Vector2 windowMin = ImGui.GetWindowPos();
+                Vector2 windowSize = ImGui.GetWindowSize();
+                Vector4 content = new(windowMin.X, windowMin.Y,
+                    windowMin.X + windowSize.X, windowMin.Y + windowSize.Y);
+                CollectUiParityDraw($"ShoppingTooltip{comparison.TooltipNumber}", "Frame",
+                    windowMin, windowSize, comparison.ParentElement,
+                    new("", 0, "TOOLTIP", comparison.AnchorPoint,
+                        comparison.ParentElement, comparison.RelativePoint, 0, 0,
+                        @"Fonts\FRIZQT__.TTF", 10, ContentRect: content, ClipRect: content,
+                        ClipMask: "COMPACT_NO_DESCRIPTION", Visible: true, Enabled: false,
+                        InteractionState:
+                            $"shift-compare-live-slot:{comparison.EquipmentSlot}",
+                        Strata: "TOOLTIP"));
+                collected = true;
+            }
+            ImGui.End();
+        }
+        if (collected) _shoppingTooltipParityRendererCollected = true;
+    }
+
+    private void ArmDeferredShoppingTooltipParityCapture(
+        ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons)
+    {
+        ImmutableArray<ShoppingTooltipParityExpectation> expectations = comparisons
+            .Where(comparison => comparison.CaptureParity)
+            .Select(comparison => new ShoppingTooltipParityExpectation(
+                comparison.TooltipNumber, comparison.ParentElement))
+            .ToImmutableArray();
+        if (expectations.IsEmpty) return;
+        _shoppingTooltipParityCompletionPending = true;
+        _shoppingTooltipParityRendererCollected = false;
+        _shoppingTooltipParityExpectations = expectations;
+    }
+
+    private void CompleteDeferredShoppingTooltipParityCapture()
+    {
+        if (!_shoppingTooltipParityCompletionPending) return;
+        bool collected = _shoppingTooltipParityRendererCollected;
+        ImmutableArray<ShoppingTooltipParityExpectation> expectations =
+            _shoppingTooltipParityExpectations;
+        _shoppingTooltipParityCompletionPending = false;
+        _shoppingTooltipParityRendererCollected = false;
+        _shoppingTooltipParityExpectations = [];
+
+        if (!collected)
+            foreach (ShoppingTooltipParityExpectation expectation in expectations)
+                ClassifyUiParity($"ShoppingTooltip{expectation.TooltipNumber}", "Frame",
+                    expectation.ParentElement, "NOT-DRAWN",
+                    "shared-tooltip-owner-replaced-before-tooltip-stratum");
+        MarkUiParityFrameComplete();
     }
 
     private void DrawInventorySlot(ImDrawListPtr dl, WorldEntity owner, int container, int slot,
@@ -655,6 +1149,39 @@ public sealed partial class GameLoop
             _items.TryGet(instance.Entry, out item);
         }
         bool locked = IsInventorySlotLocked(container, slot);
+        bool parityProof = _uiParityArmed &&
+            (_uiParityPanel == "backpack" && container == 0 ||
+             _uiParityPanel == "equipped-bag" && container == _uiParityEquippedBagContainer);
+        string parityRoot = container == 0 ? "ContainerFrame1" : $"ContainerFrameBag{container}";
+        int liveSize = container switch
+        {
+            0 => InventoryUiLaw.BackpackSlots,
+            InventoryUiLaw.KeyringContainer => InventoryUiLaw.KeyringSize(owner.Level),
+            _ => (int)Math.Clamp(owner.Fields.ContainerNumSlots, 1,
+                InventoryUiLaw.MaxContainerSlots),
+        };
+        int physical = liveSize - slot;
+        string parityButton = $"{parityRoot}Item{physical}";
+        if (parityProof)
+        {
+            CollectUiParityDraw(parityButton, "Button", min, max - min, parityRoot,
+                new("", 0, "IMGUI_HIT_TARGET", "ABSOLUTE", parityRoot, "TOPLEFT",
+                    (min.X - _uiParityOrigin.X) / scale, -((min.Y - _uiParityOrigin.Y) / scale),
+                    Enabled: !locked, InteractionState: locked ? "locked" : "normal",
+                    HitMin: min, HitMax: max));
+            if (item is not null)
+                CollectUiParityDraw(parityButton + "Icon", "Texture", min, max - min, parityButton,
+                    new(item.IconPath, locked ? 0xff666666 : 0xffffffff, "BACKGROUND", "CENTER",
+                        parityButton, "CENTER", 0, 0));
+            else
+                ClassifyUiParity(parityButton + "Icon", "Texture", parityButton, "NOT-DRAWN",
+                    "EMPTY_SLOT_NO_ITEM_TEXTURE");
+            Vector2 ringCenter = (min + max) * .5f + new Vector2(0, -scale);
+            CollectUiParityDraw(parityButton + "NormalTexture", "NormalTexture",
+                ringCenter - new Vector2(32f * scale), new Vector2(64f * scale), parityButton,
+                new(@"Interface\Buttons\UI-Quickslot2", 0xffffffff, "ARTWORK", "CENTER",
+                    parityButton, "CENTER", 0, -1));
+        }
         if (item is not null)
         {
             uint icon = _gameplayArt.Handle(item.IconPath);
@@ -666,8 +1193,11 @@ public sealed partial class GameLoop
         ImGui.InvisibleButton($"##{id}", max - min,
             ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
         bool hovered = ImGui.IsItemHovered();
-        bool leftClicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
-        bool rightClicked = ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        bool repairReleased = _vendorRepairMode && hovered &&
+            ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
+        bool leftClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        bool rightClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        if (repairReleased) TryRepairMerchantItem(instance?.Guid ?? 0);
         if (_itemCastSpell != 0)
         {
             if (rightClicked)
@@ -717,7 +1247,7 @@ public sealed partial class GameLoop
                 else _net.UseItem(wire.Bag, wire.Slot, item.UseSpellIndex);
             }
         }
-        if (_itemCastSpell == 0 && _enchantConfirmation is null)
+        if (!_vendorRepairMode && _itemCastSpell == 0 && _enchantConfirmation is null)
             HandleInventoryDrag(container, slot, guid, item);
 
         uint ring = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot2");
@@ -730,11 +1260,19 @@ public sealed partial class GameLoop
         {
             uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");
             if (depress != 0) dl.AddImage((nint)depress, min, max);
+            if (parityProof)
+                CollectUiParityDraw(parityButton + "PushedTexture", "PushedTexture", min, max - min,
+                    parityButton, new(@"Interface\Buttons\UI-Quickslot-Depress", 0xffffffff,
+                        "ARTWORK", "CENTER", parityButton, "CENTER", 0, 0));
         }
         if (hovered)
         {
             uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, min, max);
+            if (parityProof)
+                CollectUiParityDraw(parityButton + "HighlightTexture", "HighlightTexture", min, max - min,
+                    parityButton, new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff,
+                        "OVERLAY", "CENTER", parityButton, "CENTER", 0, 0));
         }
         if (item?.UseSpellId > 0 &&
             _actions.TryCooldownDisplay(item.UseSpellId, NowSeconds(), item.UseSpellCategory,
@@ -747,19 +1285,38 @@ public sealed partial class GameLoop
         }
         uint count = instance?.Fields.ItemStackCount ?? 0;
         if (count > 1)
+        {
             GameText.DrawRightAligned(dl, "NumberFontNormal", count.ToString(),
                 new Vector2(max.X - 4f * scale,
                     max.Y - GameText.EmPixels("NumberFontNormal", scale) - 2f * scale), scale);
+            if (parityProof)
+                CollectUiParityDraw(parityButton + "Count", "FontString", min, max - min, parityButton,
+                    new("", 0xffffffff, "OVERLAY", "BOTTOMRIGHT", parityButton, "BOTTOMRIGHT", -5, 2,
+                        @"Fonts\FRIZQT__.TTF", 12));
+        }
         if (hovered && item is not null)
         {
             Vector2 display = ImGui.GetIO().DisplaySize;
             Vector2 mouse = ImGui.GetIO().MousePos;
-            ImGui.SetNextWindowPos(mouse + new Vector2(mouse.X < display.X * .5f ? 24f : -300f, 18f),
-                ImGuiCond.Always);
-            DrawItemTooltip(item, count, instance?.Fields.ItemDurability ?? 0,
+            Vector2 tooltipPosition = mouse +
+                new Vector2(mouse.X < display.X * .5f ? 24f : -300f, 18f);
+            ItemTooltipBodySnapshot body = PrepareItemTooltipBodySnapshot(item, count,
+                instance?.Fields.ItemDurability ?? 0,
                 instance?.Fields.ItemMaxDurability ?? 0);
-            string? cursor = InventoryUiLaw.HoverCursor(_vendor is not null,
-                instance?.Fields.ItemTextId != 0);
+            ImmutableArray<PreparedPaperDollComparisonTooltip> comparisons =
+                PreparePaperDollComparisonTooltips(item);
+            Action? drawComparisons = comparisons.IsEmpty
+                ? null
+                : () => DrawPreparedPaperDollComparisonTooltips(comparisons);
+            bool offered = OfferPreparedItemTooltip(
+                InventoryItemGameTooltipOwner(container, physical), body, tooltipPosition,
+                HighestLiveComparisonOrdinal(
+                    comparisons.Select(comparison => comparison.TooltipNumber)),
+                drawComparisons);
+            if (offered) ArmDeferredShoppingTooltipParityCapture(comparisons);
+            string? cursor = _vendorRepairMode ? "Repair" :
+                InventoryUiLaw.HoverCursor(_vendor is not null,
+                    instance?.Fields.ItemTextId != 0);
             if (cursor is not null) DrawBagHoverCursor(cursor);
         }
     }
@@ -884,6 +1441,13 @@ public sealed partial class GameLoop
         _splitContainer = InventoryUiLaw.EmptyContainer;
         _splitSlot = -1;
         _splitMaximum = 0;
+    }
+
+    private bool TryCancelStackSplitOnEscape()
+    {
+        if (_splitContainer == InventoryUiLaw.EmptyContainer) return false;
+        CancelStackSplit();
+        return true;
     }
 
     private void DrawStackSplit()
@@ -1016,12 +1580,12 @@ public sealed partial class GameLoop
     }
 
     private void PlayBagSound(string name)
-        => PlayUiSound(name);
+        => PlayUiSound(name, "ui.inventory");
 
-    private void PlayUiSound(string name)
+    private void PlayUiSound(string name, string category = "ui")
     {
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
-        _spellSounds?.Play(name, _net?.PlayerGuid ?? 0, listener, listener);
+        _spellSounds?.Play(name, _net?.PlayerGuid ?? 0, listener, listener, category);
     }
 
     private void ToggleBackpack() => SetBagWindowOpen(0, !_backpackOpen);

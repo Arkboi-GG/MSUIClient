@@ -11,7 +11,7 @@ public sealed partial class GameLoop
     private enum GameBinding
     {
         MoveForward, MoveBackward, TurnLeft, TurnRight, StrafeLeft, StrafeRight,
-        Jump, ToggleRun, TargetNearestEnemy, OpenBackpack, OpenCharacter,
+        Jump, ToggleRun, TargetNearestEnemy, OpenBackpack, OpenCharacter, OpenSkills,
         OpenSpellbook, OpenWorldMap, Sheath, Action1, Action2, Action3, Action4,
         Action5, Action6, Action7, Action8, Action9, Action10, Action11, Action12,
         MultiActionBar1Button1, MultiActionBar1Button2, MultiActionBar1Button3,
@@ -37,6 +37,7 @@ public sealed partial class GameLoop
         ("Targeting", GameBinding.TargetNearestEnemy, "Target Nearest Enemy", Key.Tab),
         ("Interface", GameBinding.OpenBackpack, "Open Backpack", Key.B),
         ("Interface", GameBinding.OpenCharacter, "Character Info", Key.C),
+        ("Interface", GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K),
         ("Interface", GameBinding.OpenSpellbook, "Spellbook", Key.P),
         ("Interface", GameBinding.OpenWorldMap, "World Map", Key.M),
         ("Interface", GameBinding.Sheath, "Sheath/Unsheath", Key.Z),
@@ -161,9 +162,12 @@ public sealed partial class GameLoop
     private bool BindingDown(GameBinding binding)
     {
         BindingPair pair = BoundKeys(binding);
-        return (pair.Primary != Key.Unknown && _window.IsDown(pair.Primary)) ||
-               (pair.Secondary != Key.Unknown && _window.IsDown(pair.Secondary));
+        return InputKeyDown(pair.Primary) || InputKeyDown(pair.Secondary);
     }
+
+    /// <summary>The production key-state path, with protocol-held keys entering at the same seam.</summary>
+    private bool InputKeyDown(Key key) => key != Key.Unknown &&
+        (_window.IsDown(key) || _liveInputHeld.Contains(key));
 
     private float BindingAxis(GameBinding positive, GameBinding negative) =>
         (BindingDown(positive) ? 1f : 0f) - (BindingDown(negative) ? 1f : 0f);

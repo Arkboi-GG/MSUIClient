@@ -16,11 +16,21 @@ public sealed partial class GameLoop
     private uint _minimapReportedZoneId;
     private string _minimapAreaMap = "";
     private string _minimapResourceSignature = "";
+    private MinimapResourceTooltipRuntime? _minimapResourceTooltip;
+
+    private readonly record struct MinimapResourceTooltipCandidate(ulong Guid, string Name);
+    private readonly record struct MinimapResourceTooltipRuntime(
+        GameTooltipOwnerToken Token,
+        string Name);
 
     private void DrawMinimap()
     {
         if (_net is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        {
+            UpdateAndQueueMinimapResourceTooltip(null);
+            return;
+        }
 
         float s = GameplayUiScale();
         Vector2 logicalDisplay = ImGui.GetIO().DisplaySize / s;
@@ -36,6 +46,7 @@ public sealed partial class GameLoop
                 @"Interface\Minimap\UI-Minimap-Border", new(.25f, 0), new(1, .125f));
             DrawMinimapButton(dl, root + new Vector2(161, -3),
                 @"Interface\Buttons\UI-Panel-MinimizeButton-Up", () => _minimapVisible = true);
+            UpdateAndQueueMinimapResourceTooltip(null);
             return;
         }
 
@@ -66,7 +77,9 @@ public sealed partial class GameLoop
 
         DrawMinimapPartyDots(dl, player, playerPosition, mapMin, mapMax, s);
         DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
-        DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s);
+        MinimapResourceTooltipCandidate? resourceTooltip =
+            DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s);
+        UpdateAndQueueMinimapResourceTooltip(resourceTooltip);
         if (_uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("Minimap", "Minimap", mapMin, new Vector2(140) * s,
                 parent: "MinimapCluster", point: "CENTER", relativePoint: "TOP",
@@ -228,12 +241,17 @@ public sealed partial class GameLoop
     /// Vanilla's tracked-resource leg: PLAYER_TRACK_RESOURCES -> GAMEOBJECT_QUERY chest
     /// lockId -> Lock.dbc SKILL LockType -> ObjectIcons cell 0 (gold), 8 px.
     /// </summary>
-    private void DrawMinimapResourceDots(ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
+    private MinimapResourceTooltipCandidate? DrawMinimapResourceDots(
+        ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
         Vector2 mapMin, Vector2 mapMax, float s)
     {
         uint mask = player.Fields.PlayerTrackResources;
         EnsureLockCatalog();
-        if (mask == 0 || _locks is null) { ReportMinimapResourceSet(mask, []); return; }
+        if (mask == 0 || _locks is null)
+        {
+            ReportMinimapResourceSet(mask, []);
+            return null;
+        }
         float halfTile = 0.10f + _minimapZoom * 0.025f;
         float radiusYards = halfTile * 533.33333f;
         float pixelsPerYard = (mapMax.X - mapMin.X) / (radiusYards * 2f);
@@ -252,6 +270,7 @@ public sealed partial class GameLoop
                 -(go.Position.X - playerPosition.X)) * pixelsPerYard;
             visible.Add((go, template, distance, dot));
         }
+        MinimapResourceTooltipCandidate? hoveredTooltip = null;
         dl.PushClipRect(mapMin, mapMax, true);
         foreach (var row in visible)
         {
@@ -261,10 +280,87 @@ public sealed partial class GameLoop
                     new Vector2(0f, 0f), new Vector2(.25f, .25f));
             else dl.AddCircleFilled(row.Dot, 3f * s, 0xff00d8ff);
             if (ImGui.IsMouseHoveringRect(row.Dot - half, row.Dot + half, false))
-                ImGui.SetTooltip(row.Template.Name);
+                hoveredTooltip = new(row.Go.Guid, row.Template.Name);
         }
         dl.PopClipRect();
         ReportMinimapResourceSet(mask, visible);
+        return hoveredTooltip;
+    }
+
+    private static GameTooltipOwnerKey MinimapResourceGameTooltipOwner(ulong guid)
+        => new("minimap-resource-dot", guid);
+
+    private bool UpdateAndQueueMinimapResourceTooltip(
+        MinimapResourceTooltipCandidate? hovered)
+    {
+        // The frame guard must precede Claim so an out-of-stratum minimap pass cannot change
+        // ownership. A faded runtime is retained locally only to prepare this frame's callback;
+        // callbacks themselves never cross frames or read live world/template state.
+        if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved) return false;
+
+        if (hovered is MinimapResourceTooltipCandidate candidate)
+        {
+            GameTooltipOwnerToken token = ClaimSharedGameTooltip(
+                MinimapResourceGameTooltipOwner(candidate.Guid));
+            if (!ClearSharedGameTooltip(token))
+                throw new InvalidOperationException(
+                    "A freshly claimed minimap resource tooltip rejected its exact clear.");
+            _minimapResourceTooltip = new(token, candidate.Name);
+        }
+        else if (_minimapResourceTooltip is MinimapResourceTooltipRuntime departing)
+        {
+            if (!SharedGameTooltipIsOwned(departing.Token))
+            {
+                _minimapResourceTooltip = null;
+                return false;
+            }
+            BeginSharedGameTooltipFade(departing.Token, _sharedTooltipFrameTime,
+                GameTooltipUiLaw.WorldFadeSeconds);
+        }
+
+        if (_minimapResourceTooltip is not MinimapResourceTooltipRuntime runtime)
+            return false;
+        if (!SharedGameTooltipIsOwned(runtime.Token))
+        {
+            _minimapResourceTooltip = null;
+            return false;
+        }
+
+        GameTooltipLifecycleState lifecycle = SharedGameTooltipSnapshot().Lifecycle;
+        if (!lifecycle.Visible || lifecycle.Alpha <= 0f)
+        {
+            _minimapResourceTooltip = null;
+            return false;
+        }
+
+        string preparedName = runtime.Name;
+        float preparedAlpha = lifecycle.Alpha;
+        return QueueSharedGameTooltipRenderer(runtime.Token,
+            SharedGameTooltipLeavePolicy.Fade(GameTooltipUiLaw.WorldFadeSeconds),
+            () => DrawMinimapResourceTooltip(preparedName, preparedAlpha));
+    }
+
+    private static void DrawMinimapResourceTooltip(string preparedName, float preparedAlpha)
+    {
+        // Keep the established SetTooltip cursor seat at full alpha and during fade. The frozen
+        // client retains its last pointer seat after departure, but there is no public ImGui
+        // position capture for SetTooltip; inventing an offset would move the approved anchor.
+        if (preparedAlpha >= 1f)
+        {
+            ImGui.SetTooltip(preparedName);
+            return;
+        }
+
+        float alpha = Math.Clamp(preparedAlpha, 0f, 1f);
+        ImGui.PushStyleVar(ImGuiStyleVar.Alpha, ImGui.GetStyle().Alpha * alpha);
+        try
+        {
+            ImGui.SetTooltip(preparedName);
+        }
+        finally
+        {
+            ImGui.PopStyleVar();
+        }
     }
 
     private void ReportMinimapResourceSet(uint mask,

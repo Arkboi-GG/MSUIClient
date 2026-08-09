@@ -17,6 +17,7 @@ public static class GuidInfo
     public static ushort High(ulong guid) => (ushort)((guid >> 48) & 0xFFFF);
 
     public static bool IsPlayer(ulong guid) => guid != 0 && High(guid) == HighPlayer;
+    public static bool IsItem(ulong guid) => High(guid) == HighItem;
     public static bool IsCreatureOrPet(ulong guid) => High(guid) is HighUnit or HighPet;
     public static bool IsPet(ulong guid) => High(guid) == HighPet;
     public static bool IsGameObject(ulong guid) => High(guid) == HighGameObject;

@@ -22,7 +22,8 @@ public readonly record struct SpellInfo(
     float[]? EffectDicePerLevel = null, float[]? EffectRealPointsPerLevel = null,
     uint DispelType = 0,
     int EquippedItemClass = -1, uint EquippedItemSubclassMask = 0,
-    uint EquippedItemInventoryTypeMask = 0)
+    uint EquippedItemInventoryTypeMask = 0,
+    uint ActiveIconId = 0, string ActiveIconPath = "")
 {
     public bool Passive => (Attributes & 0x40) != 0;
     public bool HiddenClientSide => (Attributes & 0x80) != 0;
@@ -165,6 +166,8 @@ public sealed class SpellCatalog
             uint id = spells.GetUInt(row, 0);
             if (id == 0) continue;
             iconMap.TryGetValue(spells.GetUInt(row, 117), out string? icon);
+            uint activeIconId = spells.GetUInt(row, 118);
+            iconMap.TryGetValue(activeIconId, out string? activeIcon);
             uint castTimeIndex = spells.GetUInt(row, 18), durationIndex = spells.GetUInt(row, 30);
             result._spells[id] = new SpellInfo(
                 id, spells.GetString(row, 120), spells.GetString(row, 129), icon ?? "",
@@ -201,7 +204,8 @@ public sealed class SpellCatalog
                 DispelType: spells.GetUInt(row, 14),
                 EquippedItemClass: spells.GetInt(row, 58),
                 EquippedItemSubclassMask: spells.GetUInt(row, 59),
-                EquippedItemInventoryTypeMask: spells.GetUInt(row, 60));
+                EquippedItemInventoryTypeMask: spells.GetUInt(row, 60),
+                ActiveIconId: activeIconId, ActiveIconPath: activeIcon ?? "");
             uint[] tools = Enumerable.Range(0, 2).Select(i => spells.GetUInt(row, 39 + i))
                 .Where(x => x != 0).ToArray();
             if (tools.Length > 0) result._tools[id] = tools;

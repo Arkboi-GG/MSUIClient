@@ -385,7 +385,11 @@ public sealed partial class GameLoop
             if (highlight != 0) dl.AddImage((nint)highlight, iconMin, iconMax);
             if (!row.IsCoin && row.ItemId != 0 &&
                 _items?.TryGet(row.ItemId, out ItemTemplate? template) == true && template is not null)
-                DrawItemTooltip(template, row.Count);
+            {
+                ItemTooltipBodySnapshot tooltipBody =
+                    PrepareItemTooltipBodySnapshot(template, row.Count);
+                OfferPreparedItemTooltip(new("item:loot-row", (ulong)visual), tooltipBody);
+            }
         }
         if (!clicked || _net is null) return;
         if (row.IsCoin) TakeLootMoney();

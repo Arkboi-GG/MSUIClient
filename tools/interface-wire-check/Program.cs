@@ -10,6 +10,84 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidDataException(message);
 }
 
+if (args.Contains("--party-frame-only", StringComparer.Ordinal))
+{
+    PartyFrameClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: PartyFrame PASS");
+    return;
+}
+
+if (args.Contains("--group-protocol-only", StringComparer.Ordinal))
+{
+    GroupProtocolClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GroupProtocol PASS");
+    return;
+}
+
+if (args.Contains("--ui-foundation-only", StringComparer.Ordinal))
+{
+    UiFoundationClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UiFoundation PASS");
+    return;
+}
+
+if (args.Contains("--game-tooltip-only", StringComparer.Ordinal))
+{
+    GameTooltipClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: GameTooltip PASS");
+    return;
+}
+
+if (args.Contains("--uipanel-observer-only", StringComparer.Ordinal))
+{
+    UiPanelOwnershipAdapterClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UiPanelObserver PASS");
+    return;
+}
+
+if (args.Contains("--merchant-frame-only", StringComparer.Ordinal))
+{
+    MerchantFrameClinicalChecks.Run();
+    MerchantProtocolClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: MerchantFrame PASS");
+    return;
+}
+
+UiFoundationClinicalChecks.Run();
+GameTooltipClinicalChecks.Run();
+UiPanelOwnershipAdapterClinicalChecks.Run();
+MerchantFrameClinicalChecks.Run();
+MerchantProtocolClinicalChecks.Run();
+
+static byte[] BuildMultiActionItemTemplateFixture()
+{
+    var w = new PacketWriter();
+    w.WriteU32(42); w.WriteU32(0); w.WriteU32(0); w.WriteCString("Clinical Item");
+    w.WriteCString(""); w.WriteCString(""); w.WriteCString("");
+    w.WriteU32(0); // display
+    w.WriteU32(1); w.WriteU32(0); w.WriteU32(0); w.WriteU32(0); w.WriteU32(0);
+    w.WriteI32(-1); w.WriteI32(-1);
+    for (int i = 0; i < 5; i++) w.WriteU32(0); // item/required levels, skills, spell
+    for (int i = 0; i < 4; i++) w.WriteU32(0); // honor/city/reputation
+    w.WriteU32(0); w.WriteU32(20); w.WriteU32(0); // max count, stack, container slots
+    for (int i = 0; i < 10; i++) { w.WriteU32(0); w.WriteI32(0); }
+    for (int i = 0; i < 5; i++) { w.WriteF32(0); w.WriteF32(0); w.WriteU32(0); }
+    w.WriteU32(0);
+    for (int i = 0; i < 6; i++) w.WriteU32(0);
+    w.WriteU32(0); w.WriteU32(0); w.WriteF32(0);
+    // Block zero is ON_EQUIP with finite charges; block one is the first ON_USE spell.
+    w.WriteU32(111); w.WriteU32(1); w.WriteI32(2); w.WriteI32(0); w.WriteU32(0); w.WriteI32(0);
+    w.WriteU32(8690); w.WriteU32(0); w.WriteI32(-3); w.WriteI32(0); w.WriteU32(321); w.WriteI32(0);
+    for (int block = 2; block < 5; block++)
+    { w.WriteU32(0); w.WriteU32(0); w.WriteI32(0); w.WriteI32(0); w.WriteU32(0); w.WriteI32(0); }
+    w.WriteU32(0); w.WriteCString("fixture");
+    w.WriteU32(0); w.WriteU32(0); w.WriteU32(0); // page/language/material
+    w.WriteU32(373); w.WriteU32(0); // start quest / lock
+    for (int i = 0; i < 8; i++) w.WriteU32(0); // material through map
+    w.WriteU32(9); // bag family
+    return w.ToArray();
+}
+
 Check(BuffUiLaw.WarningAlpha(.75, 30) == 1f && BuffUiLaw.WarningAlpha(0, 30) == .3f &&
       BuffUiLaw.WarningAlpha(0, 31) == 1f,
     "BuffFrame shared 31-second flash drift");
@@ -17,9 +95,58 @@ Check(BuffUiLaw.DebuffColor(1) == new Vector4(.2f, .6f, 1f, 1f) &&
       BuffUiLaw.DebuffColor(4) == new Vector4(0f, .6f, 0f, 1f) &&
       BuffUiLaw.DebuffColor(0) == new Vector4(.8f, 0f, 0f, 1f),
     "DebuffTypeColor mapping drift");
-Check(CastingBarUiLaw.BottomOffset(false, false, false) == 60f &&
-      CastingBarUiLaw.BottomOffset(true, false, false) == 100f &&
-      CastingBarUiLaw.BottomOffset(true, true, true) == 149f,
+Check(BuffUiLaw.ButtonSize == 30f && BuffUiLaw.Columns == 8 &&
+      BuffUiLaw.HelpfulLimit == 16 && BuffUiLaw.HarmfulLimit == 8 &&
+      BuffUiLaw.ColumnStep == 35f && BuffUiLaw.RowStep == 45f &&
+      BuffUiLaw.DurationGutter == 15f &&
+      BuffUiLaw.DebuffTexCoords == new Vector4(.296875f, 0f, .5703125f, .515625f),
+    "BuffFrame 16+8 grid/button/gutter/debuff-UV contract drift");
+Vector2 buffFrame = BuffUiLaw.FrameMin(new Vector2(1600, 900));
+Vector2 buff0 = BuffUiLaw.ButtonMin(buffFrame, harmful: false, cohort: 0);
+Vector2 buff7 = BuffUiLaw.ButtonMin(buffFrame, harmful: false, cohort: 7);
+Vector2 buff8 = BuffUiLaw.ButtonMin(buffFrame, harmful: false, cohort: 8);
+Vector2 debuff0 = BuffUiLaw.ButtonMin(buffFrame, harmful: true, cohort: 0);
+Check(buffFrame == new Vector2(1345, 13) && buff0 == new Vector2(1365, 13) &&
+      buff7 == new Vector2(1120, 13) && buff8 == new Vector2(1365, 58) &&
+      debuff0 == new Vector2(1365, 103),
+    $"BuffFrame preserved horizontal seat or exact 35x45 grid drift: " +
+    $"frame={buffFrame};b0={buff0};b7={buff7};b8={buff8};d0={debuff0}");
+Vector2 lastBorderMin = BuffUiLaw.ButtonMin(buffFrame, harmful: true, cohort: 7) -
+    new Vector2(BuffUiLaw.DebuffBorderExpandX, BuffUiLaw.DebuffBorderExpandY);
+Vector2 lastBorderMax = BuffUiLaw.ButtonMin(buffFrame, harmful: true, cohort: 7) +
+    new Vector2(BuffUiLaw.ButtonSize + BuffUiLaw.DebuffBorderExpandX,
+        BuffUiLaw.ButtonSize + BuffUiLaw.DebuffBorderExpandY);
+Vector2 lastDurationMin = debuff0 + new Vector2(0, BuffUiLaw.ButtonSize + 1);
+Vector2 lastDurationMax = lastDurationMin + new Vector2(40, BuffUiLaw.DurationTextHeight);
+Check(BuffUiLaw.RowStep >= BuffUiLaw.ButtonSize + BuffUiLaw.DurationTextHeight &&
+      BuffUiLaw.WithinAuraWindow(buffFrame, lastBorderMin, lastBorderMax) &&
+      BuffUiLaw.WithinAuraWindow(buffFrame, lastDurationMin, lastDurationMax),
+    "BuffFrame duration/border escaped its zero-padding clip or overlaps the next row");
+Check(BuffUiLaw.DurationBelongsToAura(9.0, 10.0) &&
+      !BuffUiLaw.DurationBelongsToAura(8.999, 10.0) &&
+      BuffUiLaw.DurationBelongsToAura(20.0, 10.0),
+    "BuffFrame pre-descriptor duration slack/recycled-slot rejection drift");
+Check(BuffUiLaw.PreserveAcrossWorldEnter(0x1234, 0x1234) &&
+      !BuffUiLaw.PreserveAcrossWorldEnter(0x1234, 0x5678) &&
+      !BuffUiLaw.PreserveAcrossWorldEnter(0, 0),
+    "BuffFrame cross-map preservation/session-owner reset drift");
+BuffUiLaw.AuraKey[] auraOrder = BuffUiLaw.ReconcileOrder(
+    [new(5, 100), new(2, 200), new(7, 300)],
+    [new(1, 400), new(2, 200), new(5, 100)]);
+Check(auraOrder.SequenceEqual(new BuffUiLaw.AuraKey[]
+      { new(5, 100), new(2, 200), new(1, 400) }),
+    "BuffFrame survivors lost insertion order or removal/new-slot repacking drifted");
+BuffUiLaw.AuraKey[] recycledAuraOrder = BuffUiLaw.ReconcileOrder(
+    [new(5, 100), new(2, 200)], [new(2, 200), new(5, 999)]);
+Check(recycledAuraOrder.SequenceEqual(new BuffUiLaw.AuraKey[]
+      { new(2, 200), new(5, 999) }),
+    "BuffFrame recycled slot retained the old spell identity/position");
+Check(CastingBarUiLaw.BottomOffset(false, false, false, false) == 60f &&
+      CastingBarUiLaw.BottomOffset(true, false, false, false) == 100f &&
+      CastingBarUiLaw.BottomOffset(false, true, false, false) == 100f &&
+      CastingBarUiLaw.BottomOffset(true, true, true, true) == 149f &&
+      CastingBarUiLaw.BottomOffsetForMsui(false, false) == 100f &&
+      CastingBarUiLaw.BottomOffsetForMsui(true, true) == 149f,
     "UIParent managed CastingBarFrame bottom stack drift");
 Check(CastingBarUiLaw.FlashAlpha(1d / 12d) == .5f &&
       CastingBarUiLaw.FrameAlpha(1d / 6d, false) == 1f &&
@@ -27,6 +154,44 @@ Check(CastingBarUiLaw.FlashAlpha(1d / 12d) == .5f &&
       CastingBarUiLaw.FrameAlpha(1d, true) == 1f &&
       CastingBarUiLaw.FrameAlpha(5d / 3d, true) == 0f,
     "CastingBar 30-Hz-normalized flash/hold/fade timing drift");
+Check(CastingBarUiLaw.Progress(10, 14, 11, channel: false) == .25f &&
+      CastingBarUiLaw.Progress(10, 14, 11, channel: true) == .75f &&
+      CastingBarUiLaw.Progress(10, 14, 9, channel: false) == 0f &&
+      CastingBarUiLaw.Progress(10, 14, 15, channel: true) == 0f,
+    "CastingBar forward/reverse/clamped progress drift");
+CastingBarUiLaw.ChannelWindow retimed = CastingBarUiLaw.RetimeChannel(10, 16, 20, 2_000);
+Check(retimed.Start == 16 && retimed.End == 22,
+    "CastingBar channel update must preserve the original six-second duration");
+CastingBarUiLaw.StatusFill quarterFill = CastingBarUiLaw.Fill(.25f);
+Check(quarterFill == new CastingBarUiLaw.StatusFill(.25f, 48.75f, .25f) &&
+      CastingBarUiLaw.SparkCenter(-1f) == 0f &&
+      CastingBarUiLaw.SparkCenter(2f) == CastingBarUiLaw.Width &&
+      CastingBarUiLaw.SparkMinY == -11.5f &&
+      CastingBarUiLaw.SparkMaxY == 20.5f &&
+      CastingBarUiLaw.ArtworkWidth == 256f && CastingBarUiLaw.ArtworkHeight == 64f &&
+      CastingBarUiLaw.ArtworkTopOffset == 28f,
+    "CastingBar status texture crop or spark endpoint clamp drift");
+Check(CastingBarUiLaw.AcceptCastTerminal(true, 133, 133) &&
+      !CastingBarUiLaw.AcceptCastTerminal(false, 133, 133) &&
+      !CastingBarUiLaw.AcceptCastTerminal(true, 133, 6136),
+    "CastingBar stale/proc completion guard drift");
+Check(CastingBarUiLaw.TerminalText("INTERRUPTED") == CastingBarUiLaw.InterruptedText &&
+      CastingBarUiLaw.TerminalText("You are out of range") == CastingBarUiLaw.FailedText,
+    "CastingBar terminal label must stay Failed/Interrupted, not copy center-screen errors");
+Check((ushort)Op.MSG_CHANNEL_START == 0x0139 &&
+      (ushort)Op.MSG_CHANNEL_UPDATE == 0x013A &&
+      (ushort)Op.SMSG_SPELL_DELAYED == 0x01E2,
+    "build-5875 cast/channel lifecycle opcodes drift");
+SpellDelayedPacket delayedCast = SpellLifecyclePacketParser.ParseDelayed(
+    Convert.FromHexString("4200000000000000F4010000"));
+SpellChannelStartPacket channelStart = SpellLifecyclePacketParser.ParseChannelStart(
+    Convert.FromHexString("2D2A000070170000"));
+uint channelRemaining = SpellLifecyclePacketParser.ParseChannelUpdate(
+    Convert.FromHexString("B80B0000"));
+Check(delayedCast == new SpellDelayedPacket(0x42, 500) &&
+      channelStart == new SpellChannelStartPacket(10_797, 6_000) &&
+      channelRemaining == 3_000,
+    "cast/channel golden wire bodies drift (raw GUID; self-only u32 fields)");
 Check((ushort)Op.CMSG_SET_AMMO == 0x0268 &&
       WorldSession.BuildSetAmmoBody(93012).SequenceEqual(Convert.FromHexString("546B0100")),
     "CMSG_SET_AMMO opcode/body drift");
@@ -41,12 +206,308 @@ Check(PaperDollUiLaw.FitsEquipmentSlot(11, 10) && PaperDollUiLaw.FitsEquipmentSl
 Check(PaperDollUiLaw.IconTint(true, true) == PaperDollUiLaw.Locked &&
       PaperDollUiLaw.IconTint(false, true) == PaperDollUiLaw.Broken &&
       PaperDollUiLaw.RingTint(true, true) == PaperDollUiLaw.Fits &&
+      PaperDollUiLaw.IsBroken(0, 0, 40) && PaperDollUiLaw.IsBroken(0x10, 40, 40) &&
+      !PaperDollUiLaw.IsBroken(0x08, 0, 40) && !PaperDollUiLaw.IsBroken(0, 0, 0) &&
       MathF.Abs(PaperDollUiLaw.ClickFacing(0, true) + .12f) < .0001f &&
       MathF.Abs(PaperDollUiLaw.HeldFacing(0, true, 1) - MathF.PI) < .0001f,
     "paper-doll lock/broken/cursor tint or rotation law drift");
 Check(PaperDollUiLaw.ModifierTextColor(1, 0) == 0xff20ff20u &&
       PaperDollUiLaw.ModifierTextColor(1, -1) == PaperDollUiLaw.Broken,
     "paper-doll positive/negative stat color drift");
+Check(PaperDollUiLaw.ResistanceTextColor(20, -5) == 0xff20ff20u &&
+      PaperDollUiLaw.ResistanceTextColor(5, -5) is null &&
+      PaperDollUiLaw.ResistanceTextColor(4, -5) == PaperDollUiLaw.Broken,
+    "paper-doll resistance magnitude/tie color law drift");
+PaperDollUiLaw.DamageTooltipData damageBreakdown = PaperDollUiLaw.DamageTooltip(
+    55f, 75f, 10, -2, 1.1f, 2.9f);
+Check(damageBreakdown.Damage == "42 - 61 +10 -2 x110%" &&
+      MathF.Abs(damageBreakdown.AttackSpeed - 2.9f) < .0001f &&
+      MathF.Abs(damageBreakdown.Dps - 22.41379f) < .001f &&
+      ObjectFields.PLAYER_FIELD_MOD_DAMAGE_DONE_POS == 1201 &&
+      ObjectFields.PLAYER_FIELD_MOD_DAMAGE_DONE_NEG == 1208 &&
+      ObjectFields.PLAYER_FIELD_MOD_DAMAGE_DONE_PCT == 1215 &&
+      new ObjectFields().AsCreated().DamageDonePercent(0) == 1f,
+    $"paper-doll physical damage decomposition/wire defaults drift: {damageBreakdown}");
+Check(PaperDollUiLaw.FrameWidth == 384 && PaperDollUiLaw.FrameHeight == 512 &&
+      PaperDollUiLaw.PortraitRect == new PaperDollUiLaw.LogicalRect(7, 6, 60, 60) &&
+      PaperDollUiLaw.ModelRect == new PaperDollUiLaw.LogicalRect(65, 78, 233, 224) &&
+      PaperDollUiLaw.EquipmentSlotRect(0) == new PaperDollUiLaw.LogicalRect(21, 74, 37, 37) &&
+      PaperDollUiLaw.EquipmentSlotRect(14) == new PaperDollUiLaw.LogicalRect(21, 197, 37, 37) &&
+      PaperDollUiLaw.EquipmentSlotRect(9) == new PaperDollUiLaw.LogicalRect(305, 74, 37, 37) &&
+      PaperDollUiLaw.EquipmentSlotRect(17) == new PaperDollUiLaw.LogicalRect(206, 385, 37, 37) &&
+      PaperDollUiLaw.EquipmentSlotLabel(14) == "Back" &&
+      PaperDollUiLaw.EquipmentSlotLabel(16) == "Off Hand" &&
+      PaperDollUiLaw.AmmoHitRect == new PaperDollUiLaw.LogicalRect(258, 390, 27, 27) &&
+      PaperDollUiLaw.AmmoBackgroundRect == new PaperDollUiLaw.LogicalRect(251, 383, 41, 41) &&
+      PaperDollUiLaw.AmmoOverlayRect == new PaperDollUiLaw.LogicalRect(238, 383, 23, 41),
+    "paper-doll authored frame/portrait/model/equipment/ammo geometry drift");
+Check(PaperDollUiLaw.ContainerSlotScanCount(0) == 0 &&
+      PaperDollUiLaw.ContainerSlotScanCount(22) == 22 &&
+      PaperDollUiLaw.ContainerSlotScanCount(42) == PaperDollUiLaw.MaxContainerSlots,
+    "paper-doll dynamic bag scan must stay within the 36-slot object-field boundary");
+string strengthTooltip = PaperDollUiLaw.PrimaryStatTooltip("Strength", 15, 2, 0);
+string agilityTooltip = PaperDollUiLaw.PrimaryStatTooltip("Agility", 20, 0, -2);
+Check(strengthTooltip == "Strength 15 (11+2)" && agilityTooltip == "Agility 20 (24 -2)",
+    $"paper-doll primary-stat modifier decomposition drift: {strengthTooltip}; {agilityTooltip}");
+string armorTooltip = PaperDollUiLaw.ModifierTooltip("Armor", 120, 0, 0);
+string attackPowerTooltip = PaperDollUiLaw.ModifierTooltip("Melee Attack Power", 98, 30, -10);
+string fireTooltip = PaperDollUiLaw.ResistanceTooltip("Fire Resistance", 20, 25, -5);
+Check(armorTooltip == "Armor 120" && attackPowerTooltip == "Melee Attack Power 98 (78+30 -10)" &&
+      fireTooltip == "Fire Resistance 20 ( 0 +25 -5 )",
+    $"paper-doll modifier/resistance tooltip formatting drift: {armorTooltip}; {attackPowerTooltip}; {fireTooltip}");
+string rating0 = PaperDollUiLaw.ResistanceRating(0, 1);
+string rating26 = PaperDollUiLaw.ResistanceRating(26, 1);
+string rating101 = PaperDollUiLaw.ResistanceRating(101, 20);
+Check(rating0 == "None" && rating26 == "Fair" && rating101 == "Excellent",
+    $"paper-doll resistance threshold drift: {rating0}; {rating26}; {rating101}");
+float armor120 = PaperDollUiLaw.ArmorReductionPercent(120, 12);
+float armorNegative = PaperDollUiLaw.ArmorReductionPercent(-100, 1);
+Check(MathF.Abs(armor120 - 7.7922f) < .001f && MathF.Abs(armorNegative + 25.974f) < .001f,
+    $"paper-doll armor reduction formula drift: {armor120}; {armorNegative}");
+string armorSubtext = PaperDollUiLaw.ArmorTooltipSubtext(120, 12);
+string resistanceSubtext = PaperDollUiLaw.ResistanceTooltipSubtext("fire", 20, 1);
+Check(armorSubtext ==
+          "Decreases the amount of damage taken from physical attacks.  The amount of reduction is influenced by the level of the attacker.\nDamage reduction against a level 12 attacker: 7.8%" &&
+      resistanceSubtext ==
+          "Increases the ability to resist fire-based attacks, spells and abilities.\nResistance against level 20: Poor",
+    $"paper-doll dynamic stat/resistance subtext drift: {armorSubtext}; {resistanceSubtext}");
+Check(PaperDollUiLaw.TooltipWrapWidth == 260f &&
+      PaperDollUiLaw.ComparisonSlotCount(1) == 1 &&
+      PaperDollUiLaw.ComparisonSlot(1, 0) == 0 &&
+      PaperDollUiLaw.ComparisonSlotCount(11) == 2 &&
+      PaperDollUiLaw.ComparisonSlot(11, 0) == 10 &&
+      PaperDollUiLaw.ComparisonSlot(11, 1) == 11 &&
+      PaperDollUiLaw.ComparisonSlotCount(13) == 2 &&
+      PaperDollUiLaw.ComparisonSlot(13, 0) == 15 &&
+      PaperDollUiLaw.ComparisonSlot(13, 1) == 16 &&
+      PaperDollUiLaw.ComparisonSlotCount(17) == 2 &&
+      PaperDollUiLaw.ComparisonSlot(17, 0) == 15 &&
+      PaperDollUiLaw.ComparisonSlot(17, 1) == 16 &&
+      PaperDollUiLaw.ComparisonSlotCount(28) == 1 &&
+      PaperDollUiLaw.ComparisonSlot(28, 0) == 17 &&
+      PaperDollUiLaw.ComparisonSlotCount(18) == 0 &&
+      PaperDollUiLaw.ComparisonSlotCount(24) == 0 &&
+      PaperDollUiLaw.ShowBagItemComparison(true, 0, true, false) &&
+      !PaperDollUiLaw.ShowBagItemComparison(false, 0, true, false) &&
+      !PaperDollUiLaw.ShowBagItemComparison(true, 3, true, false) &&
+      !PaperDollUiLaw.ShowBagItemComparison(true, 0, false, false) &&
+      !PaperDollUiLaw.ShowBagItemComparison(true, 0, true, true) &&
+      PaperDollUiLaw.ShoppingTooltipAnchor(0) ==
+          new PaperDollUiLaw.TooltipAnchor("BOTTOMLEFT", "TOPRIGHT", 0, 1) &&
+      PaperDollUiLaw.ShoppingTooltipAnchor(1) ==
+          new PaperDollUiLaw.TooltipAnchor("TOPLEFT", "BOTTOMRIGHT", 0, 0),
+    "paper-doll shift-compare routing or wrapped tooltip boundary drift");
+Check(PaperDollUiLaw.OpenSound == new PaperDollUiLaw.SoundTransition("igCharacterInfoOpen", 1) &&
+      PaperDollUiLaw.CloseSound == new PaperDollUiLaw.SoundTransition("igCharacterInfoClose", 1) &&
+      PaperDollUiLaw.TabSwitchSound == new PaperDollUiLaw.SoundTransition("igCharacterInfoTab", 2) &&
+      PaperDollUiLaw.RotateTapSound == new PaperDollUiLaw.SoundTransition("igInventoryRotateCharacter", 2),
+    "CharacterFrame audio cue/count law drift");
+string characterPageSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.CharacterPage.cs"));
+int portraitDraw = characterPageSource.IndexOf("DrawCharacterPortrait(dl, origin, scale, player, panelClip);",
+    StringComparison.Ordinal);
+int backgroundDraw = characterPageSource.IndexOf("DrawPaperDollBackground(dl, origin, scale);",
+    StringComparison.Ordinal);
+Check(portraitDraw >= 0 && backgroundDraw > portraitDraw,
+    "CharacterFrame portrait must paint before the page background's authored round aperture");
+int rangedAttackHit = characterPageSource.IndexOf(
+    "DrawCharacterStatTooltipHit(\"CharacterRangedAttackFrame\"", StringComparison.Ordinal);
+int rangedPowerGate = characterPageSource.IndexOf(
+    "if (ranged is { Class: 2, Subclass: not 19 })", StringComparison.Ordinal);
+Check(rangedAttackHit >= 0 && rangedPowerGate > rangedAttackHit &&
+      characterPageSource.Contains("offhand?.Class == 2", StringComparison.Ordinal) &&
+      characterPageSource.Contains("if (ranged is not null)", StringComparison.Ordinal),
+    "CharacterFrame static ranged-attack hover or weapon/wand/offhand tooltip gates drift");
+string inventorySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Inventory.cs"));
+Check(inventorySource.Contains("PreparePaperDollComparisonTooltips(item);", StringComparison.Ordinal) &&
+      inventorySource.Contains("PaperDollUiLaw.ShowBagItemComparison", StringComparison.Ordinal) &&
+      inventorySource.Contains("compact: true", StringComparison.Ordinal) &&
+      inventorySource.Contains("compact ? Vector4.One", StringComparison.Ordinal) &&
+      inventorySource.Contains("Currently Equipped", StringComparison.Ordinal) &&
+      inventorySource.Contains("DrawPreparedPaperDollComparisonTooltips(comparisons)",
+          StringComparison.Ordinal) &&
+      inventorySource.Contains("HighestLiveComparisonOrdinal(", StringComparison.Ordinal),
+    "bag-hover shift compare must remain atomic, paper-doll-visible, live-equipped, and compact");
+
+if (args.Contains("--character-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: CharacterFrame PASS");
+    return;
+}
+
+// GameMenuFrame clinical contract. The geometry constants below intentionally pin MSUI's
+// present build-5875 menu; the Escape/lifecycle laws pin only missing or reproduced behavior.
+Check(GameMenuUiLaw.FrameWidth == 195f && GameMenuUiLaw.FrameHeight == 246f &&
+      GameMenuUiLaw.ButtonWidth == 144f && GameMenuUiLaw.ButtonHeight == 21f &&
+      GameMenuUiLaw.HeaderWidth == 256f && GameMenuUiLaw.HeaderHeight == 64f &&
+      GameMenuUiLaw.HeaderTop == -12f && GameMenuUiLaw.HeaderTitleTop == 14f &&
+      GameMenuUiLaw.HighlightAlpha == .55f,
+    "GameMenuFrame preserved 195x246 geometry/header/highlight contract drift");
+Check(Enumerable.Range(0, 8).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
+      new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f }),
+    "GameMenuFrame preserved eight-rung ladder drift");
+
+GameMenuEscapeState idleEscape = new(false, false, false, false, false, false,
+    false, false, false, false, false);
+GameMenuEscapeLayer[] orderedEscapeLayers =
+[
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        PopupOpen = true, OptionsOpen = true, GameMenuOpen = true, StackSplitOpen = true,
+        WorldMapOpen = true, OpenMailOpen = true, CancelableSpellCast = true,
+        SpellTargeting = true, PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        OptionsOpen = true, GameMenuOpen = true, StackSplitOpen = true, WorldMapOpen = true,
+        OpenMailOpen = true, CancelableSpellCast = true, SpellTargeting = true,
+        PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        GameMenuOpen = true, StackSplitOpen = true, WorldMapOpen = true, OpenMailOpen = true,
+        CancelableSpellCast = true, SpellTargeting = true, PlayerPanelOpen = true,
+        TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        StackSplitOpen = true, WorldMapOpen = true, OpenMailOpen = true,
+        CancelableSpellCast = true, SpellTargeting = true, PlayerPanelOpen = true,
+        TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        WorldMapOpen = true, OpenMailOpen = true, CancelableSpellCast = true,
+        SpellTargeting = true, PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        OpenMailOpen = true, CancelableSpellCast = true, SpellTargeting = true,
+        PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        CancelableSpellCast = true, SpellTargeting = true, PlayerPanelOpen = true,
+        TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        SpellTargeting = true, PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with
+    {
+        PlayerPanelOpen = true, TargetSelected = true
+    }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape with { TargetSelected = true }).Layer,
+    GameMenuUiLaw.ResolveEscape(idleEscape).Layer,
+];
+Check(orderedEscapeLayers.SequenceEqual(new[]
+    {
+        GameMenuEscapeLayer.Popup, GameMenuEscapeLayer.Options,
+        GameMenuEscapeLayer.GameMenu, GameMenuEscapeLayer.StackSplit,
+        GameMenuEscapeLayer.WorldMap, GameMenuEscapeLayer.OpenMail,
+        GameMenuEscapeLayer.SpellCast, GameMenuEscapeLayer.SpellTargeting,
+        GameMenuEscapeLayer.PlayerPanel, GameMenuEscapeLayer.Target,
+        GameMenuEscapeLayer.OpenGameMenu,
+    }),
+    $"GameMenuFrame one-eater Escape ladder drift: {string.Join(',', orderedEscapeLayers)}");
+GameMenuEscapePlan carriedEscape = GameMenuUiLaw.ResolveEscape(idleEscape with
+    { HasCarriedCursor = true, CancelableSpellCast = true, TargetSelected = true });
+Check(carriedEscape.ClearCarriedCursor && carriedEscape.Layer == GameMenuEscapeLayer.SpellCast,
+    "GameMenuFrame cursor clear must not eat Escape or skip the first consuming rung");
+Check(GameMenuUiLaw.MicroToggle(false) == GameMenuToggleAction.Open &&
+      GameMenuUiLaw.MicroToggle(true) == GameMenuToggleAction.Close &&
+      GameMenuUiLaw.PlayerPanelMayOpen(false) && !GameMenuUiLaw.PlayerPanelMayOpen(true),
+    "GameMenuFrame micro-toggle or center-panel ownership drift");
+Check(GameMenuUiLaw.OpenSound == "igMainMenuOpen" &&
+      GameMenuUiLaw.EscapeCloseSound == "igMainMenuQuit" &&
+      GameMenuUiLaw.PopupVisibilitySound(false, true) == "igMainMenuOpen" &&
+      GameMenuUiLaw.PopupVisibilitySound(true, false) == "igMainMenuClose" &&
+      GameMenuUiLaw.PopupVisibilitySound(false, false).Length == 0 &&
+      GameMenuUiLaw.PopupVisibilitySound(true, true).Length == 0,
+    "GameMenuFrame menu/popup cue identity or one-cue-per-edge cardinality drift");
+
+Check((ushort)Op.CMSG_LOGOUT_REQUEST == 0x004B &&
+      (ushort)Op.SMSG_LOGOUT_RESPONSE == 0x004C &&
+      (ushort)Op.SMSG_LOGOUT_COMPLETE == 0x004D &&
+      (ushort)Op.CMSG_LOGOUT_CANCEL == 0x004E &&
+      (ushort)Op.SMSG_LOGOUT_CANCEL_ACK == 0x004F,
+    "GameMenuFrame build-5875 logout opcode identities drift");
+Check(LogoutResponse.Parse(Convert.FromHexString("0000000000")) == new LogoutResponse(0, false) &&
+      LogoutResponse.Parse(Convert.FromHexString("0300000001")) == new LogoutResponse(3, true) &&
+      LogoutUiLaw.Decide(new LogoutResponse(1, false), quitting: true) ==
+          LogoutResponseAction.Refused &&
+      LogoutUiLaw.Decide(new LogoutResponse(0, true), quitting: false) ==
+          LogoutResponseAction.AwaitCompletion &&
+      LogoutUiLaw.Decide(new LogoutResponse(0, false), quitting: false) ==
+          LogoutResponseAction.ShowCampCountdown &&
+      LogoutUiLaw.Decide(new LogoutResponse(0, false), quitting: true) ==
+          LogoutResponseAction.ShowQuitCountdown &&
+      LogoutUiLaw.CountdownText(false, 20f) == "20 seconds until logout" &&
+      LogoutUiLaw.CountdownText(true, .1f) == "1 second until exit",
+    "GameMenuFrame logout response/countdown law drift");
+
+string gameMenuSettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Settings.cs"));
+string gameMenuActionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.ActionBars.cs"));
+string gameMenuLogoutSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Logout.cs"));
+string gameMenuSkinSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Engine", "UI", "WowSkin.cs"));
+string gameMenuCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+string gameMenuLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+Check(gameMenuSettingsSource.Contains("InputKeyDown(Silk.NET.Input.Key.Escape)", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("ClearCarriedItemOnEscape();", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("CloseOpenMail(playSound: true, autoDelete: true);", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("TryCancelSpellTargetingOnEscape();", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("TryClearTargetOnEscape();", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("PlayUiSound(GameMenuUiLaw.EscapeCloseSound);", StringComparison.Ordinal),
+    "GameMenuFrame production Escape ladder is not wired to the deterministic law");
+Check(gameMenuActionSource.Contains("_mainMenuMicroPressedThroughModal", StringComparison.Ordinal) &&
+      gameMenuActionSource.Contains("ToggleSettingsFromMicroButton();", StringComparison.Ordinal) &&
+      gameMenuActionSource.Contains("GameMenuUiLaw.PlayerPanelMayOpen(_settingsOpen)", StringComparison.Ordinal),
+    "GameMenuFrame micro toggle/center-panel click gate wiring drift");
+Check(gameMenuLogoutSource.Contains("GameMenuUiLaw.PopupVisibilitySound", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("new Vector2(360f, 96f)", StringComparison.Ordinal) &&
+      gameMenuLogoutSource.Contains("SetLogoutDialog(LogoutDialogKind.None)", StringComparison.Ordinal),
+    "GameMenuFrame preserved logout popup geometry or sound teardown wiring drift");
+Check(gameMenuSkinSource.Contains("out PanelButtonDrawState drawState", StringComparison.Ordinal) &&
+      gameMenuSkinSource.Contains("\"DisabledTexture\"", StringComparison.Ordinal) &&
+      gameMenuSkinSource.Contains("\"PushedTexture\"", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("\"HIT_TARGET\"", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("InteractionState:drawn.InteractionState", StringComparison.Ordinal) &&
+      gameMenuSettingsSource.Contains("BlendMode:\"BLEND\"", StringComparison.Ordinal),
+    "GameMenuFrame actual normal/pushed/disabled/highlight capture instrumentation drift");
+Check(gameMenuCaptureSource.Contains("stateSource", StringComparison.Ordinal) &&
+      gameMenuCaptureSource.Contains("menu-runtime", StringComparison.Ordinal) &&
+      gameMenuCaptureSource.Contains("ui-parity-stage", StringComparison.Ordinal) &&
+      gameMenuLiveRunSource.Contains("case \"game-menu\":", StringComparison.Ordinal) &&
+      gameMenuLiveRunSource.Contains("EmitInterface(\"ui-sound\"", StringComparison.Ordinal),
+    "GameMenuFrame observational capture or strict live assertion surface drift");
+
+string[] preservedGameMenuLabels =
+[
+    "Video Options", "Sound Options", "Interface Options", "Key Bindings",
+    "Macros", "Logout", "Exit Game", "Return to Game"
+];
+int priorGameMenuLabel = -1;
+foreach (string label in preservedGameMenuLabels)
+{
+    int at = gameMenuSettingsSource.IndexOf($"\"{label}\"", priorGameMenuLabel + 1,
+        StringComparison.Ordinal);
+    Check(at > priorGameMenuLabel, $"GameMenuFrame preserved label/order missing: {label}");
+    priorGameMenuLabel = at;
+}
+
+if (args.Contains("--game-menu-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: GameMenuFrame PASS");
+    return;
+}
 
 var attackSpell = new SpellInfo(6603, "Attack", "", @"Interface\Icons\Temp.blp",
     0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0,
@@ -71,6 +532,17 @@ Check(WorldSession.BuildZoneUpdateBody(12).SequenceEqual(Convert.FromHexString("
       "zone update body");
 string clientData = Path.Combine(ClientConfig.FindRepoRoot(), "GameData", "Data");
 using var spellbookMpq = new MpqMount(clientData);
+Check(spellbookMpq.ReadFile(@"Interface\Buttons\UI-Debuff-Overlays.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\Icons\INV_Misc_QuestionMark.blp") is not null &&
+      spellbookMpq.ReadFile(@"Fonts\FRIZQT__.TTF") is not null,
+    "BuffFrame debuff overlay/fallback icon/duration font asset closure missing");
+Check(spellbookMpq.ReadFile(@"Interface\DialogFrame\UI-DialogBox-Background.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\DialogFrame\UI-DialogBox-Border.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\DialogFrame\DialogAlertIcon.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Up.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Down.blp") is not null &&
+      spellbookMpq.ReadFile(@"Interface\Buttons\UI-DialogBox-Button-Highlight.blp") is not null,
+    "EnchantConfirm preserved backdrop/alert/button asset closure missing");
 SpellCatalog spellbookSpells = SpellCatalog.Load(spellbookMpq) ??
     throw new InvalidDataException("Spell DBC unavailable");
 EnchantCatalog enchantRows = EnchantCatalog.Load(spellbookMpq) ??
@@ -79,6 +551,26 @@ Check(enchantRows.Name(2564) == "Agility +15" && enchantRows.Name(1900) == "Crus
     "SpellItemEnchantment name-column/locale drift");
 Check(!Enum.TryParse("CMSG_REPLACE_ENCHANT", out Op _),
     "build 5875 must not invent a CMSG_REPLACE_ENCHANT opcode");
+Check(EnchantConfirmUiLaw.PopupSoundCues(false, true).SequenceEqual(["igMainMenuOpen"]) &&
+      EnchantConfirmUiLaw.PopupSoundCues(true, false).SequenceEqual(["igMainMenuClose"]) &&
+      EnchantConfirmUiLaw.PopupSoundCues(true, true, chainedPopup: true)
+          .SequenceEqual(["igMainMenuOpen", "igMainMenuClose"]) &&
+      EnchantConfirmUiLaw.PopupSoundCues(true, true, chainedPopup: false)
+          .SequenceEqual(["igMainMenuClose", "igMainMenuOpen"]) &&
+      EnchantConfirmUiLaw.PopupSoundCues(false, false).Count == 0,
+    "enchant StaticPopup open/close or chained-popup sound cardinality drift");
+Check(EnchantConfirmUiLaw.FrameWidth == 360f && EnchantConfirmUiLaw.FrameHeight == 96f &&
+      EnchantConfirmUiLaw.FrameTop == 128f &&
+      EnchantConfirmUiLaw.AlertRect == new EnchantConfirmUiLaw.LogicalRect(12, 8, 64, 64) &&
+      EnchantConfirmUiLaw.AcceptButtonRect ==
+          new EnchantConfirmUiLaw.LogicalRect(62, 68, 128, 20) &&
+      EnchantConfirmUiLaw.DeclineButtonRect ==
+          new EnchantConfirmUiLaw.LogicalRect(198, 68, 128, 20) &&
+      EnchantConfirmUiLaw.BindMessage == "Enchanting this item will bind it to you." &&
+      string.Format(System.Globalization.CultureInfo.InvariantCulture,
+          EnchantConfirmUiLaw.ReplaceMessageFormat, "Agility +15", "Crusader") ==
+          "Do you want to replace \"Agility +15\" with \"Crusader\"?",
+    "EnchantConfirm preserved alert layout or exact bind/replace copy drift");
 SkillLineCatalog spellbookSkills = SkillLineCatalog.Load(spellbookMpq) ??
     throw new InvalidDataException("Skill-line DBCs unavailable");
 SpellInfo BookSpell(uint id) => spellbookSpells.TryGet(id, out SpellInfo value) ? value
@@ -450,33 +942,374 @@ Check(MultiActionBarUiLaw.WireSlot(BottomMultiActionBar.Left, 0) == 60 &&
       "bottom multibar page/base mapping law");
 Check(!MultiActionBarUiLaw.ShowEmptyWell(false) &&
       MultiActionBarUiLaw.ShowEmptyWell(true) &&
-      MultiActionBarUiLaw.UseOnKeyRelease(true, false, typing: false, inWorld: true) &&
-      !MultiActionBarUiLaw.UseOnKeyRelease(false, true, typing: false, inWorld: true) &&
-      !MultiActionBarUiLaw.UseOnKeyRelease(true, false, typing: true, inWorld: true),
-      "bottom multibar empty-grid/key-release law");
+      !MultiActionBarUiLaw.InteractiveSlot(hasAction: false, cursorPayloadHeld: false) &&
+      MultiActionBarUiLaw.InteractiveSlot(hasAction: true, cursorPayloadHeld: false) &&
+      MultiActionBarUiLaw.InteractiveSlot(hasAction: false, cursorPayloadHeld: true),
+      "bottom multibar cursor-only empty-grid/interaction law");
 Check(MultiActionBarUiLaw.FrameWidth == 500 && MultiActionBarUiLaw.FrameHeight == 38 &&
       MultiActionBarUiLaw.ButtonSize == 36 && MultiActionBarUiLaw.ButtonStep == 42 &&
       MultiActionBarUiLaw.BottomLeftRise == 17 && MultiActionBarUiLaw.BottomBarGap == 10,
       "bottom multibar quoted geometry law");
+Check(MultiActionBarUiLaw.InHorizontalButton(0, 2, 0, 0) &&
+      MultiActionBarUiLaw.InHorizontalButton(35.999f, 37.999f, 0, 0) &&
+      !MultiActionBarUiLaw.InHorizontalButton(36, 2, 0, 0) &&
+      !MultiActionBarUiLaw.InHorizontalButton(41.999f, 2, 0, 0) &&
+      MultiActionBarUiLaw.InHorizontalButton(42, 2, 0, 0) &&
+      MultiActionBarUiLaw.InHorizontalButton(497.999f, 2, 0, 0) &&
+      !MultiActionBarUiLaw.InHorizontalButton(498, 2, 0, 0) &&
+      !MultiActionBarUiLaw.InHorizontalButton(0, 38, 0, 0),
+      "bottom multibar exact 36-pixel buttons/six-pixel click-through gaps drift");
+
+MultiActionKeyTransition multiPress = MultiActionBarUiLaw.AdvanceKey(
+    armed: false, wasDown: false, isDown: true, typing: false, inWorld: true);
+MultiActionKeyTransition multiHeldWhileTyping = MultiActionBarUiLaw.AdvanceKey(
+    multiPress.Armed, wasDown: true, isDown: true, typing: true, inWorld: true);
+MultiActionKeyTransition multiReleaseWhileTyping = MultiActionBarUiLaw.AdvanceKey(
+    multiHeldWhileTyping.Armed, wasDown: true, isDown: false, typing: true, inWorld: true);
+MultiActionKeyTransition multiPressWhileTyping = MultiActionBarUiLaw.AdvanceKey(
+    armed: false, wasDown: false, isDown: true, typing: true, inWorld: true);
+MultiActionKeyTransition multiFocusLeavesHeld = MultiActionBarUiLaw.AdvanceKey(
+    multiPressWhileTyping.Armed, wasDown: true, isDown: true, typing: false, inWorld: true);
+MultiActionKeyTransition multiIneligibleRelease = MultiActionBarUiLaw.AdvanceKey(
+    multiFocusLeavesHeld.Armed, wasDown: true, isDown: false, typing: false, inWorld: true);
+MultiActionKeyTransition multiRepeat = MultiActionBarUiLaw.AdvanceKey(
+    armed: true, wasDown: true, isDown: true, typing: false, inWorld: true);
+MultiActionKeyTransition multiWorldExit = MultiActionBarUiLaw.AdvanceKey(
+    armed: true, wasDown: true, isDown: true, typing: false, inWorld: false);
+Check(multiPress == new MultiActionKeyTransition(true, false) &&
+      multiHeldWhileTyping == new MultiActionKeyTransition(true, false) &&
+      multiReleaseWhileTyping == new MultiActionKeyTransition(false, true) &&
+      multiPressWhileTyping == new MultiActionKeyTransition(false, false) &&
+      multiFocusLeavesHeld == new MultiActionKeyTransition(false, false) &&
+      multiIneligibleRelease == new MultiActionKeyTransition(false, false) &&
+      multiRepeat == new MultiActionKeyTransition(true, false) &&
+      multiWorldExit == new MultiActionKeyTransition(false, false),
+      "bottom multibar eligible-press latch/release/typing/repeat/world-exit law drift");
+
+Check(!MultiActionBarUiLaw.ItemMayBePlaced(0, 0) &&
+      MultiActionBarUiLaw.ItemMayBePlaced(0, 8690) &&
+      MultiActionBarUiLaw.ItemMayBePlaced(18, 0) &&
+      MultiActionBarUiLaw.ShowItemCount(24, false) &&
+      MultiActionBarUiLaw.ShowItemCount(25, false) &&
+      MultiActionBarUiLaw.ShowItemCount(0, true) &&
+      !MultiActionBarUiLaw.ShowItemCount(0, false),
+      "bottom multibar item acceptance/count visibility law drift");
+Check(MultiActionBarUiLaw.ItemUseRoute(0, false, true) == MultiActionItemRoute.Use &&
+      MultiActionBarUiLaw.ItemUseRoute(0, false, false) == MultiActionItemRoute.None &&
+      MultiActionBarUiLaw.ItemUseRoute(13, true, true) == MultiActionItemRoute.Use &&
+      MultiActionBarUiLaw.ItemUseRoute(13, false, true) == MultiActionItemRoute.Equip &&
+      MultiActionBarUiLaw.ItemUseRoute(13, false, false) == MultiActionItemRoute.None,
+      "bottom multibar two-stage item equip/use route drift");
+Check(MultiActionBarUiLaw.ItemUseDisposition(373, 8690, 1, true) ==
+          MultiActionItemUseDisposition.QuestOffer &&
+      MultiActionBarUiLaw.ItemUseDisposition(0, 0, 0, false) ==
+          MultiActionItemUseDisposition.Nothing &&
+      MultiActionBarUiLaw.ItemUseDisposition(0, 8690, 1, true) ==
+          MultiActionItemUseDisposition.ToggleCancel &&
+      MultiActionBarUiLaw.ItemUseDisposition(0, 8690, 0, true) ==
+          MultiActionItemUseDisposition.Use,
+      "bottom multibar quest/toggle/cast/nothing item-use fork drift");
+Check(!MultiActionBarUiLaw.RequiresLiveCharges(0) &&
+      !MultiActionBarUiLaw.RequiresLiveCharges(-1) &&
+      MultiActionBarUiLaw.RequiresLiveCharges(1) &&
+      MultiActionBarUiLaw.RequiresLiveCharges(-3) &&
+      MultiActionBarUiLaw.LiveChargeCandidate(isContainer: true, remainingCharges: 0) &&
+      MultiActionBarUiLaw.LiveChargeCandidate(isContainer: false, remainingCharges: null) &&
+      !MultiActionBarUiLaw.LiveChargeCandidate(isContainer: false, remainingCharges: 0) &&
+      MultiActionBarUiLaw.LiveChargeCandidate(isContainer: false, remainingCharges: 2),
+      "bottom multibar finite/live item-charge filter drift");
+ItemTemplate parsedMultiItem = ItemTemplate.Parse(BuildMultiActionItemTemplateFixture())
+    ?? throw new InvalidDataException("bottom multibar item-template fixture did not parse");
+Check(parsedMultiItem.Entry == 42 && parsedMultiItem.SpellCharges0 == 2 &&
+      parsedMultiItem.UseSpellIndex == 1 && parsedMultiItem.UseSpellId == 8690 &&
+      parsedMultiItem.UseSpellCharges == -3 && parsedMultiItem.UseSpellCategory == 321 &&
+      parsedMultiItem.HasNegativeOnUseCharges && parsedMultiItem.StartQuest == 373 &&
+      parsedMultiItem.BagFamily == 9,
+      "bottom multibar raw block-0/first-ON_USE/negative-count/start-quest parser drift");
+
+ActionSlot heldMultiAction = new(ActionSlot.Spell, 1459);
+ActionSlot displacedMultiAction = new(ActionSlot.Item, 6948);
+Check(MultiActionBarUiLaw.PickupAction(heldMultiAction.Packed) ==
+          new MultiActionPlacement(0, heldMultiAction.Packed) &&
+      MultiActionBarUiLaw.PlaceAction(heldMultiAction.Packed, displacedMultiAction.Packed) ==
+          new MultiActionPlacement(heldMultiAction.Packed, displacedMultiAction.Packed) &&
+      WorldSession.BuildSetActionButtonBody(60, heldMultiAction.Packed)
+          .SequenceEqual(Convert.FromHexString("3CB3050000")) &&
+      WorldSession.BuildSetActionButtonBody(48, displacedMultiAction.Packed)
+          .SequenceEqual(Convert.FromHexString("30241B0080")),
+      "bottom multibar pickup/place-hop or five-byte SET_ACTION_BUTTON body drift");
+
+string multiActionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.ActionBars.cs"));
+string multiInventorySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Inventory.cs"));
+string multiItemSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Net", "Items.cs"));
+string multiSpellSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Formats", "SpellCatalog.cs"));
+string multiCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+string multiLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+Check(multiActionSource.Contains("ImGuiWindowFlags.NoMouseInputs", StringComparison.Ordinal) &&
+      multiActionSource.Contains("MultiActionBarUiLaw.InteractiveSlot", StringComparison.Ordinal) &&
+      multiActionSource.Contains("dl.PushClipRectFullScreen();", StringComparison.Ordinal) &&
+      multiActionSource.Contains("Visible: normalTextureVisible", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "InteractionState: \"number-font-normal-small-gray-thick-outline\"",
+          StringComparison.Ordinal) &&
+      multiActionSource.Contains("InteractionState: \"number-font-normal-outline\"",
+          StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "GameText.DrawRightAligned(dl, \"NumberFontNormalSmallGray\"", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "GameText.DrawRightAligned(dl, \"NumberFontNormal\"", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "GameText.BoxCenteredTop(\"NumberFontNormalSmallGray\"", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "buttonMin.Y + 2f * scale, 10f, scale", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "new Vector2(buttonMin.X + 34f * scale, textTop)", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "buttonMax.Y - 2f * scale -", StringComparison.Ordinal) &&
+      multiActionSource.Contains(
+          "new Vector2(buttonMax.X - 2f * scale, textTop)", StringComparison.Ordinal) &&
+      multiActionSource.Contains("ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight",
+          StringComparison.Ordinal) &&
+      multiActionSource.Contains("PickupActionToCursor(_pressedActionSlot);", StringComparison.Ordinal) &&
+      !multiActionSource.Contains("SwapActions(_draggingActionSlot", StringComparison.Ordinal) &&
+      multiActionSource.Contains("empty-button-hidden-with-grid-off", StringComparison.Ordinal) &&
+      multiActionSource.Contains("no-active-item-or-spell-cooldown", StringComparison.Ordinal) &&
+      multiActionSource.Contains("name == \"MultiBarBottomRight\") MarkUiParityFrameComplete()",
+          StringComparison.Ordinal),
+      "bottom multibar mouse host/both-button drag/hop/two-frame-root production wiring drift");
+Check(multiActionSource.Contains("usability = stackCount > 0 || equipped", StringComparison.Ordinal) &&
+      !multiActionSource.Contains("HasActionItemCopy(p, actionId)", StringComparison.Ordinal),
+      "bottom multibar item usability must preserve the bag-count-or-equipped state-feed rule");
+int equipmentWalk = multiInventorySource.IndexOf(
+    "for (int slot = 0; slot < 19; slot++)", StringComparison.Ordinal);
+int bagWalk = multiInventorySource.IndexOf(
+    "for (int bagIndex = 0; bagIndex < 4; bagIndex++)", equipmentWalk,
+    StringComparison.Ordinal);
+int backpackWalk = multiInventorySource.IndexOf(
+    "for (int i = 0; i < 16; i++)", bagWalk, StringComparison.Ordinal);
+int keyringWalk = multiInventorySource.IndexOf(
+    "PlayerKeyringSlot(i)", backpackWalk, StringComparison.Ordinal);
+Check(equipmentWalk >= 0 && bagWalk > equipmentWalk && backpackWalk > bagWalk &&
+      keyringWalk > backpackWalk &&
+      multiInventorySource.Contains("ItemUseDisposition", StringComparison.Ordinal) &&
+      multiInventorySource.Contains("ItemSpellCharges(0)", StringComparison.Ordinal) &&
+      multiItemSource.Contains("HasNegativeOnUseCharges", StringComparison.Ordinal) &&
+      multiItemSource.Contains("item.StartQuest = r.ReadU32();", StringComparison.Ordinal) &&
+      multiSpellSource.Contains("uint activeIconId = spells.GetUInt(row, 118);", StringComparison.Ordinal) &&
+      multiSpellSource.Contains("ActiveIconId: activeIconId", StringComparison.Ordinal),
+      "bottom multibar depth-first item search/charge/count/quest/toggle production wiring drift");
+Check(multiCaptureSource.Contains("MultiBarBottomLeft\" or \"MultiBarBottomRight",
+          StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("explicit-live-protocol-fixture", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("captureStateMutation", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("captureNetworkMutation", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("interactive && !trace.Visible", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("RestoreMultiActionUiParityFixture();", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_multiActionUiFixtureRestorePending = true;", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_actions.Set(MultiActionBarUiLaw.BottomLeftBase, _multiActionUiFixtureLeft);",
+          StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_actions.Set(MultiActionBarUiLaw.BottomRightBase, _multiActionUiFixtureRight);",
+          StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_actionCursor = _multiActionUiFixtureActionCursor;", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_draggingSpellId = _multiActionUiFixtureDraggingSpell;", StringComparison.Ordinal) &&
+      multiCaptureSource.Contains("_carriedContainer = _multiActionUiFixtureCarriedContainer;",
+          StringComparison.Ordinal) &&
+      multiCaptureSource.Split("RestoreMultiActionUiParityFixture();", StringSplitOptions.None).Length - 1 >= 4 &&
+      multiLiveRunSource.Contains("_multiActionProtocolFixtureStaged = true;",
+          StringComparison.Ordinal) &&
+      multiLiveRunSource.Contains("provenance={UiParityProvenance}", StringComparison.Ordinal),
+      "bottom multibar strong observational/fixture provenance/rollback capture wiring drift");
+
+if (args.Contains("--multi-bars-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: MultiBars PASS");
+    return;
+}
 Check(PetActionBarUiLaw.FrameWidth == 509 && PetActionBarUiLaw.FrameHeight == 43 &&
+      PetActionBarUiLaw.BaseX == 36 && PetActionBarUiLaw.BaseTopOffset == 97 &&
+      PetActionBarUiLaw.BottomMultiBarStep == 43 && PetActionBarUiLaw.ButtonTop == 11 &&
       PetActionBarUiLaw.ButtonX(0) == 36 && PetActionBarUiLaw.ButtonX(5) == 226 &&
-      PetActionBarUiLaw.ButtonX(6) == 263 && PetActionBarUiLaw.ButtonX(9) == 377,
-      "pet action bar quoted geometry law");
+      PetActionBarUiLaw.ButtonX(6) == 263 && PetActionBarUiLaw.ButtonX(9) == 377 &&
+      PetActionBarUiLaw.NormalTextureSize == 54 &&
+      PetActionBarUiLaw.NormalTextureOffset == new Vector2(0, -1) &&
+      PetActionBarUiLaw.CooldownSize == 33 &&
+      PetActionBarUiLaw.CooldownOffset == new Vector2(-2, -1) &&
+      PetActionBarUiLaw.AutoCastOverlaySize == 58,
+      "pet action bar frozen frame/button/managed-seat/overlay geometry law");
 uint petSpell = 123u | (1u << 24) | PetActionBarUiLaw.AutocastAllowed;
 uint petAttack = 2u | (7u << 24);
 Check(PetActionBarUiLaw.Action(petSpell) == 123 && PetActionBarUiLaw.Kind(petSpell) == 1 &&
       PetActionBarUiLaw.Autocastable(petSpell) &&
+      PetActionBarUiLaw.Autocastable(petSpell, spellResolved: true) &&
+      !PetActionBarUiLaw.Autocastable(petSpell, spellResolved: false) &&
       PetActionBarUiLaw.Active(petAttack, 0, attacking: true) &&
-      PetActionBarUiLaw.LatchPress(2, 1u | (7u << 24)) == 0x102,
-      "pet action packed-word/local-state law");
+      PetActionBarUiLaw.LatchPress(2, 1u | (7u << 24)) == 0x102 &&
+      PetActionBarUiLaw.LatchPress(0x0812_3402, 0u | (7u << 24)) == 0x0800_0002 &&
+      PetActionBarUiLaw.LatchPress(0x0812_3402, 1u | (6u << 24)) == 0x0812_3401,
+      "pet action packed-word/local command/reaction/attack state law");
+Check(PetActionBarUiLaw.ActiveAuraPress(petSpell, 77, matchingCancelableAura: true) &&
+      !PetActionBarUiLaw.ActiveAuraPress(petSpell, 0, matchingCancelableAura: true) &&
+      !PetActionBarUiLaw.ActiveAuraPress(petSpell, 77, matchingCancelableAura: false) &&
+      !PetActionBarUiLaw.ActiveAuraPress(petAttack, 77, matchingCancelableAura: true),
+      "pet active-icon/aura/cancel predicate drift");
+Check(PetActionBarUiLaw.ActionTarget(0x1234) == 0x1234 &&
+      PetActionBarUiLaw.ActionTarget(0) == 0 &&
+      PetActionBarUiLaw.StopsAttackOnSelectionChange(true, 7, 9) &&
+      PetActionBarUiLaw.StopsAttackOnSelectionChange(true, 7, 0) &&
+      !PetActionBarUiLaw.StopsAttackOnSelectionChange(true, 0, 9) &&
+      !PetActionBarUiLaw.StopsAttackOnSelectionChange(true, 7, 7) &&
+      !PetActionBarUiLaw.StopsAttackOnSelectionChange(false, 7, 9),
+      "pet target payload/old-target attack-stop edge drift");
+Check(PetActionBarUiLaw.FeedbackKey(1) == "PET_SPELL_NOPATH" &&
+      PetActionBarUiLaw.FeedbackKey(2) == "SPELL_FAILED_OUT_OF_RANGE" &&
+      PetActionBarUiLaw.FeedbackKey(0) is null &&
+      PetActionBarUiLaw.FeedbackKey(3) is null,
+      "pet action feedback table drift");
+Check(PetActionBarUiLaw.AttackRefusalKey(0, 9, 7, 0x00C6_0000, 4) == "ERR_ATTACK_DEAD" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, 9, 7, 0x00C6_0000, 4) == "ERR_ATTACK_CHARMED" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, null, 7, 0x0004_0000, 4) == "ERR_ATTACK_STUNNED" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, null, 7, 0x0002_0000, 4) == "ERR_ATTACK_PACIFIED" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, null, 7, 0x0080_0000, 4) == "ERR_ATTACK_FLEEING" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, null, 7, 0x0040_0000, 4) == "ERR_ATTACK_CONFUSED" &&
+      PetActionBarUiLaw.AttackRefusalKey(1, null, 7, 0, 4) == "ERR_ATTACK_MOUNTED" &&
+      PetActionBarUiLaw.AttackRefusalKey(null, null, 7, 0, 0) is null,
+      "pet Attack actor refusal order/global-string key drift");
+Check(PetActionBarUiLaw.InteractiveSlot(named: true, cursorPayloadHeld: false) &&
+      PetActionBarUiLaw.InteractiveSlot(named: false, cursorPayloadHeld: true) &&
+      !PetActionBarUiLaw.InteractiveSlot(named: false, cursorPayloadHeld: false) &&
+      PetActionBarUiLaw.PickupAllowed(0) &&
+      !PetActionBarUiLaw.PickupAllowed(PetActionBarUiLaw.UnitFlagPossessed) &&
+      PetActionBarUiLaw.Usable(0, 0) &&
+      !PetActionBarUiLaw.Usable(PetActionBarUiLaw.BarDisabled, 0) &&
+      !PetActionBarUiLaw.Usable(0, 0x0004_0000) &&
+      PetActionBarUiLaw.Usable(0, PetActionBarUiLaw.UnitFlagPossessed),
+      "pet unnamed-slot/possessed-pickup/usability separation drift");
+Check(PetActionBarUiLaw.StripPermanentCooldownMarker(0x0800_1234) == 0x1234 &&
+      PetActionBarUiLaw.StripPermanentCooldownMarker(30_000) == 30_000,
+      "pet category cooldown permanent-marker normalization drift");
+Check(PetActionBarUiLaw.SparkleSize(0) == 14.4f &&
+      PetActionBarUiLaw.SparkleSize(.5f) == 5.76f &&
+      PetActionBarUiLaw.SparkleSize(1) == 2.88f &&
+      PetActionBarUiLaw.SparkleColor(0) == new Vector4(.976f, .875f, .192f, 1f) &&
+      PetActionBarUiLaw.SparkleColor(.5f) == new Vector4(.996f, .945f, .745f, 1f) &&
+      PetActionBarUiLaw.SparkleColor(1) == new Vector4(1f, 1f, 1f, 0f),
+      "pet four-emitter M2 three-key linear size/color ramp drift");
 uint[] petSlots = [7u << 24, petSpell, 0, 0, 0, 0, 0, 0, 0, 0];
 Check(PetActionBarUiLaw.TryAssign(petSlots, 2, petSpell, passive: false, out var petAssign) &&
       petAssign.RelocationSlot == 1 && petSlots[1] == 0 && petSlots[2] == petSpell,
-      "pet action duplicate relocation law");
+      "pet duplicate-word relocation law");
+uint petClaw = 0xC100_0BC2;
+uint petGrowl = 0x8100_0EC0;
+uint petFiller = 0x8100_0000;
+uint petToken = 0x0700_0002;
+uint[] displacedSlots = [petClaw & 0xFFFF_0000, petGrowl, petFiller, petToken];
+Check(PetActionBarUiLaw.TryAssign(displacedSlots, 1, petClaw, passive: false,
+          out var displacedPet) && !displacedPet.Relocated &&
+      displacedPet.DisplacedWord == petGrowl && displacedSlots[1] == petClaw,
+      "pet blanked-spell drop must displace occupant onto cursor");
+uint[] tokenSlots = [petClaw & 0xFFFF_0000, petToken, petFiller, 0x0600_0001];
+Check(PetActionBarUiLaw.TryAssign(tokenSlots, 1, petGrowl, passive: false,
+          out var relocatedToken) && relocatedToken.RelocationSlot == 0 &&
+      tokenSlots[0] == petToken && tokenSlots[1] == petGrowl,
+      "pet token occupant must relocate to first filler in one atomic write");
+uint[] refusedSlots = [petClaw, petGrowl, petFiller, petToken];
+uint[] refusedBefore = refusedSlots.ToArray();
+Check(!PetActionBarUiLaw.TryAssign(refusedSlots, 1, petClaw, passive: true, out _) &&
+      refusedSlots.SequenceEqual(refusedBefore),
+      "pet passive-source refused drop must not mutate slots");
+
+const ulong clinicalPetGuid = 0x0102_0304_0506_0708ul;
+const ulong clinicalPetTarget = 0x1112_1314_1516_1718ul;
+Check(WorldSession.BuildPetActionBody(clinicalPetGuid, petClaw, clinicalPetTarget)
+          .SequenceEqual(Convert.FromHexString(
+              "0807060504030201C20B00C11817161514131211")) &&
+      WorldSession.BuildPetCancelAuraBody(clinicalPetGuid, 2645)
+          .SequenceEqual(Convert.FromHexString("0807060504030201550A0000")) &&
+      WorldSession.BuildPetSetActionBody(clinicalPetGuid, [(3u, petClaw)])
+          .SequenceEqual(Convert.FromHexString(
+              "080706050403020103000000C20B00C1")) &&
+      WorldSession.BuildPetSetActionBody(clinicalPetGuid,
+          [(3u, petToken), (0u, petClaw)])
+          .SequenceEqual(Convert.FromHexString(
+              "0807060504030201030000000200000700000000C20B00C1")),
+      "pet action/cancel-aura/set-action golden wire bodies drift");
 Check((ushort)Op.CMSG_PET_SET_ACTION == 0x174 && (ushort)Op.CMSG_PET_ACTION == 0x175 &&
       (ushort)Op.SMSG_PET_SPELLS == 0x179 && (ushort)Op.SMSG_PET_MODE == 0x17A &&
-      (ushort)Op.CMSG_PET_STOP_ATTACK == 0x2EA,
+      (ushort)Op.CMSG_PET_CANCEL_AURA == 0x26B &&
+      (ushort)Op.CMSG_PET_STOP_ATTACK == 0x2EA &&
+      (ushort)Op.SMSG_SPELL_COOLDOWN == 0x134,
       "pet action protocol opcodes");
+
+string petRoot = ClientConfig.FindRepoRoot();
+string petRuntimeSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Pet.cs"));
+string petTargetingSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Targeting.cs"));
+string petNetSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Net.cs"));
+string petLogoutSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Logout.cs"));
+string petCaptureSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient",
+    "Program.DevTools.UiParity.cs"));
+int petCancelAura = petRuntimeSource.IndexOf("PetCancelAura(petGuid, action)",
+    StringComparison.Ordinal);
+int petOrdinaryAction = petRuntimeSource.IndexOf("PetAction(petGuid, packed",
+    petCancelAura, StringComparison.Ordinal);
+int petShiftRelease = petRuntimeSource.IndexOf("if (released && ShiftHeld())",
+    StringComparison.Ordinal);
+int petRightRelease = petRuntimeSource.IndexOf("else if (clickedRight[i]",
+    petShiftRelease, StringComparison.Ordinal);
+Check(petRuntimeSource.Contains("display.Y - topOffset * s", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("BaseTopOffset + PetActionBarUiLaw.BottomMultiBarStep",
+          StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("PetActionBarUiLaw.ButtonTop", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("NoMouseInputs", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("PushClipRectFullScreen", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight",
+          StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("iconPath.Length > 0", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("_petCooldowns.TryCooldownDisplay", StringComparison.Ordinal) &&
+      !petRuntimeSource.Contains("_petAttackSelection", StringComparison.Ordinal),
+      "pet exact managed seat/zero-clip/both-button/icon-ring/dedicated-cooldown production wiring drift");
+Check(petShiftRelease >= 0 && petRightRelease > petShiftRelease &&
+      petRuntimeSource.Contains("_petActionPressMouseButton", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("PlacePetAction(hoveredSlot, petGuid, pet)",
+          StringComparison.Ordinal),
+      "pet shift-priority/both-button drag/drop production routing drift");
+Check(petCancelAura >= 0 && petOrdinaryAction > petCancelAura &&
+      petRuntimeSource.Contains("PetActionBarUiLaw.ActionTarget(_selectionGuid)",
+          StringComparison.Ordinal) &&
+      petTargetingSource.Contains("StopPetAttackForOldTargetChange(_selectionGuid, guid)",
+          StringComparison.Ordinal),
+      "pet active-aura exclusive cancel/current-target/old-target-stop production wiring drift");
+Check(petRuntimeSource.Contains("if (guid == 0) ResetPetActionBar();", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("_petCooldowns.Clear();", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("StripPermanentCooldownMarker", StringComparison.Ordinal) &&
+      petNetSource.Contains("case Op.SMSG_SPELL_COOLDOWN:", StringComparison.Ordinal) &&
+      petNetSource.Contains("ApplyAddressedSpellCooldowns(body);", StringComparison.Ordinal) &&
+      petNetSource.Split("ResetPetActionBar();", StringSplitOptions.None).Length - 1 >= 2 &&
+      petLogoutSource.Contains("ResetPetActionBar();", StringComparison.Ordinal),
+      "pet atomic replace/addressed cooldown/session teardown production wiring drift");
+Check(!petRuntimeSource.Contains("StagePetActionBarProof", StringComparison.Ordinal) &&
+      petCaptureSource.Contains("pet-action-bar-requires-observed-controlled-unit-state",
+          StringComparison.Ordinal) &&
+      petCaptureSource.Contains("stateSource=pet-wire-runtime", StringComparison.Ordinal) &&
+      petCaptureSource.Contains("captureStateMutation=false;captureNetworkMutation=false",
+          StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("PetActionBarTexture0", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("bottom-multibars-always-visible", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("hidden-unnamed", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("FOUR_EMITTER_M2_LINEAR_TRAILS", StringComparison.Ordinal) &&
+      petRuntimeSource.Contains("parent-not-mouse-enabled", StringComparison.Ordinal),
+      "pet observational-only strong capture/census/provenance wiring drift");
+
+if (args.Contains("--pet-action-bar-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: PetActionBar PASS");
+    return;
+}
 Check(QuestFrameUiLaw.Width == 384 && QuestFrameUiLaw.Height == 512 &&
       QuestFrameUiLaw.ScrollX == 23 && QuestFrameUiLaw.ScrollY == 81 &&
       QuestFrameUiLaw.ScrollWidth == 300 && QuestFrameUiLaw.ScrollHeight == 334 &&
@@ -490,6 +1323,104 @@ Check(QuestFrameUiLaw.ItemGridOffset(0) == Vector2.Zero &&
       QuestFrameUiLaw.RewardCompleteEnabled(2, 1) &&
       QuestFrameUiLaw.RewardCompleteEnabled(0, -1),
       "quest giver item grid/scroll/reward selection law");
+Check(QuestFrameUiLaw.GreetingPool(3) == QuestGreetingPool.Active &&
+      QuestFrameUiLaw.GreetingPool(4) == QuestGreetingPool.Active &&
+      new uint[] { 0, 1, 2, 5, 6, uint.MaxValue }.All(icon =>
+          QuestFrameUiLaw.GreetingPool(icon) == QuestGreetingPool.Available) &&
+      QuestFrameUiLaw.GreetingAction(3) == QuestGreetingAction.Complete &&
+      QuestFrameUiLaw.GreetingAction(4) == QuestGreetingAction.Complete &&
+      QuestFrameUiLaw.GreetingAction(0) == QuestGreetingAction.Complete &&
+      QuestFrameUiLaw.GreetingAction(2) == QuestGreetingAction.Query,
+      "quest greeting wire-icon split/one-click routing drift");
+Check(QuestFrameUiLaw.Money(50).SequenceEqual([new QuestCoin(2, 50)]) &&
+      QuestFrameUiLaw.Money(10_005).SequenceEqual(
+          [new QuestCoin(0, 1), new QuestCoin(2, 5)]) &&
+      QuestFrameUiLaw.Money(0).Count == 0,
+      "quest money must omit zero denominations and retain high-to-low order");
+Check(QuestFrameUiLaw.InvalidReasonKey(1) == "ERR_QUEST_FAILED_LOW_LEVEL" &&
+      QuestFrameUiLaw.InvalidReasonKey(6) == "ERR_QUEST_FAILED_WRONG_RACE" &&
+      QuestFrameUiLaw.InvalidReasonKey(12) == "ERR_QUEST_ONLY_ONE_TIMED" &&
+      QuestFrameUiLaw.InvalidReasonKey(13) == "ERR_QUEST_ALREADY_ON" &&
+      QuestFrameUiLaw.InvalidReasonKey(20) == "ERR_QUEST_FAILED_MISSING_ITEMS" &&
+      QuestFrameUiLaw.InvalidReasonKey(22) == "ERR_QUEST_FAILED_NOT_ENOUGH_MONEY" &&
+      new uint[] { 0, 2, 4, 23, uint.MaxValue }.All(reason =>
+          QuestFrameUiLaw.InvalidReasonKey(reason) == "ERR_QUEST_NEED_PREREQS") &&
+      QuestFrameUiLaw.GiverFailureKey(4) == "ERR_QUEST_FAILED_BAG_FULL_S" &&
+      QuestFrameUiLaw.GiverFailureKey(50) == "ERR_QUEST_FAILED_BAG_FULL_S" &&
+      QuestFrameUiLaw.GiverFailureKey(17) == "ERR_QUEST_FAILED_MAX_COUNT_S" &&
+      QuestFrameUiLaw.GiverFailureKey(0) == "ERR_QUEST_FAILED_S",
+      "quest refusal reason/global-string routing table drift");
+Check(GuidInfo.IsItem(0x4000_0000_0000_0BADul) &&
+      !GuidInfo.IsItem(0xF130_0000_00C5_0001ul),
+      "quest item-giver GUID classification drift");
+var macroMale = new QuestTextMacroLaw.Subject("Thrall", "Night Elf", "Priest", 0);
+var macroFemale = macroMale with { Gender = 1 };
+var macroStates = new Dictionary<uint, uint>
+{
+    [2077] = 12,
+    [unchecked(0u - 2077)] = 3,
+    [2264] = unchecked((uint)-5),
+};
+Check(QuestTextMacroLaw.Expand("$N the $c of $R$B$Glad:lass;", macroMale, macroStates) ==
+          "Thrall the priest of Night Elf\nlad" &&
+      QuestTextMacroLaw.Expand("$G lad : lass ; $2077w/$2077e/$2264W", macroFemale, macroStates) ==
+          "lass 12/3/-5" &&
+      QuestTextMacroLaw.Expand("A $5X and $N", null, macroStates) == "A $X and $N" &&
+      QuestTextMacroLaw.Expand("Broken $G male female;", macroMale, macroStates) ==
+          "Broken male female;",
+      "quest NPC-text B/C/E/G/N/R/T/W grammar drift");
+var initStates = new Dictionary<uint, uint> { [99] = 7, [2077] = 1 };
+QuestWorldStateLaw.ApplyInit(initStates, [(2077u, 12u), (0u, 0u)]);
+Check(initStates[99] == 7 && initStates[2077] == 12 && initStates[0] == 0,
+      "quest world-state init must upsert every pair without inventing a table clear");
+var requestItemsWriter = new PacketWriter();
+requestItemsWriter.WriteU64(0x42); requestItemsWriter.WriteU32(100);
+requestItemsWriter.WriteCString("Title"); requestItemsWriter.WriteCString("Text");
+requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0);
+requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0);
+requestItemsWriter.WriteU32(1); requestItemsWriter.WriteU32(0); requestItemsWriter.WriteU32(0);
+Check(QuestPackets.ParseRequestItems(requestItemsWriter.ToArray()).Completable,
+      "quest request-items second completion flag must accept any nonzero value");
+Check((ushort)Op.CMSG_QUESTGIVER_COMPLETE_QUEST == 0x018A &&
+      (ushort)Op.CMSG_QUESTGIVER_REQUEST_REWARD == 0x018C &&
+      (ushort)Op.SMSG_INIT_WORLD_STATES == 0x02C2 &&
+      (ushort)Op.SMSG_UPDATE_WORLD_STATE == 0x02C3,
+      "quest completion/reward/world-state opcode identities drift");
+string questSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Quest.cs"));
+string gossipSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Gossip.cs"));
+Check(questSource.Contains("RequestQuestReward();", StringComparison.Ordinal) &&
+      questSource.Contains("GuidInfo.IsItem(guid)", StringComparison.Ordinal) &&
+      questSource.Contains("CloseQuestNpcFrame(playSound: true);", StringComparison.Ordinal) &&
+      questSource.Contains("UI-Quest-BotLeftPatch", StringComparison.Ordinal) &&
+      questSource.Contains("QuestFrameUiLaw.GreetingAction(quest.Icon)", StringComparison.Ordinal) &&
+      gossipSource.Contains("QuestFrameUiLaw.GreetingAction(quest.Icon)", StringComparison.Ordinal),
+      "quest production routing/item-giver/lifecycle/bottom-patch wiring drift");
+int questPortraitDraw = questSource.IndexOf("DrawUnitPortraitImage(dl, giver", StringComparison.Ordinal);
+int questPanelArt = questSource.IndexOf("foreach(var r in art)", StringComparison.Ordinal);
+Check(questPortraitDraw >= 0 && questPanelArt > questPortraitDraw &&
+      questSource.Contains("BenillaQuestFramePortraitAperture", StringComparison.Ordinal),
+      "quest portrait must draw beneath panel chrome and retain round-aperture containment telemetry");
+string liveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+string uiParitySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+Check(liveRunSource.Contains("quest[1].Equals(\"assert-wire\"", StringComparison.Ordinal) &&
+      liveRunSource.Contains("TryQuestWireSpec", StringComparison.Ordinal) &&
+      liveRunSource.Contains("quest[1].Equals(\"assert-panel\"", StringComparison.Ordinal) &&
+      liveRunSource.Contains("quest[1].Equals(\"assert-giver-kind\"", StringComparison.Ordinal) &&
+      liveRunSource.Contains("quest[1].Equals(\"assert-greeting-counts\"", StringComparison.Ordinal),
+      "quest connected protocol must expose exact state/giver/split/wire assertions");
+int questObserverReturn = uiParitySource.IndexOf("if (!stageFixture) return;", StringComparison.Ordinal);
+int questFixtureStage = uiParitySource.IndexOf("if (panel == \"quest-frame\") StageQuestFrameProof(",
+    StringComparison.Ordinal);
+Check(questObserverReturn >= 0 && questFixtureStage > questObserverReturn &&
+      uiParitySource.Contains("captureCommand = _uiParityFixtureStaged ? \"ui-parity-stage\" : \"ui-parity\"",
+          StringComparison.Ordinal) &&
+      uiParitySource.Contains("stateSource", StringComparison.Ordinal) &&
+      uiParitySource.Contains("captureStateMutation", StringComparison.Ordinal),
+      "quest capture must remain observational unless explicit staged fixture mode is requested");
 
 Check((ushort)Op.MSG_AUCTION_HELLO == 597 && (ushort)Op.CMSG_AUCTION_SELL_ITEM == 598 &&
       (ushort)Op.CMSG_AUCTION_REMOVE_ITEM == 599 && (ushort)Op.CMSG_AUCTION_LIST_ITEMS == 600 &&
@@ -593,10 +1524,13 @@ var playerFieldValues = new SortedDictionary<ushort, uint>
     [ObjectFields.PLAYER_BYTES] = 2u | (3u << 8) | (4u << 16) | (5u << 24),
     [ObjectFields.PLAYER_BYTES_2] = 6u,
     [ObjectFields.PLAYER_VISIBLE_ITEM_1_0] = 1000u,
+    [(ushort)(ObjectFields.PLAYER_VISIBLE_ITEM_1_0 + 1)] = 2564u,
     [(ushort)(ObjectFields.PLAYER_VISIBLE_ITEM_1_0 + 14 * 12)] = 1014u,
+    [(ushort)(ObjectFields.PLAYER_VISIBLE_ITEM_1_0 + 14 * 12 + 2)] = 1900u,
     [(ushort)(ObjectFields.PLAYER_VISIBLE_ITEM_1_0 + 18 * 12)] = 1018u,
+    [(ushort)(ObjectFields.PLAYER_VISIBLE_ITEM_1_0 + 18 * 12 + 7)] = 846u,
 };
-const int playerFieldBlocks = 15;
+const int playerFieldBlocks = 16;
 playerFieldsWriter.WriteU8(playerFieldBlocks);
 for (int block = 0; block < playerFieldBlocks; block++)
 {
@@ -616,6 +1550,13 @@ Check(streamedFields.PlayerVisibleItemEntry(0) == 1000 &&
       streamedFields.PlayerVisibleItemEntry(14) == 1014 &&
       streamedFields.PlayerVisibleItemEntry(18) == 1018,
     "streamed player visible-item stride drift");
+Check(streamedFields.PlayerVisibleItemEnchant(0, 0) == 2564 &&
+      streamedFields.PlayerVisibleItemEnchant(14, 1) == 1900 &&
+      streamedFields.PlayerVisibleItemEnchant(18, 6) == 846 &&
+      streamedFields.PlayerVisibleItemEnchant(-1, 0) == 0 &&
+      streamedFields.PlayerVisibleItemEnchant(19, 0) == 0 &&
+      streamedFields.PlayerVisibleItemEnchant(0, 7) == 0,
+    "streamed public visible-item enchant offset/bounds drift");
 var streamedPlayer = new WorldEntity
 {
     Guid = 0x1234,
@@ -710,35 +1651,914 @@ Check(LogoutUiLaw.CountdownText(false, 20f) == "20 seconds until logout" &&
 Check(InspectUiLaw.CanInspect(isPlayer: true, isSelf: false, attackable: false,
           distanceSquared: 100f) &&
       !InspectUiLaw.CanInspect(true, false, false, 100.001f) &&
+      !InspectUiLaw.CanInspect(true, false, false, float.NaN) &&
       !InspectUiLaw.CanInspect(false, false, false, 0f) &&
       !InspectUiLaw.CanInspect(true, true, false, 0f) &&
       !InspectUiLaw.CanInspect(true, false, true, 0f),
-    "inspect player/self/attackable/10-yard gate drift");
+    "inspect player/self/attackable/10-yard gate or preserved NaN rejection drift");
+Check(InspectUiLaw.PopupRowEnabled(true, false, false, 99.999f) &&
+      !InspectUiLaw.PopupRowEnabled(true, false, false, 100f) &&
+      InspectUiLaw.PopupRowEnabled(false, false, false, 10_000f) &&
+      InspectUiLaw.PopupRowEnabled(true, true, false, 10_000f) &&
+      InspectUiLaw.PopupRowEnabled(true, false, true, 10_000f),
+    "inspect UnitPopup strict-distance/default-enabled boundary drift");
 Check(MathF.Abs(InspectUiLaw.ClickFacing(.61f, left: true) - .58f) < .0001f &&
       MathF.Abs(InspectUiLaw.ClickFacing(.61f, left: false) - .64f) < .0001f &&
+      MathF.Abs(InspectUiLaw.PhysicalTapFacing(.61f, left: true) - .55f) < .0001f &&
+      MathF.Abs(InspectUiLaw.PhysicalTapFacing(.61f, left: false) - .67f) < .0001f &&
       MathF.Abs(InspectUiLaw.HeldFacing(0f, left: true, .5f) - MathF.PI * .5f) < .0001f &&
       MathF.Abs(InspectUiLaw.HeldFacing(0f, left: false, .5f) - MathF.PI * 1.5f) < .0001f,
-    "inspect tap/held facing law drift");
+    "inspect click-edge/physical-tap/held facing law drift");
+Check(InspectUiLaw.FrameWidth == 384f && InspectUiLaw.FrameHeight == 512f &&
+      InspectUiLaw.HitWidth == 354f && InspectUiLaw.HitHeight == 467f &&
+      InspectUiLaw.EquipmentSlotCount == 19 && InspectUiLaw.SlotSize == 37f &&
+      InspectUiLaw.SlotRingSize == 64f && InspectUiLaw.WeaponRowTop == 385f &&
+      InspectUiLaw.PortraitRect == new InspectUiLaw.LogicalRect(7, 6, 60, 60) &&
+      InspectUiLaw.ModelRect == new InspectUiLaw.LogicalRect(65, 78, 233, 300) &&
+      InspectUiLaw.RotateLeftRect == new InspectUiLaw.LogicalRect(65, 78, 35, 35) &&
+      InspectUiLaw.RotateRightRect == new InspectUiLaw.LogicalRect(100, 78, 35, 35) &&
+      InspectUiLaw.CloseRect == new InspectUiLaw.LogicalRect(324, 9, 32, 32),
+    "inspect frame/hit/portrait/model/slot geometry drift");
+InspectBinding targetBinding = InspectBinding.Target;
+InspectBinding partyBinding = InspectBinding.Party(2);
+Check(targetBinding == new InspectBinding(InspectTokenKind.Target, -1) &&
+      partyBinding == new InspectBinding(InspectTokenKind.Party, 2) &&
+      InspectUiLaw.RefreshForEvent(targetBinding, false, true) &&
+      InspectUiLaw.RefreshForEvent(targetBinding, true, false) &&
+      InspectUiLaw.RefreshForEvent(partyBinding, false, true) &&
+      InspectUiLaw.RefreshForEvent(partyBinding, true, false),
+    "inspect target/party token event re-resolution law drift");
+Check(InspectUiLaw.OpenSound == "igCharacterInfoOpen" &&
+      InspectUiLaw.CloseSound == "igCharacterInfoClose" &&
+      InspectUiLaw.RotateSound == "igInventoryRotateCharacter" &&
+      InspectUiLaw.SoundCategory == "ui.inspect" &&
+      InspectUiLaw.PhysicalTapSoundCount == 2,
+    "inspect open/close/rotation cue identity or physical-tap cardinality drift");
+Check(InspectUiLaw.VisibleEnchantTone(0, false) == InspectEnchantTone.Green &&
+      InspectUiLaw.VisibleEnchantTone(1, true) == InspectEnchantTone.Red &&
+      InspectUiLaw.VisibleEnchantTone(2, false) == InspectEnchantTone.White &&
+      InspectUiLaw.VisibleEnchantTone(6, true) == InspectEnchantTone.White &&
+      InspectUiLaw.VisibleEnchantsAllowed(0) &&
+      !InspectUiLaw.VisibleEnchantsAllowed(0x2000),
+    "inspect public enchant color/signable suppression law drift");
+Check((ushort)Op.CMSG_INSPECT == 0x0114 && (ushort)Op.SMSG_INSPECT == 0x0115,
+    "build-5875 inspect opcode identity drift");
+Check(PaperDollUiLaw.EquipmentSlotLabel(2) == "Shoulders" &&
+      PaperDollUiLaw.EquipmentSlotLabel(15) == "Main Hand" &&
+      PaperDollUiLaw.EquipmentSlotLabel(16) == "Off Hand",
+    "inspect empty-slot localized label mapping drift");
+
+string inspectSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Inspect.cs"));
+string inspectTargetingSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Targeting.cs"));
+string inspectPartySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.PartyFrames.cs"));
+string inspectPopupSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.UnitPopup.cs"));
+string inspectCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+string inspectLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+int inspectRequest = inspectSource.IndexOf("private bool RequestInspect", StringComparison.Ordinal);
+int inspectRequestClose = inspectSource.IndexOf("CloseInspect(playSound: true);", inspectRequest,
+    StringComparison.Ordinal);
+int inspectRequestGate = inspectSource.IndexOf("InspectUiLaw.CanInspect", inspectRequest,
+    StringComparison.Ordinal);
+int inspectPortraitDraw = inspectSource.IndexOf("DrawUnitPortraitImage(dl, player,",
+    StringComparison.Ordinal);
+int inspectBackgroundDraw = inspectSource.IndexOf("DrawPaperDollBackground(dl, p, s);",
+    StringComparison.Ordinal);
+int inspectRingDraw = inspectSource.IndexOf("dl.AddImage((nint)ring,", StringComparison.Ordinal);
+int inspectHighlightDraw = inspectSource.IndexOf("AdditiveHandle", inspectRingDraw,
+    StringComparison.Ordinal);
+Check(inspectRequest >= 0 && inspectRequestClose > inspectRequest &&
+      inspectRequestGate > inspectRequestClose &&
+      !inspectSource.Contains("_inspectOpen && _inspectGuid == guid", StringComparison.Ordinal),
+    "inspect repeat/invalid request must hide before gate and never same-guid short-circuit");
+Check(inspectPortraitDraw >= 0 && inspectBackgroundDraw > inspectPortraitDraw,
+    "inspect square portrait must paint before the page background's round aperture");
+Check(inspectRingDraw >= 0 && inspectHighlightDraw > inspectRingDraw &&
+      inspectSource.Contains("enabled: false", StringComparison.Ordinal) &&
+      inspectSource.Contains("ImGui.IsItemActivated()", StringComparison.Ordinal) &&
+      inspectSource.Contains("ImGui.IsItemDeactivated()", StringComparison.Ordinal) &&
+      inspectSource.Contains("PaperDollUiLaw.EquipmentSlotLabel(slot)", StringComparison.Ordinal) &&
+      inspectSource.Contains("PlayerVisibleItemEnchant(slot, enchantSlot)", StringComparison.Ordinal) &&
+      inspectSource.Contains("OfferPreparedItemTooltip(tooltipOwner, body, max);",
+          StringComparison.Ordinal) &&
+      inspectSource.Contains("ImGui.SetNextWindowPos(tooltipPosition, ImGuiCond.Always)",
+          StringComparison.Ordinal),
+    "inspect selected-tab/rotation/slot layer/label/enchant/tooltip production wiring drift");
+Check(inspectTargetingSource.Contains("_unitPopupInspectBinding = InspectBinding.Target;",
+          StringComparison.Ordinal) &&
+      inspectPartySource.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex);",
+          StringComparison.Ordinal) &&
+      inspectPartySource.Contains("_partyRosterRevision++;", StringComparison.Ordinal) &&
+      inspectPopupSource.Contains("InspectUiLaw.PopupRowEnabled", StringComparison.Ordinal) &&
+      inspectPopupSource.Contains("RequestInspect(_unitPopupGuid, _unitPopupInspectBinding);",
+          StringComparison.Ordinal),
+    "inspect target/party origin seam or strict popup gate production wiring drift");
+Check(inspectCaptureSource.Contains("inspect-frame-requires-observed-runtime-state",
+          StringComparison.Ordinal) &&
+      inspectCaptureSource.Contains("captureNetworkMutation", StringComparison.Ordinal) &&
+      inspectCaptureSource.Contains("PLAYER_VISIBLE_ITEM", StringComparison.Ordinal) &&
+      inspectLiveRunSource.Contains("ValidateInspectFrameCapture", StringComparison.Ordinal) &&
+      inspectLiveRunSource.Contains("case \"inspect\":", StringComparison.Ordinal) &&
+      inspectLiveRunSource.Contains("Op.CMSG_INSPECT", StringComparison.Ordinal),
+    "inspect observational capture/state/sound/wire assertion surface drift");
+
+if (args.Contains("--inspect-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: InspectFrame PASS");
+    return;
+}
+
+Check(SkillFrameUiLaw.BindingCommand == "TOGGLECHARACTER1" &&
+      SkillFrameUiLaw.BindingLabel == "Toggle Skill Pane" &&
+      SkillFrameUiLaw.SkillsTab == 3 && SkillFrameUiLaw.VisibleRows == 12,
+    "SkillFrame direct binding identity/tab/visible-row contract drift");
+Check(SkillFrameUiLaw.ResolveDirectToggle(false, 0) ==
+          SkillFrameUiLaw.ToggleAction.OpenSkills &&
+      SkillFrameUiLaw.ResolveDirectToggle(true, 3) ==
+          SkillFrameUiLaw.ToggleAction.CloseSkills &&
+      SkillFrameUiLaw.ResolveDirectToggle(true, 0) ==
+          SkillFrameUiLaw.ToggleAction.SwitchToSkills,
+    "SkillFrame K open/close/switch action drift");
+Check(SkillFrameUiLaw.FiresDirectBinding(true, false, false, false, false, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(false, false, false, false, false, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, true, false, false, false, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, true, false, false, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, false, true, false, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, false, false, true, false,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, false, false, false, true,
+          false, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, false, false, false, false,
+          true, true) &&
+      !SkillFrameUiLaw.FiresDirectBinding(true, false, false, false, false, false,
+          false, false),
+    "SkillFrame exact bare K edge/repeat/text-capture/world gate drift");
+// `wasDown` remains true while the key is held even if a rejected modifier is released.
+Check(!SkillFrameUiLaw.FiresDirectBinding(true, true, false, false, false, false,
+          false, true),
+    "SkillFrame modifier-release while K held synthesized a forbidden second edge");
+Check(SkillFrameUiLaw.ListRect == new SkillFrameUiLaw.LogicalRect(22, 79, 296, 216) &&
+      SkillFrameUiLaw.WheelCatcherRect ==
+          new SkillFrameUiLaw.LogicalRect(20, 76, 290, 222) &&
+      SkillFrameUiLaw.CollapseFrameRect ==
+          new SkillFrameUiLaw.LogicalRect(70, 49, 54, 32) &&
+      SkillFrameUiLaw.CollapseLeftRect ==
+          new SkillFrameUiLaw.LogicalRect(70, 43, 8, 32) &&
+      SkillFrameUiLaw.CollapseMiddleRect ==
+          new SkillFrameUiLaw.LogicalRect(78, 43, 38, 32) &&
+      SkillFrameUiLaw.CollapseRightRect ==
+          new SkillFrameUiLaw.LogicalRect(116, 43, 8, 32) &&
+      SkillFrameUiLaw.CollapseButtonRect ==
+          new SkillFrameUiLaw.LogicalRect(78, 45, 40, 22) &&
+      SkillFrameUiLaw.CollapseIconRect ==
+          new SkillFrameUiLaw.LogicalRect(78, 48, 16, 16),
+    "SkillFrame list/wheel/collapse-all frozen geometry drift");
+Check(SkillFrameUiLaw.ScrollSliderRect ==
+          new SkillFrameUiLaw.LogicalRect(324, 95, 16, 184) &&
+      SkillFrameUiLaw.ScrollUpRect ==
+          new SkillFrameUiLaw.LogicalRect(324, 79, 16, 16) &&
+      SkillFrameUiLaw.ScrollDownRect ==
+          new SkillFrameUiLaw.LogicalRect(324, 279, 16, 16) &&
+      SkillFrameUiLaw.ScrollThumbTravel == 168 &&
+      SkillFrameUiLaw.ScrollArrowRows == 6 &&
+      SkillFrameUiLaw.MaximumScroll(18) == 6 &&
+      SkillFrameUiLaw.ClampScroll(99, 18) == 6 &&
+      SkillFrameUiLaw.WheelScroll(3, 18, 1) == 2 &&
+      SkillFrameUiLaw.WheelScroll(3, 18, -1) == 4 &&
+      SkillFrameUiLaw.ArrowScroll(0, 30, upward: false) == 6 &&
+      SkillFrameUiLaw.ArrowScroll(6, 30, upward: true) == 0 &&
+      SkillFrameUiLaw.ScrollThumbY(0, 6) == 95 &&
+      SkillFrameUiLaw.ScrollThumbY(6, 6) == 263,
+    "SkillFrame inherited scrollbar geometry/step/clamp/thumb law drift");
+SkillFrameUiLaw.LogicalRect firstSkillHit = SkillFrameUiLaw.SkillRowHitRect(0);
+SkillFrameUiLaw.LogicalRect lastSkillHit = SkillFrameUiLaw.SkillRowHitRect(11);
+Check(firstSkillHit == new SkillFrameUiLaw.LogicalRect(33, 70.5f, 281, 32) &&
+      lastSkillHit == new SkillFrameUiLaw.LogicalRect(33, 268.5f, 281, 32) &&
+      firstSkillHit.Y + firstSkillHit.Height >
+          SkillFrameUiLaw.SkillRowHitRect(1).Y &&
+      lastSkillHit.Y + lastSkillHit.Height < SkillFrameUiLaw.DividerLeftRect.Y,
+    "SkillFrame exact 281x32 overlap precedence or divider clearance drift");
+Check(SkillFrameUiLaw.DividerLeftRect ==
+          new SkillFrameUiLaw.LogicalRect(15, 305, 256, 16) &&
+      SkillFrameUiLaw.DividerRightRect ==
+          new SkillFrameUiLaw.LogicalRect(271, 305, 75, 16) &&
+      SkillFrameUiLaw.BarFor(0, true) == SkillFrameUiLaw.BarPresentation.Barless &&
+      SkillFrameUiLaw.BarFor(1, false) ==
+          SkillFrameUiLaw.BarPresentation.Proficiency &&
+      SkillFrameUiLaw.BarFor(75, false) == SkillFrameUiLaw.BarPresentation.Progress,
+    "SkillFrame divider or max-zero/proficiency/progress presentation drift");
+Check(SkillFrameUiLaw.PopupRect ==
+          new SkillFrameUiLaw.LogicalRect(0, 128, 320, 72) &&
+      SkillFrameUiLaw.PopupTextRect ==
+          new SkillFrameUiLaw.LogicalRect(15, 16, 290, 12) &&
+      SkillFrameUiLaw.PopupAcceptRect ==
+          new SkillFrameUiLaw.LogicalRect(26, 36, 128, 20) &&
+      SkillFrameUiLaw.PopupCancelRect ==
+          new SkillFrameUiLaw.LogicalRect(167, 36, 128, 20) &&
+      SkillFrameUiLaw.UnlearnTimeoutSeconds == 60 &&
+      SkillFrameUiLaw.UnlearnQuestionFormat == "Do you want to unlearn {0}?" &&
+      SkillFrameUiLaw.UnlearnButtonText == "Unlearn" &&
+      SkillFrameUiLaw.CancelButtonText == "Cancel" &&
+      SkillFrameUiLaw.UnlearnTooltip == "Unlearn this profession" &&
+      SkillFrameUiLaw.PopupOpenSound == "igMainMenuOpen" &&
+      SkillFrameUiLaw.PopupCloseSound == "igMainMenuClose" &&
+      SkillFrameUiLaw.DirectTabSound == "igCharacterInfoTab" &&
+      SkillFrameUiLaw.ScrollButtonSound == "UChatScrollButton",
+    "SkillFrame unlearn StaticPopup/copy/timeout or sound identity drift");
+Check(SkillFrameUiLaw.InsetUnlearnHitRect(
+          new SkillFrameUiLaw.LogicalRect(100, 200, 32, 32)) ==
+          new SkillFrameUiLaw.LogicalRect(109, 193, 16, 29),
+    "SkillFrame unlearn HitRectInsets law drift");
+Check((ushort)Op.CMSG_UNLEARN_SKILL == SkillFrameUiLaw.UnlearnOpcode &&
+      WorldSession.BuildUnlearnSkillBody(0x12345678)
+          .SequenceEqual(Convert.FromHexString("78563412")),
+    "SkillFrame CMSG_UNLEARN_SKILL 0x0202 or exact u32 little-endian body drift");
+uint[] primaryProfessionLines = [164, 165, 171, 197, 202, 333, 393];
+uint[] protectedSkillLines = [8, 43, 95, 98, 129, 185, 356, 762];
+Check(primaryProfessionLines.All(id => spellbookSkills.Abandonable(id, 1, 1)) &&
+      protectedSkillLines.All(id => !spellbookSkills.Abandonable(id, 1, 1)) &&
+      !spellbookSkills.Abandonable(999999, 1, 1) &&
+      !spellbookSkills.Abandonable(164, 0, 1) &&
+      !spellbookSkills.Abandonable(164, 1, 0) &&
+      SkillLineCatalog.UnlearnableFlag == 0x20,
+    "SkillRaceClassInfo 0x20 primary-profession allowlist/conservative gate drift");
+string[] skillAssets =
+[
+    @"Interface\QuestFrame\UI-QuestLogSortTab-Left.blp",
+    @"Interface\QuestFrame\UI-QuestLogSortTab-Middle.blp",
+    @"Interface\QuestFrame\UI-QuestLogSortTab-Right.blp",
+    @"Interface\Buttons\UI-MinusButton-Up.blp",
+    @"Interface\Buttons\UI-PlusButton-Up.blp",
+    @"Interface\Buttons\UI-PlusButton-Hilight.blp",
+    @"Interface\Buttons\UI-ScrollBar-ScrollUpButton-Up.blp",
+    @"Interface\Buttons\UI-ScrollBar-ScrollDownButton-Up.blp",
+    @"Interface\Buttons\UI-ScrollBar-Knob.blp",
+    @"Interface\ClassTrainerFrame\UI-ClassTrainer-HorizontalBar.blp",
+    @"Interface\PaperDollInfoFrame\UI-Character-Skills-Bar.blp",
+    @"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorder.blp",
+    @"Interface\PaperDollInfoFrame\UI-Character-Skills-BarBorderHighlight.blp",
+    @"Interface\Buttons\CancelButton-Up.blp",
+    @"Interface\Buttons\CancelButton-Down.blp",
+    @"Interface\Buttons\CancelButton-Highlight.blp",
+];
+Check(skillAssets.All(path => spellbookMpq.ReadFile(path) is not null),
+    "SkillFrame newly ported collapse/scroll/divider/bar/unlearn asset closure missing");
+
+string skillCharacterSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.CharacterPage.cs"));
+string skillRuntimeSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.SkillFrame.cs"));
+string skillBindingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Bindings.cs"));
+string skillSettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Settings.cs"));
+string skillCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+string skillLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+Check(skillBindingsSource.Contains("GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K",
+          StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.FiresDirectBinding", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.ResolveDirectToggle", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("PlayUiSound(SkillFrameUiLaw.DirectTabSound, \"ui.skill-frame\")",
+          StringComparison.Ordinal),
+    "SkillFrame direct K production binding/sound seam drift");
+int skillOverlapSearch = skillCharacterSource.IndexOf(
+    "for (int visible = Math.Min(11, rows.Count - 1 - _skillScroll);",
+    StringComparison.Ordinal);
+Check(skillOverlapSearch >= 0 &&
+      skillCharacterSource.IndexOf("SkillFrameUiLaw.SkillRowHitRect(visible)",
+          skillOverlapSearch, StringComparison.Ordinal) >= 0 &&
+      skillCharacterSource.Contains("SkillFrameUiLaw.WheelCatcherRect", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("new Vector2(5, 8.5f)", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("new Vector2(15, 305)", StringComparison.Ordinal) &&
+      skillCharacterSource.Contains("BarPresentation.Barless", StringComparison.Ordinal),
+    "SkillFrame overlap precedence/wheel catcher/border/divider/max-zero production drift");
+Check(skillRuntimeSource.Contains("SkillIsCurrentlyAbandonable", StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("_selectedSkill != confirmation.SkillId",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("net.UnlearnSkill(confirmation.SkillId);",
+          StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("PLAYER_SKILL_INFO", StringComparison.Ordinal) &&
+      skillRuntimeSource.Contains("PlayUiSound(SkillFrameUiLaw.ScrollButtonSound",
+          StringComparison.Ordinal) &&
+      skillSettingsSource.Contains("TryDismissSkillUnlearnConfirmationOnEscape()",
+          StringComparison.Ordinal),
+    "SkillFrame authoritative unlearn revalidation/no-optimistic-state/escape/sound seam drift");
+Check(skillCaptureSource.Contains("skill-frame-requires-observed-player-skill-state",
+          StringComparison.Ordinal) &&
+      skillCaptureSource.Contains("stateSource\"] = \"player-skill-fields\"",
+          StringComparison.Ordinal) &&
+      skillCaptureSource.Contains("captureNetworkMutation\"] = false",
+          StringComparison.Ordinal) &&
+      skillLiveRunSource.Contains("ValidateSkillFrameCapture", StringComparison.Ordinal) &&
+      skillLiveRunSource.Contains("case \"skill-frame-capture-assert\"",
+          StringComparison.Ordinal),
+    "SkillFrame observational-only capture/scenario/runner assertion surface drift");
+
+if (args.Contains("--skill-frame-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: SkillFrame PASS");
+    return;
+}
 
 Check(PartyFrameUiLaw.MemberY(0) == 128f && PartyFrameUiLaw.MemberY(1) == 191f &&
       PartyFrameUiLaw.MemberY(3) == 317f && PartyFrameUiLaw.FrameWidth == 128f &&
       PartyFrameUiLaw.FrameHeight == 53f,
     "party member frame origin/63-pixel petless cascade drift");
+
+static byte[] PartyRosterFixture(int memberCount, byte ownFlags = 0,
+    Func<int, byte>? memberFlags = null)
+{
+    var writer = new PacketWriter();
+    writer.WriteU8(memberCount > 5 ? (byte)1 : (byte)0);
+    writer.WriteU8(ownFlags);
+    writer.WriteU32((uint)memberCount);
+    for (int i = 0; i < memberCount; i++)
+    {
+        writer.WriteCString($"Member{i + 1}");
+        writer.WriteU64(0x1000ul + (ulong)i);
+        writer.WriteU8(PartyFrameUiLaw.Online);
+        writer.WriteU8(memberFlags?.Invoke(i) ?? ownFlags);
+    }
+    writer.WriteU64(memberCount == 0 ? 0 : 0x1000ul);
+    if (memberCount > 0)
+    {
+        writer.WriteU8(2);
+        writer.WriteU64(0x1000ul + (ulong)(memberCount - 1));
+        writer.WriteU8(2);
+        writer.WriteU8(0);
+    }
+    return writer.ToArray();
+}
+
+static byte[] PartyStatsFixture(ulong guid, uint mask = 0x7f)
+{
+    var writer = new PacketWriter();
+    writer.WritePackedGuid(guid);
+    writer.WriteU32(mask);
+    if ((mask & 0x01) != 0) writer.WriteU8(PartyFrameUiLaw.Online);
+    if ((mask & 0x02) != 0) writer.WriteU16(15);
+    if ((mask & 0x04) != 0) writer.WriteU16(100);
+    if ((mask & 0x08) != 0) writer.WriteU8(0);
+    if ((mask & 0x10) != 0) writer.WriteU16(70);
+    if ((mask & 0x20) != 0) writer.WriteU16(100);
+    if ((mask & 0x40) != 0) writer.WriteU16(60);
+    return writer.ToArray();
+}
+
+for (int count = 0; count <= 5; count++)
+{
+    PartyRosterWire parsed = PartyFramePacketLaw.ParseRoster(PartyRosterFixture(count));
+    Check(parsed.Members.Length == count && parsed.LeaderGuid == (count == 0 ? 0 : 0x1000ul) &&
+          parsed.LootMethod == (count == 0 ? 0 : 2),
+        $"party roster {count}-member parse/tail law drift");
+    int[] compact = PartyFrameUiLaw.CompactRosterIndices(parsed.OwnFlags,
+        parsed.Members.Select(member => member.MemberFlags).ToArray());
+    Check(compact.Length == Math.Min(count, PartyFrameUiLaw.MemberCount),
+        $"party roster {count}-member four-slot cap drift");
+}
+byte[] oneMemberRoster = PartyRosterFixture(1, 0x41);
+for (int length = 0; length < oneMemberRoster.Length; length++)
+{
+    bool rejected = false;
+    try { _ = PartyFramePacketLaw.ParseRoster(oneMemberRoster[..length]); }
+    catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { rejected = true; }
+    Check(rejected, $"party roster truncation accepted at {length}/{oneMemberRoster.Length}");
+}
+bool rosterTrailingRejected = false;
+try { _ = PartyFramePacketLaw.ParseRoster([.. oneMemberRoster, 0xff]); }
+catch (InvalidDataException) { rosterTrailingRejected = true; }
+Check(rosterTrailingRejected, "party roster trailing byte accepted");
+Check(PartyFrameUiLaw.IsLeaveRoster(
+          PartyFramePacketLaw.ParseRoster(PartyRosterFixture(0))) &&
+      !PartyFrameUiLaw.IsLeaveRoster(
+          PartyFramePacketLaw.ParseRoster(PartyRosterFixture(1))) &&
+      PartyFrameUiLaw.IsLeaveRoster(new PartyRosterWire(1, 0x41,
+          [new PartyRosterWireMember("StillParsed", 0x1234, 1, 0x41)],
+          0, 2, 0x1234)),
+    "party leader-zero GROUP_LIST leave edge drift");
+
+byte[] raidRosterBody = PartyRosterFixture(6, 0x41,
+    i => new byte[] { 0x41, 0x01, 0x41, 0x42, 0xc1, 0x02 }[i]);
+PartyRosterWire raidRoster = PartyFramePacketLaw.ParseRoster(raidRosterBody);
+int[] raidCompact = PartyFrameUiLaw.CompactRosterIndices(raidRoster.OwnFlags,
+    raidRoster.Members.Select(member => member.MemberFlags).ToArray());
+Check(raidCompact.SequenceEqual(new[] { 0, 2, 4 }),
+    "frozen Party subgroup view must preserve its wider 0x7f comparison quirk");
+
+byte[] statsBody = PartyStatsFixture(0x1234);
+PartyMemberStatsWire parsedStats = PartyFramePacketLaw.ParseMemberStats(statsBody);
+Check(parsedStats.Guid == 0x1234 && parsedStats.Snapshot ==
+      new PartyMemberStatsSnapshot(PartyFrameUiLaw.Online, 15, 100, 0, 70, 100, 60),
+    "party full stats mask/body parse drift");
+for (int length = 0; length < statsBody.Length; length++)
+{
+    bool rejected = false;
+    try { _ = PartyFramePacketLaw.ParseMemberStats(statsBody[..length]); }
+    catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { rejected = true; }
+    Check(rejected, $"party stats truncation accepted at {length}/{statsBody.Length}");
+}
+bool statsTrailingRejected = false;
+try { _ = PartyFramePacketLaw.ParseMemberStats([.. statsBody, 0xff]); }
+catch (InvalidDataException) { statsTrailingRejected = true; }
+Check(statsTrailingRejected, "party stats trailing byte accepted");
+var inviteWriter = new PacketWriter();
+inviteWriter.WriteCString("Clinical Inviter");
+byte[] inviteBody = inviteWriter.ToArray();
+Check(PartyFramePacketLaw.ParseInvite(inviteBody) == "Clinical Inviter",
+    "party invitation CString parse drift");
+for (int length = 0; length < inviteBody.Length; length++)
+{
+    bool rejected = false;
+    try { _ = PartyFramePacketLaw.ParseInvite(inviteBody[..length]); }
+    catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException) { rejected = true; }
+    Check(rejected, $"party invitation truncation accepted at {length}/{inviteBody.Length}");
+}
+bool inviteTrailingRejected = false;
+try { _ = PartyFramePacketLaw.ParseInvite([.. inviteBody, 0xff]); }
+catch (InvalidDataException) { inviteTrailingRejected = true; }
+Check(inviteTrailingRejected, "party invitation trailing byte accepted");
+
+var previousPartyStats = new PartyMemberStatsSnapshot(1, 90, 100, 0, 40, 100, 60);
+var partialPartyStats = new PartyMemberStatsSnapshot(Health: 25);
+Check(PartyFrameUiLaw.MergeStats(previousPartyStats, partialPartyStats, fullSnapshot: false) ==
+          new PartyMemberStatsSnapshot(1, 25, 100, 0, 40, 100, 60) &&
+      PartyFrameUiLaw.MergeStats(previousPartyStats, partialPartyStats, fullSnapshot: true) ==
+          new PartyMemberStatsSnapshot(Health: 25),
+    "party delta merge or FULL omission-clear snapshot law drift");
+Check(PartyFrameUiLaw.EffectiveStatus(0, PartyFrameUiLaw.Online) == 0 &&
+      PartyFrameUiLaw.EffectiveStatus(PartyFrameUiLaw.Online, 0) == PartyFrameUiLaw.Online,
+    "GROUP_LIST roster status must remain authoritative over delayed stats");
+Check(PartyFrameUiLaw.MergedPvp(PartyFrameUiLaw.Pvp, 0) &&
+      PartyFrameUiLaw.MergedPvp(0, PartyFrameUiLaw.UnitFlagPvp) &&
+      !PartyFrameUiLaw.MergedPvp(0, 0) &&
+      !PartyFrameUiLaw.MergedPvp(0, null),
+    "party streamed UNIT_FIELD_FLAGS PvP OR roster-PvP merged-view drift");
+Check(PartyFrameUiLaw.PvpFaction(2, 1) == "Horde" &&
+      PartyFrameUiLaw.PvpFaction(null, 1) == "Alliance" &&
+      PartyFrameUiLaw.PvpFaction(null, 8) == "Horde" &&
+      PartyFrameUiLaw.PvpFaction(null, null) is null &&
+      PartyFrameUiLaw.PvpFaction(0, 0) is null,
+    "party faction resolution must not invent Alliance while descriptors are unavailable");
+
 Check(MathF.Abs(PartyFrameUiLaw.LowHealthAlpha(0f) - 1f) < .0001f &&
       MathF.Abs(PartyFrameUiLaw.LowHealthAlpha(.5f) - 127f / 255f) < .0001f &&
       MathF.Abs(PartyFrameUiLaw.LowHealthAlpha(1f) - 1f) < .0001f,
     "party portrait low-health triangle drift");
-Check(PartyFrameUiLaw.InviteWires(PartyInviteDismissal.Accept) == new PartyInviteWireCount(1, 0) &&
-      PartyFrameUiLaw.InviteWires(PartyInviteDismissal.DeclineButton) == new PartyInviteWireCount(0, 2) &&
-      PartyFrameUiLaw.InviteWires(PartyInviteDismissal.EscapeOrTimeout) == new PartyInviteWireCount(0, 1) &&
-      PartyFrameUiLaw.InviteWires(PartyInviteDismissal.ServerCancel) == new PartyInviteWireCount(0, 0),
-    "PARTY_INVITE accept/decline/OnHide wire law drift");
+float partySlot0 = PartyFrameUiLaw.AdvanceLowHealthTimer(0, exists: true,
+    connected: true, lowLivingHealth: true, dt: .25f);
+float partySlot1 = PartyFrameUiLaw.AdvanceLowHealthTimer(0, exists: true,
+    connected: true, lowLivingHealth: true, dt: .1f);
+Check(MathF.Abs(partySlot0 - .25f) < .0001f && MathF.Abs(partySlot1 - .1f) < .0001f &&
+      PartyFrameUiLaw.AdvanceLowHealthTimer(partySlot0, exists: true,
+          connected: false, lowLivingHealth: true, dt: .2f) == partySlot0 &&
+      PartyFrameUiLaw.AdvanceLowHealthTimer(partySlot0, exists: false,
+          connected: true, lowLivingHealth: true, dt: .2f) == partySlot0 &&
+      PartyFrameUiLaw.AdvanceLowHealthTimer(partySlot0, exists: true,
+          connected: true, lowLivingHealth: false, dt: .2f) == 0f &&
+      PartyFrameUiLaw.AdvanceLowHealthTimer(.9f, exists: true,
+          connected: true, lowLivingHealth: true, dt: .2f) < .101f,
+    "party frame-slot-local pulse pause/advance/reset/modulo law drift");
+Check(MathF.Abs(PartyFrameUiLaw.AdvanceLowHealthTimer(.1f, exists: true,
+          connected: true, lowLivingHealth: true, dt: .6f) - .7f) < .0001f,
+    "party flashTimer must advance full unclamped frame elapsed");
+
+Check(PartyFrameUiLaw.ReleaseAction(1, 1, PartyPointerButton.Left) ==
+          PartyPointerAction.Target &&
+      PartyFrameUiLaw.ReleaseAction(1, 1, PartyPointerButton.Right) ==
+          PartyPointerAction.OpenPartyMenu &&
+      PartyFrameUiLaw.ReleaseAction(1, -1, PartyPointerButton.Left) ==
+          PartyPointerAction.None &&
+      PartyFrameUiLaw.ReleaseAction(1, 2, PartyPointerButton.Right) ==
+          PartyPointerAction.None &&
+      PartyFrameUiLaw.ReleaseAction(1, 1, PartyPointerButton.Right) ==
+          PartyPointerAction.OpenPartyMenu,
+    "party ButtonUp fixed-slot/release-outside/rebind-current-occupant click law drift");
+Check(PartyFrameUiLaw.InviteButtonPushed(held: true, hovered: true) &&
+      !PartyFrameUiLaw.InviteButtonPushed(held: true, hovered: false) &&
+      !PartyFrameUiLaw.InviteButtonPushed(held: false, hovered: true) &&
+      PartyFrameUiLaw.InviteButtonPushed(held: false, hovered: false, pushedState: true),
+    "party invite Button pressed/drag-off/explicit-pushed state drift");
+Check(PartyFrameUiLaw.PlayerLevelLine(0, null, null) == "Level 0 (Player)" &&
+      PartyFrameUiLaw.PlayerLevelLine(0, "Orc", "Warrior") ==
+          "Level 0 Orc Warrior (Player)" &&
+      PartyFrameUiLaw.PlayerLevelLine(60, "Orc", "Warrior") ==
+          "Level 60 Orc Warrior (Player)" &&
+      PartyFrameUiLaw.PlayerLevelLine(60, "Orc", "Warrior", dead: true) ==
+          "Level 60 Corpse (Player)" &&
+      PartyFrameUiLaw.TooltipNameColor == new Vector4(0, .6f, .1f, 1) &&
+      PartyFrameUiLaw.Tooltip("Member", 60, "Orc", "Warrior", false, true, 15, 100) ==
+          new PartyTooltipView("Member", "Level 60 Orc Warrior (Player)", "PvP", 15, 100) &&
+      PartyFrameUiLaw.Tooltip("Member", 60, "Orc", "Warrior", false, false, 15, 100).PvpLine
+          is null &&
+      PartyFrameUiLaw.TooltipFadeAlpha(0) == 1f &&
+      MathF.Abs(PartyFrameUiLaw.TooltipFadeAlpha(.25) - .5f) < .0001f &&
+      PartyFrameUiLaw.TooltipFadeAlpha(.5) == 0f,
+    "party SetUnit level/corpse/PvP/reaction/fade tooltip law drift");
+Check(PartyFrameUiLaw.TooltipHealth(false, 75, 100) ==
+          new PartyTooltipHealthState(false, 0, 0) &&
+      PartyFrameUiLaw.TooltipHealth(true, 0, 0) ==
+          new PartyTooltipHealthState(true, 1, 0) &&
+      PartyFrameUiLaw.TooltipHealth(true, 150, 100) ==
+          new PartyTooltipHealthState(true, 100, 100) &&
+      PartyFrameUiLaw.MemberHealth(true, 75, 0) ==
+          new PartyTooltipHealthState(true, 0, 0) &&
+      PartyFrameUiLaw.MemberHealth(false, 75, 100) ==
+          new PartyTooltipHealthState(true, 1, 1) &&
+      !PartyFrameUiLaw.BeginTooltipSnapshot(1, 1, hasSnapshot: true, fading: false) &&
+      PartyFrameUiLaw.BeginTooltipSnapshot(1, 1, hasSnapshot: true, fading: true) &&
+      PartyFrameUiLaw.BeginTooltipSnapshot(1, 2, hasSnapshot: true, fading: false) &&
+      PartyFrameUiLaw.BeginTooltipSnapshot(1, 1, hasSnapshot: false, fading: false) &&
+      !PartyFrameUiLaw.BeginTooltipSnapshot(1, -1, hasSnapshot: true, fading: true),
+    "party fixed-slot SetUnit snapshot/live-bar/member-health law drift");
+PartyTooltipLayout partyTooltipLayout = PartyFrameUiLaw.TooltipLayout(
+    [50f, 80f, 30f], [14f, 12f, 12f]);
+PartyTooltipLayout partyNarrowTooltipLayout = PartyFrameUiLaw.TooltipLayout([10f], [14f]);
+Check(partyTooltipLayout.Width == 100f && partyTooltipLayout.Height == 62f &&
+      partyTooltipLayout.RowTops.SequenceEqual([10f, 26f, 40f]) &&
+      partyNarrowTooltipLayout.Width == 30f && partyNarrowTooltipLayout.Height == 34f &&
+      partyNarrowTooltipLayout.RowTops.SequenceEqual([10f]),
+    "party SetUnit header/body font-row/gap/no-minimum-width layout drift");
+Check(PartyFrameUiLaw.TooltipRightOffset(false, false) == -13f &&
+      PartyFrameUiLaw.TooltipRightOffset(false, true) == -58f &&
+      PartyFrameUiLaw.TooltipRightOffset(true, false) == -103f &&
+      PartyFrameUiLaw.TooltipRightOffset(true, true) == -103f &&
+      PartyFrameUiLaw.TooltipBottomOffset(false, false, false, false) == 70f &&
+      PartyFrameUiLaw.TooltipBottomOffset(true, true, false, false) == 97f &&
+      PartyFrameUiLaw.TooltipBottomOffset(true, true, true, false) == 120f &&
+      PartyFrameUiLaw.TooltipBottomOffset(true, false, false, true) == 106f,
+    "party UIParent-managed GameTooltip default anchor drift");
+Check(PartyFrameUiLaw.PreservePartyAcrossWorldEnter(socketSessionAlive: true) &&
+      !PartyFrameUiLaw.PreservePartyAcrossWorldEnter(socketSessionAlive: false),
+    "party roster/invite same-session worldport preservation law drift");
+
+Check(PartyFrameUiLaw.PopupWidth == 320f && PartyFrameUiLaw.PopupTextWidth == 290f &&
+      PartyFrameUiLaw.PopupHeight(12) == 72f &&
+      PartyFrameUiLaw.PopupButtonTop(12) == 36f &&
+      PartyFrameUiLaw.PopupButtonOneX == 26f && PartyFrameUiLaw.PopupButtonTwoX == 167f,
+    "PARTY_INVITE ordinary StaticPopup geometry/dynamic-height drift");
+StaticPopupCoordinatorLaw.Definition partyInviteDefinition =
+    PartyFrameUiLaw.PartyInvitePopupDefinition;
+Check(partyInviteDefinition.Type == "PARTY_INVITE" && partyInviteDefinition.WhileDead &&
+      partyInviteDefinition.HideOnEscape && partyInviteDefinition.Cancels is null &&
+      partyInviteDefinition.HasAccept && partyInviteDefinition.HasCancel &&
+      partyInviteDefinition.HasOnShow && partyInviteDefinition.HasOnHide &&
+      !partyInviteDefinition.HasOnUpdate && !partyInviteDefinition.HasEditBox &&
+      !partyInviteDefinition.UsesTimeoutText && !partyInviteDefinition.UsesDelayText &&
+      partyInviteDefinition.TimeoutSeconds == 60 &&
+      partyInviteDefinition.StartDelaySeconds is null &&
+      partyInviteDefinition.EntrySound == "igPlayerInvite",
+    "PARTY_INVITE shared StaticPopup definition drift");
+StaticPopupCoordinatorLaw.Plan partyInviteShowPlan = StaticPopupCoordinatorLaw.Show(
+    StaticPopupCoordinatorLaw.Slots.Empty, partyInviteDefinition,
+    playerDeadOrGhost: true, dataToken: "Clinical Inviter");
+var partyInviteVisible = PartyFrameUiLaw.PartyInvitePopup(partyInviteShowPlan.Slots);
+Check(partyInviteShowPlan.Outcome == StaticPopupCoordinatorLaw.Outcome.Shown &&
+      partyInviteVisible is { Slot: 1 } &&
+      partyInviteVisible.Value.Instance.DataToken == "Clinical Inviter" &&
+      partyInviteVisible.Value.Instance.TimeLeft == 60 &&
+      PartyFrameUiLaw.PartyInvitePopup(new(
+          null, partyInviteVisible.Value.Instance))?.Slot == 2 &&
+      PartyFrameUiLaw.IsPartyInviteVisible(partyInviteShowPlan.Slots) &&
+      !PartyFrameUiLaw.IsPartyInviteVisible(StaticPopupCoordinatorLaw.Slots.Empty) &&
+      partyInviteShowPlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.PrepareContent,
+          StaticPopupCoordinatorLaw.EffectKind.HideEditBox,
+          StaticPopupCoordinatorLaw.EffectKind.EnableAccept,
+          StaticPopupCoordinatorLaw.EffectKind.Show,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuOpenSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnShow,
+          StaticPopupCoordinatorLaw.EffectKind.Resize,
+          StaticPopupCoordinatorLaw.EffectKind.EntrySound,
+      ]),
+    "PARTY_INVITE authoritative slot/data/show plan drift");
+StaticPopupCoordinatorLaw.Plan partyInviteAcceptPlan = StaticPopupCoordinatorLaw.Click(
+    partyInviteShowPlan.Slots, 1, buttonIndex: 1);
+StaticPopupCoordinatorLaw.Plan partyInviteDeclinePlan = StaticPopupCoordinatorLaw.Click(
+    partyInviteShowPlan.Slots, 1, buttonIndex: 2);
+StaticPopupCoordinatorLaw.Plan partyInviteEscapePlan =
+    StaticPopupCoordinatorLaw.Escape(partyInviteShowPlan.Slots);
+StaticPopupCoordinatorLaw.Plan partyInviteTimeoutPlan = StaticPopupCoordinatorLaw.Advance(
+    partyInviteShowPlan.Slots, 1, elapsedSeconds: 60);
+StaticPopupCoordinatorLaw.Plan partyInviteDirectHidePlan = StaticPopupCoordinatorLaw.HideByType(
+    partyInviteShowPlan.Slots, PartyFrameUiLaw.PartyInvitePopupType);
+Check(partyInviteAcceptPlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.Accept,
+          StaticPopupCoordinatorLaw.EffectKind.Hide,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnHide,
+      ]) &&
+      partyInviteDeclinePlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.CancelClicked,
+          StaticPopupCoordinatorLaw.EffectKind.Hide,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnHide,
+      ]) &&
+      partyInviteEscapePlan.Effects.Select(effect => effect.Kind)
+          .SequenceEqual(partyInviteDeclinePlan.Effects.Select(effect => effect.Kind)) &&
+      partyInviteTimeoutPlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.CancelTimeout,
+          StaticPopupCoordinatorLaw.EffectKind.Hide,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnHide,
+      ]) &&
+      partyInviteDirectHidePlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.Hide,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnHide,
+      ]),
+    "PARTY_INVITE accept/clicked/Escape/timeout/direct-hide plan ordering drift");
+StaticPopupCoordinatorLaw.Plan partyInviteOverridePlan = StaticPopupCoordinatorLaw.Show(
+    partyInviteShowPlan.Slots, partyInviteDefinition, playerDeadOrGhost: false,
+    dataToken: "Replacement Inviter");
+Check(partyInviteOverridePlan.Effects.Select(effect => effect.Kind).SequenceEqual(
+      [
+          StaticPopupCoordinatorLaw.EffectKind.CancelOverride,
+          StaticPopupCoordinatorLaw.EffectKind.Hide,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuCloseSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnHide,
+          StaticPopupCoordinatorLaw.EffectKind.PrepareContent,
+          StaticPopupCoordinatorLaw.EffectKind.HideEditBox,
+          StaticPopupCoordinatorLaw.EffectKind.EnableAccept,
+          StaticPopupCoordinatorLaw.EffectKind.Show,
+          StaticPopupCoordinatorLaw.EffectKind.MainMenuOpenSound,
+          StaticPopupCoordinatorLaw.EffectKind.OnShow,
+          StaticPopupCoordinatorLaw.EffectKind.Resize,
+          StaticPopupCoordinatorLaw.EffectKind.EntrySound,
+      ]),
+    "PARTY_INVITE same-type override/reuse plan ordering drift");
 Check((ushort)Op.SMSG_GROUP_INVITE == 0x006f && (ushort)Op.CMSG_GROUP_ACCEPT == 0x0072 &&
       (ushort)Op.CMSG_GROUP_DECLINE == 0x0073 && (ushort)Op.SMSG_GROUP_LIST == 0x007d &&
       (ushort)Op.SMSG_PARTY_MEMBER_STATS == 0x007e &&
       (ushort)Op.CMSG_REQUEST_PARTY_MEMBER_STATS == 0x027f &&
       (ushort)Op.SMSG_PARTY_MEMBER_STATS_FULL == 0x02f2,
     "build-5875 party invite/roster/stats opcodes drift");
+
+string partyRuntimeSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.PartyFrames.cs"));
+string partyLawSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Engine", "UI", "PartyFrameUiLaw.cs"));
+string partyNetSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Net.cs"));
+string partySettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.Settings.cs"));
+string partySessionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Net", "WorldSession.cs"));
+string partyLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.LiveRun.cs"));
+string partyCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.DevTools.UiParity.cs"));
+PartyFrameClinicalChecks.CheckFrozenStaticPopupSources(ClientConfig.FindRepoRoot());
+int partyParseRoster = partyRuntimeSource.IndexOf("PartyFramePacketLaw.ParseRoster(body)",
+    StringComparison.Ordinal);
+int partyCommitRoster = partyRuntimeSource.IndexOf("_partyMembers.Clear();", partyParseRoster,
+    StringComparison.Ordinal);
+Check(partyParseRoster >= 0 && partyCommitRoster > partyParseRoster &&
+      partyNetSource.Contains("ApplyPartyMemberStats(body, fullSnapshot: false)", StringComparison.Ordinal) &&
+      partyNetSource.Contains("ApplyPartyMemberStats(body, fullSnapshot: true)", StringComparison.Ordinal),
+    "party atomic parser-before-commit or FULL-vs-delta dispatch seam drift");
+Check(partySessionSource.Contains(
+          "Op.CMSG_GROUP_ACCEPT, BuildGroupAcceptBody()", StringComparison.Ordinal) &&
+      partySessionSource.Contains(
+          "Op.CMSG_GROUP_DECLINE, BuildGroupDeclineBody()", StringComparison.Ordinal),
+    "party accept/decline exact empty outbound bodies drift");
+Check(partyRuntimeSource.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex)",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("action == PartyPointerAction.Target", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("CircularHandle(portraitPath)", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("party-token-guid-is-not-streamed", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("own.Fields.Bytes0.Race", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("Vector4 portraitColor = new(portraitRgb, portraitAlpha)",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("InviteButtonPushed(held, hovered)", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("bool pvp = hovered.Pvp;", StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("bool pvp = hovered.Pvp ||", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("? \"GameTooltipHeaderText\" : \"GameTooltipText\"",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("PartyFrameUiLaw.TooltipLayout(rowWidths, rowHeights, s)",
+          StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("MathF.Max(120 * s", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("UpdateAndQueuePartyTooltip(-1, null, NowSeconds(), capture: false)",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("ImGuiWindowFlags.Tooltip", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("petOrStanceVisible: PetActionBarVisible", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("min=0;max={memberHealth.Maximum};value={memberHealth.Value}",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains(
+          "min=0;max={view.MaxPower};value={Math.Min(view.Power, view.MaxPower)}",
+          StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("zero-health-fraction", StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("zero-power-fraction", StringComparison.Ordinal),
+    "party no-retarget PARTY origin/circular fallback/empty out-of-range/Horde/tooltip-health seam drift");
+Check(partyRuntimeSource.Contains("PartyFrameUiLaw.IsLeaveRoster(wire)",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("if (leaving) HidePartyInvite();",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("PartyFrameUiLaw.BeginTooltipSnapshot(_partyTooltipSlot",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("PartyMember[] currentSlots = PartyFrameMembers();",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("BuildPartyMemberView(currentSlots[_partyTooltipSlot])",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("party-tooltip-slot-token-is-absent-during-fade",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains(
+          "string fontObject = hovered ? \"GameFontHighlight\" : \"GameFontNormal\";",
+          StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("DialogButtonHighlightText", StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("DialogButtonNormalText", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("party-pvp-faction-is-unresolved", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("MathF.Max(0f, (float)(now - _partyLowHealthLastAt))",
+          StringComparison.Ordinal),
+    "party leave/slot-tooltip/popup-font/PvP-resolution/full-elapsed seam drift");
+int partyWorldStart = partyNetSource.IndexOf("if (_net.TakeEnterWorld()", StringComparison.Ordinal);
+int partyWorldEnd = partyNetSource.IndexOf("// Drain + dispatch the inbound packet stream",
+    partyWorldStart, StringComparison.Ordinal);
+int partyInviteLifecycleCall = partyNetSource.IndexOf("UpdatePartyInviteLifecycle();",
+    StringComparison.Ordinal);
+int partyDisconnectedReset = partyNetSource.IndexOf("ResetParty();", StringComparison.Ordinal);
+int partyResetStart = partyRuntimeSource.IndexOf("private void ResetParty()", StringComparison.Ordinal);
+int partyResetEnd = partyRuntimeSource.IndexOf("private void ApplyPartyRoster", partyResetStart,
+    StringComparison.Ordinal);
+Check(partyWorldStart >= 0 && partyWorldEnd > partyWorldStart &&
+      !partyNetSource[partyWorldStart..partyWorldEnd].Contains("ResetParty();",
+          StringComparison.Ordinal) &&
+      partyDisconnectedReset >= 0 && partyInviteLifecycleCall > partyDisconnectedReset &&
+      partyInviteLifecycleCall < partyWorldStart &&
+      partyResetStart >= 0 && partyResetEnd > partyResetStart &&
+      partyRuntimeSource[partyResetStart..partyResetEnd].Contains(
+          "HidePartyInvite();", StringComparison.Ordinal) &&
+      !partyRuntimeSource[partyResetStart..partyResetEnd].Contains(
+          "Array.Clear(_partyLowHealthTimers)", StringComparison.Ordinal) &&
+      !partyRuntimeSource[partyResetStart..partyResetEnd].Contains(
+          "_partyTooltip = null", StringComparison.Ordinal) &&
+      !partyRuntimeSource[partyResetStart..partyResetEnd].Contains(
+          "_partyTooltipSlot = -1", StringComparison.Ordinal),
+    "party disconnect-only reset/worldport preservation or retained frame state seam drift");
+int partyApplyInviteStart = partyRuntimeSource.IndexOf(
+    "private void ApplyPartyInvite(byte[] body)", StringComparison.Ordinal);
+int partyApplyInviteEnd = partyRuntimeSource.IndexOf("private void ApplyPartyDecline",
+    partyApplyInviteStart, StringComparison.Ordinal);
+string partyApplyInvite = partyApplyInviteStart >= 0 && partyApplyInviteEnd > partyApplyInviteStart
+    ? partyRuntimeSource[partyApplyInviteStart..partyApplyInviteEnd]
+    : "";
+int partyInviteParseCall = partyApplyInvite.IndexOf("PartyFramePacketLaw.ParseInvite(body)",
+    StringComparison.Ordinal);
+int partyInviteShowCall = partyApplyInvite.IndexOf("StaticPopupCoordinatorLaw.Show(",
+    StringComparison.Ordinal);
+Check(partyInviteParseCall >= 0 && partyInviteShowCall > partyInviteParseCall &&
+      partyApplyInvite.Contains("PartyFrameUiLaw.PartyInvitePopupDefinition",
+          StringComparison.Ordinal) &&
+      partyApplyInvite.Contains("dataToken: inviter", StringComparison.Ordinal),
+    "PARTY_INVITE parser-before-authoritative-slot Show seam drift");
+int partyPopupExecutorStart = partyRuntimeSource.IndexOf(
+    "private void ExecuteStaticPopupPlan(", StringComparison.Ordinal);
+int partyDirectHideStart = partyRuntimeSource.IndexOf("private void HidePartyInvite()",
+    partyPopupExecutorStart, StringComparison.Ordinal);
+int partyEscapeDriverStart = partyRuntimeSource.IndexOf(
+    "private bool TryDismissStaticPopupOnEscape()", partyDirectHideStart,
+    StringComparison.Ordinal);
+string partyPopupExecutor = partyPopupExecutorStart >= 0 &&
+    partyDirectHideStart > partyPopupExecutorStart
+    ? partyRuntimeSource[partyPopupExecutorStart..partyDirectHideStart]
+    : "";
+int partySlotCommit = partyPopupExecutor.IndexOf("_staticPopupSlots = plan.Slots;",
+    StringComparison.Ordinal);
+int partyEffectLoop = partyPopupExecutor.IndexOf(
+    "foreach (StaticPopupCoordinatorLaw.Effect effect in plan.Effects)",
+    StringComparison.Ordinal);
+int partyAcceptWire = partyPopupExecutor.IndexOf("_net?.GroupAccept();",
+    StringComparison.Ordinal);
+int partyAcceptGuard = partyPopupExecutor.IndexOf("_partyInviteAccepted = true;",
+    partyAcceptWire, StringComparison.Ordinal);
+Check(partyPopupExecutorStart >= 0 && partyDirectHideStart > partyPopupExecutorStart &&
+      partyEscapeDriverStart > partyDirectHideStart && partySlotCommit >= 0 &&
+      partyEffectLoop > partySlotCommit && partyAcceptWire > partyEffectLoop &&
+      partyAcceptGuard > partyAcceptWire &&
+      partyPopupExecutor.Contains("if (!_partyInviteAccepted) _net?.GroupDecline();",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource[partyDirectHideStart..partyEscapeDriverStart].Contains(
+          "StaticPopupCoordinatorLaw.HideByType(", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("StaticPopupCoordinatorLaw.Escape(_staticPopupSlots)",
+          StringComparison.Ordinal) &&
+      partySettingsSource.Contains("PartyFrameUiLaw.IsPartyInviteVisible(_staticPopupSlots)",
+          StringComparison.Ordinal) &&
+      partySettingsSource.Contains("TryDismissStaticPopupOnEscape()", StringComparison.Ordinal),
+    "PARTY_INVITE slot-commit/effect/guard/direct-hide/shared-Escape seam drift");
+int partyPopupEscapeLayer = partySettingsSource.IndexOf("case GameMenuEscapeLayer.Popup:",
+    StringComparison.Ordinal);
+int partyLogoutEscape = partySettingsSource.IndexOf("TryCancelLogoutOnEscape()",
+    partyPopupEscapeLayer, StringComparison.Ordinal);
+int partySharedPopupEscape = partySettingsSource.IndexOf("TryDismissStaticPopupOnEscape()",
+    partyLogoutEscape, StringComparison.Ordinal);
+int partyMailEscape = partySettingsSource.IndexOf("TryDismissMailConfirmationOnEscape()",
+    partySharedPopupEscape, StringComparison.Ordinal);
+int partyEnchantEscape = partySettingsSource.IndexOf("TryDismissEnchantConfirmationOnEscape()",
+    partyMailEscape, StringComparison.Ordinal);
+int partySkillEscape = partySettingsSource.IndexOf("TryDismissSkillUnlearnConfirmationOnEscape()",
+    partyEnchantEscape, StringComparison.Ordinal);
+Check(partyPopupEscapeLayer >= 0 && partyLogoutEscape > partyPopupEscapeLayer &&
+      partySharedPopupEscape > partyLogoutEscape && partyMailEscape > partySharedPopupEscape &&
+      partyEnchantEscape > partyMailEscape && partySkillEscape > partyEnchantEscape,
+    "shared StaticPopup insertion changed existing popup Escape precedence");
+int partyLifecycleStart = partyRuntimeSource.IndexOf(
+    "private void UpdatePartyInviteLifecycle()", StringComparison.Ordinal);
+int partyLifecycleEnd = partyRuntimeSource.IndexOf("private PartyMemberView BuildPartyMemberView",
+    partyLifecycleStart, StringComparison.Ordinal);
+int partyInviteDrawStart = partyRuntimeSource.IndexOf("private void DrawPartyInvite()",
+    StringComparison.Ordinal);
+int partyInviteDrawEnd = partyRuntimeSource.IndexOf("private bool DrawPartyInviteButton",
+    partyInviteDrawStart, StringComparison.Ordinal);
+Check(partyLifecycleStart >= 0 && partyLifecycleEnd > partyLifecycleStart &&
+      partyRuntimeSource[partyLifecycleStart..partyLifecycleEnd].Contains(
+          "StaticPopupCoordinatorLaw.Advance(", StringComparison.Ordinal) &&
+      partyRuntimeSource[partyLifecycleStart..partyLifecycleEnd].Contains(
+          "_staticPopupLastUpdateTicks = now;", StringComparison.Ordinal) &&
+      partyInviteDrawStart >= 0 && partyInviteDrawEnd > partyInviteDrawStart &&
+      partyRuntimeSource[partyInviteDrawStart..partyInviteDrawEnd].Contains(
+          "PartyFrameUiLaw.PartyInvitePopup(_staticPopupSlots)", StringComparison.Ordinal) &&
+      !partyRuntimeSource[partyInviteDrawStart..partyInviteDrawEnd].Contains(
+          "Stopwatch.GetTimestamp()", StringComparison.Ordinal) &&
+      !partyRuntimeSource[partyInviteDrawStart..partyInviteDrawEnd].Contains(
+          "StaticPopupCoordinatorLaw.Advance", StringComparison.Ordinal),
+    "party coordinator Advance must remain outside the occludable renderer");
+Check(partyLawSource.Contains("PartyInvitePopupDefinition = new(", StringComparison.Ordinal) &&
+      partyLawSource.Contains("PartyInvitePopup(\n        StaticPopupCoordinatorLaw.Slots slots)",
+          StringComparison.Ordinal) &&
+      partyLawSource.Contains("IsPartyInviteVisible(StaticPopupCoordinatorLaw.Slots slots)",
+          StringComparison.Ordinal) &&
+      !partyLawSource.Contains("PartyInviteDismissal", StringComparison.Ordinal) &&
+      !partyLawSource.Contains("PartyInviteEffect", StringComparison.Ordinal) &&
+      !partyLawSource.Contains("PartyInviteWireCount", StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("_partyInviter", StringComparison.Ordinal) &&
+      !partyRuntimeSource.Contains("_partyInviteDeadline", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("PARTY_INVITE is the only production entry integrated",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("slot-two presentation remains an explicit later integration",
+          StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains(
+          "callback-reentry branches remain an explicit later boundary",
+          StringComparison.Ordinal),
+    "PARTY_INVITE pure definition/query or legacy parallel-state removal drift");
+Check(partyLiveRunSource.Contains(
+          "party-stage rejected: Party proof requires observed wire/runtime state; no state mutated",
+          StringComparison.Ordinal) &&
+      partyLiveRunSource.Contains(
+          "party-invite-stage rejected: Party invite proof requires an inbound invitation; no state mutated",
+          StringComparison.Ordinal) &&
+      partyLiveRunSource.Contains(
+          "party-clear rejected: command cannot erase authenticated roster/invite state; no state mutated",
+          StringComparison.Ordinal) &&
+      !partyLiveRunSource.Contains("StagePartyFrameProof", StringComparison.Ordinal) &&
+      !partyLiveRunSource.Contains("StagePartyInviteProof", StringComparison.Ordinal),
+    "legacy Party proof commands must truthfully reject without mutation");
+Check(partyCaptureSource.Contains("party-frame-requires-observed-wire-roster",
+          StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("party-invite-requires-observed-inbound-invitation",
+          StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("observed-party-wire-runtime", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("compactSlotSources", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("captureStateMutation\"] = false", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("scenario[\"slot\"]", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("scenario[\"type\"]", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("scenario[\"timeLeftSeconds\"]", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("scenario[\"definitionFlags\"]", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("scenario[\"integratedTypes\"]", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("new[] { PartyInvitePopupType }", StringComparison.Ordinal) &&
+      partyCaptureSource.Contains("PartyFrameUiLaw.PartyInvitePopup(_staticPopupSlots)",
+          StringComparison.Ordinal) &&
+      !partyCaptureSource.Contains("_partyInviter", StringComparison.Ordinal) &&
+      !partyCaptureSource.Contains("_partyInviteDeadline", StringComparison.Ordinal),
+    "Party capture staged/empty rejection or coordinator telemetry drift");
+
+byte[] maskPixels = Enumerable.Repeat((byte)255, 8 * 8 * 4).ToArray();
+IconApertureMask.ApplyCircularBgra(maskPixels, 8, 8);
+int AlphaAt(int x, int y) => maskPixels[(y * 8 + x) * 4 + 3];
+Check(AlphaAt(0, 0) == 0 && AlphaAt(7, 0) == 0 && AlphaAt(0, 7) == 0 &&
+      AlphaAt(7, 7) == 0 && AlphaAt(3, 3) == 255,
+    "party TemporaryPortrait circular edge-alpha containment drift");
+
+if (args.Contains("--party-frame-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: PartyFrame PASS");
+    return;
+}
 
 Check((ushort)Op.CMSG_FRIEND_LIST == 102 && (ushort)Op.SMSG_FRIEND_LIST == 103 &&
       (ushort)Op.SMSG_FRIEND_STATUS == 104 && (ushort)Op.CMSG_ADD_FRIEND == 105 &&
@@ -766,13 +2586,27 @@ Check(FontObjectLaw.Get("GameFontNormal") ==
           new FontObjectSpec(FontFace.FrizQt, 12f, 0xffffffff, null, 0) &&
       FontObjectLaw.Get("NumberFontNormal") ==
           new FontObjectSpec(FontFace.ArialN, 14f, 0xffffffff, null, 1) &&
-      FontObjectLaw.Get("NumberFontNormalSmall").Outline == 2,
+      FontObjectLaw.Get("NumberFontNormalSmall").Outline == 2 &&
+      FontObjectLaw.Get("NumberFontNormalSmallGray") ==
+          new FontObjectSpec(FontFace.ArialN, 12f, 0xff999999, null, 2),
     "FontObjectLaw drift from the build-5875 Fonts.xml transcription");
 Check(FontObjectLaw.Get("GameTooltipHeaderText").Height == SpellTooltipLaw.HeaderFontHeight &&
       FontObjectLaw.Get("GameTooltipText").Height == SpellTooltipLaw.TextFontHeight &&
       FontObjectLaw.Get("GameFontNormal").Height == SpellbookLaw.NameFontHeight &&
       FontObjectLaw.Get("SubSpellFont").Height == SpellbookLaw.RankFontHeight,
     "FontObjectLaw heights disagree with the spellbook/tooltip law constants");
+var fontBakePairs = FontObjectLaw.DefaultBakePairs().ToHashSet();
+Check(fontBakePairs.Contains((FontFace.Morpheus, 18f, false)) &&
+      fontBakePairs.Contains((FontFace.Morpheus, 15f, false)) &&
+      fontBakePairs.Contains((FontFace.FrizQt, 13f, false)) &&
+      UiFont.Morpheus == FontFace.Morpheus,
+    "active Quest/Mail font objects lost their exact Morpheus/FRIZQT bake pairs");
+string fontBootstrapSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.cs"));
+Check(fontBootstrapSource.Contains("UiFont.Morpheus", StringComparison.Ordinal) &&
+      fontBootstrapSource.Contains(
+          "FontFace.Morpheus, morpheusFontPath", StringComparison.Ordinal),
+    "Morpheus is not extracted/configured before the gameplay font atlas is built");
 
 var rawTextBaseline = new Dictionary<string, int>
 {
@@ -797,7 +2631,7 @@ var rawTextBaseline = new Dictionary<string, int>
     ["Program.Trade.cs"] = 2,
     ["Program.Trainer.cs"] = 4,
     ["Program.VanillaUi.cs"] = 4,
-    ["Program.Vendor.cs"] = 4,
+    ["Program.Vendor.cs"] = 0,
 };
 string panelSourceDir = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
 var rawTextPattern = new System.Text.RegularExpressions.Regex(

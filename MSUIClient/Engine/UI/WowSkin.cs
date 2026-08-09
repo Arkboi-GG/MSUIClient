@@ -48,6 +48,24 @@ public sealed class WowSkin : IDisposable
         string Bg, string Edge, float EdgeSize, float TileSize,
         float InsetL, float InsetT, float InsetR, float InsetB);
 
+    /// <summary>The exact variables used by one rendered UIPanelButton state.</summary>
+    public readonly record struct PanelButtonDrawState(
+        Vector2 Min,
+        Vector2 Size,
+        bool Enabled,
+        bool Held,
+        bool Hovered,
+        string InteractionState,
+        string StateTextureRole,
+        string StateTexturePath,
+        Vector2 StateUvMin,
+        Vector2 StateUvMax,
+        Vector2 TextMin,
+        Vector2 TextSize,
+        uint TextColor,
+        bool HighlightVisible,
+        string HighlightTexturePath);
+
     /// <summary>GameMenuFrame / OptionsFrame. The heavy riveted metal frame.</summary>
     public static readonly Backdrop Dialog =
         new("dialog.bg", "dialog.border", 32f, 32f, 11f, 12f, 12f, 11f);
@@ -703,41 +721,74 @@ public sealed class WowSkin : IDisposable
     /// client too.
     /// </summary>
     public bool PanelButton(string label, Vector2 size, bool enabled = true)
+        => PanelButton(label, size, enabled, out _);
+
+    public bool PanelButton(string label, Vector2 size, bool enabled,
+        out PanelButtonDrawState drawState)
     {
         string caption = Caption(label);
+        Vector2 pos = ImGui.GetCursorScreenPos();
 
         var up = Get("button.up");
         if (up is null)
         {
+            bool clicked;
             if (!enabled)
             {
                 ImGui.PushStyleColor(ImGuiCol.Text, Disabled);
                 ImGui.Button(label, size);
                 ImGui.PopStyleColor();
-                return false;
+                clicked = false;
             }
-            return ImGui.Button(label, size);
+            else clicked = ImGui.Button(label, size);
+            bool heldFallback = enabled && ImGui.IsItemActive();
+            bool hoveredFallback = enabled && ImGui.IsItemHovered();
+            Vector2 textSizeFallback = ImGui.CalcTextSize(caption);
+            Vector2 textMinFallback = pos + (size - textSizeFallback) * .5f;
+            if (heldFallback) textMinFallback += new Vector2(1f, 1f) * Scale;
+            drawState = new(pos, size, enabled, heldFallback, hoveredFallback,
+                !enabled ? "disabled-fallback" : heldFallback ? "pushed-fallback" :
+                hoveredFallback ? "highlighted-fallback" : "normal-fallback",
+                "", "", ButtonUv1, ButtonUv2, textMinFallback, textSizeFallback,
+                U32(!enabled ? Disabled : hoveredFallback ? Highlight : Normal), false, "");
+            return clicked;
         }
 
         var dl = ImGui.GetWindowDrawList();
-        var pos = ImGui.GetCursorScreenPos();
 
         bool pressed = ImGui.InvisibleButton(label, size) && enabled;
         bool held = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
 
-        var art = !enabled ? (Get("button.off") ?? up)
-                : held ? (Get("button.down") ?? up)
-                : up;
+        string stateRole;
+        Piece art;
+        if (!enabled)
+        {
+            Piece? disabled = Get("button.off");
+            art = disabled ?? up;
+            stateRole = disabled is null ? "NormalTexture" : "DisabledTexture";
+        }
+        else if (held)
+        {
+            Piece? down = Get("button.down");
+            art = down ?? up;
+            stateRole = down is null ? "NormalTexture" : "PushedTexture";
+        }
+        else
+        {
+            art = up;
+            stateRole = "NormalTexture";
+        }
 
         dl.AddImage(Id(art), pos, pos + size, ButtonUv1, ButtonUv2, White);
 
-        // The highlight is an ADD-blended overlay in FrameXML. Draw lists have no
-        // per-quad blend mode, so it goes on at partial alpha - close enough, and
-        // the alternative is a second draw-list flush per button.
-        if (hovered && !held && Get("button.hi") is Piece hi)
+        // The frozen reference uses ADD. MSUI's already-working renderer deliberately keeps its
+        // normal-blend .55-alpha approximation; parity telemetry labels that preserved difference.
+        Piece? highlight = hovered && !held ? Get("button.hi") : null;
+        if (highlight is Piece hi)
             dl.AddImage(Id(hi), pos, pos + size, ButtonUv1, ButtonUv2,
-                ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.55f)));
+                ImGui.ColorConvertFloat4ToU32(
+                    new Vector4(1f, 1f, 1f, GameMenuUiLaw.HighlightAlpha)));
 
         var textSize = ImGui.CalcTextSize(caption);
         var textPos = pos + (size - textSize) * 0.5f;
@@ -746,6 +797,11 @@ public sealed class WowSkin : IDisposable
         var colour = !enabled ? Disabled : hovered ? Highlight : Normal;
         dl.AddText(textPos + new Vector2(1f, 1f), U32(Shadow), caption);
         dl.AddText(textPos, U32(colour), caption);
+
+        drawState = new(pos, size, enabled, held, hovered,
+            !enabled ? "disabled" : held ? "pushed" : hovered ? "highlighted" : "normal",
+            stateRole, art.Path, ButtonUv1, ButtonUv2, textPos, textSize, U32(colour),
+            highlight is not null, highlight?.Path ?? "");
 
         return pressed;
     }

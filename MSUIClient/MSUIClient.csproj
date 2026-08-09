@@ -28,6 +28,10 @@
 		<!-- Console stays attached in Debug so parser output is visible; hidden
 		     in Release so the shipped client doesn't open a terminal beside it. -->
 		<OutputType Condition="'$(Configuration)' == 'Release'">WinExe</OutputType>
+
+		<!-- The MSUI crest (shared with MangosSuperUI's favicon) as the exe icon;
+		     the window icon is set at runtime from the embedded PNG below. -->
+		<ApplicationIcon>Assets\msui-icon.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -46,6 +50,10 @@
 		     and the native dependency with them. -->
 		<PackageReference Include="SkiaSharp" Version="3.119.2" />
 		<PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Assets\msui-icon.png" />
 	</ItemGroup>
 
 	<ItemGroup>

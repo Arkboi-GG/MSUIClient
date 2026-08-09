@@ -148,6 +148,7 @@ public static class FontObjectLaw
         "GameFontNormal", "GameFontHighlight", "GameFontDisable",
         "GameFontNormalSmall", "GameFontHighlightSmall",
         "GameFontNormalLarge",
+        "QuestTitleFont", "QuestFont", "MailTextFontNormal",
         "SubSpellFont",
         "GameTooltipText", "GameTooltipTextSmall", "GameTooltipHeaderText",
         "NumberFontNormal", "NumberFontNormalSmall",

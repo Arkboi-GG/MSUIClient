@@ -378,11 +378,37 @@ public sealed class ClientWindow : IDisposable
         _window.Run();
     }
 
+    /// <summary>The MSUI crest as the live window/taskbar icon (the exe icon is
+    /// baked by the build via ApplicationIcon; GLFW windows need it set at
+    /// runtime too). Decoded from the embedded PNG into the RGBA Silk expects.</summary>
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            using var stream = typeof(ClientWindow).Assembly
+                .GetManifestResourceStream("MSUIClient.Assets.msui-icon.png");
+            if (stream is null) return;
+            using var codec = SkiaSharp.SKCodec.Create(stream);
+            if (codec is null) return;
+            var info = new SkiaSharp.SKImageInfo(codec.Info.Width, codec.Info.Height,
+                SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Unpremul);
+            using var bitmap = new SkiaSharp.SKBitmap(info);
+            if (codec.GetPixels(info, bitmap.GetPixels()) != SkiaSharp.SKCodecResult.Success) return;
+            var icon = new Silk.NET.Core.RawImage(info.Width, info.Height, bitmap.Bytes);
+            _window.SetWindowIcon(new[] { icon });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[startup] window icon failed (cosmetic): {ex.Message}");
+        }
+    }
+
     private void HandleLoad()
     {
         var startup = Stopwatch.StartNew();
         _gl = _window.CreateOpenGL();
         _input = _window.CreateInput();
+        ApplyWindowIcon();
 
         // WoW's own UI face, if Program.Main managed to pull it out of the
         // archives. ImGui builds its glyph atlas during construction, so this is

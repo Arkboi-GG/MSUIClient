@@ -12,15 +12,28 @@ public sealed partial class GameLoop
 
     // The 1.12 server is allowed to send the duration packet immediately before
     // the descriptor swaps the slot to its new spell, so timers are slot-keyed.
-    private readonly record struct AuraTimer(uint DurationMs, double Expires,
-        double Received, uint SpellId);
+    private readonly record struct AuraTimer(uint DurationMs, double Expires, double Received);
     private readonly Dictionary<byte, AuraTimer> _playerAuraDurations = [];
     private readonly List<(byte Slot, uint SpellId)> _playerAuraOrder = [];
+    private readonly Dictionary<(byte Slot, uint SpellId), double> _playerAuraAppeared = [];
+    private ulong _playerAuraOwnerGuid;
 
     private void ResetPlayerAuras()
     {
         _playerAuraDurations.Clear();
         _playerAuraOrder.Clear();
+        _playerAuraAppeared.Clear();
+        _playerAuraOwnerGuid = 0;
+    }
+
+    private void EnterPlayerAuraWorld(ulong playerGuid)
+    {
+        // SMSG_NEW_WORLD is also the cross-map teleport edge.  The reference keeps its
+        // insertion-order cache and slot-keyed duration stamps across that loading gap; clear
+        // only when this is a different character/session owner.
+        if (BuffUiLaw.PreserveAcrossWorldEnter(_playerAuraOwnerGuid, playerGuid)) return;
+        ResetPlayerAuras();
+        _playerAuraOwnerGuid = playerGuid;
     }
 
     private bool PlayerHasAura(uint spellId)
@@ -69,8 +82,6 @@ public sealed partial class GameLoop
             if (after.TryGetValue(slot, out AuraSnapshot current) &&
                 current.SpellId == oldAura.SpellId) continue;
             EmitAuraVerdict(oldAura, guid, "REMOVE", "SMSG_UPDATE_OBJECT");
-            if (playerUpdate && !after.ContainsKey(slot))
-                _playerAuraDurations.Remove(slot);
         }
         foreach ((byte slot, AuraSnapshot aura) in after)
         {
@@ -81,22 +92,24 @@ public sealed partial class GameLoop
         }
         if (playerUpdate)
         {
-            var exact = after.Values.Select(a => (a.Slot, a.SpellId)).ToHashSet();
-            _playerAuraOrder.RemoveAll(x => !exact.Contains(x));
-            foreach (AuraSnapshot aura in after.Values.OrderBy(a => a.Slot))
-                if (!_playerAuraOrder.Contains((aura.Slot, aura.SpellId)))
-                    _playerAuraOrder.Add((aura.Slot, aura.SpellId));
-
+            BuffUiLaw.AuraKey[] prior = _playerAuraOrder
+                .Select(x => new BuffUiLaw.AuraKey(x.Slot, x.SpellId)).ToArray();
+            BuffUiLaw.AuraKey[] next = BuffUiLaw.ReconcileOrder(prior,
+                after.Values.Select(a => new BuffUiLaw.AuraKey(a.Slot, a.SpellId)));
+            HashSet<BuffUiLaw.AuraKey> priorSet = prior.ToHashSet();
+            HashSet<BuffUiLaw.AuraKey> nextSet = next.ToHashSet();
+            foreach (BuffUiLaw.AuraKey removed in prior.Where(x => !nextSet.Contains(x)))
+                _playerAuraAppeared.Remove((removed.Slot, removed.SpellId));
             double now = NowSeconds();
-            foreach (AuraSnapshot aura in after.Values)
-            {
-                if (!_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) ||
-                    timer.SpellId == aura.SpellId) continue;
-                if (now - timer.Received <= 1.0)
-                    _playerAuraDurations[aura.Slot] = timer with { SpellId = aura.SpellId };
-                else
-                    _playerAuraDurations.Remove(aura.Slot);
-            }
+            foreach (BuffUiLaw.AuraKey added in next.Where(x => !priorSet.Contains(x)))
+                _playerAuraAppeared[(added.Slot, added.SpellId)] = now;
+            _playerAuraOrder.Clear();
+            _playerAuraOrder.AddRange(next.Select(x => (x.Slot, x.SpellId)));
+
+            // Duration stamps are deliberately not removed with an empty/recycled slot.  A
+            // fresh apply's duration packet arrives before its descriptor, so occupancy-based
+            // pruning deletes the packet that matters.  TryPlayerAuraTimer performs the
+            // appeared-at freshness join at the read site instead.
         }
     }
 
@@ -108,14 +121,12 @@ public sealed partial class GameLoop
         if (_net is null) return;
         // The server is allowed to send this before the descriptor update that names the slot,
         // including before the initial player object has finished parsing. Preserve the slot-keyed
-        // timer with spell 0; ObserveAuraObjectUpdate joins it to the newly visible aura.
+        // timer unnamed; TryPlayerAuraTimer joins it to the newly visible aura by arrival time.
         WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity? foundPlayer)
             ? foundPlayer : null;
         Dictionary<byte, AuraSnapshot> auras = SnapshotAuras(player);
         double now = NowSeconds();
-        uint spell = auras.TryGetValue(slot, out AuraSnapshot current) ? current.SpellId : 0;
-        _playerAuraDurations[slot] = new AuraTimer(duration, now + duration / 1000.0,
-            now, spell);
+        _playerAuraDurations[slot] = new AuraTimer(duration, now + duration / 1000.0, now);
         if (auras.TryGetValue(slot, out AuraSnapshot aura))
             EmitAuraVerdict(aura, _net.PlayerGuid, "DURATION", "SMSG_UPDATE_AURA_DURATION");
     }
@@ -149,7 +160,8 @@ public sealed partial class GameLoop
         {
             double now = NowSeconds();
             _playerAuraDurations[slot] = new AuraTimer(durationMs,
-                now + durationMs / 1000.0, now, spellId);
+                now + durationMs / 1000.0, now);
+            _playerAuraAppeared.TryAdd((slot, spellId), now);
         }
         if (action.Equals("cancel", StringComparison.OrdinalIgnoreCase))
         {
@@ -167,16 +179,24 @@ public sealed partial class GameLoop
         if (@event.Length == 0) return false;
         EmitAuraVerdict(aura, guid, @event, action.Equals("duration", StringComparison.OrdinalIgnoreCase)
             ? "SMSG_UPDATE_AURA_DURATION" : "SMSG_UPDATE_OBJECT");
-        if (@event == "REMOVE") _playerAuraDurations.Remove(slot);
+        if (@event == "REMOVE")
+            _playerAuraAppeared.Remove((slot, spellId));
         return true;
+    }
+
+    private bool TryPlayerAuraTimer(AuraSnapshot aura, out AuraTimer timer)
+    {
+        timer = default;
+        return _playerAuraDurations.TryGetValue(aura.Slot, out timer) &&
+               _playerAuraAppeared.TryGetValue((aura.Slot, aura.SpellId), out double appeared) &&
+               BuffUiLaw.DurationBelongsToAura(timer.Received, appeared);
     }
 
     private void EmitAuraVerdict(AuraSnapshot aura, ulong guid, string @event, string source)
     {
         double now = NowSeconds();
         uint duration = 0, remaining = 0;
-        if (_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) &&
-            timer.SpellId == aura.SpellId)
+        if (TryPlayerAuraTimer(aura, out AuraTimer timer))
         {
             duration = timer.DurationMs;
             remaining = (uint)Math.Max(0, (timer.Expires - now) * 1000.0);

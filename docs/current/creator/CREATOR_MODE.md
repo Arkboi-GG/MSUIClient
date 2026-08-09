@@ -53,6 +53,38 @@ Export (`creator-exports/`):
 - **tuning JSON** — whole-model dials + per-emitter absolute values keyed by
   model path, for MangosSuperUI's tuning pipeline.
 
+### The spell session (the design→data handoff)
+
+The Export section's SESSION area is the real product path: give the tuned
+spell a temp name and **Add to session** — it lands in `spell-session.json` in
+the directory MSUIClient was launched from (`Program.Creator.Session.cs`).
+The file accumulates spells (same temp name = replace) and each entry carries
+the COMPLETE design: full tuning metadata (dials, per-BLP hues/tints/swaps,
+per-emitter edits, disabled emitters, added emitters) plus the patched M2
+bytes and recolored BLPs, base64-embedded. Whole-model hue on mesh/ribbon art
+(keyframed color tracks the byte patcher can't reach) is baked as hue-mapped
+BLP copies riding along like tints.
+
+Upload the file to MangosSuperUI's **Spell Completer** page (sidebar → Spells)
+for the data phase: real name, class/skill tab, damage, mana, levels, ranks.
+Completing a spell creates the SQL rows (40000+ clone, skill_line_ability,
+spell_chain, optional rank chain), persists the design bytes under the spell's
+texture-cache dir (`completer_*` files, consumed by every unified patch
+rebuild via `SpellPatchRequest.PerPathPatchedM2s` / `ExtraMpqFiles`), and
+saves the `custom_spell_meta` config. Rebuild produces `patch-3.MPQ` with the
+visuals exactly as designed. Design phase lives here; data phase lives there.
+
+### Workshop niceties
+
+- Every texture slot has an **identity color** (golden-angle palette) shown on
+  its row and on every emitter drawing with it, so the texture↔emitter wiring
+  reads at a glance per phase.
+- **+Em** on a texture row appends a cloned emitter drawing with that image;
+  **Duplicate** on an authored emitter copies it. Clones are real emitter
+  records appended to the M2 (`M2ParticlePatcher.CloneEmitter` — relocated
+  array at EOF, private copies of the nine editable track arrays so edits
+  never write through to the source), tunable and removable like any emitter.
+
 ## Ported files (`MSUIClient/Creator/`)
 
 From `MangosSuperUI/Services`, namespaces rewritten to `MSUIClient.Creator[.Mpq]`,
@@ -98,8 +130,13 @@ so no dial combination clips a label.
 - BLP/PNG texture import: the pipeline pieces are ported (`BlpWriterService`,
   `M2TextureParser.PatchTextureFilenames`); the workshop's data model reserves
   per-emitter texture slots but no import UI exists yet.
-- Full custom-spell cloning (new spell + DBC chain + patch, SuperUI-style
-  `RebuildUnifiedPatch`) — foundations ported, orchestration not yet.
+- Full custom-spell cloning now lives on the SuperUI side (Spell Completer
+  consumes the session file); in-client DBC cloning
+  (`DbcWriterService`/`SpellVisualCloner` in `Creator/`) remains unwired.
+- Geometry (per-particle) models and tinted BLPs ship at their ORIGINAL paths
+  in the completed patch — a shared image/model changes everywhere it appears
+  (same semantics as the patch-4 export). Per-spell isolation for those two
+  would need geometry-path rewriting inside host M2 bytes.
 - Sounds and animation kits: cloned, never edited (same as SuperUI today).
 - Export writes `creator-exports/patch-4.MPQ` rather than into `GameData/Data`
   (the client may have a mounted `patch-3.MPQ` open; also avoids colliding with

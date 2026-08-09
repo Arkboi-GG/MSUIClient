@@ -187,36 +187,55 @@ public sealed partial class GameLoop
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 logicalDisplay = display / s;
-        Vector2 frameMin = new(logicalDisplay.X - 255f, 13f);
+        Vector2 frameMin = BuffUiLaw.FrameMin(logicalDisplay);
         Vector2 framePhysical = frameMin * s;
         // Own the buff region with a real transparent ImGui window. Raw screen-rectangle tests
         // are not reliable when another HUD window owns hover; an InvisibleButton per icon gives
         // tooltip and right-click cancellation the same input semantics as every other UI button.
-        Vector2 windowMin = new((logicalDisplay.X - 485f) * s, 8f * s);
-        Vector2 windowSize = new Vector2(290f, 135f) * s;
+        Vector2 windowMin = BuffUiLaw.AuraWindowMin(frameMin) * s;
+        Vector2 windowSize = new Vector2(BuffUiLaw.AuraWindowWidth,
+            BuffUiLaw.AuraWindowHeight) * s;
         ImGui.SetNextWindowPos(windowMin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(windowSize, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0f);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
                                  ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
                                  ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoBringToFrontOnFocus;
-        if (!ImGui.Begin("##player-aura-bar", flags))
+        // This window is an input owner, not layout chrome. Default ImGui padding/border clipped
+        // the left-most icon/border and narrowed its hit rectangle. Zero them so the measured
+        // window rectangle is the actual clip rectangle.
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        bool began = ImGui.Begin("##player-aura-bar", flags);
+        ImGui.PopStyleVar(2);
+        if (!began)
         {
             ImGui.End();
             return;
         }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        if (_uiParityArmed && _uiParityPanel == "buff-frame")
+        bool parityCapture = _uiParityArmed && _uiParityPanel == "buff-frame";
+        Vector4 windowClip = new(windowMin.X, windowMin.Y,
+            windowMin.X + windowSize.X, windowMin.Y + windowSize.Y);
+        if (parityCapture)
         {
             BeginUiParityFrame(framePhysical, s);
-            CollectUiParity("BuffFrame", "Frame", framePhysical, new Vector2(50) * s,
-                parent: "", point: "TOPRIGHT", relativeTo: "UIParent", relativePoint: "TOPRIGHT",
-                offsetX: "-205", offsetY: "-13", strata: "LOW");
+            CollectUiParityDraw("BuffFrame", "Frame", framePhysical,
+                new Vector2(BuffUiLaw.FrameWidth, BuffUiLaw.FrameHeight) * s, "",
+                new("", 0, "FRAME", "TOPRIGHT", "UIParent", "TOPRIGHT",
+                    -BuffUiLaw.FrameRightInset, -BuffUiLaw.FrameTopInset,
+                    ContentRect: new Vector4(framePhysical.X, framePhysical.Y,
+                        framePhysical.X + BuffUiLaw.FrameWidth * s,
+                        framePhysical.Y + BuffUiLaw.FrameHeight * s),
+                    ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                    Visible: true, Strata: "LOW"));
         }
         int shown = 0, buffShown = 0, debuffShown = 0;
+        HashSet<int> drawnButtons = [];
         AuraSnapshot? hoveredAura = null;
         SpellInfo? hoveredSpell = null;
         AuraTimer? hoveredTimer = null;
+        int hoveredButtonIndex = -1;
         double now = NowSeconds();
         foreach (AuraSnapshot aura in OrderedAuras(player))
         {
@@ -225,98 +244,233 @@ public sealed partial class GameLoop
             if (icon == 0) continue;
             bool harmful = aura.Slot >= 32;
             int cohort = harmful ? debuffShown++ : buffShown++;
-            if (harmful ? cohort >= 8 : cohort >= 16) continue;
-            int col = cohort % 8, row = harmful ? 2 : cohort / 8;
-            Vector2 max = new((logicalDisplay.X - 205f - col * 35f) * s,
-                (13f + row * 35f + 30f) * s);
-            Vector2 min = max - new Vector2(30) * s;
-            if (_uiParityArmed && _uiParityPanel == "buff-frame" && shown == 0)
-            {
-                CollectUiParity("BuffButton0", "Button", min, new Vector2(30) * s,
-                    parent: "BuffFrame", point: "TOPRIGHT", offsetX: "0", offsetY: "0", strata: "LOW");
-                CollectUiParity("BuffButton0Icon", "Texture", min, new Vector2(30) * s,
-                    parent: "BuffButton0", layer: "BACKGROUND", strata: "LOW");
-                CollectUiParity("BuffButton0Duration", "FontString", max, Vector2.Zero,
-                    parent: "BuffFrame", point: "TOP", font: "BuffButtonDurationTemplate",
-                    fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "10", color: "#FFD100FF",
-                    layer: "ARTWORK", strata: "LOW");
-            }
+            if (harmful ? cohort >= BuffUiLaw.HarmfulLimit : cohort >= BuffUiLaw.HelpfulLimit)
+                continue;
+            int buttonIndex = harmful ? BuffUiLaw.HelpfulLimit + cohort : cohort;
+            drawnButtons.Add(buttonIndex);
+            Vector2 min = BuffUiLaw.ButtonMin(frameMin, harmful, cohort) * s;
+            Vector2 max = min + new Vector2(BuffUiLaw.ButtonSize) * s;
             AuraTimer? activeTimer = null;
             double remaining = double.PositiveInfinity;
-            if (_playerAuraDurations.TryGetValue(aura.Slot, out AuraTimer timer) &&
-                timer.SpellId == aura.SpellId)
+            if (TryPlayerAuraTimer(aura, out AuraTimer timer))
             {
                 activeTimer = timer;
                 remaining = Math.Max(0, timer.Expires - now);
             }
             byte alpha = (byte)Math.Clamp(MathF.Round(
                 BuffUiLaw.WarningAlpha(now, remaining) * 255f), 0, 255);
+            ImGui.SetCursorScreenPos(min);
+            bool cancelReleased = ImGui.InvisibleButton(
+                $"##player-aura-{aura.Slot}-{aura.SpellId}", max - min,
+                ImGuiButtonFlags.MouseButtonRight);
+            bool itemHovered = ImGui.IsItemHovered();
+
+            string button = $"BuffButton{buttonIndex}";
+            if (parityCapture)
+            {
+                string point, relativeTo, relativePoint;
+                float offsetX, offsetY;
+                if (buttonIndex == 0)
+                    (point, relativeTo, relativePoint, offsetX, offsetY) =
+                        ("TOPRIGHT", "BuffFrame", "TOPRIGHT", 0, 0);
+                else if (buttonIndex == BuffUiLaw.Columns)
+                    (point, relativeTo, relativePoint, offsetX, offsetY) =
+                        ("TOP", "BuffButton0", "BOTTOM", 0, -BuffUiLaw.DurationGutter);
+                else if (buttonIndex == BuffUiLaw.HelpfulLimit)
+                    (point, relativeTo, relativePoint, offsetX, offsetY) =
+                        ("TOPRIGHT", $"BuffButton{BuffUiLaw.Columns}", "BOTTOMRIGHT", 0,
+                            -BuffUiLaw.DurationGutter);
+                else
+                    (point, relativeTo, relativePoint, offsetX, offsetY) =
+                        ("RIGHT", $"BuffButton{buttonIndex - 1}", "LEFT", -5, 0);
+                CollectUiParityDraw(button, "Button", min, max - min, "BuffFrame",
+                    new("", 0, "FRAME", point, relativeTo, relativePoint, offsetX, offsetY,
+                        ContentRect: new Vector4(min.X, min.Y, max.X, max.Y),
+                        ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                        Visible: true, Enabled: true,
+                        InteractionState: itemHovered ? "hovered" : "normal",
+                        HitMin: min, HitMax: max, Strata: "LOW"));
+            }
+
+            string iconPath = string.IsNullOrWhiteSpace(spell?.IconPath)
+                ? @"Interface\Icons\INV_Misc_QuestionMark" : spell.Value.IconPath;
+            uint iconColor = (uint)(alpha << 24) | 0x00ffffffu;
             dl.AddImage((nint)icon, min, max, Vector2.Zero, Vector2.One,
-                (uint)(alpha << 24) | 0x00ffffffu);
+                iconColor);
+            if (parityCapture)
+                CollectUiParityDraw(button + "Icon", "Texture", min, max - min, button,
+                    new(iconPath, iconColor, "BACKGROUND", "TOPLEFT", button, "TOPLEFT", 0, 0,
+                        TexCoords: "0|0|1|1",
+                        ContentRect: new Vector4(min.X, min.Y, max.X, max.Y),
+                        ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                        BlendMode: "BLEND", Visible: true,
+                        InteractionState: remaining < BuffUiLaw.WarningSeconds
+                            ? "warning-pulse" : activeTimer is null ? "permanent" : "timed",
+                        Strata: "LOW"));
             if (activeTimer is not null)
-                GameText.Draw(dl, "GameFontNormalSmall", AuraTimeText(remaining),
-                    new Vector2(min.X, max.Y + 1f * s), s);
+            {
+                string durationText = AuraTimeText(remaining);
+                Vector2 durationMin = new(min.X, max.Y + 1f * s);
+                GameText.Draw(dl, "GameFontNormalSmall", durationText, durationMin, s);
+                if (parityCapture)
+                {
+                    Vector2 durationSize = new(
+                        GameText.MeasureWidth("GameFontNormalSmall", durationText, s),
+                        GameText.EmPixels("GameFontNormalSmall", s));
+                    CollectUiParityDraw(button + "Duration", "FontString", durationMin,
+                        durationSize, "BuffFrame",
+                        new("", FontObjectLaw.Get("GameFontNormalSmall").Color, "ARTWORK",
+                            "TOPLEFT", button, "BOTTOMLEFT", 0, -1,
+                            FontPath: FontObjectLaw.Get("GameFontNormalSmall").Face,
+                            FontSize: FontObjectLaw.Get("GameFontNormalSmall").Height,
+                            ContentRect: new Vector4(durationMin.X, durationMin.Y,
+                                durationMin.X + durationSize.X, durationMin.Y + durationSize.Y),
+                            ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                            Visible: true, Strata: "LOW"));
+                }
+            }
+            else if (parityCapture)
+                ClassifyUiParity(button + "Duration", "FontString", "BuffFrame", "NOT-DRAWN");
             if (harmful)
             {
                 uint border = _gameplayArt.Handle(@"Interface\Buttons\UI-Debuff-Overlays");
                 if (border != 0)
-                    dl.AddImage((nint)border, min - new Vector2(1.5f, 1f) * s,
-                        max + new Vector2(1.5f, 1f) * s,
-                        new Vector2(.296875f, 0), new Vector2(.5703125f, .515625f),
-                        ImGui.ColorConvertFloat4ToU32(BuffUiLaw.DebuffColor(spell?.DispelType ?? 0)));
+                {
+                    Vector2 borderMin = min - new Vector2(BuffUiLaw.DebuffBorderExpandX,
+                        BuffUiLaw.DebuffBorderExpandY) * s;
+                    Vector2 borderMax = borderMin + new Vector2(BuffUiLaw.DebuffBorderWidth,
+                        BuffUiLaw.DebuffBorderHeight) * s;
+                    uint borderColor = ImGui.ColorConvertFloat4ToU32(
+                        BuffUiLaw.DebuffColor(spell?.DispelType ?? 0));
+                    dl.AddImage((nint)border, borderMin, borderMax,
+                        new Vector2(BuffUiLaw.DebuffTexCoords.X, BuffUiLaw.DebuffTexCoords.Y),
+                        new Vector2(BuffUiLaw.DebuffTexCoords.Z, BuffUiLaw.DebuffTexCoords.W),
+                        borderColor);
+                    if (parityCapture)
+                        CollectUiParityDraw(button + "Border", "Texture", borderMin,
+                            borderMax - borderMin, button,
+                            new(@"Interface\Buttons\UI-Debuff-Overlays", borderColor, "OVERLAY",
+                                "CENTER", button, "CENTER", 0, 0,
+                                TexCoords: "0.296875|0|0.5703125|0.515625",
+                                ContentRect: new Vector4(borderMin.X, borderMin.Y,
+                                    borderMax.X, borderMax.Y),
+                                ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                                BlendMode: "BLEND", Visible: true,
+                                InteractionState: "dispel-border", Strata: "LOW"));
+                }
             }
             if (aura.Stacks > 1)
-                dl.AddText(max - new Vector2(9, 13) * s, 0xffffffff, aura.Stacks.ToString());
+            {
+                string countText = aura.Stacks.ToString();
+                Vector2 countMin = max - new Vector2(9, 13) * s;
+                dl.AddText(countMin, 0xffffffff, countText);
+                if (parityCapture)
+                {
+                    Vector2 countSize = ImGui.CalcTextSize(countText);
+                    CollectUiParityDraw(button + "Count", "FontString", countMin, countSize,
+                        button, new("", 0xffffffff, "BACKGROUND", "BOTTOMRIGHT", button,
+                            "BOTTOMRIGHT", -2, 2, FontSize: ImGui.GetFontSize() / s,
+                            ContentRect: new Vector4(countMin.X, countMin.Y,
+                                countMin.X + countSize.X, countMin.Y + countSize.Y),
+                            ClipRect: windowClip, ClipMask: "window:player-aura-bar",
+                            Visible: true, Strata: "LOW"));
+                }
+            }
+            else if (parityCapture)
+                ClassifyUiParity(button + "Count", "FontString", button, "NOT-DRAWN");
 
-            ImGui.SetCursorScreenPos(min);
-            ImGui.InvisibleButton($"##player-aura-{aura.Slot}-{aura.SpellId}", max - min);
-            if (ImGui.IsItemHovered())
+            if (itemHovered)
             {
                 hoveredAura = aura;
                 hoveredSpell = spell;
                 hoveredTimer = activeTimer;
+                hoveredButtonIndex = buttonIndex;
             }
-            if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+            if (cancelReleased)
                 CancelPlayerAura(aura, "UI_RIGHT_CLICK");
             if (++shown >= 24) break;
         }
-        if (_uiParityArmed && _uiParityPanel == "buff-frame" && shown > 0) MarkUiParityFrameComplete();
+        if (parityCapture)
+        {
+            for (int i = 0; i < BuffUiLaw.HelpfulLimit + BuffUiLaw.HarmfulLimit; i++)
+                if (!drawnButtons.Contains(i))
+                    ClassifyUiParity($"BuffButton{i}", "Button", "BuffFrame", "NOT-DRAWN");
+            if (shown > 0) MarkUiParityFrameComplete();
+        }
         ImGui.End();
 
-        if (hoveredAura is { } hovered)
-            DrawPlayerAuraTooltip(hovered, hoveredSpell, hoveredTimer, now);
+        if (hoveredAura is { } hovered && hoveredButtonIndex >= 0)
+        {
+            PreparedPlayerAuraTooltip prepared = PreparePlayerAuraTooltip(
+                hovered, hoveredSpell, hoveredTimer, now);
+            GameTooltipOwnerKey owner = PlayerAuraGameTooltipOwner(hoveredButtonIndex);
+            OfferPreservedSharedGameTooltipRenderer(owner,
+                () => DrawPlayerAuraTooltip(prepared));
+        }
     }
 
-    private void DrawPlayerAuraTooltip(AuraSnapshot aura, SpellInfo? spell, AuraTimer? timer,
+    private readonly record struct PreparedPlayerAuraTooltip(
+        string Title,
+        string? StackLine,
+        string? Description,
+        string? RemainingLine,
+        string? HelpfulLine);
+
+    private static GameTooltipOwnerKey PlayerAuraGameTooltipOwner(int buttonIndex)
+    {
+        if ((uint)buttonIndex >= BuffUiLaw.HelpfulLimit + BuffUiLaw.HarmfulLimit)
+            throw new ArgumentOutOfRangeException(nameof(buttonIndex));
+        return new("player-aura-button", (ulong)buttonIndex);
+    }
+
+    private PreparedPlayerAuraTooltip PreparePlayerAuraTooltip(
+        AuraSnapshot aura,
+        SpellInfo? spell,
+        AuraTimer? timer,
         double now)
     {
         string name = spell?.Name ?? $"Spell {aura.SpellId}";
         string rank = spell?.Rank ?? "";
-        ImGui.BeginTooltip();
-        ImGui.TextUnformatted(string.IsNullOrWhiteSpace(rank) ? name : $"{name} ({rank})");
-        if (aura.Stacks > 1) ImGui.TextDisabled($"{aura.Stacks} stacks");
-
+        string title = string.IsNullOrWhiteSpace(rank) ? name : $"{name} ({rank})";
+        string? stackLine = aura.Stacks > 1 ? $"{aura.Stacks} stacks" : null;
+        string? description = null;
         if (spell is { } info && _spellCatalog is not null)
         {
-            string description = SpellTooltipLaw.Substitute(info.Description, info,
+            string substituted = SpellTooltipLaw.Substitute(info.Description, info,
                 _spellCatalog, aura.Level);
-            if (!string.IsNullOrWhiteSpace(description))
-            {
-                ImGui.Separator();
-                ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + SpellTooltipLaw.WrapWidth);
-                ImGui.TextUnformatted(description);
-                ImGui.PopTextWrapPos();
-            }
+            if (!string.IsNullOrWhiteSpace(substituted)) description = substituted;
         }
 
-        if (timer is { } active && active.SpellId == aura.SpellId)
+        string? remainingLine = null;
+        if (timer is { } active)
         {
             double remaining = Math.Max(0, active.Expires - now);
-            ImGui.Separator();
-            ImGui.TextUnformatted($"{AuraTimeText(remaining)} remaining");
+            remainingLine = $"{AuraTimeText(remaining)} remaining";
         }
-        if (aura.Helpful)
-            ImGui.TextDisabled(aura.Cancelable ? "Right-click to cancel" : "Cannot be cancelled");
+        string? helpfulLine = aura.Helpful
+            ? aura.Cancelable ? "Right-click to cancel" : "Cannot be cancelled"
+            : null;
+        return new(title, stackLine, description, remainingLine, helpfulLine);
+    }
+
+    private static void DrawPlayerAuraTooltip(in PreparedPlayerAuraTooltip prepared)
+    {
+        ImGui.BeginTooltip();
+        ImGui.TextUnformatted(prepared.Title);
+        if (prepared.StackLine is not null) ImGui.TextDisabled(prepared.StackLine);
+        if (prepared.Description is not null)
+        {
+            ImGui.Separator();
+            ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + SpellTooltipLaw.WrapWidth);
+            ImGui.TextUnformatted(prepared.Description);
+            ImGui.PopTextWrapPos();
+        }
+        if (prepared.RemainingLine is not null)
+        {
+            ImGui.Separator();
+            ImGui.TextUnformatted(prepared.RemainingLine);
+        }
+        if (prepared.HelpfulLine is not null) ImGui.TextDisabled(prepared.HelpfulLine);
         ImGui.EndTooltip();
     }
 

@@ -97,6 +97,9 @@ internal static class ComparisonEngine
                 }
                 if (!fact.EvidenceSha256.Equals(factRef.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
                     result.Errors.Add($"claim {claim.Id} has stale target evidence {factRef.Id}");
+                if (string.IsNullOrWhiteSpace(factRef.FileSha256) ||
+                    !fact.FileSha256.Equals(factRef.FileSha256, StringComparison.OrdinalIgnoreCase))
+                    result.Errors.Add($"claim {claim.Id} has stale target file evidence {factRef.Id}");
             }
             ValidateVerdict(claim, result);
         }
@@ -124,6 +127,9 @@ internal static class ComparisonEngine
         }
         if (!fact.EvidenceSha256.Equals(factRef.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
             result.Errors.Add($"{ownerKind} {ownerId} has stale reference evidence {factRef.Id}");
+        if (string.IsNullOrWhiteSpace(factRef.FileSha256) ||
+            !fact.FileSha256.Equals(factRef.FileSha256, StringComparison.OrdinalIgnoreCase))
+            result.Errors.Add($"{ownerKind} {ownerId} has stale reference file evidence {factRef.Id}");
         if (!covered.Add(factRef.Id))
             result.Warnings.Add($"reference fact {factRef.Id} is covered more than once");
     }
@@ -139,7 +145,7 @@ internal static class ComparisonEngine
             ClaimVerdict.ImplementedUnverified or ClaimVerdict.VerifiedEquivalent or ClaimVerdict.ApprovedDeviation)
         {
             if (claim.TraceIds.Count == 0) result.Errors.Add($"claim {claim.Id} requires a reviewed behavior trace");
-            if (claim.Verdict is not (ClaimVerdict.Gap or ClaimVerdict.ApprovedDeviation) && claim.TargetFacts.Count == 0)
+            if (claim.Verdict != ClaimVerdict.Gap && claim.TargetFacts.Count == 0)
                 result.Errors.Add($"claim {claim.Id} requires target evidence");
             if (string.IsNullOrWhiteSpace(claim.Behavior)) result.Errors.Add($"claim {claim.Id} has no positive behavior");
             if (string.IsNullOrWhiteSpace(claim.NegativeBehavior)) result.Errors.Add($"claim {claim.Id} has no negative behavior");
@@ -148,6 +154,8 @@ internal static class ComparisonEngine
             result.Errors.Add($"claim {claim.Id} has no verification evidence");
         if (claim.Verdict == ClaimVerdict.ApprovedDeviation && string.IsNullOrWhiteSpace(claim.DecisionId))
             result.Errors.Add($"claim {claim.Id} has no approved decision id");
+        if (claim.Verdict == ClaimVerdict.ApprovedDeviation && claim.VerificationIds.Count == 0)
+            result.Errors.Add($"claim {claim.Id} has no deviation verification evidence");
     }
 
     private static void CheckIndex(SnapshotManifest manifest, FactIndex index)

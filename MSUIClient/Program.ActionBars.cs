@@ -18,11 +18,15 @@ public sealed partial class GameLoop
     private GameplayArt? _gameplayArt;
     private readonly bool[] _actionKeyWasDown = new bool[12];
     private readonly bool[] _multiActionKeyWasDown = new bool[24];
+    private readonly bool[] _multiActionKeyArmed = new bool[24];
     private long _actionUses;
     private int _pressedActionSlot = -1;
-    private int _draggingActionSlot = -1;
+    private ImGuiMouseButton _actionPressMouseButton = ImGuiMouseButton.Left;
+    private ActionSlot? _actionCursor;
+    private bool _actionCursorChangedThisFrame;
+    private bool _mainMenuMicroPressedThroughModal;
     private Vector2 _actionPressPosition;
-    private uint _hoveredActionSpellId;
+    private PreparedSharedSpellTooltip? _hoveredActionSpellTooltip;
     private int _hoveredActionSlot = -1;
     private uint _pendingCastSpell;
     private uint _autoRepeatSpell;
@@ -70,8 +74,11 @@ public sealed partial class GameLoop
             {
                 int stateIndex = barIndex * MultiActionBarUiLaw.ButtonsPerBar + i;
                 bool down = BindingDown(MultiActionBinding(bar, i));
-                if (MultiActionBarUiLaw.UseOnKeyRelease(_multiActionKeyWasDown[stateIndex], down,
-                        typing, _net is { IsInWorld: true }))
+                MultiActionKeyTransition transition = MultiActionBarUiLaw.AdvanceKey(
+                    _multiActionKeyArmed[stateIndex], _multiActionKeyWasDown[stateIndex], down,
+                    typing, _net is { IsInWorld: true });
+                _multiActionKeyArmed[stateIndex] = transition.Armed;
+                if (transition.Fire)
                     UseAction(MultiActionBarUiLaw.WireSlot(bar, i));
                 _multiActionKeyWasDown[stateIndex] = down;
             }
@@ -102,7 +109,17 @@ public sealed partial class GameLoop
     private void TryCast(uint spellId)
     {
         if (_net is null) return;
-        if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell) || spell.Passive)
+        if (_spellCatalog is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
+            return;
+        }
+        if (TryOpenProfession(spellId))
+        {
+            EmitCastVerdict(spellId, CastTargetReason.ProfessionWindow, 0, sent: false);
+            return;
+        }
+        if (spell.Passive)
         {
             EmitCastVerdict(spellId, CastTargetReason.UnavailableOrPassive, 0, sent: false);
             return;
@@ -111,11 +128,6 @@ public sealed partial class GameLoop
         {
             EmitCastVerdict(spellId, CastTargetReason.UnknownSpell, 0, sent: false);
             RefuseCast(spellId, "LOCAL_UNKNOWN_SPELL", "You have not learned that spell.");
-            return;
-        }
-        if (TryOpenProfession(spellId))
-        {
-            EmitCastVerdict(spellId, CastTargetReason.ProfessionWindow, 0, sent: false);
             return;
         }
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
@@ -300,6 +312,19 @@ public sealed partial class GameLoop
         ClearEnchantConfirmation();
     }
 
+    private bool TryCancelSpellTargetingOnEscape()
+    {
+        if (_groundCastSpell != 0)
+        {
+            _groundCastSpell = 0;
+            _groundCursorPoint = null;
+            return true;
+        }
+        if (_itemCastSpell == 0) return false;
+        CancelItemTargeting();
+        return true;
+    }
+
     private void RefuseCast(uint spellId, string reason, string text) =>
         ShowSpellError(spellId, reason, text, "LOCAL_GATE");
 
@@ -363,8 +388,9 @@ public sealed partial class GameLoop
     private void DrawActionBars()
     {
         if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
-        _hoveredActionSpellId = 0;
+        _hoveredActionSpellTooltip = null;
         _hoveredActionSlot = -1;
+        _actionCursorChangedThisFrame = false;
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
@@ -449,13 +475,19 @@ public sealed partial class GameLoop
             ImGui.GetForegroundDrawList().AddText(
                 ImGui.GetIO().MousePos + new Vector2(18f, 14f) * scale, 0xFF00E060,
                 "Select item");
-        if (_pressedActionSlot >= 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
+        if (_pressedActionSlot >= 0 && ImGui.IsMouseDown(_actionPressMouseButton) &&
             Vector2.Distance(ImGui.GetIO().MousePos, _actionPressPosition) > 6f * scale)
-            _draggingActionSlot = _pressedActionSlot;
+        {
+            // ActionButton_OnDragStart always calls PickupAction, for either mouse button and
+            // independently of Shift. The source is cleared immediately; a displaced target
+            // remains on the cursor after PlaceAction instead of being swapped back to source.
+            PickupActionToCursor(_pressedActionSlot);
+            _pressedActionSlot = -1;
+        }
 
         // Reference: an empty slot swaps to the UI-Quickslot grid ring only while a cursor
         // payload is held (BENILLA_ACTIONBAR_GRID_SHOWN); otherwise it keeps UI-Quickslot2.
-        bool gridShown = HasCarriedItem || _draggingSpellId != 0 || _draggingActionSlot >= 0;
+        bool gridShown = HasCarriedItem || HasActionBarCursor;
         // Attack/auto-repeat flash is a plain 0.4 s show/hide toggle (ATTACK_BUTTON_FLASH_TIME).
         bool flashPhase = now % 0.8 < 0.4;
         WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
@@ -558,12 +590,15 @@ public sealed partial class GameLoop
                 DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
                     verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
 
-                if (activated)
+                if (activated && !HasCarriedItem && _actionCursor is null &&
+                    _draggingSpellId == 0 && _draggingMacroId == 0 &&
+                    !_draggingPetAction.HasValue)
                 {
                     _pressedActionSlot = wireSlot;
                     _actionPressPosition = ImGui.GetIO().MousePos;
+                    _actionPressMouseButton = ImGuiMouseButton.Left;
                 }
-                if (clicked && _draggingActionSlot < 0 && !PlaceCarriedItemOnAction(wireSlot))
+                if (clicked && !ConsumeActionButtonClick(wireSlot, ShiftHeld()))
                     UseAction(wireSlot);
 
                 // PUSHED replaces the normal state while the mouse or the bound key is down.
@@ -581,14 +616,25 @@ public sealed partial class GameLoop
                         // ActionButton_OnEnter uses GameTooltip_SetDefaultAnchor + SetAction.
                         // The shared spell renderer supplies SetAction's full spell data and
                         // same-line rank instead of the old generic "Action N" ImGui popup.
-                        _hoveredActionSpellId = action.ActionId;
+                        GameTooltipOwnerKey tooltipOwner =
+                            new("action-main", (ulong)(i + 1));
+                        _hoveredActionSpellTooltip = PrepareSharedSpellTooltip(
+                            tooltipOwner, action.ActionId, scale,
+                            SpellTooltipPlacement.DefaultBottomRight);
                     }
                     else
                     {
-                        ImGui.BeginTooltip();
-                        ImGui.TextUnformatted(title);
-                        ImGui.TextDisabled($"Action {wireSlot + 1}");
-                        ImGui.EndTooltip();
+                        GameTooltipOwnerKey tooltipOwner =
+                            new("action-main", (ulong)(i + 1));
+                        string tooltipTitle = title;
+                        string tooltipAction = $"Action {wireSlot + 1}";
+                        OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.TextUnformatted(tooltipTitle);
+                            ImGui.TextDisabled(tooltipAction);
+                            ImGui.EndTooltip();
+                        });
                     }
                 }
                 if (verdict.Checked)
@@ -622,7 +668,7 @@ public sealed partial class GameLoop
                     wireSlot, null, null, player, pushed, hovered, gridShown);
                 CollectGameplayAction(verdict);
                 EmitActionButtonVerdict(verdict);
-                if (clicked) PlaceCarriedItemOnAction(wireSlot);
+                if (clicked) ConsumeActionButtonClick(wireSlot, ShiftHeld());
                 DrawSlotRing(dl, buttonMin, buttonMax,
                     verdict.CarriedGrid
                         ? @"Interface\Buttons\UI-Quickslot"
@@ -643,21 +689,7 @@ public sealed partial class GameLoop
         if (_uiParityArmed && _uiParityPanel is "action-bar" or "action-button")
             MarkUiParityFrameComplete();
 
-        if (_draggingActionSlot >= 0 && _actions[_draggingActionSlot] is { } dragged)
-        {
-            string iconPath = dragged.Kind == ActionSlot.Spell && _spellCatalog?.TryGet(dragged.ActionId, out SpellInfo info) == true
-                ? ResolveSpellActionIcon(info, player)
-                : dragged.Kind == ActionSlot.Item && _items?.TryGet(dragged.ActionId, out ItemTemplate? item) == true && item is not null
-                    ? item.IconPath : dragged.Kind == ActionSlot.Macro ? MacroIcon(dragged.ActionId)
-                    : @"Interface\Icons\INV_Misc_QuestionMark.blp";
-            uint icon = _gameplayArt.Handle(iconPath);
-            if (icon != 0)
-            {
-                Vector2 min = ImGui.GetIO().MousePos + new Vector2(10f) * scale;
-                ImGui.GetForegroundDrawList().AddImage((nint)icon, min, min + new Vector2(32f) * scale,
-                    Vector2.Zero, Vector2.One, 0xccffffff);
-            }
-        }
+        DrawActionCursorPayload(player, scale);
     }
 
     private void DrawMultiActionBars()
@@ -667,8 +699,7 @@ public sealed partial class GameLoop
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
         bool proof = _uiParityArmed && _uiParityPanel == "multi-action-bar";
-        bool gridShown = HasCarriedItem || _draggingSpellId != 0 || _draggingMacroId != 0 ||
-            _draggingActionSlot >= 0;
+        bool gridShown = HasCarriedItem || HasActionBarCursor;
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         bool flashPhase = now % 0.8 < 0.4;
         WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
@@ -695,9 +726,9 @@ public sealed partial class GameLoop
                 gridShown, now, flashPhase, player, bar.BindingBar);
         }
 
-        if (_hoveredActionSpellId != 0)
-            DrawSpellTooltip(_hoveredActionSpellId, scale,
-                SpellTooltipPlacement.DefaultBottomRight);
+        if (_hoveredActionSpellTooltip is { } prepared)
+            OfferPreservedSharedGameTooltipRenderer(prepared.Owner,
+                () => DrawSpellTooltip(prepared.Snapshot));
         FinishActionDrag();
     }
 
@@ -707,22 +738,65 @@ public sealed partial class GameLoop
     {
         if (_gameplayArt is null) return;
         Vector2 logicalSize = vertical ? new Vector2(38, 500) : new Vector2(500, 38);
+        bool[] clickedSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
+        bool[] hoveredSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
+        bool[] activatedSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
+        bool[] pushedSlots = new bool[MultiActionBarUiLaw.ButtonsPerBar];
+        ImGuiWindowFlags inputFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoBringToFrontOnFocus;
+
+        // The authored 500x38 parent is not mouse-enabled. Give only live buttons a 36x36 input
+        // host so hidden empty slots and the six-pixel gaps genuinely pass through to the world.
+        for (int i = 0; i < MultiActionBarUiLaw.ButtonsPerBar; i++)
+        {
+            int slot = firstSlot + i;
+            if (!MultiActionBarUiLaw.InteractiveSlot(_actions[slot] is not null, gridShown))
+                continue;
+            Vector2 min = origin + (vertical
+                ? new Vector2(2, i * MultiActionBarUiLaw.ButtonStep)
+                : new Vector2(i * MultiActionBarUiLaw.ButtonStep, 2)) * scale;
+            Vector2 size = new Vector2(MultiActionBarUiLaw.ButtonSize) * scale;
+            ImGui.SetNextWindowPos(min, ImGuiCond.Always);
+            ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+            ImGui.SetNextWindowBgAlpha(0);
+            if (ImGui.Begin($"##{name}-hit-{i}", inputFlags))
+            {
+                ImGui.SetCursorScreenPos(min);
+                clickedSlots[i] = ImGui.InvisibleButton($"##hit-{i}", size,
+                    ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+                hoveredSlots[i] = ImGui.IsItemHovered(
+                    ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+                activatedSlots[i] = ImGui.IsItemActivated();
+                pushedSlots[i] = ImGui.IsItemActive();
+            }
+            ImGui.End();
+        }
+
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
         ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoBringToFrontOnFocus;
+            ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoMouseInputs;
         if (!ImGui.Begin($"##{name}", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        dl.PushClipRectFullScreen();
 
-        if (proof && name == "MultiBarBottomLeft")
+        bool proofBar = proof && bindingBar is not null;
+        if (proofBar && name == "MultiBarBottomLeft")
         {
             BeginUiParityFrame(origin, scale);
-            CollectUiParity(name, "Frame", origin, logicalSize * scale, parent: "",
-                point: "BOTTOMLEFT", relativeTo: "ActionButton1", relativePoint: "TOPLEFT",
-                offsetX: "0", offsetY: "17", strata: "HIGH");
         }
+        if (proofBar)
+            CollectUiParityDraw(name, "Frame", origin, logicalSize * scale, "",
+                name == "MultiBarBottomLeft"
+                    ? new("", 0, "IMGUI_HOST", "BOTTOMLEFT", "ActionButton1", "TOPLEFT", 0,
+                        MultiActionBarUiLaw.BottomLeftRise, Visible: true, Enabled: false,
+                        InteractionState: "parent-not-mouse-enabled", Strata: "HIGH")
+                    : new("", 0, "IMGUI_HOST", "LEFT", "MultiBarBottomLeft", "RIGHT",
+                        MultiActionBarUiLaw.BottomBarGap, 0, Visible: true, Enabled: false,
+                        InteractionState: "parent-not-mouse-enabled", Strata: "HIGH"));
 
         for (int i = 0; i < MultiActionBarUiLaw.ButtonsPerBar; i++)
         {
@@ -732,33 +806,29 @@ public sealed partial class GameLoop
             Vector2 buttonMax = buttonMin + new Vector2(MultiActionBarUiLaw.ButtonSize) * scale;
             int slotNumber = firstSlot + i;
             string button = name + "Button" + (i + 1);
-            if (proof && name == "MultiBarBottomLeft" && i == 0)
-            {
-                CollectUiParity(button, "CheckButton", buttonMin, new Vector2(36) * scale,
-                    parent: name, point: "BOTTOMLEFT", offsetX: "0", offsetY: "0",
-                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "HIGH");
-                CollectUiParity(button + "Icon", "Texture", buttonMin, new Vector2(36) * scale,
-                    parent: button, layer: "BACKGROUND", strata: "HIGH");
-                CollectUiParity(button + "HotKey", "FontString", buttonMin + new Vector2(-2, 2) * scale,
-                    new Vector2(36, 10) * scale, parent: button, point: "TOPLEFT", offsetX: "-2",
-                    offsetY: "-2", font: "NumberFontNormalSmallGray", fontPath: @"Fonts\ARIALN.TTF",
-                    fontSize: "12", color: "#999999FF", layer: "ARTWORK", strata: "HIGH");
-                CollectUiParity(button + "NormalTexture", "NormalTexture",
-                    buttonMin + new Vector2(-15, -14) * scale, new Vector2(66) * scale,
-                    parent: button, point: "CENTER", offsetX: "0", offsetY: "-1",
-                    texture: @"Interface\Buttons\UI-Quickslot2", strata: "HIGH");
-            }
+            ActionSlot? slotAction = _actions[slotNumber];
 
-            ImGui.SetCursorScreenPos(buttonMin);
-            bool clicked = ImGui.InvisibleButton($"##{name}-{i}", buttonMax - buttonMin,
-                ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
-            bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
-            bool activated = ImGui.IsItemActivated();
-            bool pushed = ImGui.IsItemActive() ||
-                bindingBar is { } bindBar && BindingDown(MultiActionBinding(bindBar, i));
+            bool interactive = MultiActionBarUiLaw.InteractiveSlot(slotAction is not null, gridShown);
+            bool clicked = clickedSlots[i];
+            bool hovered = hoveredSlots[i];
+            bool activated = activatedSlots[i];
+            bool pushed = pushedSlots[i] || bindingBar is { } bindBar &&
+                _multiActionKeyArmed[(bindBar == BottomMultiActionBar.Left ? 0 : 1) *
+                    MultiActionBarUiLaw.ButtonsPerBar + i];
             if (hovered) _hoveredActionSlot = slotNumber;
+            if (proofBar)
+                CollectUiParityDraw(button, "CheckButton", buttonMin,
+                    new Vector2(MultiActionBarUiLaw.ButtonSize) * scale, name,
+                    new("", 0, "IMGUI_HIT_TARGET", i == 0 ? "BOTTOMLEFT" : "LEFT",
+                        i == 0 ? name : name + "Button" + i,
+                        i == 0 ? "BOTTOMLEFT" : "RIGHT", i == 0 ? 0 : 6, 0,
+                        Visible: interactive, Enabled: interactive,
+                        InteractionState: !interactive ? "hidden-empty" : pushed ? "pushed" :
+                            hovered ? "hovered" : "normal",
+                        HitMin: interactive ? buttonMin : null,
+                        HitMax: interactive ? buttonMax : null, Strata: "HIGH"));
 
-            if (_actions[slotNumber] is { } action)
+            if (slotAction is { } action)
             {
                 string iconPath = @"Interface\Icons\INV_Misc_QuestionMark.blp";
                 SpellInfo? spellInfo = null;
@@ -799,116 +869,409 @@ public sealed partial class GameLoop
                 uint icon = _gameplayArt.Handle(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax,
                     Vector2.Zero, Vector2.One, iconTint);
-                if (verdict.Flashing && flashPhase)
+                if (proofBar)
+                    CollectUiParityDraw(button + "Icon", "Texture", buttonMin,
+                        buttonMax - buttonMin, button,
+                        new(iconPath, iconTint, "BACKGROUND", "CENTER", button, "CENTER", 0, 0,
+                            Visible: icon != 0, BlendMode: "BLEND", Strata: "HIGH"));
+                bool flashVisible = verdict.Flashing && flashPhase;
+                if (flashVisible)
                 {
                     uint flash = _gameplayArt.Handle(@"Interface\Buttons\UI-QuickslotRed");
                     if (flash != 0) dl.AddImage((nint)flash, buttonMin, buttonMax);
+                    if (proofBar)
+                        CollectUiParityDraw(button + "Flash", "Texture", buttonMin,
+                            buttonMax - buttonMin, button,
+                            new(@"Interface\Buttons\UI-QuickslotRed", 0xffffffff, "ARTWORK",
+                                "CENTER", button, "CENTER", 0, 0, Visible: flash != 0,
+                                BlendMode: "BLEND", Strata: "HIGH"));
                 }
-                uint cooldownCategory = !verdict.IsItem && _spellCatalog?.TryGet(verdict.ActionId,
-                    out SpellInfo cooldownSpell) == true ? cooldownSpell.Category : 0;
-                if (!verdict.IsItem && _actions.TryCooldownDisplay(verdict.ActionId, now,
+                else if (proofBar)
+                    ClassifyUiParity(button + "Flash", "Texture", button, "NOT-DRAWN",
+                        "action-not-flashing-or-off-phase");
+                uint cooldownAction = verdict.IsItem ? itemInfo?.UseSpellId ?? 0 : verdict.ActionId;
+                uint cooldownCategory = verdict.IsItem ? itemInfo?.UseSpellCategory ?? 0 :
+                    _spellCatalog?.TryGet(verdict.ActionId, out SpellInfo cooldownSpell) == true
+                        ? cooldownSpell.Category : 0;
+                bool cooldownVisible = false;
+                if (cooldownAction != 0 && _actions.TryCooldownDisplay(cooldownAction, now,
                         cooldownCategory, out CooldownDisplay cooldown))
                 {
                     if (cooldown.SweepFraction is { } sweep)
+                    {
+                        cooldownVisible = true;
                         DrawCooldownSwipe(dl, buttonMin, buttonMax, sweep);
+                        if (proofBar)
+                            CollectUiParityDraw(button + "Cooldown", "Cooldown", buttonMin,
+                                buttonMax - buttonMin, button,
+                                new("", 0x99000000, "ARTWORK", "CENTER", button, "CENTER", 0, -1,
+                                    ClipMask: $"RADIAL_SWEEP:{sweep:R}", BlendMode: "BLEND",
+                                    InteractionState: "cooldown-sweep", Strata: "HIGH"));
+                    }
                     else if (cooldown.FlashProgress is { } flash)
+                    {
+                        cooldownVisible = true;
                         DrawCooldownFlash(dl, buttonMin, buttonMax, flash);
+                        if (proofBar)
+                            CollectUiParityDraw(button + "Cooldown", "Cooldown", buttonMin,
+                                buttonMax - buttonMin, button,
+                                new("", 0xffffffff, "ARTWORK", "CENTER", button, "CENTER", 0, -1,
+                                    ClipMask: $"COOLDOWN_FINISH_FLASH:{flash:R}", BlendMode: "ADD",
+                                    InteractionState: "cooldown-finish-flash", Strata: "HIGH"));
+                    }
                 }
-                DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot2", scale,
-                    verdict.Usability == ButtonUsability.NotEnoughPower ? 0xffff8080u : 0xffffffffu);
-                if (activated)
+                if (proofBar && !cooldownVisible)
+                    ClassifyUiParity(button + "Cooldown", "Cooldown", button, "NOT-DRAWN",
+                        "no-active-item-or-spell-cooldown");
+                uint ringTint = verdict.Usability == ButtonUsability.NotEnoughPower
+                    ? 0xffff8080u : 0xffffffffu;
+                bool normalTextureVisible = DrawSlotRing(dl, buttonMin, buttonMax,
+                    @"Interface\Buttons\UI-Quickslot2", scale, ringTint);
+                if (proofBar)
+                {
+                    Vector2 ringCenter = (buttonMin + buttonMax) * .5f + new Vector2(0, scale);
+                    Vector2 ringHalf = new(33f * scale);
+                        CollectUiParityDraw(button + "NormalTexture", "NormalTexture",
+                            ringCenter - ringHalf, ringHalf * 2, button,
+                            new(@"Interface\Buttons\UI-Quickslot2", ringTint, "ARTWORK", "CENTER",
+                            button, "CENTER", 0, -1, BlendMode: "BLEND",
+                            Visible: normalTextureVisible, Strata: "HIGH"));
+                }
+                if (activated && !HasCarriedItem && _actionCursor is null &&
+                    _draggingSpellId == 0 && _draggingMacroId == 0 &&
+                    !_draggingPetAction.HasValue)
                 {
                     _pressedActionSlot = slotNumber;
                     _actionPressPosition = ImGui.GetIO().MousePos;
+                    _actionPressMouseButton = ImGui.IsMouseDown(ImGuiMouseButton.Right)
+                        ? ImGuiMouseButton.Right : ImGuiMouseButton.Left;
                 }
-                if (clicked && _draggingActionSlot < 0 && !PlaceCarriedItemOnAction(slotNumber))
+                if (clicked && !ConsumeActionButtonClick(slotNumber, ShiftHeld()))
                     UseAction(slotNumber);
                 if (verdict.Pushed)
                 {
                     uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");
                     if (depress != 0) dl.AddImage((nint)depress, buttonMin, buttonMax);
+                    if (proofBar)
+                        CollectUiParityDraw(button + "PushedTexture", "PushedTexture", buttonMin,
+                            buttonMax - buttonMin, button,
+                            new(@"Interface\Buttons\UI-Quickslot-Depress", 0xffffffff, "ARTWORK",
+                                "CENTER", button, "CENTER", 0, 0, Visible: depress != 0,
+                                BlendMode: "BLEND", Strata: "HIGH"));
                 }
+                else if (proofBar)
+                    ClassifyUiParity(button + "PushedTexture", "PushedTexture", button,
+                        "NOT-DRAWN", "button-not-pushed");
                 if (verdict.Hover)
                 {
                     uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
                     if (highlight != 0) dl.AddImage((nint)highlight, buttonMin, buttonMax);
-                    if (spellInfo is not null) _hoveredActionSpellId = action.ActionId;
-                    else if (itemInfo is not null) DrawItemTooltip(itemInfo, 1);
+                    if (proofBar)
+                        CollectUiParityDraw(button + "HighlightTexture", "HighlightTexture",
+                            buttonMin, buttonMax - buttonMin, button,
+                            new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff, "HIGHLIGHT",
+                                "CENTER", button, "CENTER", 0, 0, Visible: highlight != 0,
+                                BlendMode: "ADD", Strata: "HIGH"));
+                    if (spellInfo is not null)
+                    {
+                        GameTooltipOwnerKey tooltipOwner = ActionBarGameTooltipOwner(name, i);
+                        _hoveredActionSpellTooltip = PrepareSharedSpellTooltip(
+                            tooltipOwner, action.ActionId, scale,
+                            SpellTooltipPlacement.DefaultBottomRight);
+                    }
+                    else if (itemInfo is not null)
+                    {
+                        GameTooltipOwnerKey tooltipOwner = ActionBarGameTooltipOwner(name, i);
+                        ItemTooltipBodySnapshot tooltipBody =
+                            PrepareItemTooltipBodySnapshot(itemInfo, 1);
+                        OfferPreparedItemTooltip(tooltipOwner, tooltipBody);
+                    }
                     else
                     {
-                        ImGui.BeginTooltip();
-                        ImGui.TextUnformatted(fallbackTitle);
-                        ImGui.TextDisabled($"Action {slotNumber + 1}");
-                        ImGui.EndTooltip();
+                        GameTooltipOwnerKey tooltipOwner = ActionBarGameTooltipOwner(name, i);
+                        string tooltipTitle = fallbackTitle;
+                        string tooltipAction = $"Action {slotNumber + 1}";
+                        OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.TextUnformatted(tooltipTitle);
+                            ImGui.TextDisabled(tooltipAction);
+                            ImGui.EndTooltip();
+                        });
                     }
                 }
+                else if (proofBar)
+                    ClassifyUiParity(button + "HighlightTexture", "HighlightTexture", button,
+                        "NOT-DRAWN", "button-not-hovered");
                 if (verdict.Checked)
                 {
                     uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
                     if (check != 0) dl.AddImage((nint)check, buttonMin, buttonMax);
+                    if (proofBar)
+                        CollectUiParityDraw(button + "CheckedTexture", "CheckedTexture", buttonMin,
+                            buttonMax - buttonMin, button,
+                            new(@"Interface\Buttons\CheckButtonHilight", 0xffffffff, "ARTWORK",
+                                "CENTER", button, "CENTER", 0, 0, Visible: check != 0,
+                                BlendMode: "ADD", Strata: "HIGH"));
                 }
+                else if (proofBar)
+                    ClassifyUiParity(button + "CheckedTexture", "CheckedTexture", button,
+                        "NOT-DRAWN", "action-not-checked");
                 if (verdict.EquippedBorder)
                 {
                     uint border = _gameplayArt.AdditiveHandle(@"Interface\Buttons\UI-ActionButton-Border");
+                    Vector2 center = (buttonMin + buttonMax) * .5f;
+                    Vector2 half = new(31f * scale);
                     if (border != 0)
                     {
-                        Vector2 center = (buttonMin + buttonMax) * .5f;
-                        Vector2 half = new(31f * scale);
                         dl.AddImage((nint)border, center - half, center + half, Vector2.Zero,
                             Vector2.One, ImGui.ColorConvertFloat4ToU32(new Vector4(0, 1, 0, .35f)));
                     }
+                    if (proofBar)
+                        CollectUiParityDraw(button + "Border", "Texture", center - half,
+                            half * 2, button,
+                            new(@"Interface\Buttons\UI-ActionButton-Border",
+                                ImGui.ColorConvertFloat4ToU32(new Vector4(0, 1, 0, .35f)),
+                                "OVERLAY", "CENTER", button, "CENTER", 0, 0,
+                                Visible: border != 0, BlendMode: "ADD", Strata: "HIGH"));
                 }
+                else if (proofBar)
+                    ClassifyUiParity(button + "Border", "Texture", button, "NOT-DRAWN",
+                        "item-action-not-equipped");
                 GameBinding? binding = bindingBar is { } hotkeyBar
                     ? MultiActionBinding(hotkeyBar, i) : null;
                 string hotkey = binding is { } command ? FriendlyKey(BoundKey(command)) ?? "" : "";
                 if (hotkey.Length == 0 && verdict.Range == ButtonRange.OutOfRange) hotkey = "●";
-                DrawActionText(dl, buttonMin, hotkey, scale,
-                    verdict.Range == ButtonRange.OutOfRange ? 0xff1a1affu : 0xff999999u);
-                if (verdict.IsItem && verdict.StackCount > 0)
+                uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
+                    ? 0xff1a1affu : 0xff999999u;
+                DrawActionText(dl, buttonMin, hotkey, scale, hotkeyColor);
+                if (proofBar && hotkey.Length > 0)
+                {
+                    Vector2 extent = new(
+                        GameText.MeasureWidth("NumberFontNormalSmallGray", hotkey, scale),
+                        GameText.EmPixels("NumberFontNormalSmallGray", scale));
+                    float textTop = GameText.BoxCenteredTop("NumberFontNormalSmallGray",
+                        buttonMin.Y + 2f * scale, 10f, scale);
+                    Vector2 textMin = new(buttonMin.X + 34f * scale - extent.X, textTop);
+                    CollectUiParityDraw(button + "HotKey", "FontString", textMin, extent, button,
+                        new("", hotkeyColor, "ARTWORK", "TOPRIGHT", button, "TOPRIGHT", -2, -2,
+                            @"Fonts\ARIALN.TTF", 12, Visible: true,
+                            InteractionState: "number-font-normal-small-gray-thick-outline",
+                            Strata: "HIGH"));
+                }
+                else if (proofBar)
+                    ClassifyUiParity(button + "HotKey", "FontString", button, "NOT-DRAWN",
+                        "unbound-and-not-out-of-range");
+                bool showCount = itemInfo is not null && MultiActionBarUiLaw.ShowItemCount(
+                    itemInfo.InventoryType, itemInfo.HasNegativeOnUseCharges);
+                if (showCount)
+                {
                     DrawActionCount(dl, buttonMax, verdict.StackCount, scale);
+                    if (proofBar)
+                    {
+                        string countText = verdict.StackCount.ToString();
+                        Vector2 extent = new(
+                            GameText.MeasureWidth("NumberFontNormal", countText, scale),
+                            GameText.EmPixels("NumberFontNormal", scale));
+                        Vector2 textMin = new(buttonMax.X - 2f * scale - extent.X,
+                            buttonMax.Y - 2f * scale - extent.Y);
+                        CollectUiParityDraw(button + "Count", "FontString", textMin, extent, button,
+                            new("", 0xffffffff, "OVERLAY", "BOTTOMRIGHT", button, "BOTTOMRIGHT",
+                                -2, 2, @"Fonts\ARIALN.TTF", 14,
+                                InteractionState: "number-font-normal-outline", Strata: "HIGH"));
+                    }
+                }
+                else if (proofBar)
+                    ClassifyUiParity(button + "Count", "FontString", button, "NOT-DRAWN",
+                        "item-action-is-not-consumable");
             }
             else
             {
-                if (clicked) PlaceCarriedItemOnAction(slotNumber);
+                if (clicked) ConsumeActionButtonClick(slotNumber, ShiftHeld());
                 if (MultiActionBarUiLaw.ShowEmptyWell(gridShown))
-                    DrawSlotRing(dl, buttonMin, buttonMax, @"Interface\Buttons\UI-Quickslot", scale);
+                {
+                    bool normalTextureVisible = DrawSlotRing(dl, buttonMin, buttonMax,
+                        @"Interface\Buttons\UI-Quickslot", scale);
+                    if (proofBar)
+                    {
+                        Vector2 ringCenter = (buttonMin + buttonMax) * .5f + new Vector2(0, scale);
+                        Vector2 ringHalf = new(33f * scale);
+                        CollectUiParityDraw(button + "NormalTexture", "NormalTexture",
+                            ringCenter - ringHalf, ringHalf * 2, button,
+                            new(@"Interface\Buttons\UI-Quickslot", 0xffffffff, "ARTWORK", "CENTER",
+                                button, "CENTER", 0, -1, BlendMode: "BLEND",
+                                Visible: normalTextureVisible, Strata: "HIGH"));
+                    }
+                }
+                else if (proofBar)
+                    ClassifyUiParity(button + "NormalTexture", "NormalTexture", button,
+                        "NOT-DRAWN", "empty-button-hidden-with-grid-off");
+                if (proofBar)
+                {
+                    ClassifyUiParity(button + "Icon", "Texture", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "Flash", "Texture", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "HotKey", "FontString", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "Count", "FontString", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "Border", "Texture", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "Cooldown", "Cooldown", button, "NOT-DRAWN",
+                        "empty-action");
+                    ClassifyUiParity(button + "PushedTexture", "PushedTexture", button,
+                        "NOT-DRAWN", "empty-action");
+                    ClassifyUiParity(button + "HighlightTexture", "HighlightTexture", button,
+                        "NOT-DRAWN", "empty-action");
+                    ClassifyUiParity(button + "CheckedTexture", "CheckedTexture", button,
+                        "NOT-DRAWN", "empty-action");
+                }
             }
         }
-        if (proof && name == "MultiBarBottomLeft") MarkUiParityFrameComplete();
+        dl.PopClipRect();
+        if (proofBar && name == "MultiBarBottomRight") MarkUiParityFrameComplete();
         ImGui.End();
+    }
+
+    private bool ShiftHeld() => InputKeyDown(Key.ShiftLeft) || InputKeyDown(Key.ShiftRight);
+
+    private bool HasActionBarCursor => _actionCursor is not null || _draggingSpellId != 0 ||
+        _draggingMacroId != 0 || _draggingPetAction.HasValue;
+
+    private void ClearActionBarCursorOnEscape()
+    {
+        _actionCursor = null;
+        _draggingSpellId = 0;
+        _draggingMacroId = 0;
+        _pressedSpellId = 0;
+        _pressedMacroId = 0;
+        _pressedActionSlot = -1;
+        ClearPetActionCursor();
+    }
+
+    /// <summary>
+    /// A cursor payload consumes the button release even when its acceptance filter refuses it;
+    /// otherwise the action underneath would incorrectly fire. Spell/macro/action cursors are
+    /// committed by FinishActionDrag after every bar has had a chance to claim the hover.
+    /// </summary>
+    private bool ConsumeActionButtonClick(int slot, bool shift)
+    {
+        if (HasCarriedItem) return PlaceCarriedItemOnAction(slot);
+        if (_actionCursor is not null || _draggingSpellId != 0 || _draggingMacroId != 0 ||
+            _draggingPetAction.HasValue)
+            return true;
+        return shift && PickupActionToCursor(slot);
+    }
+
+    private bool MouseOverActionBarDropTarget()
+    {
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        Vector2 mouse = ImGui.GetIO().MousePos;
+        float scale = GameplayUiScale();
+        Vector2 barMin = GameplayBarMin(display, scale);
+        bool InRow(Vector2 origin) => MultiActionBarUiLaw.InHorizontalButton(
+            mouse.X / scale, mouse.Y / scale, origin.X / scale, origin.Y / scale);
+        Vector2 mainOrigin = new(barMin.X + 8 * scale, display.Y - 42 * scale);
+        Vector2 leftOrigin = new(barMin.X + 8 * scale, display.Y - 95 * scale);
+        Vector2 rightOrigin = new(barMin.X + 518 * scale, display.Y - 95 * scale);
+        return InRow(mainOrigin) || InRow(leftOrigin) || InRow(rightOrigin);
+    }
+
+    private bool PickupActionToCursor(int slot)
+    {
+        if (_net is null || _actionCursor is not null || _actions[slot] is not { } action)
+            return false;
+        MultiActionPlacement transition = MultiActionBarUiLaw.PickupAction(action.Packed);
+        _actions.Set(slot, null);
+        _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        _actionCursor = action;
+        _actionCursorChangedThisFrame = true;
+        return true;
+    }
+
+    /// <summary>
+    /// PlaceAction is client-authoritative. The held payload replaces the destination with one
+    /// five-byte wire intent; an occupied destination hops to the cursor instead of disappearing.
+    /// </summary>
+    private void PlaceActionPayload(int slot, ActionSlot held)
+    {
+        if (_net is null) return;
+        ActionSlot? displaced = _actions[slot];
+        MultiActionPlacement transition = MultiActionBarUiLaw.PlaceAction(
+            held.Packed, displaced?.Packed ?? 0);
+        _actions.Set(slot, held);
+        _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        _actionCursor = displaced;
+        _actionCursorChangedThisFrame = true;
+    }
+
+    private void DrawActionCursorPayload(WorldEntity? player, float scale)
+    {
+        if (_gameplayArt is null) return;
+        ActionSlot? cursor = _actionCursor;
+        if (cursor is null && _draggingSpellId != 0)
+            cursor = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
+        if (cursor is null && _draggingMacroId != 0)
+            cursor = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
+        if (cursor is not { } action) return;
+
+        string iconPath = action.Kind == ActionSlot.Spell &&
+            _spellCatalog?.TryGet(action.ActionId, out SpellInfo info) == true
+                ? ResolveSpellActionIcon(info, player)
+                : action.Kind == ActionSlot.Item &&
+                  _items?.TryGet(action.ActionId, out ItemTemplate? item) == true && item is not null
+                    ? item.IconPath : action.Kind == ActionSlot.Macro ? MacroIcon(action.ActionId)
+                    : @"Interface\Icons\INV_Misc_QuestionMark.blp";
+        uint icon = _gameplayArt.Handle(iconPath);
+        if (icon == 0) return;
+        Vector2 min = ImGui.GetIO().MousePos + new Vector2(10f) * scale;
+        ImGui.GetForegroundDrawList().AddImage((nint)icon, min,
+            min + new Vector2(32f) * scale, Vector2.Zero, Vector2.One, 0xccffffff);
     }
 
     private void FinishActionDrag()
     {
-        if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left)) return;
+        if (!ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
+            !ImGui.IsMouseReleased(ImGuiMouseButton.Right)) return;
         if (_draggingMacroId != 0)
         {
             if (_hoveredActionSlot >= 0)
             {
                 var macroAction = new ActionSlot(ActionSlot.Macro, _draggingMacroId);
-                _actions.Set(_hoveredActionSlot, macroAction);
-                _net?.SetActionButton((byte)_hoveredActionSlot, macroAction.Packed);
+                PlaceActionPayload(_hoveredActionSlot, macroAction);
+                _draggingMacroId = 0;
             }
-            _draggingMacroId = 0;
             _pressedMacroId = 0;
         }
         else if (_draggingSpellId != 0)
         {
             if (_hoveredActionSlot >= 0)
             {
-                var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
-                _actions.Set(_hoveredActionSlot, spellAction);
-                _net?.SetActionButton((byte)_hoveredActionSlot, spellAction.Packed);
+                if (_spellCatalog?.TryGet(_draggingSpellId, out SpellInfo spell) != true)
+                {
+                    // The live cursor remains held until its item query/catalog dependency is
+                    // known; never guess that an unknown spell is safe to put on the bar.
+                }
+                else if (spell.Passive)
+                {
+                    ShowSpellError(_draggingSpellId, "ERR_PASSIVE_ABILITY",
+                        "You can't put a passive ability in the action bar.", "LOCAL_GATE");
+                }
+                else
+                {
+                    var spellAction = new ActionSlot(ActionSlot.Spell, _draggingSpellId);
+                    PlaceActionPayload(_hoveredActionSlot, spellAction);
+                    _draggingSpellId = 0;
+                }
             }
-            _draggingSpellId = 0;
         }
-        else if (_draggingActionSlot >= 0)
+        else if (_actionCursor is { } held && !_actionCursorChangedThisFrame &&
+                 _hoveredActionSlot >= 0)
         {
-            if (_hoveredActionSlot >= 0) SwapActions(_draggingActionSlot, _hoveredActionSlot);
-            else ClearAction(_draggingActionSlot);
+            PlaceActionPayload(_hoveredActionSlot, held);
         }
         _pressedActionSlot = -1;
-        _draggingActionSlot = -1;
     }
 
     private void DrawMicroMenu(Vector2 barMin, float scale)
@@ -960,25 +1323,47 @@ public sealed partial class GameLoop
             if (i == 0) DrawCharacterMicroPortrait(dl, min, scale, pushed);
 
             // The transparent top 18 pixels are authored decoration, not part of the hit rect.
-            ImGui.SetCursorScreenPos(min + new Vector2(0f, 18f) * scale);
-            if (ImGui.InvisibleButton($"##micro-{i}", new Vector2(29f, 40f) * scale) && button.Enabled)
+            Vector2 hitMin = min + new Vector2(0f, 18f) * scale;
+            Vector2 hitMax = max;
+            ImGui.SetCursorScreenPos(hitMin);
+            bool clicked = ImGui.InvisibleButton($"##micro-{i}", hitMax - hitMin) && button.Enabled;
+
+            // BeginPopupModal correctly blocks every underlying HUD control, but MainMenuButton's
+            // authored contract is a true toggle. Remember only a press that began in its real
+            // 29x40 hit rectangle and consume only the matching release; no other micro button is
+            // allowed to click through the modal.
+            if (i == 6 && _settingsOpen)
             {
+                bool over = mouse.X >= hitMin.X && mouse.X <= hitMax.X &&
+                            mouse.Y >= hitMin.Y && mouse.Y <= hitMax.Y;
+                if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && over)
+                    _mainMenuMicroPressedThroughModal = true;
+                if (ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                {
+                    clicked |= _mainMenuMicroPressedThroughModal && over;
+                    _mainMenuMicroPressedThroughModal = false;
+                }
+            }
+            else if (i == 6 && ImGui.IsMouseReleased(ImGuiMouseButton.Left))
+                _mainMenuMicroPressedThroughModal = false;
+
+            if (clicked)
+            {
+                if (i != 6 && !GameMenuUiLaw.PlayerPanelMayOpen(_settingsOpen)) continue;
                 switch (i)
                 {
                     case 0:
-                        _characterOpen = !_characterOpen;
-                        if (_characterOpen) { _paperDollDirty = true; _spellbookOpen = false; }
+                        ToggleCharacterPageThroughUiPanel();
                         break;
                     case 1:
-                        _spellbookOpen = !_spellbookOpen;
-                        if (_spellbookOpen) _characterOpen = false;
+                        ToggleSpellbookThroughUiPanel();
                         break;
                     case 2:
                         OpenTalentPanel();
                         break;
                     case 3:
                         _questLogOpen = !_questLogOpen;
-                        if (_questLogOpen) { _questList = null; _questDetails = null; _questOffer = null; _questRequestItems = null; }
+                        if (_questLogOpen) CloseQuestNpcFrame(playSound: true);
                         break;
                     case 4:
                         if (_socialOpen) _socialOpen = false; else OpenSocial();
@@ -987,7 +1372,7 @@ public sealed partial class GameLoop
                         _worldMapOpen = !_worldMapOpen;
                         break;
                     case 6:
-                        OpenSettings();
+                        ToggleSettingsFromMicroButton();
                         break;
                     case 7:
                         if (_helpOpen) _helpOpen = false; else OpenHelp();
@@ -998,10 +1383,16 @@ public sealed partial class GameLoop
             {
                 uint highlight = _gameplayArt.AdditiveHandle(@"Interface\Buttons\UI-MicroButton-Hilight");
                 if (highlight != 0) dl.AddImage((nint)highlight, min, max);
-                ImGui.BeginTooltip();
-                ImGui.TextUnformatted(button.Label);
-                if (!button.Enabled) ImGui.TextDisabled("Not available yet");
-                ImGui.EndTooltip();
+                GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)(i + 1));
+                string tooltipLabel = button.Label;
+                bool tooltipEnabled = button.Enabled;
+                OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted(tooltipLabel);
+                    if (!tooltipEnabled) ImGui.TextDisabled("Not available yet");
+                    ImGui.EndTooltip();
+                });
             }
         }
         ImGui.End();
@@ -1021,23 +1412,6 @@ public sealed partial class GameLoop
         Vector2 uv1 = pushed ? new Vector2(0.8666f, 0f) : new Vector2(0.8f, 0.0666f);
         uint tint = pushed ? 0x80ffffffu : 0xffffffffu;
         dl.AddImage((nint)portrait, min, max, uv0, uv1, tint);
-    }
-
-    private void SwapActions(int source, int destination)
-    {
-        if (_net is null || source == destination) return;
-        ActionSlot? a = _actions[source], b = _actions[destination];
-        _actions.Set(source, b);
-        _actions.Set(destination, a);
-        _net.SetActionButton((byte)source, b?.Packed ?? 0);
-        _net.SetActionButton((byte)destination, a?.Packed ?? 0);
-    }
-
-    private void ClearAction(int slot)
-    {
-        if (_net is null) return;
-        _actions.Set(slot, null);
-        _net.SetActionButton((byte)slot, 0);
     }
 
     private void DrawMainMenuBarArt(ImDrawListPtr dl, Vector2 barMin, float scale)
@@ -1113,10 +1487,16 @@ public sealed partial class GameLoop
         if (mouse.X >= barMin.X && mouse.X <= barMin.X + size.X &&
             mouse.Y >= barMin.Y && mouse.Y <= barMin.Y + size.Y)
         {
-            ImGui.BeginTooltip();
-            ImGui.TextUnformatted($"Experience: {current} / {maximum}");
-            ImGui.TextUnformatted($"Rested bonus: {rested} ({RestStateName(player.Fields.RestState)})");
-            ImGui.EndTooltip();
+            GameTooltipOwnerKey tooltipOwner = new("main-menu-xp", 1);
+            string experienceText = $"Experience: {current} / {maximum}";
+            string restedText = $"Rested bonus: {rested} ({RestStateName(player.Fields.RestState)})";
+            OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(experienceText);
+                ImGui.TextUnformatted(restedText);
+                ImGui.EndTooltip();
+            });
         }
     }
 
@@ -1145,10 +1525,33 @@ public sealed partial class GameLoop
         if (mouse.X >= frameTopLeft.X && mouse.X <= frameBottomRight.X &&
             mouse.Y >= frameTopLeft.Y && mouse.Y <= frameBottomRight.Y)
         {
-            ImGui.BeginTooltip();
-            ImGui.TextUnformatted($"Latency: {latency}ms");
-            ImGui.EndTooltip();
+            GameTooltipOwnerKey tooltipOwner = new("main-menu-performance", 1);
+            string latencyText = $"Latency: {latency}ms";
+            OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(latencyText);
+                ImGui.EndTooltip();
+            });
         }
+    }
+
+    private static GameTooltipOwnerKey ActionBarGameTooltipOwner(
+        string surfaceName,
+        int buttonIndex)
+    {
+        if ((uint)buttonIndex >= MultiActionBarUiLaw.ButtonsPerBar)
+            throw new ArgumentOutOfRangeException(nameof(buttonIndex));
+        string surface = surfaceName switch
+        {
+            "MultiBarBottomLeft" => "action-multi-bottom-left",
+            "MultiBarBottomRight" => "action-multi-bottom-right",
+            "MultiBarRight" => "action-multi-right",
+            "MultiBarLeft" => "action-multi-left",
+            _ => throw new ArgumentOutOfRangeException(nameof(surfaceName), surfaceName,
+                "Unknown multi-action-bar tooltip surface."),
+        };
+        return new GameTooltipOwnerKey(surface, (ulong)(buttonIndex + 1));
     }
 
     private bool DrawPageArrowButton(ImDrawListPtr dl, Vector2 barMin, float scale,
@@ -1181,7 +1584,6 @@ public sealed partial class GameLoop
     {
         _actionPage = ((_actionPage - 1 + delta + ActionPageCount) % ActionPageCount) + 1;
         _pressedActionSlot = -1;
-        _draggingActionSlot = -1;
     }
 
     private static uint UiGoldU32() =>
@@ -1197,43 +1599,39 @@ public sealed partial class GameLoop
         dl.AddText(font, size, pos, color, text);
     }
 
-    private void DrawSlotRing(ImDrawListPtr dl, Vector2 buttonMin, Vector2 buttonMax,
+    private bool DrawSlotRing(ImDrawListPtr dl, Vector2 buttonMin, Vector2 buttonMax,
         string art, float scale, uint tint = 0xffffffffu)
     {
         uint ring = _gameplayArt!.Handle(art);
-        if (ring == 0) return;
+        if (ring == 0) return false;
         // NormalTexture is 66x66, centered on the 36x36 button with a (0,-1) offset.
         // FrameXML Y is up: its -1 anchor offset moves the texture one pixel down in screen space.
         Vector2 center = (buttonMin + buttonMax) * 0.5f + new Vector2(0, scale);
         Vector2 half = new(33f * scale);
         dl.AddImage((nint)ring, center - half, center + half, Vector2.Zero, Vector2.One, tint);
+        return true;
     }
 
     /// <summary>Hotkey label: right-justified in the top corner (reference offset (-2,-2)),
-    /// with the standard 1.12 black text shadow.</summary>
+    /// with the authored 1.12 two-pixel THICK outline.</summary>
     private static void DrawActionText(ImDrawListPtr dl, Vector2 buttonMin, string text, float scale,
         uint color)
     {
         if (string.IsNullOrEmpty(text)) return;
-        float size = 12f * scale;
-        ImFontPtr font = ImGui.GetFont();
-        // This binding has no CalcTextSizeA; scale the base measure instead (see WowSkin.cs).
-        float width = ImGui.CalcTextSize(text).X * (size / Math.Max(1f, ImGui.GetFontSize()));
-        Vector2 pos = buttonMin + new Vector2(34f * scale - width, 2f * scale);
-        dl.AddText(font, size, pos + Vector2.One * scale, 0xff000000, text);
-        dl.AddText(font, size, pos, color, text);
+        float textTop = GameText.BoxCenteredTop("NumberFontNormalSmallGray",
+            buttonMin.Y + 2f * scale, 10f, scale);
+        GameText.DrawRightAligned(dl, "NumberFontNormalSmallGray", text,
+            new Vector2(buttonMin.X + 34f * scale, textTop), scale, color);
     }
 
     /// <summary>Stack count for an ITEM action, bottom-right (reference offset (-2,2)).</summary>
     private static void DrawActionCount(ImDrawListPtr dl, Vector2 buttonMax, int count, float scale)
     {
         string text = count.ToString();
-        float size = 12f * scale;
-        ImFontPtr font = ImGui.GetFont();
-        Vector2 extent = ImGui.CalcTextSize(text) * (size / Math.Max(1f, ImGui.GetFontSize()));
-        Vector2 pos = buttonMax - extent - new Vector2(2f, 1f) * scale;
-        dl.AddText(font, size, pos + Vector2.One * scale, 0xff000000, text);
-        dl.AddText(font, size, pos, 0xffffffff, text);
+        float textTop = buttonMax.Y - 2f * scale -
+            GameText.EmPixels("NumberFontNormal", scale);
+        GameText.DrawRightAligned(dl, "NumberFontNormal", text,
+            new Vector2(buttonMax.X - 2f * scale, textTop), scale);
     }
 
     private ActionButtonVerdict ComputeButtonVerdict(
@@ -1278,6 +1676,9 @@ public sealed partial class GameLoop
             {
                 stackCount = CountItemInBags(p, actionId);
                 equipped = IsItemEquipped(p, actionId);
+                // Preserve the reference/MSUI state-feed rule: item-button greying follows the
+                // bag count or a worn copy. The broader mode-0x47 walk belongs only to UseAction;
+                // using it here would incorrectly light an equipped-bag object or keyring-only item.
                 usability = stackCount > 0 || equipped
                     ? ButtonUsability.Usable : ButtonUsability.Unusable;
             }

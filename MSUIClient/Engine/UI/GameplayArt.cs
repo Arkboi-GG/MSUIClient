@@ -11,6 +11,7 @@ public sealed class GameplayArt : IDisposable
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _additiveTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _brightHighlightTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _circularTextures = new(StringComparer.OrdinalIgnoreCase);
 
     public GameplayArt(GL gl, MpqMount mpq) { _gl = gl; _mpq = mpq; }
 
@@ -30,6 +31,29 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>
+    /// Alpha-masked copy for an icon drawn inside circular button chrome. A ring texture cannot
+    /// mask its transparent corners, so painting the ordinary square handle beneath it leaks four
+    /// square corners. This cache keeps that repair local to controls with a round aperture.
+    /// </summary>
+    public uint CircularHandle(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) path = @"Interface\Icons\INV_Misc_QuestionMark.blp";
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        if (_circularTextures.TryGetValue(path, out Texture? cached)) return cached?.Handle ?? 0;
+        try
+        {
+            byte[]? bytes = _mpq.ReadFile(path);
+            if (bytes is null) { _circularTextures[path] = null; return 0; }
+            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            IconApertureMask.ApplyCircularBgra(bgra, width, height);
+            Texture texture = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
+            _circularTextures[path] = texture;
+            return texture.Handle;
+        }
+        catch { _circularTextures[path] = null; return 0; }
+    }
 
     /// <summary>
     /// Builds an alpha-safe copy of ADD-authored art for ImGui's regular alpha draw list.
@@ -89,8 +113,10 @@ public sealed class GameplayArt : IDisposable
         foreach (Texture texture in _textures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _brightHighlightTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        foreach (Texture texture in _circularTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         _textures.Clear();
         _additiveTextures.Clear();
         _brightHighlightTextures.Clear();
+        _circularTextures.Clear();
     }
 }

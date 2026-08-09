@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Net;
 
 namespace MSUIClient;
@@ -173,7 +174,7 @@ public sealed partial class GameLoop
             : $"0x{_gossipMenu.SourceGuid:X16}";
         DrawCenteredText(dl,p+new Vector2(192,18)*s,sourceName,12*s,0xff202020);
         string greeting = _gossipText?.MaleText ?? $"Loading text {_gossipMenu.TextId}...";
-        float used=DrawWrappedText(dl,greeting.Replace("$N",_net?.PlayerName??"traveler",StringComparison.OrdinalIgnoreCase),
+        float used=DrawWrappedText(dl,ExpandQuestText(greeting),
             p+new Vector2(36,76)*s,300,11*s,s,0xff202020,10);
         float rowY=96+used/s;
 
@@ -187,8 +188,13 @@ public sealed partial class GameLoop
         foreach (GossipQuest quest in _gossipMenu.Quests)
         {
             if (VanillaListRow(dl,$"##gossip-quest-{quest.QuestId}",p+new Vector2(36,rowY)*s,
-                    new Vector2(300,22),s,$"[{quest.Level}] {quest.Title}",false,0xff202020))
-                RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
+                    new Vector2(300,22),s,$"[{quest.Level}] {ExpandQuestText(quest.Title)}",false,0xff202020))
+            {
+                if (QuestFrameUiLaw.GreetingAction(quest.Icon) == QuestGreetingAction.Complete)
+                    RequestQuestCompletion(_gossipMenu.SourceGuid, quest.QuestId);
+                else
+                    RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
+            }
             rowY+=24;
         }
         if(VanillaButton(dl,"##gossip-goodbye","Goodbye",p+new Vector2(248,430)*s,new Vector2(90,22),s))ResetGossip();

@@ -19,7 +19,7 @@ namespace MSUIClient;
 ///   left-rail layout that exists nowhere in WoW; this one does not invent
 ///   anything structural.
 ///
-///   GameMenuFrame  195 x 226, buttons 144 x 21, first button 37 below the top,
+///   GameMenuFrame  195 x 246, buttons 144 x 21, first button 37 below the top,
 ///                  1px gaps, and a 16px gap before Continue.
 ///   OptionsFrame   450 x 575. Renderer-specific controls scroll inside that
 ///                  contract instead of changing the player's frame geometry.
@@ -58,6 +58,7 @@ public sealed partial class GameLoop
 
     private bool _settingsOpen;
     private bool _settingsPopupRequested;
+    private bool _settingsPopupCloseRequested;
     private bool _settingsCancelling;
     private bool _escapeKeyDown;
 
@@ -86,7 +87,7 @@ public sealed partial class GameLoop
     private string _boxId = "";
 
     /// <summary>True while the menu owns input. Read by Update to stop the player walking.</summary>
-    public bool SettingsModalOpen => _settingsOpen || LogoutUiActive;
+    public bool SettingsModalOpen => _settingsOpen || _settingsPopupCloseRequested || LogoutUiActive;
 
     private GameSettings Settings => SettingsFile?.Settings ?? _fallbackSettings;
     private readonly GameSettings _fallbackSettings = GameSettings.Defaults();
@@ -132,19 +133,80 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateSettingsInput()
     {
-        bool escape = _window.IsDown(Silk.NET.Input.Key.Escape);
+        // Deliberately modifier-insensitive. This preserves MSUI's current Escape contract while
+        // the rising-edge latch prevents OS/key-repeat from consuming more than one layer.
+        bool escape = InputKeyDown(Silk.NET.Input.Key.Escape);
         if (escape && !_escapeKeyDown)
         {
-            // 1.12 Escape order: stop casting first, then close open panels (the loot
-            // window), and only then open the game menu.
-            if (!TryCancelLogoutOnEscape() && !TryDismissPartyInviteOnEscape() &&
-                !TryDismissMailConfirmationOnEscape() &&
-                !TryDismissEnchantConfirmationOnEscape() && !TryCancelSpellOnEscape() &&
-                !TryCloseLootOnEscape() && !TryClosePlayerPanelOnEscape())
-                _escapePressed = true;
+            GameMenuEscapePlan plan = GameMenuUiLaw.ResolveEscape(new(
+                HasCarriedItem || HasActionBarCursor,
+                _logoutDialog != LogoutDialogKind.None ||
+                    PartyFrameUiLaw.IsPartyInviteVisible(_staticPopupSlots) ||
+                    _mailConfirmation is not null || _enchantConfirmation is not null ||
+                    _skillUnlearnConfirmation is not null,
+                _settingsOpen && _menuPage != MenuPage.GameMenu,
+                _settingsOpen && _menuPage == MenuPage.GameMenu,
+                _splitContainer != InventoryUiLaw.EmptyContainer,
+                _worldMapOpen,
+                _openMailId != 0,
+                _net is { IsInWorld: true } && (_autoRepeatSpell != 0 ||
+                    _pendingCastSpell != 0 ||
+                    _castBarPhase == CastBarPhase.Casting && _castBarSpell != 0),
+                _groundCastSpell != 0 || _itemCastSpell != 0,
+                _loot.IsOpen || HasPlayerPanelForEscape(),
+                _selectionGuid != 0));
+
+            if (plan.ClearCarriedCursor) ClearCarriedItemOnEscape();
+            switch (plan.Layer)
+            {
+                case GameMenuEscapeLayer.Popup:
+                    _ = TryCancelLogoutOnEscape() || TryDismissStaticPopupOnEscape() ||
+                        TryDismissMailConfirmationOnEscape() ||
+                        TryDismissEnchantConfirmationOnEscape() ||
+                        TryDismissSkillUnlearnConfirmationOnEscape();
+                    break;
+                case GameMenuEscapeLayer.Options:
+                case GameMenuEscapeLayer.GameMenu:
+                    _escapePressed = true;
+                    break;
+                case GameMenuEscapeLayer.StackSplit:
+                    TryCancelStackSplitOnEscape();
+                    break;
+                case GameMenuEscapeLayer.WorldMap:
+                    _worldMapOpen = false;
+                    break;
+                case GameMenuEscapeLayer.OpenMail:
+                    CloseOpenMail(playSound: true, autoDelete: true);
+                    break;
+                case GameMenuEscapeLayer.SpellCast:
+                    TryCancelSpellOnEscape();
+                    break;
+                case GameMenuEscapeLayer.SpellTargeting:
+                    TryCancelSpellTargetingOnEscape();
+                    break;
+                case GameMenuEscapeLayer.PlayerPanel:
+                    _ = TryCloseLootOnEscape() || TryClosePlayerPanelOnEscape();
+                    break;
+                case GameMenuEscapeLayer.Target:
+                    TryClearTargetOnEscape();
+                    break;
+                case GameMenuEscapeLayer.OpenGameMenu:
+                    _escapePressed = true;
+                    break;
+            }
         }
         _escapeKeyDown = escape;
     }
+
+    private bool HasPlayerPanelForEscape() =>
+        _bindingCapture is not null || _keybindingsOpen || _tradeOpen || _inspectOpen ||
+        _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipText is not null ||
+        QuestNpcPanelNow() != QuestNpcPanel.None ||
+        _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
+        _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
+        _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
+        _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
+        _equippedBagOpen.Any(open => open);
 
     private bool TryClosePlayerPanelOnEscape()
     {
@@ -160,7 +222,8 @@ public sealed partial class GameLoop
         if (_auctionOpen) { ResetAuction(); return true; }
         if (_mailOpen) { CloseMailSession(); return true; }
         if (_gossipMenu is not null || _gossipText is not null) { ResetGossip(); return true; }
-        if (_vendor is not null) { _vendor = null; return true; }
+        if (QuestNpcPanelNow() != QuestNpcPanel.None) { CloseQuestNpcFrame(playSound: true); return true; }
+        if (_vendor is not null) { CloseVendorSession(); return true; }
         if (_trainer is not null) { _trainer = null; return true; }
         if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
@@ -174,21 +237,44 @@ public sealed partial class GameLoop
         if (_taxiOpen && !_taxiLocked) { _taxiOpen = false; return true; }
         if (_talentOpen) { _talentOpen = false; return true; }
         if (_questLogOpen) { _questLogOpen = false; return true; }
-        if (_spellbookOpen) { _spellbookOpen = false; return true; }
-        if (_characterOpen) { _characterOpen = false; return true; }
+        if (_spellbookOpen) { SetSpellbookOpen(false); return true; }
+        if (_characterOpen) { SetCharacterPageOpen(false); return true; }
         if (CloseAllBagWindows()) return true;
         return false;
     }
 
     private void OpenSettings()
     {
+        if (_settingsOpen) return;
+        // ShowUIPanel's center ownership closes displaced panels before GameMenuFrame appears.
+        // Reuse each panel's existing close path so its side effects and MSUI sounds stay intact.
+        if (_splitContainer != InventoryUiLaw.EmptyContainer) CancelStackSplit();
+        for (int closed = 0; closed < 32 && TryClosePlayerPanelOnEscape(); closed++) { }
         _settingsSnapshot = Settings.Clone();
         _settingsCancelling = false;
         _settingsOpen = true;
         _settingsPopupRequested = true;
+        _settingsPopupCloseRequested = false;
         _menuPage = MenuPage.GameMenu;
         _settingsStatus = "";
-        PlayUiSound("igMainMenuOpen");
+        PlayUiSound(GameMenuUiLaw.OpenSound);
+    }
+
+    private void ToggleSettingsFromMicroButton()
+    {
+        if (GameMenuUiLaw.MicroToggle(_settingsOpen) == GameMenuToggleAction.Open)
+        {
+            OpenSettings();
+            return;
+        }
+
+        _settingsOpen = false;
+        // The micro button is drawn outside the popup scope. Keep one teardown frame alive so
+        // DrawSettingsModal can legally pop ImGui's modal stack instead of leaving a ghost owner.
+        _settingsPopupCloseRequested = true;
+        PlayUiSound(GameMenuUiLaw.EscapeCloseSound);
+        if (!_settingsCancelling) CommitSettings();
+        _settingsCancelling = false;
     }
 
     // ── the frame ────────────────────────────────────────────────────────────
@@ -213,7 +299,8 @@ public sealed partial class GameLoop
             _settingsPopupRequested = false;
         }
 
-        if (!_settingsOpen) { _escapePressed = false; return; }
+        if (!_settingsOpen && !_settingsPopupCloseRequested)
+        { _escapePressed = false; return; }
 
         var io = ImGui.GetIO();
         var centre = new Vector2(io.DisplaySize.X * 0.5f, io.DisplaySize.Y * 0.5f);
@@ -259,13 +346,33 @@ public sealed partial class GameLoop
 
         if (showing)
         {
+            if (_settingsPopupCloseRequested)
+            {
+                _settingsPopupCloseRequested = false;
+                ImGui.CloseCurrentPopup();
+                ImGui.EndPopup();
+                _skin?.PopStyle();
+                _escapePressed = false;
+                return;
+            }
+
             var min = ImGui.GetWindowPos();
             var max = min + ImGui.GetWindowSize();
             var dl = ImGui.GetWindowDrawList();
-            BeginUiParityFrame(min);
+            bool parityProof = _uiParityArmed &&
+                (_uiParityPanel == "game-menu" || _uiParityPanel == "options");
+            if (parityProof)
+            {
+                BeginUiParityFrame(min);
+                SnapshotUiParityScenario();
+            }
             string parityRoot=_uiParityPanel=="options"?"OptionsFrame":"GameMenuFrame";
-            CollectUiParityDraw(parityRoot,"Frame",min,size,"",
-                new("",0,"IMGUI_HOST","CENTER","","",0,0));
+            Vector4 fullScreenClip = new(0, 0, io.DisplaySize.X, io.DisplaySize.Y);
+            if (parityProof)
+                CollectUiParityDraw(parityRoot,"Frame",min,size,"UIParent",
+                    new("",0,"IMGUI_HOST","CENTER","UIParent","CENTER",0,0,
+                        ContentRect: new(min.X,min.Y,max.X,max.Y), ClipRect: fullScreenClip,
+                        ClipMask: "FULL_SCREEN_FOR_FRAME_ART", Visible: true, Strata: "DIALOG"));
 
             // THE FRAME IS DRAWN OUTSIDE ImGui's CLIP RECT, SO THE CLIP RECT HAS
             // TO GO. Begin() leaves the window's clip rectangle inset
@@ -287,10 +394,62 @@ public sealed partial class GameLoop
             dl.PushClipRectFullScreen();
             _skin?.DrawBackdrop(dl, min, max, WowSkin.Dialog);
             _skin?.HeaderPlaque(dl, min, size.X, PageTitle());
-            Vector2 headerMin=min+new Vector2((size.X-256f*S)*.5f,-12f*S),headerSize=new Vector2(256f,64f)*S;
+            Vector2 backdropMin = min + new Vector2(WowSkin.Dialog.InsetL,
+                WowSkin.Dialog.InsetT) * S;
+            Vector2 backdropMax = max - new Vector2(WowSkin.Dialog.InsetR,
+                WowSkin.Dialog.InsetB) * S;
+            bool backdropTexture = _skin?.TextureHandle(WowSkin.Dialog.Bg) != 0;
+            bool edgeTexture = _skin?.TextureHandle(WowSkin.Dialog.Edge) != 0;
+            if (parityProof)
+            {
+                string tiledUv = $"0|0|{(backdropMax.X-backdropMin.X)/(WowSkin.Dialog.TileSize*S):R}|" +
+                    $"{(backdropMax.Y-backdropMin.Y)/(WowSkin.Dialog.TileSize*S):R}";
+                CollectUiParityDraw(parityRoot+"/BackdropBackground","BackdropBackground",
+                    backdropMin,backdropMax-backdropMin,parityRoot,
+                    new(backdropTexture ? @"Interface\DialogFrame\UI-DialogBox-Background" : "",
+                        backdropTexture ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(WowSkin.Fill),
+                        "BACKGROUND","TOPLEFT",parityRoot,"TOPLEFT",
+                        WowSkin.Dialog.InsetL,-WowSkin.Dialog.InsetT,
+                        TexCoords: backdropTexture ? tiledUv : "", ContentRect:
+                            new(backdropMin.X,backdropMin.Y,backdropMax.X,backdropMax.Y),
+                        ClipRect: fullScreenClip, ClipMask: "FULL_SCREEN_FOR_FRAME_ART",
+                        BlendMode: "BLEND", Visible: true, Strata: "DIALOG"));
+                CollectUiParityDraw(parityRoot+"/BackdropEdge","BackdropEdge",min,size,parityRoot,
+                    new(edgeTexture ? @"Interface\DialogFrame\UI-DialogBox-Border" : "",
+                        edgeTexture ? 0xffffffff : ImGui.ColorConvertFloat4ToU32(WowSkin.GoldDim),
+                        "BORDER","TOPLEFT",parityRoot,"TOPLEFT",0,0,
+                        TexCoords: edgeTexture ? "8-cell-nine-slice;edge=32" : "",
+                        ContentRect: new(min.X,min.Y,max.X,max.Y), ClipRect: fullScreenClip,
+                        ClipMask: "FULL_SCREEN_FOR_FRAME_ART", BlendMode: "BLEND",
+                        Visible: true, Strata: "DIALOG"));
+            }
+            Vector2 headerMin=min+new Vector2(
+                (size.X-GameMenuUiLaw.HeaderWidth*S)*.5f,GameMenuUiLaw.HeaderTop*S);
+            Vector2 headerSize=new(GameMenuUiLaw.HeaderWidth*S,GameMenuUiLaw.HeaderHeight*S);
             string parityHeader=_uiParityPanel=="options"?"OptionsFrameHeader":"GameMenuFrameHeader";
-            CollectUiParityDraw(parityHeader,"Texture",headerMin,headerSize,parityRoot,
-                new(@"Interface\DialogFrame\UI-DialogBox-Header",0xffffffff,"IMGUI_IMAGE","TOP",parityRoot,"TOP",0,12));
+            bool headerVisible = _skin?.TextureHandle("dialog.header") != 0;
+            if (parityProof)
+                CollectUiParityDraw(parityHeader,"Texture",headerMin,headerSize,parityRoot,
+                    new(@"Interface\DialogFrame\UI-DialogBox-Header",0xffffffff,"ARTWORK","TOP",
+                        parityRoot,"TOP",0,12,TexCoords:"0|0|1|1",
+                        ContentRect:new(headerMin.X,headerMin.Y,headerMin.X+headerSize.X,
+                            headerMin.Y+headerSize.Y),ClipRect:fullScreenClip,
+                        ClipMask:"FULL_SCREEN_FOR_FRAME_ART",BlendMode:"BLEND",
+                        Visible:headerVisible,Strata:"DIALOG"));
+            string title = PageTitle();
+            Vector2 titleSize = ImGui.CalcTextSize(title);
+            Vector2 titleMin = new(min.X + size.X*.5f-titleSize.X*.5f,
+                headerMin.Y+GameMenuUiLaw.HeaderTitleTop*S);
+            string parityTitle=_uiParityPanel=="options"?"OptionsFrameTitle":"GameMenuFrameTitle";
+            if (parityProof)
+                CollectUiParityDraw(parityTitle,"FontString",titleMin,titleSize,parityRoot,
+                    new("",ImGui.ColorConvertFloat4ToU32(WowSkin.Gold),"ARTWORK","TOP",
+                        parityRoot,"TOP",0,GameMenuUiLaw.HeaderTitleTop+GameMenuUiLaw.HeaderTop,
+                        FontFace.FrizQt,ImGui.GetFontSize()/MathF.Max(S,.001f),
+                        ContentRect:new(titleMin.X,titleMin.Y,titleMin.X+titleSize.X,
+                            titleMin.Y+titleSize.Y),ClipRect:fullScreenClip,
+                        ClipMask:"FULL_SCREEN_FOR_FRAME_ART",BlendMode:"BLEND",
+                        Visible:true,Strata:"DIALOG"));
             dl.PopClipRect();
 
             // The plaque hangs 12 above the frame and its VISIBLE metal ends about
@@ -318,6 +477,8 @@ public sealed partial class GameLoop
 
             ImGui.EndPopup();
         }
+
+        if (!showing) _settingsPopupCloseRequested = false;
 
         _skin?.PopStyle();
 
@@ -353,7 +514,7 @@ public sealed partial class GameLoop
 
         _settingsOpen = false;
         ImGui.CloseCurrentPopup();
-        PlayUiSound("igMainMenuClose");
+        PlayUiSound(GameMenuUiLaw.EscapeCloseSound);
 
         if (!_settingsCancelling) CommitSettings();
         _settingsCancelling = false;
@@ -367,7 +528,7 @@ public sealed partial class GameLoop
     };
 
     /// <summary>
-    /// GameMenuFrame is 195x226 in vanilla with seven buttons. Ours is derived
+    /// GameMenuFrame is 195x246 in vanilla with eight buttons. Ours is derived
     /// from the same constants so it stays right when a button is added.
     /// OptionsFrame is 450x575 and content scrolls inside it.
     /// </summary>
@@ -376,7 +537,7 @@ public sealed partial class GameLoop
         if (_menuPage == MenuPage.GameMenu)
         {
             // patch.MPQ's build-5875 GameMenuFrame.xml is authoritative: 195x246.
-            return new Vector2(195f, 246f) * S;
+            return new Vector2(GameMenuUiLaw.FrameWidth, GameMenuUiLaw.FrameHeight) * S;
         }
 
         // FrameXML's OptionsFrame is the contract. Extra renderer controls scroll
@@ -390,41 +551,105 @@ public sealed partial class GameLoop
 
     private void DrawGameMenu(Vector2 size)
     {
-        var button = WowSkin.MenuButton * S;
+        var button = new Vector2(GameMenuUiLaw.ButtonWidth, GameMenuUiLaw.ButtonHeight) * S;
         float x = (size.X - button.X) * 0.5f;
+        bool parityProof = _uiParityArmed && _uiParityPanel == "game-menu";
+        Vector2 frameMin = ImGui.GetWindowPos();
+        Vector2 frameMax = frameMin + ImGui.GetWindowSize();
+        Vector4 frameClip = new(frameMin.X, frameMin.Y, frameMax.X, frameMax.Y);
 
         void Row(string id, string label, float y, string point, string relativeTo,
             string relativePoint, string offsetY, bool enabled, Action onClick, string? tip = null)
         {
             ImGui.SetCursorPos(new Vector2(x, y * S));
             Vector2 actualMin = ImGui.GetCursorScreenPos();
-            CollectUiParityDraw(id,"Button",actualMin,button,"GameMenuFrame",
-                new(@"Interface\Buttons\UI-Panel-Button-Up",0xffffffff,"IMGUI_BUTTON",point,relativeTo,relativePoint,0,float.Parse(offsetY,System.Globalization.CultureInfo.InvariantCulture),@"Fonts\FRIZQT__.TTF",12));
-            if (Button(label, button, enabled)) onClick();
+            float authoredOffsetY = float.Parse(offsetY,
+                System.Globalization.CultureInfo.InvariantCulture);
+            bool pressed;
+            WowSkin.PanelButtonDrawState? drawState = null;
+            if (_skin is not null)
+            {
+                pressed = _skin.PanelButton(label, button, enabled, out var state);
+                drawState = state;
+            }
+            else pressed = enabled && ImGui.Button(label, button);
+
+            if (parityProof && drawState is { } drawn)
+            {
+                CollectUiParityDraw(id,"Button",drawn.Min,drawn.Size,"GameMenuFrame",
+                    new("",0,"HIT_TARGET",point,relativeTo,relativePoint,0,authoredOffsetY,
+                        ContentRect:new(drawn.Min.X,drawn.Min.Y,drawn.Min.X+drawn.Size.X,
+                            drawn.Min.Y+drawn.Size.Y),ClipRect:frameClip,
+                        ClipMask:"ImGui-window",Visible:true,Enabled:drawn.Enabled,
+                        InteractionState:drawn.InteractionState,HitMin:drawn.Min,
+                        HitMax:drawn.Min+drawn.Size,Strata:"DIALOG"));
+                if (drawn.StateTexturePath.Length > 0)
+                    CollectUiParityDraw(id+"/"+drawn.StateTextureRole,drawn.StateTextureRole,
+                        drawn.Min,drawn.Size,id,
+                        new(drawn.StateTexturePath,0xffffffff,"ARTWORK","CENTER",id,"CENTER",0,0,
+                            TexCoords:$"{drawn.StateUvMin.X:R}|{drawn.StateUvMin.Y:R}|"+
+                                $"{drawn.StateUvMax.X:R}|{drawn.StateUvMax.Y:R}",
+                            ContentRect:new(drawn.Min.X,drawn.Min.Y,drawn.Min.X+drawn.Size.X,
+                                drawn.Min.Y+drawn.Size.Y),ClipRect:frameClip,
+                            ClipMask:"ImGui-window",BlendMode:"BLEND",Visible:true,
+                            InteractionState:drawn.InteractionState,Strata:"DIALOG"));
+                Vector2 pushedOffset = drawn.Held ? new Vector2(1f,1f) : Vector2.Zero;
+                CollectUiParityDraw(id+"/Label","FontString",drawn.TextMin,drawn.TextSize,id,
+                    new("",drawn.TextColor,"OVERLAY","CENTER",id,"CENTER",
+                        pushedOffset.X,pushedOffset.Y,FontFace.FrizQt,
+                        ImGui.GetFontSize()/MathF.Max(S,.001f),
+                        ContentRect:new(drawn.TextMin.X,drawn.TextMin.Y,
+                            drawn.TextMin.X+drawn.TextSize.X,drawn.TextMin.Y+drawn.TextSize.Y),
+                        ClipRect:frameClip,ClipMask:"ImGui-window",BlendMode:"BLEND",
+                        Visible:true,Enabled:drawn.Enabled,
+                        InteractionState:drawn.InteractionState,Strata:"DIALOG"));
+                Vector2 shadowMin = drawn.TextMin + Vector2.One;
+                CollectUiParityDraw(id+"/LabelShadow","FontString",shadowMin,drawn.TextSize,id,
+                    new("",ImGui.ColorConvertFloat4ToU32(WowSkin.Shadow),"OVERLAY","CENTER",
+                        id,"CENTER",pushedOffset.X+1,pushedOffset.Y+1,FontFace.FrizQt,
+                        ImGui.GetFontSize()/MathF.Max(S,.001f),
+                        ContentRect:new(shadowMin.X,shadowMin.Y,shadowMin.X+drawn.TextSize.X,
+                            shadowMin.Y+drawn.TextSize.Y),ClipRect:frameClip,
+                        ClipMask:"ImGui-window",BlendMode:"BLEND",Visible:true,
+                        InteractionState:drawn.InteractionState,Strata:"DIALOG"));
+                if (drawn.HighlightVisible)
+                    CollectUiParityDraw(id+"/HighlightTexture","HighlightTexture",drawn.Min,
+                        drawn.Size,id,
+                        new(drawn.HighlightTexturePath,
+                            ImGui.ColorConvertFloat4ToU32(new Vector4(1,1,1,
+                                GameMenuUiLaw.HighlightAlpha)),"HIGHLIGHT","CENTER",id,"CENTER",0,0,
+                            TexCoords:$"{drawn.StateUvMin.X:R}|{drawn.StateUvMin.Y:R}|"+
+                                $"{drawn.StateUvMax.X:R}|{drawn.StateUvMax.Y:R}",
+                            ContentRect:new(drawn.Min.X,drawn.Min.Y,drawn.Min.X+drawn.Size.X,
+                                drawn.Min.Y+drawn.Size.Y),ClipRect:frameClip,
+                            ClipMask:"ImGui-window",BlendMode:"BLEND",Visible:true,
+                            InteractionState:"highlighted",Strata:"DIALOG"));
+            }
+            if (pressed) onClick();
             if (tip is not null && ImGui.IsItemHovered()) ImGui.SetTooltip(tip);
         }
 
-        Row("GameMenuButtonOptions", "Video Options", 26.5f, "CENTER", "", "TOP", "-37",
+        Row("GameMenuButtonOptions", "Video Options", GameMenuUiLaw.ButtonTop(0), "CENTER", "", "TOP", "-37",
             true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Video); });
-        Row("GameMenuButtonSoundOptions", "Sound Options", 48.5f, "TOP", "GameMenuButtonOptions", "BOTTOM", "-1",
+        Row("GameMenuButtonSoundOptions", "Sound Options", GameMenuUiLaw.ButtonTop(1), "TOP", "GameMenuButtonOptions", "BOTTOM", "-1",
             false, () => { },
             "There is no sound subsystem yet - this button exists so the menu does\n" +
             "not change shape when there is.");
-        Row("GameMenuButtonUIOptions", "Interface Options", 70.5f, "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
+        Row("GameMenuButtonUIOptions", "Interface Options", GameMenuUiLaw.ButtonTop(2), "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
             true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Controls); });
-        Row("GameMenuButtonKeybindings", "Key Bindings", 92.5f, "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
+        Row("GameMenuButtonKeybindings", "Key Bindings", GameMenuUiLaw.ButtonTop(3), "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
             true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenKeybindings(); });
-        Row("GameMenuButtonMacros", "Macros", 114.5f, "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
+        Row("GameMenuButtonMacros", "Macros", GameMenuUiLaw.ButtonTop(4), "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
             true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenMacros(); });
-        Row("GameMenuButtonLogout", "Logout", 136.5f, "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
+        Row("GameMenuButtonLogout", "Logout", GameMenuUiLaw.ButtonTop(5), "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
             _net is { IsInWorld: true } && !LogoutUiActive, () => RequestLogout(quitting: false));
 
         // NOT _window.Close() - that runs the whole teardown synchronously and
         // the rest of this ImGui frame then draws into freed memory. Flag it and
         // let Update act between frames. See ConsumeQuitRequest.
-        Row("GameMenuButtonQuit", "Exit Game", 158.5f, "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
+        Row("GameMenuButtonQuit", "Exit Game", GameMenuUiLaw.ButtonTop(6), "TOP", "GameMenuButtonLogout", "BOTTOM", "-1",
             !LogoutUiActive, () => RequestLogout(quitting: true));
-        Row("GameMenuButtonContinue", "Return to Game", 195.5f, "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
+        Row("GameMenuButtonContinue", "Return to Game", GameMenuUiLaw.ButtonTop(7), "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
         {
             PlayUiSound("igMainMenuContinue");
             CommitSettings();

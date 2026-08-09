@@ -1,5 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
+using MSUIClient.Net;
 
 namespace MSUIClient;
 
@@ -7,6 +9,7 @@ public sealed partial class GameLoop
 {
     private ulong _unitPopupGuid;
     private Vector2 _unitPopupPosition;
+    private InspectBinding _unitPopupInspectBinding = InspectBinding.Target;
 
     private void DrawUnitPopup()
     {
@@ -28,10 +31,16 @@ public sealed partial class GameLoop
         }
         if (VanillaButton(dl, "##unit-follow", "Follow", origin + new Vector2(14, 59) * s,
                 new Vector2(100, 22), s, false)) { }
+        bool inspectEnabled = true;
+        if (_net is not null && _controller is not null &&
+            _entities.TryGet(_unitPopupGuid, out WorldEntity inspectUnit))
+            inspectEnabled = InspectUiLaw.PopupRowEnabled(inspectUnit.IsPlayer,
+                _unitPopupGuid == _net.PlayerGuid, CanAttack(inspectUnit),
+                Vector3.DistanceSquared(_controller.Position, inspectUnit.Position));
         if (VanillaButton(dl, "##unit-inspect", "Inspect", origin + new Vector2(14, 84) * s,
-                new Vector2(100, 22), s))
+                new Vector2(100, 22), s, inspectEnabled))
         {
-            RequestInspect(_unitPopupGuid);
+            RequestInspect(_unitPopupGuid, _unitPopupInspectBinding);
             _unitPopupGuid = 0;
         }
         if (VanillaButton(dl, "##unit-cancel", "Cancel", origin + new Vector2(14, 109) * s,

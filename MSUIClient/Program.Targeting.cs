@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -25,6 +26,7 @@ public sealed partial class GameLoop
     private long _targetCombatSeen;
     private readonly Dictionary<ulong, string> _playerNames = [];
     private readonly Dictionary<uint, string> _creatureNames = [];
+    private readonly Dictionary<uint, CreatureQueryInfo?> _creatureQueryRecords = [];
     private readonly HashSet<ulong> _queriedPlayerNames = [];
     private readonly HashSet<uint> _queriedCreatureNames = [];
 
@@ -34,9 +36,16 @@ public sealed partial class GameLoop
         _hoveredGuid = 0;
         _selectionGuid = 0;
         _attackTargetGuid = 0;
+        // Resolved hit and negative records are template identities and survive zoning/session
+        // teardown. Only an unanswered writer ask must become re-askable.
+        _queriedCreatureNames.Clear();
         _targetCombatSeen = _combat.AttackRevision;
         _window.ClearWorldClicks();
     }
+
+    private bool TryBeginCreatureQuery(uint entry) =>
+        entry != 0 && !_creatureQueryRecords.ContainsKey(entry) &&
+        _queriedCreatureNames.Add(entry);
 
     private void UpdateTargeting()
     {
@@ -111,6 +120,7 @@ public sealed partial class GameLoop
                 {
                     CommitSelection(picked, beginAttack: false);
                     _unitPopupGuid = picked;
+                    _unitPopupInspectBinding = InspectBinding.Target;
                     _unitPopupPosition = click.Position;
                     if (!_playerNames.ContainsKey(picked)) _net?.NameQuery(picked);
                 }
@@ -155,6 +165,7 @@ public sealed partial class GameLoop
         bool wasAttacking = _attackTargetGuid != 0 ||
             (_net is not null && _combat.IsEngaged(_net.PlayerGuid));
         bool changed = guid != _selectionGuid;
+        if (changed) StopPetAttackForOldTargetChange(_selectionGuid, guid);
         if (changed && wasAttacking)
         {
             EmitCombat("TargetSwitch", "selection-change", guid,
@@ -169,7 +180,7 @@ public sealed partial class GameLoop
             if (guid != 0 && _net is not null && _entities.TryGet(guid, out WorldEntity identity))
             {
                 if (identity.IsPlayer && _queriedPlayerNames.Add(guid)) _net.NameQuery(guid);
-                else if (identity.IsCreature && identity.Entry != 0 && _queriedCreatureNames.Add(identity.Entry))
+                else if (identity.IsCreature && TryBeginCreatureQuery(identity.Entry))
                     _net.CreatureQuery(identity.Entry, guid);
             }
         }
@@ -188,6 +199,13 @@ public sealed partial class GameLoop
                 ObserveCombatIntent(true, guid, changed && wasAttacking ? "target-switch" : "user-start");
             }
         }
+    }
+
+    private bool TryClearTargetOnEscape()
+    {
+        if (_selectionGuid == 0) return false;
+        CommitSelection(0, beginAttack: false);
+        return true;
     }
 
     private void StopAttack(string cause = "user-cancel")

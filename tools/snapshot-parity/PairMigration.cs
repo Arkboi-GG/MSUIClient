@@ -41,7 +41,7 @@ internal static class PairMigration
             foreach (FactReference factRef in claim.TargetFacts)
             {
                 if (!oldTarget.TryGetValue(factRef.Id, out SourceFact? oldFact) ||
-                    !oldFact.EvidenceSha256.Equals(factRef.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
+                    !MatchesOldReference(oldFact, factRef))
                     throw new InvalidDataException($"claim {claim.Id} has stale old target evidence {factRef.Id}");
                 if (!TryMap(oldFact, newTarget, out SourceFact? mapped)) unmapped.Add(factRef.Id);
                 else mappedTargets.Add(Ref(mapped!));
@@ -61,13 +61,27 @@ internal static class PairMigration
                     ClaimId = claim.Id,
                     OldVerdict = oldVerdict,
                     NewVerdict = claim.Verdict,
+                    Reason = "Target fact or source-file evidence did not map exactly.",
                     UnmappedTargetFactIds = unmapped,
                 });
             }
             else
             {
                 claim.TargetFacts = mappedTargets;
-                if (claim.Verdict.IsTerminal()) report.RetainedTerminalClaims.Add(claim.Id);
+                if (claim.Verdict is ClaimVerdict.VerifiedEquivalent or ClaimVerdict.ApprovedDeviation)
+                {
+                    claim.Verdict = ClaimVerdict.ImplementedUnverified;
+                    claim.VerificationIds = [];
+                    claim.Summary = $"[Current-pair runtime re-verification required after migration from {oldPair.Id}.] {claim.Summary}";
+                    report.DowngradedClaims.Add(new()
+                    {
+                        ClaimId = claim.Id,
+                        OldVerdict = oldVerdict,
+                        NewVerdict = claim.Verdict,
+                        Reason = "Runtime verification artifacts are pinned to the previous target snapshot.",
+                    });
+                }
+                else if (claim.Verdict.IsTerminal()) report.RetainedTerminalClaims.Add(claim.Id);
             }
             claim.PairId = newPair.Id;
         }
@@ -85,7 +99,7 @@ internal static class PairMigration
         foreach (FactReference factRef in references)
         {
             if (!oldFacts.TryGetValue(factRef.Id, out SourceFact? oldFact) ||
-                !oldFact.EvidenceSha256.Equals(factRef.EvidenceSha256, StringComparison.OrdinalIgnoreCase))
+                !MatchesOldReference(oldFact, factRef))
                 throw new InvalidDataException($"{owner} has stale evidence {factRef.Id}");
             if (!TryMap(oldFact, newFacts, out SourceFact? newFact))
                 throw new InvalidDataException($"{owner} fact {factRef.Id} does not map exactly to the new pair");
@@ -122,10 +136,15 @@ internal static class PairMigration
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
 
     private static string Identity(SourceFact fact) => string.Join('\0',
-        fact.Path, fact.Kind, fact.Surface, fact.Name, fact.EvidenceSha256);
+        fact.Path, fact.Kind, fact.Surface, fact.Name, fact.EvidenceSha256, fact.FileSha256);
 
     private static FactReference Ref(SourceFact fact) =>
-        new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256 };
+        new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256, FileSha256 = fact.FileSha256 };
+
+    private static bool MatchesOldReference(SourceFact fact, FactReference reference) =>
+        fact.EvidenceSha256.Equals(reference.EvidenceSha256, StringComparison.OrdinalIgnoreCase) &&
+        (string.IsNullOrWhiteSpace(reference.FileSha256) ||
+         fact.FileSha256.Equals(reference.FileSha256, StringComparison.OrdinalIgnoreCase));
 
     private static void RequirePair(string actual, string expected, string kind, string id)
     {

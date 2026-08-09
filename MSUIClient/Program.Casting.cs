@@ -317,7 +317,8 @@ public sealed partial class GameLoop
 
     private void CompleteCastBar(uint spell)
     {
-        if (_castBarSpell != spell || _castBarPhase == CastBarPhase.Hidden) return;
+        if (!CastingBarUiLaw.AcceptCastTerminal(
+                _castBarPhase == CastBarPhase.Casting, _castBarSpell, spell)) return;
         _castBarPhase = CastBarPhase.Success;
         _castBarText = _spellCatalog?.TryGet(spell, out SpellInfo info) == true ? info.Name : _castBarText;
         _castBarFinishedAt = NowSeconds();
@@ -329,9 +330,10 @@ public sealed partial class GameLoop
 
     private void FailCastBar(uint spell, string text)
     {
-        if (_castBarPhase != CastBarPhase.Casting || _castBarSpell != spell) return;
+        if (!CastingBarUiLaw.AcceptCastTerminal(
+                _castBarPhase == CastBarPhase.Casting, _castBarSpell, spell)) return;
         _castBarPhase = CastBarPhase.Failed;
-        _castBarText = text;
+        _castBarText = CastingBarUiLaw.TerminalText(text);
         _castBarFinishedAt = NowSeconds();
         _castBarDisplayUntil = _castBarFinishedAt + CastingBarUiLaw.FailureHoldSeconds +
             CastingBarUiLaw.FadeSeconds;
@@ -368,9 +370,10 @@ public sealed partial class GameLoop
             }
             return;
         }
-        double originalDuration = _castBarEnds - _castBarStarted;
-        _castBarEnds = NowSeconds() + remainingMs / 1000.0;
-        _castBarStarted = _castBarEnds - originalDuration;
+        CastingBarUiLaw.ChannelWindow window = CastingBarUiLaw.RetimeChannel(
+            _castBarStarted, _castBarEnds, NowSeconds(), remainingMs);
+        _castBarStarted = window.Start;
+        _castBarEnds = window.End;
         EmitCastBarVerdict("CHANNEL_UPDATE", _castBarSpell, remainingMs);
         EmitChannelVerdict("UPDATE", remainingMs: remainingMs, source: "MSG_CHANNEL_UPDATE");
     }
@@ -411,13 +414,18 @@ public sealed partial class GameLoop
         if (_castBarPhase == CastBarPhase.Hidden || _gameplayArt is null) return;
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new(256, 64);
-        bool bottomMultiBar = Enumerable.Range(48, 24).Any(slot => _actions[slot] is not null);
-        bool petOrStance = TryGetControlledPet(out _);
-        float bottom = CastingBarUiLaw.BottomOffset(bottomMultiBar, petOrStance, reputation: false);
+        Vector2 size = new(CastingBarUiLaw.ArtworkWidth, CastingBarUiLaw.ArtworkHeight);
+        // Both bottom multibars are always drawn, including their empty-slot rings. Their
+        // visibility, not whether an action happens to occupy a slot, drives UIParent's
+        // bottomEither term. The old occupancy check left an empty but visible row crossing
+        // the cast bar at the unmanaged 60 px offset.
+        bool petOrStance = PetActionBarVisible;
+        float bottom = CastingBarUiLaw.BottomOffsetForMsui(petOrStance, reputation: false);
         Vector2 barMin = new((display.X - CastingBarUiLaw.Width * s) * .5f,
             display.Y - (bottom + CastingBarUiLaw.Height) * s);
-        Vector2 p = barMin - new Vector2(30.5f, 28f) * s;
+        Vector2 p = barMin - new Vector2(
+            (CastingBarUiLaw.ArtworkWidth - CastingBarUiLaw.Width) * .5f,
+            CastingBarUiLaw.ArtworkTopOffset) * s;
         Vector2 authored = p / s;
         CollectGameplayLayout("cast-bar", authored.X, authored.Y, size.X, size.Y, p, size * s);
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
@@ -427,25 +435,10 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoInputs;
         if (!ImGui.Begin("##casting-bar", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        Vector2 barSize = new(195, 13);
-        if (_uiParityArmed && _uiParityPanel == "cast-bar")
-        {
-            BeginUiParityFrame(barMin, s);
-            CollectUiParity("CastingBarFrame", "StatusBar", barMin, barSize * s,
-                parent: "", point: "BOTTOM", offsetX: "0", offsetY: "55",
-                texture: @"Interface\TargetingFrame\UI-StatusBar", layer: "BORDER", strata: "");
-            CollectUiParity("CastingBarText", "FontString", barMin + new Vector2(5, -5) * s,
-                new Vector2(185, 16) * s, parent: "CastingBarFrame", point: "TOP",
-                offsetX: "0", offsetY: "5", font: "GameFontHighlight",
-                fontPath: @"Fonts\FRIZQT__.TTF", fontSize: "12", color: "#FFFFFFFF",
-                layer: "ARTWORK", strata: "");
-            CollectUiParity("CastingBarBorder", "Texture", p, size * s,
-                parent: "CastingBarFrame", point: "TOP", offsetX: "0", offsetY: "28",
-                texture: @"Interface\CastingBar\UI-CastingBar-Border", layer: "ARTWORK", strata: "");
-            CollectUiParity("CastingBarSpark", "Texture", barMin + new Vector2(81.5f, -9.5f) * s,
-                new Vector2(32) * s, parent: "CastingBarFrame", point: "CENTER",
-                texture: @"Interface\CastingBar\UI-CastingBar-Spark", layer: "OVERLAY", strata: "");
-        }
+        Vector2 barSize = new(CastingBarUiLaw.Width, CastingBarUiLaw.Height);
+        bool parityProof = _uiParityArmed && _uiParityPanel == "cast-bar";
+        if (parityProof) BeginUiParityFrame(barMin, s);
+        Vector4 windowClip = new(p.X, p.Y, p.X + size.X * s, p.Y + size.Y * s);
         double now = NowSeconds();
         double finishedElapsed = Math.Max(0d, now - _castBarFinishedAt);
         float frameAlpha = _castBarPhase switch
@@ -455,35 +448,101 @@ public sealed partial class GameLoop
             _ => 1f,
         };
         uint whiteTint = ImGui.ColorConvertFloat4ToU32(new Vector4(1, 1, 1, frameAlpha));
-        dl.AddRectFilled(barMin, barMin + barSize * s,
-            ImGui.ColorConvertFloat4ToU32(new Vector4(0, 0, 0, .5f * frameAlpha)));
+        uint backgroundTint = ImGui.ColorConvertFloat4ToU32(
+            new Vector4(0, 0, 0, .5f * frameAlpha));
+        dl.AddRectFilled(barMin, barMin + barSize * s, backgroundTint);
+        if (parityProof)
+            CollectUiParityDraw("CastingBarFrameBackground", "ColorTexture", barMin,
+                barSize * s, "CastingBarFrame",
+                new("", backgroundTint, "BACKGROUND", "TOPLEFT", "CastingBarFrame", "TOPLEFT",
+                    0, 0, ContentRect: new Vector4(barMin.X, barMin.Y,
+                        barMin.X + barSize.X * s, barMin.Y + barSize.Y * s),
+                    ClipRect: windowClip, BlendMode: "BLEND", Visible: true,
+                    InteractionState: _castBarPhase.ToString().ToLowerInvariant(), Strata: "MEDIUM"));
         float fraction = _castBarPhase switch
         {
-            CastBarPhase.Casting => (float)((now - _castBarStarted) / Math.Max(.001, _castBarEnds - _castBarStarted)),
-            CastBarPhase.Channel => (float)((_castBarEnds - now) / Math.Max(.001, _castBarEnds - _castBarStarted)),
+            CastBarPhase.Casting => CastingBarUiLaw.Progress(
+                _castBarStarted, _castBarEnds, now, channel: false),
+            CastBarPhase.Channel => CastingBarUiLaw.Progress(
+                _castBarStarted, _castBarEnds, now, channel: true),
             _ => 1f,
         };
-        fraction = Math.Clamp(fraction, 0, 1);
-        if (_uiParityArmed && _uiParityPanel == "cast-bar") fraction = .5f;
+        // Observational capture records the live spell lifecycle fraction. Only the explicit
+        // `ui-parity-stage cast-bar` fixture pins the authored half-progress sample.
+        if (parityProof && _uiParityFixtureStaged) fraction = .5f;
+        if (parityProof) SnapshotUiParityScenario(now, fraction);
         Vector4 color = _castBarPhase switch
         {
             CastBarPhase.Success => new(0, 1, 0, frameAlpha),
             CastBarPhase.Failed => new(1, 0, 0, frameAlpha),
             _ => new(1, .7f, 0, frameAlpha),
         };
-        DrawVanillaStatusBar(dl, barMin, barSize * s, fraction, color);
+        CastingBarUiLaw.StatusFill fill = CastingBarUiLaw.Fill(fraction);
+        uint fillTint = ImGui.ColorConvertFloat4ToU32(color);
+        uint status = _gameplayArt.Handle(@"Interface\TargetingFrame\UI-StatusBar");
+        if (status != 0 && fill.Fraction > 0)
+        {
+            Vector2 fillMax = new(barMin.X + fill.Width * s, barMin.Y + barSize.Y * s);
+            dl.AddImage((nint)status, barMin, fillMax, Vector2.Zero,
+                new Vector2(fill.U1, 1), fillTint);
+            if (parityProof)
+                CollectUiParityDraw("CastingBarFrame", "StatusBar", barMin, barSize * s,
+                    "UIParent", new(@"Interface\TargetingFrame\UI-StatusBar", fillTint,
+                        "BORDER", "BOTTOM", "UIParent", "BOTTOM", 0, bottom,
+                        TexCoords: $"0|0|{fill.U1:R}|1",
+                        ContentRect: new Vector4(barMin.X, barMin.Y, fillMax.X, fillMax.Y),
+                        ClipRect: windowClip, BlendMode: "BLEND", Visible: true,
+                        InteractionState: _castBarPhase.ToString().ToLowerInvariant(),
+                        Strata: "MEDIUM"));
+        }
         uint border = _gameplayArt.Handle(@"Interface\CastingBar\UI-CastingBar-Border");
-        if (border != 0) dl.AddImage((nint)border, p, p + size * s,
-            Vector2.Zero, Vector2.One, whiteTint);
-        DrawCenteredText(dl, barMin + new Vector2(97.5f, 3f) * s, _castBarText,
-            12f * s, whiteTint);
+        if (border != 0)
+        {
+            dl.AddImage((nint)border, p, p + size * s, Vector2.Zero, Vector2.One, whiteTint);
+            if (parityProof)
+                CollectUiParityDraw("CastingBarBorder", "Texture", p, size * s,
+                    "CastingBarFrame", new(@"Interface\CastingBar\UI-CastingBar-Border",
+                            whiteTint, "ARTWORK", "TOP", "CastingBarFrame", "TOP", 0,
+                            CastingBarUiLaw.ArtworkTopOffset,
+                        TexCoords: "0|0|1|1", ContentRect: windowClip, ClipRect: windowClip,
+                        BlendMode: "BLEND", Visible: true, Strata: "MEDIUM"));
+        }
+        float textSize = 12f * s;
+        Vector2 textExtent = ImGui.CalcTextSize(_castBarText) *
+            (textSize / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 textCenter = barMin + new Vector2(CastingBarUiLaw.Width * .5f, 3f) * s;
+        Vector2 textMin = textCenter - textExtent * .5f;
+        string castFontPath = !string.IsNullOrEmpty(_window.UiFontPath) &&
+            File.Exists(_window.UiFontPath) ? FontFace.FrizQt : "";
+        DrawCenteredText(dl, textCenter, _castBarText, textSize, whiteTint);
+        if (parityProof)
+            CollectUiParityDraw("CastingBarText", "FontString", textMin, textExtent,
+                "CastingBarFrame", new("", whiteTint, "ARTWORK", "CENTER",
+                    "CastingBarFrame", "CENTER", 0, 3.5f, castFontPath, 12,
+                    ContentRect: new Vector4(textMin.X, textMin.Y,
+                        textMin.X + textExtent.X, textMin.Y + textExtent.Y),
+                    ClipRect: windowClip, BlendMode: "BLEND", Visible: true,
+                    InteractionState: _castBarPhase.ToString().ToLowerInvariant(),
+                    Strata: "MEDIUM"));
         if (_castBarPhase == CastBarPhase.Success)
         {
             float flashAlpha = CastingBarUiLaw.FlashAlpha(finishedElapsed) * frameAlpha;
             uint flash = _gameplayArt.AdditiveHandle(@"Interface\CastingBar\UI-CastingBar-Flash");
             if (flash != 0)
+            {
+                uint flashTint = ImGui.ColorConvertFloat4ToU32(
+                    new Vector4(1f, 1f, 1f, flashAlpha));
                 dl.AddImage((nint)flash, p, p + size * s, Vector2.Zero, Vector2.One,
-                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, flashAlpha)));
+                    flashTint);
+                if (parityProof)
+                    CollectUiParityDraw("CastingBarFlash", "Texture", p, size * s,
+                        "CastingBarFrame", new(@"Interface\CastingBar\UI-CastingBar-Flash",
+                            flashTint, "OVERLAY", "TOP", "CastingBarFrame", "TOP", 0,
+                            CastingBarUiLaw.ArtworkTopOffset,
+                            TexCoords: "0|0|1|1", ContentRect: windowClip,
+                            ClipRect: windowClip, BlendMode: "ADD", Visible: true,
+                            InteractionState: "success", Strata: "MEDIUM"));
+            }
         }
         if (_castBarPhase is CastBarPhase.Casting or CastBarPhase.Channel)
         {
@@ -491,9 +550,27 @@ public sealed partial class GameLoop
             uint spark = _gameplayArt.AdditiveHandle(@"Interface\CastingBar\UI-CastingBar-Spark");
             if (spark != 0)
             {
-                float x = barMin.X + barSize.X * s * fraction;
-                dl.AddImage((nint)spark, new Vector2(x - 16 * s, barMin.Y - 9.5f * s),
-                    new Vector2(x + 16 * s, barMin.Y + 22.5f * s), Vector2.Zero, Vector2.One);
+                float x = barMin.X + CastingBarUiLaw.SparkCenter(fraction) * s;
+                // CastingBarFrame_OnUpdate seats the spark CENTER on the bar's LEFT edge at
+                // y=+2 (FrameXML coordinates are Y-up). The old -9.5/+22.5 bounds centered it
+                // on the bar instead, two pixels below the authored moving anchor.
+                Vector2 sparkMin = new(x - CastingBarUiLaw.SparkSize * .5f * s,
+                    barMin.Y + CastingBarUiLaw.SparkMinY * s);
+                Vector2 sparkMax = new(x + CastingBarUiLaw.SparkSize * .5f * s,
+                    barMin.Y + CastingBarUiLaw.SparkMaxY * s);
+                dl.AddImage((nint)spark, sparkMin, sparkMax, Vector2.Zero, Vector2.One);
+                if (parityProof)
+                    CollectUiParityDraw("CastingBarSpark", "Texture", sparkMin,
+                        sparkMax - sparkMin, "CastingBarFrame",
+                        new(@"Interface\CastingBar\UI-CastingBar-Spark", 0xffffffff,
+                            "OVERLAY", "CENTER", "CastingBarFrame", "LEFT",
+                            CastingBarUiLaw.SparkCenter(fraction), CastingBarUiLaw.SparkOffsetY,
+                            TexCoords: "0|0|1|1",
+                            ContentRect: new Vector4(sparkMin.X, sparkMin.Y,
+                                sparkMax.X, sparkMax.Y), ClipRect: windowClip,
+                            BlendMode: "ADD", Visible: true,
+                            InteractionState: _castBarPhase.ToString().ToLowerInvariant(),
+                            Strata: "MEDIUM"));
             }
         }
         if (_uiParityArmed && _uiParityPanel == "cast-bar") MarkUiParityFrameComplete();

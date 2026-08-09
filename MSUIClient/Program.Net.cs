@@ -211,6 +211,20 @@ public sealed partial class GameLoop
         bool loadActiveAtPumpEntry = _worldLoading;
         _wireLog.Pump();
         if (_net is null) return;
+        if (_net.State is NetState.Failed or NetState.Disconnected)
+        {
+            ResetQuestSession(clearStatusStore: true);
+            ResetPetActionBar();
+            ResetVendor();
+            // Frozen group-session clear feeds PARTY_INVITE_CANCEL before the retained UI feed
+            // drops the roster. ResetParty is idempotent after the first edge; a decline attempt
+            // may be rejected by the already-closed socket and is not claimed as a successful wire.
+            ResetParty();
+        }
+        // StaticPopup's monotonic two-slot Advance runs even when WorldMap or another full-screen
+        // owner suppresses DrawCombatHud. Keep slot time in the always-pumped lifecycle;
+        // DrawPartyInvite only presents the current PARTY_INVITE instance.
+        UpdatePartyInviteLifecycle();
 
         // Surface any character-create result (the create request runs while parked at select).
         if (_net.TryTakeCreateResult(out byte ccCode)) OnCreateResult(ccCode);
@@ -223,7 +237,10 @@ public sealed partial class GameLoop
             _entities.Clear();
             _combat.Clear();
             _actions.Clear();
-            ResetPlayerAuras();
+            // TakeEnterWorld also carries SMSG_NEW_WORLD. Group state is session-owned and must
+            // survive zoning; the disconnected/session edge above is the authoritative reset.
+            ResetPetActionBar();
+            EnterPlayerAuraWorld(_net.PlayerGuid);
             _movementRooted = false;
             _iceBlockFrozen = false;
             _iceBlockFacing = enter.Orientation;
@@ -237,6 +254,8 @@ public sealed partial class GameLoop
             ResetHearth();
             ResetTaxi();
             ResetGossip();
+            ResetVendor();
+            ResetQuestSession(clearStatusStore: true);
             ResetMail();
             _net.QueryNextMailTime();
             ResetAuction();
@@ -363,12 +382,36 @@ public sealed partial class GameLoop
                         ApplyPartyInvite(body);
                         break;
                     case Op.SMSG_GROUP_DECLINE:
-                        // This packet informs an inviter that the named invitee declined. It is
-                        // not the pending-invite popup's cancel signal.
+                        ApplyPartyDecline(body);
+                        break;
+                    case Op.SMSG_GROUP_UNINVITE:
+                        ApplyPartyUninvited(body);
+                        break;
+                    case Op.SMSG_GROUP_SET_LEADER:
+                        ApplyPartyLeaderChanged(body);
+                        break;
+                    case Op.SMSG_GROUP_DESTROYED:
+                        ApplyPartyDestroyed(body);
+                        break;
+                    case Op.SMSG_PARTY_COMMAND_RESULT:
+                        ApplyPartyCommandResult(body);
                         break;
                     case Op.SMSG_PARTY_MEMBER_STATS:
+                        ApplyPartyMemberStats(body, fullSnapshot: false);
+                        break;
                     case Op.SMSG_PARTY_MEMBER_STATS_FULL:
-                        ApplyPartyMemberStats(body);
+                        ApplyPartyMemberStats(body, fullSnapshot: true);
+                        break;
+                    case Op.MSG_MINIMAP_PING:
+                        // Frozen Benilla validates this rebroadcast but has no apply/UI consumer.
+                        _ = PartyFramePacketLaw.ParseMinimapPing(body);
+                        break;
+                    case Op.MSG_RAID_TARGET_UPDATE:
+                        ApplyPartyRaidTargetUpdate(body);
+                        break;
+                    case Op.MSG_RAID_READY_CHECK:
+                        // Frozen Benilla validates ready-check shapes but intentionally ignores them.
+                        _ = PartyFramePacketLaw.ParseReadyCheck(body);
                         break;
                     case Op.SMSG_PET_SPELLS:
                         ApplyPetSpells(body);
@@ -381,6 +424,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_PET_CAST_FAILED:
                         ApplyPetCastFailed(body);
+                        break;
+                    case Op.SMSG_SPELL_COOLDOWN:
+                        ApplyAddressedSpellCooldowns(body);
                         break;
                     case Op.SMSG_INSPECT:
                         ApplyInspect(body);
@@ -548,7 +594,11 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_ITEM_QUERY_SINGLE_RESPONSE:
-                        _items?.Apply(body);
+                        if (_items is not null)
+                        {
+                            uint landedItem = _items.Apply(body);
+                            ObserveQuestItemTemplateLanding(landedItem);
+                        }
                         break;
                     case Op.SMSG_GOSSIP_MESSAGE:
                         ApplyGossipMenu(body);
@@ -556,6 +606,7 @@ public sealed partial class GameLoop
                     case Op.SMSG_GOSSIP_COMPLETE:
                         EmitInterface("gossip", "complete", "RECEIVED", _gossipMenu?.SourceGuid ?? 0, "serverClosed=true");
                         ResetGossip();
+                        CloseQuestNpcFrame(playSound: true);
                         break;
                     case Op.SMSG_NPC_TEXT_UPDATE:
                         ApplyNpcText(body);
@@ -687,13 +738,22 @@ public sealed partial class GameLoop
                     case Op.SMSG_QUESTUPDATE_FAILED:
                     case Op.SMSG_QUESTUPDATE_FAILEDTIMER:
                     case Op.SMSG_QUESTLOG_FULL:
-                        EmitInterface("quest", "error", "RECEIVED", _selectionGuid,
-                            $"opcode=0x{opcode:X4};bytes={body.Length};hex={Convert.ToHexString(body)}");
+                        ApplyQuestError((Op)opcode, body);
+                        break;
+                    case Op.SMSG_INIT_WORLD_STATES:
+                        ApplyInitialWorldStates(body);
+                        break;
+                    case Op.SMSG_UPDATE_WORLD_STATE:
+                        ApplyWorldState(body);
                         break;
                     case Op.SMSG_BUY_ITEM:
+                        ApplyVendorStockUpdate(body);
+                        break;
                     case Op.SMSG_BUY_FAILED:
+                        ApplyVendorBuyFailure(body);
+                        break;
                     case Op.SMSG_SELL_ITEM:
-                        ApplyVendorResult((Op)opcode,body);
+                        ApplyVendorSellFailure(body);
                         break;
                     case Op.SMSG_NAME_QUERY_RESPONSE:
                         {
@@ -705,14 +765,13 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_CREATURE_QUERY_RESPONSE:
                         {
-                            var r = new PacketReader(body);
-                            uint rawEntry = r.ReadU32();
-                            uint entry = rawEntry & 0x7fff_ffffu;
-                            if ((rawEntry & 0x8000_0000u) == 0)
-                            {
-                                string name = r.ReadCString();
-                                if (name.Length > 0) _creatureNames[entry] = name;
-                            }
+                            CreatureQueryResponse response = CreatureQueryPacket.Parse(body);
+                            _queriedCreatureNames.Remove(response.Entry);
+                            _creatureQueryRecords[response.Entry] = response.Info;
+                            if (response.Info is { Name.Length: > 0 } info)
+                                _creatureNames[response.Entry] = info.Name;
+                            else
+                                _creatureNames.Remove(response.Entry);
                         }
                         break;
                     case Op.SMSG_SPELL_START:
@@ -737,18 +796,20 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SPELL_DELAYED:
                         {
-                            var r = new PacketReader(body);
-                            EnqueueSpellPresentation(new SpellDelayedEvent(r.ReadU64(), r.ReadU32()));
+                            SpellDelayedPacket delayed = SpellLifecyclePacketParser.ParseDelayed(body);
+                            EnqueueSpellPresentation(new SpellDelayedEvent(delayed.Caster, delayed.DelayMs));
                         }
                         break;
                     case Op.MSG_CHANNEL_START:
                         {
-                            var r = new PacketReader(body); uint spell = r.ReadU32(); uint duration = r.ReadU32();
-                            EnqueueSpellPresentation(new SpellChannelStartEvent(spell, duration));
+                            SpellChannelStartPacket channel = SpellLifecyclePacketParser.ParseChannelStart(body);
+                            EnqueueSpellPresentation(new SpellChannelStartEvent(
+                                channel.SpellId, channel.DurationMs));
                         }
                         break;
                     case Op.MSG_CHANNEL_UPDATE:
-                        EnqueueSpellPresentation(new SpellChannelUpdateEvent(new PacketReader(body).ReadU32()));
+                        EnqueueSpellPresentation(new SpellChannelUpdateEvent(
+                            SpellLifecyclePacketParser.ParseChannelUpdate(body)));
                         break;
                     case Op.SMSG_PLAY_SPELL_VISUAL:
                         {
@@ -1953,6 +2014,7 @@ public sealed partial class GameLoop
         _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: true);
         FinishGameplayDump();
         FinishUiParityCapture();
+        FinishBagContainmentCapture();
     }
 
 

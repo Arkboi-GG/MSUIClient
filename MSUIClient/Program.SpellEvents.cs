@@ -17,7 +17,7 @@ public sealed partial class GameLoop
     private sealed record SpellFailedOtherEvent(ulong Caster, uint SpellId) : SpellPresentationEvent;
     private sealed record SpellDelayedEvent(ulong Caster, uint DelayMs) : SpellPresentationEvent;
     private sealed record SpellChannelStartEvent(uint SpellId, uint DurationMs) : SpellPresentationEvent;
-    private sealed record SpellChannelUpdateEvent(uint DurationMs) : SpellPresentationEvent;
+    private sealed record SpellChannelUpdateEvent(uint RemainingMs) : SpellPresentationEvent;
     private sealed record SpellKitPushEvent(ulong Unit, uint KitId) : SpellPresentationEvent;
     private sealed record SpellAutoRepeatCancelledEvent : SpellPresentationEvent;
 
@@ -57,7 +57,7 @@ public sealed partial class GameLoop
                     BeginChannel(e.SpellId, e.DurationMs);
                     break;
                 case SpellChannelUpdateEvent e:
-                    UpdateChannel(e.DurationMs);
+                    UpdateChannel(e.RemainingMs);
                     break;
                 case SpellKitPushEvent e:
                     ApplyPushedVisual(e.Unit, e.KitId);

@@ -19,10 +19,13 @@ try
         "packet" => Packet(args[1..]),
         "workspace" => Workspace(args[1..]),
         "workspace-validate" => WorkspaceValidate(args[1..]),
+        "evidence-seal" => EvidenceSeal(args[1..]),
         "workspace-migrate" => WorkspaceMigrate(args[1..]),
         "claim-update" => ClaimUpdate(args[1..]),
         "claim-targets" => ClaimTargets(args[1..]),
+        "ledger-refresh" => LedgerRefresh(args[1..]),
         "trace-add" => TraceAdd(args[1..]),
+        "trace-update" => TraceUpdate(args[1..]),
         "claim-add" => ClaimAdd(args[1..]),
         "migrate" => Migrate(args[1..]),
         "self-test" => SelfTest(),
@@ -135,10 +138,51 @@ static int WorkspaceValidate(string[] arguments)
     ReviewQueue queue = JsonStore.Read<ReviewQueue>(Need(o, "queue"));
     PacketWorkspaceValidation result = PacketWorkspaceWriter.Validate(Need(o, "root"), pair, queue);
     foreach (string error in result.Errors) Console.Error.WriteLine($"[snapshot-parity] ERROR {error}");
+    if (o.TryGetValue("out", out string? output))
+    {
+        object[] errors = result.Errors.Select(error =>
+        {
+            int separator = error.IndexOf(": ", StringComparison.Ordinal);
+            string packetId = separator > 0 ? error[..separator] : "workspace";
+            string message = separator > 0 ? error[(separator + 2)..] : error;
+            string category = message.Contains("acceptance checkpoint", StringComparison.Ordinal)
+                ? "acceptance"
+                : message.Contains("trace", StringComparison.Ordinal) &&
+                  message.Contains("disposition", StringComparison.Ordinal)
+                    ? "trace-disposition"
+                    : message.Contains("evidence", StringComparison.Ordinal)
+                        ? "packet-evidence"
+                        : "other";
+            return (object)new { packetId, category, message };
+        }).ToArray();
+        JsonStore.Write(output, new
+        {
+            schemaVersion = 1,
+            kind = "packet-workspace-validation",
+            pairId = pair.Id,
+            generatedUtc = DateTimeOffset.UtcNow,
+            result = result.Errors.Count == 0 ? "PASS" : "FAIL",
+            packetCount = result.PacketCount,
+            verifiedCount = result.VerifiedCount,
+            blockedOrUnreviewedCount = result.BlockedCount,
+            errorCount = result.Errors.Count,
+            errors,
+        });
+    }
     Console.WriteLine($"[snapshot-parity] packet workspace {result.VerifiedCount:N0} verified, " +
         $"{result.BlockedCount:N0} blocked/unreviewed, {result.Errors.Count:N0} error(s), " +
         $"{result.PacketCount:N0} packet(s)");
     return result.Errors.Count == 0 ? 0 : 3;
+}
+
+static int EvidenceSeal(string[] arguments)
+{
+    Dictionary<string, string> o = Options(arguments);
+    string folder = Need(o, "packet-folder");
+    SnapshotPair pair = JsonStore.Read<SnapshotPair>(Need(o, "pair"));
+    int count = PacketWorkspaceWriter.SealEvidence(folder, pair);
+    Console.WriteLine($"[snapshot-parity] sealed {count:N0} evidence file(s) in {Path.GetFullPath(folder)}");
+    return 0;
 }
 
 static int WorkspaceMigrate(string[] arguments)
@@ -156,15 +200,37 @@ static int ClaimUpdate(string[] arguments)
 {
     Dictionary<string, string> o = Options(arguments);
     string path = Need(o, "claims"), id = Need(o, "id");
+    Dictionary<string, BehaviorTrace>? traces = o.TryGetValue("traces", out string? tracesPath)
+        ? JsonStore.ReadLines<BehaviorTrace>(tracesPath).ToDictionary(t => t.Id, StringComparer.Ordinal)
+        : null;
     if (!Enum.TryParse(Need(o, "verdict"), true, out ClaimVerdict verdict) || verdict == ClaimVerdict.Unknown)
         throw new ArgumentException("--verdict is invalid");
     JsonStore.UpdateLine<ComparisonClaim>(path, c => c.Id == id, claim =>
     {
+        if (traces is not null)
+        {
+            string[] traceIds = o.TryGetValue("trace-ids", out string? requestedTraceIds)
+                ? requestedTraceIds.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : claim.TraceIds.ToArray();
+            var resolved = new List<BehaviorTrace>();
+            foreach (string traceId in traceIds.Distinct(StringComparer.Ordinal))
+            {
+                if (!traces.TryGetValue(traceId, out BehaviorTrace? trace) || trace.PairId != claim.PairId)
+                    throw new InvalidDataException($"trace {traceId} is absent or stale for claim {id}");
+                resolved.Add(trace);
+            }
+            claim.TraceIds = resolved.Select(t => t.Id).ToList();
+            claim.ReferenceFacts = resolved.SelectMany(t => t.ReferenceFacts)
+                .GroupBy(f => f.Id, StringComparer.Ordinal).Select(g => g.First()).ToList();
+        }
         claim.Verdict = verdict;
         if (o.TryGetValue("summary", out string? summary)) claim.Summary = summary;
+        if (o.TryGetValue("behavior", out string? behavior)) claim.Behavior = behavior;
+        if (o.TryGetValue("negative", out string? negative)) claim.NegativeBehavior = negative;
+        if (!verdict.IsTerminal()) claim.VerificationIds.Clear();
         if (o.TryGetValue("verification", out string? verification))
-            claim.VerificationIds = claim.VerificationIds.Concat(verification.Split('|',
-                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            claim.VerificationIds = verification.Split('|',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.Ordinal).ToList();
         if (o.TryGetValue("decision", out string? decision)) claim.DecisionId = decision;
         claim.Reviewer = o.GetValueOrDefault("reviewer", "Codex");
@@ -174,6 +240,9 @@ static int ClaimUpdate(string[] arguments)
             throw new InvalidDataException("verifiedEquivalent requires target and verification evidence");
         if (claim.Verdict == ClaimVerdict.ApprovedDeviation && string.IsNullOrWhiteSpace(claim.DecisionId))
             throw new InvalidDataException("approvedDeviation requires --decision");
+        if (claim.Verdict == ClaimVerdict.ApprovedDeviation &&
+            (claim.TargetFacts.Count == 0 || claim.VerificationIds.Count == 0))
+            throw new InvalidDataException("approvedDeviation requires target and verification evidence");
     });
     Console.WriteLine($"[snapshot-parity] updated {id} to {verdict}");
     return 0;
@@ -193,7 +262,7 @@ static int ClaimTargets(string[] arguments)
     {
         if (!target.TryGetValue(factId, out SourceFact? fact))
             throw new InvalidDataException($"target fact {factId} is not in {pair.Id}");
-        references.Add(new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256 });
+        references.Add(new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256, FileSha256 = fact.FileSha256 });
     }
     JsonStore.UpdateLine<ComparisonClaim>(path, c => c.Id == id, claim =>
     {
@@ -204,6 +273,75 @@ static int ClaimTargets(string[] arguments)
         claim.ReviewedUtc = DateTimeOffset.UtcNow;
     });
     Console.WriteLine($"[snapshot-parity] replaced {id} target evidence with {references.Count:N0} fact(s)");
+    return 0;
+}
+
+static int LedgerRefresh(string[] arguments)
+{
+    Dictionary<string, string> o = Options(arguments);
+    SnapshotPair pair = JsonStore.Read<SnapshotPair>(Need(o, "pair"));
+    string tracesPath = Need(o, "traces"), claimsPath = Need(o, "claims");
+    List<BehaviorTrace> traces = JsonStore.ReadLines<BehaviorTrace>(tracesPath);
+    List<ComparisonClaim> claims = JsonStore.ReadLines<ComparisonClaim>(claimsPath);
+    Dictionary<string, SourceFact> reference = pair.ReferenceFacts.ToDictionary(f => f.Id,
+        StringComparer.Ordinal);
+    Dictionary<string, SourceFact> target = pair.TargetFacts.ToDictionary(f => f.Id,
+        StringComparer.Ordinal);
+
+    List<FactReference> Refresh(IEnumerable<FactReference> existing,
+        IReadOnlyDictionary<string, SourceFact> facts, string kind, string owner)
+    {
+        var refreshed = new List<FactReference>();
+        foreach (string id in existing.Select(f => f.Id).Distinct(StringComparer.Ordinal))
+        {
+            if (!facts.TryGetValue(id, out SourceFact? fact))
+                throw new InvalidDataException($"{owner} {kind} fact {id} is not in {pair.Id}");
+            refreshed.Add(new()
+            {
+                Id = fact.Id,
+                EvidenceSha256 = fact.EvidenceSha256,
+                FileSha256 = fact.FileSha256,
+            });
+        }
+        return refreshed;
+    }
+
+    foreach (BehaviorTrace trace in traces)
+    {
+        if (trace.PairId != pair.Id)
+            throw new InvalidDataException($"trace {trace.Id} belongs to {trace.PairId}, not {pair.Id}");
+        trace.ReferenceFacts = Refresh(trace.ReferenceFacts, reference, "reference", $"trace {trace.Id}");
+    }
+    Dictionary<string, BehaviorTrace> tracesById = traces.ToDictionary(t => t.Id, StringComparer.Ordinal);
+    foreach (ComparisonClaim claim in claims)
+    {
+        if (claim.PairId != pair.Id)
+            throw new InvalidDataException($"claim {claim.Id} belongs to {claim.PairId}, not {pair.Id}");
+        if (claim.TraceIds.Count != 0)
+        {
+            var linked = new List<BehaviorTrace>();
+            foreach (string traceId in claim.TraceIds.Distinct(StringComparer.Ordinal))
+            {
+                if (!tracesById.TryGetValue(traceId, out BehaviorTrace? trace))
+                    throw new InvalidDataException($"trace {traceId} is absent for claim {claim.Id}");
+                linked.Add(trace);
+            }
+            claim.TraceIds = linked.Select(t => t.Id).ToList();
+            claim.ReferenceFacts = linked.SelectMany(t => t.ReferenceFacts)
+                .GroupBy(f => f.Id, StringComparer.Ordinal).Select(g => g.First()).ToList();
+        }
+        else
+        {
+            claim.ReferenceFacts = Refresh(claim.ReferenceFacts, reference, "reference", $"claim {claim.Id}");
+        }
+        claim.TargetFacts = Refresh(claim.TargetFacts, target, "target", $"claim {claim.Id}");
+        if (!claim.Verdict.IsTerminal()) claim.VerificationIds.Clear();
+    }
+
+    JsonStore.WriteLines(tracesPath, traces);
+    JsonStore.WriteLines(claimsPath, claims);
+    Console.WriteLine($"[snapshot-parity] refreshed {traces.Count:N0} traces and {claims.Count:N0} claims " +
+        $"against {pair.Id}");
     return 0;
 }
 
@@ -235,6 +373,31 @@ static int TraceAdd(string[] arguments)
     return 0;
 }
 
+static int TraceUpdate(string[] arguments)
+{
+    Dictionary<string, string> o = Options(arguments);
+    SnapshotPair pair = JsonStore.Read<SnapshotPair>(Need(o, "pair"));
+    string path = Need(o, "traces"), id = Need(o, "id");
+    var reference = pair.ReferenceFacts.ToDictionary(f => f.Id, StringComparer.Ordinal);
+    List<FactReference> facts = FactReferences(Need(o, "reference-facts"), reference, "reference");
+    JsonStore.UpdateLine<BehaviorTrace>(path, t => t.Id == id, trace =>
+    {
+        if (trace.PairId != pair.Id)
+            throw new InvalidDataException($"trace {id} belongs to {trace.PairId}, not {pair.Id}");
+        trace.Name = Need(o, "name");
+        trace.Surface = Need(o, "surface");
+        trace.Trigger = Need(o, "trigger");
+        trace.Preconditions = Need(o, "preconditions");
+        trace.Behavior = Need(o, "behavior");
+        trace.NegativeBehavior = Need(o, "negative");
+        trace.ReferenceFacts = facts;
+        trace.Reviewer = o.GetValueOrDefault("reviewer", "Codex");
+        trace.ReviewedUtc = DateTimeOffset.UtcNow;
+    });
+    Console.WriteLine($"[snapshot-parity] updated trace {id} with {facts.Count:N0} reference fact(s)");
+    return 0;
+}
+
 static int ClaimAdd(string[] arguments)
 {
     Dictionary<string, string> o = Options(arguments);
@@ -259,6 +422,8 @@ static int ClaimAdd(string[] arguments)
         Id = id,
         PairId = pair.Id,
         TraceIds = traceIds.Distinct(StringComparer.Ordinal).ToList(),
+        ReferenceFacts = traceIds.SelectMany(traceId => traces[traceId].ReferenceFacts)
+            .GroupBy(f => f.Id, StringComparer.Ordinal).Select(g => g.First()).ToList(),
         TargetFacts = targetFacts,
         Verdict = verdict,
         Summary = Need(o, "summary"),
@@ -276,6 +441,9 @@ static int ClaimAdd(string[] arguments)
         throw new InvalidDataException("verifiedEquivalent requires target and verification evidence");
     if (claim.Verdict == ClaimVerdict.ApprovedDeviation && string.IsNullOrWhiteSpace(claim.DecisionId))
         throw new InvalidDataException("approvedDeviation requires --decision");
+    if (claim.Verdict == ClaimVerdict.ApprovedDeviation &&
+        (claim.TargetFacts.Count == 0 || claim.VerificationIds.Count == 0))
+        throw new InvalidDataException("approvedDeviation requires target and verification evidence");
     JsonStore.AppendLine(path, claim);
     Console.WriteLine($"[snapshot-parity] added {verdict} claim {id}");
     return 0;
@@ -290,7 +458,7 @@ static List<FactReference> FactReferences(string ids, IReadOnlyDictionary<string
     {
         if (!facts.TryGetValue(id, out SourceFact? fact))
             throw new InvalidDataException($"{kind} fact {id} is not in the pair");
-        references.Add(new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256 });
+        references.Add(new() { Id = fact.Id, EvidenceSha256 = fact.EvidenceSha256, FileSha256 = fact.FileSha256 });
     }
     if (references.Count == 0) throw new ArgumentException($"at least one {kind} fact is required");
     return references;
@@ -341,7 +509,10 @@ static int SelfTest()
         Id = "trace-self-test", PairId = pair.Id, Name = "demo wire behavior",
         Surface = "protocol", Trigger = "send demo", Preconditions = "session is active",
         Behavior = "sends opcode 0x123", NegativeBehavior = "does not send another opcode",
-        ReferenceFacts = [new() { Id = opcode.Id, EvidenceSha256 = opcode.EvidenceSha256 }],
+        ReferenceFacts = referenceFacts.Facts
+            .Where(f => f.Path == opcode.Path)
+            .Select(f => new FactReference { Id = f.Id, EvidenceSha256 = f.EvidenceSha256,
+                FileSha256 = f.FileSha256 }).ToList(),
     };
     SourceFact targetOpcode = pair.TargetFacts.Single(f => f.Kind == "opcode" && f.Name == "SMSG_DEMO");
     var claim = new ComparisonClaim
@@ -357,8 +528,9 @@ static int SelfTest()
         gapQueue.Packets[0].Claims.All(c => c.Id != claim.Id))
         throw new InvalidDataException("nonterminal gap did not become the first implementation packet");
     claim.Verdict = ClaimVerdict.VerifiedEquivalent;
-    claim.TargetFacts = [new() { Id = targetOpcode.Id, EvidenceSha256 = targetOpcode.EvidenceSha256 }];
-    claim.VerificationIds = ["self-test"];
+    claim.TargetFacts = [new() { Id = targetOpcode.Id, EvidenceSha256 = targetOpcode.EvidenceSha256,
+        FileSha256 = targetOpcode.FileSha256 }];
+    claim.VerificationIds = ["artifact-self-test"];
     ReviewQueue resolvedQueue = ReviewQueueWriter.Build(pair, [trace], [claim]);
     ReviewPacket completedPacket = resolvedQueue.Packets.Single(p => p.ReferenceFactIds.Contains(opcode.Id));
     if (completedPacket.UnresolvedReferenceFactIds.Contains(opcode.Id))
@@ -372,6 +544,315 @@ static int SelfTest()
     PacketWorkspaceValidation workspaceResult = PacketWorkspaceWriter.Validate(workspace, pair, queue);
     if (workspaceResult.Errors.Count != 0 || workspaceResult.PacketCount != queue.Packets.Count)
         throw new InvalidDataException("packet workspace did not materialize a valid blocked audit");
+    string acceptanceWorkspace = Path.Combine(root, "acceptance-workspace");
+    PacketWorkspaceWriter.Materialize(acceptanceWorkspace, pair, resolvedQueue);
+    string acceptanceAuditPath = Path.Combine(acceptanceWorkspace, pair.Id,
+        PacketWorkspaceWriter.FolderName(completedPacket), "audit.json");
+    PacketAudit acceptanceAudit = JsonStore.Read<PacketAudit>(acceptanceAuditPath);
+    acceptanceAudit.Status = PacketAuditStatus.Verified;
+    acceptanceAudit.Classification = PacketClassification.Missing;
+    acceptanceAudit.WritePolicy = PacketWritePolicy.Port;
+    acceptanceAudit.Reviewer = "snapshot-parity-self-test";
+    acceptanceAudit.ReviewedUtc = DateTimeOffset.UtcNow;
+    string acceptanceEvidenceRoot = Path.Combine(Path.GetDirectoryName(acceptanceAuditPath)!, "evidence");
+    Directory.CreateDirectory(Path.Combine(acceptanceEvidenceRoot, "before"));
+    Directory.CreateDirectory(Path.Combine(acceptanceEvidenceRoot, "reference"));
+    Directory.CreateDirectory(Path.Combine(acceptanceEvidenceRoot, "after"));
+    Directory.CreateDirectory(Path.Combine(acceptanceEvidenceRoot, "live"));
+    File.WriteAllText(Path.Combine(acceptanceEvidenceRoot, "before", "state.txt"), "before");
+    File.WriteAllText(Path.Combine(acceptanceEvidenceRoot, "reference", "contract.txt"), "reference");
+    File.WriteAllText(Path.Combine(acceptanceEvidenceRoot, "after", "state.txt"), "after");
+    string proofPath = Path.Combine(acceptanceEvidenceRoot, "live", "proof.json");
+    JsonStore.Write(proofPath, new
+    {
+        schemaVersion = 1,
+        kind = "source-evidence",
+        result = "PASS",
+        assertionsPassed = 1,
+        assertionsFailed = 0,
+    });
+    static string EvidenceHash(string path) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+    string uiRoot = Path.Combine(acceptanceEvidenceRoot, "ui");
+    Directory.CreateDirectory(uiRoot);
+    string uiExpectedPath = Path.Combine(uiRoot, "expected.csv");
+    string uiActualPath = Path.Combine(uiRoot, "actual.csv");
+    string uiSelectionPath = Path.Combine(uiRoot, "selection.txt");
+    string uiOutputPath = Path.Combine(uiRoot, "diff.csv");
+    string uiToolPath = Path.Combine(uiRoot, "ui-parity.dll");
+    string uiProofPath = Path.Combine(uiRoot, "diff-manifest.json");
+    string uiResultPath = Path.Combine(uiRoot, "result.json");
+    File.WriteAllText(uiExpectedPath, "reference\n");
+    File.WriteAllText(uiActualPath, "actual\n");
+    File.WriteAllText(uiSelectionPath, "scope=all-reference-elements\n");
+    File.WriteAllText(uiOutputPath,
+        "panel,element,field,expected,actual,verdict,decisionId,reason\n" +
+        "panel,element,geometry,1,1,PASS,,\n");
+    File.WriteAllText(uiToolPath, "self-test-ui-tool");
+    void WriteUiProof(int mechanicalDeltas)
+    {
+        JsonStore.Write(uiProofPath, new
+        {
+            schemaVersion = 1,
+            kind = "ui-mechanical-diff",
+            result = "PASS",
+            assertionsPassed = 1,
+            assertionsFailed = 0,
+            referenceRows = 1,
+            instrumentedRows = 1,
+            notDrawnRows = 0,
+            verdictRows = 1,
+            mechanicalDeltas,
+            preservedDifferences = 0,
+            expected = new { path = Path.GetFileName(uiExpectedPath), sha256 = EvidenceHash(uiExpectedPath) },
+            actual = new { path = Path.GetFileName(uiActualPath), sha256 = EvidenceHash(uiActualPath) },
+            selection = new { path = Path.GetFileName(uiSelectionPath), sha256 = EvidenceHash(uiSelectionPath) },
+            adjudications = (object?)null,
+            output = new { path = Path.GetFileName(uiOutputPath), sha256 = EvidenceHash(uiOutputPath) },
+            tool = new { path = Path.GetFileName(uiToolPath), sha256 = EvidenceHash(uiToolPath) },
+        });
+    }
+    WriteUiProof(0);
+    acceptanceAudit.MsuiBefore = new() { Summary = "Missing", Evidence = ["evidence/before/state.txt"] };
+    acceptanceAudit.ReferenceRequirement = new() { Summary = "Required", Evidence = ["evidence/reference/contract.txt"] };
+    acceptanceAudit.Change = new() { Summary = "Ported", Files = ["Net/Opcodes.cs"] };
+    acceptanceAudit.MsuiAfter = new() { Summary = "Present", Evidence = ["evidence/after/state.txt"] };
+    acceptanceAudit.Verification =
+    [
+        "evidence/live/proof.json", "evidence/live/result.json",
+        "evidence/ui/diff-manifest.json", "evidence/ui/result.json",
+    ];
+    JsonStore.Write(acceptanceAuditPath, acceptanceAudit);
+    PacketWorkspaceValidation missingAcceptance = PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue);
+    if (!missingAcceptance.Errors.Any(e => e.Contains("acceptance checkpoint", StringComparison.Ordinal)))
+        throw new InvalidDataException("verified packet passed without the mandatory acceptance checkpoints");
+    foreach (string id in PacketWorkspaceWriter.RequiredAcceptanceChecks)
+        acceptanceAudit.Acceptance[id] = new()
+        {
+            Result = AcceptanceResult.NotApplicable,
+            Summary = "the self-test uses source evidence to prove this facet is not applicable",
+            Evidence = ["evidence/live/proof.json"],
+            ArtifactIds = ["artifact-self-test"],
+        };
+    acceptanceAudit.Acceptance["visual-geometry-anchors"].Evidence.Add("evidence/ui/diff-manifest.json");
+    acceptanceAudit.Acceptance["visual-geometry-anchors"].ArtifactIds.Add("artifact-ui-self-test");
+    acceptanceAudit.VerificationArtifactIds = ["artifact-self-test", "artifact-ui-self-test"];
+    acceptanceAudit.TraceDispositions =
+    [
+        new()
+        {
+            TraceId = trace.Id,
+            Classification = PacketClassification.Missing,
+            WritePolicy = PacketWritePolicy.Port,
+            Summary = "the self-test opcode was ported",
+            ChangedSymbols = ["Net/Opcodes.cs:SMSG_DEMO"],
+            Evidence = ["evidence/after/state.txt"],
+        },
+    ];
+    string resultPath = Path.Combine(acceptanceEvidenceRoot, "live", "result.json");
+    JsonStore.Write(resultPath,
+        new VerificationResultEnvelope
+        {
+            PairId = pair.Id,
+            PacketId = acceptanceAudit.PacketId,
+            ReferenceSnapshotSha256 = pair.ReferenceSnapshotSha256,
+            TargetSnapshotSha256 = pair.TargetSnapshotSha256,
+            ArtifactId = "artifact-self-test",
+            ArtifactKind = VerificationArtifactKind.SourceEvidence,
+            Result = VerificationArtifactResult.Pass,
+            ScenarioId = "self-test-applicability",
+            Provenance = FixtureProvenance.StaticReview,
+            ToolPath = targetOpcode.Path,
+            ToolSha256 = targetOpcode.FileSha256,
+            AssertionsPassed = 1,
+            AssertionsFailed = 0,
+            ProofFile = "evidence/live/proof.json",
+            ProofKind = "source-evidence",
+            GeneratedUtc = DateTimeOffset.UtcNow,
+            Files =
+            [
+                new()
+                {
+                    Path = "evidence/live/proof.json",
+                    Sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                        File.ReadAllBytes(proofPath))).ToLowerInvariant(),
+                },
+            ],
+        });
+    string[] uiRawFiles =
+    [
+        "evidence/ui/expected.csv",
+        "evidence/ui/actual.csv",
+        "evidence/ui/selection.txt",
+        "evidence/ui/diff.csv",
+        "evidence/ui/ui-parity.dll",
+        "evidence/ui/diff-manifest.json",
+    ];
+    JsonStore.Write(uiResultPath,
+        new VerificationResultEnvelope
+        {
+            PairId = pair.Id,
+            PacketId = acceptanceAudit.PacketId,
+            ReferenceSnapshotSha256 = pair.ReferenceSnapshotSha256,
+            TargetSnapshotSha256 = pair.TargetSnapshotSha256,
+            ArtifactId = "artifact-ui-self-test",
+            ArtifactKind = VerificationArtifactKind.UiDiff,
+            Result = VerificationArtifactResult.Pass,
+            ScenarioId = "self-test-ui-diff",
+            Provenance = FixtureProvenance.StaticReview,
+            ToolPath = targetOpcode.Path,
+            ToolSha256 = targetOpcode.FileSha256,
+            AssertionsPassed = 1,
+            AssertionsFailed = 0,
+            ProofFile = "evidence/ui/diff-manifest.json",
+            ProofKind = "ui-mechanical-diff",
+            GeneratedUtc = DateTimeOffset.UtcNow,
+            Files = uiRawFiles.Select(path => new VerificationResultFile
+            {
+                Path = path,
+                Sha256 = EvidenceHash(Path.Combine(acceptanceEvidenceRoot,
+                    path["evidence/".Length..].Replace('/', Path.DirectorySeparatorChar))),
+            }).ToList(),
+        });
+    JsonStore.Write(Path.Combine(acceptanceEvidenceRoot, "verification-manifest.json"),
+        new VerificationArtifactManifest
+        {
+            PairId = pair.Id,
+            PacketId = acceptanceAudit.PacketId,
+            ReferenceSnapshotSha256 = pair.ReferenceSnapshotSha256,
+            TargetSnapshotSha256 = pair.TargetSnapshotSha256,
+            GeneratedUtc = DateTimeOffset.UtcNow,
+            Artifacts =
+            [
+                new()
+                {
+                    Id = "artifact-self-test",
+                    Kind = VerificationArtifactKind.SourceEvidence,
+                    Result = VerificationArtifactResult.Pass,
+                    ScenarioId = "self-test-applicability",
+                    Provenance = FixtureProvenance.StaticReview,
+                    ToolPath = targetOpcode.Path,
+                    ToolSha256 = targetOpcode.FileSha256,
+                    AssertionsPassed = 1,
+                    AssertionsFailed = 0,
+                    ResultFile = "evidence/live/result.json",
+                    CheckpointIds = [.. PacketWorkspaceWriter.RequiredAcceptanceChecks],
+                    TraceIds = [trace.Id],
+                    Files = ["evidence/live/proof.json", "evidence/live/result.json"],
+                },
+                new()
+                {
+                    Id = "artifact-ui-self-test",
+                    Kind = VerificationArtifactKind.UiDiff,
+                    Result = VerificationArtifactResult.Pass,
+                    ScenarioId = "self-test-ui-diff",
+                    Provenance = FixtureProvenance.StaticReview,
+                    ToolPath = targetOpcode.Path,
+                    ToolSha256 = targetOpcode.FileSha256,
+                    AssertionsPassed = 1,
+                    AssertionsFailed = 0,
+                    ResultFile = "evidence/ui/result.json",
+                    CheckpointIds = ["visual-geometry-anchors"],
+                    TraceIds = [trace.Id],
+                    Files = [.. uiRawFiles, "evidence/ui/result.json"],
+                },
+            ],
+        });
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    JsonStore.Write(acceptanceAuditPath, acceptanceAudit);
+    if (PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Count != 0)
+        throw new InvalidDataException("complete acceptance checklist did not validate");
+    WriteUiProof(1);
+    VerificationResultEnvelope uiTamperedEnvelope = JsonStore.Read<VerificationResultEnvelope>(uiResultPath);
+    uiTamperedEnvelope.Files.Single(file =>
+        file.Path == "evidence/ui/diff-manifest.json").Sha256 = EvidenceHash(uiProofPath);
+    JsonStore.Write(uiResultPath, uiTamperedEnvelope);
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    if (!PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Any(error =>
+            error.Contains("has deltas", StringComparison.Ordinal)))
+        throw new InvalidDataException("a hash-consistent UI proof with a mechanical delta was accepted");
+    WriteUiProof(0);
+    uiTamperedEnvelope.Files.Single(file =>
+        file.Path == "evidence/ui/diff-manifest.json").Sha256 = EvidenceHash(uiProofPath);
+    JsonStore.Write(uiResultPath, uiTamperedEnvelope);
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    if (PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Count != 0)
+        throw new InvalidDataException("restored UI proof did not validate");
+    JsonStore.Write(proofPath, new
+    {
+        schemaVersion = 1,
+        kind = "source-evidence",
+        result = "FAIL",
+        assertionsPassed = 1,
+        assertionsFailed = 0,
+    });
+    VerificationResultEnvelope tamperedEnvelope = JsonStore.Read<VerificationResultEnvelope>(resultPath);
+    tamperedEnvelope.Files.Single().Sha256 = Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(proofPath))).ToLowerInvariant();
+    JsonStore.Write(resultPath, tamperedEnvelope);
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    if (!PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Any(error =>
+            error.Contains("proof kind/result", StringComparison.Ordinal)))
+        throw new InvalidDataException("a hash-consistent FAIL proof was accepted");
+    JsonStore.Write(proofPath, new
+    {
+        schemaVersion = 1,
+        kind = "source-evidence",
+        result = "PASS",
+        assertionsPassed = 1,
+        assertionsFailed = 0,
+    });
+    tamperedEnvelope.Files.Single().Sha256 = Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(proofPath))).ToLowerInvariant();
+    tamperedEnvelope.TargetSnapshotSha256 = "stale-target";
+    JsonStore.Write(resultPath, tamperedEnvelope);
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    if (!PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Any(error =>
+            error.Contains("not pinned", StringComparison.Ordinal)))
+        throw new InvalidDataException("a result envelope with a stale target snapshot was accepted");
+    tamperedEnvelope.TargetSnapshotSha256 = pair.TargetSnapshotSha256;
+    JsonStore.Write(resultPath, tamperedEnvelope);
+    PacketWorkspaceWriter.SealEvidence(Path.GetDirectoryName(acceptanceAuditPath)!, pair);
+    if (PacketWorkspaceWriter.Validate(acceptanceWorkspace, pair, resolvedQueue).Errors.Count != 0)
+        throw new InvalidDataException("restored typed evidence did not validate");
+    string pairPath = Path.Combine(root, "pair.json");
+    string traceLedger = Path.Combine(root, "trace-update.jsonl");
+    string claimLedger = Path.Combine(root, "claim-update.jsonl");
+    JsonStore.Write(pairPath, pair);
+    JsonStore.WriteLines(traceLedger, new[] { trace });
+    JsonStore.WriteLines(claimLedger, new[] { claim });
+    TraceUpdate([
+        "--pair", pairPath, "--traces", traceLedger, "--id", trace.Id,
+        "--name", trace.Name, "--surface", trace.Surface, "--trigger", trace.Trigger,
+        "--preconditions", trace.Preconditions, "--behavior", trace.Behavior,
+        "--negative", trace.NegativeBehavior, "--reference-facts",
+        string.Join('|', trace.ReferenceFacts.Select(f => f.Id)),
+    ]);
+    ClaimUpdate([
+        "--claims", claimLedger, "--id", claim.Id, "--verdict", "ImplementedUnverified",
+        "--traces", traceLedger, "--trace-ids", trace.Id, "--summary", "refresh pending",
+        "--behavior", trace.Behavior, "--negative", trace.NegativeBehavior,
+    ]);
+    ClaimTargets([
+        "--pair", pairPath, "--claims", claimLedger, "--id", claim.Id,
+        "--target-facts", targetOpcode.Id,
+    ]);
+    ComparisonClaim commandUpdated = JsonStore.ReadLines<ComparisonClaim>(claimLedger).Single();
+    if (commandUpdated.ReferenceFacts.Count != trace.ReferenceFacts.Count ||
+        commandUpdated.ReferenceFacts.Any(f => string.IsNullOrWhiteSpace(f.FileSha256)) ||
+        commandUpdated.TargetFacts.Single().FileSha256 != targetOpcode.FileSha256 ||
+        commandUpdated.VerificationIds.Count != 0 || commandUpdated.Summary != "refresh pending")
+        throw new InvalidDataException("trace-update/claim-update did not refresh pinned evidence safely");
+    commandUpdated.ReferenceFacts.ForEach(f => { f.EvidenceSha256 = "stale"; f.FileSha256 = "stale"; });
+    commandUpdated.TargetFacts.ForEach(f => { f.EvidenceSha256 = "stale"; f.FileSha256 = "stale"; });
+    commandUpdated.VerificationIds = ["stale-artifact"];
+    JsonStore.WriteLines(claimLedger, new[] { commandUpdated });
+    LedgerRefresh(["--pair", pairPath, "--traces", traceLedger, "--claims", claimLedger]);
+    ComparisonClaim ledgerRefreshed = JsonStore.ReadLines<ComparisonClaim>(claimLedger).Single();
+    if (ledgerRefreshed.ReferenceFacts.Any(f => f.FileSha256 == "stale") ||
+        ledgerRefreshed.TargetFacts.Any(f => f.FileSha256 == "stale") ||
+        ledgerRefreshed.VerificationIds.Count != 0)
+        throw new InvalidDataException("ledger-refresh retained stale hashes or nonterminal verification");
     string updateLedger = Path.Combine(root, "update.jsonl");
     JsonStore.WriteLines(updateLedger, new[] { claim });
     JsonStore.UpdateLine<ComparisonClaim>(updateLedger, c => c.Id == claim.Id,
@@ -446,14 +927,19 @@ static void Usage() => Console.Error.WriteLine(
     "       snapshot-parity queue --pair PATH --traces PATH --claims PATH --out PATH\n" +
     "       snapshot-parity packet --pair PATH --queue PATH --id PACKET_ID --out PATH\n" +
     "       snapshot-parity workspace --pair PATH --queue PATH --out DIRECTORY\n" +
-    "       snapshot-parity workspace-validate --pair PATH --queue PATH --root DIRECTORY\n" +
+    "       snapshot-parity workspace-validate --pair PATH --queue PATH --root DIRECTORY [--out PATH]\n" +
+    "       snapshot-parity evidence-seal --packet-folder DIRECTORY --pair PATH\n" +
     "       snapshot-parity workspace-migrate --old-root DIRECTORY --old-pair-id PAIR_ID " +
         "--new-root DIRECTORY --new-pair PATH --new-queue PATH\n" +
     "       snapshot-parity claim-update --claims PATH --id CLAIM_ID --verdict VERDICT " +
-        "[--verification ID|ID] [--summary TEXT] [--decision ID]\n" +
+        "[--traces PATH] [--trace-ids ID|ID] [--verification ID|ID] [--summary TEXT] " +
+        "[--behavior TEXT] [--negative TEXT] [--decision ID]\n" +
     "       snapshot-parity claim-targets --pair PATH --claims PATH --id CLAIM_ID " +
         "--target-facts ID|ID\n" +
+    "       snapshot-parity ledger-refresh --pair PATH --traces PATH --claims PATH\n" +
     "       snapshot-parity trace-add --pair PATH --traces PATH --id ID --name TEXT --surface TEXT " +
+        "--trigger TEXT --preconditions TEXT --behavior TEXT --negative TEXT --reference-facts ID|ID\n" +
+    "       snapshot-parity trace-update --pair PATH --traces PATH --id ID --name TEXT --surface TEXT " +
         "--trigger TEXT --preconditions TEXT --behavior TEXT --negative TEXT --reference-facts ID|ID\n" +
     "       snapshot-parity claim-add --pair PATH --traces PATH --claims PATH --id ID --trace-ids ID|ID " +
         "--verdict VERDICT --summary TEXT --behavior TEXT --negative TEXT [--target-facts ID|ID] " +

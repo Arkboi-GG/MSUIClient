@@ -31,15 +31,20 @@ public sealed class ItemTemplate
     public List<ItemStat> Stats = [];
     public List<ItemDamage> Damages = [];
     public uint Armor;
+    public uint Block;
     public uint[] Resistances = new uint[6];
     public uint DelayMs;
     public uint Bonding;
     public string Description = "";
+    public uint StartQuest;
     public uint Material;
     public uint Sheath;
     public byte UseSpellIndex;
     public uint UseSpellId;
     public uint UseSpellCategory;
+    public int UseSpellCharges;
+    public bool HasNegativeOnUseCharges;
+    public int SpellCharges0;
     public uint BagFamily;
 
     public static ItemTemplate? Parse(byte[] body)
@@ -91,22 +96,29 @@ public sealed class ItemTemplate
         {
             uint spell = r.ReadU32();
             uint trigger = r.ReadU32();
-            r.ReadI32(); r.ReadI32(); uint category = r.ReadU32(); r.ReadI32();
+            int charges = r.ReadI32();
+            r.ReadI32(); uint category = r.ReadU32(); r.ReadI32();
+            if (block == 0) item.SpellCharges0 = charges;
+            if (spell != 0 && trigger == 0 && charges < 0)
+                item.HasNegativeOnUseCharges = true;
             if (spell != 0 && trigger == 0 && !foundUseSpell)
             {
                 item.UseSpellIndex = block;
                 item.UseSpellId = spell;
                 item.UseSpellCategory = category;
+                item.UseSpellCharges = charges;
                 foundUseSpell = true;
             }
         }
         item.Bonding = r.ReadU32();
         item.Description = r.ReadCString();
-        r.Skip(5 * 4);              // page text/language/page material/start quest/lock
+        r.Skip(3 * 4);              // page text/language/page material
+        item.StartQuest = r.ReadU32();
+        r.ReadU32();                // lock id
         item.Material = r.ReadU32();
         item.Sheath = r.ReadU32();
         r.ReadU32();                 // random property
-        r.ReadU32();                 // block
+        item.Block = r.ReadU32();
         r.ReadU32();                 // item set
         r.ReadU32();                 // max durability
         r.ReadU32();                 // area
@@ -151,9 +163,9 @@ public sealed class ItemTemplateCache
             : @"Interface\Icons\" + icon;
     }
 
-    public void Apply(byte[] body)
+    public uint Apply(byte[] body)
     {
-        if (body.Length < 4) return;
+        if (body.Length < 4) return 0;
         uint raw = BitConverter.ToUInt32(body, 0);
         uint entry = raw & 0x7fff_ffffu;
         _pending.Remove(entry);
@@ -163,5 +175,6 @@ public sealed class ItemTemplateCache
                 ? display.InventoryIcon + (display.InventoryIcon.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? "" : ".blp")
                 : @"Interface\Icons\" + display.InventoryIcon + (display.InventoryIcon.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? "" : ".blp");
         _templates[entry] = item;
+        return entry;
     }
 }

@@ -50,6 +50,7 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXDAMAGE = 135;
     public const ushort UNIT_MINOFFHANDDAMAGE = 136;
     public const ushort UNIT_MAXOFFHANDDAMAGE = 137;
+    public const ushort UNIT_FIELD_PETNUMBER = 139; // nonzero for a permanent pet/charm
     public const ushort UNIT_DYNAMIC_FLAGS = 143;
     public const ushort UNIT_CHANNEL_SPELL = 144;
     public const ushort UNIT_BASE_MANA = 162;        // PRIVATE+OWNER_ONLY: only our own descriptor
@@ -68,6 +69,7 @@ public sealed class ObjectFields
     public const ushort GAMEOBJECT_TYPE_ID = 21;
 
     public const ushort ITEM_STACK_COUNT = 14;
+    public const ushort ITEM_SPELL_CHARGES = 16;
     public const ushort ITEM_FLAGS = 21;
     public const ushort ITEM_FIELD_ENCHANTMENT = 22; // seven triples: id, duration, charges
     public const ushort ITEM_TEXT_ID = 45;
@@ -84,7 +86,10 @@ public sealed class ObjectFields
     public const ushort PLAYER_PACK_SLOT_1 = 532;
     public const ushort PLAYER_BANK_SLOT_1 = 564;
     public const ushort PLAYER_BANK_BAG_SLOT_1 = 612;
-    public const ushort PLAYER_VENDOR_BUYBACK_SLOT_1 = 618;
+    // The buyback trio is chain-locked between the bank-bag/keyring arrays and the
+    // PLAYER_FIELD_COINAGE anchor for build 5875. Historical hex comments in the
+    // vmangos header are six fields low here; the compiled enum arithmetic is not.
+    public const ushort PLAYER_VENDOR_BUYBACK_SLOT_1 = 624;
     public const ushort PLAYER_KEYRING_SLOT_1 = 648;
     public const ushort PLAYER_XP = 716;
     public const ushort PLAYER_NEXT_LEVEL_XP = 717;
@@ -101,18 +106,25 @@ public sealed class ObjectFields
     public const ushort PLAYER_NEGSTAT0 = 1182;
     public const ushort PLAYER_RESISTANCEBUFFMODSPOSITIVE = 1187;
     public const ushort PLAYER_RESISTANCEBUFFMODSNEGATIVE = 1194;
-    public const ushort PLAYER_FIELD_BUYBACK_PRICE_1 = 1220;
+    // Seven school-indexed owner-only fields. School zero is the physical decomposition returned
+    // by the 1.12 UnitDamage / UnitRangedDamage globals. The percent field is a true f32 even
+    // though the historical update-field header labels the family as integer.
+    public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_POS = 1201;
+    public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_NEG = 1208;
+    public const ushort PLAYER_FIELD_MOD_DAMAGE_DONE_PCT = 1215;
+    public const ushort PLAYER_FIELD_BUYBACK_PRICE_1 = 1226;
+    public const ushort PLAYER_FIELD_BUYBACK_TIMESTAMP_1 = 1238;
     public const ushort PLAYER_AMMO_ID = 1223;
-    public const ushort PLAYER_FIELD_SESSION_KILLS = 1244;
-    public const ushort PLAYER_FIELD_YESTERDAY_KILLS = 1245;
-    public const ushort PLAYER_FIELD_LAST_WEEK_KILLS = 1246;
-    public const ushort PLAYER_FIELD_THIS_WEEK_KILLS = 1247;
-    public const ushort PLAYER_FIELD_THIS_WEEK_CONTRIBUTION = 1248;
-    public const ushort PLAYER_FIELD_LIFETIME_HONORABLE_KILLS = 1249;
-    public const ushort PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS = 1250;
-    public const ushort PLAYER_FIELD_YESTERDAY_CONTRIBUTION = 1251;
-    public const ushort PLAYER_FIELD_LAST_WEEK_CONTRIBUTION = 1252;
-    public const ushort PLAYER_FIELD_LAST_WEEK_RANK = 1253;
+    public const ushort PLAYER_FIELD_SESSION_KILLS = 1250;
+    public const ushort PLAYER_FIELD_YESTERDAY_KILLS = 1251;
+    public const ushort PLAYER_FIELD_LAST_WEEK_KILLS = 1252;
+    public const ushort PLAYER_FIELD_THIS_WEEK_KILLS = 1253;
+    public const ushort PLAYER_FIELD_THIS_WEEK_CONTRIBUTION = 1254;
+    public const ushort PLAYER_FIELD_LIFETIME_HONORABLE_KILLS = 1255;
+    public const ushort PLAYER_FIELD_LIFETIME_DISHONORABLE_KILLS = 1256;
+    public const ushort PLAYER_FIELD_YESTERDAY_CONTRIBUTION = 1257;
+    public const ushort PLAYER_FIELD_LAST_WEEK_CONTRIBUTION = 1258;
+    public const ushort PLAYER_FIELD_LAST_WEEK_RANK = 1259;
 
     public const ushort PLAYER_BYTES = 193;          // skin/face/hairstyle/haircolor
     public const ushort PLAYER_BYTES_2 = 194;        // facial hair, etc.
@@ -209,6 +221,8 @@ public sealed class ObjectFields
     public ulong? Summon => GetGuid(UNIT_FIELD_SUMMON) is { } g && g != 0 ? g : null;
     public ulong? CharmedBy => GetGuid(UNIT_FIELD_CHARMEDBY) is { } g && g != 0 ? g : null;
     public ulong? SummonedBy => GetGuid(UNIT_FIELD_SUMMONEDBY) is { } g && g != 0 ? g : null;
+    public uint PetNumber => GetU32(UNIT_FIELD_PETNUMBER) ?? 0;
+    public bool IsPetOrCharm => PetNumber != 0;
 
     public byte PowerType => Bytes0.PowerType;
     public uint Power(byte powerType) => powerType <= 4 ? GetU32((ushort)(UNIT_POWER1 + powerType)) ?? 0 : 0;
@@ -285,6 +299,9 @@ public sealed class ObjectFields
     public bool IsDead => MaxHealth > 0 && Health == 0;
 
     public uint ItemStackCount => GetU32(ITEM_STACK_COUNT) ?? 1;
+    public int? ItemSpellCharges(int block) => block is >= 0 and < 5 &&
+        GetU32((ushort)(ITEM_SPELL_CHARGES + block)) is uint value
+            ? unchecked((int)value) : null;
     public uint ItemFlags => GetU32(ITEM_FLAGS) ?? 0;
     public uint ItemEnchantmentId(int slot) => slot is >= 0 and < 7
         ? GetU32((ushort)(ITEM_FIELD_ENCHANTMENT + slot * 3)) ?? 0 : 0;
@@ -296,12 +313,21 @@ public sealed class ObjectFields
     public ulong PlayerInventorySlot(int index) => index is >= 0 and < 23 ? GetGuid((ushort)(PLAYER_INV_SLOT_HEAD + index * 2)) ?? 0 : 0;
     public uint PlayerVisibleItemEntry(int index) => index is >= 0 and < 19
         ? GetU32((ushort)(PLAYER_VISIBLE_ITEM_1_0 + index * 12)) ?? 0 : 0;
+    /// <summary>
+    /// Public inspected-player enchant ids. Each PLAYER_VISIBLE_ITEM block carries seven
+    /// enchant fields immediately after its entry; no private item instance is consulted.
+    /// </summary>
+    public uint PlayerVisibleItemEnchant(int index, int enchantSlot) =>
+        index is >= 0 and < 19 && enchantSlot is >= 0 and < 7
+            ? GetU32((ushort)(PLAYER_VISIBLE_ITEM_1_0 + index * 12 + 1 + enchantSlot)) ?? 0
+            : 0;
     public ulong PlayerBackpackSlot(int index) => index is >= 0 and < 16 ? GetGuid((ushort)(PLAYER_PACK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankSlot(int index) => index is >= 0 and < 24 ? GetGuid((ushort)(PLAYER_BANK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBankBagSlot(int index) => index is >= 0 and < 6 ? GetGuid((ushort)(PLAYER_BANK_BAG_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerBuybackSlot(int index) => index is >= 0 and < 12 ? GetGuid((ushort)(PLAYER_VENDOR_BUYBACK_SLOT_1 + index * 2)) ?? 0 : 0;
     public ulong PlayerKeyringSlot(int index) => index is >= 0 and < 32 ? GetGuid((ushort)(PLAYER_KEYRING_SLOT_1 + index * 2)) ?? 0 : 0;
     public uint PlayerBuybackPrice(int index) => index is >= 0 and < 12 ? GetU32((ushort)(PLAYER_FIELD_BUYBACK_PRICE_1 + index)) ?? 0 : 0;
+    public uint PlayerBuybackTimestamp(int index) => index is >= 0 and < 12 ? GetU32((ushort)(PLAYER_FIELD_BUYBACK_TIMESTAMP_1 + index)) ?? 0 : 0;
     public uint PlayerAmmoId => GetU32(PLAYER_AMMO_ID) ?? 0;
     public uint Experience => GetU32(PLAYER_XP) ?? 0;
     public uint NextLevelExperience => GetU32(PLAYER_NEXT_LEVEL_XP) ?? 0;
@@ -329,6 +355,19 @@ public sealed class ObjectFields
     public int Resistance(int school) => school is >= 0 and < 7 ? GetI32((ushort)(UNIT_RESISTANCES + school)) ?? 0 : 0;
     public int ResistancePositive(int school) => school is >= 0 and < 7 ? (int)MathF.Round(GetF32((ushort)(PLAYER_RESISTANCEBUFFMODSPOSITIVE + school)) ?? 0) : 0;
     public int ResistanceNegative(int school) => school is >= 0 and < 7 ? (int)MathF.Round(GetF32((ushort)(PLAYER_RESISTANCEBUFFMODSNEGATIVE + school)) ?? 0) : 0;
+    public int DamageDonePositive(int school) => school is >= 0 and < 7
+        ? GetI32((ushort)(PLAYER_FIELD_MOD_DAMAGE_DONE_POS + school)) ?? 0 : 0;
+    public int DamageDoneNegative(int school) => school is >= 0 and < 7
+        ? GetI32((ushort)(PLAYER_FIELD_MOD_DAMAGE_DONE_NEG + school)) ?? 0 : 0;
+    public float DamageDonePercent(int school)
+    {
+        if (school is < 0 or >= 7) return 1f;
+        ushort field = (ushort)(PLAYER_FIELD_MOD_DAMAGE_DONE_PCT + school);
+        // A CREATE snapshot treats every absent scalar as zero, but this wire family's authored
+        // identity is 1.0 until a multiplier is explicitly streamed. Inspect the merged backing
+        // set so "absent" does not become a divide-by-zero pseudo-value.
+        return _fields.TryGetValue(field, out uint raw) ? BitConverter.UInt32BitsToSingle(raw) : 1f;
+    }
     public float MinDamage => GetF32(UNIT_MINDAMAGE) ?? 0;
     public float MaxDamage => GetF32(UNIT_MAXDAMAGE) ?? 0;
     public float MinOffhandDamage => GetF32(UNIT_MINOFFHANDDAMAGE) ?? 0;

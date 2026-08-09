@@ -22,6 +22,29 @@ public readonly record struct SpellStartPacket(ulong ItemCaster, ulong Caster, u
 public readonly record struct SpellGoPacket(ulong ItemCaster, ulong Caster, uint SpellId,
     ushort CastFlags, ulong[] Hits, (ulong Guid, byte Reason)[] Misses, SpellTargets Targets,
     uint? AmmoDisplayId, uint? AmmoInventoryType);
+public readonly record struct SpellDelayedPacket(ulong Caster, uint DelayMs);
+public readonly record struct SpellChannelStartPacket(uint SpellId, uint DurationMs);
+
+/// <summary>
+/// The three compact, self-cast lifecycle packets that drive pushback and channel timing.
+/// Keeping their byte shapes here makes the runtime route share the golden-vector-tested decoder.
+/// </summary>
+public static class SpellLifecyclePacketParser
+{
+    public static SpellDelayedPacket ParseDelayed(byte[] body)
+    {
+        var r = new PacketReader(body);
+        return new SpellDelayedPacket(r.ReadU64(), r.ReadU32());
+    }
+
+    public static SpellChannelStartPacket ParseChannelStart(byte[] body)
+    {
+        var r = new PacketReader(body);
+        return new SpellChannelStartPacket(r.ReadU32(), r.ReadU32());
+    }
+
+    public static uint ParseChannelUpdate(byte[] body) => new PacketReader(body).ReadU32();
+}
 
 public static class SpellPacketParser
 {

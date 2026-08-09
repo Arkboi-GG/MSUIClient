@@ -9,6 +9,12 @@ public static class SpellbookLaw
     public const string GeneralIcon = @"Interface\Icons\Ability_Kick";
     public const int MaxClassTabs = 4;
 
+    // Frozen SpellBookFrame sound kits: open/close on show/hide, page-turn on both page clicks.
+    // "igAbiliityPageTurn" is the real registered kit name (SoundEntries id 836), not a typo.
+    public const string OpenSound = "igSpellBookOpen";
+    public const string CloseSound = "igSpellBookClose";
+    public const string PageTurnSound = "igAbiliityPageTurn";
+
     // Build-5875 Fonts.xml + SpellButtonTemplate, read directly from patch.MPQ. Keep these as
     // SOURCE semantics. The renderer-specific font-height conversion is deliberately not here.
     public const float NameFontHeight = 12f;

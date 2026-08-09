@@ -67,6 +67,17 @@ public static partial class Program
             return 1;
         }
 
+        // A live protocol is evidence about the authenticated server session. Letting it boot
+        // with networking disabled opens the offline world viewer, which looks runnable but can
+        // never satisfy that contract and is dangerously easy to mistake for a live test.
+        if (liveRun is not null && !config.Server.Enabled)
+        {
+            Console.Error.WriteLine(
+                "[live-run] LIVE_CONFIG_DISABLED: the selected config has server.enabled=false; " +
+                "no window was opened and no live evidence was produced");
+            return 2;
+        }
+
         // Offline diagnostic: parse one or more M2 models straight from the MPQs
         // and print their particle-emitter records (blend/texture/tiles/color ramp).
         // No window, no server. Usage: --dump-emitters "Spells\Foo.mdx" [more...]
@@ -268,6 +279,8 @@ public static partial class Program
         string? uiFontPath = MSUIClient.Engine.UI.UiFont.Extract(config.ClientDataPath);
         string? arialFontPath = MSUIClient.Engine.UI.UiFont.Extract(
             config.ClientDataPath, MSUIClient.Engine.UI.UiFont.ArialN);
+        string? morpheusFontPath = MSUIClient.Engine.UI.UiFont.Extract(
+            config.ClientDataPath, MSUIClient.Engine.UI.UiFont.Morpheus);
 
         // The gameplay text law needs the extracted faces and the bake set BEFORE the window
         // builds its atlas: gameplay panels draw text by FrameXML font-object name (GameText /
@@ -279,6 +292,8 @@ public static partial class Program
             gameplayFaces.Add((MSUIClient.Engine.UI.FontFace.FrizQt, uiFontPath));
         if (arialFontPath is not null)
             gameplayFaces.Add((MSUIClient.Engine.UI.FontFace.ArialN, arialFontPath));
+        if (morpheusFontPath is not null)
+            gameplayFaces.Add((MSUIClient.Engine.UI.FontFace.Morpheus, morpheusFontPath));
         if (gameplayFaces.Count > 0)
         {
             MSUIClient.Engine.UI.GameTextLaw.Configure(gameplayFaces);
@@ -1524,6 +1539,9 @@ public sealed partial class GameLoop : IDisposable
         UpdateRunBinding(typing);
         UpdateSheathInput(typing);
         UpdatePortraitLabInput(typing);
+        UpdateQuestNpcLifecycle();
+        UpdateVendorLifecycle();
+        ObserveUiPanelOwnership();
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
         bool flyKey = _window.IsDown(Key.F);

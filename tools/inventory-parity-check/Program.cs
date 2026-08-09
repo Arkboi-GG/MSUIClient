@@ -22,6 +22,22 @@ Require(InventoryUiLaw.ShouldOpenAllBags(false, [false, false, false, false]) &&
 Require(InventoryUiLaw.BindingAction(false) == InventoryUiLaw.BagBindingAction.ToggleBackpack &&
         InventoryUiLaw.BindingAction(true) == InventoryUiLaw.BagBindingAction.ToggleAllBags,
     "B/Shift+B bag binding split drift");
+
+byte[] aperture = Enumerable.Repeat((byte)255, 9 * 9 * 4).ToArray();
+IconApertureMask.ApplyCircularBgra(aperture, 9, 9);
+int ApertureAlpha(int x, int y) => aperture[(y * 9 + x) * 4 + 3];
+Require(Enumerable.Range(0, 9).All(i => ApertureAlpha(i, 0) == 0 && ApertureAlpha(i, 8) == 0 &&
+                                             ApertureAlpha(0, i) == 0 && ApertureAlpha(8, i) == 0) &&
+        ApertureAlpha(4, 4) == 255 && ApertureAlpha(4, 1) > 0,
+    "round bag aperture lacks its linear-sampling guard, leaked square corners, or erased its center");
+BagIconContainmentLaw.Geometry bagBarProof = BagIconContainmentLaw.BagBar;
+Require(bagBarProof == new BagIconContainmentLaw.Geometry(66, 15, 36) &&
+        bagBarProof.ApertureOffset * 2 + bagBarProof.ApertureSize == bagBarProof.CaptureSize,
+    "bag-bar containment crop/aperture bounds drift");
+BagIconContainmentLaw.Geometry headerProof = BagIconContainmentLaw.HeaderPortrait;
+Require(headerProof == new BagIconContainmentLaw.Geometry(64, 12, 40) &&
+        headerProof.ApertureOffset * 2 + headerProof.ApertureSize == headerProof.CaptureSize,
+    "equipped-bag portrait containment crop/aperture bounds drift");
 Require(InventoryUiLaw.ClickAction(true, false, true, false, true, 5, false, false) ==
             InventoryUiLaw.SlotClickAction.Split &&
         InventoryUiLaw.ClickAction(true, false, true, false, true, 1, false, false) ==
@@ -72,6 +88,15 @@ Require(twoRows.TopHeight == 94 && twoRows.MiddleHeight == 32 && twoRows.Height 
 Require(modifiedLarge.Rows == 6 && modifiedLarge.MiddleHeight == 196 &&
         modifiedLarge.Height == 300 && InventoryUiLaw.ToWire(4, 23) is not null,
     "server-modified container capacities were truncated to stock client sizes");
+foreach (int serverSize in new[] { 12, 14, 16, 18, 20, 22, 24 })
+{
+    InventoryUiLaw.BackgroundGeometry serverGeometry = InventoryUiLaw.Background(serverSize);
+    InventoryUiLaw.SlotGeometry finalLiveSlot = InventoryUiLaw.Slot(serverSize, serverSize - 1,
+        serverGeometry.Height, backpack: false);
+    Require(serverGeometry.Rows == (serverSize + 3) / 4 && finalLiveSlot.PhysicalIndex == 1 &&
+            InventoryUiLaw.ToWire(4, serverSize - 1) is not null,
+        $"server-authored +6 capacity {serverSize} was normalized or truncated");
+}
 
 InventoryUiLaw.SlotGeometry packFirst = InventoryUiLaw.Slot(16, 0, 240, true);
 InventoryUiLaw.SlotGeometry packLast = InventoryUiLaw.Slot(16, 15, 240, true);

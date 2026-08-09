@@ -36,27 +36,41 @@ public sealed partial class GameLoop
         Vector2 size = logicalSize * scale;
         ImGui.SetCursorScreenPos(min);
         if (!enabled) ImGui.BeginDisabled();
-        ImGui.InvisibleButton(id, size);
-        bool clicked = enabled && ImGui.IsItemClicked();
-        bool active = enabled && ImGui.IsItemActive();
+        bool releasedInside = ImGui.InvisibleButton(id, size);
+        bool held = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         if (!enabled) ImGui.EndDisabled();
+        ButtonInteractionLaw.Visual visual = ButtonInteractionLaw.ResolveVisual(
+            enabled, hovered, held, scriptedPushed: false, isChecked: false,
+            lockedHighlight: false);
+        bool clicked = enabled && releasedInside;
 
-        string texture = !enabled ? @"Interface\Buttons\UI-Panel-Button-Disabled" :
-            active ? @"Interface\Buttons\UI-Panel-Button-Down" :
-            @"Interface\Buttons\UI-Panel-Button-Up";
+        string texture = visual.PrimaryTexture switch
+        {
+            ButtonInteractionLaw.TextureSlot.Disabled =>
+                @"Interface\Buttons\UI-Panel-Button-Disabled",
+            ButtonInteractionLaw.TextureSlot.Pushed =>
+                @"Interface\Buttons\UI-Panel-Button-Down",
+            _ => @"Interface\Buttons\UI-Panel-Button-Up",
+        };
         uint art = _gameplayArt?.Handle(texture) ?? 0;
         if (art != 0)
             draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(.625f, .6875f));
-        if (hovered)
+        if (visual.HighlightVisible)
         {
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Panel-Button-Highlight") ?? 0;
             if (hi != 0)
                 draw.AddImage((nint)hi, min, min + size, Vector2.Zero,
                     new Vector2(.625f, .6875f));
         }
-        DrawCenteredText(draw, min + size * .5f + new Vector2(0, active ? scale : 0),
-            caption, 10f * scale, enabled ? VanillaGold : 0xff777777);
+        string fontObject = visual.LabelState switch
+        {
+            ButtonInteractionLaw.LabelState.Highlight => "GameFontHighlight",
+            ButtonInteractionLaw.LabelState.Disabled => "GameFontDisable",
+            _ => "GameFontNormal",
+        };
+        GameText.DrawCentered(draw, fontObject, caption,
+            min + size * .5f + new Vector2(0, visual.Pushed ? scale : 0), scale);
         return clicked;
     }
 
@@ -66,7 +80,7 @@ public sealed partial class GameLoop
     {
         Vector2 size = logicalSize * scale;
         ImGui.SetCursorScreenPos(min);
-        ImGui.InvisibleButton(id, size);
+        bool releasedInside = ImGui.InvisibleButton(id, size);
         bool hovered = ImGui.IsItemHovered();
         if (selected || hovered)
         {
@@ -89,14 +103,15 @@ public sealed partial class GameLoop
         draw.AddText(ImGui.GetFont(), 10f * scale,
             min + new Vector2(textX, MathF.Max(1, (logicalSize.Y - 10) * .5f)) * scale,
             color, text);
-        return ImGui.IsItemClicked();
+        return releasedInside;
     }
 
     private bool VanillaTab(ImDrawListPtr draw, string id, Vector2 min, string caption,
         float logicalWidth, float scale, bool selected, bool enabled = true)
     {
         Vector2 size = new(logicalWidth, 32);
-        string texture = selected
+        PanelTabLaw.Visual initial = PanelTabLaw.Resolve(selected, !enabled, hovered: false);
+        string texture = initial.ShowActiveSlices
             ? @"Interface\PaperDollInfoFrame\UI-Character-ActiveTab"
             : @"Interface\PaperDollInfoFrame\UI-Character-InActiveTab";
         uint art = _gameplayArt?.Handle(texture) ?? 0;
@@ -112,7 +127,7 @@ public sealed partial class GameLoop
             // +y is UP in FrameXML (the frame itself sits at y=-104), so the active art rises
             // 5px into the panel - device -5, not +5. A +5 sinks the selected tab below its
             // neighbors, which reads as a broken, misaligned strip.
-            Vector2 artMin = min + new Vector2(0, selected ? -5f : 0f) * scale;
+            Vector2 artMin = min + new Vector2(0, initial.ShowActiveSlices ? -5f : 0f) * scale;
             Vector2 artMax = artMin + new Vector2(logicalWidth, 32) * scale;
             draw.AddImage((nint)art, artMin, artMin + new Vector2(cap, 32) * scale,
                 new Vector2(0, 0), new Vector2(.15625f, 1));
@@ -127,16 +142,33 @@ public sealed partial class GameLoop
                 new Vector2(.84375f, 0), Vector2.One);
         }
         ImGui.SetCursorScreenPos(min);
-        if (!enabled) ImGui.BeginDisabled();
-        ImGui.InvisibleButton(id, size * scale);
-        bool clicked = enabled && ImGui.IsItemClicked();
-        if (!enabled) ImGui.EndDisabled();
+        if (!initial.Enabled) ImGui.BeginDisabled();
+        bool releasedInside = ImGui.InvisibleButton(id, size * scale);
+        bool hovered = initial.Enabled && ImGui.IsItemHovered();
+        if (!initial.Enabled) ImGui.EndDisabled();
+        PanelTabLaw.Visual visual = PanelTabLaw.Resolve(selected, !enabled, hovered);
+        bool clicked = visual.Enabled && releasedInside;
+        if (visual.ShowHoverHighlight)
+        {
+            uint hi = _gameplayArt?.AdditiveHandle(
+                @"Interface\PaperDollInfoFrame\UI-Character-Tab-Highlight") ?? 0;
+            if (hi != 0)
+            {
+                Vector2 hiMin = min + new Vector2(10, -2) * scale;
+                Vector2 hiMax = min + new Vector2(logicalWidth - 10, 30) * scale;
+                draw.AddImage((nint)hi, hiMin, hiMax);
+            }
+        }
         // CharacterFrameTabButtonTemplate: NormalFont GameFontNormalSmall (gold),
         // HighlightFont/DisabledFont GameFontHighlightSmall. A disabled tab is not a
         // separate font object - PanelTemplates applies a gray SetDisabledTextColor over
         // the same face, so it's the highlight font recolored gray, never GameFontDisable*.
-        string tabFont = selected ? "GameFontHighlightSmall" : "GameFontNormalSmall";
-        uint? disabledColor = enabled ? null : 0xff808080u;
+        string tabFont = visual.LabelPaint == PanelTabLaw.LabelPaint.Normal
+            ? "GameFontNormalSmall"
+            : "GameFontHighlightSmall";
+        uint? disabledColor = visual.LabelPaint == PanelTabLaw.LabelPaint.Gray
+            ? 0xff808080u
+            : null;
         GameText.DrawCentered(draw, tabFont, caption,
             min + new Vector2(logicalWidth * .5f, 14) * scale, scale, disabledColor);
         return clicked;
@@ -154,13 +186,15 @@ public sealed partial class GameLoop
         float logicalWidth, float scale, bool selected)
     {
         Vector2 size = new(logicalWidth, 32);
-        string path = selected ? @"Interface\HelpFrame\HelpFrameTab-Active"
+        PanelTabLaw.Visual initial = PanelTabLaw.Resolve(selected, isDisabled: false,
+            hovered: false);
+        string path = initial.ShowActiveSlices ? @"Interface\HelpFrame\HelpFrameTab-Active"
             : @"Interface\HelpFrame\HelpFrameTab-Inactive";
         uint art = _gameplayArt?.Handle(path) ?? 0;
         if (art != 0)
         {
             float cap = MathF.Min(16, logicalWidth * .5f);
-            Vector2 artMin = min + new Vector2(0, selected ? 3 : 0) * scale;
+            Vector2 artMin = min + new Vector2(0, initial.ShowActiveSlices ? 3 : 0) * scale;
             Vector2 artMax = artMin + size * scale;
             draw.AddImage((nint)art, artMin, artMin + new Vector2(cap, 32) * scale,
                 Vector2.Zero, new Vector2(.25f, 1));
@@ -172,10 +206,29 @@ public sealed partial class GameLoop
             draw.AddImage((nint)art, artMin + new Vector2(logicalWidth - cap, 0) * scale, artMax,
                 new Vector2(.75f, 0), Vector2.One);
         }
-        ImGui.SetCursorScreenPos(min); ImGui.InvisibleButton(id, size * scale);
-        DrawCenteredText(draw, min + new Vector2(logicalWidth * .5f, 20) * scale,
-            caption, 10 * scale, selected ? 0xffffffff : VanillaGold);
-        return ImGui.IsItemClicked();
+        ImGui.SetCursorScreenPos(min);
+        if (!initial.Enabled) ImGui.BeginDisabled();
+        bool releasedInside = ImGui.InvisibleButton(id, size * scale);
+        bool hovered = initial.Enabled && ImGui.IsItemHovered();
+        if (!initial.Enabled) ImGui.EndDisabled();
+        PanelTabLaw.Visual visual = PanelTabLaw.Resolve(selected, isDisabled: false, hovered);
+        if (visual.ShowHoverHighlight)
+        {
+            uint hi = _gameplayArt?.AdditiveHandle(
+                @"Interface\PaperDollInfoFrame\UI-Character-Tab-Highlight") ?? 0;
+            if (hi != 0)
+            {
+                Vector2 hiMin = min + new Vector2(2, 8) * scale;
+                Vector2 hiMax = min + new Vector2(logicalWidth + 2, 40) * scale;
+                draw.AddImage((nint)hi, hiMin, hiMax);
+            }
+        }
+        GameText.DrawCentered(draw,
+            visual.LabelPaint == PanelTabLaw.LabelPaint.Normal
+                ? "GameFontNormalSmall"
+                : "GameFontHighlightSmall",
+            caption, min + new Vector2(logicalWidth * .5f, 20) * scale, scale);
+        return visual.Enabled && releasedInside;
     }
 
     private static float VanillaInsetTabWidth(string caption, float scale, float padding = 0)
@@ -191,24 +244,29 @@ public sealed partial class GameLoop
         Vector2 boxSize = new Vector2(24) * scale;
         ImGui.SetCursorScreenPos(min);
         if (!enabled) ImGui.BeginDisabled();
-        ImGui.InvisibleButton(id, new Vector2(24 + MathF.Max(0, caption.Length * 6), 24) * scale);
-        bool clicked = enabled && ImGui.IsItemClicked();
-        bool active = enabled && ImGui.IsItemActive();
+        bool releasedInside = ImGui.InvisibleButton(id,
+            new Vector2(24 + MathF.Max(0, caption.Length * 6), 24) * scale);
+        bool held = enabled && ImGui.IsItemActive();
         bool hovered = enabled && ImGui.IsItemHovered();
         if (!enabled) ImGui.EndDisabled();
+        bool clicked = enabled && releasedInside;
         if (clicked) value = !value;
-        string box = !enabled ? @"Interface\Buttons\UI-CheckBox-Up" : active
-            ? @"Interface\Buttons\UI-CheckBox-Down" : @"Interface\Buttons\UI-CheckBox-Up";
+        ButtonInteractionLaw.Visual visual = ButtonInteractionLaw.ResolveVisual(
+            enabled, hovered, held, scriptedPushed: false, isChecked: value,
+            lockedHighlight: false);
+        string box = visual.PrimaryTexture == ButtonInteractionLaw.TextureSlot.Pushed
+            ? @"Interface\Buttons\UI-CheckBox-Down"
+            : @"Interface\Buttons\UI-CheckBox-Up";
         uint art = _gameplayArt?.Handle(box) ?? 0;
         if (art != 0) draw.AddImage((nint)art, min, min + boxSize);
-        if (value)
+        if (visual.CheckedVisible || visual.DisabledCheckedVisible)
         {
-            uint check = _gameplayArt?.Handle(enabled
-                ? @"Interface\Buttons\UI-CheckBox-Check"
-                : @"Interface\Buttons\UI-CheckBox-Check-Disabled") ?? 0;
+            uint check = _gameplayArt?.Handle(visual.DisabledCheckedVisible
+                ? @"Interface\Buttons\UI-CheckBox-Check-Disabled"
+                : @"Interface\Buttons\UI-CheckBox-Check") ?? 0;
             if (check != 0) draw.AddImage((nint)check, min, min + boxSize);
         }
-        if (hovered)
+        if (visual.HighlightVisible)
         {
             uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-CheckBox-Highlight") ?? 0;
             if (hi != 0) draw.AddImage((nint)hi, min, min + boxSize);
@@ -230,16 +288,24 @@ public sealed partial class GameLoop
         {
             ImGui.SetCursorScreenPos(at);
             if (!enabled) ImGui.BeginDisabled();
-            ImGui.InvisibleButton(id + suffix, buttonSize);
-            bool pressed = enabled && ImGui.IsItemActive();
+            bool releasedInside = ImGui.InvisibleButton(id + suffix, buttonSize);
+            bool held = enabled && ImGui.IsItemActive();
             bool hovered = enabled && ImGui.IsItemHovered();
-            bool clicked = enabled && ImGui.IsItemClicked();
             if (!enabled) ImGui.EndDisabled();
+            ButtonInteractionLaw.Visual visual = ButtonInteractionLaw.ResolveVisual(
+                enabled, hovered, held, scriptedPushed: false, isChecked: false,
+                lockedHighlight: false);
+            bool clicked = enabled && releasedInside;
             string stem = suffix == "-up" ? "UI-ScrollBar-ScrollUpButton" : "UI-ScrollBar-ScrollDownButton";
-            string state = !enabled ? "Disabled" : pressed ? "Down" : "Up";
+            string state = visual.PrimaryTexture switch
+            {
+                ButtonInteractionLaw.TextureSlot.Disabled => "Disabled",
+                ButtonInteractionLaw.TextureSlot.Pushed => "Down",
+                _ => "Up",
+            };
             uint tex = _gameplayArt?.Handle($@"Interface\Buttons\{stem}-{state}") ?? 0;
             if (tex != 0) draw.AddImage((nint)tex, at, at + buttonSize);
-            if (hovered)
+            if (visual.HighlightVisible)
             {
                 uint hi = _gameplayArt?.AdditiveHandle($@"Interface\Buttons\{stem}-Highlight") ?? 0;
                 if (hi != 0) draw.AddImage((nint)hi, at, at + buttonSize);

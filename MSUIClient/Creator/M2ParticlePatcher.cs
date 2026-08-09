@@ -270,6 +270,84 @@ public class M2ParticlePatcher
         return true;
     }
 
+    /// <summary>
+    /// Append a copy of one primary emitter to the M2. The whole emitter array is
+    /// relocated to EOF (16-aligned) with the clone appended, and the header's
+    /// count/offset (0x13C) repointed - the same resize-at-EOF strategy as
+    /// M2TextureParser.PatchTextureFilenamesResize, which never moves the
+    /// fixed-offset structures other patchers write. The clone gets PRIVATE copies
+    /// of the nine known M2Track keyframe/timestamp arrays so later per-emitter
+    /// edits on it never write through offsets shared with the source. Unknown
+    /// tracks keep pointing at the source's arrays (read-only sharing is safe).
+    /// Pass retargetTextureSlot to point the clone at a different texture table
+    /// entry (the real textureId at +0x016). Returns the resized M2 and the
+    /// clone's emitter index, or null on any validation failure.
+    /// </summary>
+    public static (byte[] m2Data, int newIndex)? CloneEmitter(
+        byte[] m2Data, int sourceIndex, int? retargetTextureSlot = null)
+    {
+        if (m2Data == null || m2Data.Length < MIN_HEADER_SIZE) return null;
+        if (Encoding.ASCII.GetString(m2Data, 0, 4) != "MD20") return null;
+        if (BitConverter.ToUInt32(m2Data, 4) != 256) return null;
+
+        uint count = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY);
+        uint offset = BitConverter.ToUInt32(m2Data, HEADER_OFS_PARTICLES_PRIMARY + 4);
+        if (count == 0 || count > 255 || offset == 0) return null;
+        if (sourceIndex < 0 || sourceIndex >= (int)count) return null;
+        long arrayEnd = offset + (long)count * PARTICLE_STRUCT_SIZE_PRIMARY;
+        if (arrayEnd > m2Data.Length) return null;
+
+        // The nine tracks the workshop can edit; each gets a private copy.
+        int[] trackRels =
+        {
+            REL_M2TRACK_EMISSION_SPEED, REL_M2TRACK_SPEED_VARIATION,
+            REL_M2TRACK_VERTICAL_RANGE, REL_M2TRACK_HORIZONTAL_RANGE,
+            REL_M2TRACK_GRAVITY, REL_M2TRACK_LIFESPAN, REL_M2TRACK_EMISSION_RATE,
+            REL_M2TRACK_AREA_LENGTH, REL_M2TRACK_AREA_WIDTH,
+        };
+
+        var clone = new byte[PARTICLE_STRUCT_SIZE_PRIMARY];
+        Array.Copy(m2Data, offset + sourceIndex * PARTICLE_STRUCT_SIZE_PRIMARY,
+            clone, 0, PARTICLE_STRUCT_SIZE_PRIMARY);
+        if (retargetTextureSlot is { } slot)
+        {
+            clone[0x016] = (byte)(slot & 0xFF);
+            clone[0x017] = (byte)((slot >> 8) & 0xFF);
+        }
+
+        int padded = (m2Data.Length + 15) & ~15;
+        int newArrayOfs = padded;
+        int trackDataOfs = newArrayOfs + (int)(count + 1) * PARTICLE_STRUCT_SIZE_PRIMARY;
+
+        // Rewrite the clone's editable tracks to point at private copies. Layout
+        // per M2EmitterParser: timestamps count/offset at rel-8/rel-4, keyframe
+        // count/offset at rel/rel+4; timestamps are uint32, keyframes float.
+        var trackBytes = new List<byte>();
+        foreach (int rel in trackRels)
+        {
+            foreach ((int countRel, int ofsRel) in new[] { (rel - 8, rel - 4), (rel, rel + 4) })
+            {
+                uint n = BitConverter.ToUInt32(clone, countRel);
+                uint src = BitConverter.ToUInt32(clone, ofsRel);
+                if (n == 0 || n > 4096 || src == 0 || src + (long)n * 4 > m2Data.Length) continue;
+                int dst = trackDataOfs + trackBytes.Count;
+                for (int b = 0; b < n * 4; b++) trackBytes.Add(m2Data[src + b]);
+                Array.Copy(BitConverter.GetBytes((uint)dst), 0, clone, ofsRel, 4);
+            }
+        }
+
+        var result = new byte[trackDataOfs + trackBytes.Count];
+        Array.Copy(m2Data, result, m2Data.Length);
+        Array.Copy(m2Data, offset, result, newArrayOfs, count * PARTICLE_STRUCT_SIZE_PRIMARY);
+        Array.Copy(clone, 0, result, newArrayOfs + count * PARTICLE_STRUCT_SIZE_PRIMARY,
+            PARTICLE_STRUCT_SIZE_PRIMARY);
+        trackBytes.CopyTo(result, trackDataOfs);
+
+        WriteUInt32(result, HEADER_OFS_PARTICLES_PRIMARY, count + 1);
+        WriteUInt32(result, HEADER_OFS_PARTICLES_PRIMARY + 4, (uint)newArrayOfs);
+        return (result, (int)count);
+    }
+
     private static int PatchEmitterArray(byte[] data, int headerOffset, int structSize,
         ParticlePatchParams p, bool isPrimary)
     {

@@ -10,14 +10,31 @@ public sealed partial class GameLoop
 {
     private ulong _petGuid;
     private readonly uint[] _petActions = new uint[PetActionBarUiLaw.SlotCount];
+    private readonly PlayerActions _petCooldowns = new();
     private uint _petState;
     private bool _petAttacking;
-    private ulong _petAttackSelection;
     private int _pressedPetActionSlot = -1;
+    private ImGuiMouseButton _petActionPressMouseButton = ImGuiMouseButton.Left;
     private Vector2 _petActionPressPosition;
     private uint? _draggingPetAction;
     private bool _draggingPetActionPassive;
     private string _draggingPetActionIcon = "";
+
+    private static readonly IReadOnlyDictionary<string, string> PetStringFallbacks =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["PET_SPELL_NOPATH"] = "Your pet has no path to that location.",
+            ["SPELL_FAILED_OUT_OF_RANGE"] = "Out of range.",
+            ["ERR_ATTACK_DEAD"] = "You can't attack while dead.",
+            ["ERR_ATTACK_CHARMED"] = "You can't attack while charmed.",
+            ["ERR_ATTACK_STUNNED"] = "You can't attack while stunned.",
+            ["ERR_ATTACK_PACIFIED"] = "You can't attack while pacified.",
+            ["ERR_ATTACK_FLEEING"] = "You can't attack while fleeing.",
+            ["ERR_ATTACK_CONFUSED"] = "You can't attack while confused.",
+            ["ERR_ATTACK_MOUNTED"] = "You can't attack while mounted.",
+        };
+    private readonly Dictionary<string, string> _petGlobalStrings = [];
+    private bool _petGlobalStringsLoaded;
 
     // Build-5875 SMSG_PET_SPELLS, including both the client and vmangos cooldown tails.
     private void ApplyPetSpells(byte[] body)
@@ -26,39 +43,88 @@ public sealed partial class GameLoop
         ulong guid = r.ReadU64();
         if (r.Remaining == 0)
         {
-            _petGuid = guid;
+            // The only shipped guid-only form is the zero-guid teardown. Preserve the frozen
+            // executable's honest non-zero quirk too: it becomes a blank bar, never stale slots.
             if (guid == 0) ResetPetActionBar();
+            else
+            {
+                if (_petGuid != guid) _petAttacking = false;
+                _petGuid = guid;
+                _petState = 0;
+                Array.Clear(_petActions);
+                _petCooldowns.Clear();
+            }
             return;
         }
-        if (guid == 0 || r.Remaining < 48)
+        if (r.Remaining < 48)
             throw new InvalidDataException("short SMSG_PET_SPELLS");
-        if (_petGuid != guid) _petAttacking = false;
-        _petGuid = guid;
         r.ReadU32(); // charm duration; zero for an ordinary pet
-        _petState = r.ReadU32();
-        for (int i = 0; i < _petActions.Length; i++) _petActions[i] = r.ReadU32();
+        uint state = r.ReadU32();
+        uint[] actions = new uint[PetActionBarUiLaw.SlotCount];
+        for (int i = 0; i < actions.Length; i++) actions[i] = r.ReadU32();
 
-        if (r.Remaining == 0) return;
+        if (r.Remaining < 1) throw new InvalidDataException("SMSG_PET_SPELLS missing spell count");
         int spellCount = r.ReadU8();
         for (int i = 0; i < spellCount; i++) r.ReadU32();
-        if (r.Remaining == 0) return;
+        if (r.Remaining < 1) throw new InvalidDataException("SMSG_PET_SPELLS missing cooldown count");
         int cooldownCount = r.ReadU8();
-        if (cooldownCount == 0) return;
-        bool vmangos = r.Remaining == 1 + 14 * cooldownCount;
-        if (vmangos) r.ReadU8(); // high byte of its u16 count
-        double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        bool vmangos = cooldownCount > 0 && r.Remaining == 1 + 14 * cooldownCount;
+        if (vmangos) r.ReadU8(); // high byte of vmangos's u16 count
+        var cooldowns = new List<(uint Spell, uint Category, uint SpellMs, uint CategoryMs)>(cooldownCount);
         for (int i = 0; i < cooldownCount; i++)
         {
             uint spell = vmangos ? r.ReadU32() : r.ReadU16();
             uint category = r.ReadU16();
             uint spellMs = r.ReadU32();
-            uint categoryMs = r.ReadU32();
-            _actions.StartCooldown(spell, category, spellMs, categoryMs, now);
+            uint categoryMs = PetActionBarUiLaw.StripPermanentCooldownMarker(r.ReadU32());
+            cooldowns.Add((spell, category, spellMs, categoryMs));
+        }
+
+        // Parsing precedes mutation: a truncated replacement cannot paint a half-new bar.
+        if (guid == 0)
+        {
+            ResetPetActionBar();
+            return;
+        }
+        if (_petGuid != guid) _petAttacking = false;
+        _petGuid = guid;
+        _petState = state;
+        actions.CopyTo(_petActions, 0);
+        _petCooldowns.Clear();
+        double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        foreach (var cooldown in cooldowns)
+            _petCooldowns.StartCooldown(cooldown.Spell, cooldown.Category,
+                cooldown.SpellMs, cooldown.CategoryMs, now);
+    }
+
+    // SMSG_SPELL_COOLDOWN is addressed. A pet's override belongs to the pet store, never the
+    // player's same-spell clock; a player-addressed packet keeps the existing player path.
+    private void ApplyAddressedSpellCooldowns(byte[] body)
+    {
+        if (body.Length < 8 || (body.Length - 8) % 8 != 0)
+            throw new InvalidDataException("bad SMSG_SPELL_COOLDOWN body");
+        var r = new PacketReader(body);
+        ulong caster = r.ReadU64();
+        PlayerActions? store = caster != 0 && caster == _petGuid ? _petCooldowns :
+            _net is not null && caster == _net.PlayerGuid ? _actions : null;
+        double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        while (r.Remaining > 0)
+        {
+            uint spellId = r.ReadU32();
+            uint wireMs = r.ReadU32();
+            if (store is null) continue;
+            SpellInfo spell = default;
+            bool resolved = _spellCatalog?.TryGet(spellId, out spell) == true;
+            uint category = resolved ? spell.Category : 0;
+            uint spellMs = wireMs != 0 ? wireMs : resolved ? spell.RecoveryMs : 0;
+            uint categoryMs = wireMs == 0 && resolved ? spell.CategoryRecoveryMs : 0;
+            store.StartCooldown(spellId, category, spellMs, categoryMs, now);
         }
     }
 
     private void ApplyPetMode(byte[] body)
     {
+        if (body.Length != 12) throw new InvalidDataException("bad SMSG_PET_MODE body");
         var r = new PacketReader(body);
         ulong guid = r.ReadU64();
         uint state = r.ReadU32();
@@ -68,16 +134,8 @@ public sealed partial class GameLoop
     private void ApplyPetActionFeedback(byte[] body)
     {
         if (body.Length == 0) return;
-        string text = body[0] switch
-        {
-            1 => "Your pet is dead.",
-            2 => "Your pet is out of range.",
-            3 => "Your pet has no path to that location.",
-            4 => "Your pet is confused.",
-            5 => "Your pet is fleeing.",
-            _ => "Your pet cannot do that."
-        };
-        ShowUiError(text);
+        if (PetActionBarUiLaw.FeedbackKey(body[0]) is { } key)
+            ShowUiError(PetGlobalString(key));
     }
 
     private void ApplyPetCastFailed(byte[] body)
@@ -87,9 +145,11 @@ public sealed partial class GameLoop
         uint spellId = r.ReadU32();
         byte status = r.ReadU8();
         if (status != 2) return;
-        if (r.Remaining > 0) r.ReadU8();
-        string name = _spellCatalog?.TryGet(spellId, out SpellInfo spell) == true ? spell.Name : "Pet spell";
-        ShowUiError($"{name} failed.");
+        byte reason = r.ReadU8();
+        string power = _spellCatalog?.TryGet(spellId, out SpellInfo spell) == true
+            ? PowerName((byte)spell.PowerType) : "POWER";
+        string text = SpellCastResultNames.Text(reason, power);
+        ShowSpellError(spellId, SpellCastResultNames.Name(reason), text, "SMSG_PET_CAST_FAILED");
     }
 
     private void ResetPetActionBar()
@@ -97,31 +157,28 @@ public sealed partial class GameLoop
         _petGuid = 0;
         _petState = 0;
         _petAttacking = false;
-        _petAttackSelection = 0;
+        _petCooldowns.Clear();
         _draggingPetAction = null;
         _pressedPetActionSlot = -1;
         Array.Clear(_petActions);
     }
 
-    private void StagePetActionBarProof()
+    private string PetGlobalString(string key)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
-        _petGuid = player.Guid; // capture-only controlled-unit fixture; no server state is changed
-        _petState = 1u | (1u << 8); // defensive + follow
-        uint spellA = _actions.KnownSpells.FirstOrDefault(id =>
-            _spellCatalog?.TryGet(id, out SpellInfo info) == true && !info.Passive);
-        uint spellB = _actions.KnownSpells.FirstOrDefault(id => id != spellA &&
-            _spellCatalog?.TryGet(id, out SpellInfo info) == true && !info.Passive);
-        uint Pack(uint id, byte kind, uint flags = 0) => id | ((uint)kind << 24) | flags;
-        uint[] staged =
-        [
-            Pack(0, 7), Pack(1, 7), Pack(2, 7),
-            spellA == 0 ? 0 : Pack(spellA, 1, PetActionBarUiLaw.AutocastAllowed | PetActionBarUiLaw.AutocastEnabled),
-            0,
-            spellB == 0 ? 0 : Pack(spellB, 1, PetActionBarUiLaw.AutocastAllowed),
-            0, Pack(0, 6), Pack(1, 6), Pack(2, 6)
-        ];
-        staged.CopyTo(_petActions, 0);
+        if (!_petGlobalStringsLoaded)
+        {
+            _petGlobalStringsLoaded = true;
+            byte[]? bytes = _mpq?.ReadFile(@"Interface\FrameXML\GlobalStrings.lua");
+            if (bytes is not null)
+            {
+                string source = System.Text.Encoding.UTF8.GetString(bytes);
+                foreach (string wanted in PetStringFallbacks.Keys)
+                    if (TryReadLuaString(source, wanted, out string value))
+                        _petGlobalStrings[wanted] = value;
+            }
+        }
+        return _petGlobalStrings.GetValueOrDefault(key,
+            PetStringFallbacks.GetValueOrDefault(key, key));
     }
 
     private bool TryGetControlledPet(out WorldEntity pet)
@@ -132,17 +189,25 @@ public sealed partial class GameLoop
         return guid != 0 && _entities.TryGet(guid, out pet) && pet.IsUnit;
     }
 
+    private bool PetActionBarVisible => _petGuid != 0;
+
+    private void StopPetAttackForOldTargetChange(ulong previous, ulong current)
+    {
+        if (!PetActionBarUiLaw.StopsAttackOnSelectionChange(_petAttacking, previous, current)) return;
+        _net?.PetStopAttack(_petGuid);
+        _petAttacking = false;
+    }
+
     private void DrawPetFrameAndActionBar()
     {
-        if (_gameplayArt is null || !TryGetControlledPet(out WorldEntity pet)) return;
-        if (_petAttacking && _petAttackSelection != _selectionGuid)
-        {
-            _net?.PetStopAttack(pet.Guid);
-            _petAttacking = false;
-        }
+        if (_gameplayArt is null) return;
         float s = GameplayUiScale();
-        DrawPetFrame(pet, s); // Existing MSUI portrait/frame is intentionally preserved.
-        DrawPetActionBar(pet, s);
+        if (TryGetControlledPet(out WorldEntity framePet))
+            DrawPetFrame(framePet, s); // Existing MSUI portrait/frame is intentionally preserved.
+        if (!PetActionBarVisible) return;
+        WorldEntity? actionPet = _entities.TryGet(_petGuid, out WorldEntity entity) && entity.IsUnit
+            ? entity : null;
+        DrawPetActionBar(_petGuid, actionPet, s);
     }
 
     private void DrawPetFrame(WorldEntity pet, float s)
@@ -151,10 +216,15 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(128, 42) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, Vector2.Zero);
         if (!ImGui.Begin("##vanilla-pet-frame", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
-            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav))
-        { ImGui.End(); return; }
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoMouseInputs))
+        { ImGui.End(); ImGui.PopStyleVar(3); return; }
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
+        dl.PushClipRectFullScreen();
         Vector2 portrait = p + new Vector2(5, 4) * s;
         DrawUnitPortraitImage(dl, pet, portrait, 32 * s, 0, false);
         DrawArt(dl, @"Interface\TargetingFrame\UI-SmallTargetingFrame", p, new Vector2(128, 64), s);
@@ -164,191 +234,447 @@ public sealed partial class GameLoop
             pet.PowerFraction, PowerColor(pet.Fields.PowerType));
         string name = _creatureNames.GetValueOrDefault(pet.Entry, "Pet");
         DrawUnitFrameText(dl, p + new Vector2(75, 7) * s, name, 9 * s, UiGoldU32());
+        dl.PopClipRect();
         ImGui.End();
+        ImGui.PopStyleVar(3);
     }
 
-    private void DrawPetActionBar(WorldEntity pet, float s)
+    private void DrawPetActionBar(ulong petGuid, WorldEntity? pet, float s)
     {
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 mainBar = GameplayBarMin(display, s);
-        bool bottomMultiBar = Enumerable.Range(48, 24).Any(slot => _actions[slot] is not null);
-        float bottom = PetActionBarUiLaw.BaseBottom +
-            (bottomMultiBar ? PetActionBarUiLaw.BottomMultiBarStep : 0f);
+        // MSUI's two bottom multibars are always drawn. The pet row therefore always occupies
+        // their authored upper seat and the optional standalone shelf is never painted.
+        float topOffset = PetActionBarUiLaw.BaseTopOffset + PetActionBarUiLaw.BottomMultiBarStep;
         Vector2 p = new(mainBar.X + PetActionBarUiLaw.BaseX * s,
-            display.Y - (bottom + PetActionBarUiLaw.FrameHeight) * s);
+            display.Y - topOffset * s);
+        bool proof = _uiParityArmed && _uiParityPanel == "pet-action-bar";
+        bool gridShown = _draggingPetAction.HasValue;
+        var resolvedSpells = new SpellInfo?[PetActionBarUiLaw.SlotCount];
+        var iconPaths = new string[PetActionBarUiLaw.SlotCount];
+        var namedSlots = new bool[PetActionBarUiLaw.SlotCount];
+        var activeAuraSlots = new bool[PetActionBarUiLaw.SlotCount];
+        var interactiveSlots = new bool[PetActionBarUiLaw.SlotCount];
+        for (int i = 0; i < PetActionBarUiLaw.SlotCount; i++)
+        {
+            uint packed = _petActions[i];
+            uint action = PetActionBarUiLaw.Action(packed);
+            byte kind = PetActionBarUiLaw.Kind(packed);
+            if (PetActionBarUiLaw.IsSpell(packed) &&
+                _spellCatalog?.TryGet(action, out SpellInfo spell) == true)
+            {
+                resolvedSpells[i] = spell;
+                namedSlots[i] = true;
+                activeAuraSlots[i] = IsPetSpellShowingActive(packed, spell, pet);
+                iconPaths[i] = activeAuraSlots[i] ? spell.ActiveIconPath : spell.IconPath;
+            }
+            else if (PetTokenName(action, kind) is not null)
+            {
+                namedSlots[i] = true;
+                iconPaths[i] = PetActionIcon(action, kind, pet);
+            }
+            interactiveSlots[i] = PetActionBarUiLaw.InteractiveSlot(namedSlots[i], gridShown);
+        }
+
+        if (_pressedPetActionSlot >= 0 &&
+            ImGui.IsMouseDown(_petActionPressMouseButton) &&
+            Vector2.Distance(ImGui.GetIO().MousePos, _petActionPressPosition) > 6f * s)
+        {
+            PickupPetAction(_pressedPetActionSlot, petGuid, pet);
+            _pressedPetActionSlot = -1;
+        }
+
+        var clickedLeft = new bool[PetActionBarUiLaw.SlotCount];
+        var clickedRight = new bool[PetActionBarUiLaw.SlotCount];
+        var hoveredSlots = new bool[PetActionBarUiLaw.SlotCount];
+        var pushedSlots = new bool[PetActionBarUiLaw.SlotCount];
+        ImGuiWindowFlags inputFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
+            ImGuiWindowFlags.NoBringToFrontOnFocus;
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, Vector2.Zero);
+        for (int i = 0; i < PetActionBarUiLaw.SlotCount; i++)
+        {
+            if (!interactiveSlots[i]) continue;
+            Vector2 min = p + new Vector2(PetActionBarUiLaw.ButtonX(i),
+                PetActionBarUiLaw.ButtonTop) * s;
+            Vector2 size = new Vector2(PetActionBarUiLaw.ButtonSize) * s;
+            ImGui.SetNextWindowPos(min, ImGuiCond.Always);
+            ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+            ImGui.SetNextWindowBgAlpha(0);
+            if (ImGui.Begin($"##pet-action-hit-{i}", inputFlags))
+            {
+                ImGui.SetCursorScreenPos(min);
+                bool clicked = ImGui.InvisibleButton($"##pet-action-{i}", size,
+                    ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+                hoveredSlots[i] = ImGui.IsItemHovered(
+                    ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+                pushedSlots[i] = ImGui.IsItemActive();
+                if (ImGui.IsItemActivated())
+                {
+                    _pressedPetActionSlot = i;
+                    _petActionPressPosition = ImGui.GetIO().MousePos;
+                    _petActionPressMouseButton = ImGui.IsMouseDown(ImGuiMouseButton.Right)
+                        ? ImGuiMouseButton.Right : ImGuiMouseButton.Left;
+                }
+                clickedLeft[i] = clicked && ImGui.IsMouseReleased(ImGuiMouseButton.Left);
+                clickedRight[i] = clicked && ImGui.IsMouseReleased(ImGuiMouseButton.Right);
+            }
+            ImGui.End();
+        }
+        ImGui.PopStyleVar(3);
+
         ImGui.SetNextWindowPos(p, ImGuiCond.Always);
         ImGui.SetNextWindowSize(new Vector2(PetActionBarUiLaw.FrameWidth,
             PetActionBarUiLaw.FrameHeight) * s, ImGuiCond.Always);
         ImGui.SetNextWindowBgAlpha(0);
-        if (!ImGui.Begin("##vanilla-pet-action-bar", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+        ImGuiWindowFlags drawFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.NoNav |
-            ImGuiWindowFlags.NoBringToFrontOnFocus))
-        { ImGui.End(); return; }
+            ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoMouseInputs;
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, Vector2.Zero);
+        if (!ImGui.Begin("##vanilla-pet-action-bar", drawFlags))
+        {
+            ImGui.End();
+            ImGui.PopStyleVar(3);
+            return;
+        }
 
         ImDrawListPtr dl = ImGui.GetWindowDrawList();
-        bool proof = _uiParityArmed && _uiParityPanel == "pet-action-bar";
+        dl.PushClipRectFullScreen();
+        Vector4 fullClip = new(0, 0, display.X, display.Y);
         if (proof)
         {
             BeginUiParityFrame(p, s);
             CollectUiParityDraw("PetActionBarFrame", "Frame", p,
                 new Vector2(PetActionBarUiLaw.FrameWidth, PetActionBarUiLaw.FrameHeight) * s, "",
-                new("", 0, "IMGUI_WINDOW", "BOTTOMLEFT", "MainMenuBar", "BOTTOMLEFT",
-                    PetActionBarUiLaw.BaseX, bottom));
-        }
-        uint shelf = _gameplayArt!.Handle(@"Interface\PetActionBar\UI-PetBar");
-        if (shelf != 0)
-        {
-            dl.AddImage((nint)shelf, p, p + new Vector2(256, 44) * s,
-                new(0, .015625f), new(1, .359375f));
-            dl.AddImage((nint)shelf, p + new Vector2(256, 0) * s,
-                p + new Vector2(440, 44) * s, new(0, .375f), new(.71875f, .71875f));
-            if (proof)
-            {
-                CollectUiParityDraw("PetActionBarTexture0", "Texture", p, new Vector2(256, 44) * s,
-                    "PetActionBarFrame", new(@"Interface\PetActionBar\UI-PetBar", 0xffffffff,
-                        "IMGUI_IMAGE", "TOPLEFT", "PetActionBarFrame", "TOPLEFT", 0, 0));
-                CollectUiParityDraw("PetActionBarTexture1", "Texture", p + new Vector2(256, 0) * s,
-                    new Vector2(184, 44) * s, "PetActionBarFrame", new(@"Interface\PetActionBar\UI-PetBar",
-                        0xffffffff, "IMGUI_IMAGE", "LEFT", "PetActionBarTexture0", "RIGHT", 0, 0));
-            }
+                new("", 0, "IMGUI_HOST", "TOPLEFT", "MainMenuBar", "BOTTOMLEFT",
+                    PetActionBarUiLaw.BaseX, topOffset, ClipRect: fullClip, Visible: true,
+                    Enabled: false, InteractionState: "parent-not-mouse-enabled", Strata: "HIGH"));
+            ClassifyUiParity("PetActionBarTexture0", "Texture", "PetActionBarFrame", "NOT-DRAWN",
+                "bottom-multibars-always-visible");
+            ClassifyUiParity("PetActionBarTexture1", "Texture", "PetActionBarFrame", "NOT-DRAWN",
+                "bottom-multibars-always-visible");
         }
 
         int hoveredSlot = -1;
-        uint hoveredSpell = 0;
-        if (_pressedPetActionSlot >= 0 && ImGui.IsMouseDown(ImGuiMouseButton.Left) &&
-            Vector2.Distance(ImGui.GetIO().MousePos, _petActionPressPosition) > 6f * s)
-        {
-            PickupPetAction(_pressedPetActionSlot, pet);
-            _pressedPetActionSlot = -1;
-        }
-
-        bool usable = PetActionBarUiLaw.Usable(_petState, pet.Fields.UnitFlags);
+        PreparedSharedSpellTooltip? hoveredSpellTooltip = null;
+        bool usable = PetActionBarUiLaw.Usable(_petState, pet?.Fields.UnitFlags ?? 0);
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
-        for (int i = 0; i < _petActions.Length; i++)
+        bool pickedUpOnClick = false;
+        for (int i = 0; i < PetActionBarUiLaw.SlotCount; i++)
         {
+            string button = $"PetActionButton{i + 1}";
             uint packed = _petActions[i];
             uint action = PetActionBarUiLaw.Action(packed);
             byte kind = PetActionBarUiLaw.Kind(packed);
-            string iconPath = PetActionIcon(action, kind);
-            bool hasIcon = PetActionBarUiLaw.HasPayload(packed) && iconPath.Length > 0;
-            bool show = hasIcon || _draggingPetAction.HasValue;
-            Vector2 min = p + new Vector2(PetActionBarUiLaw.ButtonX(i), PetActionBarUiLaw.ButtonY) * s;
+            Vector2 min = p + new Vector2(PetActionBarUiLaw.ButtonX(i),
+                PetActionBarUiLaw.ButtonTop) * s;
             Vector2 max = min + new Vector2(PetActionBarUiLaw.ButtonSize) * s;
-            if (proof && i is 0 or 6 or 9)
-                CollectUiParityDraw($"PetActionButton{i + 1}", "CheckButton", min, max - min,
-                    "PetActionBarFrame", new(@"Interface\Buttons\UI-Quickslot2", 0xffffffff,
-                        "IMGUI_IMAGE", "BOTTOMLEFT", "PetActionBarFrame", "BOTTOMLEFT",
-                        PetActionBarUiLaw.ButtonX(i), PetActionBarUiLaw.ButtonY));
-            ImGui.SetCursorScreenPos(min);
-            ImGui.InvisibleButton($"##pet-action-{i}", max - min);
-            bool hovered = ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+            bool hovered = hoveredSlots[i];
+            bool pushed = pushedSlots[i];
+            bool interactive = interactiveSlots[i];
             if (hovered) hoveredSlot = i;
-            if (ImGui.IsItemActivated())
-            {
-                _pressedPetActionSlot = i;
-                _petActionPressPosition = ImGui.GetIO().MousePos;
-            }
+            if (proof)
+                CollectUiParityDraw(button, "CheckButton", min, max - min, "PetActionBarFrame",
+                    new("", 0, "IMGUI_HIT_TARGET", i == 0 ? "BOTTOMLEFT" : "LEFT",
+                        i == 0 ? "PetActionBarFrame" : $"PetActionButton{i}",
+                        i == 0 ? "BOTTOMLEFT" : "RIGHT", i == 0 ? PetActionBarUiLaw.BaseX :
+                            i == 6 ? PetActionBarUiLaw.MiddleStep : 8, PetActionBarUiLaw.ButtonBottomOffset,
+                        ClipRect: fullClip, Visible: interactive, Enabled: interactive,
+                        InteractionState: !interactive ? "hidden-unnamed" : pushed ? "pushed" :
+                            hovered ? "hovered" : "normal",
+                        HitMin: interactive ? min : null, HitMax: interactive ? max : null,
+                        Strata: "HIGH"));
 
-            if (show)
+            if (!namedSlots[i] && !gridShown)
             {
-                uint ring = _gameplayArt.Handle(hasIcon ? @"Interface\Buttons\UI-Quickslot2" :
-                    @"Interface\Buttons\UI-Quickslot");
-                if (hasIcon)
+                if (proof)
                 {
-                    uint icon = _gameplayArt.Handle(iconPath);
-                    if (icon != 0) dl.AddImage((nint)icon, min, max, Vector2.Zero, Vector2.One,
-                        usable ? 0xffff_ffffu : 0xff66_6666u);
+                    ClassifyUiParity(button + "Icon", "Texture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "NormalTexture", "NormalTexture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "AutoCastable", "Texture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "AutoCastShine", "Texture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "Cooldown", "Cooldown", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "CheckedTexture", "CheckedTexture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "PushedTexture", "PushedTexture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
+                    ClassifyUiParity(button + "HighlightTexture", "HighlightTexture", button, "NOT-DRAWN",
+                        "unnamed-slot-hidden");
                 }
-                if (ring != 0)
-                    dl.AddImage((nint)ring, min - new Vector2(12, 13) * s,
-                        max + new Vector2(12, 11) * s);
+                continue;
             }
 
-            if (PetActionBarUiLaw.Autocastable(packed))
+            bool hasNamedPayload = namedSlots[i];
+            string iconPath = iconPaths[i];
+            uint icon = hasNamedPayload && iconPath.Length > 0 ? _gameplayArt!.Handle(iconPath) : 0;
+            uint iconTint = usable ? 0xffff_ffffu : 0xff80_8080u;
+            if (icon != 0)
+                dl.AddImage((nint)icon, min, max, Vector2.Zero, Vector2.One, iconTint);
+            if (proof)
+            {
+                if (icon != 0)
+                    CollectUiParityDraw(button + "Icon", "Texture", min, max - min, button,
+                        new(iconPath, iconTint, "BACKGROUND", "CENTER", button, "CENTER", 0, 0,
+                            ClipRect: fullClip, Visible: true, BlendMode: "BLEND", Strata: "HIGH"));
+                else
+                    ClassifyUiParity(button + "Icon", "Texture", button, "NOT-DRAWN",
+                        hasNamedPayload ? "resolved-action-has-no-drawable-icon" : "empty-drop-grid-slot");
+            }
+
+            string ringPath = iconPath.Length > 0
+                ? @"Interface\Buttons\UI-Quickslot2" : @"Interface\Buttons\UI-Quickslot";
+            uint ring = _gameplayArt!.Handle(ringPath);
+            Vector2 ringCenter = (min + max) * .5f +
+                new Vector2(PetActionBarUiLaw.NormalTextureOffset.X,
+                    -PetActionBarUiLaw.NormalTextureOffset.Y) * s;
+            Vector2 ringHalf = new(PetActionBarUiLaw.NormalTextureSize * .5f * s);
+            if (ring != 0)
+                dl.AddImage((nint)ring, ringCenter - ringHalf, ringCenter + ringHalf);
+            if (proof)
+                CollectUiParityDraw(button + "NormalTexture", "NormalTexture",
+                    ringCenter - ringHalf, ringHalf * 2, button,
+                    new(ringPath, 0xffffffff, "ARTWORK", "CENTER", button, "CENTER", 0, -1,
+                        ClipRect: fullClip, Visible: ring != 0, BlendMode: "BLEND", Strata: "HIGH"));
+
+            bool autocastable = resolvedSpells[i] is not null &&
+                PetActionBarUiLaw.Autocastable(packed, spellResolved: true);
+            if (autocastable)
             {
                 uint overlay = _gameplayArt.Handle(@"Interface\Buttons\UI-AutoCastableOverlay");
-                if (overlay != 0) dl.AddImage((nint)overlay, min - new Vector2(14) * s,
-                    max + new Vector2(14) * s);
-                if (PetActionBarUiLaw.Autocasting(packed)) DrawPetAutocastSparkles(dl, min, s, now);
+                float overlayMargin = (PetActionBarUiLaw.AutoCastOverlaySize -
+                    PetActionBarUiLaw.ButtonSize) * .5f;
+                Vector2 overlayMin = min - new Vector2(overlayMargin) * s;
+                Vector2 overlayMax = max + new Vector2(overlayMargin) * s;
+                if (overlay != 0) dl.AddImage((nint)overlay, overlayMin, overlayMax);
+                if (proof)
+                    CollectUiParityDraw(button + "AutoCastable", "Texture", overlayMin,
+                        overlayMax - overlayMin, button,
+                        new(@"Interface\Buttons\UI-AutoCastableOverlay", 0xffffffff, "OVERLAY",
+                            "CENTER", button, "CENTER", 0, 0, ClipRect: fullClip,
+                            Visible: overlay != 0, BlendMode: "BLEND", Strata: "HIGH"));
+                if (PetActionBarUiLaw.Autocasting(packed))
+                {
+                    DrawPetAutocastSparkles(dl, min, s, now);
+                    if (proof)
+                        CollectUiParityDraw(button + "AutoCastShine", "Texture",
+                            min + new Vector2(.6f) * s, new Vector2(28.8f) * s, button,
+                            new(@"Interface\Buttons\GlowStar", 0xffffffff, "OVERLAY",
+                                "CENTER", button, "CENTER", 0, 0, ClipRect: fullClip,
+                                ClipMask: "FOUR_EMITTER_M2_LINEAR_TRAILS", Visible: true,
+                                BlendMode: "ADD", InteractionState: "autocasting", Strata: "HIGH"));
+                }
+                else if (proof)
+                    ClassifyUiParity(button + "AutoCastShine", "Texture", button, "NOT-DRAWN",
+                        "autocast-disabled");
             }
-            if (PetActionBarUiLaw.IsSpell(packed) && _spellCatalog?.TryGet(action, out SpellInfo spell) == true &&
-                _actions.TryCooldownDisplay(action, now, spell.Category, out CooldownDisplay cooldown))
+            else if (proof)
             {
-                Vector2 center = (min + max) * .5f + new Vector2(-2, -1) * s;
-                Vector2 half = new(16.5f * s);
-                if (cooldown.SweepFraction is { } sweep) DrawCooldownSwipe(dl, center - half, center + half, sweep);
-                if (cooldown.FlashProgress is { } flash) DrawCooldownFlash(dl, center - half, center + half, flash);
+                ClassifyUiParity(button + "AutoCastable", "Texture", button, "NOT-DRAWN",
+                    "spell-unresolved-or-not-autocastable");
+                ClassifyUiParity(button + "AutoCastShine", "Texture", button, "NOT-DRAWN",
+                    "spell-unresolved-or-not-autocasting");
             }
-            if (PetActionBarUiLaw.Active(packed, _petState, _petAttacking))
+
+            bool cooldownVisible = false;
+            if (resolvedSpells[i] is SpellInfo cooldownSpell &&
+                _petCooldowns.TryCooldownDisplay(action, now, cooldownSpell.Category,
+                    out CooldownDisplay cooldown))
+            {
+                Vector2 center = (min + max) * .5f +
+                    new Vector2(PetActionBarUiLaw.CooldownOffset.X,
+                        -PetActionBarUiLaw.CooldownOffset.Y) * s;
+                Vector2 half = new(PetActionBarUiLaw.CooldownSize * .5f * s);
+                if (cooldown.SweepFraction is { } sweep)
+                {
+                    cooldownVisible = true;
+                    DrawCooldownSwipe(dl, center - half, center + half, sweep);
+                    if (proof)
+                        CollectUiParityDraw(button + "Cooldown", "Cooldown", center - half,
+                            half * 2, button, new("", 0x99000000, "ARTWORK", "CENTER", button,
+                                "CENTER", -2, -1, ClipRect: fullClip,
+                                ClipMask: $"RADIAL_SWEEP:{sweep:R}", BlendMode: "BLEND",
+                                InteractionState: "pet-cooldown-sweep", Strata: "HIGH"));
+                }
+                else if (cooldown.FlashProgress is { } flash)
+                {
+                    cooldownVisible = true;
+                    DrawCooldownFlash(dl, center - half, center + half, flash);
+                    if (proof)
+                        CollectUiParityDraw(button + "Cooldown", "Cooldown", center - half,
+                            half * 2, button, new("", 0xffffffff, "ARTWORK", "CENTER", button,
+                                "CENTER", -2, -1, ClipRect: fullClip,
+                                ClipMask: $"COOLDOWN_FINISH_FLASH:{flash:R}", BlendMode: "ADD",
+                                InteractionState: "pet-cooldown-finish-flash", Strata: "HIGH"));
+                }
+            }
+            if (proof && !cooldownVisible)
+                ClassifyUiParity(button + "Cooldown", "Cooldown", button, "NOT-DRAWN",
+                    "no-active-pet-cooldown");
+
+            bool checkedState = PetActionBarUiLaw.Active(packed, _petState, _petAttacking);
+            if (checkedState)
             {
                 uint check = _gameplayArt.AdditiveHandle(@"Interface\Buttons\CheckButtonHilight");
                 if (check != 0) dl.AddImage((nint)check, min, max);
+                if (proof)
+                    CollectUiParityDraw(button + "CheckedTexture", "CheckedTexture", min,
+                        max - min, button,
+                        new(@"Interface\Buttons\CheckButtonHilight", 0xffffffff, "ARTWORK",
+                            "CENTER", button, "CENTER", 0, 0, ClipRect: fullClip,
+                            Visible: check != 0, BlendMode: "ADD", Strata: "HIGH"));
             }
-            if (ImGui.IsItemActive())
+            else if (proof)
+                ClassifyUiParity(button + "CheckedTexture", "CheckedTexture", button, "NOT-DRAWN",
+                    "action-not-checked");
+
+            if (pushed)
             {
                 uint depress = _gameplayArt.Handle(@"Interface\Buttons\UI-Quickslot-Depress");
                 if (depress != 0) dl.AddImage((nint)depress, min, max);
+                if (proof)
+                    CollectUiParityDraw(button + "PushedTexture", "PushedTexture", min,
+                        max - min, button,
+                        new(@"Interface\Buttons\UI-Quickslot-Depress", 0xffffffff, "ARTWORK",
+                            "CENTER", button, "CENTER", 0, 0, ClipRect: fullClip,
+                            Visible: depress != 0, BlendMode: "BLEND", Strata: "HIGH"));
             }
+            else if (proof)
+                ClassifyUiParity(button + "PushedTexture", "PushedTexture", button, "NOT-DRAWN",
+                    "button-not-pushed");
+
             if (hovered)
             {
-                uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
+                uint highlight = _gameplayArt.BrightHighlightHandle(
+                    @"Interface\Buttons\ButtonHilight-Square");
                 if (highlight != 0) dl.AddImage((nint)highlight, min, max);
-                if (PetActionBarUiLaw.IsSpell(packed)) hoveredSpell = action;
-                else if (hasIcon) DrawPetTokenTooltip(action, kind);
+                if (proof)
+                    CollectUiParityDraw(button + "HighlightTexture", "HighlightTexture", min,
+                        max - min, button,
+                        new(@"Interface\Buttons\ButtonHilight-Square", 0xffffffff, "HIGHLIGHT",
+                            "CENTER", button, "CENTER", 0, 0, ClipRect: fullClip,
+                            Visible: highlight != 0, BlendMode: "ADD", Strata: "HIGH"));
+                if (resolvedSpells[i] is not null)
+                {
+                    hoveredSpellTooltip = PrepareSharedSpellTooltip(
+                        new GameTooltipOwnerKey("pet-action", (ulong)(i + 1)),
+                        action, s, SpellTooltipPlacement.DefaultBottomRight);
+                }
+                else if (hasNamedPayload && PetTokenName(action, kind) is { } tokenName)
+                {
+                    string preparedName = tokenName;
+                    var owner = new GameTooltipOwnerKey("pet-action", (ulong)(i + 1));
+                    OfferPreservedSharedGameTooltipRenderer(owner,
+                        () => DrawPetTokenTooltip(preparedName));
+                }
+            }
+            else if (proof)
+                ClassifyUiParity(button + "HighlightTexture", "HighlightTexture", button, "NOT-DRAWN",
+                    "button-not-hovered");
 
-                if (ImGui.IsMouseReleased(ImGuiMouseButton.Right) &&
-                    PetActionBarUiLaw.Autocastable(packed)) TogglePetAutocast(i, pet.Guid);
-                if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.GetIO().KeyShift)
-                {
-                    PickupPetAction(i, pet);
-                    _pressedPetActionSlot = -1;
-                }
-                else if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) &&
-                         _pressedPetActionSlot == i && !_draggingPetAction.HasValue)
-                {
-                    UsePetAction(i, pet, usable);
-                    _pressedPetActionSlot = -1;
-                }
+            bool released = clickedLeft[i] || clickedRight[i];
+            if (released && ShiftHeld())
+            {
+                PickupPetAction(i, petGuid, pet);
+                pickedUpOnClick = true;
+                _pressedPetActionSlot = -1;
+            }
+            else if (clickedRight[i] && _pressedPetActionSlot == i &&
+                     !_draggingPetAction.HasValue)
+            {
+                if (autocastable) TogglePetAutocast(i, petGuid);
+                _pressedPetActionSlot = -1;
+            }
+            else if (clickedLeft[i] && _pressedPetActionSlot == i &&
+                     !_draggingPetAction.HasValue)
+            {
+                UsePetAction(i, petGuid, pet);
+                _pressedPetActionSlot = -1;
             }
         }
 
-        if (ImGui.IsMouseReleased(ImGuiMouseButton.Left) && _draggingPetAction.HasValue)
-        {
-            if (hoveredSlot >= 0) PlacePetAction(hoveredSlot, pet);
-            else ClearPetActionCursor();
-        }
+        dl.PopClipRect();
         if (proof) MarkUiParityFrameComplete();
         ImGui.End();
+        ImGui.PopStyleVar(3);
 
-        if (hoveredSpell != 0) DrawSpellTooltip(hoveredSpell, s, SpellTooltipPlacement.DefaultBottomRight);
+        bool releasedDragButton = ImGui.IsMouseReleased(ImGuiMouseButton.Left) ||
+            ImGui.IsMouseReleased(ImGuiMouseButton.Right);
+        if (releasedDragButton && _draggingPetAction.HasValue && !pickedUpOnClick)
+        {
+            if (hoveredSlot >= 0) PlacePetAction(hoveredSlot, petGuid, pet);
+            else if (!MouseOverActionBarDropTarget()) ClearPetActionCursor();
+        }
+        if (releasedDragButton) _pressedPetActionSlot = -1;
+
+        if (hoveredSpellTooltip is { } hoveredPetSpellTooltip)
+        {
+            PreparedSharedSpellTooltip prepared = hoveredPetSpellTooltip;
+            OfferPreservedSharedGameTooltipRenderer(prepared.Owner,
+                () => DrawSpellTooltip(prepared.Snapshot));
+        }
         if (_draggingPetAction.HasValue && !_window.MouseCaptured)
         {
-            uint cursor = _gameplayArt.Handle(_draggingPetActionIcon);
+            uint cursor = _gameplayArt!.Handle(_draggingPetActionIcon);
             Vector2 at = ImGui.GetIO().MousePos + new Vector2(8) * s;
-            if (cursor != 0) ImGui.GetForegroundDrawList().AddImage((nint)cursor, at, at + new Vector2(30) * s);
+            if (cursor != 0)
+                ImGui.GetForegroundDrawList().AddImage((nint)cursor, at,
+                    at + new Vector2(PetActionBarUiLaw.ButtonSize) * s);
         }
     }
 
-    private void UsePetAction(int slot, WorldEntity pet, bool usable)
+    private void UsePetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
         uint packed = _petActions[slot];
-        if (!usable || !PetActionBarUiLaw.HasPayload(packed)) return;
+        if (!PetActionBarUiLaw.HasPayload(packed)) return;
         uint action = PetActionBarUiLaw.Action(packed);
         byte kind = PetActionBarUiLaw.Kind(packed);
-        if (kind == 7 && action == 2 && _petAttacking)
+
+        if (PetActionBarUiLaw.IsSpell(packed) &&
+            _spellCatalog?.TryGet(action, out SpellInfo spell) == true &&
+            IsPetSpellShowingActive(packed, spell, pet))
         {
-            if (_net?.PetStopAttack(pet.Guid) == true) _petAttacking = false;
+            _net?.PetCancelAura(petGuid, action);
             return;
         }
-        ulong target = kind == 7 && action == 2 ? _selectionGuid :
-            PetActionBarUiLaw.IsSpell(packed) ? (_selectionGuid != 0 ? _selectionGuid : pet.Guid) : 0;
-        if (_net?.PetAction(pet.Guid, packed, target) != true) return;
-        _petState = PetActionBarUiLaw.LatchPress(_petState, packed);
-        if (kind == 7 && action == 2)
+
+        bool attack = kind == 7 && action == 2;
+        if (attack && _petAttacking)
         {
-            _petAttacking = true;
-            _petAttackSelection = _selectionGuid;
+            if (_net?.PetStopAttack(petGuid) == true) _petAttacking = false;
+            return;
         }
+        if (attack && pet is not null)
+        {
+            string? refusal = PetActionBarUiLaw.AttackRefusalKey(
+                pet.Fields.Health, pet.Fields.CharmedBy, _net?.PlayerGuid ?? 0,
+                pet.Fields.UnitFlags, pet.Fields.MountDisplayId);
+            if (refusal is not null)
+            {
+                ShowUiError(PetGlobalString(refusal));
+                return;
+            }
+        }
+
+        if (_net?.PetAction(petGuid, packed,
+                PetActionBarUiLaw.ActionTarget(_selectionGuid)) != true) return;
+        _petState = PetActionBarUiLaw.LatchPress(_petState, packed);
+        if (attack) _petAttacking = true;
+    }
+
+    private bool IsPetSpellShowingActive(uint packed, in SpellInfo spell, WorldEntity? pet)
+    {
+        bool cancelableAura = pet is not null && pet.Fields.Auras().Any(a =>
+            a.SpellId == PetActionBarUiLaw.Action(packed) && (a.Flags & 0x01) != 0);
+        return PetActionBarUiLaw.ActiveAuraPress(packed, spell.ActiveIconId, cancelableAura);
     }
 
     private void TogglePetAutocast(int slot, ulong petGuid)
@@ -358,10 +684,15 @@ public sealed partial class GameLoop
         _net?.PetSetAction(petGuid, new[] { ((uint)slot, toggled) });
     }
 
-    private void PickupPetAction(int slot, WorldEntity pet)
+    private void PickupPetAction(int slot, ulong petGuid, WorldEntity? pet)
     {
-        if (!PetActionBarUiLaw.PickupAllowed(pet.Fields.UnitFlags)) return;
-        if (_draggingPetAction.HasValue) { PlacePetAction(slot, pet); return; }
+        uint unitFlags = pet?.Fields.UnitFlags ?? 0;
+        if (!PetActionBarUiLaw.PickupAllowed(unitFlags)) return;
+        if (_draggingPetAction.HasValue)
+        {
+            PlacePetAction(slot, petGuid, pet);
+            return;
+        }
         uint packed = _petActions[slot];
         if (!PetActionBarUiLaw.HasPayload(packed)) return;
         _draggingPetAction = packed;
@@ -369,18 +700,19 @@ public sealed partial class GameLoop
         byte kind = PetActionBarUiLaw.Kind(packed);
         _draggingPetActionPassive = kind == 1 &&
             _spellCatalog?.TryGet(action, out SpellInfo spell) == true && spell.Passive;
-        _draggingPetActionIcon = PetActionIcon(action, kind);
+        _draggingPetActionIcon = PetActionIcon(action, kind, pet);
         if (kind == 1)
         {
             uint blank = packed & 0xFFFF_0000u;
             _petActions[slot] = blank;
-            _net?.PetSetAction(pet.Guid, new[] { ((uint)slot, blank) });
+            _net?.PetSetAction(petGuid, new[] { ((uint)slot, blank) });
         }
     }
 
-    private void PlacePetAction(int target, WorldEntity pet)
+    private void PlacePetAction(int target, ulong petGuid, WorldEntity? pet)
     {
-        if (!PetActionBarUiLaw.PickupAllowed(pet.Fields.UnitFlags) || !_draggingPetAction.HasValue) return;
+        uint unitFlags = pet?.Fields.UnitFlags ?? 0;
+        if (!PetActionBarUiLaw.PickupAllowed(unitFlags) || !_draggingPetAction.HasValue) return;
         uint source = _draggingPetAction.Value;
         bool sourcePassive = _draggingPetActionPassive;
         uint oldOccupant = _petActions[target];
@@ -391,7 +723,7 @@ public sealed partial class GameLoop
         if (assigned.Relocated)
             entries.Add(((uint)assigned.RelocationSlot, _petActions[assigned.RelocationSlot]));
         entries.Add(((uint)target, _petActions[target]));
-        _net?.PetSetAction(pet.Guid, entries);
+        _net?.PetSetAction(petGuid, entries);
         if (!assigned.Relocated && PetActionBarUiLaw.HasPayload(oldOccupant))
         {
             _draggingPetAction = oldOccupant;
@@ -399,7 +731,7 @@ public sealed partial class GameLoop
             byte kind = PetActionBarUiLaw.Kind(oldOccupant);
             _draggingPetActionPassive = kind == 1 &&
                 _spellCatalog?.TryGet(action, out SpellInfo spell) == true && spell.Passive;
-            _draggingPetActionIcon = PetActionIcon(action, kind);
+            _draggingPetActionIcon = PetActionIcon(action, kind, pet);
         }
     }
 
@@ -410,21 +742,30 @@ public sealed partial class GameLoop
         _draggingPetActionIcon = "";
     }
 
-    private void DrawPetTokenTooltip(uint action, byte kind)
+    private static string? PetTokenName(uint action, byte kind) => kind switch
     {
-        (string name, string sub) = kind == 7 ? action switch
+        7 => action switch
         {
-            0 => ("Stay", "Pet Command"), 1 => ("Follow", "Pet Command"),
-            2 => ("Attack", "Pet Command"), 3 => ("Dismiss", "Pet Command"),
-            _ => ("Pet Command", "")
-        } : action switch
+            0 => "Stay",
+            1 => "Follow",
+            2 => "Attack",
+            3 => "Dismiss",
+            _ => null,
+        },
+        6 => action switch
         {
-            0 => ("Passive", "Pet Stance"), 1 => ("Defensive", "Pet Stance"),
-            2 => ("Aggressive", "Pet Stance"), _ => ("Pet Stance", "")
-        };
+            0 => "Passive",
+            1 => "Defensive",
+            2 => "Aggressive",
+            _ => null,
+        },
+        _ => null,
+    };
+
+    private static void DrawPetTokenTooltip(string preparedName)
+    {
         ImGui.BeginTooltip();
-        ImGui.TextUnformatted(name);
-        if (sub.Length > 0) ImGui.TextDisabled(sub);
+        ImGui.TextUnformatted(preparedName);
         ImGui.EndTooltip();
     }
 
@@ -439,10 +780,8 @@ public sealed partial class GameLoop
             float age = trail / 8f;
             float phase = cycle + emitter * .25f - age * .125f;
             Vector2 point = PetActionBarUiLaw.SparklePoint(phase) * s;
-            float life = 1f - age;
-            float width = life > .66f ? 14.4f : life > .33f ? 5.76f : 2.88f;
-            Vector4 color = life > .66f ? new(.976f, .875f, .192f, life) :
-                life > .33f ? new(.996f, .945f, .745f, life) : new(1, 1, 1, life);
+            float width = PetActionBarUiLaw.SparkleSize(age);
+            Vector4 color = PetActionBarUiLaw.SparkleColor(age);
             Vector2 center = buttonMin + new Vector2(.6f) * s + point;
             Vector2 half = new(width * .5f * s);
             dl.AddImage((nint)star, center - half, center + half, Vector2.Zero, Vector2.One,
@@ -450,24 +789,29 @@ public sealed partial class GameLoop
         }
     }
 
-    private string PetActionIcon(uint action, byte kind)
+    private string PetActionIcon(uint action, byte kind, WorldEntity? pet)
     {
-        if (kind is >= 1 and <= 5 && _spellCatalog?.TryGet(action, out SpellInfo spell) == true)
-            return spell.IconPath;
+        if (kind is >= 1 and <= 5 &&
+            _spellCatalog?.TryGet(action, out SpellInfo spell) == true)
+        {
+            uint packed = action | ((uint)kind << 24);
+            return IsPetSpellShowingActive(packed, spell, pet)
+                ? spell.ActiveIconPath : spell.IconPath;
+        }
         if (kind == 7) return action switch
         {
             0 => @"Interface\Icons\Spell_Nature_TimeStop.blp",
             1 => @"Interface\Icons\Ability_Tracking.blp",
             2 => @"Interface\Icons\Ability_GhoulFrenzy.blp",
             3 => @"Interface\Icons\Spell_Shadow_Teleport.blp",
-            _ => @"Interface\Icons\INV_Misc_QuestionMark.blp"
+            _ => ""
         };
         if (kind == 6) return action switch
         {
             0 => @"Interface\Icons\Ability_Seal.blp",
             1 => @"Interface\Icons\Ability_Defend.blp",
             2 => @"Interface\Icons\Ability_Racial_BloodRage.blp",
-            _ => @"Interface\Icons\INV_Misc_QuestionMark.blp"
+            _ => ""
         };
         return "";
     }

@@ -119,62 +119,78 @@ public sealed partial class GameLoop
 
     private void DrawCombatHud()
     {
-        BakeDirtyPortraits();
-        // WorldMapFrame is a FULLSCREEN frame in the 1.12 FrameXML.  Nothing from
-        // the ordinary HUD is allowed to render over it.
-        if (_worldMapOpen)
+        BeginSharedGameTooltipFrame(NowSeconds());
+        try
         {
-            DrawWorldMapFrame();
-            return;
+            BakeDirtyPortraits();
+            // WorldMapFrame is a FULLSCREEN frame in the 1.12 FrameXML.  Nothing from
+            // the ordinary HUD is allowed to render over it.
+            if (_worldMapOpen)
+            {
+                DrawWorldMapFrame();
+                return;
+            }
+            UpdateAndQueueWorldUnitGameTooltip(NowSeconds());
+            DrawFloatingCombatText();
+            DrawWorldUnitNames();
+            DrawPlayerFrame();
+            DrawTargetFrame();
+            DrawPetFrameAndActionBar();
+            DrawPartyFrames();
+            DrawUnitPopup();
+            DrawPlayerAuraBar();
+            DrawMinimap();
+            DrawChatFrame();
+            DrawCenterCombatText();
+            DrawCastingBar();
+            DrawActionBars();
+            DrawLootFrame();
+            DrawGameObjectFrame();
+            DrawRestXpFrame();
+            DrawDeathRezFrame();
+            DrawHearthFrame();
+            DrawTaxiFrame();
+            DrawGossipFrame();
+            DrawVendorFrame();
+            DrawTrainerFrame();
+            DrawQuestFrame();
+            DrawBankFrame();
+            DrawMailFrame();
+            DrawAuctionFrame();
+            DrawProfessionFrame();
+            DrawGuildFrame();
+            DrawSocialFrame();
+            DrawTradeFrame();
+            DrawKeybindingsFrame();
+            DrawMacroFrame();
+            DrawTooltipParityFrame();
+            DrawUiErrorsParityFrame();
+            DrawStaticPopupParityFrame();
+            DrawTabardFrame();
+            DrawTalentFrame();
+            DrawInventory();
+            DrawCharacterPage();
+            DrawInspectFrame();
+            DrawSpellbook();
+            DrawHelpFrame();
+            // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
+            // MEDIUM panels (including bags) and before dialog confirmations.
+            DrawMultiActionBars();
+            ResolveAndDrawSharedGameTooltip();
+            CompleteDeferredShoppingTooltipParityCapture();
+            CompleteDeferredPartyTooltipParityCapture();
+            DrawPartyInvite();
+            DrawMailConfirmation();
+            DrawEnchantConfirmation();
+            DrawSkillUnlearnConfirmation();
+            if (SkillFrameUiParityCaptureActive) MarkUiParityFrameComplete();
         }
-        DrawFloatingCombatText();
-        DrawWorldUnitNames();
-        DrawPlayerFrame();
-        DrawTargetFrame();
-        DrawPetFrameAndActionBar();
-        DrawPartyFrames();
-        DrawUnitPopup();
-        DrawPlayerAuraBar();
-        DrawMinimap();
-        DrawChatFrame();
-        DrawCenterCombatText();
-        DrawCastingBar();
-        DrawActionBars();
-        DrawLootFrame();
-        DrawGameObjectFrame();
-        DrawRestXpFrame();
-        DrawDeathRezFrame();
-        DrawHearthFrame();
-        DrawTaxiFrame();
-        DrawGossipFrame();
-        DrawVendorFrame();
-        DrawTrainerFrame();
-        DrawQuestFrame();
-        DrawBankFrame();
-        DrawMailFrame();
-        DrawAuctionFrame();
-        DrawProfessionFrame();
-        DrawGuildFrame();
-        DrawSocialFrame();
-        DrawTradeFrame();
-        DrawKeybindingsFrame();
-        DrawMacroFrame();
-        DrawTooltipParityFrame();
-        DrawUiErrorsParityFrame();
-        DrawStaticPopupParityFrame();
-        DrawTabardFrame();
-        DrawTalentFrame();
-        DrawInventory();
-        DrawCharacterPage();
-        DrawInspectFrame();
-        DrawSpellbook();
-        DrawHelpFrame();
-        // The reference bottom multibars use frameStrata HIGH. Draw them after ordinary
-        // MEDIUM panels (including bags) and before dialog confirmations.
-        DrawMultiActionBars();
-        DrawPartyInvite();
-        DrawMailConfirmation();
-        DrawEnchantConfirmation();
+        finally
+        {
+            EndSharedGameTooltipFrame();
+            CompleteDeferredShoppingTooltipParityCapture();
+            CompleteDeferredPartyTooltipParityCapture();
+        }
     }
 
     private void DrawPlayerFrame()

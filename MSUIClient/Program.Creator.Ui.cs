@@ -1042,7 +1042,8 @@ public sealed partial class GameLoop
     /// open state; the visible label may change freely. Used for NESTED groups
     /// (emitters inside a model editor); top-level groups are sections.
     /// </summary>
-    private bool CreatorCategory(string id, string label, bool defaultOpen = false)
+    private bool CreatorCategory(string id, string label, bool defaultOpen = false,
+        Vector4? marker = null)
     {
         NotePanelField("headers");
         bool open = GetSectionOpen(id, defaultOpen);
@@ -1074,6 +1075,17 @@ public sealed partial class GameLoop
             dl.AddText(iconMin, 0xffffffff, open ? "-" : "+");
 
         var textPos = new Vector2(pos.X + icon + 6f * cs, pos.Y + (h - ImGui.GetTextLineHeight()) * 0.5f);
+        // Identity marker: a small colored square between the +/- icon and the
+        // label (the workshop uses it to tie emitters to the texture they draw).
+        if (marker is { } mc)
+        {
+            float sq = MathF.Min(icon * 0.55f, 12f * cs);
+            var sqMin = new Vector2(textPos.X, pos.Y + (h - sq) * 0.5f);
+            dl.AddRectFilled(sqMin, sqMin + new Vector2(sq, sq),
+                ImGui.ColorConvertFloat4ToU32(mc), 2f * cs);
+            dl.AddRect(sqMin, sqMin + new Vector2(sq, sq), 0x66000000, 2f * cs);
+            textPos.X += sq + 5f * cs;
+        }
         dl.AddText(textPos + new Vector2(1f, 1f), 0xdd000000, label);
         dl.AddText(textPos, hovered ? 0xffffffff : VanillaGold, label);
         return open;

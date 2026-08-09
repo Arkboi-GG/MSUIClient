@@ -21,6 +21,38 @@ public static class EnchantConfirmUiLaw
     public const uint EnchantPermanentEffect = 53;
     public const uint EnchantTemporaryEffect = 54;
 
+    // Existing MSUI presentation contract. Benilla's current shared StaticPopup implementation
+    // accepts showAlert/exclusive but deliberately leaves both inert; that is not a reason to
+    // erase MSUI's already-functional alert treatment or compact it to Benilla's 320x72 host.
+    public const float FrameWidth = 360f;
+    public const float FrameHeight = 96f;
+    public const float FrameTop = 128f;
+    public const float MessageCenterX = 212f;
+    public const float MessageTop = 15f;
+    public const float MessageWrapWidth = 260f;
+    public const string BindMessage = "Enchanting this item will bind it to you.";
+    public const string ReplaceMessageFormat = "Do you want to replace \"{0}\" with \"{1}\"?";
+
+    public readonly record struct LogicalRect(float X, float Y, float Width, float Height);
+    public static readonly LogicalRect AlertRect = new(12f, 8f, 64f, 64f);
+    public static readonly LogicalRect AcceptButtonRect = new(62f, 68f, 128f, 20f);
+    public static readonly LogicalRect DeclineButtonRect = new(198f, 68f, 128f, 20f);
+
+    /// <summary>
+    /// StaticPopup_OnShow/OnHide sound cardinality for the enchant-confirm slice. A bind answer
+    /// can synchronously open REPLACE_ENCHANT before the original BIND_ENCHANT instance hides,
+    /// so that transition is deliberately open-then-close rather than a silent in-place swap.
+    /// </summary>
+    public static IReadOnlyList<string> PopupSoundCues(bool wasOpen, bool willOpen,
+        bool chainedPopup = false)
+    {
+        if (!wasOpen) return willOpen ? ["igMainMenuOpen"] : [];
+        if (!willOpen) return ["igMainMenuClose"];
+        return chainedPopup
+            ? ["igMainMenuOpen", "igMainMenuClose"]
+            : ["igMainMenuClose", "igMainMenuOpen"];
+    }
+
     public static EnchantBindVerdict Decide(in SpellInfo spell, in EnchantClickedItem item,
         EnchantCatalog? enchants, bool bindConfirmed)
     {

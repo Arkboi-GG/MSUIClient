@@ -16,9 +16,7 @@ public sealed partial class GameLoop
     private uint _pressedSpellId;
     private uint _draggingSpellId;
     private Vector2 _spellPressPosition;
-    private uint _hoveredSpellId;
-    private Vector2 _hoveredSpellMin;
-    private Vector2 _hoveredSpellMax;
+    private PreparedSharedSpellTooltip? _hoveredSpellTooltip;
     private bool _spellbookFontCalibrationOpen = true;
     private bool _spellbookFontCalibrationKeyDown;
     private bool _spellbookFontPixelSnap = true;
@@ -29,22 +27,38 @@ public sealed partial class GameLoop
     private float _spellbookFontDiagnosticScale = 1f;
 
     private enum SpellTooltipPlacement { OwnerRight, DefaultBottomRight }
+    private readonly record struct SpellTooltipRenderSnapshot(
+        SpellTooltipView View,
+        WowSkin Skin,
+        float Scale,
+        Vector2 DisplaySize,
+        SpellTooltipPlacement Placement,
+        Vector2 OwnerMin,
+        Vector2 OwnerMax);
+    private readonly record struct PreparedSharedSpellTooltip(
+        GameTooltipOwnerKey Owner,
+        SpellTooltipRenderSnapshot Snapshot);
     private readonly record struct TooltipPaintRow(string Left, string? Right, string FontObject,
         uint Color, bool GapBefore);
 
+    private bool SetSpellbookOpen(bool open)
+    {
+        if (_spellbookOpen == open) return false;
+        _spellbookOpen = open;
+        PlayUiSound(open ? SpellbookLaw.OpenSound : SpellbookLaw.CloseSound, "ui.spellbook");
+        return true;
+    }
+
     private void UpdateSpellbookInput(bool typing)
     {
-        bool calibration = _window.IsDown(Key.F6);
+        bool calibration = _window.IsDown(Key.F6) || _liveInputHeld.Contains(Key.F6);
         if (calibration && !_spellbookFontCalibrationKeyDown && !typing && _config.DevTools)
             _spellbookFontCalibrationOpen = !_spellbookFontCalibrationOpen;
         _spellbookFontCalibrationKeyDown = calibration;
 
         bool down = BindingDown(GameBinding.OpenSpellbook);
         if (down && !_spellbookKeyWasDown && !typing && _net is { IsInWorld: true })
-        {
-            _spellbookOpen = !_spellbookOpen;
-            if (_spellbookOpen) _characterOpen = false;
-        }
+            ToggleSpellbookThroughUiPanel();
         _spellbookKeyWasDown = down;
     }
 
@@ -90,7 +104,7 @@ public sealed partial class GameLoop
         int pages = Math.Max(1, ((active.Spells?.Count ?? 0) + 11) / 12);
         _spellbookPage = Math.Clamp(_spellbookPage, 0, pages - 1);
 
-        _hoveredSpellId = 0;
+        _hoveredSpellTooltip = null;
         for (int i = 0; i < 12; i++)
         {
             int column = i / 6, row = i % 6;
@@ -98,10 +112,11 @@ public sealed partial class GameLoop
             int index = _spellbookPage * 12 + i;
             if (active.Spells is null || index >= active.Spells.Count) continue;
             var entry = active.Spells[index];
-            DrawSpellButton(dl, min, s, entry.Id, entry.Spell);
+            DrawSpellButton(dl, min, s, i + 1, entry.Id, entry.Spell);
         }
         for (int i = 0; i < tabs.Count; i++)
-            DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, tabs[i].Id, tabs[i].Name, tabs[i].Icon);
+            DrawSpellTab(dl, p + new Vector2(352, 65 + i * 49) * s, s, i + 1,
+                tabs[i].Id, tabs[i].Name, tabs[i].Icon);
 
         GameText.DrawCentered(dl, "GameFontNormal", $"Page {_spellbookPage + 1}",
             p + new Vector2(178, 416) * s, s);
@@ -112,11 +127,16 @@ public sealed partial class GameLoop
         DrawImageButton(dl, "##spell-close", close, new Vector2(32) * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
-        if (ImGui.IsItemClicked()) _spellbookOpen = false;
+        if (ImGui.IsItemClicked()) SetSpellbookOpen(false);
         if (_uiParityArmed && _uiParityPanel == "spellbook") MarkUiParityFrameComplete();
         ImGui.End();
 
-        if (_hoveredSpellId != 0) DrawSpellTooltip(_hoveredSpellId, s);
+        if (_hoveredSpellTooltip is { } hoveredSpellTooltip)
+        {
+            PreparedSharedSpellTooltip prepared = hoveredSpellTooltip;
+            OfferPreservedSharedGameTooltipRenderer(prepared.Owner,
+                () => DrawSpellTooltip(prepared.Snapshot));
+        }
         if (_config.DevTools && _spellbookFontCalibrationOpen)
             DrawSpellbookFontCalibration(p, s);
 
@@ -173,7 +193,8 @@ public sealed partial class GameLoop
         GameText.DrawCentered(dl, "GameFontNormal", "Spellbook", p + new Vector2(198, 26) * s, s);
     }
 
-    private void DrawSpellButton(ImDrawListPtr dl, Vector2 min, float s, uint id, SpellInfo spell)
+    private void DrawSpellButton(ImDrawListPtr dl, Vector2 min, float s, int buttonOrdinal,
+        uint id, SpellInfo spell)
     {
         static Vector2 Snap(Vector2 value) => new(MathF.Round(value.X), MathF.Round(value.Y));
         Vector2 iconMin = Snap(min), max = Snap(min + new Vector2(37) * s);
@@ -246,7 +267,9 @@ public sealed partial class GameLoop
                 ? @"Interface\Buttons\UI-PassiveHighlight"
                 : @"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, iconMin, max);
-            _hoveredSpellId = id; _hoveredSpellMin = min; _hoveredSpellMax = max;
+            _hoveredSpellTooltip = PrepareSharedSpellTooltip(
+                new GameTooltipOwnerKey("spellbook-button", (ulong)buttonOrdinal),
+                id, s, SpellTooltipPlacement.OwnerRight, min, max);
         }
     }
 
@@ -329,7 +352,8 @@ public sealed partial class GameLoop
         ImGui.End();
     }
 
-    private void DrawSpellTab(ImDrawListPtr dl, Vector2 min, float s, uint id, string name, string iconPath)
+    private void DrawSpellTab(ImDrawListPtr dl, Vector2 min, float s, int tabOrdinal,
+        uint id, string name, string iconPath)
     {
         static Vector2 Snap(Vector2 value) => new(MathF.Round(value.X), MathF.Round(value.Y));
         uint back = _gameplayArt!.Handle(@"Interface\SpellBook\SpellBook-SkillLineTab");
@@ -353,16 +377,45 @@ public sealed partial class GameLoop
             uint highlight = _gameplayArt.BrightHighlightHandle(@"Interface\Buttons\ButtonHilight-Square");
             if (highlight != 0) dl.AddImage((nint)highlight, Snap(min), Snap(min + new Vector2(32) * s));
         }
-        if (ImGui.IsItemHovered()) { ImGui.BeginTooltip(); ImGui.TextUnformatted(name); ImGui.EndTooltip(); }
+        if (ImGui.IsItemHovered())
+        {
+            string preparedName = name;
+            var owner = new GameTooltipOwnerKey("spellbook-tab", (ulong)tabOrdinal);
+            OfferPreservedSharedGameTooltipRenderer(owner, () =>
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(preparedName);
+                ImGui.EndTooltip();
+            });
+        }
     }
 
-    private void DrawSpellTooltip(uint spellId, float s,
-        SpellTooltipPlacement placement = SpellTooltipPlacement.OwnerRight)
+    private PreparedSharedSpellTooltip? PrepareSharedSpellTooltip(
+        in GameTooltipOwnerKey owner,
+        uint spellId,
+        float scale,
+        SpellTooltipPlacement placement,
+        Vector2 ownerMin = default,
+        Vector2 ownerMax = default)
     {
-        if (_spellCatalog is null || _skin is null || !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return;
+        if (_spellCatalog is null || _skin is not { } skin ||
+            !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return null;
         uint casterLevel = _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)
             ? player.Level : 0;
         SpellTooltipView view = SpellTooltipLaw.Build(spell, _spellCatalog, casterLevel);
+        return new PreparedSharedSpellTooltip(owner,
+            new SpellTooltipRenderSnapshot(view, skin, scale, ImGui.GetIO().DisplaySize,
+                placement, ownerMin, ownerMax));
+    }
+
+    private void DrawSpellTooltip(in SpellTooltipRenderSnapshot snapshot)
+    {
+        SpellTooltipView view = snapshot.View;
+        WowSkin skin = snapshot.Skin;
+        float s = snapshot.Scale;
+        SpellTooltipPlacement placement = snapshot.Placement;
+        Vector2 ownerMin = snapshot.OwnerMin;
+        Vector2 ownerMax = snapshot.OwnerMax;
         const uint TooltipGold = 0xff00d2ff; // build-5875 tooltip gold RGB(255,210,0).
         List<TooltipPaintRow> rows = [];
         void AddRow(string left, string? right, string fontObject, uint color) =>
@@ -409,14 +462,14 @@ public sealed partial class GameLoop
         Vector2 size = new(
             MathF.Round(contentWidth + SpellTooltipLaw.Pad * 2f * s),
             MathF.Round(rowStackHeight + SpellTooltipLaw.Pad * 2f * s));
-        Vector2 display = ImGui.GetIO().DisplaySize;
+        Vector2 display = snapshot.DisplaySize;
         Vector2 pos = placement == SpellTooltipPlacement.DefaultBottomRight
             // GameTooltip_SetDefaultAnchor: BOTTOMRIGHT of UIParent at
             // (-CONTAINER_OFFSET_X - 13, CONTAINER_OFFSET_Y), defaults 0 and 70.
             ? new Vector2(display.X - 13f * s - size.X, display.Y - 70f * s - size.Y)
-            : new Vector2(_hoveredSpellMax.X + 4f * s, _hoveredSpellMin.Y);
+            : new Vector2(ownerMax.X + 4f * s, ownerMin.Y);
         if (placement == SpellTooltipPlacement.OwnerRight && pos.X + size.X > display.X - 4f)
-            pos.X = _hoveredSpellMin.X - size.X - 4f * s;
+            pos.X = ownerMin.X - size.X - 4f * s;
         pos.X = Math.Clamp(pos.X, 4f, Math.Max(4f, display.X - size.X - 4f));
         pos.Y = Math.Clamp(pos.Y, 4f, Math.Max(4f, display.Y - size.Y - 4f));
 
@@ -429,11 +482,11 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoInputs))
         {
             ImDrawListPtr dl = ImGui.GetWindowDrawList();
-            float savedScale = _skin.Scale;
-            _skin.Scale = s;
-            _skin.DrawBackdrop(dl, pos, pos + size, WowSkin.Tooltip,
+            float savedScale = skin.Scale;
+            skin.Scale = s;
+            skin.DrawBackdrop(dl, pos, pos + size, WowSkin.Tooltip,
                 new Vector4(.09f, .09f, .19f, 1f), Vector4.One);
-            _skin.Scale = savedScale;
+            skin.Scale = savedScale;
             // GameTooltipHeaderText/GameTooltipText have no MasterFont chain: tooltip text is
             // shadowless in 1.12 (FontObjectLaw carries that; no per-call shadow choices here).
             float y = pos.Y + SpellTooltipLaw.Pad * s;
@@ -482,6 +535,10 @@ public sealed partial class GameLoop
         DrawImageButton(dl, previous ? "##spell-prev" : "##spell-next", min, new Vector2(32) * s,
             $@"Interface\Buttons\{stem}-{(enabled ? "Up" : "Disabled")}",
             $@"Interface\Buttons\{stem}-Down", @"Interface\Buttons\UI-Common-MouseHilight");
-        if (enabled && ImGui.IsItemClicked()) _spellbookPage += previous ? -1 : 1;
+        if (enabled && ImGui.IsItemClicked())
+        {
+            _spellbookPage += previous ? -1 : 1;
+            PlayUiSound(SpellbookLaw.PageTurnSound, "ui.spellbook");
+        }
     }
 }
