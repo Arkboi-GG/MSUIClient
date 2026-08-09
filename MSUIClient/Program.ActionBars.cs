@@ -1180,6 +1180,9 @@ public sealed partial class GameLoop
 
     private bool PickupActionToCursor(int slot)
     {
+        // A possessed bot's bars are read-only in v1.0: CMSG_SET_ACTION_BUTTON acts on
+        // the SESSION character server-side, so editing here would corrupt the wrong bar.
+        if (ControlledGuid != LocalPlayerGuid) return false;
         if (_net is null || _actionCursor is not null || _actions[slot] is not { } action)
             return false;
         MultiActionPlacement transition = MultiActionBarUiLaw.PickupAction(action.Packed);
@@ -1197,6 +1200,7 @@ public sealed partial class GameLoop
     private void PlaceActionPayload(int slot, ActionSlot held)
     {
         if (_net is null) return;
+        if (ControlledGuid != LocalPlayerGuid) return;   // read-only bars while possessing
         ActionSlot? displaced = _actions[slot];
         MultiActionPlacement transition = MultiActionBarUiLaw.PlaceAction(
             held.Packed, displaced?.Packed ?? 0);

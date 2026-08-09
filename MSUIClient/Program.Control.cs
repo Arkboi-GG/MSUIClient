@@ -168,6 +168,59 @@ public sealed partial class GameLoop
         });
     }
 
+    /// <summary>
+    /// SMSG_SUI_PROXY: an owner-only packet of the possessed bot (bars, spellbook,
+    /// cooldowns, cast results), re-wrapped by the server with the bot's guid. Routed
+    /// into the bot's per-guid store via the normal parsers; stragglers whose source
+    /// is not the currently controlled unit are dropped (possession-boundary races).
+    /// </summary>
+    private void ApplySuiProxy(byte[] body)
+    {
+        var r = new PacketReader(body);
+        if (r.Remaining < 10) return;
+        ulong source = r.ReadU64();
+        var innerOp = (Op)r.ReadU16();
+        byte[] inner = r.ReadBytes(r.Remaining);
+        if (source == 0 || source == LocalPlayerGuid || source != ControlledGuid) return;
+
+        PlayerActions store = ActionsFor(source);
+        switch (innerOp)
+        {
+            case Op.SMSG_ACTION_BUTTONS:
+                store.ApplyButtons(inner);
+                break;
+            case Op.SMSG_INITIAL_SPELLS:
+                store.ApplyInitialSpells(inner, MovementInfo.ClientUptimeMs() / 1000.0);
+                break;
+            case Op.SMSG_LEARNED_SPELL:
+                store.Learn(new PacketReader(inner).ReadU16());
+                break;
+            case Op.SMSG_SUPERCEDED_SPELL:
+                {
+                    var ir = new PacketReader(inner);
+                    store.Supercede(ir.ReadU16(), ir.ReadU16());
+                }
+                break;
+            case Op.SMSG_REMOVED_SPELL:
+                store.Remove(new PacketReader(inner).ReadU16());
+                break;
+            case Op.SMSG_SPELL_COOLDOWN:
+                // Addressed packet — self-routes to the right store by embedded caster guid.
+                ApplyAddressedSpellCooldowns(inner);
+                break;
+            case Op.SMSG_CAST_RESULT:
+                {
+                    var result = SpellPacketParser.ParseResult(inner);
+                    if (result.Status == 2)
+                        EnqueueSpellPresentation(new SpellCastResultEvent(result.SpellId, result.Reason));
+                }
+                break;
+            default:
+                // COOLDOWN_EVENT / CLEAR_COOLDOWN and future whitelist growth: ignored in v1.0.
+                break;
+        }
+    }
+
     /// <summary>Snap the local, client-authoritative controller onto the ACK position.</summary>
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
