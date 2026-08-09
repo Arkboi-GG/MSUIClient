@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "snapshot-parity", "tools\sn
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "inventory-parity-check", "tools\inventory-parity-check\inventory-parity-check.csproj", "{A7F4E292-431D-4BA8-BFC2-4F77B584A813}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spell-emitter-lab", "tools\spell-emitter-lab\spell-emitter-lab.csproj", "{39F61CC7-CB0C-4AB8-9142-6BC57DF18760}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{A7F4E292-431D-4BA8-BFC2-4F77B584A813}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A7F4E292-431D-4BA8-BFC2-4F77B584A813}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A7F4E292-431D-4BA8-BFC2-4F77B584A813}.Release|Any CPU.Build.0 = Release|Any CPU
+		{39F61CC7-CB0C-4AB8-9142-6BC57DF18760}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{39F61CC7-CB0C-4AB8-9142-6BC57DF18760}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{39F61CC7-CB0C-4AB8-9142-6BC57DF18760}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{39F61CC7-CB0C-4AB8-9142-6BC57DF18760}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

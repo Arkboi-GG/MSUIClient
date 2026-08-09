@@ -91,14 +91,21 @@ public static class M2EmitterParser
         new EmitterPropertyDef("emissionRate",      0x0F0, "Particles per second"),
         new EmitterPropertyDef("emissionAreaLength", 0x10C, "Emission area length"),
         new EmitterPropertyDef("emissionAreaWidth",  0x128, "Emission area width"),
+        new EmitterPropertyDef("zSource",            0x144, "Pull toward a local Z source"),
     };
 
     // Inline (non-M2Track) properties â€” directly in emitter struct
-    private const int INLINE_BLEND_MODE = 0x028;      // uint8
-    private const int INLINE_EMITTER_TYPE = 0x029;     // uint8
-    private const int INLINE_TEXTURE_ID = 0x02A;       // uint16
+    private const int INLINE_FLAGS = 0x004;             // uint32
+    private const int INLINE_POSITION = 0x008;          // 3 x float, raw WoW Z-up
+    private const int INLINE_BONE = 0x014;              // uint16
+    private const int INLINE_TEXTURE_ID = 0x016;        // uint16
+    private const int INLINE_BLEND_MODE = 0x028;        // uint8
+    // The real shape is this uint16. +0x029 is padding and must not be edited.
+    private const int INLINE_EMITTER_TYPE = 0x02A;      // 1 plane, 2 sphere, 3 spline
     private const int INLINE_COLOR_START = 0x150;       // 3 Ã— uint32 ARGB (start, mid, end)
     private const int INLINE_SCALE_START = 0x15C;       // 3 Ã— float (start, mid, end)
+    private const int INLINE_DRAG = 0x194;               // float
+    private const int INLINE_SPRITE_SPIN = 0x198;        // float, radians/sec over particle age
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // READ: Extract all emitter properties from an M2 file
@@ -136,8 +143,15 @@ public static class M2EmitterParser
 
                 // Inline properties
                 BlendMode = m2Data[emitterBase + INLINE_BLEND_MODE],
-                EmitterType = m2Data[emitterBase + INLINE_EMITTER_TYPE],
+                EmitterType = BitConverter.ToUInt16(m2Data, emitterBase + INLINE_EMITTER_TYPE),
                 TextureId = BitConverter.ToUInt16(m2Data, emitterBase + INLINE_TEXTURE_ID),
+                Flags = BitConverter.ToUInt32(m2Data, emitterBase + INLINE_FLAGS),
+                PositionX = BitConverter.ToSingle(m2Data, emitterBase + INLINE_POSITION),
+                PositionY = BitConverter.ToSingle(m2Data, emitterBase + INLINE_POSITION + 4),
+                PositionZ = BitConverter.ToSingle(m2Data, emitterBase + INLINE_POSITION + 8),
+                Bone = BitConverter.ToUInt16(m2Data, emitterBase + INLINE_BONE),
+                Drag = BitConverter.ToSingle(m2Data, emitterBase + INLINE_DRAG),
+                SpriteSpin = BitConverter.ToSingle(m2Data, emitterBase + INLINE_SPRITE_SPIN),
             };
 
             // Read inline color values (3 Ã— ARGB uint32)
@@ -248,11 +262,61 @@ public static class M2EmitterParser
                 m2Data[emitterBase + INLINE_BLEND_MODE] = (byte)value;
                 return true;
             case "emittertype":
-                m2Data[emitterBase + INLINE_EMITTER_TYPE] = (byte)value;
+                if (value is < 1 or > 3) return false;
+                Array.Copy(BitConverter.GetBytes((ushort)value), 0,
+                    m2Data, emitterBase + INLINE_EMITTER_TYPE, 2);
                 return true;
             default:
                 return false;
         }
+    }
+
+    /// <summary>Patch the emitter's raw local position in WoW's Z-up coordinates.</summary>
+    public static bool PatchPosition(byte[] m2Data, int emitterIndex, float x, float y, float z)
+    {
+        if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z) ||
+            !TryGetEmitterBase(m2Data, emitterIndex, out int emitterBase)) return false;
+        Array.Copy(BitConverter.GetBytes(x), 0, m2Data, emitterBase + INLINE_POSITION, 4);
+        Array.Copy(BitConverter.GetBytes(y), 0, m2Data, emitterBase + INLINE_POSITION + 4, 4);
+        Array.Copy(BitConverter.GetBytes(z), 0, m2Data, emitterBase + INLINE_POSITION + 8, 4);
+        return true;
+    }
+
+    /// <summary>Patch the complete flag word. Callers preserve any unknown authored bits.</summary>
+    public static bool PatchFlags(byte[] m2Data, int emitterIndex, uint flags)
+    {
+        if (!TryGetEmitterBase(m2Data, emitterIndex, out int emitterBase)) return false;
+        Array.Copy(BitConverter.GetBytes(flags), 0, m2Data, emitterBase + INLINE_FLAGS, 4);
+        return true;
+    }
+
+    /// <summary>Patch a verified plain float field (currently drag or billboard spin).</summary>
+    public static bool PatchPlainFloat(byte[] m2Data, int emitterIndex, string property, float value)
+    {
+        if (!float.IsFinite(value) ||
+            !TryGetEmitterBase(m2Data, emitterIndex, out int emitterBase)) return false;
+        int relativeOffset = property.ToLowerInvariant() switch
+        {
+            "drag" => INLINE_DRAG,
+            "spritespin" => INLINE_SPRITE_SPIN,
+            _ => -1,
+        };
+        if (relativeOffset < 0) return false;
+        Array.Copy(BitConverter.GetBytes(value), 0, m2Data, emitterBase + relativeOffset, 4);
+        return true;
+    }
+
+    private static bool TryGetEmitterBase(byte[]? m2Data, int emitterIndex, out int emitterBase)
+    {
+        emitterBase = 0;
+        if (m2Data is null || m2Data.Length < MIN_HEADER_SIZE) return false;
+        uint count = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS);
+        uint offset = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS + 4);
+        if (emitterIndex < 0 || emitterIndex >= count || offset == 0) return false;
+        long at = offset + (long)emitterIndex * PRIMARY_EMITTER_SIZE;
+        if (at < 0 || at + PRIMARY_EMITTER_SIZE > m2Data.Length) return false;
+        emitterBase = (int)at;
+        return true;
     }
 
     /// <summary>
@@ -294,6 +358,19 @@ public static class M2EmitterParser
         if (patch.EmitterType.HasValue)
             if (PatchInlineProperty(m2Data, patch.EmitterIndex, "emittertype", patch.EmitterType.Value)) patched++;
 
+        if (patch.Flags.HasValue)
+            if (PatchFlags(m2Data, patch.EmitterIndex, patch.Flags.Value)) patched++;
+
+        if (patch.PositionX.HasValue && patch.PositionY.HasValue && patch.PositionZ.HasValue)
+            if (PatchPosition(m2Data, patch.EmitterIndex, patch.PositionX.Value,
+                patch.PositionY.Value, patch.PositionZ.Value)) patched++;
+
+        if (patch.Drag.HasValue)
+            if (PatchPlainFloat(m2Data, patch.EmitterIndex, "drag", patch.Drag.Value)) patched++;
+
+        if (patch.SpriteSpin.HasValue)
+            if (PatchPlainFloat(m2Data, patch.EmitterIndex, "spritespin", patch.SpriteSpin.Value)) patched++;
+
         if (patch.EmissionSpeed.HasValue)
             if (PatchTrackValue(m2Data, patch.EmitterIndex, "emissionSpeed", patch.EmissionSpeed.Value)) patched++;
 
@@ -320,6 +397,9 @@ public static class M2EmitterParser
 
         if (patch.HorizontalRange.HasValue)
             if (PatchTrackValue(m2Data, patch.EmitterIndex, "horizontalRange", patch.HorizontalRange.Value)) patched++;
+
+        if (patch.ZSource.HasValue)
+            if (PatchTrackValue(m2Data, patch.EmitterIndex, "zSource", patch.ZSource.Value)) patched++;
 
         if (patch.ScaleStart.HasValue && patch.ScaleMid.HasValue && patch.ScaleEnd.HasValue)
             if (PatchScaleValues(m2Data, patch.EmitterIndex,
@@ -413,8 +493,16 @@ public class EmitterSnapshot
 
     // Inline properties
     public byte BlendMode { get; set; }
-    public byte EmitterType { get; set; }
+    public ushort EmitterType { get; set; }
     public ushort TextureId { get; set; }
+    public uint Flags { get; set; }
+    /// <summary>Raw local coordinates as stored by WoW: X/Y ground plane, Z up.</summary>
+    public float PositionX { get; set; }
+    public float PositionY { get; set; }
+    public float PositionZ { get; set; }
+    public ushort Bone { get; set; }
+    public float Drag { get; set; }
+    public float SpriteSpin { get; set; }
     public uint ColorStart { get; set; }
     public uint ColorMid { get; set; }
     public uint ColorEnd { get; set; }
@@ -437,6 +525,12 @@ public class EmitterPatch
     // Inline properties
     public int? BlendMode { get; set; }
     public int? EmitterType { get; set; }
+    public uint? Flags { get; set; }
+    public float? PositionX { get; set; }
+    public float? PositionY { get; set; }
+    public float? PositionZ { get; set; }
+    public float? Drag { get; set; }
+    public float? SpriteSpin { get; set; }
 
     // M2Track properties â€” absolute values, NOT multipliers
     public float? EmissionSpeed { get; set; }
@@ -448,6 +542,7 @@ public class EmitterPatch
     public float? EmissionRate { get; set; }
     public float? EmissionAreaLength { get; set; }
     public float? EmissionAreaWidth { get; set; }
+    public float? ZSource { get; set; }
 
     // Scale values
     public float? ScaleStart { get; set; }
@@ -468,7 +563,7 @@ public class EmitterBehaviorInfo
 {
     public int Index { get; set; }
     public byte BlendMode { get; set; }
-    public byte EmitterType { get; set; }
+    public ushort EmitterType { get; set; }
     public ushort TextureId { get; set; }
     public float? EmissionSpeed { get; set; }
     public float? EmissionRate { get; set; }

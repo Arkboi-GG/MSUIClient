@@ -44,8 +44,8 @@ namespace MSUIClient.Creator;
 ///     +0x018: M2Array modelFilename (8 bytes)
 ///     +0x020: M2Array particleFilename (8 bytes)
 ///     +0x028: uint8   blendingType
-///     +0x029: uint8   emitterType
-///     +0x02A: uint16  particleColorIndex
+///     +0x029: uint8   padding
+///     +0x02A: uint16  emitterType (1 plane, 2 sphere, 3 spline)
 ///     +0x02C: 8 bytes â€” emissionSpeed header/static value
 ///     +0x034: 10 Ã— 28-byte M2Track blocks (M2Track zone, 280 bytes)
 ///     +0x14C: float   midpoint (inline fixed)
@@ -165,6 +165,9 @@ public class M2ParticlePatcher
     /// <summary>M2Track value M2Array for emission area width. Offset relative to emitter base.</summary>
     private const int REL_M2TRACK_AREA_WIDTH = 0x128;
 
+    /// <summary>M2Track value M2Array for local-Z source attraction.</summary>
+    private const int REL_M2TRACK_Z_SOURCE = 0x144;
+
     // Secondary emitter inline float offsets (unchanged from previous version)
     private const int REL_SEC_EMISSION_FLOAT = 0x94;
 
@@ -276,7 +279,7 @@ public class M2ParticlePatcher
     /// count/offset (0x13C) repointed - the same resize-at-EOF strategy as
     /// M2TextureParser.PatchTextureFilenamesResize, which never moves the
     /// fixed-offset structures other patchers write. The clone gets PRIVATE copies
-    /// of the nine known M2Track keyframe/timestamp arrays so later per-emitter
+    /// of all ten scalar M2Track keyframe/timestamp arrays so later per-emitter
     /// edits on it never write through offsets shared with the source. Unknown
     /// tracks keep pointing at the source's arrays (read-only sharing is safe).
     /// Pass retargetTextureSlot to point the clone at a different texture table
@@ -297,13 +300,13 @@ public class M2ParticlePatcher
         long arrayEnd = offset + (long)count * PARTICLE_STRUCT_SIZE_PRIMARY;
         if (arrayEnd > m2Data.Length) return null;
 
-        // The nine tracks the workshop can edit; each gets a private copy.
+        // The ten scalar tracks the workshop can edit; each gets a private copy.
         int[] trackRels =
         {
             REL_M2TRACK_EMISSION_SPEED, REL_M2TRACK_SPEED_VARIATION,
             REL_M2TRACK_VERTICAL_RANGE, REL_M2TRACK_HORIZONTAL_RANGE,
             REL_M2TRACK_GRAVITY, REL_M2TRACK_LIFESPAN, REL_M2TRACK_EMISSION_RATE,
-            REL_M2TRACK_AREA_LENGTH, REL_M2TRACK_AREA_WIDTH,
+            REL_M2TRACK_AREA_LENGTH, REL_M2TRACK_AREA_WIDTH, REL_M2TRACK_Z_SOURCE,
         };
 
         var clone = new byte[PARTICLE_STRUCT_SIZE_PRIMARY];

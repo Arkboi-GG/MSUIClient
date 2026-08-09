@@ -23,9 +23,9 @@ namespace MSUIClient.Creator;
 ///   Emitter struct +0x016: uint16 textureId (index into texture table)
 ///
 /// Emitter inline properties (also verified Session 14):
-///   +0x028: uint8  blendingType  (0=opaque, 1=mod, 2=decal/alpha, 4=additive)
-///   +0x029: uint8  emitterType   (0=point, 1=sphere, 2=plane, 3=spline)
-///   +0x02A: uint16 particleColorIndex
+///   +0x028: uint8  blendingType  (0=opaque, 1=alpha-key, 2=alpha, 4=add, 5=mod, 6=mod2x)
+///   +0x029: uint8  padding (not an editable emitter type)
+///   +0x02A: uint16 emitterType   (1=plane, 2=sphere, 3=spline)
 /// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 /// </summary>
 public static class M2TextureParser
@@ -133,7 +133,6 @@ public static class M2TextureParser
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     private const int EMITTER_BLEND_MODE = 0x028;
-    private const int EMITTER_TEXTURE_ID_ALT = 0x02A; // verified via hex forensics Session 18
 
     /// <summary>
     /// Extract the dominant blend mode for each texture index.
@@ -156,55 +155,28 @@ public static class M2TextureParser
         uint texCount = BitConverter.ToUInt32(m2Data, HEADER_TEXTURE_COUNT);
         if (texCount == 0 || texCount > 256) return result;
 
-        // Default all textures to additive (safest â€” RGB vignette won't break alpha-blend,
-        // but missing RGB vignette on additive WILL show squares)
-        for (int i = 0; i < (int)texCount; i++)
-            result[i] = 4;
+        Dictionary<int, byte> WithUnreferencedDefaults()
+        {
+            for (int i = 0; i < (int)texCount; i++) result.TryAdd(i, 4);
+            return result;
+        }
 
-        if (HEADER_PRIMARY_EMITTERS + 8 > m2Data.Length) return result;
+        if (HEADER_PRIMARY_EMITTERS + 8 > m2Data.Length) return WithUnreferencedDefaults();
 
         uint emitCount = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS);
         uint emitOffset = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS + 4);
 
-        if (emitCount == 0 || emitCount > 256) return result;
-        if (emitOffset == 0 || emitOffset >= m2Data.Length) return result;
+        if (emitCount == 0 || emitCount > 256) return WithUnreferencedDefaults();
+        if (emitOffset == 0 || emitOffset >= m2Data.Length) return WithUnreferencedDefaults();
 
-        // Detect actual emitter stride by scanning for emitter start signatures
-        // (first dword = -1 or small bone index, blendMode at +0x028 is 0-4)
-        var emitterStarts = new List<int>();
-        for (int offset = (int)emitOffset; offset < m2Data.Length - 0x30; offset++)
+        // Vanilla v256 primary emitters have a verified 504-byte stride. The
+        // texture index is the uint16 at +0x016; +0x02A is the birth shape.
+        for (uint e = 0; e < emitCount; e++)
         {
-            int firstDword = BitConverter.ToInt32(m2Data, offset);
-            if (firstDword != -1 && (firstDword < 0 || firstDword > 100)) continue;
-
-            byte blend = m2Data[offset + EMITTER_BLEND_MODE];
-            if (blend > 4) continue;
-
-            ushort texId = BitConverter.ToUInt16(m2Data, offset + EMITTER_TEXTURE_ID_ALT);
-            if (texId >= texCount) continue;
-
-            emitterStarts.Add(offset);
-        }
-
-        // Filter to consistent-stride entries starting from the first candidate
-        if (emitterStarts.Count >= 2)
-        {
-            int stride = emitterStarts[1] - emitterStarts[0];
-            var filtered = new List<int> { emitterStarts[0] };
-            for (int i = 1; i < emitterStarts.Count; i++)
-            {
-                if (emitterStarts[i] - filtered.Last() == stride)
-                    filtered.Add(emitterStarts[i]);
-            }
-            if (filtered.Count >= (int)emitCount)
-                emitterStarts = filtered.Take((int)emitCount).ToList();
-        }
-
-        // Now extract blend modes per texture
-        foreach (int ofs in emitterStarts)
-        {
+            int ofs = (int)(emitOffset + e * PRIMARY_EMITTER_SIZE);
+            if (ofs + PRIMARY_EMITTER_SIZE > m2Data.Length) break;
             byte blend = m2Data[ofs + EMITTER_BLEND_MODE];
-            ushort texId = BitConverter.ToUInt16(m2Data, ofs + EMITTER_TEXTURE_ID_ALT);
+            ushort texId = BitConverter.ToUInt16(m2Data, ofs + EMITTER_TEXTURE_ID);
 
             if (texId < texCount)
             {
@@ -214,7 +186,10 @@ public static class M2TextureParser
             }
         }
 
-        return result;
+        // Unreferenced mesh/ribbon textures have no particle blend to inspect.
+        // Keep the historical additive fallback only for those slots; applying
+        // it before the scan masked real alpha/alpha-key emitter blends.
+        return WithUnreferencedDefaults();
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -352,7 +327,7 @@ public static class M2TextureParser
 
     /// <summary>
     /// Patch blendMode (uint8 at +0x028) on all primary emitters.
-    /// 0=opaque, 1=mod, 2=alpha, 4=additive (glow/bloom).
+    /// 0=opaque, 1=alpha-key, 2=alpha, 3=no-alpha-add, 4=add, 5=mod, 6=mod2x.
     /// Additive (4) makes particles glow â€” hugely impactful visual change.
     /// Returns number of emitters patched.
     /// </summary>
@@ -362,13 +337,29 @@ public static class M2TextureParser
     }
 
     /// <summary>
-    /// Patch emitterType (uint8 at +0x029) on all primary emitters.
-    /// 0=point, 1=sphere, 2=plane, 3=spline.
+    /// Patch the real emitterType (uint16 at +0x02A) on all primary emitters.
+    /// 1=plane, 2=sphere, 3=spline.
     /// Returns number of emitters patched.
     /// </summary>
-    public static int PatchEmitterType(byte[] m2Data, byte emitterType)
+    public static int PatchEmitterType(byte[] m2Data, ushort emitterType)
     {
-        return PatchEmitterByte(m2Data, 0x029, emitterType);
+        if (emitterType is < 1 or > 3) return 0;
+        if (m2Data == null || m2Data.Length < MIN_HEADER_SIZE) return 0;
+        if (Encoding.ASCII.GetString(m2Data, 0, 4) != "MD20") return 0;
+
+        uint emitCount = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS);
+        uint emitOffset = BitConverter.ToUInt32(m2Data, HEADER_PRIMARY_EMITTERS + 4);
+        if (emitCount == 0 || emitCount > 256 || emitOffset == 0) return 0;
+
+        int patched = 0;
+        for (uint e = 0; e < emitCount; e++)
+        {
+            int emitterBase = (int)(emitOffset + e * PRIMARY_EMITTER_SIZE);
+            if (emitterBase + PRIMARY_EMITTER_SIZE > m2Data.Length) break;
+            Array.Copy(BitConverter.GetBytes(emitterType), 0, m2Data, emitterBase + 0x02A, 2);
+            patched++;
+        }
+        return patched;
     }
 
     /// <summary>Patch a single uint8 field at a given offset on all primary emitters.</summary>

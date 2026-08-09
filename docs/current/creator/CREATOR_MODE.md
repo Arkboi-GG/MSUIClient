@@ -93,8 +93,17 @@ visuals exactly as designed. Design phase lives here; data phase lives there.
 - **+Em** on a texture row appends a cloned emitter drawing with that image;
   **Duplicate** on an authored emitter copies it. Clones are real emitter
   records appended to the M2 (`M2ParticlePatcher.CloneEmitter` — relocated
-  array at EOF, private copies of the nine editable track arrays so edits
+  array at EOF, private copies of all ten scalar track arrays so edits
   never write through to the source), tunable and removable like any emitter.
+- Advanced emitter controls now use the runtime-verified v256 layout: true
+  texture slot at `+0x016`, true 16-bit birth shape at `+0x02A`, raw local
+  position, all ten scalar tracks (including `zSource`), drag, billboard spin,
+  and the behavior flag word. The old `+0x029` "type" was padding and never
+  changed the emission kernel.
+- **Compose a source line** keeps an authored emitter at the center and adds
+  position-offset clones along local X, Y, or Z. This widens spatial coverage;
+  duplicating without offsets instead increases density/additive brightness.
+  See `SPELL_EMITTER_LAB.md` for the empirical model and current boundaries.
 
 ## Ported files (`MSUIClient/Creator/`)
 
