@@ -352,6 +352,17 @@ public sealed partial class GameLoop
                     Log(inviteSent,$"{line} guid=0x{invGuid:X16} name='{invName}' "+
                         $"utf8={BitConverter.ToString(System.Text.Encoding.UTF8.GetBytes(invName))}");
                     break;
+                case "sui-possess":
+                    // CRPG possession through the client's own request path, nearest remote
+                    // player; selection is committed so dumps report player↔selection distance.
+                    ulong suiGuid=LiveNearestRemotePlayerGuid();
+                    if(suiGuid!=0){ CommitSelection(suiGuid,false); RequestPossess(suiGuid); }
+                    Log(suiGuid!=0,$"{line} guid=0x{suiGuid:X16} state={_controlState}");
+                    break;
+                case "sui-release":
+                    RequestControlRelease(toFreecam:false);
+                    Log(true,$"{line} state={_controlState}");
+                    break;
                 case "unit-popup":
                     // Open the right-click unit popup on the current selection, or on the
                     // nearest remote player ("unit-popup player-nearest"), for dump captures.
