@@ -25,7 +25,7 @@ public sealed partial class GameLoop
     private void ApplySpellStart(SpellStartPacket packet)
     {
         MarkAnimationSequenceStage(packet.SpellId, "PRECAST");
-        if (_net is not null && packet.Caster == _net.PlayerGuid)
+        if (_net is not null && packet.Caster == ControlledGuid)
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
         uint visual = EffectiveSpellVisual(info, packet.Caster);
@@ -37,7 +37,7 @@ public sealed partial class GameLoop
         if (kit is { } precastKit)
             _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, precastKit,
                 StageLife.Persistent, NowSeconds(), "PRECAST");
-        if (_net is not null && packet.Caster == _net.PlayerGuid)
+        if (_net is not null && packet.Caster == ControlledGuid)
         {
             _character?.BeginSpellVisual(anim);
             if (info is { } startedInfo)
@@ -63,7 +63,7 @@ public sealed partial class GameLoop
         if (kit is { } castKit)
             _spellEffects?.SpawnKit(packet.Caster, packet.SpellId, castKit,
                 StageLife.SelfTerminating, NowSeconds(), "CAST");
-        if (_net is not null && packet.Caster == _net.PlayerGuid)
+        if (_net is not null && packet.Caster == ControlledGuid)
         {
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_GO");
             if (_pendingCastSpell == packet.SpellId) _pendingCastSpell = 0;
@@ -126,7 +126,7 @@ public sealed partial class GameLoop
     {
         if (!missed) { ApplySpellImpact(target, spellId, visual); return; }
         if (reason is not (3 or 5)) return; // Benilla: Dodge and Block only.
-        if (_net is not null && target == _net.PlayerGuid)
+        if (_net is not null && target == ControlledGuid)
             _character?.TriggerCombatReaction(reason, landedHit: false);
         else _creatures?.TriggerCombatReaction(target, reason, landedHit: false);
     }
@@ -151,7 +151,7 @@ public sealed partial class GameLoop
         {
             if (animation is not { } anim || anim == 0) return;
             bool wound = anim is 8 or 9 or 10;
-            if (_net is not null && target == _net.PlayerGuid)
+            if (_net is not null && target == ControlledGuid)
             {
                 if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
                 else _character?.TriggerOneShot(anim);
@@ -168,7 +168,7 @@ public sealed partial class GameLoop
         PlayBodyAnimation(impact?.AnimationId);
         SpellVisualKitInfo? state = ResolveSpellKit(visual, static s => s.State);
         PlayBodyAnimation(state?.AnimationId);
-        if (_net is not null && target == _net.PlayerGuid) PlaySpellSound(target, state?.Sound);
+        if (_net is not null && target == ControlledGuid) PlaySpellSound(target, state?.Sound);
     }
 
     private SpellVisualKitInfo? ResolveSpellKit(uint visualId,
@@ -188,7 +188,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
     {
-        if (_net is not null && caster == _net.PlayerGuid)
+        if (_net is not null && caster == ControlledGuid)
         {
             if (_pendingCastSpell == spellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == spellId) _queuedMeleeSpell = 0;
@@ -216,7 +216,7 @@ public sealed partial class GameLoop
             _autoRepeatSpell = 0;
             SetVisualSheath(0);
             _character?.CancelSpellVisual();
-            if (_net is not null) _spellSounds?.StopHold(_net.PlayerGuid);
+            if (_net is not null) _spellSounds?.StopHold(ControlledGuid);
             return true;
         }
         uint spell = _pendingCastSpell;
@@ -224,7 +224,7 @@ public sealed partial class GameLoop
         if (spell == 0) return false;
         EmitCastBarVerdict("CANCEL_SEND", spell, cancelSource: "ESCAPE");
         _net.CancelCast(spell);
-        ApplySpellFailure(_net.PlayerGuid, spell, "INTERRUPTED");
+        ApplySpellFailure(ControlledGuid, spell, "INTERRUPTED");
         return true;
     }
 
@@ -253,7 +253,7 @@ public sealed partial class GameLoop
             return;
         EmitCastBarVerdict("CANCEL_SEND", spell, cancelSource: "MOVEMENT_CAST");
         _net.CancelCast(spell);
-        ApplySpellFailure(_net.PlayerGuid, spell, "INTERRUPTED");
+        ApplySpellFailure(ControlledGuid, spell, "INTERRUPTED");
     }
 
     private void ApplyAutoRepeatCancelled()
@@ -365,8 +365,8 @@ public sealed partial class GameLoop
             _character?.CancelSpellVisual();
             if (_net is not null)
             {
-                _spellSounds?.StopHold(_net.PlayerGuid);
-                _spellEffects?.Reap(_net.PlayerGuid, _castBarSpell, StageLife.Persistent);
+                _spellSounds?.StopHold(ControlledGuid);
+                _spellEffects?.Reap(ControlledGuid, _castBarSpell, StageLife.Persistent);
             }
             return;
         }
@@ -387,15 +387,15 @@ public sealed partial class GameLoop
         ushort? animation = channelResolved?.AnimationId;
         if (_net is not null)
         {
-            _spellSounds?.StopHold(_net.PlayerGuid);
-            PlaySpellSound(_net.PlayerGuid, channelResolved?.Sound);
+            _spellSounds?.StopHold(ControlledGuid);
+            PlaySpellSound(ControlledGuid, channelResolved?.Sound);
         }
         _character?.BeginSpellVisual(animation);
         if (_spellCatalog?.TryGet(spellId, out SpellInfo channelInfo) == true &&
             _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
             EmitSpellAnimation(channelInfo, "CHANNEL", channelStages.Channel, animation, "SERVER_CHANNEL");
         if (ResolveSpellKit(visual, static s => s.Channel) is { } channelKit && _net is not null)
-            _spellEffects?.SpawnKit(_net.PlayerGuid, spellId, channelKit, persistent: true, NowSeconds(), "CHANNEL");
+            _spellEffects?.SpawnKit(ControlledGuid, spellId, channelKit, persistent: true, NowSeconds(), "CHANNEL");
     }
 
     private void ApplyPushedVisual(ulong unit, uint kitId)
@@ -403,7 +403,7 @@ public sealed partial class GameLoop
         if (_spellVisualCatalog?.TryGetKit(kitId, out SpellVisualKitInfo kit) != true) return;
         _spellEffects?.SpawnKit(unit, 0, kit, persistent: false, NowSeconds(), "PUSHED");
         PlaySpellSound(unit, kit.Sound);
-        if (_net is not null && unit == _net.PlayerGuid)
+        if (_net is not null && unit == ControlledGuid)
             _character?.ReleaseSpellVisual(kit.AnimationId);
         else
             _creatures?.ReleaseSpellVisual(unit, kit.AnimationId);
@@ -579,7 +579,7 @@ public sealed partial class GameLoop
 
     private bool TryUnitPosition(ulong guid, out Vector3 position)
     {
-        if (guid == LocalPlayerGuid && _controller is not null)
+        if (guid == ControlledGuid && _controller is not null)
         { position = _controller.Position; return true; }
         if (_entities.TryGet(guid, out WorldEntity unit))
         {
@@ -592,7 +592,7 @@ public sealed partial class GameLoop
 
     private SpellUnitPose SpellEffectUnitPose(ulong guid)
     {
-        if (guid == LocalPlayerGuid && _controller is not null)
+        if (guid == ControlledGuid && _controller is not null)
             return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;
@@ -741,7 +741,7 @@ public sealed partial class GameLoop
         var seen = new HashSet<ulong>();
         foreach (WorldEntity unit in _entities.Entities.Values.Where(e => e.IsUnit))
         {
-            if (_net is not null && unit.Guid == _net.PlayerGuid) continue;
+            if (_net is not null && unit.Guid == ControlledGuid) continue;
             uint spell = unit.Fields.ChannelSpell;
             if (spell == 0) continue;
             seen.Add(unit.Guid);
@@ -778,7 +778,7 @@ public sealed partial class GameLoop
         if (_spellVisualCatalog?.TryGetStages(info.Value.VisualId, out _) == true ||
             !info.Value.Ranged) return info.Value.VisualId;
         uint display = 0;
-        if (_net is not null && caster == _net.PlayerGuid && _character is not null)
+        if (_net is not null && caster == ControlledGuid && _character is not null)
             display = _character.Equipment.Pieces.LastOrDefault(p =>
                 p.EquipmentSlot == 17 || p.InventoryType is 15 or 25 or 26)?.DisplayId ?? 0;
         else if (_entities.TryGet(caster, out WorldEntity unit))

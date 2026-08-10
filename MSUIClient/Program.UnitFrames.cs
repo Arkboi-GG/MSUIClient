@@ -187,7 +187,8 @@ public sealed partial class GameLoop
     /// </summary>
     private UnitPopupWhich? UnitFrameMenuWhich(WorldEntity unit)
     {
-        if (_net is not null && unit.Guid == _net.PlayerGuid) return UnitPopupWhich.Self;
+        // ControlledGuid, not PlayerGuid: a possessed bot's own portrait is the SELF menu.
+        if (_net is not null && unit.Guid == ControlledGuid) return UnitPopupWhich.Self;
         if (!unit.IsPlayer) return null;
         return _partyMembers.Any(member => member.Guid == unit.Guid)
             ? UnitPopupWhich.Party : UnitPopupWhich.Player;
@@ -238,7 +239,7 @@ public sealed partial class GameLoop
     private void DrawPlayerAuraBar()
     {
         if (_net is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 logicalDisplay = display / s;

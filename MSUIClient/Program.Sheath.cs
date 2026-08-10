@@ -14,7 +14,7 @@ public sealed partial class GameLoop
     private void UpdateSheathInput(bool typing)
     {
         if (_net is null || !_net.IsInWorld || _character is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         byte serverState = player.Fields.SheathState;
         if (serverState != _lastServerSheathState)

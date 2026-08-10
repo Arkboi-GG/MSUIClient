@@ -78,7 +78,7 @@ public sealed partial class GameLoop
         // The current in-world host exposes death through the streamed unit state. It retains no
         // separate ghost visibility bit, so this observer does not invent one.
         bool playerDeadOrGhost = _net is not null &&
-            _entities.TryGet(_net.PlayerGuid, out var player) && player.IsDead;
+            _entities.TryGet(ControlledGuid, out var player) && player.IsDead;
         return new UiPanelOwnershipSample(visible, playerDeadOrGhost, unresolvedReason);
     }
 

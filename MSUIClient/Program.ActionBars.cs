@@ -11,7 +11,7 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private readonly PlayerActions _actions = new();
+    // _actions moved to Program.Control.cs: it is now a per-unit store keyed by ControlledGuid.
     private SpellCatalog? _spellCatalog;
     private EnchantCatalog? _enchantCatalog;
     private SpellVisualCatalog? _spellVisualCatalog;
@@ -168,7 +168,7 @@ public sealed partial class GameLoop
             }
             _pendingCastSpell = 0;
         }
-        if (_entities.TryGet(_net.PlayerGuid, out WorldEntity caster))
+        if (_entities.TryGet(ControlledGuid, out WorldEntity caster))
         {
             if (caster.Fields.MountDisplayId != 0 && (spell.Attributes & 0x0100_0000u) == 0)
             {
@@ -230,7 +230,7 @@ public sealed partial class GameLoop
                 _selectionGuid == 0 ? "You have no target." : "Invalid target");
             return;
         }
-        if (target == _selectionGuid && target != _net.PlayerGuid &&
+        if (target == _selectionGuid && target != ControlledGuid &&
             CastRangeRefusal(spell) is { } rangeFailure)
         {
             EmitCastVerdict(spellId, rangeFailure.Reason, target, sent: false);
@@ -333,7 +333,7 @@ public sealed partial class GameLoop
         if (_net is null || _controller is null || _spellCatalog is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) ||
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row)) return null;
-        float selfReach = _entities.TryGet(_net.PlayerGuid, out WorldEntity self)
+        float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
         float min = row.Min, max = row.Max;
@@ -358,14 +358,14 @@ public sealed partial class GameLoop
         CastTargetCandidate? selected = null, self = null;
         if (_selectionGuid != 0 && _entities.TryGet(_selectionGuid, out WorldEntity selectedEntity))
         {
-            selected = CastCandidate(selectedEntity, _selectionGuid == _net!.PlayerGuid);
+            selected = CastCandidate(selectedEntity, _selectionGuid == ControlledGuid);
             EmitCombat("SpellTargetCandidate", "cast-acting-path", selectedEntity.Guid,
                 $"spell={spell.Id};mask=0x{CastTargetLaw.TargetMask(spell):X4};isSelf={selected.Value.IsSelf};" +
                 $"friendly={selected.Value.Friendly};attackable={selected.Value.Attackable};dead={selected.Value.Dead};" +
                 $"unitFlags=0x{selectedEntity.Fields.UnitFlags:X8};faction={selectedEntity.Fields.FactionTemplate};" +
                 $"reaction={ReactionPlayerToward(selectedEntity)}");
         }
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             self = CastCandidate(player, isSelf: true);
         return CastTargetLaw.Resolve(spell, selected, self);
     }
@@ -490,7 +490,7 @@ public sealed partial class GameLoop
         bool gridShown = HasCarriedItem || HasActionBarCursor;
         // Attack/auto-repeat flash is a plain 0.4 s show/hide toggle (ATTACK_BUTTON_FLASH_TIME).
         bool flashPhase = now % 0.8 < 0.4;
-        WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
+        WorldEntity? player = _entities.TryGet(ControlledGuid, out WorldEntity self) ? self : null;
 
         for (int i = 0; i < 12; i++)
         {
@@ -702,7 +702,7 @@ public sealed partial class GameLoop
         bool gridShown = HasCarriedItem || HasActionBarCursor;
         double now = MovementInfo.ClientUptimeMs() / 1000.0;
         bool flashPhase = now % 0.8 < 0.4;
-        WorldEntity? player = _entities.TryGet(_net.PlayerGuid, out WorldEntity self) ? self : null;
+        WorldEntity? player = _entities.TryGet(ControlledGuid, out WorldEntity self) ? self : null;
         (string Name, int FirstSlot, bool Vertical, Vector2 Origin, BottomMultiActionBar? BindingBar)[] bars =
         [
             ("MultiBarBottomLeft", MultiActionBarUiLaw.BottomLeftBase, false,
@@ -1180,6 +1180,9 @@ public sealed partial class GameLoop
 
     private bool PickupActionToCursor(int slot)
     {
+        // A possessed bot's bars are read-only in v1.0: CMSG_SET_ACTION_BUTTON acts on
+        // the SESSION character server-side, so editing here would corrupt the wrong bar.
+        if (ControlledGuid != LocalPlayerGuid) return false;
         if (_net is null || _actionCursor is not null || _actions[slot] is not { } action)
             return false;
         MultiActionPlacement transition = MultiActionBarUiLaw.PickupAction(action.Packed);
@@ -1197,6 +1200,7 @@ public sealed partial class GameLoop
     private void PlaceActionPayload(int slot, ActionSlot held)
     {
         if (_net is null) return;
+        if (ControlledGuid != LocalPlayerGuid) return;   // read-only bars while possessing
         ActionSlot? displaced = _actions[slot];
         MultiActionPlacement transition = MultiActionBarUiLaw.PlaceAction(
             held.Packed, displaced?.Packed ?? 0);
@@ -1448,7 +1452,7 @@ public sealed partial class GameLoop
     private void DrawExpBar(ImDrawListPtr dl, Vector2 barMin, float scale)
     {
         if (_gameplayArt is null || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         uint current = player.Fields.Experience;
         uint maximum = player.Fields.NextLevelExperience;
@@ -1692,7 +1696,7 @@ public sealed partial class GameLoop
             (range, rangeMin, rangeMax, distance) = ComputeButtonRange(rangeSpell);
 
         bool isAttack = spell is { Id: 6603 };
-        bool engaged = isAttack && _net is not null && _combat.IsEngaged(_net.PlayerGuid);
+        bool engaged = isAttack && _net is not null && _combat.IsEngaged(ControlledGuid);
         bool autoRepeat = spell is { } repeat && repeat.Id == _autoRepeatSpell;
         bool checkedState = engaged || autoRepeat ||
             (spell is { } pending &&
@@ -1712,7 +1716,7 @@ public sealed partial class GameLoop
             !_spellCatalog.TryGetRange(spell.RangeIndex, out SpellRangeRow row))
             return (ButtonRange.NoCheck, 0f, 0f, -1f);
 
-        float selfReach = _entities.TryGet(_net.PlayerGuid, out WorldEntity self)
+        float selfReach = _entities.TryGet(ControlledGuid, out WorldEntity self)
             ? self.Fields.CombatReach : 1.5f;
         float targetReach = target.Fields.CombatReach;
         float min = row.Min, max = row.Max;

@@ -82,7 +82,7 @@ public sealed partial class GameLoop
         }
         DrawSpellbookArt(dl, p, s);
 
-        var identity = _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity playerEntity)
+        var identity = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity playerEntity)
             ? playerEntity.Fields.Bytes0 : default;
         var known = _actions.KnownSpells
             .Select(id => _spellCatalog.TryGet(id, out SpellInfo spell) ? (Id: id, Spell: spell) : default)
@@ -145,7 +145,7 @@ public sealed partial class GameLoop
             _draggingSpellId = _pressedSpellId;
         if (_draggingSpellId != 0 && _spellCatalog.TryGet(_draggingSpellId, out SpellInfo dragged))
         {
-            WorldEntity? player = _net is not null && _entities.TryGet(_net.PlayerGuid,
+            WorldEntity? player = _net is not null && _entities.TryGet(ControlledGuid,
                 out WorldEntity owner) ? owner : null;
             uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(dragged, player));
             if (icon != 0)
@@ -203,7 +203,7 @@ public sealed partial class GameLoop
         // screen offsets (-3,-3)..(+61,+61), centered around the authored 37x37 icon button.
         if (bg != 0) dl.AddImage((nint)bg, Snap(min + new Vector2(-3, -3) * s),
             Snap(min + new Vector2(61, 61) * s));
-        WorldEntity? player = _net is not null && _entities.TryGet(_net.PlayerGuid,
+        WorldEntity? player = _net is not null && _entities.TryGet(ControlledGuid,
             out WorldEntity owner) ? owner : null;
         uint icon = _gameplayArt.Handle(ResolveSpellActionIcon(spell, player));
         if (icon != 0) dl.AddImage((nint)icon, iconMin, max);
@@ -400,7 +400,7 @@ public sealed partial class GameLoop
     {
         if (_spellCatalog is null || _skin is not { } skin ||
             !_spellCatalog.TryGet(spellId, out SpellInfo spell)) return null;
-        uint casterLevel = _net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player)
+        uint casterLevel = _net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player)
             ? player.Level : 0;
         SpellTooltipView view = SpellTooltipLaw.Build(spell, _spellCatalog, casterLevel);
         return new PreparedSharedSpellTooltip(owner,

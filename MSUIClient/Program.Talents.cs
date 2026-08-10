@@ -28,7 +28,7 @@ public sealed partial class GameLoop
     }
 
     private uint TalentPoints()
-        => _net is not null && _entities.TryGet(_net.PlayerGuid, out var player) ? player.Fields.TalentPoints : 0;
+        => _net is not null && _entities.TryGet(ControlledGuid, out var player) ? player.Fields.TalentPoints : 0;
 
     private int TalentRank(TalentInfo talent)
     {
@@ -57,6 +57,8 @@ public sealed partial class GameLoop
 
     private bool SpendTalent(uint talentId)
     {
+        // CMSG_LEARN_TALENT acts on the session character; a possessed bot's tree is read-only.
+        if (ControlledGuid != LocalPlayerGuid) return false;
         if (_net is null || _talents is null || !_talents.TryGet(talentId, out TalentInfo talent)) return false;
         int rank = TalentRank(talent);
         bool pass = TalentEligible(talent, out string reason);
@@ -73,11 +75,11 @@ public sealed partial class GameLoop
 
     private bool SpendFirstEligibleTalent()
     {
-        byte cls = _net is not null && _entities.TryGet(_net.PlayerGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
+        byte cls = _net is not null && _entities.TryGet(ControlledGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
         if (_talents is null) return false;
         foreach (TalentInfo talent in _talents.TabsForClass(cls).SelectMany(t => _talents.TalentsForTab(t.Id)))
             if (TalentEligible(talent, out _)) return SpendTalent(talent.Id);
-        EmitInterface("talent", "spend-send", "REFUSED", _net?.PlayerGuid ?? 0,
+        EmitInterface("talent", "spend-send", "REFUSED", ControlledGuid,
             $"class={cls};points={TalentPoints()};reason=no-eligible-talent");
         return false;
     }
@@ -127,7 +129,7 @@ public sealed partial class GameLoop
 
     private bool OpenTalentPanel()
     {
-        byte cls = _net is not null && _entities.TryGet(_net.PlayerGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
+        byte cls = _net is not null && _entities.TryGet(ControlledGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
         TalentTabInfo? first = _talents?.TabsForClass(cls).Cast<TalentTabInfo?>().FirstOrDefault();
         if (first is null) return false;
         _talentSelectedTab = first.Value.Id; _talentScroll = 0; _talentOpen = true;
@@ -157,7 +159,7 @@ public sealed partial class GameLoop
     {
         if (!_talentOpen || _talents is null || _gameplayArt is null) return;
         WorldEntity? entity = null;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity foundEntity))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity foundEntity))
             entity = foundEntity;
         byte cls = entity?.Fields.Bytes0.Class ?? 0;
         TalentTabInfo[] tabs = _talents.TabsForClass(cls).ToArray();

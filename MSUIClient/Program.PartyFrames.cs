@@ -3,6 +3,7 @@ using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Net;
+using Silk.NET.Input;
 
 namespace MSUIClient;
 
@@ -342,7 +343,11 @@ public sealed partial class GameLoop
             hoveredIndex < members.Length)
         {
             PartyMember member = members[hoveredIndex];
-            if (action == PartyPointerAction.Target)
+            bool altHeld = InputKeyDown(Key.AltLeft) || InputKeyDown(Key.AltRight);
+            if (action == PartyPointerAction.Target && altHeld)
+                // Alt+click a party portrait = jump control to that bot (CRPG/RTS mode).
+                SwitchControlTo(member.Guid);
+            else if (action == PartyPointerAction.Target)
                 CommitSelection(member.Guid, beginAttack: false);
             else
             {

@@ -271,6 +271,11 @@ public sealed class NetworkClient : IDisposable
     }
 
     public void SetSelection(ulong guid) { try { _session?.SetSelection(guid); } catch { } }
+    public bool SuiControlRequest(ulong guid) => InWorld(s => s.SuiControlRequest(guid));
+    public bool SuiControlRelease(byte mode) => InWorld(s => s.SuiControlRelease(mode));
+    public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
+        InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
+    public void SetActiveMover(ulong guid) { try { _session?.SetActiveMover(guid); } catch { } }
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>
         InWorld(s => s.PetAction(petGuid, packedAction, targetGuid));

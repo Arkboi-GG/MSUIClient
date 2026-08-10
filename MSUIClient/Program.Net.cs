@@ -262,7 +262,7 @@ public sealed partial class GameLoop
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
             _combat.Clear();
-            _actions.Clear();
+            ResetActionStores();
             // TakeEnterWorld also carries SMSG_NEW_WORLD. Group state is session-owned and must
             // survive zoning; the disconnected/session edge above is the authoritative reset.
             ResetPetActionBar();
@@ -588,19 +588,33 @@ public sealed partial class GameLoop
                         }
                         break;
                     case Op.SMSG_ACTION_BUTTONS:
-                        _actions.ApplyButtons(body);
+                        // Un-proxied wire feeds always describe the logged-in character; a
+                        // possessed bot's arrive wrapped in SMSG_SUI_PROXY and land in its store.
+                        OwnActions.ApplyButtons(body);
+                        break;
+                    case Op.SMSG_SUI_CONTROL_ACK:
+                        ApplySuiControlAck(body);
+                        break;
+                    case Op.SMSG_SUI_CONTROL_ROSTER:
+                        ApplySuiControlRoster(body);
+                        break;
+                    case Op.SMSG_SUI_PROXY:
+                        ApplySuiProxy(body);
+                        break;
+                    case Op.SMSG_SUI_SNAPSHOT:
+                        ApplySuiSnapshot(body);
                         break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
                         ApplyAuraDuration(body);
                         break;
                     case Op.SMSG_INITIAL_SPELLS:
-                        _actions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
+                        OwnActions.ApplyInitialSpells(body, MovementInfo.ClientUptimeMs() / 1000.0);
                         break;
                     case Op.SMSG_LEARNED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
                             uint learned = spellReader.ReadU16();
-                            _actions.Learn(learned);
+                            OwnActions.Learn(learned);
                             ObserveTrainerLearned(learned);
                             ObserveProfessionLearned(learned);
                         }
@@ -608,14 +622,14 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUPERCEDED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
-                            _actions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
+                            OwnActions.Supercede(spellReader.ReadU16(), spellReader.ReadU16());
                         }
                         break;
                     case Op.SMSG_REMOVED_SPELL:
                         {
                             var spellReader = new PacketReader(body);
                             uint removed = spellReader.ReadU16();
-                            _actions.Remove(removed);
+                            OwnActions.Remove(removed);
                             EmitInterface("talent", "spell-removed", "APPLIED", removed, "source=SMSG_REMOVED_SPELL");
                         }
                         break;
@@ -1112,6 +1126,61 @@ public sealed partial class GameLoop
         return kit;
     }
 
+    /// <summary>
+    /// Rebuild the first-person avatar as the CONTROLLED unit. For a possessed bot the look
+    /// comes from its streamed entity fields (appearance bytes + public visible-item entries —
+    /// the same recipe CreatureRenderer uses for remote players); for the session character it
+    /// falls back to the roster-driven <see cref="ApplyServerCharacter"/>.
+    /// </summary>
+    private void ApplyControlledCharacter()
+    {
+        if (_character is null) return;
+        ulong guid = ControlledGuid;
+        if (guid == LocalPlayerGuid)
+        {
+            ApplyServerCharacter(rebuild: false);
+            return;
+        }
+        if (!_entities.TryGet(guid, out WorldEntity bot) || !bot.IsPlayer) return;
+
+        (byte race, _, byte gender, _) = bot.Fields.Bytes0;
+        (byte skin, byte face, byte hairStyle, byte hairColor) = bot.Fields.PlayerAppearance;
+        string raceFolder = RaceFolder(race);
+        string genderName = gender == 1 ? "Female" : "Male";
+
+        var kit = new CharacterEquipment();
+        for (int slot = 0; slot < 19; slot++)
+        {
+            uint entry = bot.Fields.PlayerVisibleItemEntry(slot);
+            if (entry == 0 || _items is null) continue;
+            if (_net is not null) _items.Require(entry, guid, _net);
+            if (!_items.TryGet(entry, out ItemTemplate? t) || t is null || t.DisplayInfoId == 0)
+                continue;   // template still in flight: partial gear until the next rebuild
+            kit.Add($"slot{slot}", t.DisplayInfoId, (int)t.InventoryType, slot,
+                (byte)t.Class, (byte)t.Subclass, (byte)t.Material, (byte)t.Sheath);
+        }
+
+        if (!raceFolder.Equals(_character.Race, StringComparison.OrdinalIgnoreCase) ||
+            !genderName.Equals(_character.Gender, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_character.Load(raceFolder, genderName))
+            {
+                Console.WriteLine($"[control] could not load {raceFolder} {genderName}; keeping current body");
+                return;
+            }
+        }
+        _character.SkinId = skin;
+        _character.FaceId = face;
+        _character.HairStyleId = hairStyle;
+        _character.HairColorId = hairColor;
+        _character.FacialHairId = bot.Fields.PlayerFacialHair;
+        _character.Equipment = kit;
+        _character.Reload();
+        _character.Enabled = true;
+        _playerPortraitDirty = true;
+        _paperDollDirty = true;
+    }
+
     /// <summary>ChrRaces id -> character model folder name (Undead's folder is "Scourge").</summary>
     private static string RaceFolder(byte race) => race switch
     {
@@ -1182,7 +1251,7 @@ public sealed partial class GameLoop
     {
         if (_creatures is null) return;
         if (!_creatorWorldRequested && (_net is null || !_net.IsInWorld)) return;
-        _creatures.SelfPlayerGuid = LocalPlayerGuid;
+        _creatures.SelfPlayerGuid = RenderSelfGuid;
         _creatures.Render(_window.Camera, _entities);
     }
 

@@ -81,9 +81,11 @@ public sealed partial class GameLoop
         bool tracked = _entities.TryGet(_unitPopupGuid, out WorldEntity unit);
         if (tracked && _controller is not null)
             distanceSquared = Vector3.DistanceSquared(_controller.Position, unit.Position);
+        // ControlledGuid, not PlayerGuid: while possessing a bot, the controlled unit is
+        // "self" for the inspect gate (the CRPG seam the pre-rewrite popup carried).
         if (row == UnitPopupRow.Inspect)
             return _net is null || !tracked || InspectUiLaw.PopupRowEnabled(unit.IsPlayer,
-                _unitPopupGuid == _net.PlayerGuid, CanAttack(unit), distanceSquared);
+                _unitPopupGuid == ControlledGuid, CanAttack(unit), distanceSquared);
         return UnitPopupUiLaw.RowEnabled(row, inParty, isLeader, connected, distanceSquared);
     }
 

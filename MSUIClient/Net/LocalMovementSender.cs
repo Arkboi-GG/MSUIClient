@@ -21,6 +21,13 @@ public sealed class LocalMovementSender
     private bool _initialized;
     private readonly List<Op> _lastUpdateOpcodes = [];
 
+    /// <summary>
+    /// External park (possession pending, freecam): flush one MSG_MOVE_STOP,
+    /// then send nothing until unparked — same server-invisible behaviour as
+    /// free-fly. The controller keeps simulating locally.
+    /// </summary>
+    public bool Parked { get; set; }
+
     public long PacketsSent { get; private set; }
     public Op? LastOpcode { get; private set; }
     public uint LastFlags => _previousFlags;
@@ -59,7 +66,7 @@ public sealed class LocalMovementSender
         float facing = Normalize(controller.Yaw);
         if (!_initialized) Reset(facing);
 
-        if (controller.Flying)
+        if (controller.Flying || Parked)
         {
             Park(net, controller.Position, facing);
             return;

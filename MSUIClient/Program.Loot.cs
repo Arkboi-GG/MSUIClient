@@ -35,6 +35,13 @@ public sealed partial class GameLoop
     /// send (the reference arms its loot latch at the CMSG_LOOT send site, 0x5df253).</summary>
     private bool RequestLoot(ulong guid)
     {
+        // Loot is _player-scoped server-side: looting "as the bot" would flow into the
+        // session character's distant bags. The bot loots autonomously after release.
+        if (ControlledGuid != LocalPlayerGuid)
+        {
+            ShowUiError("Cannot loot while controlling a bot.");
+            return false;
+        }
         bool eligible = _entities.TryGet(guid, out WorldEntity source) && source.IsCreature &&
                         source.IsDead && source.Fields.Lootable;
         if (_net is null || !eligible)

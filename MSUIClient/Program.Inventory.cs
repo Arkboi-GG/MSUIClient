@@ -107,7 +107,7 @@ public sealed partial class GameLoop
     private void ObserveInventoryTransition()
     {
         if (_pendingInventoryTransition is not { } pending || _net is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         int equipped = Enumerable.Range(0, 19).FirstOrDefault(i => player.Fields.PlayerInventorySlot(i) == pending.ItemGuid, -1);
         int backpack = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == pending.ItemGuid, -1);
         bool complete = pending.Kind == "equip" ? equipped >= 0 : backpack >= 0;
@@ -127,7 +127,7 @@ public sealed partial class GameLoop
 
     private bool EquipBackpackEntry(uint entry)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         for (int slot = 0; slot < 16; slot++)
         {
             ulong guid = player.Fields.PlayerBackpackSlot(slot);
@@ -144,7 +144,7 @@ public sealed partial class GameLoop
 
     private bool UnequipSlot(int slot)
     {
-        if (_net is null || slot is < 0 or >= 19 || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || slot is < 0 or >= 19 || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         ulong guid = player.Fields.PlayerInventorySlot(slot);
         if (guid == 0 || !_entities.TryGet(guid, out WorldEntity item)) return false;
         int empty = Enumerable.Range(0, 16).FirstOrDefault(i => player.Fields.PlayerBackpackSlot(i) == 0, -1);
@@ -159,9 +159,9 @@ public sealed partial class GameLoop
 
     private bool InspectCharacterInventory()
     {
-        if (_net is null || _items is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || _items is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         ObjectFields f = player.Fields;
-        EmitInterface("character", "stats", "WIRE-SNAPSHOT", _net.PlayerGuid,
+        EmitInterface("character", "stats", "WIRE-SNAPSHOT", ControlledGuid,
             $"level={player.Level};health={f.Health}/{f.MaxHealth};stats={string.Join(',', Enumerable.Range(0, 5).Select(f.Stat))};armor={f.Resistance(0)};attack={f.AttackPower};damage={f.MinDamage:R}-{f.MaxDamage:R};coin={f.Coinage}");
         int equipped = 0, backpack = 0, resolved = 0;
         foreach (int slot in Enumerable.Range(0, 19).Concat(Enumerable.Range(23, 16)))
@@ -178,7 +178,7 @@ public sealed partial class GameLoop
                 $"armor={item.Armor};stats={string.Join(',', item.Stats.Select(x => $"{x.Type}:{x.Value}"))};" +
                 $"durability={instance.Fields.ItemDurability}/{instance.Fields.ItemMaxDurability}");
         }
-        EmitInterface("inventory", "snapshot", "COMPLETE", _net.PlayerGuid,
+        EmitInterface("inventory", "snapshot", "COMPLETE", ControlledGuid,
             $"equipped={equipped};backpack={backpack};resolved={resolved}");
         return true;
     }
@@ -186,7 +186,7 @@ public sealed partial class GameLoop
     private void SyncLiveEquipmentModel()
     {
         if (_net is null || _items is null || _character is not { Loaded: true } ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         var resolved = new List<(int Slot, ItemTemplate Item)>();
         var hash = new HashCode();
         for (int slot = 0; slot < 19; slot++)
@@ -240,7 +240,7 @@ public sealed partial class GameLoop
 
     private void DrawInventory()
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         LayoutBagWindows(player);
         DrawBagBar();
         DrawBackpack();
@@ -254,7 +254,7 @@ public sealed partial class GameLoop
     private void DrawBackpack()
     {
         if (!_backpackOpen || _net is null || _items is null || _gameplayArt is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         float scale = GameplayUiScale();
         Vector2 frameSize = new(192f, 240f);
@@ -335,7 +335,7 @@ public sealed partial class GameLoop
     private void DrawBagBar()
     {
         if (_net is not { IsInWorld: true } || _gameplayArt is null || _items is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         Vector2 display = ImGui.GetIO().DisplaySize;
         Vector2 barMin = GameplayBarMin(display, s);
@@ -530,7 +530,7 @@ public sealed partial class GameLoop
     private void DrawEquippedBagWindows()
     {
         if (_net is null || _gameplayArt is null || _items is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
         float s = GameplayUiScale();
         for (int bagIndex = 0; bagIndex < 4; bagIndex++)
         {
@@ -727,7 +727,7 @@ public sealed partial class GameLoop
     private void UseItemAction(uint entry)
     {
         if (_net is null || _items is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return;
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
 
         List<(byte Bag, byte Slot, WorldEntity Item, bool Worn)> all =
             EnumerateActionItemCopies(player, entry).ToList();
@@ -1029,7 +1029,7 @@ public sealed partial class GameLoop
         bool show = PaperDollUiLaw.ShowBagItemComparison(_characterOpen, _characterTab, shift,
             sourceIsEquipped: false);
         if (!show || _net is null || _items is null ||
-            !_entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+            !_entities.TryGet(ControlledGuid, out WorldEntity player))
             return [];
 
         float scale = GameplayUiScale();
@@ -1200,8 +1200,11 @@ public sealed partial class GameLoop
         bool hovered = ImGui.IsItemHovered();
         bool repairReleased = _vendorRepairMode && hovered &&
             ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();
-        bool leftClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
-        bool rightClicked = !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
+        // A possessed bot's bags are read-only in v1.0: every inventory mutation opcode is
+        // guid-less and acts on the SESSION character server-side. Hover/tooltips stay live.
+        bool interactive = ControlledGuid == LocalPlayerGuid;
+        bool leftClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        bool rightClicked = interactive && !_vendorRepairMode && ImGui.IsItemClicked(ImGuiMouseButton.Right);
         if (repairReleased) TryRepairMerchantItem(instance?.Guid ?? 0);
         if (_itemCastSpell != 0)
         {
@@ -1395,7 +1398,7 @@ public sealed partial class GameLoop
 
     private WorldEntity? ResolveInventoryItem(int container, int slot)
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return null;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return null;
         ulong guid;
         if (container == 0) guid = player.Fields.PlayerBackpackSlot(slot);
         else if (container == InventoryUiLaw.KeyringContainer) guid = player.Fields.PlayerKeyringSlot(slot);
@@ -1590,7 +1593,7 @@ public sealed partial class GameLoop
     private void PlayUiSound(string name, string category = "ui")
     {
         Vector3 listener = _controller?.Position ?? Vector3.Zero;
-        _spellSounds?.Play(name, _net?.PlayerGuid ?? 0, listener, listener, category);
+        _spellSounds?.Play(name, ControlledGuid, listener, listener, category);
     }
 
     private void ToggleBackpack() => SetBagWindowOpen(0, !_backpackOpen);
@@ -1610,7 +1613,7 @@ public sealed partial class GameLoop
 
     private bool ToggleAllBags()
     {
-        if (_net is null || !_entities.TryGet(_net.PlayerGuid, out WorldEntity player)) return false;
+        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return false;
         bool open = InventoryUiLaw.ShouldOpenAllBags(_backpackOpen, _equippedBagOpen);
         return SetAllNormalBagWindows(player, open);
     }
@@ -1618,7 +1621,7 @@ public sealed partial class GameLoop
     private bool CloseAllBagWindows()
     {
         if (!_backpackOpen && !_keyringOpen && !_equippedBagOpen.Any(x => x)) return false;
-        if (_net is not null && _entities.TryGet(_net.PlayerGuid, out WorldEntity player))
+        if (_net is not null && _entities.TryGet(ControlledGuid, out WorldEntity player))
             SetAllNormalBagWindows(player, false);
         else
         {
