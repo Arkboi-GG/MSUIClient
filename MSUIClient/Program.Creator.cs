@@ -178,6 +178,20 @@ public sealed partial class GameLoop
                 Console.WriteLine($"[net] auto-login as {_config.Server.Account} (launch mode switch)");
             }
         }
+        else if (mode == LaunchModeCreator && !_worldLoadStarted)
+        {
+            // Choosing creator must actually LAND on the creator front door, not just
+            // flip the sticky flag: a connected/connecting session keeps NetHud on the
+            // account/character screens where the flag changes nothing visible. Same
+            // teardown as the character-select Back button. Pre-world only — the
+            // Launch Options modal is unreachable in-world anyway.
+            if (_net is not null && _net.State != NetState.Idle)
+            {
+                _net.Stop();
+                Array.Clear(_passBuf);
+                Console.WriteLine("[creator] session disconnected - creator front door up");
+            }
+        }
     }
 
     /// <summary>
