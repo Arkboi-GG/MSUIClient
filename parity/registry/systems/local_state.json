@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/local_state",
+  "title": "local_state",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/local_state.rs",
+      "fileSha256": "705b99de83d94b0dff52096aab1631c13c0a8ca3b9bc9888b24e358b2005b560",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/ClientConfig.cs",
+    "MSUIClient/Engine/GameSettings.cs",
+    "MSUIClient/Program.Settings.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's local_state.rs is pure persistence-path plumbing (the one benilla/ folder law, $BENILLA_HOME/$WOW_CAPTURE resolution, atomic writes). MSUI achieves the same effect through its own configuration architecture: ClientConfig/GameSettings with the MSUI_SETTINGS_PATH override (used by creator/live-capture workflows), and per-feature settings persistence in Program.Settings/Program.Bindings. No player-observable behavior is at stake beyond 'settings persist', which MSUI does its own way.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

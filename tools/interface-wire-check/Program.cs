@@ -1576,9 +1576,13 @@ Check(CreatureRenderer.TryBuildPlayerModelInfo(streamedPlayer, basePlayerModel,
       playerModel.ExtEquipment[0] == 11_000 && playerModel.ExtEquipment[9] == 11_018 &&
       playerModel.ExtEquipment[10] == 11_014,
     "remote-player render adapter lost customization or equipment-slot mapping");
-Check(!CreatureRenderer.TryBuildPlayerModelInfo(streamedPlayer, basePlayerModel,
-        _ => (false, null), out _),
-    "remote-player adapter did not wait for public item-template settlement");
+// Unsettled templates draw the player provisionally with those slots empty (never
+// invisible-until-settled); the settle re-dresses via the appearance key.
+Check(CreatureRenderer.TryBuildPlayerModelInfo(streamedPlayer, basePlayerModel,
+        _ => (false, null), out CreatureModelInfo provisionalModel) &&
+      provisionalModel.HasExtended &&
+      provisionalModel.ExtEquipment.All(display => display == 0),
+    "remote-player adapter no longer draws provisionally while templates settle");
 Check((ushort)Op.SMSG_FORCE_MOVE_ROOT == 0x00E8 &&
       (ushort)Op.CMSG_FORCE_MOVE_ROOT_ACK == 0x00E9 &&
       (ushort)Op.SMSG_FORCE_MOVE_UNROOT == 0x00EA &&
@@ -1749,13 +1753,13 @@ Check(inspectRingDraw >= 0 && inspectHighlightDraw > inspectRingDraw &&
       inspectSource.Contains("ImGui.SetNextWindowPos(tooltipPosition, ImGuiCond.Always)",
           StringComparison.Ordinal),
     "inspect selected-tab/rotation/slot layer/label/enchant/tooltip production wiring drift");
-Check(inspectTargetingSource.Contains("_unitPopupInspectBinding = InspectBinding.Target;",
+Check(inspectTargetingSource.Contains("OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);",
           StringComparison.Ordinal) &&
-      inspectPartySource.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex);",
+      inspectPartySource.Contains("InspectBinding.Party(hoveredIndex));",
           StringComparison.Ordinal) &&
       inspectPartySource.Contains("_partyRosterRevision++;", StringComparison.Ordinal) &&
       inspectPopupSource.Contains("InspectUiLaw.PopupRowEnabled", StringComparison.Ordinal) &&
-      inspectPopupSource.Contains("RequestInspect(_unitPopupGuid, _unitPopupInspectBinding);",
+      inspectPopupSource.Contains("RequestInspect(guid, _unitPopupInspectBinding);",
           StringComparison.Ordinal),
     "inspect target/party origin seam or strict popup gate production wiring drift");
 Check(inspectCaptureSource.Contains("inspect-frame-requires-observed-runtime-state",
@@ -2338,7 +2342,7 @@ Check(partySessionSource.Contains(
       partySessionSource.Contains(
           "Op.CMSG_GROUP_DECLINE, BuildGroupDeclineBody()", StringComparison.Ordinal),
     "party accept/decline exact empty outbound bodies drift");
-Check(partyRuntimeSource.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex)",
+Check(partyRuntimeSource.Contains("InspectBinding.Party(hoveredIndex))",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("action == PartyPointerAction.Target", StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("CircularHandle(portraitPath)", StringComparison.Ordinal) &&

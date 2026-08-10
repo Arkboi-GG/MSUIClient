@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--login",
+  "notes": [
+    {
+      "id": "note-1ab43d5b0c23",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): MSUI realizes the AccountLogin glue: the UI_MainMenu burning-gate scene rendered through the model's own authored camera/fog/light rig (GlueScene), account/password edit boxes with AccountLogin.xml-derived insets, the Remember Account Name checkbox, and the riveted GlueDialog logon-progress dialogs with the 1.12 captions (Connecting / Authentication Successful / Entering World) and a Cancel that stops the session. The credential retry path is explicitly hardened: a refused password cleanly resets the worker so a re-typed submit works (the documented RETRY BUG fix), matching Benilla's never-auto-retry-a-refusal policy.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-460b5e93654b",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Not verified against the authored AUTH_* GlobalStrings per refusal code (MSUI surfaces the NetworkClient status string in the dialog rather than a keyed AUTH_ dialog table), and Benilla's silent 3s-paced reconnect resubmit while in-world was not located in MSUI - flagging both as unverified rather than gaps since the failure surfacing works and the env fast path (auto-login) exists.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

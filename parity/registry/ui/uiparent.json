@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/uiparent",
+  "title": "uiparent",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/UIParent.xml",
+      "fileSha256": "b814f250ac377ae69f0f8c9e3d51d44843f02db3c52ce29556d401b972630c45",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "MSUIClient/Engine/UI/GameTooltipUiLaw.cs",
+    "MSUIClient/Program.GameTooltip.cs",
+    "MSUIClient/Program.GameTooltip.Renderer.cs",
+    "tools/interface-wire-check/GameTooltipClinicalChecks.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "MSUIClient/Engine/UI/UiParentUiLaw.cs",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/before/target-baseline.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/reference/frozen-obligations.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/decision/trace-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/after/current-implementation.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/uiparent-part-01-packet-073056dde50fbcf7/evidence/live/unverified.md"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI exposes deterministic UIParent placement and binding laws and the shared tooltip consumes current container offsets. Existing panel layouts remain intentionally direct; the packet has no live multi-panel, binding-caller, or pixel proof.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-member-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic checks implement merged member state, FULL and delta law, exact status, icon, pulse, input, SetUnit behavior, circular containment, and observational telemetry.",
+      "source": "claim-partyframe-member-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uiparent-root-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI supplies a common UI root coordinate, scale, clipping, and ordering contract for managed surfaces.",
+      "source": "claim-uiparent-root-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uiparent-managed-offset-provider-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI exposes current managed root-relative offsets to tooltip and panel placement laws.",
+      "source": "claim-uiparent-managed-offset-provider-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uiparent-binding-text-law-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements the binding display-name and abbreviation contract, but the promotion remains deliberately unpinned and unverified.",
+      "source": "claim-uiparent-binding-text-law-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-member-runtime-001",
+    "claim-uiparent-root-contract-001",
+    "claim-uiparent-managed-offset-provider-001",
+    "claim-uiparent-binding-text-law-001"
+  ],
+  "traces": [
+    "trace-partyframe-member-runtime-001",
+    "trace-uiparent-root-contract-001",
+    "trace-uiparent-managed-offset-provider-001",
+    "trace-uiparent-binding-text-law-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T12:17:14.7235808+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

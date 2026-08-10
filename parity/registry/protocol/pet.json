@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/pet",
+  "title": "pet",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/pet.rs",
+      "fileSha256": "1f28cfabf369a1857751a5ed223110526d63547590b31b3e0891ee1345d89a9b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/pet.rs",
+      "fileSha256": "0e89331b38b0fd5e72d7cc14b814a16463464d0c48b9c8d7a56cec921930e0d5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Pet.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/UI/PetActionBarUiLaw.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla's realized pet contract is four client verbs (CMSG_PET_ACTION, CMSG_PET_STOP_ATTACK, CMSG_PET_CANCEL_AURA, CMSG_PET_SET_ACTION) and four server packets (SMSG_PET_SPELLS including the zero-guid teardown and both cooldown tail shapes, SMSG_PET_MODE, SMSG_PET_ACTION_FEEDBACK, SMSG_PET_CAST_FAILED). MSUI implements all eight.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

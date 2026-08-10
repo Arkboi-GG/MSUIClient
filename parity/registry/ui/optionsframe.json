@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/optionsframe",
+  "title": "optionsframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/OptionsFrame.xml",
+      "fileSha256": "426942f5d762ceab34f5305103be23e567f997b3f284a5c8d71e84d2a930d35d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Settings.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/GameSettings.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/GameMenuUiLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI has a substantial options surface but in the 1.12 shape, not Benilla's: Escape opens a Game Menu modal (Program.Settings.cs, WowSkin-dressed) whose buttons lead to Video Options (rich live-apply page: quality presets, display/view/detail/streaming sliders and checks) and Interface Options (mouse/camera/controls page), plus Key Bindings and Macros windows; Escape-back and cancel-snapshot laws match the real client. Benilla instead built the era 1.15 single Options window (category tree, search, Audio/Graphics/Controls/Nameplates pages over a CVar store).",
+  "openItems": [
+    {
+      "id": "item-triage-d5a1736f",
+      "kind": "gap",
+      "text": "No Sound/Audio options page - the Game Menu's Sound Options button is permanently disabled ('no sound subsystem yet', a stale claim now that PlayUiSound exists) despite UI sounds being live",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b00da987",
+      "kind": "gap",
+      "text": "No nameplate options rows (Benilla's Nameplates page: show friendly/enemy plates etc.)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4c255342",
+      "kind": "gap",
+      "text": "No settings search",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2b518ac9",
+      "kind": "gap",
+      "text": "No per-page Defaults button (only whole-quality presets)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

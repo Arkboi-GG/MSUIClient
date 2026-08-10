@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/itemtextframe",
+  "title": "itemtextframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ItemTextFrame.xml",
+      "fileSha256": "1e82f1cf20bfe1ebdc9c274d173c695f05a65c36b650578aade716c8caa9e31a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_item_text.rs",
+      "fileSha256": "ef450232d738b8087b84d6be6f96a25d3bf8b1c4a0ade4c1fa775cb1d0e6500c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.GameObjects.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Mail.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Inventory.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI has an authored ItemTextFrame shell: Program.GameObjects.cs DrawItemTextFrame draws the 384x512 window with the four-piece UI-ItemText-* art and minimize-style close button, filled with gameobject page text fetched via CMSG_PAGE_TEXT_QUERY (chained pages followed via the next-page id). CMSG_ITEM_TEXT_QUERY exists but only serves the mail frame's letter bodies. The reader lacks most of the reference furniture and the bag-letter route.",
+  "openItems": [
+    {
+      "id": "item-triage-4c78e8c7",
+      "kind": "gap",
+      "text": "No bag-letter read route: an inventory item with ITEM_FIELD_ITEM_TEXT_ID shows the read hover cursor (InventoryUiLaw.HoverCursor) but right-click never opens the reader; Benilla opens the ItemTextFrame with the mail item-text cache",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-42b5abae",
+      "kind": "gap",
+      "text": "No title FontString (item/object name) or creator 'From,' line",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-20bea21f",
+      "kind": "gap",
+      "text": "No page navigation: MSUI concatenates all fetched pages into one view instead of Prev/Next buttons + current-page number",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-af6fb748",
+      "kind": "gap",
+      "text": "No material variants (Stone/Marble/Bronze corner textures, material text/title color tables) - parchment-only",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-0b23fa4e",
+      "kind": "gap",
+      "text": "CMSG_READ_ITEM / SMSG_READ_ITEM_OK multi-page book flow absent (matches registry; also a named follow-up in Benilla)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f8e22f60",
+      "kind": "gap",
+      "text": "No open/close sounds (igMainMenuOpen/Close) and no ITEM_TEXT_TRANSLATION progress bar (the latter never fires in Benilla either)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a5556376",
+      "kind": "gap",
+      "text": "Body text is drawn with the default ImGui font at a rough line-wrap estimate, not the ItemTextFontNormal (Morpheus 15) that FontObjectLaw already defines",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

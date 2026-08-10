@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--minimapcluster",
+  "notes": [
+    {
+      "id": "note-18c7c984734e",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI's minimap cluster (Program.Minimap.cs) carries the reference chrome and most behaviors: UI-Minimap-Border top band + round border, zone text, minimap show/hide toggle button that keeps the chrome alive, zoom in/out buttons plus wheel zoom, aura-driven tracking icon in MiniMap-TrackingBorder with right-click cancel, unread-mail icon (INV_Letter_15 + tracking border) off the pending-mail flag, party dots, tracked-resource dots, and the player arrow. Several reference polish laws are absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/petactionbar",
+  "title": "petactionbar",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/PetActionBar.xml",
+      "fileSha256": "f79034b7648f30d5e5ed0e7c95bdc722c4a4e2f385341209bee06e3085293d89",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet.rs",
+      "fileSha256": "031f02a7db7d664d9c2990cb5525858130c3bad64fdf99bc304cc31ed1b28151",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_pet_stats.rs",
+      "fileSha256": "b2badc3067b439c6f7d043281daf85641e85c843a23063ec61b3c74362fac51a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PetActionBarUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Pet.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Program.Targeting.cs",
+    "MSUIClient/Program.Casting.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.Logout.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "tools/interface-wire-check/Program.cs",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/before/msui-clinical-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/reference/benilla-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/clinical-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/after/msui-clinical-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/invalid/old-fixture-boundary.md",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/protocols/petactionbar-live-gate.txt",
+    "parity/packets/pair-de1462d2f83d2f33/petactionbar-part-01-packet-1bc2add72d6d062b/evidence/verification/deterministic-2026-08-08.md"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now implements the bounded production repairs and strong draw/state/input telemetry while retaining the existing packed core, horizontal seats, assignment model, token art, high-resolution portrait, and always-on bottom multibars. Connected physical input, real controlled-unit wire/state, sound, render/diff, and user-visible proof remain open.",
+  "openItems": [
+    {
+      "id": "item-claim-petactionbar-runtime-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Exact packed state, client-local latches, input gates, cursor assignment, and build-5875 pet wires are implemented.",
+      "source": "claim-petactionbar-runtime-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-petactionbar-assets-autocast-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Exact token assets, quickslot states, autocast overlay, cooldown and texture sparkle are drawn.",
+      "source": "claim-petactionbar-assets-autocast-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-petactionbar-template-geometry-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The exact 509x43 shelf and ten-button managed geometry are implemented.",
+      "source": "claim-petactionbar-template-geometry-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-petactionbar-driver-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI owns the complete PetActionBar runtime surface while preserving the separate present MSUI pet portrait.",
+      "source": "claim-petactionbar-driver-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-petactionbar-runtime-contract-001",
+    "claim-petactionbar-assets-autocast-001",
+    "claim-petactionbar-template-geometry-001",
+    "claim-petactionbar-driver-001"
+  ],
+  "traces": [
+    "trace-petactionbar-runtime-contract-001",
+    "trace-petactionbar-assets-autocast-001",
+    "trace-petactionbar-template-geometry-001",
+    "trace-petactionbar-driver-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-07T22:09:44.3649057+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

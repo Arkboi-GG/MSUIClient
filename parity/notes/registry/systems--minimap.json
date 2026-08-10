@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--minimap",
+  "notes": [
+    {
+      "id": "note-85a43f182b72",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): The tile plane is right: md5translate.trs-resolved per-ADT minimap BLPs drawn as a continuous 3x3 neighborhood under a fixed player arrow, 6 zoom steps on wheel + the authored ZoomIn/ZoomOut buttons, circular mask/cluster art, zone detection from ADT area ids driving CMSG_ZONEUPDATE, the tracking button (active tracking aura icon in the MiniMap-TrackingBorder, right-click cancels), the mail icon, party dots, and a resource-node dot layer gated on PLAYER_TRACK_RESOURCES with a GO-template-named hover tooltip through the shared GameTooltip lifecycle. But most of Benilla's byte-verified blip and interior law is absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/bindings",
+  "title": "bindings",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/bindings.rs",
+      "fileSha256": "a7d9866918f6a2f1099a6193ecc2006bda8e470087f101565d1a43a3879cb1e7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/bindings/chord.rs",
+      "fileSha256": "bd1364eb3dba1740210cc1e6750b537288c9e9cda44716a93ee76a727918a379",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/bindings/commands.rs",
+      "fileSha256": "78a25ed9c2a43597f1e81a466bd1e10b75119350bb70b565ba967ba166d8ece5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/bindings/store.rs",
+      "fileSha256": "b1b7c53539abaf8a116d2187f5e351397adb6d08e428157605565e01756de6e1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Bindings.cs",
+    "MSUIClient/Program.Keybindings.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla runs every rebindable input through one chord->command engine: canonical ALT-CTRL-SHIFT chords with the exact-modifier match law, Held latches released on the base key (chat focus clears latches without eating the release), a capture seam in the options page, and account + per-character persistence files. MSUI has a real keybindings system - a rebindable table (movement, targeting, interface panels, 12+24 action-bar buttons) with primary/secondary slots, a capture UI with unbind and reset-to-defaults, and JSON persistence with legacy-schema migration - but it binds bare keys only.",
+  "openItems": [
+    {
+      "id": "item-triage-6927a2fd",
+      "kind": "gap",
+      "text": "No modifier chords: BindingPair holds bare Silk Key values - SHIFT-/CTRL-/ALT- combinations cannot be bound, and there is no exact-modifier-match rule distinguishing a bare binding from a chorded one.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-03adade8",
+      "kind": "gap",
+      "text": "No per-character binding set: one keybindings.json for everything; the reference's account-vs-character split (and the confirmed switch that deletes the character file) has no counterpart.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-faaeb2fc",
+      "kind": "gap",
+      "text": "Rebindable command coverage is narrower than the reference's engine-wide set (e.g. chat open, autorun, camera zoom are not in the BindingRows table).",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

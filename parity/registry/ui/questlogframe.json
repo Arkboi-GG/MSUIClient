@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/questlogframe",
+  "title": "questlogframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/QuestLogFrame.xml",
+      "fileSha256": "cf3297150b28cb71b0c09b891a75048f521d38c3201a2214a2e1adbef030bd2a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_quest_log.rs",
+      "fileSha256": "2204d79ebc598614329338a1233739326b07ebab17fe7999f3926bc7d0a0230b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Quest.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI's quest log (Program.Quest.cs, log mode of the shared quest window) exists with the UI-QuestLog book art, title, 'n / 20' count, six selectable title rows, a detail area with quest title + objectives text, and working Abandon (CMSG_QUESTLOG_REMOVE_QUEST) and Close buttons. Registry's 13/13 opcodes are about the wire, not the window - the list and detail panes are far thinner than the reference/Benilla.",
+  "openItems": [
+    {
+      "id": "item-triage-095242eb",
+      "kind": "gap",
+      "text": "List shows only the first 6 quests with no scroll offset, wheel, or scrollbar - quests 7..20 are unreachable in the log UI",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4fd9d966",
+      "kind": "gap",
+      "text": "No zone/category headers on the list (Benilla defers too, but MSUI also lacks the flat-list scroll that makes >6 reachable)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-31d3e4de",
+      "kind": "gap",
+      "text": "No quest level or difficulty coloring on title rows (reference QuestDifficultyColor law)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6683210d",
+      "kind": "gap",
+      "text": "Detail pane has no per-objective progress lines (kill/item counters with done-coloring) - a single cached progress string with a placeholder fallback stands in",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f89e7e62",
+      "kind": "gap",
+      "text": "No rewards section (items/money/spell) in the log detail pane",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-beb2eadd",
+      "kind": "gap",
+      "text": "No quest-watch tracking (SHIFT-click watch toggle, on-screen tracker)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-bd524078",
+      "kind": "gap",
+      "text": "Abandon sends immediately with no ABANDON_QUEST confirmation popup",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-51d2f627",
+      "kind": "gap",
+      "text": "Share Quest button is permanently disabled (no quest push) - matches Benilla's own v1 stub, noted for completeness",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-0eba825d",
+      "kind": "gap",
+      "text": "No timed-quest countdown display",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

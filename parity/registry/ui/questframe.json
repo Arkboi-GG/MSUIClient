@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/questframe",
+  "title": "questframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/QuestFrame.xml",
+      "fileSha256": "10184c417707b417087a02e83040a8fd8412895d5d042bd9bb3c7ec9c64ec3e9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_quest.rs",
+      "fileSha256": "e479a96f86dc6982450338f88f46f18e1e77ac8ca6211c69236355dda1c4f661",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Quest.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/QuestTextMacroLaw.cs",
+    "MSUIClient/Net/GuidInfo.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/QuestPackets.cs",
+    "MSUIClient/Program.Gossip.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Program.Logout.cs",
+    "MSUIClient/Program.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "tools/interface-wire-check/Program.cs",
+    "tools/ui-parity/Program.cs",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-01-packet-772ed3a05a4e61db/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-01-packet-772ed3a05a4e61db/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-01-packet-772ed3a05a4e61db/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-02-packet-3c1eb663c7772bd9/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-02-packet-3c1eb663c7772bd9/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-02-packet-3c1eb663c7772bd9/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-03-packet-ff0104d615ec3afa/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-03-packet-ff0104d615ec3afa/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/questframe-part-03-packet-ff0104d615ec3afa/evidence/evidence-index.json"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now has the repaired NPC QuestFrame runtime and draw contracts while retaining its protected Quest Log and present-different behavior. Deterministic build/reference/contracts pass. Connected NPC/item-giver actions, physical input/audio, real PNG/CSV/manifest, strict visual diff, and user-visible acceptance remain outstanding.",
+  "openItems": [
+    {
+      "id": "item-claim-questframe-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-questframe-templates-outer-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-templates-outer-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-questframe-greeting-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-greeting-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-questframe-detail-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-detail-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-questframe-progress-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-progress-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-questframe-reward-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Reopened after clinical re-audit: current MSUI contains material behavior/visual gaps and old staged evidence is non-acceptance evidence.",
+      "source": "claim-questframe-reward-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-questframe-lifecycle-001",
+    "claim-questframe-templates-outer-001",
+    "claim-questframe-greeting-001",
+    "claim-questframe-detail-001",
+    "claim-questframe-progress-001",
+    "claim-questframe-reward-001"
+  ],
+  "traces": [
+    "trace-questframe-lifecycle-001",
+    "trace-questframe-templates-outer-001",
+    "trace-questframe-greeting-001",
+    "trace-questframe-detail-001",
+    "trace-questframe-progress-001",
+    "trace-questframe-reward-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-07T22:40:09.9382421+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -340,6 +340,49 @@ public sealed partial class GameLoop
                     }
                     _liveSelectWaitStarted=0;
                     if(guid!=0) CommitSelection(guid,false); Log(guid!=0,$"{line} guid=0x{guid:X16}"); break;
+                case "invite":
+                    // Send CMSG_GROUP_INVITE through the popup's exact name path and log the
+                    // raw name bytes — surfaces invisible junk in the cached name.
+                    // "invite player-nearest" uses the name cache; "invite name:X" a literal.
+                    ulong invGuid=0; string invName;
+                    if(p[1].StartsWith("name:",StringComparison.OrdinalIgnoreCase))
+                        invName=line[(line.IndexOf("name:",StringComparison.OrdinalIgnoreCase)+5)..];
+                    else { invGuid=LiveNearestRemotePlayerGuid(); invName=_playerNames.GetValueOrDefault(invGuid,""); }
+                    bool inviteSent=invName.Length>0&&(_net?.GroupInvite(invName)??false);
+                    Log(inviteSent,$"{line} guid=0x{invGuid:X16} name='{invName}' "+
+                        $"utf8={BitConverter.ToString(System.Text.Encoding.UTF8.GetBytes(invName))}");
+                    break;
+                case "unit-popup":
+                    // Open the right-click unit popup on the current selection, or on the
+                    // nearest remote player ("unit-popup player-nearest"), for dump captures.
+                    ulong popupGuid=p.Length>1&&p[1].Equals("player-nearest",StringComparison.OrdinalIgnoreCase)
+                        ?LiveNearestRemotePlayerGuid():_selectionGuid;
+                    if(popupGuid==0&&now-(_liveSelectWaitStarted==0?now:_liveSelectWaitStarted)<5)
+                    {
+                        if(_liveSelectWaitStarted==0) _liveSelectWaitStarted=now;
+                        _liveWaitUntil=now+0.05;
+                        return;
+                    }
+                    _liveSelectWaitStarted=0;
+                    bool popupOpened=false;
+                    if(popupGuid!=0&&_entities.TryGet(popupGuid,out WorldEntity popupUnit))
+                    {
+                        CommitSelection(popupGuid,false);
+                        if(_controller is not null)
+                        {
+                            float towards=MathF.Atan2(popupUnit.Position.Y-_controller.Position.Y,
+                                popupUnit.Position.X-_controller.Position.X);
+                            _controller.Yaw=towards; _window.Camera.Yaw=towards; _window.Camera.OrbitYaw=0;
+                        }
+                        if(UnitFrameMenuWhich(popupUnit) is { } popupWhich)
+                        {
+                            OpenUnitPopup(popupGuid,popupWhich,
+                                new Vector2(370,94)*GameplayUiScale(),InspectBinding.Target);
+                            popupOpened=_unitPopupGuid==popupGuid;
+                        }
+                    }
+                    Log(popupOpened,$"{line} guid=0x{popupGuid:X16} which={_unitPopupWhich}");
+                    break;
                 case "anchor":
                     RefreshLiveSpawnIdentities();
                     bool selectedAnchor=p[1].Equals("selected",StringComparison.OrdinalIgnoreCase);
@@ -1170,6 +1213,16 @@ public sealed partial class GameLoop
         if(ordinal>0&&ordinal<=observed.Length) return observed[ordinal-1];
         return ordinal>0&&ordinal<=_liveSpawnGuids.Count?_liveSpawnGuids[ordinal-1]:0;
     }
+    private ulong LiveNearestRemotePlayerGuid()
+    {
+        if (_controller is null) return 0;
+        ulong self = _net?.PlayerGuid ?? 0;
+        return _entities.Units
+            .Where(x => x.IsPlayer && x.Guid != self)
+            .OrderBy(x => Vector3.Distance(x.Position, _controller.Position)).ThenBy(x => x.Guid)
+            .FirstOrDefault()?.Guid ?? 0;
+    }
+
     private ulong LiveWildGuid(int ordinal)
     {
         if(_controller is null||ordinal<=0) return 0;

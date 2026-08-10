@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/stacksplit",
+  "title": "stacksplit",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/StackSplit.xml",
+      "fileSha256": "1f71cc96210d204a7cf1907b29be6ebecafdd0a214ef31515ec305b5aec60454",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/Engine/UI/GameMenuUiLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI has a working stack-split flow (shift-click a bag stack opens it; pick a count; Split places the count on the cursor; Cancel/Escape closes; GameMenuUiLaw models its escape layer). But it is a plain ImGui window with a SliderInt, anchored at the mouse, not the vanilla 172x96 UI-MoneyFrame parchment spinner.",
+  "openItems": [
+    {
+      "id": "item-triage-e659200a",
+      "kind": "gap",
+      "text": "Vanilla StackSplitFrame visuals absent: UI-MoneyFrame parchment plate, Arrow-Left/Right spinner buttons with disabled states, OKAY/CANCEL UI-Panel-Button faces (MSUI draws an ImGui slider window instead)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3a8ee23c",
+      "kind": "gap",
+      "text": "Frame is anchored at the mouse cursor, not to the owning slot (ref anchors BOTTOMRIGHT of the owner button)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b1905730",
+      "kind": "gap",
+      "text": "Split maximum is stackCount-1 (ref allows splitting up to the full stack count)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

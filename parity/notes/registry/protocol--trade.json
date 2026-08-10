@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--trade",
+  "notes": [
+    {
+      "id": "note-e2c154125d08",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the trade arc: initiate/begin/busy/ignore/accept/unaccept/cancel plus set/clear item and set gold, SMSG_TRADE_STATUS with its 0..22 code vocabulary and per-code tails, and the 444-byte SMSG_TRADE_STATUS_EXTENDED per-side snapshot. MSUI implements the core verbs and both parses (slot-indexed 61-byte records, 7 slots, signed-charge skip), but drops the decline verbs and most of the status vocabulary.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

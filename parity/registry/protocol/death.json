@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/death",
+  "title": "death",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/death.rs",
+      "fileSha256": "9d8f1f6d30bd6f0da4443e873a9a0599f752d405b35cc97c6b1f8bab53aac265",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/death.rs",
+      "fileSha256": "714c4d694a6bdcf6317036690e1644ff59381f38485781e1c7004c424c7a33e1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the death arc: corpse query, reclaim delay, resurrect request/response, spirit healer confirm/activate, reclaim corpse. MSUI implements CMSG_REPOP_REQUEST, CMSG_RECLAIM_CORPSE, CMSG_SPIRIT_HEALER_ACTIVATE, CMSG_RESURRECT_RESPONSE (guid+accept byte) and handles SMSG_RESURRECT_REQUEST and SMSG_CORPSE_RECLAIM_DELAY.",
+  "openItems": [
+    {
+      "id": "item-triage-5aabdcfc",
+      "kind": "gap",
+      "text": "MSG_CORPSE_QUERY: absent entirely (no empty-body request, no found/not-found response parse) - no corpse marker, and the unprompted bones-conversion not-found push is dropped",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-45aede61",
+      "kind": "gap",
+      "text": "SMSG_SPIRIT_HEALER_CONFIRM: absent (no handler for the gossip-driven spirit-healer confirm guid)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

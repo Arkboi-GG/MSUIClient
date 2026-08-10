@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/names",
+  "title": "names",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/world/writer/names.rs",
+      "fileSha256": "2d6f33faa021b7f781286a3843b7039dd9ae0000cb6f5899b1b03db43f4f9a8d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/CreatureQuery.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's names writer has three ask-once queries: CMSG_NAME_QUERY (full guid), CMSG_CREATURE_QUERY (entry+guid), CMSG_PET_NAME_QUERY (pet number+guid). MSUI implements the first two with their SMSG responses handled; the pet-name pair is absent.",
+  "openItems": [
+    {
+      "id": "item-triage-37fdc1b7",
+      "kind": "gap",
+      "text": "CMSG_PET_NAME_QUERY (u32 petNumber + u64 guid) has no sender - a pet's guid embeds a pet number, not a template entry, so CreatureQuery cannot name one",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-1efed146",
+      "kind": "gap",
+      "text": "SMSG_PET_NAME_QUERY_RESPONSE not parsed (pets/other players' pets stay nameless)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

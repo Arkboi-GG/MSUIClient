@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/mailframe",
+  "title": "mailframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/MailFrame.xml",
+      "fileSha256": "044d6b5dfda2a33925a6d6f55246c115681389da36fa56308e297bd892874599",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_mail/mod.rs",
+      "fileSha256": "331292b4e1134e1396f195a2275a06153e4f245eaf821d2a36697f0c67ae12fb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_mail/pending.rs",
+      "fileSha256": "7c5d67a9ed8e37e8534a06c150ec7e7c22a6303f17e07ef041c0728a39cac022",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.GameObjects.cs",
+    "MSUIClient/Program.Mail.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/UI/MailUiLaw.cs",
+    "tools/mail-clinical-check/mail-clinical-check.csproj",
+    "tools/mail-clinical-check/Program.cs",
+    "tools/mail-clinical-check/NuGet.Config",
+    "MSUIClient/Formats/StationeryCatalog.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "The encoded lifecycle/inbox contracts and strong draw records now pass bounded deterministic checks. The packet stays implemented/unverified because no refreshed connected-client pixel, input, protocol, dynamic-state or audio capture exists.",
+  "openItems": [
+    {
+      "id": "item-claim-mail-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now matches the mailbox lifecycle: local immediate open, one throttled list request, backpack ownership, exact sound transitions, range/close behavior, send-result reset, purse updates, and world-entry pending-mail query.",
+      "source": "claim-mail-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-inbox-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now decodes every sender branch correctly, filters expired mail, pages exactly seven rows, resolves sender/item data, distinguishes read state, and exposes COD, expiry and tooltips before opening the selected row.",
+      "source": "claim-mail-inbox-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-open-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now implements mark-read, ask-once item-text body retrieval, reply eligibility, return versus delete, item/money take, COD confirmation, and permanent-letter creation with the exact build-5875 packet shapes.",
+      "source": "claim-mail-open-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-compose-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now enforces recipient/subject/body, 30-copper postage, purse, 10000-gold COD, attachment and mutually exclusive money/COD gates; it confirms enclosed money, blocks duplicate sends, and resets only on success.",
+      "source": "claim-mail-compose-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-inbox-composition-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI renders the complete 384x512 inbox shell and seven-row template using the reference art, anchors, read/COD/count/expiry treatments and page controls.",
+      "source": "claim-mail-inbox-composition-001",
+      "added": "2026-08-09",
+      "resolved": true
+    },
+    {
+      "id": "item-claim-mail-compose-composition-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI renders the reference compose stationery, recipient/subject/body inputs, divider and exact UV-cropped inert scrollbar pieces without claiming source-omitted live scrolling or autocomplete.",
+      "source": "claim-mail-compose-composition-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-compose-controls-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI renders and wires the cropped attachment slot, money inputs/icons, money/COD radio pair, purse, postage, send/cancel/close controls and tab lifecycle.",
+      "source": "claim-mail-compose-controls-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-mail-open-composition-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI renders the second 384x512 reader adjacent to the inbox with stationery, body, sender, subject, divider, exact cropped scrollbar, attachment slots and state-correct bottom actions.",
+      "source": "claim-mail-open-composition-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-mail-lifecycle-001",
+    "claim-mail-inbox-runtime-001",
+    "claim-mail-open-runtime-001",
+    "claim-mail-compose-runtime-001",
+    "claim-mail-inbox-composition-001",
+    "claim-mail-compose-composition-001",
+    "claim-mail-compose-controls-001",
+    "claim-mail-open-composition-001"
+  ],
+  "traces": [
+    "trace-mail-lifecycle-001",
+    "trace-mail-inbox-runtime-001",
+    "trace-mail-open-runtime-001",
+    "trace-mail-compose-runtime-001",
+    "trace-mail-inbox-composition-001",
+    "trace-mail-compose-composition-001",
+    "trace-mail-compose-controls-001",
+    "trace-mail-open-composition-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:09:11.668164+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

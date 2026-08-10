@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/unitpopup",
+  "title": "unitpopup",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/UnitPopup.xml",
+      "fileSha256": "a91d63461599e04ad76f95014d90742b7181082c72936673812e30e4ee4c8591",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.UnitPopup.cs",
+    "MSUIClient/Engine/UI/UnitPopupUiLaw.cs",
+    "MSUIClient/Engine/UI/InspectUiLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI now carries the 1.12 menu-table model (UnitPopupUiLaw): SELF/PARTY/PLAYER menus with Whisper (chat prefill), Invite/Uninvite/Promote-to-leader/Leave-party (CMSG_GROUP_* senders), Inspect and Trade (both interact-distance grayed), the cancel-only-menu refusal, and UnitPopup_HideButtons cooperate/leader gating. Opened from player-frame/target-frame authored HitRectInsets (new hit windows; frames were NoInputs before), party frames, and world right-clicks. Still deferred, hidden per the reference deferral pattern: Follow (no follow system), Duel (no duel protocol family), loot-method/threshold submenus, raid target icons, RAID menu. Live-verified 2026-08-09 against a partybot (dumps/gameplay-bot-gear-clear.png).",
+  "openItems": [
+    {
+      "id": "item-triage-e18f3de0",
+      "kind": "gap",
+      "text": "SELF menu now opens with Leave party, but the loot method/threshold submenus and loot-promote rows are still deferred (no CMSG_LOOT_METHOD sender)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8e6e06b5",
+      "kind": "gap",
+      "text": "No party-management rows: Invite, Uninvite, Promote, Leave",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-09: UnitPopupUiLaw menus + CMSG_GROUP_INVITE/UNINVITE_GUID/SET_LEADER/DISBAND wired through OpenUnitPopup; leader-gated per UnitPopup_HideButtons."
+    },
+    {
+      "id": "item-triage-ce8781f1",
+      "kind": "gap",
+      "text": "No Whisper row",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-09: Whisper row opens the chat edit prefilled '/w Name ' (ChatFrame_SendTell equivalent), caret parked at end."
+    },
+    {
+      "id": "item-triage-51206f9d",
+      "kind": "gap",
+      "text": "No Duel row (CMSG_DUEL semantics)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f6f78058",
+      "kind": "gap",
+      "text": "Follow row was a dead stub; now hidden outright (reference deferral pattern) until a follow movement mode exists — see systems/ui_follow",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-c45b9938",
+      "kind": "gap",
+      "text": "Trade row is not distance-gated (ref grays it beyond 11.11yd; only Inspect is gated in MSUI)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": true,
+      "resolution": "2026-08-09: Trade grayed beyond 11.1111yd (UnitPopupUiLaw.TradeDistanceSq, check_interact_dist2 dist 2)."
+    },
+    {
+      "id": "item-triage-f439ce25",
+      "kind": "gap",
+      "text": "No auto-timeout/hover-away close; the card look is bespoke buttons rather than the vanilla menu rows",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

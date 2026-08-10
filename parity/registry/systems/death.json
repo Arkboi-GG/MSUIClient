@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/death",
+  "title": "death",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/death.rs",
+      "fileSha256": "90a7fffea36c2f00b7be10a02acf00f6c5635b3b052dc23e26cb90f5314d171a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.DeathRez.cs",
+    "MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI covers the main death arc: the dead/alive edge derived from the self entity, Release Spirit (CMSG_REPOP_REQUEST gated on being dead), SMSG_CORPSE_RECLAIM_DELAY armed at arrival and gating reclaim, CMSG_RECLAIM_CORPSE with the streamed corpse object's guid, SMSG_RESURRECT_REQUEST -> accept/decline via CMSG_RESURRECT_RESPONSE, CMSG_SPIRIT_HEALER_ACTIVATE, and durability-loss observation. 8/13 tracked opcodes hit; the two missing ones are player-visible.",
+  "openItems": [
+    {
+      "id": "item-triage-38a85833",
+      "kind": "gap",
+      "text": "MSG_CORPSE_QUERY is never sent/consumed: the corpse location is known only once the corpse OBJECT streams into range, so there is no corpse position for the run back (no map/minimap corpse marker, no dungeon-entrance stand-in for a corpse inside an instance).",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-0baae607",
+      "kind": "gap",
+      "text": "SMSG_SPIRIT_HEALER_CONFIRM unhandled: no XP-loss/durability confirm two-step before spirit-healer resurrection - activation is sent directly without the reference's CONFIRM_XP_LOSS popup.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

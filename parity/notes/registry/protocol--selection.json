@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--selection",
+  "notes": [
+    {
+      "id": "note-25eae120b5e7",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla's two selection sends: CMSG_SET_SELECTION (full 8-byte guid, 0 clears) and CMSG_INSPECT (full guid; reply unparsed). MSUI implements both as SendFullGuid one-liners (WorldSession.SetSelection/Inspect), wired to targeting (Program.Targeting.cs) and the inspect window (Program.Inspect.cs); MSUI additionally parses SMSG_INSPECT, which Benilla deliberately ignores.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

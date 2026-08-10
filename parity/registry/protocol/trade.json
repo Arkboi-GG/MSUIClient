@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/trade",
+  "title": "trade",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/trade.rs",
+      "fileSha256": "ecfbfaae14a5a7bd4c2c822d6f35636c2583515b0335f8fc37b0544df5fa3aa7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/trade.rs",
+      "fileSha256": "e418e1246233c677c90ad0e5a393b564344bfa98013d76d9940e669015debe9c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Trade.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the trade arc: initiate/begin/busy/ignore/accept/unaccept/cancel plus set/clear item and set gold, SMSG_TRADE_STATUS with its 0..22 code vocabulary and per-code tails, and the 444-byte SMSG_TRADE_STATUS_EXTENDED per-side snapshot. MSUI implements the core verbs and both parses (slot-indexed 61-byte records, 7 slots, signed-charge skip), but drops the decline verbs and most of the status vocabulary.",
+  "openItems": [
+    {
+      "id": "item-triage-b4e923b7",
+      "kind": "gap",
+      "text": "CMSG_BUSY_TRADE and CMSG_IGNORE_TRADE are never sent - there is no decline path for an incoming trade request (Benilla's busy/ignore pair)",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-17ef34ae",
+      "kind": "gap",
+      "text": "SMSG_TRADE_STATUS error codes are silently ignored: only 1/2/3/4/7/8/9/12/13 change state; Busy(0/5), NoTarget(6), TargetTooFar(10), WrongFaction(11), IgnoreYou(14), stunned/dead/logout (15-20), TrialAccount(21) and OnlyConjured(22, with its slot-byte tail) produce no user feedback",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6464edcb",
+      "kind": "gap",
+      "text": "CloseWindow(12) result/itemLimitCategory tail and the ONLY_CONJURED slot byte are not read (harmless per-packet, but the codes' payloads are unused)",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-9a766f0e",
+      "kind": "gap",
+      "text": "TRADE_STATUS_EXTENDED's enchant_spell_id header field is read and discarded - the enchant-through-trade (non-traded 7th slot spell) display is unimplemented",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/items",
+  "title": "items",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/items.rs",
+      "fileSha256": "8bd6de8f48238accdc8eb03c9e7e17a008deb72f70f41961ede7b96150b87290",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/Items.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Formats/EnchantCatalog.cs"
+  ],
+  "status": "partial",
+  "summary": "The template half is a faithful twin: ItemTemplateCache is ask-once per entry with in-flight dedupe and cached negatives (high-bit miss), and the full 5875 SMSG_ITEM_QUERY_SINGLE_RESPONSE body is decoded including stats, damages, spells, material and sheath; displayId->icon resolves without waiting on the round trip. Item instances stream through the shared entity store and are read back via the player/container descriptor slots (Program.Inventory's ResolveInventoryItem). The enchant-facing and right-click-open halves of Benilla's module have no counterpart.",
+  "openItems": [
+    {
+      "id": "item-triage-37188518",
+      "kind": "gap",
+      "text": "SMSG_ITEM_ENCHANT_TIME_UPDATE is not handled (no opcode case anywhere): temporary-enchant countdown deadlines are never tracked, so no tooltip timer can exist",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-44100719",
+      "kind": "gap",
+      "text": "Item tooltips print no enchant lines: SpellItemEnchantment names (abs(id) row, sign->color, Flags&0x2 hide gate, charges/countdown) never reach any tooltip surface - EnchantCatalog is only consumed by the enchant-confirm gate",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-aeea934f",
+      "kind": "gap",
+      "text": "Right-click open/unwrap is absent: no CMSG_OPEN_ITEM path and no LOOTABLE/lock-gate/WRAPPER predicates, so clams, lockboxes and wrapped gifts cannot be opened from the bags (ItemTemplate.Parse even discards the lock id field)",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

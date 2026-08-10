@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/uipanels",
+  "title": "uipanels",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/UiPanels.xml",
+      "fileSha256": "e7d7770d4c6a662f89302a9f59e879f0a0c0794982725ed29f1478ca31be401b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Program.VanillaUi.cs",
+    "MSUIClient/Engine/UI/UiPanelHostTransition.cs",
+    "MSUIClient/Program.UiPanelOwnership.cs",
+    "MSUIClient/Program.CharacterPage.cs",
+    "MSUIClient/Program.Spellbook.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Engine/UI/StaticPopupCoordinatorLaw.cs",
+    "MSUIClient/Engine/UI/UiFrameFadeLaw.cs",
+    "MSUIClient/Engine/UI/PanelTabLaw.cs",
+    "tools/interface-wire-check/UiFoundationClinicalChecks.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/before/frozen-target.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/reference/uipanels-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/decision/atomic-disposition.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/after/msui-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/verification/deterministic-2026-08-08.md",
+    "parity/packets/pair-de1462d2f83d2f33/uipanels-part-01-packet-def2f87d85e3064d/evidence/live/live-visual-gate.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI has the bounded host-confirmed Character/SpellBook transition, pure popup/fade/tab laws, and Party/Character/inset presentation repairs while preserving surface ownership and named differences. Twenty-two facts remain explicit implementation gaps; 124 implemented facts remain nonterminal, targetless where intentionally post-snapshot, and unverified live.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-invite-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned runtime and deterministic checks implement the bounded invite popup, exact ordered effects, wire-body law, timeout, same-type override, direct-hide, and drag-off behavior.",
+      "source": "claim-partyframe-invite-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-left-host-authority-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now routes normal CharacterFrame and SpellBookFrame opens through a host-confirmed ordinary zero-push left-seat replacement wedge with read-only preflights and post-callback census confirmation.",
+      "source": "claim-uipanels-left-host-authority-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-center-fullscreen-authority-gap-001",
+      "kind": "gap",
+      "text": "The frozen center/fullscreen seat setters, getters, and left-center movement semantics remain outside the bounded Character/SpellBook host adapter.",
+      "source": "claim-uipanels-center-fullscreen-authority-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-close-windows-gap-001",
+      "kind": "gap",
+      "text": "MSUI retains surface-owned Escape and close paths, but there is no authoritative frozen global CloseWindows/CloseAllWindows coordinator with the full center-ignore and ordered closure contract.",
+      "source": "claim-uipanels-close-windows-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-bag-lifecycle-crosspin-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The frozen UiPanels bag entry points are represented by the existing inventory-owned backpack/all-bag lifecycle and are owned canonically by the BagFrame packet.",
+      "source": "claim-uipanels-bag-lifecycle-crosspin-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-game-menu-crosspin-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The existing GameMenu-owned open/micro-toggle/close path represents the frozen ToggleGameMenu entry point and retains its surface-owned sound and commit behavior.",
+      "source": "claim-uipanels-game-menu-crosspin-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-delete-item-confirm-gap-001",
+      "kind": "gap",
+      "text": "The frozen world-item delete confirmation driver and its event-bound hidden frame are not integrated with MSUI's world inventory runtime.",
+      "source": "claim-uipanels-delete-item-confirm-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-tab-state-resize-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. PanelTabLaw and active VanillaUi consumers preserve selected/disabled/hover state, the frozen max-width quirk, exact cap-preserving resize, parent-room clamp, and asynchronous settle decisions.",
+      "source": "claim-uipanels-tab-state-resize-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-character-tab-template-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. VanillaTab renders the active/inactive PaperDoll three-slice art with fixed caps, exact UV ranges, selected rise, centered font routing, and hover highlight.",
+      "source": "claim-uipanels-character-tab-template-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-inset-tab-template-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. VanillaInsetTab renders HelpFrame active/inactive three-slice art, fixed caps, bottom anchoring, button text, highlight, and state behavior.",
+      "source": "claim-uipanels-inset-tab-template-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-party-popup-presentation-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The Party-only popup renderer uses the frozen dialog backdrop/border, 290-wide GameFontHighlight text, 128x20 Accept/Decline buttons, exact button UVs, TOP -128 placement, and lifecycle handler ordering.",
+      "source": "claim-uipanels-party-popup-presentation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-uipanels-popup-editbox-gap-001",
+      "kind": "gap",
+      "text": "The frozen edit-box Enter callback, edit-box frame, input-border slices, anchors, focus, and production key handling remain absent from the Party-only popup renderer.",
+      "source": "claim-uipanels-popup-editbox-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-invite-contract-001",
+    "claim-uipanels-file-boundary-001",
+    "claim-uipanels-left-host-authority-001",
+    "claim-uipanels-center-fullscreen-authority-gap-001",
+    "claim-uipanels-close-windows-gap-001",
+    "claim-uipanels-bag-lifecycle-crosspin-001",
+    "claim-uipanels-game-menu-crosspin-001",
+    "claim-uipanels-desaturation-support-001",
+    "claim-uipanels-staticpopup-query-editbox-support-001",
+    "claim-uipanels-delete-item-confirm-gap-001",
+    "claim-uipanels-fade-law-001",
+    "claim-uipanels-tab-state-resize-001",
+    "claim-uipanels-character-tab-template-001",
+    "claim-uipanels-inset-tab-template-001",
+    "claim-uipanels-party-popup-presentation-001",
+    "claim-uipanels-popup-editbox-gap-001",
+    "claim-uipanels-comment-token-notruntime-001"
+  ],
+  "traces": [
+    "trace-partyframe-invite-contract-001",
+    "trace-uipanels-file-boundary-001",
+    "trace-uipanels-left-host-authority-001",
+    "trace-uipanels-center-fullscreen-authority-gap-001",
+    "trace-uipanels-close-windows-gap-001",
+    "trace-uipanels-bag-lifecycle-crosspin-001",
+    "trace-uipanels-game-menu-crosspin-001",
+    "trace-uipanels-desaturation-support-001",
+    "trace-uipanels-staticpopup-query-editbox-support-001",
+    "trace-uipanels-delete-item-confirm-gap-001",
+    "trace-uipanels-fade-law-001",
+    "trace-uipanels-tab-state-resize-001",
+    "trace-uipanels-character-tab-template-001",
+    "trace-uipanels-inset-tab-template-001",
+    "trace-uipanels-party-popup-presentation-001",
+    "trace-uipanels-popup-editbox-gap-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T13:48:39.4039745+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

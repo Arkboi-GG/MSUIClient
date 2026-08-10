@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/area",
+  "title": "area",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/area.rs",
+      "fileSha256": "72d1a5f08bc5a6826b3ac2e61fd1a07a083e045eaf9bdf2951eda566cf014b8c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Minimap.cs",
+    "MSUIClient/Formats/AreaTable.cs",
+    "MSUIClient/Engine/UI/FontObjectLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla publishes the zone identity (leaf -> single-hop parent zone), the ZONE_CHANGED/ZONE_CHANGED_NEW_AREA/ZONE_CHANGED_INDOORS election with the WMO-interior naming override (inn splash), the minimap subzone-else-zone line, and GetZonePVPInfo (friendly/hostile/contested + arena flag). MSUI loads AreaTable.dbc, resolves the terrain-chunk areaId per frame, draws the minimap zone-text line (subzone-else-zone) and sends CMSG_ZONEUPDATE on zone change - but the rest of the family is absent.",
+  "openItems": [
+    {
+      "id": "item-triage-f4bec5bf",
+      "kind": "gap",
+      "text": "No zone-change splash: entering a new zone/subzone never shows the big center-screen ZoneTextFont/SubZoneTextFont text (both fonts are declared in FontObjectLaw.cs but nothing renders a splash).",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-ce5115b9",
+      "kind": "gap",
+      "text": "No WMO-interior naming: indoors the area stays the terrain chunk's - a named interior (Lion's Pride Inn whole-WMO override, per-room subzones like Main Hall, the indoor/outdoor dedup) never replaces the zone/subzone texts.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6edf1a56",
+      "kind": "gap",
+      "text": "No zone PvP info: friendly/hostile/contested ownership from the zone's FactionGroupMask vs the player's faction template (and the FFA-arena leaf flag) is not computed or displayed anywhere.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/quest_markers",
+  "title": "quest_markers",
+  "area": "systems",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/quest_markers/mod.rs",
+      "fileSha256": "acbb7be3eeebdb83957a370cba122b466e7d904ef77324ebdff29aceea52024b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/quest_markers/query.rs",
+      "fileSha256": "c0d058e3d1379a7726913ac993219a37f7738f2b841325e89fdbb5e7ca4850c4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Quest.cs",
+    "MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "The wire plane exists: CMSG_QUESTGIVER_STATUS_QUERY is sendable (QuestgiverStatus, range-gated through QuestGate), SMSG_QUESTGIVER_STATUS is parsed into a per-giver status map, and a status re-ask fires when a quest panel closes. But the module's actual player-visible product - the floating TalkToMe `!`/`?` markers over NPC heads - does not exist, and statuses are only ever asked for NPCs the player already interacted with.",
+  "openItems": [
+    {
+      "id": "item-triage-6462573e",
+      "kind": "gap",
+      "text": "No overhead markers are rendered at all: the status->model dispatch (grey/gold !/?, light-blue ?, attachment-18 seat, 1/L counter-scale, low/raised bob anims) has no counterpart - questgivers show nothing above their heads",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-edfff5fb",
+      "kind": "gap",
+      "text": "No proactive status querying: visible UNIT_NPC_FLAG_QUESTGIVER creatures are never swept on create, and none of the re-ask law (self descriptor watch / packet-epoch sweep, per-unit flag/reaction re-ask, teardown when the questgiver bit drops) exists - status is only fetched on direct interaction or dev command",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2ab9227e",
+      "kind": "gap",
+      "text": "No flight-master green marker (TalkToMeGreen) either",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/group",
+  "title": "group",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/group.rs",
+      "fileSha256": "6f2f3de628995a9701dd95832a8e5a620083dfc31ca6b869948b711913abae42",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/group.rs",
+      "fileSha256": "14eae6ce1e5d301ac785307e4e36ac205073d8904fa0e05d034fd502b129fae4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Engine/UI/GroupUiLaw.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "tools/interface-wire-check/GroupProtocolClinicalChecks.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/before/msui-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/reference/benilla-requirement.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/decision/clinical-decision.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/after/msui-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-237cf77997c38a7a/evidence/live/live-gate.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/before/msui-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/reference/benilla-requirement.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/decision/clinical-decision.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/after/msui-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/group-part-01-packet-62a4001bbc1ec5ca/evidence/live/live-gate.md"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now has strict typed readers, exact body builders, complete group state routes and focused deterministic coverage. Deterministic checks pass; genuine socket traffic, server acceptance and multi-account state remain unverified.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-invite-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned runtime and deterministic checks implement the bounded invite popup, exact ordered effects, wire-body law, timeout, same-type override, direct-hide, and drag-off behavior.",
+      "source": "claim-partyframe-invite-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-partyframe-member-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic checks implement merged member state, FULL and delta law, exact status, icon, pulse, input, SetUnit behavior, circular containment, and observational telemetry.",
+      "source": "claim-partyframe-member-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-partyframe-instances-driver-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic parser, topology, and session checks implement full-roster retention, exact compact-slot derivation, four instances, atomic packets, leave reset, and world or session boundaries.",
+      "source": "claim-partyframe-instances-driver-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-state-composer-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned handlers retain complete group metadata, full stats snapshots, and raid-target state, compose exact ordered system lines from packet notices and ungated roster diffs, and reset only at frozen leave/session boundaries.",
+      "source": "claim-group-state-composer-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-protocol-wire-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Strict readers and byte-exact send builders cover the frozen build-5875 group opcode family; reachable state routes are applied, while frozen parsed-but-unused minimap-ping and ready-check notifications are intentionally ignored after validation.",
+      "source": "claim-group-protocol-wire-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-invite-contract-001",
+    "claim-partyframe-member-runtime-001",
+    "claim-partyframe-instances-driver-001",
+    "claim-group-state-composer-001",
+    "claim-group-protocol-wire-001"
+  ],
+  "traces": [
+    "trace-partyframe-invite-contract-001",
+    "trace-partyframe-member-runtime-001",
+    "trace-partyframe-instances-driver-001",
+    "trace-group-session-boundary-001",
+    "trace-group-roster-state-lines-001",
+    "trace-group-notification-lines-001",
+    "trace-party-member-stats-full-wire-001",
+    "trace-raid-target-board-wire-001",
+    "trace-group-reachable-intents-001",
+    "trace-group-wire-builders-001",
+    "trace-group-internal-wire-support-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T07:38:32.7616449+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

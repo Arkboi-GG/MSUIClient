@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--macroframe",
+  "notes": [
+    {
+      "id": "note-8c5944e1054c",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI has a macro window (Program.Macro.cs): 384x512 shell with MacroFrame-BotLeft/BotRight + MacroFrame-Icon art, an 18-slot icon grid with selection ring, name and multi-line body editors, New/Delete/Run/Exit buttons, drag-from-grid to the action bar, double-click-to-run, and persistence to macros.json. Macro icons are auto-derived from the body (#cast/#use spell/item lookup) rather than picked.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-79f7c4f9988a",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Auto-deriving the icon from the macro body instead of a picker popup is a deliberate MSUI simplification of the same function - candidate for a ruling on whether the picker is required.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/events",
+  "title": "events",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/events.rs",
+      "fileSha256": "61d11130966b9081669d445d501dfb8fe2c6dede415d0baf39e1e782629e764f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/events/decode.rs",
+      "fileSha256": "0080d90d5519b58467b802312304e986d695da2cdefe71b16b39c577e9c7a220",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/CombatPackets.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's events.rs/decode.rs is the full typed decode dispatch over ~205 opcodes. MSUI's counterpart is the Program.Net.cs dispatch switch plus per-feature parsers, which covers the large majority (update-object, movement, combat, loot, quest, mail, trade, vendor, trainer, party/raid, world states, cooldown snapshot). Missing families are concentrated in polish/feedback packets.",
+  "openItems": [
+    {
+      "id": "item-triage-7a528aea",
+      "kind": "gap",
+      "text": "Cooldown follow-ups: SMSG_COOLDOWN_EVENT, SMSG_CLEAR_COOLDOWN, SMSG_ITEM_COOLDOWN, SMSG_COOLDOWN_CHEAT (only SMSG_SPELL_COOLDOWN is handled)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e7d1d455",
+      "kind": "gap",
+      "text": "Group loot rolls: SMSG_LOOT_START_ROLL, SMSG_LOOT_ROLL, SMSG_LOOT_ROLL_WON, SMSG_LOOT_ALL_PASSED",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b28c3434",
+      "kind": "gap",
+      "text": "Mirror timers: SMSG_START/PAUSE/STOP_MIRROR_TIMER (breath/fatigue)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-62fc5542",
+      "kind": "gap",
+      "text": "SMSG_WEATHER; SMSG_PLAY_SOUND / SMSG_PLAY_MUSIC / SMSG_PLAY_OBJECT_SOUND",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-ff1013ad",
+      "kind": "gap",
+      "text": "SMSG_SET_PROFICIENCY; SMSG_EXPLORATION_EXPERIENCE; SMSG_LEVELUP_INFO is handled but SMSG_SPELL_UPDATE_CHAIN_TARGETS is not",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a03a0f47",
+      "kind": "gap",
+      "text": "Mount feedback: SMSG_MOUNTRESULT, SMSG_DISMOUNTRESULT, SMSG_MOUNTSPECIAL_ANIM",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-59ab9020",
+      "kind": "gap",
+      "text": "Taxi extras: SMSG_NEW_TAXI_PATH, CMSG_ACTIVATETAXIEXPRESS (base taxi node/activate flow IS implemented)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-9e9a4ffc",
+      "kind": "gap",
+      "text": "SMSG_SPLINE_SET_* speed family and the SMSG/CMSG_FORCE_* speed-change/ack family (root/unroot is the only handled force pair)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-065c6c92",
+      "kind": "gap",
+      "text": "SMSG_INVENTORY_CHANGE_FAILURE; SMSG_ITEM_ENCHANT_TIME_UPDATE; SMSG_PET_NAME_QUERY_RESPONSE",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-967fe119",
+      "kind": "gap",
+      "text": "Whole missing subsystems already reported per-entry: channel, duel, corpse query, area-trigger message, played time, random roll, chat player-not-found/wrong-faction, spirit-healer confirm, durability-damage-death",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

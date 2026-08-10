@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--interact",
+  "notes": [
+    {
+      "id": "note-f16d21f567c5",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): The player-facing core of Benilla's 'what am I pointing at' foundation exists in MSUI's own shape: per-frame hover pick (PickUnit - vplate rects first, then ray vs unit cylinders with world-collision occlusion test), clean world click/right-click routing (left selects/clears, right routes by classification: lootable corpse -> loot, gossip NPC -> gossip, player -> popup, hostile -> attack), and ground picking for AoE targeting (collision raycast + terrain-heightfield bisect). Benilla's inspector overlay and cast journal are dev instruments; MSUI achieves that role through its own Program.DevTools.* partials and EmitInterface evidence stream.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-fa03660698db",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: MSUI picks against conservative vertical cylinders rather than actual mesh triangles; behaviorally close for units but silhouette-edge picks will differ slightly from the reference's mesh-accurate cast. Inspector/cast-journal halves are dev scaffolding (support achieved differently).",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

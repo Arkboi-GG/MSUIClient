@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--nameplates",
+  "notes": [
+    {
+      "id": "note-a935e63425fc",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): MSUI draws overhead unit names with the core of Benilla's law, and cites it: the height-scale formula (d>4 ? d/4*1.5*0.2 : 0.2) projected as a true world pitch so distance shrinks names, reaction coloring shared with the selection-ring palette, the show gates (own name on, dead creatures only via the target rescue, players/NPCs on), plus the separate enemy V-plate layer whose last-frame rects feed the shared hover/selection pick. Several byte-verified aspects of the reference presentation are missing.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    }
+  ]
+}

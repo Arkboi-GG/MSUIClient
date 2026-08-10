@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/pose",
+  "title": "pose",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/pose.rs",
+      "fileSha256": "68e3e1101141934dcda28bae74e4a188bce7ad3b592bdfb0d71dab5389c9f83c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/pose.rs",
+      "fileSha256": "43282572692274bad34eab9ac4a40611ce34d22ec97e9d825c6e844103de379b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's pose writer has the three client-volunteered body-state sends: CMSG_SETSHEATHED (u32 state), CMSG_STANDSTATECHANGE (u32 state, values 0/1/3/8), CMSG_MOUNTSPECIAL_ANIM (empty). MSUI sends only the sheath state; the other two have no sender.",
+  "openItems": [
+    {
+      "id": "item-triage-1fa9ce7d",
+      "kind": "gap",
+      "text": "CMSG_STANDSTATECHANGE never sent - no sit/sleep/kneel; observers read our stand state from UNIT_FIELD_BYTES_1 which never changes",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-1bd9d057",
+      "kind": "gap",
+      "text": "CMSG_MOUNTSPECIAL_ANIM never sent - no mounted space-bar flourish broadcast",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

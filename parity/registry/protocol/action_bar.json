@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/action_bar",
+  "title": "action_bar",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/action_bar.rs",
+      "fileSha256": "5df9838f9aaab868e1cd7602fa2e8d9439352a481be22d8de8bf745c01784976",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/action_bar.rs",
+      "fileSha256": "fa59639ed0ffd325c308847d60c0cb6df7c08096b76f552f8824912e75f910eb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/PlayerActions.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.ActionBars.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla defines the 120-slot SMSG_ACTION_BUTTONS packed-u32 login snapshot (action bits 0-23, kind bits 24-31, zero=empty) and the 5-byte CMSG_SET_ACTION_BUTTON (u8 slot + u32 packed). MSUI implements both: PlayerActions.ApplyButtons parses the snapshot and WorldSession.BuildSetActionButtonBody writes u8+u32, wired to the one-send-per-local-mutation drag model in Program.ActionBars.cs.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

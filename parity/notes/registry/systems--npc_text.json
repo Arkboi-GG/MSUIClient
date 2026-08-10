@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--npc_text",
+  "notes": [
+    {
+      "id": "note-6fc2fb1db23e",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI transcribes the byte-carved $-token grammar into QuestTextMacroLaw.Expand: exactly the B/C/E/G/N/R/T/W set, decimal prefix consumed ahead of every token (and lost with an unaccepted one), case-as-output-switch for $R/$C, the $G/$T gender branch with ==0 first-arm semantics, marker-and-spaces-consumed malformed-branch behavior, and re-emitted $ on failure. The world-state table is live: SMSG_INIT_WORLD_STATES and SMSG_UPDATE_WORLD_STATE are both parsed into _questWorldStates and $nW/$nE read it (negated key for E, %d render). The subject is the self player's name + race/class/gender from descriptors, applied via ExpandQuestText at the gossip/quest/mail feed seams - the same seam set Benilla routes.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-ccd6e91db997",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The registry's opcodesMissing list for this entry (SMSG_INIT_WORLD_STATES, SMSG_UPDATE_WORLD_STATE) is stale - both are handled in Program.Quest.cs (ApplyInitialWorldStates/ApplyWorldState). Benilla's substitute_checked return flag (the chat seam's never-show-a-$ drop/defer rule) has no MSUI counterpart, but that consumer belongs to the chat entry.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

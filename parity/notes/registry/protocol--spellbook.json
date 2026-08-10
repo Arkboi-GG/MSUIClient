@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--spellbook",
+  "notes": [
+    {
+      "id": "note-c3640fb55abe",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines SMSG_INITIAL_SPELLS (book + cooldown list), SMSG_LEARNED_SPELL, SMSG_SUPERCEDED_SPELL, and the five server-side cooldown packets. MSUI implements the book trio field-exactly (PlayerActions.ApplyInitialSpells incl. the cooldown list and the permanent-cooldown spell_cd_ms==1 skip, Learn/Supercede) plus SMSG_SPELL_COOLDOWN with correct self/pet addressing and the cooldown_ms==0 use-Spell.dbc fork, but the other four cooldown packets have no handler.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

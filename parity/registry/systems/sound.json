@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/sound",
+  "title": "sound",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/sound/anim_events.rs",
+      "fileSha256": "1c6427f68fe75e68b320edc422015d0a1939d845aacb5aec765f8651239eebdb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/combat.rs",
+      "fileSha256": "e3224b716bc4e8d17e69bba674a5d2e0cf9155f2784ce714afb26627056acd1e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/creature.rs",
+      "fileSha256": "97228a42b0452e4345473660e4d34c51851dc6a742b233caa80ee6b3246c301e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/emote.rs",
+      "fileSha256": "dcbf7902601d6dbe85254e292561b9a7b5a94866c1519d6b194230fd876cc339",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/footsteps.rs",
+      "fileSha256": "4bb1afa604f961b71f10a4c064d401ca98b51d7ee76f10fbb8d0a6df18a6b85e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/gameobject.rs",
+      "fileSha256": "d139eb5248c69ff64be619ab7454022bc0f5bb8a4af3c26f5b8e02fe3a79efaa",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/glue.rs",
+      "fileSha256": "c473e93d754ad2e3941467a939384574b03a295b7481d32cc43ba1494107f543",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/greeting.rs",
+      "fileSha256": "04073f23757e4009454393f3506055d3ab80a8e7987f65ddc3baf45cc7cb4b0f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/interior.rs",
+      "fileSha256": "d1d7f74981c4d20fdf376f1f4adb8fe00d171487a709810a6128de0390706854",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/kit.rs",
+      "fileSha256": "1154d8b667e66e31dc93bca98c547a48e54ec172923538f56a4ed45ab720ff91",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/liquid_loop.rs",
+      "fileSha256": "1886dccbf910c0ffd543a1636aa314036f606604a41817461ebc0c784cfcc6da",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/math.rs",
+      "fileSha256": "b2ac0a48d95421828a2b483acdc16729a7d69d9d3c6e6f1ebc72484c32b5ec25",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/missile.rs",
+      "fileSha256": "1ff4dc41f614d870427ad4dd4c680daeb42874cf8848960967efba9051bfab0b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/mixer.rs",
+      "fileSha256": "793c07202d3922dd16450395e4ecdc606b366a00b2dda00d6fb4dc0741016c73",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/mod.rs",
+      "fileSha256": "c0c0565b6d57fc7681447f4ec1f8c6f46f4d3431f02bc268c2ac95f786afc365",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/money.rs",
+      "fileSha256": "e7d8a680c04b093f8f0fe7089b09c604f53ddd596c107c3c3a1c86fc86b77a3f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/mount.rs",
+      "fileSha256": "6e136e2e4f22568beb2c51754ea9c2a4216188c09bfca000f40ddc19ebdd0b38",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/reverb.rs",
+      "fileSha256": "bf2d8d80526f3b6c4cf285e7a0d3622c430a28dca6bfc320480566a907768290",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/sheathe.rs",
+      "fileSha256": "88d0024a349387adb212f08ed4f26bc142f0c477f5b14e767d22e7a11db8d32e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/spell.rs",
+      "fileSha256": "ea4d67e6e98b9ca0276715fedde61611a4b07db26c26c4376269f4e326505c8c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/ui.rs",
+      "fileSha256": "d5136623660a9e79b72f7bac25195ec7fd38237a4d0e0a8c9280fc644216adfc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/water.rs",
+      "fileSha256": "d9bf45558dc9d7059a8d13b6973bf070f2d2b7f8b0f8e5b6c1378c22f9e40a1c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/weather.rs",
+      "fileSha256": "901c9baca4a97482c429c1ec6b508d40262ea99ac340e166a74cf5b5c5a64ea0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sound/zone.rs",
+      "fileSha256": "99ec2154f444a6815d780a921199a72a4df244ec7793c7d0d861827eab5e0226",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/World/Spells/SpellSoundSystem.cs",
+    "MSUIClient/Formats/SoundEntriesCatalog.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.Casting.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI has a real SoundEntries.dbc-driven audio path (weighted variant selection with no-immediate-repeat, per-entry volume/distance policy, loops and holds, off-thread MCI playback) covering spell kit sounds, missile audio, and a broad set of UI panel cues routed through PlayUiSound. Everything else in Benilla's sound surface - the ambient world soundscape and all server-driven sound opcodes - is absent.",
+  "openItems": [
+    {
+      "id": "item-triage-0dfa4962",
+      "kind": "gap",
+      "text": "No zone music or zone/interior ambience (Benilla sound/zone.rs, interior.rs): entering a zone plays nothing; no music/ambience category volumes (Sound Options button is disabled with 'There is no sound subsystem yet' - Program.Settings.cs:636), so the reference CVar defaults (music 0.4, ambience 0.6) have no counterpart.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-fddc5856",
+      "kind": "gap",
+      "text": "No footstep audio (sound/footsteps.rs) for self or observed units.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-1b82246b",
+      "kind": "gap",
+      "text": "No weather audio and no SMSG_WEATHER handling at all (sound/weather.rs; opcode absent from Program.Net.cs dispatch).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e3bbeb23",
+      "kind": "gap",
+      "text": "No melee combat impact sounds and no creature vocalizations - aggro/wound/death cries (sound/combat.rs, creature.rs, anim_events.rs).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6ad823bd",
+      "kind": "gap",
+      "text": "No emote sounds and no CMSG/SMSG_TEXT_EMOTE sound path (sound/emote.rs; SMSG_TEXT_EMOTE is declared in Opcodes.cs but never dispatched).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-98ea4353",
+      "kind": "gap",
+      "text": "No money/coin sounds on loot or coinage change (sound/money.rs) and no item-push pickup cue (SMSG_ITEM_PUSH_RESULT is handled for bags/loot but plays nothing).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f04a43c0",
+      "kind": "gap",
+      "text": "No mount/dismount audio (sound/mount.rs) and no sheathe/unsheathe weapon sounds (sound/sheathe.rs - MSUI tracks sheath state on the wire but plays no cue).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-09a45dd5",
+      "kind": "gap",
+      "text": "No water/liquid loops, underwater muffling, or interior reverb (sound/liquid_loop.rs, water.rs, reverb.rs).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a7416798",
+      "kind": "gap",
+      "text": "No GameObject sound emitters (sound/gameobject.rs) and no NPC greeting/farewell voice lines on interaction open/close (sound/greeting.rs).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4218e97b",
+      "kind": "gap",
+      "text": "No glue-screen (login/character-select) music or UI sounds outside the world session (sound/glue.rs).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-7ea9641d",
+      "kind": "gap",
+      "text": "No exploration fanfare - SMSG_EXPLORATION_EXPERIENCE unhandled (sound/zone.rs ExplorationSounds).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-d74d62d6",
+      "kind": "gap",
+      "text": "Server-scripted SMSG_PLAY_SOUND and SMSG_PLAY_MUSIC are not handled - scripted world moments stay silent.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-88c76a39",
+      "kind": "gap",
+      "text": "Backend is Windows-only MCI; other platforms are observable-but-silent by design (Benilla's mixer plays everywhere a device exists). Listener model is a raw position handed per Play call, not the reference listener-at-character pose/orientation law with pan.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

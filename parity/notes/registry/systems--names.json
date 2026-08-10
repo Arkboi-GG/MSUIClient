@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--names",
+  "notes": [
+    {
+      "id": "note-0eb54ba0f18f",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI implements the ask-once name discipline for the two main paths: player names by guid (CMSG_NAME_QUERY, _queriedPlayerNames dedupe set) and creature records by template entry (CMSG_CREATURE_QUERY with the full 5875 response decoded - name, subname, type flags, creature type, rank, civilian, racial leader - and the high-bit negative cached in _creatureQueryRecords). The unanswered-ask set is cleared on zoning so a dropped query is re-askable, matching Benilla's clear_pending.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-ab96e5bf9e52",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Benilla's gated_rank law (a charmed/pet unit reports rank 0 regardless of template) has no visible single-source counterpart; MSUI reads CreatureQueryInfo.Rank directly where consumed - worth checking wherever elite borders/skulls are drawn.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

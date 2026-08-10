@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/cooldowns",
+  "title": "cooldowns",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/cooldowns.rs",
+      "fileSha256": "88af2e7b02889ce5d9b9a20790fbc6dac4de61907c1706de5d64441a98cfac40",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/PlayerActions.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Program.Casting.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.Pet.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI mirrors the main cooldown mechanisms: the GCD starts locally at cast-send from Spell.dbc StartRecoveryCategory/Time, the spell's own recovery + category recovery start when the cast completes, SMSG_SPELL_COOLDOWN is handled as the server override path (including addressed pet lists into the pet store), and the read resolves spell-vs-category with longest-remaining-wins plus the CooldownFrame finish-flash display law. But 5 of 13 tracked opcodes are unhandled and the on-hold record state does not exist.",
+  "openItems": [
+    {
+      "id": "item-triage-d25012d1",
+      "kind": "gap",
+      "text": "SMSG_COOLDOWN_EVENT unhandled and no on_hold state: SPELL_ATTR_COOLDOWN_ON_EVENT spells (Stealth, Feign Death) should park their recovery until the event packet starts it - MSUI starts them at cast time (wrong start) and ignores the packet.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-317eff9e",
+      "kind": "gap",
+      "text": "SMSG_CLEAR_COOLDOWN unhandled: a server-side cooldown clear leaves the client clock running - the button stays visually dark until it expires on its own.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4a40cee0",
+      "kind": "gap",
+      "text": "SMSG_ITEM_COOLDOWN unhandled and records are keyed by spell id only (no cast-item id pair): item-use cooldowns pushed at login/on-use are not reflected.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6799946c",
+      "kind": "gap",
+      "text": "SMSG_COOLDOWN_CHEAT unhandled (GM cooldown-off; minor).",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/parse",
+  "title": "parse",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/parse.rs",
+      "fileSha256": "9b6b18a3ad2c4ff31f54125b0dc43c0b5ef5f906074e99777d94e049708bb37b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/NetworkClient.cs"
+  ],
+  "status": "partial",
+  "summary": "parse.rs is Benilla's opcode->parser dispatch covering 193 server opcodes. MSUI's counterpart is the Program.Net.cs switch (plus NetworkClient.cs pre-world handling); roughly 123 of the 193 have real MSUI handlers, 70 have no reference outside the opcode table. The pre-pass missing list contained several false negatives (SMSG_SPELL_COOLDOWN, SMSG_PARTY_COMMAND_RESULT, SMSG_GROUP_SET_LEADER/DESTROYED/UNINVITE, SMSG_INIT_WORLD_STATES, SMSG_UPDATE_WORLD_STATE, MSG_MINIMAP_PING, MSG_RAID_TARGET_UPDATE, MSG_RAID_READY_CHECK, SMSG_CHANNEL_NOTIFY are all handled).",
+  "openItems": [
+    {
+      "id": "item-triage-cc5cda52",
+      "kind": "gap",
+      "text": "Force/spline/relay speed families unhandled: SMSG_FORCE_*_SPEED_CHANGE (6), SMSG_SPLINE_SET_* (6), MSG_MOVE_SET_*_SPEED relays (6)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-576c1f70",
+      "kind": "gap",
+      "text": "Move modes unhandled: SMSG_MOVE_WATER_WALK/LAND_WALK, FEATHER_FALL/NORMAL_FALL, SET_HOVER/UNSET_HOVER",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e8619e0b",
+      "kind": "gap",
+      "text": "Mirror timers unhandled: SMSG_START/PAUSE/STOP_MIRROR_TIMER",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-86abbea9",
+      "kind": "gap",
+      "text": "Duel family unhandled: SMSG_DUEL_REQUESTED/COUNTDOWN/COMPLETE/WINNER/INBOUNDS/OUTOFBOUNDS",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2369e1ed",
+      "kind": "gap",
+      "text": "Loot rolls unhandled: SMSG_LOOT_START_ROLL/ROLL/ROLL_WON/ALL_PASSED",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-24c68eca",
+      "kind": "gap",
+      "text": "Cooldown extras unhandled: SMSG_CLEAR_COOLDOWN, SMSG_COOLDOWN_EVENT, SMSG_ITEM_COOLDOWN, SMSG_COOLDOWN_CHEAT",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f1f9c5ca",
+      "kind": "gap",
+      "text": "Emotes/AI unhandled: SMSG_EMOTE, SMSG_TEXT_EMOTE, SMSG_AI_REACTION",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-5faaf637",
+      "kind": "gap",
+      "text": "World ambience unhandled: SMSG_WEATHER, SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND, SMSG_COMPRESSED_MOVES",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-383c1c28",
+      "kind": "gap",
+      "text": "Misc unhandled: SMSG_LOGIN_SETTIMESPEED, SMSG_TRANSFER_ABORTED, SMSG_INVENTORY_CHANGE_FAILURE, SMSG_AREA_TRIGGER_MESSAGE, SMSG_EXPLORATION_EXPERIENCE, SMSG_SET_PROFICIENCY, SMSG_ITEM_ENCHANT_TIME_UPDATE, SMSG_DURABILITY_DAMAGE_DEATH, SMSG_MOUNTRESULT/DISMOUNTRESULT/MOUNTSPECIAL_ANIM, SMSG_NEW_TAXI_PATH, SMSG_SPIRIT_HEALER_CONFIRM, SMSG_PET_NAME_QUERY_RESPONSE, SMSG_PLAYED_TIME, SMSG_SPELL_UPDATE_CHAIN_TARGETS, SMSG_CHANNEL_LIST, SMSG_CHAT_PLAYER_NOT_FOUND, SMSG_CHAT_WRONG_FACTION, MSG_RANDOM_ROLL, MSG_CORPSE_QUERY",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--loot",
+  "notes": [
+    {
+      "id": "note-592351499285",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla implements solo looting (CMSG_LOOT/AUTOSTORE_LOOT_ITEM/LOOT_MONEY/LOOT_RELEASE; SMSG_LOOT_RESPONSE both shapes, LOOT_REMOVED, LOOT_CLEAR_MONEY, LOOT_RELEASE_RESPONSE, LOOT_MONEY_NOTIFY, ITEM_PUSH_RESULT) plus the group-roll family. MSUI fully implements the solo family and CMSG_LOOT_METHOD, but has no group-roll support at all.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-8340c738c1e4",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Master loot (CMSG_LOOT_MASTER_GIVE / SMSG_LOOT_MASTER_LIST) is explicitly out of scope in Benilla itself (loot.rs header), so the pre-pass entries for those two are not MSUI gaps.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

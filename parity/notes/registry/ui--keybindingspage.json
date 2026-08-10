@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--keybindingspage",
+  "notes": [
+    {
+      "id": "note-763d4d08590e",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI implements a standalone 1.12-style Key Bindings window (Program.Keybindings.cs): six-piece UI-KeyBindingFrame art, category headers, 17-row scrolling list with vanilla scrollbar, dual key capsules per command, click-to-arm capture, silent key-steal from other commands, Unbind, Reset To Default, Okay/Cancel with snapshot revert, and a Character Specific Key Bindings checkbox. Benilla instead embeds keybindings as an Options-window category (era 1.15 structure, live-commit, collapsible sections, search).",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-21dde78cc5f2",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Structural divergence for Nico's ruling: Benilla (decision 1008) moved keybindings INSIDE the Options window with live-commit; MSUI keeps 1.12's standalone KeyBindingFrame with Okay/Cancel - arguably closer to the 1.12 reference than Benilla is. Not scored as a gap; the concrete capture-law gaps above are.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

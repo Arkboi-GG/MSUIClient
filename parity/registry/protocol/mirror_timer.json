@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/mirror_timer",
+  "title": "mirror_timer",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/mirror_timer.rs",
+      "fileSha256": "6aa01d8d3acb2fbfbdfaf81c1d2895b39d3081fc76cb8d8135f596d8fd2c2fe7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla decodes the three mirror-timer packets (SMSG_START_MIRROR_TIMER u32 type/remaining/duration/i32 scale/u8 paused/u32 spellId; SMSG_PAUSE_MIRROR_TIMER; SMSG_STOP_MIRROR_TIMER) driving the breath/fatigue/feign-death bars, with START treated as idempotent re-statement. MSUI has no reference to any mirror-timer opcode outside the opcode table and no breath/fatigue bar consumer.",
+  "openItems": [
+    {
+      "id": "item-triage-63706829",
+      "kind": "gap",
+      "text": "SMSG_START_MIRROR_TIMER not parsed (including the signed scale field and START-as-full-restate semantics)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-42f0e83b",
+      "kind": "gap",
+      "text": "SMSG_PAUSE_MIRROR_TIMER not parsed",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-cdfec9a9",
+      "kind": "gap",
+      "text": "SMSG_STOP_MIRROR_TIMER not parsed",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-d1a35e4e",
+      "kind": "gap",
+      "text": "No breath/fatigue/feign-death bar state or client-side integration of remaining_ms between packets",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

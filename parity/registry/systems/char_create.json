@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/char_create",
+  "title": "char_create",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/char_create/mod.rs",
+      "fileSha256": "db7f047e3502ad32a9a47f5b747948cb0ef763f4c135a846ee9e9347d2a1c2cb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_create/panels.rs",
+      "fileSha256": "e0c458939ddf01a45bfc9500e447478ba43a2b433da6497a152f51243f2ec893",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_create/parts.rs",
+      "fileSha256": "0c131e7f10a720323915b6344ecddd034ef9dc7e61421b6124a3c24a4291fcf0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_create/refresh.rs",
+      "fileSha256": "fe4bfa98ffbf98b781f670df1a4777e3f6653eb139e9c3019a72c68f8d6ce74a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_create/screen.rs",
+      "fileSha256": "622b504167336a99cd45fc3b9b7cee662a4f92218a575d2b7c840231a503caf5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.CharCreate.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Formats/CharCreateCatalog.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI's create screen is a deliberate port of benilla's char_create (the file cites CreateSelection/reset/clamp/cycle_dial/randomize, the result-code table with CHAR_CREATE_SUCCESS=0x2E, the name rules): per-race class lists from CharBaseInfo, dial ranges from CharSections/CharHairGeosets/CharacterFacialHairStyles, the byte-exact CMSG_CHAR_CREATE wire, GlueStrings faction/race/class paragraphs, starting outfit on the 3D preview, drag-to-rotate, and success re-enum with the new row armed. The wire is fully covered (3/3 opcodes).",
+  "openItems": [
+    {
+      "id": "item-triage-2b6b1336",
+      "kind": "gap",
+      "text": "The per-race dial-5 label rename (ChrRaces HAIR_/FACIAL_HAIR_ tokens - 'Markings'/'Horns'/'Tusks' per race) is self-documented as deferred; a generic label shows instead.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-469f215d",
+      "kind": "gap",
+      "text": "Glue click sounds are absent (self-documented: no glue audio subsystem on this screen).",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

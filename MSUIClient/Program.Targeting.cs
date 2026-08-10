@@ -119,10 +119,8 @@ public sealed partial class GameLoop
                 else if (_entities.TryGet(picked, out WorldEntity player) && player.IsPlayer)
                 {
                     CommitSelection(picked, beginAttack: false);
-                    _unitPopupGuid = picked;
-                    _unitPopupInspectBinding = InspectBinding.Target;
-                    _unitPopupPosition = click.Position;
-                    if (!_playerNames.ContainsKey(picked)) _net?.NameQuery(picked);
+                    if (UnitFrameMenuWhich(player) is { } which)
+                        OpenUnitPopup(picked, which, click.Position, InspectBinding.Target);
                 }
                 else CommitSelection(picked, beginAttack: true); // empty right preserves
             }

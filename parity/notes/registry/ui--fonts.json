@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--fonts",
+  "notes": [
+    {
+      "id": "note-5162a2de6cb5",
+      "utc": "2026-08-09T03:59:55.573251+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "Live session 2026-08-09: chrome captures (player-frame, minimap, chat-frame, mail) all resolve fonts via fonts.MPQ:Fonts/FRIZQT__.TTF with per-row size/color instrumentation \u2014 supporting evidence for font-object routing claims. Artifacts in parity/verification/run-c/.",
+      "tags": [
+        "verification"
+      ],
+      "resolved": false
+    }
+  ]
+}

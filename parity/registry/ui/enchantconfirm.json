@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/enchantconfirm",
+  "title": "enchantconfirm",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/EnchantConfirm.xml",
+      "fileSha256": "5f3e6da563def90694a92e944646e7ff3336ba4200fed89275ebb6739d34908e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/EnchantConfirmUiLaw.cs",
+    "MSUIClient/Formats/EnchantCatalog.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Program.CharacterPage.cs",
+    "MSUIClient/Program.EnchantConfirm.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "tools/interface-wire-check/Program.cs",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/evidence/before/msui-clinical-before-excerpts.md",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/evidence/after/msui-clinical-after-excerpts.md",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/evidence/clinical-review-2026-08-07.md",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/evidence/protocols/enchant-confirm-staged-capture.txt",
+    "parity/packets/pair-de1462d2f83d2f33/enchantconfirm-part-01-packet-a1bc988c58ac3967/evidence/verification/deterministic-2026-08-07.md"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI retains its existing item-target law and functional alert presentation. Only the same-spell/item accepted Bind chain receives Open then Close; ordinary visible replacement receives Close then Open; Replace acceptance cannot strand the popup after a failed send. Dev capture observes natural state without mutation or explicitly renders an inert zero-identity fixture with provenance, exact scenario state, layout fields, and fully classified draw rows.",
+  "openItems": [
+    {
+      "id": "item-claim-enchantconfirm-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now implements the complete build-5875 item-target enchant confirmation path: exact eligibility, bind, and replacement gate order; exact DBC names and flags; exact popup strings/buttons; bag and paper-doll interception; same-cast item packet; and no invented replacement opcode.",
+      "source": "claim-enchantconfirm-runtime-001",
+      "added": "2026-08-09",
+      "resolved": true
+    }
+  ],
+  "claims": [
+    "claim-enchantconfirm-runtime-001"
+  ],
+  "traces": [
+    "trace-enchantconfirm-runtime-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T03:59:55.573251+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/mod",
+  "title": "mod",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/mod.rs",
+      "fileSha256": "2068e2dc1c573e21883e827197b507bbe09406a449f2445ccad8e2bb79f8877d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/mod.rs",
+      "fileSha256": "095db159399a35db19a5b69b60186762804d2c85c2897389279e7f7648acbcad",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/mod.rs",
+      "fileSha256": "8a1befdc7efab1b0c76847af79da897947fd692a8cfb8f933dfc9a2f4d017440",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/WorldHeaderCrypto.cs",
+    "MSUIClient/Net/NetworkClient.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "The three mod.rs files are mostly module plumbing/re-exports, but world/mod.rs carries the wire-visible world handshake contract: SMSG_AUTH_CHALLENGE (plaintext) -> CMSG_AUTH_SESSION -> header encryption switches on -> SMSG_AUTH_RESPONSE -> CMSG_CHAR_ENUM -> CMSG_PLAYER_LOGIN, with 4-byte server / 6-byte client encrypted headers. MSUI implements the full handshake, the header cipher (ported from benilla-srp vanilla_header) and the framing.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

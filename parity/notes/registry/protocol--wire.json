@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--wire",
+  "notes": [
+    {
+      "id": "note-74e5ced985a5",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla's wire.rs is the shared codec helper set: packed-guid read/write, LE scalar readers, cstring, Vector3d, and the signed 11/11/10-bit quarter-yard packed spline point. MSUI's Net/ByteBuffer.cs is a declared direct port (packed guid, packed spline point, cstring, LE readers/writers) consumed by every parser; no independent wire-visible contract beyond the encodings, which match including the sign-extension the packed-point decode needs.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

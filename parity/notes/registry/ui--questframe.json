@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--questframe",
+  "notes": [
+    {
+      "id": "note-1ed1bd0f160a",
+      "utc": "2026-08-09T03:59:55.573251+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "Live session 2026-08-09: all four staged states captured \u2014 Greeting/Detail/Progress/Reward, 48-73 draw rows each, contentHeight=334. Artifacts: parity/verification/run-b/ui-parity-quest-frame-*. Wire-driven quest flow (real questgiver) not yet exercised.",
+      "tags": [
+        "verification"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--quest_markers",
+  "notes": [
+    {
+      "id": "note-d7cc3489f0db",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): The wire plane exists: CMSG_QUESTGIVER_STATUS_QUERY is sendable (QuestgiverStatus, range-gated through QuestGate), SMSG_QUESTGIVER_STATUS is parsed into a per-giver status map, and a status re-ask fires when a quest panel closes. But the module's actual player-visible product - the floating TalkToMe `!`/`?` markers over NPC heads - does not exist, and statuses are only ever asked for NPCs the player already interacted with.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

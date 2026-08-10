@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--ui_net",
+  "notes": [
+    {
+      "id": "note-4ec2841ab6c9",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI runs the keepalive CMSG_PING loop, measures round-trip on SMSG_PONG into NetworkClient.LatencyMs, and draws the main-bar performance meter from the real UI-MainMenuBar-PerformanceBar art tinted by the FrameXML thresholds (green <=300 ms, yellow <=600, red above) with a 'Latency: Nms' tooltip.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-4d4a5ac1c1d4",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Benilla averages a 16-deep RTT ring (the reference's history) where MSUI reports the latest single sample, and MSUI updates the tint continuously rather than on the reference's 10 s poll - both make the meter twitchier than the reference but the color law and thresholds agree.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

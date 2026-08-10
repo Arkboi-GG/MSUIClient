@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/portrait",
+  "title": "portrait",
+  "area": "systems",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/portrait/booth.rs",
+      "fileSha256": "2ac947bf46a9de5ad3dc524b33f26e7a0c369cee302ba423a9e0400fdec9db3e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/framing.rs",
+      "fileSha256": "f98b9187295e89cc819f9392bce0b5d59d24d2c76abebd119249135a9160aad3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/glue_booth.rs",
+      "fileSha256": "4ec154608bfcd306b54487dc73736e1594a6648ff142f045cd29914ecbf0d021",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/light.rs",
+      "fileSha256": "0f6fe5e5d9863a616868051530469e7f1296abd7c160426511a741076683fef8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/mod.rs",
+      "fileSha256": "7e7bf8fb9a189771a81615e71453f72d01c19e650c27f951b0ebb22d44ae1d16",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/portrait/test_bake.rs",
+      "fileSha256": "7147f517033f89714352828dc5d01eeda377a5f66cff68ba77af5afd89707295",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Portraits.cs",
+    "MSUIClient/Engine/PortraitRenderTarget.cs",
+    "MSUIClient/Program.UnitFrames.cs",
+    "MSUIClient/Engine/GlueBooth.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI realizes the photo-booth idea end to end for the main slots: PortraitRenderTarget bakes the live dressed model once per appearance change (dirty-flag driven, with retry), framed by the model's authored portrait camera with a bounds-heuristic fallback (Benilla's exact source ladder), pre-masked to the inscribed circle at bake time, with the reference's TemporaryPortrait-{Sex}-{Race}/-Monster stand-ins while loading. The paper-doll and inspect windows get full-body bakes with live rotation, and the glue booth renders char-select/create through the scene's authored camera 0 + attachment 0, matching glue_booth.rs.",
+  "openItems": [
+    {
+      "id": "item-triage-6d647f38",
+      "kind": "gap",
+      "text": "No pet portrait slot: the pet frame has no baked portrait",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-28c329e5",
+      "kind": "gap",
+      "text": "No NPC-interaction portrait: gossip/quest/merchant/trainer/taxi windows never show the bound creature's face where Benilla bakes an 'npc' slot",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b28e126f",
+      "kind": "gap",
+      "text": "Party frames bake no live portraits - PartyFrameUiLaw's source enum only offers the TemporaryPortrait circular stand-in or empty, vs Benilla's party1-4 booth slots",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

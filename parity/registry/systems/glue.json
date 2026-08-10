@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/glue",
+  "title": "glue",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/glue/add_material.rs",
+      "fileSha256": "3a7bf00fd7049fc9a0ecdcea2c4d81b02c359bcf25232c9987bd7b5711b048b3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/glue/art.rs",
+      "fileSha256": "5007c4f3d3d1fb6cfac1c4789c063dbeb4a1ef98a9004385f12715fa79a52aa2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/glue/backdrop.rs",
+      "fileSha256": "e817a4481a9b863a971fbd2fe2a26b802b18b5dcb0aabb46b26ec7ae68535ea1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/glue/mod.rs",
+      "fileSha256": "38f5927292b8eb4952e07c8436db460505d4375f635e26bba17a01316bed2932",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/glue/widgets.rs",
+      "fileSha256": "f86da92b5f827f70fa00790d4a7bb97f70205148c18674719759c6df62bad381",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/GlueScene.cs",
+    "MSUIClient/Engine/GlueBooth.cs",
+    "MSUIClient/Engine/UI/WowSkin.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's glue module is the shared pre-world screen vocabulary - the GlueArt asset set, ADD-mode UI material, backdrop fitting, widget/outline builders - i.e. rendering scaffolding for char-select/create. MSUI draws the same screens through its own scaffolding: GlueScene renders the UI_MainMenu / UI_<Race> M2 scenes, GlueBooth poses the geared preview character, and WowSkin + GlueImageUv provide the skinned chrome/art. The observable screens themselves are judged under systems/char_select and systems/char_create.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

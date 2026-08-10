@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/textinput",
+  "title": "textinput",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/textinput/clipboard.rs",
+      "fileSha256": "7ddc2315b9c71e165830fe5285fe0c9882b79ccdb2ab956f1b8c513f8b09e9de",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/textinput/keymap.rs",
+      "fileSha256": "123052a6b4a117755d6d06dbfcd2a431d15d3a7e8301ee14700d0a945d6566be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/textinput/mod.rs",
+      "fileSha256": "266990eb1d506ed4412e307fd472e63524f11b53263b83e70719c143144789c9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Chat.cs",
+    "MSUIClient/Program.CharCreate.cs",
+    "MSUIClient/Program.Auction.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's textinput is the host routing needed because its engine-free UI cannot reach the OS clipboard or share an edit law (per-OS chord table, held X11/Wayland pasteboard handle, one EditBoxState law for glue + FrameXML fields). MSUI's text fields are ImGui InputText widgets (chat edit, character-create name, auction search, GM console, creator panels), which natively provide caret movement, selection, Ctrl/Cmd copy-cut-paste against the OS clipboard, and max-length caps - the observable effect Benilla builds by hand.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

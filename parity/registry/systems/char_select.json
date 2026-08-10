@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/char_select",
+  "title": "char_select",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/char_select/dialog.rs",
+      "fileSha256": "a56d2d3a5a6e2ca7c73dfacfdf5f0834f8f00845ab28c40d89689a31374981a4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_select/input.rs",
+      "fileSha256": "c4cd887796f8a73b7333481687193b02b74b49fd64587f2580486c977051b04d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_select/mod.rs",
+      "fileSha256": "c13ebfe539f87edeb5642cd5d2411362dcc51dc542ba101ee0884b81fca7fe07",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_select/refresh.rs",
+      "fileSha256": "4b31f5e7d8eb715e0d76f720d951cb2a5f5f4b9377524f1486fca0806c343474",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/char_select/screen.rs",
+      "fileSha256": "6630cfe8e56772524b0a2d68b96e0e5c3a3dfcc6cd071c0fa96fde158d776d12",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/Character.cs",
+    "MSUIClient/Program.Logout.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla's select screen: roster enum, the per-race UI_<Race> glue scene with the selected character geared from its enum record, Enter World / Back / Delete with the typed-name confirm, create entry, PLAYER_LOGIN on pick, logout returning to select. MSUI realizes the same arc: full-bleed skinned char-select chrome over the per-race booth (background follows the selected row's race), roster from SMSG_CHAR_ENUM, CMSG_PLAYER_LOGIN on Enter World, delete with a confirm dialog naming the doomed character followed by CMSG_CHAR_DELETE and a re-enum, create-screen overlay on the same parked net state, and logout back to the roster. All 3 tracked opcodes are hit.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,3053 @@
+{
+  "schemaVersion": 1,
+  "id": "engine/internals",
+  "title": "Benilla engine internals (inventory)",
+  "area": "engine",
+  "deviationPolicy": "not-applicable",
+  "benillaSources": [
+    {
+      "path": ".github/workflows/close-prs.yml",
+      "fileSha256": "77cf9123e4cf8537131223092d47107fd5d0a31a502563ceaf9a32bfa6c355b9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": ".gitignore",
+      "fileSha256": "522068175dda76c46a41a80211f93d16a655412da2d172d84764606e37cacb1b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "Cargo.lock",
+      "fileSha256": "23963a166002c4c2f9603d444592ad472974bb059ab26d70b508202c59cb954d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "Cargo.toml",
+      "fileSha256": "bedf9fa3c95fc4b21b004f1ed76d74190bc3a2c3ed500b3491dae51f061c8f48",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "fileSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "LICENSE-MIT",
+      "fileSha256": "bb5e0128050c349695ead59646679a093f77e540b17791958a629c2477aed97f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "README.md",
+      "fileSha256": "7523d4c3ef4d3f22624b617853f31714b5ef3e2679b8993998153551a6c8d829",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "banner.jpg",
+      "fileSha256": "75d884a1a1595117a68b9ff0d4ecfb1142ed6b4ba36c04abc382bdbf868a0273",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-adt/Cargo.toml",
+      "fileSha256": "0fb26ed1d3902295dafe957949d23f1236cd3046ce5c77f3f7fd1f82b24a0f30",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-adt/src/combined_alpha.rs",
+      "fileSha256": "5f643228c471c6cc1d90f282541d1e0effd2c2b0727c2ccaf87c2379e7e41f5d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-adt/src/lib.rs",
+      "fileSha256": "8172faea8ecadf453f50e3fa3b110d3b20d5ac175cb4e9019d4a18b1267a4104",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/Cargo.toml",
+      "fileSha256": "e22f44b727853fa1dd1cfc8b0b25d657e653eb1f1f3021de2021e30416f277bd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/celestial.wgsl",
+      "fileSha256": "d3c267f69040d2e8fa94310fb4a7cb231041529eee6654866a66bdd940a9f5c3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/cloud.wgsl",
+      "fileSha256": "bb5a089f842e5be727070f5f415b405497dfd965bbc31486ddeefe15b10c7f48",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ffx_glow.wgsl",
+      "fileSha256": "e4cc5f727502944703390838d49324a4759e23a6a15c91561a0b5b49af00ed75",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/liquid.wgsl",
+      "fileSha256": "a76d47918932f4628d763a728f3f2e9383338a1571bf5bcbb48d7039d397a845",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/sky.wgsl",
+      "fileSha256": "fca43204c100dea1d7f4b4ca81cd49bfef7ca028eddc5270233475c773aee926",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/star.wgsl",
+      "fileSha256": "49ff7f03bed3a2926d9c926533bf42483f7ad8865b5f5394c9af5224a38ab135",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/terrain.wgsl",
+      "fileSha256": "d66a29374e2d760d027e8e43c892a04e4120e19304c3f95b80b89b18ad0c0850",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ui_add.wgsl",
+      "fileSha256": "aae77053748f486c7d0e462ade13165afe88fe578574ae651efd17368876c349",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ui_gamma.wgsl",
+      "fileSha256": "9b019e9d58be50d057fac2ac4f046966da9c77b577bbb536e7de0378ab7764dc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ui_node_gamma.wgsl",
+      "fileSha256": "b1258748090b1b7bec1e9a36266145ccb0f89d28dcd4b08fa0e868837c904dce",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ui_quad.wgsl",
+      "fileSha256": "fc6b03dfcbcd8d7b7b3733d4244e9b90cda4c40b9cbf646565ea4f554d8da999",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/ui_slice_gamma.wgsl",
+      "fileSha256": "6c36834cab4295528fd395cceb93505936d51b41f5a99c6d66999883240af8b1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/wdl.wgsl",
+      "fileSha256": "5e5dc431fad49483dcc33221f1fe68404a783c6126011b79057446630b65232e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/wmo_skybox.wgsl",
+      "fileSha256": "3d4b11aa594b82ad7211b30b948f7cd495b3f52330e99e0a1f5be047eef1793b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/wow_effect.wgsl",
+      "fileSha256": "22c6bf9b1fdbacf04efe1e3f4b9529149b33bf6405733b9a2e50425608bbd030",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/assets/shaders/wow_model.wgsl",
+      "fileSha256": "c7c34a97982552f47cceb1c00623e6f0d75ceef795b3a3f05fa774e82ab21406",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/art_scope.rs",
+      "fileSha256": "0129cf294d902a06d5790b16ec2fdfe9dc58b52dbbcdb920595aaa646165b5f0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/asset_churn.rs",
+      "fileSha256": "3a510c5f0097ce29ce929fd4e4e5b5e0602b8044fefd3cd863180905ea9f05bc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/assets/images.rs",
+      "fileSha256": "1d3409e1113b69b9bad080b6dada181bd4c70d5ecc6f72a5a635287654de7b4f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/assets/mod.rs",
+      "fileSha256": "f8ad50b65a3acc378bbba9c4605fa992c7803627838bf75429a03de3800ad74e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/aura_visual/tests.rs",
+      "fileSha256": "d9c10f764714cbfaedeaf3c19ab5263f5ede28759ea97273bd44dddcdbfbf4d3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/bgwin.rs",
+      "fileSha256": "a8f2e11e697398e7f0daf7c146047e842e382e9d0f746f0e9be7eec0a447ecd1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/billboard.rs",
+      "fileSha256": "42c6a8452ade997e7fc8b4175616fecf839f297468aafd87d9db51d2582b69cc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/blob_shadow.rs",
+      "fileSha256": "08755a4d3fe7b5b042df2c0c32ab87634c559f4575bb0373eb6cccfa3a72911f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/bowstring.rs",
+      "fileSha256": "dc1e149d97af39966f764c6186c6c0dd82774e377b6646466209da00c9325b32",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/build_id.rs",
+      "fileSha256": "41b1c07e99af5a25421e1834bc7477842311a257165f96a10e15743c7fd9e962",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/depth_probe.rs",
+      "fileSha256": "b9d481be16a7770a4bbfaad512f8d1ae88a9239ba2f1b40344d7dccdbb6c48b1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/fixtures.rs",
+      "fileSha256": "134b39596b2771618f628ffcc741b21dddc9fda9cb283cfccf547be416a5e512",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/live_shot.rs",
+      "fileSha256": "a98add5fed5c957ed92a7bdf5f271a095b21b0127cb770ef63246d963adc3d17",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/mod.rs",
+      "fileSha256": "6c515981d3a979f178f43aeeeb20ec2b2c73ec6385346639449c51c8ef31f035",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/phase_probe.rs",
+      "fileSha256": "9699557d6d6020d4e217625d62ba3b5c3d3e745cff4dfc1dc03d14eeeac832b7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/pick_probe.rs",
+      "fileSha256": "39a86eb648193b1195e0f0ed9fe74423deb78d573fd3ebc83a57d936660c60d2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_bank.rs",
+      "fileSha256": "56c1a93b7dfb8c25598828bf1b3c39819d06be8828f1fc307e1bb048aab79936",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_castcancel.rs",
+      "fileSha256": "eb1d5346b25f18951dffada507501613d4d5b3821a44f6eccbd07acb674ce306",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_charcreate.rs",
+      "fileSha256": "8c0dab2a50a6974e667a20fafa6e902e6510fb4a376952f351264175acc2f4b8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_crossing.rs",
+      "fileSha256": "637adb21a1c05d3fc360f44fa580d3bf4bc0b14135c8990d2fb3da26a1f1dbef",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_mail.rs",
+      "fileSha256": "49a14626e2992b610408eba498a3f97832f59cd542cc995f171dc2412a8322c8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_melee.rs",
+      "fileSha256": "eb48b6d908bbb5e61a150de5b64529787d590215309ac3d7f0f38552019d344c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_partner.rs",
+      "fileSha256": "0af9f2cb388bba7923fe5049f04a0fa1d8f275db092234ff1e3eeff3ae6cf41e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_rig.rs",
+      "fileSha256": "ae4a7b9bf8f308569a1203b6049347c06f6f48420a3ad4fc7586e291cafd6ecc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probe_taxi.rs",
+      "fileSha256": "30950e07a736696e4e58f17c9993be4be1abf4f8b8948d66c33f0bad764465a8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/probes.rs",
+      "fileSha256": "2ab76ba8dc4cb4a52897a3689203104d5c910bc5cccdbd3c337fce4b58050c4a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/capture/scenarios.rs",
+      "fileSha256": "aae6ad079789e257449bd728b517ed42fc4a24d4eb28345a111b00ce457d12e3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/clouds/kernel.rs",
+      "fileSha256": "29dcc114d012f174dd3733a2c4fdb9b4933621fd0cbae23cee30811a57b02bc7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/clouds/layer.rs",
+      "fileSha256": "21adbbe152abafd73ec67abf0673bbd8dc91b3aeb6c1af6b9fda2a3ba4b65d22",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/clouds/mod.rs",
+      "fileSha256": "c74f2033f0719bac225e3c123d05f4ada39b95a107989ebdd1b0e6f73a63dc45",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/clouds/tables.rs",
+      "fileSha256": "95fb15ba7d44872c8d3c64eb407101b501b5299b67f93dd9677d8253854473c8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/clutter.rs",
+      "fileSha256": "d8f2dd6c9b6a58669cd3a79eadb1116f0e47af219d7d530fdd3f901942bfc021",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/collision.rs",
+      "fileSha256": "65e808c796c1cf9625c4e2b6db4b2103bb42af5774ee085d52aadf9806db7960",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/collision/one_sided.rs",
+      "fileSha256": "6c4d145c8f98646c2d60b1c33e388edd9160ad8ede3fbd62eb6bd2ce0d4ca102",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim.rs",
+      "fileSha256": "f04ea271d5b0e0c7cfdf119b683941fc57a5f66e2576e4a13d6d331ab00c0d66",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/blood.rs",
+      "fileSha256": "96f1c2be9671e77764ae3786756beaa194bf96763db237d2eacc47cb71a7935a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/compose.rs",
+      "fileSha256": "6b31a569a16799a8a02f163293cab175909cfc9cfb398c93a2362d47848c799e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver.rs",
+      "fileSha256": "5a5670214c7c45f240e09976db871f3b9317c717853a87fd714cb9b60448c249",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver/grip.rs",
+      "fileSha256": "30ea8aac262f77d14efd48153a6d9485c8cade44977245fccb18a1dc157c1c5c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver/mode.rs",
+      "fileSha256": "dbc9ceba5aa1caf4262fe3057f5c4e64ef9ea0834c12e827324d2ffb941a91d1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver/play.rs",
+      "fileSha256": "4bc9a701de0d74bc0d976c83badcbe9eab64dc26e16837dc6089981503b270f6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver/tests.rs",
+      "fileSha256": "ae968ea4d892970b2dc5a254a2eec089cb818a17c44d1561e8231504ecd68aee",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/driver/wound.rs",
+      "fileSha256": "e77006c4047f1aa6d636a4b064cd2bbda648eda57653b5ce1cf61523552a78f8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/emote_anim.rs",
+      "fileSha256": "e8df7f184d08201e08504eb9d157acb1b7f49cc1eec2c5738687b05ebb230900",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/env_damage.rs",
+      "fileSha256": "d428d815ab9f7903780640842521eef201e63819d71dc65a395f81b122122438",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/events.rs",
+      "fileSha256": "e4d385161b280770bb9a577887b1c7bd2fa637c6c41cfca430a9dd6fa6778700",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/global_seq.rs",
+      "fileSha256": "9b53201cbd870fe673adbe9616c81ff00099e8609cfe1c58397b8e4831cc859b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/impact.rs",
+      "fileSha256": "ba59473c426304acc8e4558a0a9d05b10d8ee2d22f4ed7e7868f2366b8cd52be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/lod.rs",
+      "fileSha256": "6c40a2c76ddaf9e75384f2eefe8c22d6161660487926ea0d539e16c73a732149",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/pose.rs",
+      "fileSha256": "9efd104974510a5ff3945341abb4df9b85edf9613972820522e0e355118e49e1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/select.rs",
+      "fileSha256": "2dbf91f5f4655b9388e4c5bb30fefc6c67589e09967296c5b22a608a527d0413",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/select/tests.rs",
+      "fileSha256": "05a18ecaa522c8e68dcd11d2812d607b25b1597564822bae198da5eba7f9d40d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/sheath.rs",
+      "fileSha256": "a35b95a50c5318eceb9efad1dcd3f66c558d87cdaa8bde81e5192e054f07d87f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/spell_visual.rs",
+      "fileSha256": "9d73fc7a74348bfc59f6995786614245aa6d6b6cf1903a5b639cc72e67d19f60",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/spell_visual/tests.rs",
+      "fileSha256": "26470da5f588a895847517a8628729253420f1949b45c332ea0b6546bbfadd77",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/creature_anim/twist.rs",
+      "fileSha256": "1b8d1d2d5c79878199deefe5099e628daac0035f689ffdc01a4054cabdd33078",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/dbg_trace.rs",
+      "fileSha256": "83c0277afc8bd50e04eba37c6a5b1b12643ffca05688ea50dbf981b0833827c8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/debug_panel/mod.rs",
+      "fileSha256": "75568fa4694c57fe7fab363c1c4fa4d4e9713ccb004e7ba7a58f877960cef10c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/debug_panel/state.rs",
+      "fileSha256": "7021ac9d6388a4466f00676a46d5371664d93b1b6dd3652e9600180733557c9d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/debug_panel/visibility.rs",
+      "fileSha256": "ad1f4284873bea484a8ba4d53ba97c850eba096bd2c8a21202e5b3c1f968bf78",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/debug_panel/world.rs",
+      "fileSha256": "0a5fd0bdb93d18b3eee0e754039decefe710df75c703697bbfd8cd63143ec53e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/decal.rs",
+      "fileSha256": "f8f5d425375dd2448ef2940c0ebd21e3c63658ed0830ed8f88cd17c2a56120cc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/doodad_anim/lazy.rs",
+      "fileSha256": "d0631f240db1e60415726ebbf730447ad98b18ff662d4baf31ea150b2fb72dea",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/doodad_anim/mat_anim.rs",
+      "fileSha256": "6a939ac4e9fe34757bfaf3c3e4eb53a08a4f54847dd2f22287b7586aa14cb049",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/doodad_anim/mod.rs",
+      "fileSha256": "26858ed7d584d2f6cd86c9866e127ca4e9f1e1fa3a12bdcf5483743aa70437bd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/mount/tests.rs",
+      "fileSha256": "1ded5a59f7f482c747629b22bcb2cc22e79589af4676b837499a0cf3f03c3e38",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entity_shade.rs",
+      "fileSha256": "f12c35c89bda8c83cdfb75f8dbca30ff3ba7b242e79fdd60e3f33d617ddff1aa",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/exterior_cull.rs",
+      "fileSha256": "5a7db8f889277603d5af7af1c086448052df9855fc19361e898e961a6dd93d64",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ffx_glow.rs",
+      "fileSha256": "5e82686805a832436ac32ae60d33ec8677da417881aefaa0a1ad94d5ef43a54e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/footprints.rs",
+      "fileSha256": "fade68c4017f658baaf288d4e441d1e0b5b6de2d19d793b47aeabb1e02e08bbc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/go_anim.rs",
+      "fileSha256": "f89d688ff9892c21a2e48aee04113c7d9ee4ea27f49da076c652a8abae041464",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ground_fx.rs",
+      "fileSha256": "76d84626d6f1739631c4e06fdfba82eb53ad047a910425d3d678c307974316c4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/hover_log.rs",
+      "fileSha256": "ae8386da0c015fac745cde111c844ceb01a0ef867c6d59b70e7b1c2e5da63ec2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/instance_tint.rs",
+      "fileSha256": "f53300ce1e9bcb7d4158cb565f2ea6cd052f18cf7b0b32b027e2cf114f1bd3d9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/interior.rs",
+      "fileSha256": "7b327ac302936ec4a8825a331273618aa8790ac44dd4f66c930c7730beb67a23",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lib.rs",
+      "fileSha256": "994e2bffe560d239723a65e3e100890a323a40cbfbe4064b9f6ae6a13ef7c150",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/daynight.rs",
+      "fileSha256": "89f03ebe2ebed901246e0671c089f00ecf516360c93a6eee67080e84dcf4fd5b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/global_light.rs",
+      "fileSha256": "58a6c4d9617fd7513880c73678f918f598df75ee7300af630c9ffad4214d1618",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/mod.rs",
+      "fileSha256": "0fb45539b1dcf79dfc7c1e7a39af8d937567fcd82d5f42871fefdb3cb84e834d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/prop_probes.rs",
+      "fileSha256": "93817f952aaed97b302ca3cd95f030ee6137ef72753b65967c159571762b561c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/resolve.rs",
+      "fileSha256": "445a64131fc43ac39c9c762be41f3ece71085226dd056ef5bbc6a8344d3c6b28",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/lighting/sh.rs",
+      "fileSha256": "b06c314492cb6db091f8e9a5c92f1a2d18e54694ec2fae98520243c0bb31a6e2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/liquid/mod.rs",
+      "fileSha256": "9ec4825164a9896789a8756476d9e73da1be723e102e8030271706fd06c368cb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/liquid/query.rs",
+      "fileSha256": "6b3b8bd5ac4addf83c72f1143eb04f6b95a429cc28ddef0d492698f2a86c39a4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/liquid/real_data.rs",
+      "fileSha256": "7cab370cc095903328d75e4db08053d189556b0229aa489a4d97e6273efe5c96",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/liquid/spatial.rs",
+      "fileSha256": "5b47c0d464808c62da883203f4fefb7b7861d9555d9709827c3db18913e79ec8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/liquid/surface.rs",
+      "fileSha256": "b6699b519660de87cd8030a692debc032955bd630d640d220c99076c0b4adf2f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/map_proj.rs",
+      "fileSha256": "0900acf79a3df055c02dd6a5445d285721785ec7b4cabab2b28e78dbe3e4f612",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/mesh_tag.rs",
+      "fileSha256": "8b48318d536668a8192ca394d545a1d4a0a33efa9d800e06782435c2bc616571",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/model_fade.rs",
+      "fileSha256": "57095345293316dd274c8233fd5596edd4630024057bc5b7a7841a61a54809be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/model_forms.rs",
+      "fileSha256": "5a963e8be5d7d68bfd9108b140831a7cbe462a1b1cbf4244fedd935f60d8adbb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/model_render.rs",
+      "fileSha256": "a60ad91639cae629c9fadcb9a153ef84bb99f779c23a9cfab89a570ec60f1eda",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/tests.rs",
+      "fileSha256": "74f36c093142cb50a89514ecc2873d8875e5840d5e0ef9200d545fe03ecdb948",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles.rs",
+      "fileSha256": "f13523d19ec7440dc233fd721a0c71c6bef8e4cd82467fec3eb2d0c5d1d98a1c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/buffer.rs",
+      "fileSha256": "df9834e0571c99d323061cb3e280cd21a16fd47595e281b4eb342571b9bcafc2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/census.rs",
+      "fileSha256": "00e59c254cff157bbae4e53ce4b0975e6e2d7978cc8fbb0f1ed175ec1e1cbea8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/depthdump.rs",
+      "fileSha256": "9a92b7b8c4c57e5e4ffd10d90a2ef118dd8258790b5c56900a9577498e9467dc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/dumps.rs",
+      "fileSha256": "3708990a6bd2eb337980b9e4c24bd12efeda7bf9570f1cb5a690067f547a714b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/emit.rs",
+      "fileSha256": "472ecc91a439705e2c3fe86d1361aa8a974cba9465fad17f9aec74729bbd5aa5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/emitdump.rs",
+      "fileSha256": "05c21fb56dd5b3100be0a7be79add29af0df7d22714eaaafe4af0b2498a18edf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/model.rs",
+      "fileSha256": "7379a4ebd16495fedf816a2c98c8999b1896d20f980fa2697f3f1f9811d0856f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/quads.rs",
+      "fileSha256": "c27a15c39cd96533dba2350ac3335aa19ad88d3ba73b4e07fc21006a1074d163",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/render.rs",
+      "fileSha256": "883f02f217b9800e69824f4e9466f1479391ab159181ccc253ac8b4570f74bce",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/particles/sim.rs",
+      "fileSha256": "b8ee2cc882b4aa05c32c29be00a2483ba3397f7f8267469ffe19b1ca5fa18b4b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/perf.rs",
+      "fileSha256": "8d688daa0ba4424f16a40145d59f444e56dd7f99ceb159e4d3d749ebeee8f6e3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/pipe_warm/menagerie.rs",
+      "fileSha256": "856e618770818a59683ee9523cc55da39c803b18e27e569d5c54bd2f4ddcbae9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/pipe_warm/mod.rs",
+      "fileSha256": "95bb3018359a0ad5bcae0f5e4f83910c8bde124112c5018d2c5fd3f776b30ee1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/preflight.rs",
+      "fileSha256": "f26ef087195b75fdf86d1b6fdb65587df4686cd6e3fb582c690cfff2df2f1db2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/probe_shield.rs",
+      "fileSha256": "784aaf104b3632bbbd703602991f757eb65c9be420c7a2f666a08d9c97c70ce7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ribbons.rs",
+      "fileSha256": "673c58d149ecb6c662ffd9ef3e271d017ad35a180915f56b5befeb301cce0153",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/rig_palette.rs",
+      "fileSha256": "32a92e5d8fe7b808c700ee87a6c9777856bb9cd6603530670be75ef4cfefcc3f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/schedule.rs",
+      "fileSha256": "09d1a9391711c82c5c0794192d02baea34f47955101bfa3a2cfc0c7b41aadcee",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sky.rs",
+      "fileSha256": "7a0a21157c7270903de40dd79620285bd0341a18d70c7ddbde9907939e9146e9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sky_order.rs",
+      "fileSha256": "aecf8f0191719d42a26dc92322fbc903d2bb70120dc8293ef1643dcea594da22",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/smart_rect.rs",
+      "fileSha256": "706f91c05d381cd340af1d63ac57fe81411e946c57e2f6ded52c97490822ea66",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sun/follow.rs",
+      "fileSha256": "263b24da4d49a08b520e3568c4d9d0c8a0f78ffacd0fb360a6a3ac4d7d10c3f0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sun/materials.rs",
+      "fileSha256": "1e02a45be5dbdc02d7f69427e0693dcc3b5f4917f28bb23245b4d1b9057cc993",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sun/mesh.rs",
+      "fileSha256": "e7ff996944c6da22055c63316e0c984cc3ab43ad16f7ef318a2b83ab8668aa3b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sun/mod.rs",
+      "fileSha256": "e03e65970ba5f704a2280dbcbf0d3b74d835be264f10da3e35e9ca8a27b9b1b1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/sun/setup.rs",
+      "fileSha256": "c77fbaa2f5dab9b1db99b1401a35a45593759fdceead65c856630fa3e25e032c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream.rs",
+      "fileSha256": "deeaef91d5d85fbfbaf8f3d7bf88c13dbc7cbbdd9cfbbab8c1ce8dcaf7c80bf8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/collider.rs",
+      "fileSha256": "21b15c54b1b428716dc3ccd147404e1ec75f9a0c02543275acc106998ef23ae0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/furnish.rs",
+      "fileSha256": "f4e954daf675943b7fcb4f8b055ab8486332243a94ce1e21c70159c75b9ab6bb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/queries.rs",
+      "fileSha256": "44b5064deb5e0e93b040a407209ee5769aea17f439d04c878cd8632c319bdb71",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/spawn/assemble.rs",
+      "fileSha256": "7a285185a84a9e60ea33aea7f057c5427efcaa9825250f5461bec1400c3375e3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/spawn/fx.rs",
+      "fileSha256": "e033be21184604c43d0765f4abd554a25a18bd6fec44a82a4e1d4836a8fc5e33",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/spawn/mod.rs",
+      "fileSha256": "0ee80f470ea8e050bf67fe2f2967dd521054e6f00cda1dad8d8d1c79dc0cc4a0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/terrain_stream/spawn/prop_light.rs",
+      "fileSha256": "ca181b088bd29779de9b170997d47ab90fdd8d6298f9df52dfc6c96d5670383d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/thread_qos.rs",
+      "fileSha256": "b539b0447ff22db4edbfd4ab06783079a420d03be652c0e5d873f6820f1cbad0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/drain_tests.rs",
+      "fileSha256": "ccb0540195e7baa522c541f0a6aa0b99e5d29094fdf426cb40fbc4e06f77cfda",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/feed_tests.rs",
+      "fileSha256": "7e4779ee445d012cb68e09e14ac0caf66d589524971ac8862cdda0e46dc7264a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_chat/tests.rs",
+      "fileSha256": "6a1ccb90c5debb64bc073dbc4dc199f9a2b7c936d69b4549642aff421ffcffac",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_macro/tests.rs",
+      "fileSha256": "3e6c022f84356f62ac3088cf1c01a6d47970bf6e1a7c08694fb627d2c5d87dff",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/action_bar_tests.rs",
+      "fileSha256": "e22e8aee61ab87e2adf51732bdab3f9d19d5e22b6cf99e15d0ff5ca975ef15a8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/bag_tests.rs",
+      "fileSha256": "3fed900a91411da36725f1859535d985233bbd66b98d293da70c3aa9f8e6aa76",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/bank_tests.rs",
+      "fileSha256": "1e1ea909245367763c218f8fd0becce95f5e2b354c387ba11eaa21953f85ad0f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/buff_tests.rs",
+      "fileSha256": "53d879297c73f64e18eda3a2414e5594481ec372b02c985a332d47fcf782bcfc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/cast_tests.rs",
+      "fileSha256": "4cb967a42f24c6e08dc04480ccac32c4c1a9a0b9adbe68c1dddbe4d19b3d4f76",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/character_tests.rs",
+      "fileSha256": "134769f07658a0d1e06a48f97c5c117e1c678fc3ae2150fc675be3de93e81c09",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/chat_tests.rs",
+      "fileSha256": "894dc2da2dc175e34ecc40f9ebfacc658f8fd515144318da154ff0bc4c3a21dd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/combat_text_tests.rs",
+      "fileSha256": "19aa07708362e14072ab9ad06ed3621f85dba9c2f52621c7cbce2f8393698b0a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/combo_frame_tests.rs",
+      "fileSha256": "92040393dd0631857b2e805604e96446dc782c8b1358117bee960a8d2166a4cb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/death_tests.rs",
+      "fileSha256": "fdd95e3c85a6def580bf1e49698b831adb8a9b5082059979281f449b5081a3e8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/delete_item_tests.rs",
+      "fileSha256": "6236fd9d55d549f75551c9f82085425d53d08eb7c0d0dc82a795fde74651be29",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/duel_tests.rs",
+      "fileSha256": "21d39132ff09378e23eaf0a9750ec646de91173811d78610391fcba8072c3106",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/durability_tests.rs",
+      "fileSha256": "eb3184f03c6c4822fee953eca242fcbf165fd7c627c594be4cd90caa2b2a6bcd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/enchant_confirm_tests.rs",
+      "fileSha256": "25b2751f80de50f85fa013b9feb926417fbeeb18f9a963c7121c95c30ae6fc02",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/errors_tests.rs",
+      "fileSha256": "6c50b0179795f1af45b046046cb2540349a94321ee03d8efc00ee2e268e46bc8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/escape_tests.rs",
+      "fileSha256": "072bb6abe82e523451e45d1f7584f27042cc3c8e84e5db78c4d93ccc73d5f883",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/extract/cooldown.rs",
+      "fileSha256": "c4e7e4c0ced117afe387cfb08557e9c41cbf2c82c1f28751f9bc433a67499f17",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/extract/mod.rs",
+      "fileSha256": "02fc05ece7452c25203fe53a389a05bd288629e540ab85d1d05fd4033b2e08b9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/extract/text.rs",
+      "fileSha256": "91bac3727624a2285c07dd8d119e3d73259ba98edbbf5f614ea78878680d92f8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/friends_tests.rs",
+      "fileSha256": "87a756468cc73eed344d47c6453cc8b0c718a1f9215dabec39c5fc7b74d417e8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/game_menu_tests.rs",
+      "fileSha256": "0f504893d9d618252e14422f9236b4433220cee5f0341f3f5058485e6eda2a7a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/group_loot_tests.rs",
+      "fileSha256": "af2325ac86f73d1d8efcd8fc887d085dd891b8eb262b668ea712f0979395be7d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/input.rs",
+      "fileSha256": "39d4b9720d19c74a244f2c070273d141ae921740a261e66d05cbeaa3f9704a11",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/inspect_tests.rs",
+      "fileSha256": "6d0e15acd037528d1aeab5f81de69d1537d947e08e3337d4124e5701c06f6ab2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/keybindings_tests.rs",
+      "fileSha256": "c916ebe651cf523005f122664fca82f451113b6d1cdb5a66bec9991603aba166",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/loot_tests.rs",
+      "fileSha256": "40d277d73773752bd9658685982425729bc81cd6e542452c43e733d3f11fcd61",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/macro_tests.rs",
+      "fileSha256": "57615906d8acef1d63e72e26e60dfbac4819e913988da23fad5f103e6d91c419",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/merchant_tests.rs",
+      "fileSha256": "92e26b8e195e851e103b3aecccbaf5e367441b3620bc795f0db64d12a9cf9ea1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/micro_menu_tests.rs",
+      "fileSha256": "b39a027bbee6c2133d12fa3086b6b6f82bc9bd9797763a409057750f1194206b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/minimap_tests.rs",
+      "fileSha256": "5ca216b1769a2043d7fee8bf2dd1c4db9054596f52acf9cc3da22250a3bbb3eb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/mirror_timer_tests.rs",
+      "fileSha256": "6342d6c9191c85e386729df7f44acd304b9dfc82fb71e958a067a65a748153e4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/mod.rs",
+      "fileSha256": "0be060b9a230416c3babe2c2fa59561413449d40f667f3db3e65a8ad00833bd8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/multibar_stance_tests.rs",
+      "fileSha256": "6181d2362f42cf497553ffbd35be3515c51e782be28cd354ed2796e783c7ee1d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/options_tests.rs",
+      "fileSha256": "ed0dfdc31015fec187e0af30bf60488fcdff2b770cbf769b8364b8bcdb820aa5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/panel_tests.rs",
+      "fileSha256": "c0fec0a6c4087963272ca933538da3d951786758aef5f199a3dea82523e5de35",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/perf_bar_tests.rs",
+      "fileSha256": "8921fe6b84abe28691028a185ebd3ddbad60178f0c77165c8bee9e9ffacf2f3b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/pet_bar_tests.rs",
+      "fileSha256": "25222d27b3c8ab3e07eae382570cf2909e6819bfa2eb9ca195305be34486342b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/pet_frame_tests.rs",
+      "fileSha256": "f4ab3fd521ba554709d3f73f33bb170ccd535f8038193bde0c56e6613bc04b8f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/quest_tests.rs",
+      "fileSha256": "fc7fd92ce4448bf6c3d0d1d742a18c73c95d0cc1ba2139b3593e3eb293d31530",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/questlog_tests.rs",
+      "fileSha256": "6478d463350830e070da6bf5461515b01ae1f66be766de94115a7ce927cbb44e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/resolve_bench.rs",
+      "fileSha256": "82ed6491ad7b00b1f3905ca86f0983d00dcd820f477ea623a09866d372a3939b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/shipped_xml_tests.rs",
+      "fileSha256": "48ee4895d3863f38b87ea57afc476bf1d266aca64f008a3c670b5fd1049ca317",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/spellbook_tests.rs",
+      "fileSha256": "6d46a38bd0c74331e6414aced24231a926f11bd6feea334d6abe48c0f503619f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/static_popup_tests.rs",
+      "fileSha256": "6090620997b2c01d73753d6c66fb91a73ba20599e585dddb5eb9a4129d845f5e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/target_aura_tests.rs",
+      "fileSha256": "b11318968a8854680399c569e2440e855019d2f4c93367975eb34a2fff972537",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/taxi_tests.rs",
+      "fileSha256": "e59cd852406f582ea5d84a72132e55de5daa914ab0b4b64a91367ba2a1e7d4bc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/tooltip_anchor_tests.rs",
+      "fileSha256": "c8e4b410de7914b2c33592ee87bbb64712f6e93626bf5e7bdbccace199bc9e3f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/tooltip_compare_tests.rs",
+      "fileSha256": "f56792960fc360fb92035baa38f213bb2b4f0cb46168444c5dcd0ac5801e2245",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/trainer_tests.rs",
+      "fileSha256": "c39632abf6914aeb00dde5407dc3eb4fd53c868a99348353fd5a77b907fcf57d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/unit_frame_tests.rs",
+      "fileSha256": "5473d13e16f09eb660b63936a14489813821da7fbac1908585563ed15e9c8b20",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/unit_popup_tests.rs",
+      "fileSha256": "ad8eeb32d0f1b5545c9f03911103846d6680c09a823dc2d660989a8d905db23d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_script/zone_text_tests.rs",
+      "fileSha256": "6a35896b56a29d0396f631667d791ed5dabdd1c7c713b877cee770c27d7935fc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/view.rs",
+      "fileSha256": "9672cf01af82541636272bf2485fde3d2f708cd1fda3394e6c26ebbb1a13a080",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/vplates.rs",
+      "fileSha256": "2cb36ba4a10ebe8d6fb225fd98f300a8ee156bde0917cbc61d360b2e765820d3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/vplates/border.rs",
+      "fileSha256": "ce82a34cf74c74c1effc56a2bbb1f86ab13633d7aecaba07d93abc5cedd55194",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/water_fx/mod.rs",
+      "fileSha256": "7632d3d51197d2dc8cb6968a63917b937a11318d65a95e22a5ef473d1fe64e26",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/water_fx/params.rs",
+      "fileSha256": "dfad330211d24a325e916de95365186c3596606a1b5f37d64aafc9d27cb03715",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/water_fx/view.rs",
+      "fileSha256": "3836f518e51bfa82f93984d9acaf516b85afe4085c4bf9cfab7a42d3e60a22cb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wdl.rs",
+      "fileSha256": "494b6964705497bf06cefc300c8028e3e355259a8d5802738658e5117eb7b838",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/mod.rs",
+      "fileSha256": "25da197eb70cbcbb3b930141ef6b60b71f0fe56e484dbc4a0fa6ec055bd831b4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/precip/mist.rs",
+      "fileSha256": "66d18ed9553b8d4c54d04402137f65c71e22eb77e37b8a661cef174e137f8594",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/precip/mod.rs",
+      "fileSha256": "8aeb7879b4d5202bb8d288f262f05b7ffb56a7c4121a426d6b242983d2784564",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/precip/pool.rs",
+      "fileSha256": "0acfc94351d0f664402abc8d5d70985c20f21e35c203a81bdeb803c5426644f0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/precip/render.rs",
+      "fileSha256": "4233aad757f9e73bcae9bc82102eacc98dced5397fc17f99b0dc88f156e137af",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/weather/precip/wind.rs",
+      "fileSha256": "7d0c35195a6efaf1cd7c6adb980964095071af5c7bdd3ad5a9829b5d3882445d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/audit/light_probe.rs",
+      "fileSha256": "b1add8a1582c8fac5dd1482f16af744571ef0c84c06b07b551309384c5d115dc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/audit/mod.rs",
+      "fileSha256": "265930510c60b459484b9b83aee1004ebd6b840530963ef1dec0218e283f9de2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/audit/pin.rs",
+      "fileSha256": "4440487a204f826a5649dc066e1752d002d66ee6b78538806c8ebbfecb1858ab",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/fog.rs",
+      "fileSha256": "eefdb4b5f8092827a58f69a8040d394ed1dabbb00d31d0c3de7e61dfd06ec9be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/interior.rs",
+      "fileSha256": "69f766a4ecbab1a08019bb38930bd99f940bbfcd467335a7778475867da7eaaf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/mod.rs",
+      "fileSha256": "0076e4ddcc07ef5cc043cc1bb8fd9e69cdcd1a93f31703ee63d40c4b1c1ae45b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/probe.rs",
+      "fileSha256": "e55bf37de7683779060911f5380b77ef540256d93304a263d18e6021fb0f3eea",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_portal/seed.rs",
+      "fileSha256": "18f6ed47c2bdd3c7e323aa16401468e571f63f3cb00602be154d3c9ce73bc6cf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/wmo_sky.rs",
+      "fileSha256": "51413455c05e2991235d1e99b13a77fa55790ed7428f68c56a46fd00a7919150",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/zfill.rs",
+      "fileSha256": "0618b054628c43833ef14621e2db3969464a9944ff24bcdb6caa1febe54ddde6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/tests/item_text_frame.rs",
+      "fileSha256": "3b1e8d8c9ecf1f2f6a2f410f869773f7d145878bf128617d4558a8de5f705131",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/tests/mail_frame.rs",
+      "fileSha256": "44c992992ad9a5ced54e7b65c2a62d0979461196f47e382f56a8707198b26296",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/tests/talent_frame.rs",
+      "fileSha256": "0f2d20bf2cee751fae9c4a168e9b1335942fc8586bbfecb31c437ea2e0b3f8c5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/tests/trade_frame.rs",
+      "fileSha256": "badfd1b003e190d9277b66023e3fe850481184d4a6bf5cf7f15dee34e1fa0835",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/tests/tradeskill_frame.rs",
+      "fileSha256": "2a09b72b58b054cbaa27942d393d3b8afe2d1a5a841cfae6a83f614b63b76964",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/Cargo.toml",
+      "fileSha256": "e46ddb2dd7dd05832de602fcc216e7911e79dbb8a76253c884ce7ec564b8cbf2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/examples/face_facing_at.rs",
+      "fileSha256": "b67a05592f10116eea13ec2b13b431496cfef1f5ca43a7f1edf0004957e9fa89",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/adt.rs",
+      "fileSha256": "1c5332ce3c34134ce44a8bca8e1c9d64cf4ec126cbec6a0c6c7ffc397d82bc91",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/blp.rs",
+      "fileSha256": "2ce1256426abc328c7dd1177b19600ee0d34f17ce7118fb4c77fe6f9a599ccb0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/column_grid.rs",
+      "fileSha256": "55f33678ccc118043c9d20f24cbdeda244b3d9e40379d66c44da6be5bcf3a478",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/coords.rs",
+      "fileSha256": "ba43f97b7a926b3b979e41222df372f997dbe30c04b0fff5e1f544448117ccc2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/lib.rs",
+      "fileSha256": "7488e694d212e604c59de7f4b229c7e7a34162712df87b7a227cde158d89e90e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/m2.rs",
+      "fileSha256": "4f2c152a5170cfd15ec52cbd8c7b1a53cbb765ef2b2478ef2ebcda57496fcb4c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/minimap_grid.rs",
+      "fileSha256": "1225ac85547d9c6fe812fcc08d7aa33f1a4e55fe8dbb6ff5a46134a865b4e9ce",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/model.rs",
+      "fileSha256": "d57e3b326779d66339a84307a55f6574ae3611a125d2bc52fe0aeed6fae106a3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/model/anims.rs",
+      "fileSha256": "e33500ab6c9fb0d26f972d6e2f4fec59667e939a09e7c2a89ad45fa2f083e84e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/model/pose.rs",
+      "fileSha256": "e6ef5b3bf5763b91de28c11b33007fe3a42cb9e4ea1088c1dc80a1760dd0b205",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/terrain.rs",
+      "fileSha256": "17455df26c1c0c794cfc4de485c948433df0b95a25f4b952ba0357ecaf00a438",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/wdt.rs",
+      "fileSha256": "97c5b56708e577c0cb45d4e9e29081ebab6e71cbcad0efdb90a858e5b156e52e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-assets/src/wmo.rs",
+      "fileSha256": "ea79374d56fd2e003b55a4d1f5ac4cd452df752a2e7ce8db842c825d14ae890b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-blp/Cargo.toml",
+      "fileSha256": "a95a1d716a7be3c3623deb265bac3fde86f267b071ed0c14cd28894d233595ba",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-blp/src/lib.rs",
+      "fileSha256": "0924193c698493c81f135512ebccf08eb0e3775eb7c27ceb87e9861284cc6b7c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-bytes/Cargo.toml",
+      "fileSha256": "66425b0d5c09caa6b79003f7395b4ff7860210b66bc954cef373549b28ad764d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-bytes/src/lib.rs",
+      "fileSha256": "7d15eda7591aee12d37844846d7cabc1470471dd13ea96295f2f197ff2691f1a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-dbc/Cargo.toml",
+      "fileSha256": "bfef028392b19f077d8c2e9a36b780f82bb8593ce7cd1de650d45f6710f7d38b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-dbc/src/lib.rs",
+      "fileSha256": "215533a660adb303c1592f678d4c4f49a1e72c19f0c0c658a9cdb8f534819833",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/Cargo.toml",
+      "fileSha256": "22b31fb7d7f9fb1557eba576eb5fe7fec3307128eac393420b61b95eb16ab230",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/area_trigger_at.rs",
+      "fileSha256": "c821fe50f60df7a07d4ab191d512afeb8fa5abfd09dd83c993ed6a3d041c2277",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/batch_alpha.rs",
+      "fileSha256": "60af537c9903b6cdf8cbfc358e5050192245a3d20ea073c706a74acd6dc9b52d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/batch_lit.rs",
+      "fileSha256": "893854ef2346c3007131c3e762402a63fe4393c1af84372cfb7af71f8293c96f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dbc_head.rs",
+      "fileSha256": "d679fc34b1ba8882b89468bbf28df15b8d8906705ff3edc989fe95537707c16c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dump_anim_names.rs",
+      "fileSha256": "4e6c5e002d1a7cac20f609df40bf65e137de46550b1ced2c8fea6a31592010d8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dump_bone_keys.rs",
+      "fileSha256": "297144c2e77ba3bceccb0767e03c7f87be96c167c42e27212f07fb94913aeda1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dump_emitters.rs",
+      "fileSha256": "ed19f41bf3eb04633ae6469b41572edc64f3500fb70182bc4ebe6dc516b02ea4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dump_file.rs",
+      "fileSha256": "041e4f47baa66bee07ee5be4202461cec5c6a88a2586a8dc54c9e9ad23e986cd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/dump_model_anim.rs",
+      "fileSha256": "555da7d004379daa22ea5a1fe8403fe1add1bfb2ae1a2e3c58eec2b9c72fc111",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/emdump.rs",
+      "fileSha256": "3e106350a75d51254d46ec9df4d57fe1f9e49ebc225bc5bd50d2764b1a5ded73",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/eye_burial_anim.rs",
+      "fileSha256": "5fc4501899b8da6fcb207a050f97c1822578d0700440a0be449cda477fa75856",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/eye_quad_pass.rs",
+      "fileSha256": "c38df8fb91064e9d1e04b50774bf62e70c8350b78fa5338f39264f07ca2fb0ac",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/gseqdump.rs",
+      "fileSha256": "ae9453c092fe2eb3b92f6ca5ffef10a1c70659506559257bdc0642ff94928a4a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/list_chain.rs",
+      "fileSha256": "d06d379f5b33a9c32b7854f32f239ef1f02f5ed5778e99b9f2d1d4169001a77d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/seamswing.rs",
+      "fileSha256": "ba74937ceaa8d5688e91b71573f93da5715cc2f0e0c84d04fb1663c486788d6d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/what_is_here.rs",
+      "fileSha256": "1793a1e46b71fb44e62b0857ea503706618e32c6d97c7ddfdf643c9077c8ab5a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_bsp.rs",
+      "fileSha256": "a1ff65e867d7453e922d4c1ec530a3cdd20400b8088de915761e09b5bccb2a1e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_chunk_census.rs",
+      "fileSha256": "33a79ff2faa8589ce66a98b25c28b665f6cbd799cf88de1e26f660fc3f30658c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_collision_cost.rs",
+      "fileSha256": "553c659b8592b8b4a0a86193185ad836965d47dffbe81ce5c0d7c9343a76c7d8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_coplanar.rs",
+      "fileSha256": "ef170c874b24fd6c995cae7430c107b0b817b441d3949a9726f0519c576c7e1b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_dark_floors.rs",
+      "fileSha256": "ef31e11aa76ebbb18380fccd61be42d17f2b1e7806da95063dc486d6a43d61df",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_doubled.rs",
+      "fileSha256": "7069f8a1186ea630a803f7230a61c1aae46d383de5474e676eb2b83999f8b7ba",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_liquid_scope.rs",
+      "fileSha256": "8d928eb4c8c950a7ec9acfa11607ccdc75ca48afcc33a29f36b676c1528d74d1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/examples/wmo_mocv.rs",
+      "fileSha256": "41e9b5aa452493eb4c0d6fe2d88eb3ebc833a68a60b3f810a1a91629523f34e5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/anim_data.rs",
+      "fileSha256": "9bc70f6e56acb74fba2820e03a7d8ca5316fbf469d8024fea0cff8eee4a02aa3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/area_poi.rs",
+      "fileSha256": "ae8c1c10fc50948d8072d8823ae575931e99a15274d184be0e644e64e22c2747",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/area_sound.rs",
+      "fileSha256": "c490d370d892ecb05fbfda7a81a0ed4469cf745a7caf87e17a06af818447b93d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/area_table.rs",
+      "fileSha256": "907a13498659b56907b7dd777b405db7c91492a95094144c33c216ff93fe0b27",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/area_trigger.rs",
+      "fileSha256": "aaa6cecd9806655c9b4d303ecf0f02392f9a73fb190b70f013e0204b3a40a307",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/bank_bag_slot_prices.rs",
+      "fileSha256": "b76cfed7051142ff4ad5d1d535320e839345ef56398f5723ef4509cd4abf0d49",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/chain.rs",
+      "fileSha256": "dd28b12f4add9f39c6d08602d0e67a0fae63e8125eb368c0503d7e284597625e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/characters/customization.rs",
+      "fileSha256": "7efd936b88f0a90c41079071ac3b450aaba96d63c93ddcf037abdd6f36082de7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/characters/geosets.rs",
+      "fileSha256": "5c6177cdccd36b61372de45e15551d944f228c47d364c32b8a7fa24e708e6724",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/characters/mod.rs",
+      "fileSha256": "6922088a2f9ce8dde886c54b555f83e7827caf0f43f6e3c235ce54169a70e1f2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/characters/sections.rs",
+      "fileSha256": "648bfe602f3e289de40541872891fd1d2603034d409fd0fc9a1d4fce2510fa66",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/creature_sound.rs",
+      "fileSha256": "f8972425b6f6837350f35cfb19a9027a03c2ad1ec6743057e87a80d5c92fe22e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/creature_types.rs",
+      "fileSha256": "47f2c0b2e168eaff55da3bf687ded52c9a0baa3bb65f06975409f0c6f87228fe",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/creatures.rs",
+      "fileSha256": "2d5c0138d4c4077419fdd64750328f07686f79a606a53f0e6877d2a6d70ae4eb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/dbc.rs",
+      "fileSha256": "ffa6592fe26b98feae64799a099c38d3f7c31d3cb211895b5046d7de690b77bb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/durability.rs",
+      "fileSha256": "f47a428cc47a4922ac1cdd44f36b73b85c12001beb0e9df376a7ad6f4711c740",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/elevators.rs",
+      "fileSha256": "c882810c3b3074f03d342a6fc5839e3e5c4a602ab8b635049babad2f5008671a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/emit_timing.rs",
+      "fileSha256": "5913ab00c5e8e0197cea10334eb3038e4464f29ef728ca511fa0fecf2602515d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/emotes.rs",
+      "fileSha256": "40c0a3b6a25a149df484ed52866a1dd353ae6d47ef6899ca6124f5e74c75c04f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/environmental_damage.rs",
+      "fileSha256": "1991ec6202cf8e552c1091ee14f174abcc5ab5ca7437a4b5d5152f1ed19bb5e4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/factions.rs",
+      "fileSha256": "b221a3401e0ab33eb9774ca56fac1814d85ec1a3dd7571098e1b256c877273f6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/footsteps.rs",
+      "fileSha256": "d27b06fec449612b5c37622cc98946bd8e92ad845eb11911091fff599c1bf427",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/gameobjects.rs",
+      "fileSha256": "3b72a0f8706f74bb3f256a4519c6000cf676b517d06b48b8b249a2923e5ec742",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/ground_effects.rs",
+      "fileSha256": "f3da8c9a4c97cbe36c3dce4e91a62f4602795aad6b1d4254b794da420b5e46cf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/item_sounds.rs",
+      "fileSha256": "9200a0361e3c5e93131d58b721561942eab5cddbeb938845ec69177c2fb0350b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/item_visuals.rs",
+      "fileSha256": "3265cea328ba8d3887fce6289f7829b41e16269ea8306f825fad874250433804",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/itembagfamily.rs",
+      "fileSha256": "86bdffabd6eacb06743f7711a46eaf516039f71b993d528abd2a7ec4acb97cdc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/items.rs",
+      "fileSha256": "ae495ab35ce182ab85d2784dff289abdfb52c7cd5aed36bacdff61f02a04b228",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/itemsets.rs",
+      "fileSha256": "0329078e374dc6f338c0848c8dbd1c78746e32cfacb4b3d2946494b22267772d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/itemsubclass.rs",
+      "fileSha256": "c9c9a5f946519b6cb80fedb34e992805aafbc826ff196302ea3cf9efed079e31",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/lib.rs",
+      "fileSha256": "3eed148a4d950c93df5ecd5e758ed6a59b5ba6cc4383e86dc0e4c6ed8b2fe97d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/light.rs",
+      "fileSha256": "5745ecd19b19c49ec12ce97000a5869e2dc2919e9b8b285233c912377902f724",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/light/atmosphere.rs",
+      "fileSha256": "e7d20f822bfdb09787c924bcbdbe642280a18ee12383230dab9cf0ccc7d0301a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/light/tables.rs",
+      "fileSha256": "6661cfb023804c19af8a25bd54a3b905e66d56ba8d9c4491cd8e53025db85f48",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/liquid.rs",
+      "fileSha256": "697aae2204ee63e278f17c462f906857bd61013e7b8be63cef7d1938683332a5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/loading_screen.rs",
+      "fileSha256": "589d962a0aaa3041b2b14b62953b80cd0c6c8a855f9876edb5bf994ae15ddb54",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/lock.rs",
+      "fileSha256": "c72b56a3b32f07f84170a8ff0cb1455c2926572392c6e328f5f1ffbb6a07f07c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/lock_type.rs",
+      "fileSha256": "7669272ccb58e6e6df02d2bdf0d3f2ba68c5218bf82c067475afa95dec2e5551",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/maps.rs",
+      "fileSha256": "7c19fb000f4d508678a11d523107d2f6b97f38b8683095e94fe10658d4bc89a9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/minimap_translate.rs",
+      "fileSha256": "1b9ee722df80f0ffc6618c439df044bb827043e8ca82b6de67b61f8905975e6c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/anim.rs",
+      "fileSha256": "268debd1f9263b288cadc6f7ce9f1e6509a67b6ac080c83e54dbb10068c0f863",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/anim_summary.rs",
+      "fileSha256": "751d53f58a3e4f9b7dae231a3cbf02580bb9a6fabc5ea861b918ec61fd9d6879",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/bounds.rs",
+      "fileSha256": "f9b28fbc4ddd875f471d52ff1b4d7b98fa739cbecd74f48f537af99cab7dbd0d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/collision.rs",
+      "fileSha256": "e96689740aef63d52a5890420dc9d0662d782d6296d7abc4880c6706c3c63243",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/key_anim.rs",
+      "fileSha256": "84203c5235735eb15fd62ecae89a66c586558d5f430fffbee8941f1cdd88d8f0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/m2_batches.rs",
+      "fileSha256": "5df65eb7a32693482a785d96b353aa39e10d6a23a357ef20ca302f810b8b1265",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/mat_anim.rs",
+      "fileSha256": "371eed080265833d50bb5193202113ffd138d6ddaca4f7177cba876fdb5bec3c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/mod.rs",
+      "fileSha256": "e503000dac1154a7c53aeb00e72fccdee9f478b19f232f1ae6d850ab8642efbd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/records.rs",
+      "fileSha256": "504685ab04ccd52acf32a268cb8e397b52937fd8f41ab017ea07084ccb5b6536",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/tex_anim.rs",
+      "fileSha256": "3f743f1c592e92a9e4a7d6f3578be0307034e281aaba5c70da63097fbbcb16dc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/types.rs",
+      "fileSha256": "136efcca5aaef493b431e91994847df1f7a98d47ef6c436cdc69e612e960e81a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/wmo/group.rs",
+      "fileSha256": "1b1c52634c108dcde881f4c0b342c73059e2ec22f5ecd9d4778717bfbd0f7b7b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/wmo/mod.rs",
+      "fileSha256": "2b7bd953c5b2d5957406ef791cc5425ddb9f9b41097feea59cfb51241243c555",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/models/wmo/root.rs",
+      "fileSha256": "b2384ffe200c2897525611dc5efe9670384e4527ba2e5150b48a1de6576ed0e7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/npc_greeting.rs",
+      "fileSha256": "31720a81ca986de10079f29dbdbd1fd0c4e2349eac409cb5a36f59989fc565e6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/particles.rs",
+      "fileSha256": "c3787cd0d8ce4c13c3cee386216e25c32a8533aa2200a9e448285b5ad47bb0b6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/pet_stats.rs",
+      "fileSha256": "a5cbc9d7e8e668176c504526c350bf9788c1d95e7a7ffa7ce60fbcbb109b8993",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/quest_headers.rs",
+      "fileSha256": "5a0c72756587852d216aa34f199c5043fb4d36c7d946ade404d05d63c3d67deb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/race_sound.rs",
+      "fileSha256": "006e6623af9e64bee20e7d1d9a356638df874a7352a2d7aa9f0d5146c245bb70",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/ribbons.rs",
+      "fileSha256": "0acd3bdbe3bf519404459ea875451c7debd3cf6e8d148535d0f864ab10b4d4e6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/sheathe.rs",
+      "fileSha256": "916ff7533f57582c9261185b9c5500442fced253c8d06bc86f34f4dc27f11d68",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/skill_lines.rs",
+      "fileSha256": "cce1e6ed747a92a73cfee7229cb7c92bda741915f022fb43fbbb457c280f9131",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/sound_entries.rs",
+      "fileSha256": "ab70dc6e5046ec7b9a110b96953a456c7cc3a291ed333d457bab40b29a1a7038",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/sound_provider.rs",
+      "fileSha256": "97067fcf95f6d0a8500ce997a8993399fc75bda4d81daecff27e0358c46e29aa",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/sound_water.rs",
+      "fileSha256": "e50c62b8ef923eebb317e18880bc8b1c1e6f2b3839129f50f0341407baec3bb4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spell_focus.rs",
+      "fileSha256": "71bd40470f85895b99239c3a78c012f6b2b67a0e2a47d6a0466ae15c3614a506",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spell_visual/chain_effects.rs",
+      "fileSha256": "9485bfde1bf069e0cfd78654320e1d861a7f776cc427b0731a65428b6fbcfcdc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spell_visual/mod.rs",
+      "fileSha256": "6bfe0637bfbc6e9ea787ebb91fcbce49b7758136473ad6cffe1598e99807e938",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spell_visual/tests.rs",
+      "fileSha256": "3f25dcc7cafbc39a64ea92f45544d4e475fc718f4d9092af3b0ce6ee542e8d74",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/cast_times.rs",
+      "fileSha256": "89898d3dcecdb04acbd319051fc266d8f1a679903b5e8da51fec9ced62459bd2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/catalog_tests.rs",
+      "fileSha256": "c6d2e57f397f79c44ffe2c6793c850c1dd1233c70c4e16a554837a48c6fe762c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/dispel_types.rs",
+      "fileSha256": "9d09a13f3a566d9dd52f37be18d6836c999d70d8e42cfeccda0c01a93154083c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/display.rs",
+      "fileSha256": "a8532c2c70a1ce140a98b37f087d475081e676f6e80ad7532647bf360731ca08",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/duration.rs",
+      "fileSha256": "cf2b5c42b4f68febfc824c6ef230cc9de25b26fc800eec0e4f7b7f0e8af5b61d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/forms.rs",
+      "fileSha256": "9e2c2ff45c899ee43bcf7c4d99b6cf4fdef6ff9ba72067be96d6dd8f340fd148",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/mod.rs",
+      "fileSha256": "48cd2386a6a72725ae2291306b0e3b270612e3246f63925ca4c6bc8392fb0147",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/radius.rs",
+      "fileSha256": "97ad129c0c234451c2576fbb2fef45ccb088cf9a593964746d382d511e7abe70",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/ranges.rs",
+      "fileSha256": "cc2bd92d6bd20b48bebf3f1f01939cf58c05ac52937e1827338ba653858e530c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/spells/tokens.rs",
+      "fileSha256": "8254d23eb51b233b0efc3151f9b576652347762d20db50be102a8e3eb0e5e57f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/stationery.rs",
+      "fileSha256": "2575fb839656761915407e78a1f1d848c14be0853ecbac9af8537bc71c3bf54a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/talents.rs",
+      "fileSha256": "b7b2f92b838143e8935f8fe82a4da9cd84f904b4ffdef1d95a370a4d28f60065",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/taxi.rs",
+      "fileSha256": "da684a13e367ce7e7dde1526ad49b3f8cb3ee0b33628c843ef5b61c8cb41dcc4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/taxi_nodes.rs",
+      "fileSha256": "74c929f399c62443105fc50805779cbbfa0c85c0798bb8c639cd99f25a4c9582",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/taxi_path.rs",
+      "fileSha256": "e11e7eb9d3c80b9829b388bc1c079d71fc8f41fe4796fd940afbcdd15b6eb104",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/terrain.rs",
+      "fileSha256": "2dc6d16142cd1f7289c6e70b8c75728f8f0c45f052aa76f34d1f5254a0d5e772",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/transport_period.rs",
+      "fileSha256": "052585161249f09bc33e34a5cf71cc6e8cd397f16b150b2e9cc68344be698cba",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/transports/mod.rs",
+      "fileSha256": "3c481c517a805130bf5d7b3d3356636d3ddd77355d9334bf52051909031ffcc5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/transports/tests.rs",
+      "fileSha256": "1235cf754037c6968dd1dd2b377893072c786fa433f5ede216a7b8a372e9907b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/unit_blood.rs",
+      "fileSha256": "adf8b551ebdd903541edd652c2f68affb23f853130f89681c33fea617790cbcd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/value_track.rs",
+      "fileSha256": "f64cda82cbd7c10eaa84f62e938bf8f232aac8d6d717ac3fba9f1653f8baeb63",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/wdl.rs",
+      "fileSha256": "8310be25d65f7a9b00f8f41d4f6c2825a26003e46d689b9d62dbe1850c775231",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/weapon_impact.rs",
+      "fileSha256": "a2abe8faf69299dd126366eb82eedb4154693f88d536487396737f519c994808",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/wmo_area.rs",
+      "fileSha256": "c889a1d09d987606e12a15c31ded81a5b0d7e24accd46b55446c323465b61ce2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/world_map_area.rs",
+      "fileSha256": "4e6074de7e9b76b32055178f79f8d783098f37b00accfbc1e979024206d76d99",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/world_map_continent.rs",
+      "fileSha256": "830aa29988d700664984fc10072fb75ccc1f51212273295cf7653cffbc14a879",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/world_map_overlay.rs",
+      "fileSha256": "5a15b73d8f3ebc16e0e4fcd43d7ee453ff4171aad1cbe7cdeec2ba0c10e10d14",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/src/zone_map.rs",
+      "fileSha256": "389def27e0e2c0a9d8f48366555b8ee3e6cee169ce56c2eefa67c85fa7050675",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/billboards.rs",
+      "fileSha256": "50b9ff8bb5d2b6708caf785f4a9f65c35e7cb1f45cdb56741bc95af663ec3659",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/blob_shadow_box.rs",
+      "fileSha256": "7c43ddb56a1b70bb943697ff22ab28af236fecdc0e6a3374c473e3b7eb5effb2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/blp_alpha.rs",
+      "fileSha256": "643edfff1b6638c449d793e6643e425547e88733cc9f5b2e9cb88d5368d25290",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/chain.rs",
+      "fileSha256": "6a3ed4216a9c51415a975b4cfb11f8e962f31e0cfd6a884c408c63b7f716b133",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/ground_quad.rs",
+      "fileSha256": "86fb9647ffa5f5234fc15481ed8f2807d015cfe87c55a09d06e4860411cd1822",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/helm_vis_wants_a_helm.rs",
+      "fileSha256": "cb79c00435fbd15e416ce8b651742aa884cb13711983bbf44d7e25b6f55d8c44",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/item_icons.rs",
+      "fileSha256": "e0cf333fbcd20b89a2fd3434f99446dd9bb791ceb14b20653cbe78029691df48",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/light_no_row_fallback.rs",
+      "fileSha256": "db063762db60b808e44dc2947c7ce0a6b2b25c78a7598fbebd4614a37ff664ea",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_anim_events.rs",
+      "fileSha256": "a857b05598722f5c5b43f8c37efe05c6a106fa7e79eaaa8d7f44a1032bbac82b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_billboard.rs",
+      "fileSha256": "ae826698958fd980dae24aa617cd6be5e9ea9187500bd6ac04ab7e548a277b6a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_billboard_card_face.rs",
+      "fileSha256": "5ed0f1a45d946fffec82fd46d919c3401424c378f21b8d4bc41738c015eef898",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_color.rs",
+      "fileSha256": "84c08d60b451ad93c4acb025c215d83300b10e3b62d8a3b2d5ae64dbf5b06b41",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_emissive.rs",
+      "fileSha256": "d924e774caa086e76b8fc9aa90e03dc227d666534073a58fa1d92cb74a9279fd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_env_map.rs",
+      "fileSha256": "e0ba530a8df4d0a41ff7884e44bda14ce7b722b762132cb05da0af21626ca322",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_global_seq_constant.rs",
+      "fileSha256": "8d0b2dae788320ea8465751b97525cf2e628c4038fda3039b15bf3a206b9299f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_go_arm_book.rs",
+      "fileSha256": "c4e5053a0201bb4af53883cd65523f3784065e605df3b84195af95a89979bb69",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_idle_anim.rs",
+      "fileSha256": "f41973786ae3f59c63ad871caa525d59c826b03c4cd7ed90bc21351602df74ce",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_lights.rs",
+      "fileSha256": "f1a9cc183dc3d07c252c3c52e147005eb3131e99a8c83dcd2b522d4ca4eb3ea0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_loader_idle_is_stand.rs",
+      "fileSha256": "9ffe0426c853e038995ab0481154beb5572af98af7b9da63ac1cc517bfc58802",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_playable_animation_lookup.rs",
+      "fileSha256": "4ab4820c93f9b48502b281c9a1648d885614ac58ea3b5634e4f2a520621f4a28",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_portrait_camera.rs",
+      "fileSha256": "77029180a86e5cfe9c23ac8eceed0b8c588b06e2fccc8c6ffb4d31c4c40ee4d9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/m2_sequence_bounds.rs",
+      "fileSha256": "d2e76be64cc6200e6abebe5009eeca41791489938adec600479ca2abdc67b18f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/particles.rs",
+      "fileSha256": "8d2a48c6d97f8c323b126357c8f7d17e1440c805f3f932ffd7bc091471f0441a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/ribbons.rs",
+      "fileSha256": "e436b889c9470704306c5e90f17d65caa25d5227caa7c69ababd828c193b5066",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/selection_ring_radius.rs",
+      "fileSha256": "01f2abdb7d746956f075312323baa3466eb25a45bb4ffc28d1d66a1de8e50602",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/spell_catalog.rs",
+      "fileSha256": "e1cf859b9657dfef9e0170f13563f10c57ed528e5192f8dcc0f43957012fdde1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/transport_speed_profile.rs",
+      "fileSha256": "11b85eb007ababee24a16690b726499a393caba59f858c3fdf197b2fd3880213",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_chunk_overrun.rs",
+      "fileSha256": "2c64dd37200136c8067a54532d10fd8a482d94c8c0fa5a44b327ec6ec7509ec1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_doorway_fade.rs",
+      "fileSha256": "76ca2fa3097e01a63985afaef00ac2ca22516880981a5067af1a1fda02fe6018",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_fogs.rs",
+      "fileSha256": "8ef0e4cd7478fc813332ed9c8393f4555041f9f41386f4f35ba3241d9f7c1c0d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_lights.rs",
+      "fileSha256": "5cf616510f43b2f030fe392d20cc8e70eb32656186f309300139628b0d35f573",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_liquid.rs",
+      "fileSha256": "bf4022aa1389f64621f8635d4507ceff78c31e6f6d9739fb88b4edd99b6f6a23",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-formats/tests/wmo_mocv_short_tail.rs",
+      "fileSha256": "a26335d0942cfa075594e5f3aabbfb78a62a78f5286f364b213852c0382fe577",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/Cargo.toml",
+      "fileSha256": "556e0d75ab05f5380fa8681658ec9a5b5b94cc7c0341ac3895ad42fd6417a62b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/examples/dump_attach.rs",
+      "fileSha256": "123b1e6ec9f3f6b1f06c37428678d7438d369eaffa0d423ab2525cb7d2b6ea29",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/examples/dump_skin.rs",
+      "fileSha256": "61732ddd1baee822a86e1c74700006844674cb33b8f226f306497faf3ba4f9c7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/examples/dump_verts.rs",
+      "fileSha256": "13232aabe52c217a3b935f1ce5f99793923e38935a695fe4de5a249448c580c0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/error.rs",
+      "fileSha256": "f2df2810943628cad8e3eae460bcdc49b52862a9767372b82f420e6f03c7cd7c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/lib.rs",
+      "fileSha256": "54b2d3da60f91b4921a8e085fd04e793902e4810a3d74cd1ad6cab57b3d32d98",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/model.rs",
+      "fileSha256": "0affa8326fce30f72e1396962deeecd749c68216190b073d3d15f1f10ab2d1c6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/skin.rs",
+      "fileSha256": "adc578c30c54ef87b37fa25f5c69042411f99915da5cb04abf64e1eccaae0460",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/tests.rs",
+      "fileSha256": "0d77b133ec72f3c6f13528125c2be6a62a7b96dd028c19e8f45c9b15faea95d4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-m2/src/track.rs",
+      "fileSha256": "50504b110520d7a065bc849dd5cb60875bc226716a77169ae390761a9a260b04",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-mpq/Cargo.toml",
+      "fileSha256": "85e6b4a5d1492f6d22365f1006d02c92da501ce9e6a1d1caf0d8feb07db32fdb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-mpq/examples/mpqcat.rs",
+      "fileSha256": "ad77e4dda7b7bade89ec6046b1e3dfe6dcffbf39a079b4a5914b7b1049bc963e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-mpq/src/crypto.rs",
+      "fileSha256": "1dd6965707caed36847427097910d416f2ef297c2092ad2cefe18a5669536c3c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-mpq/src/lib.rs",
+      "fileSha256": "f32df53140d2103fdd5d778356ad4f72e23c4115b76e6bfe9632d87d0493d148",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/Cargo.toml",
+      "fileSha256": "45550b0507a15fe3e4b5ecf4361499dc1f119af9a120bd5bfb950555caa9572c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/cooldown_probe.rs",
+      "fileSha256": "edfce43c24f6ec6fa3f7af12b17884c2f2adc55417a300eebaadd87bc22913b5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/faction_probe.rs",
+      "fileSha256": "bd89814cbb3bfc3de4f2dc955b2dde4673d45be87b2272f482cb2de008b6074e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/horde_chat_probe.rs",
+      "fileSha256": "ebfd5e71a56343b0c600b0d3d1d932b92f199887b8e0c53eca00cf744fd04eb7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/make_account.rs",
+      "fileSha256": "38410a50a6c81cee89911ae6fa41ecb240506ae3e1956630d8e38d6234c94be6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/park_probe.rs",
+      "fileSha256": "ba589fc44f0acd0e0172154580d6415e0203353723325c62fb43f9f0036b5c0b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/seed_classes.rs",
+      "fileSha256": "96b08b0a89d2476b83bbd6869ff70993261d6ee394d6c9e84a8ac8dba49d8859",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/examples/srp_encoding_probe.rs",
+      "fileSha256": "6f52bb76813767ff9ce383fc00df2b83c6a566d77b0fd0275ae434f6f4137986",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/auth.rs",
+      "fileSha256": "c572aea250c83464db71e32707161960dac59ddc2ac9af50a3cdd1a3d5fe0ea0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/bank.rs",
+      "fileSha256": "275bee1321adfaaa05119749b7cd0cc568aaba9538dcd56d1b2baae7b2a03602",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/char_enum.rs",
+      "fileSha256": "94de50fb0d90ee3bfb6826ef5d74e573b1fdac52a9e523b376ca488bb172ece5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/chat.rs",
+      "fileSha256": "8edb5656e3eded53324f1cff8a8a6aed01697dd72379aa92ebb7678e8a0ea723",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/client.rs",
+      "fileSha256": "8406aebbaee00597c9227f923b660d3d93658bab2cad2fe4fbfea17a7ce56482",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/common/mod.rs",
+      "fileSha256": "ff8f849f434dfc0aa0db477ef912002b72dabb84dc20ba0664f6b9971e6902b5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/gossip_vendor.rs",
+      "fileSha256": "d13f63c415c27e98a1eb6003b88c3a2a272837cbcaa568cd4d8aab2def27b35f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/group.rs",
+      "fileSha256": "aa37b74ec47c5c5e60859fae9d58ef58fbaecc2fd60dc8b6c7a4d0010bfb8e45",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/handshake.rs",
+      "fileSha256": "da65caedf779fa7bfc97437ab8d686fbc503b37f7c6fdd5dfe8ef7eb069e18d1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/items.rs",
+      "fileSha256": "18ddfa34ad68dd7746518e0243ed54b7ceb779e5e3deec3620c1832eb0ad4cb1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/mail.rs",
+      "fileSha256": "f06f4ecc30aff39427df842b7ef88f58a28b225b5bac9964f413662ca9eedf55",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/movement.rs",
+      "fileSha256": "e479013e5c5240b5418d319849da14749cfc303ef156b0a9b701d85c6da8128e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/simple_packets.rs",
+      "fileSha256": "79836105d2d0a7e46d9537e394b5f4a0792c432dde6f65d4b56df272ba81d593",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/spells.rs",
+      "fileSha256": "9dd3aff88e55245cf0b971b649ec679611ad286573d53750013f631a99b35f03",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/taxi.rs",
+      "fileSha256": "2997d17673b6372ac626dc1f82ba79f471c606fade73d70426c14d11222e1eeb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/trainer.rs",
+      "fileSha256": "9c25967bc924cdf553b26ae980be227b197de4611389a64d78a7e9a8e09f4a7d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/tests/update_object.rs",
+      "fileSha256": "2ef203307ed9de6a8081ec786ef7b8e572d568f9295997580be8f23ebc283403",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-srp/Cargo.toml",
+      "fileSha256": "73c94e50fe23f055a2b691813f92a63cd5e2fc8d40279313592216ab2a985f58",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-srp/examples/provision_probe.rs",
+      "fileSha256": "48f226ed4162040701f61f3bf050597fb88846dd6ae8afdaf0081da6a5e8f507",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-srp/src/lib.rs",
+      "fileSha256": "b0cacb77066791cd8f3737b9caaaf9b0d42a6599851567997b7b007f2e2f11fb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-srp/src/vanilla_header.rs",
+      "fileSha256": "9f0b9f67751b72caba1fc14a7dbc48575298cfc77a27efe255fef61918f702ed",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/Cargo.toml",
+      "fileSha256": "d86f3ebf6342b635da017324466af5a813803b8d64aa7f19e45cd8b432c54e70",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/framexml.rs",
+      "fileSha256": "663b7e9e5d15f427051b70fcc9e66cad44f4990ec6886f6df4eae1918af963c8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/layout.rs",
+      "fileSha256": "b790e3b004e97cf5293cee490590a843c81322c188cd47dd5ff4a33737be5ca2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/lib.rs",
+      "fileSha256": "d27e6a86ecd6f340c1220944e4a3c08c5bbb2cbfa31125f336606738b22039bb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/backdrop.rs",
+      "fileSha256": "71dcd587b74b020809472e1691169765932696e94bb675527fd32dc12420d935",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/geometry.rs",
+      "fileSha256": "b0f970b4845b37817a7fb7e7be062f329d8ab830d62ad0b235aa67c50d3d7632",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/mod.rs",
+      "fileSha256": "5ca1b2229b6ff18e733cf2c19d8ccb4164562318b345d09759b7693a8960d14d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/regions.rs",
+      "fileSha256": "914677c2ddbfcea9aeadb2efa7da5cd64042671f932f123080b9297af8f42158",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/scripts.rs",
+      "fileSha256": "a33ec1c9638e9ffb11168d7272e63c937fc5bbc0bd672005be1cddf2864e3ea7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/tests.rs",
+      "fileSha256": "81d6c70128ff971a275ae575a5af3425c3161428f8d938a5bfa30cdac5d6e2d4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/loader/widgets.rs",
+      "fileSha256": "5f261a8deb00e3fec7ace51dc323d4fedc2fcedfb311fd04362e6116f1487063",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/order.rs",
+      "fileSha256": "15b892231ba3f4910152fdf4ea65674287568ec9cd6e4ea1697bbf7450563edf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/action.rs",
+      "fileSha256": "b35b2f6e48a673cb883656a90777806f9d008f2756f63037fa206724f77dd2c0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/aura.rs",
+      "fileSha256": "5d9c13ecdefb4e24545925660ead63a04f3b812f14f3b813441694ad30e46ee7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/backdrop.rs",
+      "fileSha256": "04dc531085a0cd2bce42175e2037383c4322ddc47d5824c6abd161a080cbe120",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/bank.rs",
+      "fileSha256": "8822745ad8b2d79e1d29c04f3c20d2a5c3bfc9185909dec3ac6d0bcef623bb9b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/button.rs",
+      "fileSha256": "fcdc3f5e72f13221ffcecb5284f32132ace10d9fdaaad98bb0e972966c7b55c1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/char_stats.rs",
+      "fileSha256": "a8fa47942af2c92a2594f22ea361bddba4d7e00ddf16a8900125c7cfadd7de2b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/clip.rs",
+      "fileSha256": "ccbedafee16aba4a869770096621d0385a65804f6fa7024e2199229d1a41e88b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/container.rs",
+      "fileSha256": "ef938b8ad79002d00a8e50c09de189f8ea53547b8f032cf859f2e7c8dfb0e114",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cooldown.rs",
+      "fileSha256": "6c6bf57dd4fcbdf3147653f6df9a774e36de90591b6af58ef698ddaf194f7948",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/craft.rs",
+      "fileSha256": "30cdc9cfc88585bbe0dae7147957b430f95917e9131662bc613083e75e6f74f4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cursor.rs",
+      "fileSha256": "3fc3872d72e5de05cf7d3276b3c036576ed6a26a6a7f230100312c61500a5546",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cursor/bar.rs",
+      "fileSha256": "8f1ec7b5c3843dcc3a54489007b869da7719a6956cf66b01135e11f3506c923f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cursor/doll.rs",
+      "fileSha256": "9e63f724b4faecdf33ef5a51bace00ffc63884d409a05a50d3f28b46cff3dd96",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cursor/drag.rs",
+      "fileSha256": "52c712f6b030f08130134dd9240f2e086ac779f272f0f5c8b46f8f8b13e9896d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cursor/pet.rs",
+      "fileSha256": "07f1293c8c4d007bb429650b03cb818f5ca968f47c4efb3abe7b2e7fbde6cf51",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/cvars.rs",
+      "fileSha256": "6aa19748e3441434609fc071a3203df7fa9037571007a10a363c5528ec96f2ec",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/death.rs",
+      "fileSha256": "4d86e4c76560e69ebd64beed7bd82c98f336812d6e432518bb7b2c60e573d0bf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/duel.rs",
+      "fileSha256": "1052bf093e89a3f04b9111a2961fdc4f9f6da518fdf04479fe8bc3354fa93642",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/editbox.rs",
+      "fileSha256": "170700454cdeb407543ab05daccecd94ce2a5ca9da62351eaa9dc79bdee2d0a7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/editbox/interact.rs",
+      "fileSha256": "38c1b0cf7a9f57317642108558bed7cdd8652091b11dc48d0f61794a80fbed27",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/editbox/methods.rs",
+      "fileSha256": "005b1a932e0fe4b43f5586b98f881ef3fd080a02749e3ca24bc7be2d022bded2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/editbox/seam.rs",
+      "fileSha256": "7630831d7c85fe523e5135dd37a78c96c38cec18f614fcbfd96fd8d40a08cad3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/editbox/tests.rs",
+      "fileSha256": "a8aa3c30b7e671919b1e00146499d01e4bfc74bb47dca5655d3b443f78234e6a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/event.rs",
+      "fileSha256": "66ad197d5f891a3b60c2d227744f0242d63842131e03ebfe8973436c8694c391",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/extract.rs",
+      "fileSha256": "4dcfe167acb10db58f0b5eeae1ede883ca3d87fb46c9b9f4d81c249186ecd362",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/follow.rs",
+      "fileSha256": "d59a028f4a4d78487627ab6a1d49ef0012e7c2690095034f34f3803614f2b344",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/gossip.rs",
+      "fileSha256": "8a6224c39e7c6f95791143a055e38d0ef8681f7f27582874ee48e48861bb86f7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/inspect.rs",
+      "fileSha256": "d527a13dd309cf6e564d64f276c0e85bf6d7cd600de0db256ea0f5dfb0196117",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/item_stats.rs",
+      "fileSha256": "54b4909cba705b7b6958502cf01c9a2cdbab084ba48669256db8f18e5c553661",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/item_text.rs",
+      "fileSha256": "57baa56507246579245d2b58824eb219d952d489320fe0b5bf9ea538aac03ec7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/keybind.rs",
+      "fileSha256": "d8fdeb7528c1e68a37e524f8e419398ff924a66d4178e0f990f2af850e039a93",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/layout.rs",
+      "fileSha256": "6a24489c3b1a37131149305ac22a5e6019d1b1750f63cc745defdad5718987a1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/loot.rs",
+      "fileSha256": "c7970b3326ba771820f2cf48f02c8e6607eb799de7b84904669e2f1eed47b9c6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/loot_roll.rs",
+      "fileSha256": "f58b6b37bcac4355154364c70708f3de5e984add54fe7537d4554542757a6bd4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/macros.rs",
+      "fileSha256": "8eab0a66831cae6d8ef99bef1c0ea7b4adc34e3bc22cd292568b93d67f2a0c17",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/mail.rs",
+      "fileSha256": "36319df416785d7ea5192020440d37fd4355c6b3f5d644836f5e604a8b1d903f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/merchant.rs",
+      "fileSha256": "b5410d9267fe91988d09370e4bef39bbba3a968a0fbc65ef247309c752436e59",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/messageframe.rs",
+      "fileSha256": "6ecb52bca7aa99c6cb4f193bc8c7a246b93502cc42d9f9e3a74d4422300f8eaf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/minimap.rs",
+      "fileSha256": "8e0eeb59cb1a13cff32c80e1e67009d375ef1df756ac695d0d7188bd73ee51a7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/mod.rs",
+      "fileSha256": "3b48ae3510ba326071c58e3e3ba37c32f19e5c4df96e4788b9bd4cb2075773d8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/model.rs",
+      "fileSha256": "0f0a239481b6274a8142d2c4988b6a9fe7d939d706d7363899b7c79d0e3edf5d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/net_stats.rs",
+      "fileSha256": "3384cfb10aa011988686e797c44750e97753300ddf45c3c5b6914c998dd9a0b4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/object.rs",
+      "fileSha256": "9b242b02af7e2bd52e2f91ef7806e7c3ce1c6e07d7829b85daa61f073025e244",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/object/events_regions.rs",
+      "fileSha256": "dfa9ad5d6155d5ef17886a594aff6f8512b5e266e9ce154e0409d62850b274eb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/object/frame_state.rs",
+      "fileSha256": "864cd2f901af10f1a22785248db31e5216587284aabe42ed3dde1290de188414",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/object/layout_methods.rs",
+      "fileSha256": "9bbea58400c20c62293624eda319847b77d37d3f3f66aad3d90236efb09a2ff6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/party.rs",
+      "fileSha256": "50bd6bf755066a36a9db2d3c8fcb68f4ec2d0e98d60382a1a084fa9bb5be4acc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/pet.rs",
+      "fileSha256": "52b5a29eb60c9b2f866178007dcd4ff174f796b5211ff6e4813b2fb23c114f59",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/pointer.rs",
+      "fileSha256": "212ea97df01d28015d1a5c31e90ebf8ea962ba59dcdc5771c58a08741bd3fe9f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/pvp.rs",
+      "fileSha256": "45d2712be27f0946a7aa2a4bf249802aaf90ae36b8b67d7afa7a71cdb93eacb6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/quest.rs",
+      "fileSha256": "321cc5d1f1d40222e27882c7cc3053c3720213abac206ab9744f8aebd9d3e604",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/quest_log.rs",
+      "fileSha256": "f4cd166ccb71ba1ba2ca4385c2d186ad102975b90ed6a1a85c2e20506496671e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/region.rs",
+      "fileSha256": "743354131695c1917a99f35121fbaaecf5a60f3f8838013d52ee04a9e81457df",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/scrollframe.rs",
+      "fileSha256": "4581f7d09bff1311aa43bbb23213477a5938be13674046e62fde2bf71d75dd40",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/session.rs",
+      "fileSha256": "ef02dac0813fa50216e62908e483956fbe93384afc2478b36afe7ce357f28cee",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/shapeshift.rs",
+      "fileSha256": "f5fb2b4577682fd5a714a775b4a25ee9b2aa976c1d4c001d6db009efd26a9814",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/skills.rs",
+      "fileSha256": "a13db7552a957604a5f572ae9d3048970300a04507d11985fdd10874f68d7149",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/slider.rs",
+      "fileSha256": "01b3d816e77d8556166d18cd8f2951c6545e8679811362cb95470268788e69be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/social.rs",
+      "fileSha256": "36717bfcb864633df0b488964d4b52f12564b73188260f19167491d9ea8c6bd0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/sound.rs",
+      "fileSha256": "5a241cbc63eb2468014faeb5aaaf3fef73b82048f7dd3fc40c6944aee7fab4e7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/spellbook.rs",
+      "fileSha256": "1503ac6f42815534d82c9d46731a18a79821de581f5dd3794410836ef09bcf5c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/statusbar.rs",
+      "fileSha256": "eec6d4f0a9eb3b8e28fe55f2586df3efa092c188526ce3a05f20d1223159f3c5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/stdlib.rs",
+      "fileSha256": "5d070d86bfedbebc3ce66859f26272a0548db245c05998682ab68f2b8cdf710f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/talent.rs",
+      "fileSha256": "cd08cbbeb1ea984a67e551f5344c4381dbbb17e72e0f3dcc7409c6b3195d27b0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/taxi.rs",
+      "fileSha256": "04697affc23543052a85075e8b858078507217f5a3225613264a77e786d443eb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/anchors.rs",
+      "fileSha256": "a491457e1c518494d3f914ec72b3aa0950e2c880f23d53d59963cf2eb812a20b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/backdrop.rs",
+      "fileSha256": "f16944309a344f9f93390af73227206d32ca55ea3c77d6cd307899c78642c892",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/button.rs",
+      "fileSha256": "f3f25af7e3ecb0dc66f42518198eaa5eed49be8e76d8af5b8f82704c851623cf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/common.rs",
+      "fileSha256": "1aaba9778c15eb4b200c752333ed1cf203bf0c83c182c1db96cdb87ed8819668",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/cooldown.rs",
+      "fileSha256": "8427a15cdb41bd54832f92bb1fb283274ace8cba0373fff907e2c1e74a4f3414",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/end_to_end.rs",
+      "fileSha256": "c23945b4cac6f9dd00f37ee0561acabb34964bd39a73b1a463240a8bc25b7831",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/events.rs",
+      "fileSha256": "0a44063837155bc3d9a36ddf7078806634f65f6dd92a1275c01e3468b2fdf93f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/frame_api.rs",
+      "fileSha256": "51a6483f59412cbb12041255740d63f0b6891e4e4691ab873f9e66283d369ec4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/input.rs",
+      "fileSha256": "a8894cd4a210fcdf1a0bfec768e58be8a5c0a6e56d268de724191ce09f90d082",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/layout_gate.rs",
+      "fileSha256": "86f3eca6555191825e3239e57cb40e180848a2dccf3db65b2d71af9917f79307",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/measure.rs",
+      "fileSha256": "4e3a998b26a6aa3523d08658647b7d38fc2b4a167442953ea63ac3deaf752001",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/minimap.rs",
+      "fileSha256": "49543c15b44f4d4988b2a0dff39dbcbc9e5a3ec4a29a46de7e9c391fca460da8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/mod.rs",
+      "fileSha256": "cd6d9cdbc8d41c9e3ab32306cdc76ec83560b11d6ece2cc3655541f3faa5e749",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/object_model.rs",
+      "fileSha256": "bb66467302d94787c10def2257d29052ace55b123fb88236cec39ea3d3b9f99e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/regions.rs",
+      "fileSha256": "69561cf4f9068bd51e7cfd4b407124389bf9ee88fdd497023326218b9b8e4e4f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/scrollframe.rs",
+      "fileSha256": "064adef2b69427c06e35a5b1419de09986544db9e65614cc2412da7d72e5ff7c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/slider.rs",
+      "fileSha256": "5376463e01d74507963fd28c10c1c9dfa1af4e5a42d8dd35eed050f05dfa9cbb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/statusbar.rs",
+      "fileSha256": "f0f2c8613687bfd015b148a9745f6524a3d77e8f1b0ec7a7c141137e2d90dbdc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/stdlib.rs",
+      "fileSha256": "f599d13efb9cf14ac42c829d4646ff7cc7c5104191e37b2c8d2756ee4f242ab7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/talent.rs",
+      "fileSha256": "9cdcca00a694fa2b7e08666b68bb781361aa44c036dcaf52cfd084bfd8d81964",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/taxi.rs",
+      "fileSha256": "40103f4181b127bc04575d469e3def5d1cb73868d27d58aff0e0e638cab7a51e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/texcoord_font.rs",
+      "fileSha256": "8a5579be2664a45b3bf150a5c753ac89e62c75f2785c06f8334a6f01ec12f906",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip.rs",
+      "fileSha256": "bfb5dc239f8346e36693c5dd8238b20d99088e726c5c12599b2c0575f3b8808b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_item/bindings.rs",
+      "fileSha256": "ec34c5a84a2743908f7766f3915d777cf9b490dc4c0719db9da17cd03d42b1be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_item/law.rs",
+      "fileSha256": "2e0262cad3e21b113218a7e86c928305a6f6789a177e2d96d1abaffab1dc9729",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_item/mechanics.rs",
+      "fileSha256": "1e3f8f1504a246eecd76e61907c687a9bff116e13a5617e82e8e7b1151357e1a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_item/mod.rs",
+      "fileSha256": "31e39428d09ef50625bc850196ebed8c21bd1f863555f354a3eb443a33cfbeed",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_item/set.rs",
+      "fileSha256": "27fda782677af7029e2b466922fe8af527fb130d21ae65197d1cf70e48b2f051",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_spell.rs",
+      "fileSha256": "4ade52ae77db63fddbf151278c46c7d336d5716ede0c2650a747d29cd6b919a7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/tooltip_unit.rs",
+      "fileSha256": "6cc1dfd3205e29ec51ea282ee9cfe1b38aa71c8141cf651abfba9cc6d8ec080c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/visibility.rs",
+      "fileSha256": "10395565083ff67b323119af4245222a0f9c9d0db5401c222ac2cddcb07dbd33",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tests/worldmap.rs",
+      "fileSha256": "8d7cbb0fd8354f76b8845ecdb32877490b6ba738ae8fb6f95b73656be412a326",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tick.rs",
+      "fileSha256": "7dcec227b3758e8d52277970f07bbea2bf8acb69c091284c7a4460334e945729",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip/mod.rs",
+      "fileSha256": "b1f4d029f8bc0982474126bff0a0fe92e969fc2b893254f713cedb5c5e903ac2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip/verbs.rs",
+      "fileSha256": "d4e6fb84a4731ce679cb174de0cbd03ce2fcc00ff34c3d227fd8f36d2f00a0f3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip_item/mod.rs",
+      "fileSha256": "313df768dc9741acdad0c44dfdcad920e53ab4df2302175dae01c7d11004bef2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip_item/names.rs",
+      "fileSha256": "b9d6b8155c68dd9ecc17d350651c89189af5cabc0c7599591333ffdf10e8e4bd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip_item/render.rs",
+      "fileSha256": "dd92b54469dc9149d4db0fe952009884726c34d7184b4579a71a9fe445ccbea4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip_spell.rs",
+      "fileSha256": "cec42b7559c850030c604a9497f1a8e8a8d9f63988ae22bea936a3cfbc7c36c4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tooltip_unit.rs",
+      "fileSha256": "2b66c2fdec920ccb21ce17a4f66a169c77680ca3b4ce049f69b6989166063b8f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/trade.rs",
+      "fileSha256": "0cd60f0504f0e1dc34e7efe211ce8021e4491d29017112665ef0dd688d51e4ab",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tradeskill/api.rs",
+      "fileSha256": "0a9c1b3a7ae80410a3d7d6e633c0f59958c030c9ea81ad43f6ce19631a7ce40e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tradeskill/mod.rs",
+      "fileSha256": "117e37455b86510337e89dd4d4d70f6cf60795d960815b67a9e3162564608bc7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tradeskill/tests.rs",
+      "fileSha256": "1566c7cee1e097ad84b3d8297394b0555fb03fd3e63c6036148eb089dbeb4f8f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/tradeskill/view.rs",
+      "fileSha256": "12959e314815c99a64cc20114f43eb517e837d6544b810b69425c35b4ad67969",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/trainer.rs",
+      "fileSha256": "d8895f4fb2c44e59bffebbe3f2767a26c3595453b1f87beea93a9ddfdc9cb103",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/types.rs",
+      "fileSha256": "ec72c0e387e5c2c05101a400ac13306aaecdf10b52bce12bd3cd490c100f9633",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/unit/bindings.rs",
+      "fileSha256": "d1cc5c055a1b3b0286c82dc16ea2295523ed7dd40a1db27fcdfdd32ba490da35",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/unit/mod.rs",
+      "fileSha256": "80399d983690c662bc9c07eb3261806a0a058682b32631eac01ca1b60e5ab05a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/unit/tests.rs",
+      "fileSha256": "4a6d5652d834f989a5885d25e3495cf8fa6d798781975170570585107b48e8f4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/script/worldmap.rs",
+      "fileSha256": "d01d7a4c0aad8f1b380d0aaa4d0a7aa1c93cae5d5f932f05db0b1044346a83ef",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/toc.rs",
+      "fileSha256": "cf4ff53ae1864676d867616ad6d11ccef772a3795b64e1e15bb3c4bb34eecbe0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/kinds/editbox.rs",
+      "fileSha256": "d4682f9585d9ae65f3f5acaeae33332b4aa5b3534904323269f1c7739c277f57",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/kinds/messageframe.rs",
+      "fileSha256": "fc4c15c29d9833ffab3c2b3c78980862603235434de778ae012d7b02f0e5ee26",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/kinds/mod.rs",
+      "fileSha256": "d208f3fcf28029cfdf901df3cc95a1feccd43de60ff3f7c463a79e2e0a0a69ea",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/mod.rs",
+      "fileSha256": "ff90f7101768a1a7435c67cf02e6b25f5bff5258e180690c97a882bf11aa2dad",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/propagation.rs",
+      "fileSha256": "13633caecc5e7e37b78b9a2db8d2c3f84d451faf1aa5b2f06e912264ed51a880",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-ui/src/widget/tests.rs",
+      "fileSha256": "0ab3215d18f0c512e7846ca10680c8660777fc99b4375cb54248136ecddb9b6c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-visual/Cargo.toml",
+      "fileSha256": "17ec2e0910d7d358f4aaad3519f59578d0f1d8f33f8142a22387ba1d2dd386dc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-visual/src/lib.rs",
+      "fileSha256": "3f35c09fc3ed643e0cabb317745672ee99ed69c4ff3c15cdd8252fc89d2642ee",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-visual/src/main.rs",
+      "fileSha256": "5b20596f7f9fbf4b3e70d84f8b9c170aea95a3d67e434c86a5305017fbeeec01",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-visual/src/relight.rs",
+      "fileSha256": "9c6cec8af4befa83feb710bf919b7a1c4d80c863f34d9196a718b46ec1f41e61",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-wdt/Cargo.toml",
+      "fileSha256": "bf6bfa57445c180206d1ecc15be525871aac49c4583369c8033970245a0215af",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-wdt/src/lib.rs",
+      "fileSha256": "63ebed131be406c5ce49fa6fa0835f1ec9d7de5f3f0afd899bbaf7d09efeeda5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-wmo/Cargo.toml",
+      "fileSha256": "7fda046167341ae10b62022ff0083707c6a998b6f0c0503979efca8906b6a7e8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-wmo/src/lib.rs",
+      "fileSha256": "abf2930f803c34e49bab46391296073389a26dfb47004d1b05a165b9c608905d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla/Cargo.toml",
+      "fileSha256": "666ef9cb0a6330dccc09bbcfcf728916d0bef2b7f36cf2574828464eb32fc1e6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla/build.rs",
+      "fileSha256": "748c1051aa3f1f3f68cad5a91b8ef7cecaf19631a8a7673915a3b5dea49e90bf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla/src/main.rs",
+      "fileSha256": "f6a9ae6153603bc945bdfbaee57b18e8b725fcb8101eea489dc87a414ee24c9c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "fileSha256": "9499564fd7988135e5d9c59a303274a930d1ebc25b42879b9eea38db76cb7230",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "not-applicable",
+  "summary": "Benilla's renderer, script engine, asset/format crates, capture harness, tests, and repo plumbing. MSUI has its own engine; these files are tracked for drift awareness only and are never implementation backlog.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": null,
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

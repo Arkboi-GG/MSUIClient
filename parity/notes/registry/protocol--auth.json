@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--auth",
+  "notes": [
+    {
+      "id": "note-756ecb655718",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the realmd login-protocol-v3 wire: logon challenge (game/platform/OS/locale tags, account), challenge reply (SRP6 inputs + crc_salt + security-flag/PIN consumption), logon proof, proof reply, realm-list request/response. MSUI's RealmClient.cs is a faithful port of all five shapes (same constants, same PIN-block skip, same stream-alignment reads) backed by Srp6Client.cs.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-dc6f612f7980",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: MSUI hardcodes the Windows OS tag, which Benilla only varies for macOS hosts - correct for this Windows-only client.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

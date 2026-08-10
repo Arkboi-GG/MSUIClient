@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--movement",
+  "notes": [
+    {
+      "id": "note-f0f6b2564636",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the shared MovementInfo body (transport/swim-pitch/jump/spline-elevation conditional tails), the six-kind force-speed-change family with CMSG acks, the four granted move modes (root/water-walk/feather-fall/hover) with acks, and the client-uptime timestamp rule. MSUI ports the MovementInfo body byte-for-byte (all four tails, u32 fallTime, uptime clock) and handles root/unroot with acks plus MSG_MOVE_TELEPORT_ACK, but the speed-change and non-root mode families are absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-375d2418e56c",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Entities.ApplyRemotePlayerMove (MSUIClient/Net/Entities.cs:174) is fully written observer-interpolation code with zero call sites; other players currently move only via SMSG_UPDATE_OBJECT/monster-move paths.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

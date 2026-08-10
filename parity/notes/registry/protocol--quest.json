@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--quest",
+  "notes": [
+    {
+      "id": "note-ad8bb3873567",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla implements the full questgiver dialog walk (CMSG_QUESTGIVER_STATUS_QUERY/HELLO/QUERY_QUEST/ACCEPT_QUEST/COMPLETE_QUEST/REQUEST_REWARD/CHOOSE_REWARD, CMSG_QUEST_QUERY) plus the two quest-log verbs (REMOVE, SWAP) and parses the SMSG_QUESTGIVER_* / SMSG_QUESTUPDATE_* / SMSG_QUEST_QUERY_RESPONSE / SMSG_QUESTLOG_FULL set. MSUI matches the whole set except the log-reorder verb.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-b17048bcbdf1",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The quest-share family (CMSG_QUEST_CONFIRM_ACCEPT / SMSG_QUEST_CONFIRM_ACCEPT / CMSG_PUSHQUESTTOPARTY / MSG_QUEST_PUSH_RESULT) is declared out of scope by Benilla itself (messages/quest/mod.rs: 'a separate solo slice'), so those pre-pass entries are not MSUI gaps against this reference.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

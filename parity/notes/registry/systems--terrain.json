@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--terrain",
+  "notes": [
+    {
+      "id": "note-f517263eb708",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): Benilla's terrain.rs is Bevy material/pipeline plumbing (splat ExtendedMaterial, WGSL bindings, per-flag blend/depth specialization for M2/WMO/liquid/WDL). MSUI achieves the observable scene through its own OpenGL pipeline: per-tile ADT splat terrain with height queries, MCLQ liquid with depth fade and submerged tint, foliage, WMO/doodad renderers and WoW-style lighting.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-c6f6bc271c87",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Per-blend-mode byte fidelity (Mod/Mod2x factors, zfill priming, clutter over-blend, WDL horizon band) was not audited item-by-item - those are renderer internals outside this system review's behavioral scope; any visible divergence would surface in dedicated render-parity entries, not here. MSUI's LiquidRenderer deliberately diverges stylistically (Gerstner waves, baked depth fade) from the reference ocean0_s.bls port.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -55,7 +55,12 @@ public sealed partial class GameLoop
         _items = new ItemTemplateCache(displays);
         if (_creatures is not null)
             _creatures.PlayerItemResolver = entry =>
-                (_items.TryGet(entry, out ItemTemplate? item), item);
+            {
+                // Require-then-lookup: the renderer no longer depends on DiscoverItemTemplates
+                // having walked this entity first (ask-once cache, so re-asking is free).
+                if (_items is not null && _net is not null) _items.Require(entry, 0, _net);
+                return (_items!.TryGet(entry, out ItemTemplate? item), item);
+            };
         InitBank();
         InitMail();
         InitAuction();

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/world_map",
+  "title": "world_map",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/world_map.rs",
+      "fileSha256": "ea9e4125415492527913a0d82698cb758ddc03259481690b616487b3464d66a4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Formats/DbcReader.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/LoadingScreen.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI covers the observable behavior of Benilla's world_map module: Map.dbc is loaded as a catalog (directory + LoadingScreenID via DbcReader), the current map is authoritative session state, SMSG_NEW_WORLD performs the cross-map transition in one transaction (TearDownWorldContent, ADT streamer re-targeted to the new map directory, resident centre reset), and the loading screen resolves the map's real art through Map.dbc -> LoadingScreens.dbc.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

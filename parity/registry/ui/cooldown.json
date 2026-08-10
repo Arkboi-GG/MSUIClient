@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/cooldown",
+  "title": "cooldown",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/Cooldown.xml",
+      "fileSha256": "4e39b2aae40b9d1a4e2b28fb487a0fcb8dcf2c5213701ee04f27337b39e288f7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/CooldownVisualLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.ActionBars.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Inventory.cs"
+  ],
+  "status": "support-only",
+  "summary": "Cooldown.xml is the shared CooldownFrame_SetTimer helper feeding a native cooldown widget. MSUI realizes the same shared machinery through CooldownVisualLaw plus the DrawCooldownSwipe/DrawCooldownFlash helpers, used by both the action bars (Program.ActionBars.cs) and bag item slots (Program.Inventory.cs ~line 1278). Not a surface of its own.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

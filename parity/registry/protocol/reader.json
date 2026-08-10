@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/reader",
+  "title": "reader",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/world/reader.rs",
+      "fileSha256": "9b4d1a65fb73abb0f80681d69d89575a3180a0e0788b46d4b2deb0e43c83ddc9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's WorldReader is the net-thread pump: read+decrypt the 4-byte header (u16 BE size, u16 LE opcode), read body=size-2, parse into events, skip-and-tally unparseable packets. MSUI realizes the same framing through WorldSession.ReceivePacket (header decrypt, size-2 body, ReadExactly) plus the NetworkClient worker and the Program.Net.cs dispatch switch; the pump itself has no independent wire contract beyond that framing, which matches.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

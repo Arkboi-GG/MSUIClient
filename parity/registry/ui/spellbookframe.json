@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/spellbookframe",
+  "title": "spellbookframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/SpellBookFrame.xml",
+      "fileSha256": "cba71065815b613b6fccdbda72549b06423fa938f4e2c4fcc8804e6ea109abb3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_spellbook.rs",
+      "fileSha256": "cac5e3af056bbae50207f032f50ac842cbc19d36243a0b494770a767da92a8e5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Spellbook.cs",
+    "MSUIClient/Engine/UI/SpellbookLaw.cs",
+    "MSUIClient/Program.UiPanelOwnership.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/before/frozen-target.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/reference/spellbookframe-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/decision/atomic-disposition.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/after/msui-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/verification/deterministic-2026-08-08.md",
+    "parity/packets/pair-de1462d2f83d2f33/spellbookframe-part-01-packet-14517ee3cf1caf5f/evidence/live/live-visual-gate.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI opens and toggles the spellbook through the bounded host-confirmed adapter, emits the frozen open/close/page-turn cues on transitions and enabled page clicks, and keeps the frozen presentation and the rich-tooltip preserved difference intact. Twenty facts remain explicit implementation gaps (cooldown, checked overlay, input contract, tabs five through eight); 141 implemented facts remain nonterminal, targetless where intentionally post-snapshot, and unverified live; 5 divergent facts remain the recorded tooltip preserved difference.",
+  "openItems": [
+    {
+      "id": "item-claim-spellbookframe-sound-gap-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. SetSpellbookOpen now plays igSpellBookOpen/igSpellBookClose on actual open-state transitions and DrawPageButton plays igAbiliityPageTurn on enabled page clicks, through the shared PlayUiSound path with law-owned cue constants.",
+      "source": "claim-spellbookframe-sound-gap-001",
+      "added": "2026-08-09",
+      "resolved": true
+    },
+    {
+      "id": "item-claim-spellbookframe-host-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Normal P binding and microbutton opens now use the host-confirmed Character/SpellBook replacement pair; close remains surface-owned, and each visible draw derives current tabs, spells, page bounds, title, and buttons from live state.",
+      "source": "claim-spellbookframe-host-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-refresh-support-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI's visible immediate-mode draw re-reads current eligible spells, names, ranks, passive state, and icons each frame, covering the XML-visible refresh result without claiming its event engine.",
+      "source": "claim-spellbookframe-refresh-support-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-cooldown-gap-001",
+      "kind": "gap",
+      "text": "The frozen XML registers cooldown refresh and declares a centered 36x36 Cooldown child, while current DrawSpellButton renders no cooldown child.",
+      "source": "claim-spellbookframe-cooldown-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-selection-gap-001",
+      "kind": "gap",
+      "text": "Skill-line tabs have a checked ring, but spell buttons do not render the frozen current-cast/current-form checked overlay.",
+      "source": "claim-spellbookframe-selection-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-tooltip-preserved-difference-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Spell buttons and skill-line tabs publish through the shared GameTooltip owner arbitration, but MSUI deliberately retains its existing rich spell tooltip and right-column rank presentation.",
+      "source": "claim-spellbookframe-tooltip-preserved-difference-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-input-gap-001",
+      "kind": "gap",
+      "text": "Current DrawSpellButton does not reproduce the frozen shift-click pickup/macro-append branch or full receive-drag contract.",
+      "source": "claim-spellbookframe-input-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-button-grid-presentation-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI preserves the frozen two-column six-row grid, background/ring/icon layering, normal/pushed/hover art, name/rank anchors, passive ring/name treatment, and exact slot geometry.",
+      "source": "claim-spellbookframe-button-grid-presentation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-page-navigation-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI clamps page state per selected skill line, shows the frozen page label and arrow geometry/art, disables boundary arrows, and advances only enabled buttons.",
+      "source": "claim-spellbookframe-page-navigation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-skill-tabs-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI preserves the frozen right-rail tab background, icon, selected and hover overlays, tooltips, 49-unit stride, and exact first-four anchors used by the current MaxClassTabs=4 model.",
+      "source": "claim-spellbookframe-skill-tabs-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-tabs-five-eight-gap-001",
+      "kind": "gap",
+      "text": "The frozen window declares eight skill-line tab seats, while current SpellbookLaw.MaxClassTabs is four and DrawSpellbook truncates the model.",
+      "source": "claim-spellbookframe-tabs-five-eight-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-spellbookframe-window-presentation-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI preserves the 384x512 left-window content, icon and four quadrant layering, title/page typography anchors, exact close-button geometry/art, and close through the native setter.",
+      "source": "claim-spellbookframe-window-presentation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-known-12",
+      "kind": "gap",
+      "text": "Cooldown child overlay, checked overlay, shift-click behavior, and tabs 5-8 (blocked on unpromoted dependency packets).",
+      "source": "session-memory-2026-08-08",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-spellbookframe-file-boundary-001",
+    "claim-spellbookframe-dbc-model-support-001",
+    "claim-spellbookframe-sound-gap-001",
+    "claim-spellbookframe-host-lifecycle-001",
+    "claim-spellbookframe-refresh-support-001",
+    "claim-spellbookframe-cooldown-gap-001",
+    "claim-spellbookframe-selection-gap-001",
+    "claim-spellbookframe-tooltip-preserved-difference-001",
+    "claim-spellbookframe-input-gap-001",
+    "claim-spellbookframe-button-grid-presentation-001",
+    "claim-spellbookframe-page-navigation-001",
+    "claim-spellbookframe-skill-tabs-001",
+    "claim-spellbookframe-tabs-five-eight-gap-001",
+    "claim-spellbookframe-window-presentation-001",
+    "claim-spellbookframe-comment-token-notruntime-001"
+  ],
+  "traces": [
+    "trace-spellbookframe-file-boundary-001",
+    "trace-spellbookframe-dbc-model-support-001",
+    "trace-spellbookframe-sound-gap-001",
+    "trace-spellbookframe-host-lifecycle-001",
+    "trace-spellbookframe-refresh-support-001",
+    "trace-spellbookframe-cooldown-gap-001",
+    "trace-spellbookframe-selection-gap-001",
+    "trace-spellbookframe-tooltip-preserved-difference-001",
+    "trace-spellbookframe-input-gap-001",
+    "trace-spellbookframe-button-grid-presentation-001",
+    "trace-spellbookframe-page-navigation-001",
+    "trace-spellbookframe-skill-tabs-001",
+    "trace-spellbookframe-tabs-five-eight-gap-001",
+    "trace-spellbookframe-window-presentation-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T03:59:55.573251+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

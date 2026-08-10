@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/craftframe",
+  "title": "craftframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/CraftFrame.xml",
+      "fileSha256": "44d42e921c574f2d1b1993610ce3923a7c5f216ed8f977b62f08cc7c26ea5e1a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_craft.rs",
+      "fileSha256": "68a1889b5934b60c03ce3ebb2bdc306f79bcb05aece2c598538d6897fb98fd50",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Professions.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ProfessionPanelOpenerLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.UiPanelOwnership.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI implements the Craft window through its shared profession panel: ProfessionPanelOpenerLaw forks effect-47 openers into TradeSkill vs Craft by EffectMiscValue (exactly the reference law), Program.UiPanelOwnership registers 'BenillaCraftFrame' in the left panel area, and DrawProfessionFrame renders the 384x512 four-quadrant shell with skill name + value/max, an 8-row difficulty-colored recipe list with wheel scroll, product icon/name, reagent grid with have/need counts, tool and spell-focus requirement lines, and Create / Create All / Exit-Cancel buttons with batch casting.",
+  "openItems": [
+    {
+      "id": "item-triage-7d0ca691",
+      "kind": "gap",
+      "text": "No rank StatusBar (BenillaCraftRankFrame) - skill shown as plain 'value / max' text, no bar fill",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f8604a59",
+      "kind": "gap",
+      "text": "No scrollbar widget on the recipe list (Benilla ships the faux-scroll kit with up/down buttons; MSUI is mouse-wheel only)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3f721ff4",
+      "kind": "gap",
+      "text": "No expand/collapse header row or CollapseAll button (Benilla ships them, engine no-op; MSUI omits entirely)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-17312cff",
+      "kind": "gap",
+      "text": "No craft description/subtext lines (BenillaCraftDescription, $parentSubText) in the detail pane",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

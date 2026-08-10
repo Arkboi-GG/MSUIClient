@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--channel",
+  "notes": [
+    {
+      "id": "note-e33819cf4b48",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the full chat-channel subsystem: CMSG_JOIN/LEAVE_CHANNEL, CMSG_CHANNEL_LIST/PASSWORD/OWNER/SET_OWNER/MODERATOR/UNMODERATOR/MUTE/UNMUTE/INVITE/KICK/BAN/UNBAN/ANNOUNCEMENTS/MODERATE (shared cstrings body), SMSG_CHANNEL_NOTIFY (32 notice types with per-notice tails), and SMSG_CHANNEL_LIST (roster). MSUI has none of it - the only trace is a comment in Engine/UI/ChatFrameLaw.cs; no channel opcode exists even in Net/Opcodes.cs.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

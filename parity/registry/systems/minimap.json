@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/minimap",
+  "title": "minimap",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/minimap/blips/dots.rs",
+      "fileSha256": "f9a79411d87b644020381d8af982e327e0606fa22c9dc533f9189562ff03c0e3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/minimap/blips/mod.rs",
+      "fileSha256": "c65a1b3ed82d809c9c5b0bbfbf3ac0b3c318fc239fb8f63ab545359b86303194",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/minimap/interior.rs",
+      "fileSha256": "444ff3319dc01418b8a156049712370f725268deffc4c76fac32b687f6c121b2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/minimap/mod.rs",
+      "fileSha256": "6bdfa260b9fec99063c84c706fcd4688a4678d3b9bd96bd97556b950bf2d2110",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Minimap.cs",
+    "MSUIClient/Program.GameObjects.cs"
+  ],
+  "status": "partial",
+  "summary": "The tile plane is right: md5translate.trs-resolved per-ADT minimap BLPs drawn as a continuous 3x3 neighborhood under a fixed player arrow, 6 zoom steps on wheel + the authored ZoomIn/ZoomOut buttons, circular mask/cluster art, zone detection from ADT area ids driving CMSG_ZONEUPDATE, the tracking button (active tracking aura icon in the MiniMap-TrackingBorder, right-click cancels), the mail icon, party dots, and a resource-node dot layer gated on PLAYER_TRACK_RESOURCES with a GO-template-named hover tooltip through the shared GameTooltip lifecycle. But most of Benilla's byte-verified blip and interior law is absent.",
+  "openItems": [
+    {
+      "id": "item-triage-533375b0",
+      "kind": "gap",
+      "text": "No interior (WMO) minimap: no portal flood-fill group selection, no interior tile stems, and no separate indoor zoom index/radius table {150,120,90,60,40,25} - indoors keeps showing the outdoor ADT plane",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4b93bf75",
+      "kind": "gap",
+      "text": "Outdoor zoom radii are ad-hoc (halfTile = 0.10 + zoom*0.025 tiles, ~53-120 yd) instead of the verified chunk table {14,12,10,8,6,4}*0.5*33.33 yd (~67-233 yd), so every zoom level shows a different world radius than 1.12",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-263a3f31",
+      "kind": "gap",
+      "text": "AreaPOI landmark layer missing: no in-range POIIcons cells (Flags&2 rows) and no nearest-3 rotating rim arrows ranked by signed Importance within 694.44 yd",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a5d240b9",
+      "kind": "gap",
+      "text": "Quest-giver dots missing: DIALOG_STATUS 7 (REWARD2) never draws the gold cell-3 dot",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-72f8ef8c",
+      "kind": "gap",
+      "text": "Tracked-creature dots missing: Find Creatures / Hunter's Mark red cell-1 dots are not drawn (only the resource leg exists)",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-36a7dc59",
+      "kind": "gap",
+      "text": "Outdoor tiles are drawn untinted - the reference's day-night MODULATE (ambient/diffuse lerp with +96 floor) is not applied",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-7a7a0761",
+      "kind": "gap",
+      "text": "No corpse blip after death",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

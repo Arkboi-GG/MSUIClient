@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/self_movement",
+  "title": "self_movement",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/world/writer/self_movement.rs",
+      "fileSha256": "7b85ea8bf4827791ff56935210fde92f7687970786f3611d64847d173f25d8e2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's self-mover wire: the MSG_MOVE_* stream, spline-done ack, worldport ack, teleport ack (full guid), the four forced-speed-change acks, and the granted move-mode ack family (root/unroot/water-walk/feather-fall/hover). MSUI implements the MSG_MOVE_* transition stream with correct MovementInfo tails (LocalMovementSender + MovementInfo.Write), MSG_MOVE_TELEPORT_ACK receive+full-guid reply, CMSG_MOVE_WORLDPORT_ACK, and the root/unroot ack pair, but none of the speed-change or remaining mode acks and no spline-done.",
+  "openItems": [
+    {
+      "id": "item-triage-0b0572bb",
+      "kind": "gap",
+      "text": "CMSG_MOVE_SPLINE_DONE never sent - a server-authored spline addressed to the player (taxi end, charge, knockback) is never acked, so vmangos SplineDonePending relocation/rebroadcast is left to its timeout fallback",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b5848620",
+      "kind": "gap",
+      "text": "SMSG_FORCE_RUN/RUN_BACK/SWIM/WALK_SPEED_CHANGE (and turn-rate) have no handler and CMSG_FORCE_*_SPEED_CHANGE_ACK is never sent - Benilla documents the ack as mandatory (server force-resolves after ~4 s and flags anticheat)",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e152374a",
+      "kind": "gap",
+      "text": "Granted move-mode acks CMSG_MOVE_WATER_WALK_ACK / CMSG_MOVE_FEATHER_FALL_ACK / CMSG_MOVE_HOVER_ACK missing (only root/unroot is acked); un-acked, the server never applies the mode",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

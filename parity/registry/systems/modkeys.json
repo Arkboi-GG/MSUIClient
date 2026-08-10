@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/modkeys",
+  "title": "modkeys",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/modkeys.rs",
+      "fileSha256": "0bd16019ad937cb03221d0ccc88ebbaec9f81add459959e696cb567c4b893eb8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "not-applicable",
+  "summary": "Benilla's modkeys.rs is a macOS-only workaround for winit/Bevy stuck-modifier state after system shortcuts (ShiftCmd5 overlay) swallow flagsChanged release events - it polls NSEvent.modifierFlags and releases stuck keys. MSUI is a Windows client on Silk.NET/ImGui with a different input stack; the specific platform bug this module exists for cannot occur there, and no MSUI-relevant observable behavior corresponds to it.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--ui_follow",
+  "notes": [
+    {
+      "id": "note-43479492921a",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): No auto-follow exists in MSUI at any layer: no follow movement mode, no /follow or FollowUnit entry point, no AUTOFOLLOW_BEGIN/AUTOFOLLOW_END transitions, and no AutoFollowStatus 'Following %s.' / 'You stop following %s.' fading status line.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-240229a6bf24",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Benilla's module is only the UI bridge over its player-side follow mode; MSUI lacks both halves, so this is one missing feature, not two.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

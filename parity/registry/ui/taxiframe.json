@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/taxiframe",
+  "title": "taxiframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/TaxiFrame.xml",
+      "fileSha256": "ab4ae55de67bdb691e48571419fcde229d841255e15ce66a54f22d2d4f7d6140",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_taxi/mod.rs",
+      "fileSha256": "c8c95beaa86aa514a738b841b01e5e67d7b1265600929eb971eaf180be7f472b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_taxi/routing.rs",
+      "fileSha256": "00ac1e55b706edd7f0074c9accace09ffb12a282fa9ca3dba96adc2c28b18638",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Taxi.cs",
+    "MSUIClient/Formats/TaxiNodeCatalog.cs"
+  ],
+  "status": "partial",
+  "summary": "Program.Taxi.cs covers the session and the window: eligibility/distance gating, CMSG_TAXINODE_STATUS_QUERY, CMSG_TAXIQUERYNODES, SMSG_SHOWTAXINODES decode (mask -> known nodes), the 384x512 UI-TaxiFrame four-piece shell, the continent TAXIMAP texture in the 316x352 rect, node icons projected from TaxiNodes.dbc, click-to-fly (CMSG_ACTIVATETAXI), name/You-are-here tooltip, SMSG_ACTIVATETAXIREPLY, flight spline playback with input lockout and arrival hand-off, flight-master title text. Concrete Benilla/ref behaviors are absent.",
+  "openItems": [
+    {
+      "id": "item-triage-7909e5b6",
+      "kind": "gap",
+      "text": "No route lines: the ref/Benilla draw single-hop spokes from the current node plus the full (multi-hop) route on hover via TaxiRouteFrame textures; MSUI draws nothing between nodes",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a94324d4",
+      "kind": "gap",
+      "text": "No fare display: ref shows the destination cost (GameTooltip money line); MSUI tooltip has name only",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-117cdf7d",
+      "kind": "gap",
+      "text": "Only two icon states (green current / yellow other): the REACHABLE-white vs DISTANT-yellow distinction is absent",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-d06f91f6",
+      "kind": "gap",
+      "text": "No CMSG_ACTIVATETAXIEXPRESS path (edge-less multi-hop chain activation) and no SMSG_NEW_TAXI_PATH first-visit learn handling (registry's two missing opcodes)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b8395b41",
+      "kind": "gap",
+      "text": "No ERR_TAXINOPATHS error toast on a no-single-hop-destination refusal",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3e250db4",
+      "kind": "gap",
+      "text": "No flight-master portrait on the window's portrait ring",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3242e451",
+      "kind": "gap",
+      "text": "Node placement uses a bespoke bounding-box normalization over the continent's node extents rather than the WorldMapContinent projection - icon positions likely drift from the authored map",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

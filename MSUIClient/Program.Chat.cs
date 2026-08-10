@@ -9,6 +9,8 @@ public sealed partial class GameLoop
 {
     // ── functional-input state (stage 3) ──────────────────────────────────────
     private string _chatInput = "";
+    private bool _chatEditCursorToEnd;
+    private ImGuiInputTextCallback? _chatEditCallback;
     private bool _chatEditJustOpened, _chatEditActivated;
     // Sender GUIDs already NAME_QUERY'd, so an unresolved sender is asked once.
     private readonly HashSet<ulong> _chatNameQueried = [];
@@ -433,8 +435,10 @@ public sealed partial class GameLoop
         {
             if (_chatEditJustOpened) { ImGui.SetKeyboardFocusHere(); _chatEditJustOpened = false; }
             ImGui.SetNextItemWidth(inW);
+            unsafe { _chatEditCallback ??= ChatEditCursorCallback; }
             bool submit = ImGui.InputText("##chat-edit", ref _chatInput, 255,
-                ImGuiInputTextFlags.EnterReturnsTrue);
+                ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackAlways,
+                _chatEditCallback);
             bool active = ImGui.IsItemActive();
             if (active) _chatEditActivated = true;
             if (submit) SubmitChat();
@@ -452,6 +456,28 @@ public sealed partial class GameLoop
         _chatEditActivated = false;
         _chatInput = "";
         _chatSendType = ChatFrameLaw.MsgType.Say;
+    }
+
+    /// <summary>ChatFrame_SendTell: open the edit box pre-filled (e.g. "/w Name ").</summary>
+    private void OpenChatEditWith(string prefill)
+    {
+        OpenChatEdit();
+        _chatInput = prefill;
+        _chatEditCursorToEnd = true;
+    }
+
+    // Focus via SetKeyboardFocusHere selects the whole buffer, so the first keystroke would
+    // replace a prefill; the one-shot callback parks the caret at the end instead.
+    private unsafe int ChatEditCursorCallback(ImGuiInputTextCallbackData* data)
+    {
+        if (_chatEditCursorToEnd)
+        {
+            data->CursorPos = data->BufTextLen;
+            data->SelectionStart = data->BufTextLen;
+            data->SelectionEnd = data->BufTextLen;
+            _chatEditCursorToEnd = false;
+        }
+        return 0;
     }
 
     private void CloseChatEdit()

@@ -1,0 +1,414 @@
+# MSUI ⇄ Benilla implementation backlog
+
+_Generated 2026-08-10 03:22 UTC by tools/rebuild_backlog.py — do not edit; edit registry/*.json instead._
+
+## 1. Divergences awaiting Nico's ruling
+
+MSUI differs from Benilla. Each needs one of: port the Benilla behavior, or record a
+decision in `decisions/` preserving MSUI (allowed only when `deviationPolicy: ui-allowed`).
+
+- **systems/ui_party** (must-match): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI intentionally keeps /partytest and Benilla's synthetic local roster sandbox absent.  ← `claim-group-synthetic-preserve-001`
+- **ui/buffframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Both clients have complete aura-bar presentation; MSUI's established anchor, 35-pixel row spacing, compact timer style, tooltip placement, and stack typography are preserved because they are present differences, not gaps.  ← `claim-buffframe-layout-001`
+- **ui/castingbar** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's existing centered custom cast-label typography is complete and intentionally preserved instead of being replaced by Benilla's GameFontHighlight declaration.  ← `claim-castingbar-text-001`
+- **ui/characterframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI already had complete character statistics, resistances, and tooltips; its broad panels, Attack/Ranged labels and values, damage format, and no-ranged semantics are preserved instead of adopting Benilla's different presentation.  ← `claim-characterframe-stats-001`
+- **ui/characterframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Held rotation, release sounds, and model-pane auto-equip are present; MSUI's established zero facing and 0.12-radian tap are deliberately preserved instead of Benilla's different constants.  ← `claim-characterframe-model-001`
+- **ui/characterframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete native character-frame composition is preserved; no Benilla coordinate, tab, background-slice, or header difference is treated as authorization to replace it.  ← `claim-characterframe-layout-001`
+- **ui/fonts** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The object, face, size, color, and THICK outline are preserved, but MSUI intentionally retains anti-aliased rather than frozen monochrome glyph rasterization.  ← `claim-fonts-number-small-monochrome-001`
+- **ui/gamemenuframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete existing game-menu composition is preserved; only missing behavior was added, and Benilla's different Era ladder did not replace present MSUI controls.  ← `claim-gamemenu-layout-001`
+- **ui/gamemenuframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's modal ownership, pushed micro-menu state, and blocked bag input are equivalent; its existing bag-bar presentation is preserved instead of adding Benilla's temporary disabled tint.  ← `claim-gamemenu-lifecycle-001`
+- **ui/gametooltip** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Existing MSUI tooltip presentations retain their current shell, Thicken treatment, and pixel choices under the preserve-present-differences decision.  ← `claim-gametooltip-existing-presentations-001`
+- **ui/gametooltip** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI preserves its present equipment-comparison presentation rather than reproducing the frozen two-frame ShoppingTooltip XML shell.  ← `claim-gametooltip-shopping-pair-001`
+- **ui/gametooltip** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI preserves its current minimap tooltip presentation and anchoring rather than normalizing it to the frozen adapter.  ← `claim-tooltip-minimap-presentation-001`
+- **ui/inspectframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The reference-visible InspectFrame composition is present while MSUI-native rendering and left-panel plumbing are deliberately preserved.  ← `claim-inspect-frame-composition-001`
+- **ui/partyframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). The user-directed target presentation difference is intentionally preserved while missing containment, state, and lifecycle work is added, but that preserved presentation remains unverified.  ← `claim-partyframe-template-001`
+- **ui/spellbookframe** (ui-allowed): MSUI diverges from Benilla — decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Spell buttons and skill-line tabs publish through the shared GameTooltip owner arbitration, but MSUI deliberately retains its existing rich spell tooltip and right-column rank presentation.  ← `claim-spellbookframe-tooltip-preserved-difference-001`
+
+## 2. Known gaps — implement these
+
+- **protocol/area_trigger**: CMSG_AREATRIGGER: no builder/sender anywhere (client never reports entering a trigger volume)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/area_trigger**: SMSG_AREA_TRIGGER_MESSAGE: no handler (server refusal text such as level gates is dropped)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/attack**: SMSG_AI_REACTION: opcode-table entry only (Net/Opcodes.cs:290), no handler in the Program.Net.cs dispatch - the creature aggro/alert notice (raw u64 guid + u32 reaction) is never parsed  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/bank**: CMSG_AUTOBANK_ITEM: absent (deposit uses CMSG_SWAP_ITEM with a client-picked bank slot instead of letting the server choose the first free slot)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/bank**: CMSG_AUTOSTORE_BANK_ITEM: absent (withdraw likewise diverges from the reference right-click auto-move wire)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/channel**: CMSG_JOIN_CHANNEL / CMSG_LEAVE_CHANNEL: no senders - custom/world channels cannot be joined  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/channel**: CMSG_CHANNEL_* moderation family (LIST, PASSWORD, OWNER, SET_OWNER, MODERATOR, UNMODERATOR, MUTE, UNMUTE, INVITE, KICK, BAN, UNBAN, ANNOUNCEMENTS, MODERATE): no senders  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/channel**: SMSG_CHANNEL_NOTIFY: no handler (join/leave/kick/invite/owner notices with typed tails are undecodable)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/channel**: SMSG_CHANNEL_LIST: no handler (member roster)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: chatTag trailing byte is read but discarded - no <AFK>/<DND>/<GM> sender prefix behavior  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: target_guid (the monster shapes' macro subject) is discarded and no $-macro expansion runs for the 8 wire-gated types (monster say/yell/emote/whisper, BG_SYSTEM_*, RAID_BOSS_EMOTE) - '$n has taken the flag!' style lines stay literal  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: SMSG_CHAT_PLAYER_NOT_FOUND: no handler (bad whisper target is silent)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: SMSG_CHAT_WRONG_FACTION: no handler  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: CMSG_PLAYED_TIME / SMSG_PLAYED_TIME: absent (/played)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: MSG_RANDOM_ROLL: absent (both request and broadcast shapes)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: CMSG_TEXT_EMOTE: no sender; SMSG_TEXT_EMOTE is opcode-table-only with no handler  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/chat**: CMSG_CHAT_IGNORED: absent  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: Entire CMSG_CHANNEL_* / JOIN/LEAVE_CHANNEL builder family: absent  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: CMSG_PLAYED_TIME: absent  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: MSG_RANDOM_ROLL request body: absent  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: CMSG_TEXT_EMOTE (u32 textId, u32 emoteNum, u64 target): absent - /wave etc. cannot be sent  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: CMSG_PET_NAME_QUERY (pet number + guid): absent - NPC-summoned pets stay nameless  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: CMSG_MOVE_SPLINE_DONE: opcode-table-only (Net/Opcodes.cs:269), never built/sent after server-driven splines  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: CMSG_FORCE_*_SPEED_CHANGE_ACK: only the RUN opcode is in the table (0x00E3) with no handler for SMSG_FORCE_RUN_SPEED_CHANGE and no ack builder - server speed changes are never acknowledged (vmangos will kick/rubber-band)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/client**: move-flag acks for water-walk/feather-fall/hover (move_flag_ack with apply dword): absent - only the root/unroot ack exists  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/death**: MSG_CORPSE_QUERY: absent entirely (no empty-body request, no found/not-found response parse) - no corpse marker, and the unprompted bones-conversion not-found push is dropped  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/death**: SMSG_SPIRIT_HEALER_CONFIRM: absent (no handler for the gossip-driven spirit-healer confirm guid)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/duel**: SMSG_DUEL_REQUESTED / SMSG_DUEL_COUNTDOWN / SMSG_DUEL_INBOUNDS / SMSG_DUEL_OUTOFBOUNDS / SMSG_DUEL_COMPLETE / SMSG_DUEL_WINNER: no handlers  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/duel**: CMSG_DUEL_ACCEPTED / CMSG_DUEL_CANCELLED: no senders (arbiter-guid echo)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Cooldown follow-ups: SMSG_COOLDOWN_EVENT, SMSG_CLEAR_COOLDOWN, SMSG_ITEM_COOLDOWN, SMSG_COOLDOWN_CHEAT (only SMSG_SPELL_COOLDOWN is handled)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Group loot rolls: SMSG_LOOT_START_ROLL, SMSG_LOOT_ROLL, SMSG_LOOT_ROLL_WON, SMSG_LOOT_ALL_PASSED  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Mirror timers: SMSG_START/PAUSE/STOP_MIRROR_TIMER (breath/fatigue)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: SMSG_WEATHER; SMSG_PLAY_SOUND / SMSG_PLAY_MUSIC / SMSG_PLAY_OBJECT_SOUND  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: SMSG_SET_PROFICIENCY; SMSG_EXPLORATION_EXPERIENCE; SMSG_LEVELUP_INFO is handled but SMSG_SPELL_UPDATE_CHAIN_TARGETS is not  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Mount feedback: SMSG_MOUNTRESULT, SMSG_DISMOUNTRESULT, SMSG_MOUNTSPECIAL_ANIM  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Taxi extras: SMSG_NEW_TAXI_PATH, CMSG_ACTIVATETAXIEXPRESS (base taxi node/activate flow IS implemented)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: SMSG_SPLINE_SET_* speed family and the SMSG/CMSG_FORCE_* speed-change/ack family (root/unroot is the only handled force pair)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: SMSG_INVENTORY_CHANGE_FAILURE; SMSG_ITEM_ENCHANT_TIME_UPDATE; SMSG_PET_NAME_QUERY_RESPONSE  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/events**: Whole missing subsystems already reported per-entry: channel, duel, corpse query, area-trigger message, played time, random roll, chat player-not-found/wrong-faction, spirit-healer confirm, durability-damage-death  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/gossip**: Greeting selection: GossipPackets.ParseText keeps only block 0 of the 8 SMSG_NPC_TEXT_UPDATE blocks (probabilities skipped), instead of Benilla's select_greeting weighted draw with NPC-gender column choice - multi-block NPC texts always show the first block regardless of weights  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/guid**: pet_number() extraction and its consumer CMSG_PET_NAME_QUERY are absent - the one guid decode Benilla ships for pet naming has no MSUI counterpart, so pet guids can never be resolved to names  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/items**: CMSG_OPEN_ITEM: absent - lockboxes/wrapped/openable items cannot be cracked open  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/items**: CMSG_DESTROYITEM (bag, slot, count): absent - items cannot be destroyed  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/items**: CMSG_AUTOSTORE_BAG_ITEM: absent (bag-to-bag auto-store; MSUI only has explicit swap/split)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/items**: SMSG_INVENTORY_CHANGE_FAILURE: no handler - every refused move/equip fails silently with no red error text  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/items**: SMSG_ITEM_ENCHANT_TIME_UPDATE: no handler (temporary enchant countdown updates dropped)  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/lib**: Ambiguous-B redial: Benilla redials the logon challenge (up to 8 times) when the server's SRP6 public key B is not width-stable (~1 in 137 dials), because those handshakes can fail proof verification despite a correct password; MSUI's RealmClient.Logon dials exactly once, so roughly 0.7% of logons can spuriously reject a correct password  ← `triage-2026-08-09/batch-protocol-1.json`
+- **protocol/loot**: CMSG_LOOT_ROLL (u64 lootedTarget, u32 itemSlot, u8 rollType) has no sender  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/loot**: SMSG_LOOT_START_ROLL not parsed (no roll window/countdown)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/loot**: SMSG_LOOT_ROLL not parsed, including the overloaded (roll_number, roll_type) vote-vs-dice disambiguation Benilla encodes in LootRoll::is_dice  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/loot**: SMSG_LOOT_ROLL_WON not parsed (winner guid rides AFTER the item block)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/loot**: SMSG_LOOT_ALL_PASSED not parsed (note its swapped randomPropId/randomSuffix tail order)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/mirror_timer**: SMSG_START_MIRROR_TIMER not parsed (including the signed scale field and START-as-full-restate semantics)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/mirror_timer**: SMSG_PAUSE_MIRROR_TIMER not parsed  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/mirror_timer**: SMSG_STOP_MIRROR_TIMER not parsed  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/mirror_timer**: No breath/fatigue/feign-death bar state or client-side integration of remaining_ms between packets  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/monster_move**: count==2 linear path: Benilla reads zero offsets (vmangos' last_idx>1 guard writes none); MSUIClient/Net/MonsterMove.cs reads count-1 offsets, so a 2-point path over-runs the body and the packet is dropped (the creature-freeze failure Benilla's decision 0708 documents; only latent on this deploy because the pathfinder emits 3+ points)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/monster_move**: moveType 2 (facing spot) and 3 (facing target guid) are read but discarded - Benilla applies the dictated final facing; MSUI only applies moveType 4 (angle)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/movement**: SMSG_FORCE_{RUN,RUN_BACK,SWIM,SWIM_BACK,WALK}_SPEED_CHANGE / SMSG_FORCE_TURN_RATE_CHANGE not handled and no CMSG_FORCE_*_SPEED_CHANGE_ACK senders (vmangos expects the ack echo; a mount/buff speed change goes unacknowledged)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/movement**: Move-mode grants SMSG_MOVE_WATER_WALK/LAND_WALK, SMSG_MOVE_FEATHER_FALL/NORMAL_FALL, SMSG_MOVE_SET_HOVER/UNSET_HOVER not handled; CMSG_MOVE_WATER_WALK_ACK, CMSG_MOVE_FEATHER_FALL_ACK, CMSG_MOVE_HOVER_ACK never sent  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/movement**: SMSG_SPLINE_SET_* speed packets (non-controlled movers) not handled  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/movement**: Inbound MSG_MOVE_* relays for other players have no dispatch case in Program.Net.cs - Entities.ApplyRemotePlayerMove exists but has no caller  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/names**: CMSG_PET_NAME_QUERY (u32 petNumber + u64 guid) has no sender - a pet's guid embeds a pet number, not a template entry, so CreatureQuery cannot name one  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/names**: SMSG_PET_NAME_QUERY_RESPONSE not parsed (pets/other players' pets stay nameless)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/opcode**: Missing opcode-table families (117 constants): channel administration (CMSG_CHANNEL_* moderation set, SMSG_CHANNEL_LIST/NOTIFY), duel (CMSG_DUEL_ACCEPTED/CANCELLED, SMSG_DUEL_* seven), loot rolls (CMSG_LOOT_ROLL + four SMSG), force-speed acks (five CMSG_FORCE_*_ACK) and their SMSG changes, move-mode acks (WATER_WALK/FEATHER_FALL/HOVER), MSG_MOVE_SET_* relays, SMSG_SPLINE_SET_*, mirror timers (three), world state (SMSG_INIT_WORLD_STATES/UPDATE_WORLD_STATE), weather/sound (SMSG_WEATHER, SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND), cooldown extras (SMSG_CLEAR_COOLDOWN, SMSG_COOLDOWN_EVENT, SMSG_ITEM_COOLDOWN), inventory misc (CMSG_DESTROYITEM, CMSG_AUTOBANK_ITEM, CMSG_AUTOSTORE_BAG_ITEM/BANK_ITEM, CMSG_OPEN_ITEM, CMSG_REPAIR_ITEM, SMSG_INVENTORY_CHANGE_FAILURE), pose/social misc (CMSG_STANDSTATECHANGE, CMSG_TEXT_EMOTE, CMSG_MOUNTSPECIAL_ANIM, CMSG_TOGGLE_PVP, CMSG_PLAYED_TIME, MSG_RANDOM_ROLL, MSG_CORPSE_QUERY), group extras (CMSG_GROUP_* subgroup/raid-convert set, SMSG_GROUP_DESTROYED table entries), pet extras (CMSG_PET_NAME_QUERY, CMSG_PET_SPELL_AUTOCAST), quest (CMSG_QUESTLOG_SWAP_QUEST, CMSG_QUEST_CONFIRM_ACCEPT, MSG_QUEST_PUSH_RESULT), taxi (CMSG_ACTIVATETAXIEXPRESS, SMSG_NEW_TAXI_PATH), misc SMSGs (AREA_TRIGGER_MESSAGE, EXPLORATION_EXPERIENCE, SET_PROFICIENCY, SPIRIT_HEALER_CONFIRM, COMPRESSED_MOVES, MOUNTRESULT/DISMOUNTRESULT, DURABILITY_DAMAGE_DEATH, ITEM_ENCHANT_TIME_UPDATE, PLAYERBINDERROR, SPELL_UPDATE_CHAIN_TARGETS)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Force/spline/relay speed families unhandled: SMSG_FORCE_*_SPEED_CHANGE (6), SMSG_SPLINE_SET_* (6), MSG_MOVE_SET_*_SPEED relays (6)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Move modes unhandled: SMSG_MOVE_WATER_WALK/LAND_WALK, FEATHER_FALL/NORMAL_FALL, SET_HOVER/UNSET_HOVER  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Mirror timers unhandled: SMSG_START/PAUSE/STOP_MIRROR_TIMER  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Duel family unhandled: SMSG_DUEL_REQUESTED/COUNTDOWN/COMPLETE/WINNER/INBOUNDS/OUTOFBOUNDS  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Loot rolls unhandled: SMSG_LOOT_START_ROLL/ROLL/ROLL_WON/ALL_PASSED  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Cooldown extras unhandled: SMSG_CLEAR_COOLDOWN, SMSG_COOLDOWN_EVENT, SMSG_ITEM_COOLDOWN, SMSG_COOLDOWN_CHEAT  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Emotes/AI unhandled: SMSG_EMOTE, SMSG_TEXT_EMOTE, SMSG_AI_REACTION  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: World ambience unhandled: SMSG_WEATHER, SMSG_PLAY_SOUND/MUSIC/OBJECT_SOUND, SMSG_COMPRESSED_MOVES  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/parse**: Misc unhandled: SMSG_LOGIN_SETTIMESPEED, SMSG_TRANSFER_ABORTED, SMSG_INVENTORY_CHANGE_FAILURE, SMSG_AREA_TRIGGER_MESSAGE, SMSG_EXPLORATION_EXPERIENCE, SMSG_SET_PROFICIENCY, SMSG_ITEM_ENCHANT_TIME_UPDATE, SMSG_DURABILITY_DAMAGE_DEATH, SMSG_MOUNTRESULT/DISMOUNTRESULT/MOUNTSPECIAL_ANIM, SMSG_NEW_TAXI_PATH, SMSG_SPIRIT_HEALER_CONFIRM, SMSG_PET_NAME_QUERY_RESPONSE, SMSG_PLAYED_TIME, SMSG_SPELL_UPDATE_CHAIN_TARGETS, SMSG_CHANNEL_LIST, SMSG_CHAT_PLAYER_NOT_FOUND, SMSG_CHAT_WRONG_FACTION, MSG_RANDOM_ROLL, MSG_CORPSE_QUERY  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/pose**: CMSG_STANDSTATECHANGE never sent - no sit/sleep/kneel; observers read our stand state from UNIT_FIELD_BYTES_1 which never changes  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/pose**: CMSG_MOUNTSPECIAL_ANIM never sent - no mounted space-bar flourish broadcast  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/progression**: SMSG_EXPLORATION_EXPERIENCE not parsed - no 'Discovered: <area>' line; the packet is what names the newly explored AreaTable row (the XP itself also rides a separate non-kill XPGAIN)  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/pvp**: CMSG_TOGGLE_PVP never sent - no way to flip the PvP flag from MSUI  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/quest**: CMSG_QUESTLOG_SWAP_QUEST (two u8 log slots) has no sender - quest log entries cannot be reordered  ← `triage-2026-08-09/batch-protocol-2.json`
+- **protocol/self_movement**: CMSG_MOVE_SPLINE_DONE never sent - a server-authored spline addressed to the player (taxi end, charge, knockback) is never acked, so vmangos SplineDonePending relocation/rebroadcast is left to its timeout fallback  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/self_movement**: SMSG_FORCE_RUN/RUN_BACK/SWIM/WALK_SPEED_CHANGE (and turn-rate) have no handler and CMSG_FORCE_*_SPEED_CHANGE_ACK is never sent - Benilla documents the ack as mandatory (server force-resolves after ~4 s and flags anticheat)  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/self_movement**: Granted move-mode acks CMSG_MOVE_WATER_WALK_ACK / CMSG_MOVE_FEATHER_FALL_ACK / CMSG_MOVE_HOVER_ACK missing (only root/unroot is acked); un-acked, the server never applies the mode  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/session**: SMSG_TRANSFER_ABORTED handling not implemented.  ← `session-memory-2026-08-08`
+- **protocol/session**: SMSG_LOGIN_SETTIMESPEED handling not implemented.  ← `session-memory-2026-08-08`
+- **protocol/social**: SMSG_FRIEND_STATUS result byte and online tail are not decoded (ApplyFriendStatus just re-requests CMSG_FRIEND_LIST) - none of the ERR_FRIEND_*/ERR_IGNORE_* results (list full, not found, wrong faction, already, self...) are surfaced to the player as the reference client's chat-frame messages  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/social**: CMSG_WHO builder is hard-coded to the default query with only a player-name substring - no level min/max, guild filter, race/class masks, zone-id list, or free search terms, and no WHO_MAX_ZONES/WHO_MAX_SEARCH_TERMS trimming (the /who filter-string parsing Benilla implements app-side is absent)  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spellbook**: SMSG_ITEM_COOLDOWN unhandled - the proc-triggered 30 s equipped-item use-cooldown never starts client-side  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spellbook**: SMSG_COOLDOWN_EVENT unhandled - SPELL_ATTR_COOLDOWN_ON_EVENT abilities never start their parked cooldown timers  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spellbook**: SMSG_CLEAR_COOLDOWN unhandled - a server-cleared cooldown stays running in the UI  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spellbook**: SMSG_COOLDOWN_CHEAT unhandled - the GM .cooldown wipe is ignored  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spells**: SMSG_SPELL_UPDATE_CHAIN_TARGETS has no handler - the channeled-beam hop list (Drain Life / Mind Flay style, vmangos sends it from SendChannelStart) is dropped, so packet-delivered chain visuals have no data source  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/spells**: GameObject cast mask divergence: WorldSession.BuildCastSpellOnGameObjectBody writes target mask 0x4800 (GAMEOBJECT|0x4000 LOCKED) where Benilla decision 0939 byte-verified the real client sends 0x0800 alone - the LOCKED bit is a client-internal targeting-word bit that never rides the wire  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/taxi**: CMSG_ACTIVATETAXIEXPRESS never sent - MSUI always sends single-hop CMSG_ACTIVATETAXI from the current node, so a destination with no direct TaxiPath edge current->target (Benilla's byte-verified discriminator) cannot be flown  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/taxi**: SMSG_NEW_TAXI_PATH has no handler - the never-visited-node first-contact learn pair is dropped on the floor  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/taxi**: ApplyTaxiNodes rejects bodies under 20 bytes, so the gated-off 4-byte SMSG_SHOWTAXINODES form (leading gate word 0) throws instead of parsing to a no-op as Benilla does (never sent by vmangos, low impact)  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/trade**: CMSG_BUSY_TRADE and CMSG_IGNORE_TRADE are never sent - there is no decline path for an incoming trade request (Benilla's busy/ignore pair)  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/trade**: SMSG_TRADE_STATUS error codes are silently ignored: only 1/2/3/4/7/8/9/12/13 change state; Busy(0/5), NoTarget(6), TargetTooFar(10), WrongFaction(11), IgnoreYou(14), stunned/dead/logout (15-20), TrialAccount(21) and OnlyConjured(22, with its slot-byte tail) produce no user feedback  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/trade**: CloseWindow(12) result/itemLimitCategory tail and the ONLY_CONJURED slot byte are not read (harmless per-packet, but the codes' payloads are unused)  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/trade**: TRADE_STATUS_EXTENDED's enchant_spell_id header field is read and discarded - the enchant-through-trade (non-traded 7th slot spell) display is unimplemented  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/update_object**: Create-time live spline (MOVEFLAG_SPLINE_ENABLED tail) is read and discarded - a creature already mid-walk when it streams into view stands frozen at its create pose until the next SMSG_MONSTER_MOVE (the exact bug Benilla decision 0708 fixed), and the spline id/time_passed/duration/flying/cyclic never reach the entity layer  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/update_object**: Rider TransportPose (MOVEFLAG_ON_TRANSPORT tail in the LIVING block) is discarded - an observed unit standing on a boat/zeppelin/elevator cannot be re-anchored through the transport frame  ← `triage-2026-08-09/batch-protocol-3.json`
+- **protocol/update_object**: UPDATE_FLAG_TRANSPORT path-progress u32 is discarded - the transport GameObject cycle anchor (Benilla decision 0438) is unavailable to any elevator/ship evaluator  ← `triage-2026-08-09/batch-protocol-3.json`
+- **systems/area**: No zone-change splash: entering a new zone/subzone never shows the big center-screen ZoneTextFont/SubZoneTextFont text (both fonts are declared in FontObjectLaw.cs but nothing renders a splash).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/area**: No WMO-interior naming: indoors the area stays the terrain chunk's - a named interior (Lion's Pride Inn whole-WMO override, per-room subzones like Main Hall, the indoor/outdoor dedup) never replaces the zone/subzone texts.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/area**: No zone PvP info: friendly/hostile/contested ownership from the zone's FactionGroupMask vs the player's faction template (and the FFA-arena leaf flag) is not computed or displayed anywhere.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/area_trigger**: CMSG_AREATRIGGER is never sent (no reference anywhere in Net/): when connected, walking into a trigger volume fires nothing server-side - online dungeon/portal teleports, quest explore objectives (areatrigger_involvedrelation), inn rested-state triggers and battleground entrances all silently do not happen.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/area_trigger**: Non-teleport triggers are explicitly ignored (only rows with a local teleport destination fire), whereas the reference reports every entered volume and lets the server decide.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/aura_visual**: Proc 14 translucency: no aura-driven body alpha at all (no stealth/invisibility/ghost fade; grep for stealth/translucency/CreatureModelAlpha in the render stack finds nothing).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/aura_visual**: Proc 1 tint: no aura-driven body color modulation.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/aura_visual**: Proc 11 anim-rate: no freeze of the unit's animation clocks under Ice Block/Petrify-family auras.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/aura_visual**: Base display alpha: CreatureDisplayInfo's CreatureModelAlpha is not applied, so authored-translucent displays (Ghost Wolf) render opaque.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/bindings**: No modifier chords: BindingPair holds bare Silk Key values - SHIFT-/CTRL-/ALT- combinations cannot be bound, and there is no exact-modifier-match rule distinguishing a bare binding from a chorded one.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/bindings**: No per-character binding set: one keybindings.json for everything; the reference's account-vs-character split (and the confirmed switch that deletes the character file) has no counterpart.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/bindings**: Rebindable command coverage is narrower than the reference's engine-wide set (e.g. chat open, autorun, camera zoom are not in the BindingRows table).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/char_create**: The per-race dial-5 label rename (ChrRaces HAIR_/FACIAL_HAIR_ tokens - 'Markings'/'Horns'/'Tusks' per race) is self-documented as deferred; a generic label shows instead.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/char_create**: Glue click sounds are absent (self-documented: no glue audio subsystem on this screen).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/chat_bubble**: No overhead speech bubble for any chat kind: no bubble frame, no lifetime/fade law, no 20 yd gate, no bubble/nameplate mutual exclusion.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/combat_text**: Pet damage never floats: WorldText requires attacker == playerGuid, so an owned pet's hits show nothing - the reference floats pet melee ORANGE (0xFFFF8400) and pet spell GOLD under their own cvars.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/combat_text**: The category timing/scale/fade table is replaced by one flat 1.5 s lifetime: no per-category rise rates, no crit park-and-pop scale animation (~70 px peak settling to 35 px), no plateau/fade-in/fade-out alpha law or shadow law.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/combat_text**: The ranged-basic-shot exception (AttributesEx3 bit-15 -> Auto Shot/Throw numbers float white off the spell-damage log) is not applied - all spell-log damage styles gold.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cooldowns**: SMSG_COOLDOWN_EVENT unhandled and no on_hold state: SPELL_ATTR_COOLDOWN_ON_EVENT spells (Stealth, Feign Death) should park their recovery until the event packet starts it - MSUI starts them at cast time (wrong start) and ignores the packet.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cooldowns**: SMSG_CLEAR_COOLDOWN unhandled: a server-side cooldown clear leaves the client clock running - the button stays visually dark until it expires on its own.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cooldowns**: SMSG_ITEM_COOLDOWN unhandled and records are keyed by spell id only (no cast-item id pair): item-use cooldowns pushed at login/on-use are not reflected.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cooldowns**: SMSG_COOLDOWN_CHEAT unhandled (GM cooldown-off; minor).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cursor**: No world-hover cursor classification: hovering an attackable unit, gossip/vendor/trainer/taxi NPC, or lootable corpse never changes the cursor (no Attack/Speak/Buy/Trainer/Taxi/Loot/Skin modes, no Unable* range-grayed variants).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/cursor**: The default in-world cursor is the OS arrow, not the client's Point.blp art.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/death**: MSG_CORPSE_QUERY is never sent/consumed: the corpse location is known only once the corpse OBJECT streams into range, so there is no corpse position for the run back (no map/minimap corpse marker, no dungeon-entrance stand-in for a corpse inside an instance).  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/death**: SMSG_SPIRIT_HEALER_CONFIRM unhandled: no XP-loss/durability confirm two-step before spirit-healer resurrection - activation is sent directly without the reference's CONFIRM_XP_LOSS popup.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/entities**: Mounts are not rendered: UNIT_MOUNTDISPLAYID is read for UI rules (cast refusal, pet bar) but no renderer consumes it - a mounted unit shows standing on foot with no mount model.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/entities**: SMSG_SPELL_UPDATE_CHAIN_TARGETS unhandled: chain spells (Chain Lightning/Chain Heal) draw no jump beams between targets.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/entities**: No enchant item glow: an enchanted weapon's glow effect (item_glow) has no counterpart.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/entities**: No carried-light: point lights attached to carried items (lanterns/torches on NPCs) are not spawned.  ← `triage-2026-08-09/batch-systems-1.json`
+- **systems/go_templates**: GO template name/highlight never feeds a world hover: no GameObject mouseover tooltip and no GENERIC (type 5) data[1] highlight-eligibility gate, since GameObjects are not hover-pickable at all  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/go_templates**: LockType.dbc cursor-stem chain (PickLock/GatherHerbs/Mine cursor over lockable nodes) has no counterpart - there is no contextual world cursor for GameObjects  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/go_templates**: MO_TRANSPORT (type 15) data0..2 taxiPathId/moveSpeed/accelRate is parsed into Data[] but never consumed - no transport timetable exists  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/interact**: GameObjects and doodads are not mouse-pickable: PickUnit iterates units only, so right-click-to-use a chest/vein/mailbox in the world never happens from the cursor (UseGameObject is reachable only via selection-driven/dev paths)  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/items**: SMSG_ITEM_ENCHANT_TIME_UPDATE is not handled (no opcode case anywhere): temporary-enchant countdown deadlines are never tracked, so no tooltip timer can exist  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/items**: Item tooltips print no enchant lines: SpellItemEnchantment names (abs(id) row, sign->color, Flags&0x2 hide gate, charges/countdown) never reach any tooltip surface - EnchantCatalog is only consumed by the enchant-confirm gate  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/items**: Right-click open/unwrap is absent: no CMSG_OPEN_ITEM path and no LOOTABLE/lock-gate/WRAPPER predicates, so clams, lockboxes and wrapped gifts cannot be opened from the bags (ItemTemplate.Parse even discards the lock id field)  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/loading_screen**: SMSG_TRANSFER_PENDING does not raise the cover: the curtain only rises when SMSG_NEW_WORLD lands, so a portal walk-in shows the old (already-unloading) world for the server's transfer gap where the reference covers immediately  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: No interior (WMO) minimap: no portal flood-fill group selection, no interior tile stems, and no separate indoor zoom index/radius table {150,120,90,60,40,25} - indoors keeps showing the outdoor ADT plane  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: Outdoor zoom radii are ad-hoc (halfTile = 0.10 + zoom*0.025 tiles, ~53-120 yd) instead of the verified chunk table {14,12,10,8,6,4}*0.5*33.33 yd (~67-233 yd), so every zoom level shows a different world radius than 1.12  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: AreaPOI landmark layer missing: no in-range POIIcons cells (Flags&2 rows) and no nearest-3 rotating rim arrows ranked by signed Importance within 694.44 yd  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: Quest-giver dots missing: DIALOG_STATUS 7 (REWARD2) never draws the gold cell-3 dot  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: Tracked-creature dots missing: Find Creatures / Hunter's Mark red cell-1 dots are not drawn (only the resource leg exists)  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: Outdoor tiles are drawn untinted - the reference's day-night MODULATE (ambient/diffuse lerp with +96 floor) is not applied  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/minimap**: No corpse blip after death  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/nameplates**: Names are drawn on the ImGui background draw list, not depth-tested world geometry - walls do not occlude overhead names, where the reference's name batch is depth-test ON  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/nameplates**: NPC subname line missing: the creature-query subname (<Stable Master>) is cached but the overhead block renders only the name line  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/nameplates**: Player AFK/DND/GM prefixes from PLAYER_FLAGS (<AFK><DND><GM> concatenated before the name) are not rendered  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/nameplates**: The combat-flash red-orange pulse (first-priority branch of the shared color selector) is applied to the selection ring but not to the overhead name color  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/names**: The pet naming path is absent: CMSG_PET_NAME_QUERY / SMSG_PET_NAME_QUERY_RESPONSE are not implemented, so a summoned pet (guid carrying a pet number, not a template entry) can never resolve a name  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/names**: SMSG_NAME_QUERY_RESPONSE's race/class/gender triple is discarded (only the name is kept), so the $R/$C/$G macro fallback for un-streamed players has no data source  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/net**: SMSG_TRANSFER_ABORTED is defined in the MSUI opcode table but never handled; aborted far transfers surface nothing.  ← `claim-sessionrs-transfer-aborted-gap-001`
+- **systems/net**: SMSG_LOGIN_SETTIMESPEED is defined in the MSUI opcode table but never handled; server game time and speed are not applied.  ← `claim-sessionrs-time-speed-gap-001`
+- **systems/pending_item_ops**: SMSG_INVENTORY_CHANGE_FAILURE is not handled anywhere (opcode absent from the switch): a server-refused move never unlocks the slots promptly (and surfaces no error) - MSUI substitutes a 5-second timeout, so a refused operation leaves slots dark for up to 5s where the reference unlocks on the failure packet  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: SMSG_FORCE_*_SPEED_CHANGE is not handled (SMSG_FORCE_RUN_SPEED_CHANGE is only an enum constant): server speed grants (mounts, sprint, slows) neither apply locally nor get acked, which the server treats as an unacknowledged forced change  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: Swimming is entirely absent: no swim state/pitch, MSG_MOVE_START_SWIM/STOP_SWIM are never sent, and the SWIMMING flag never joins the outbound stream  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: Granted movement modes - water walk, feather/safe fall, hover, levitate - are neither applied nor acked nor echoed back in the outbound flag mask (SMSG_MOVE_WATER_WALK/SMSG_MOVE_FEATHER_FALL/SMSG_MOVE_SET_HOVER unhandled)  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: SMSG_MOVE_KNOCK_BACK is not handled - no knockback arc or ack  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: A bare self-addressed MSG_MOVE_* from the server (.go forward-style GM move) is not applied to the local mover  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: Transport riding is parse-only: the ONTRANSPORT pose tail is decoded but there is no deck-ride state, no boat-local pose streaming, and no ride-through-worldport handling  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: CMSG_STANDSTATECHANGE (sit/stand) and CMSG_MOUNTSPECIAL_ANIM are never sent  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/player**: The drunk system (DRUNKENSTATE screen effect/gait) has no counterpart  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/portrait**: No pet portrait slot: the pet frame has no baked portrait  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/portrait**: No NPC-interaction portrait: gossip/quest/merchant/trainer/taxi windows never show the bound creature's face where Benilla bakes an 'npc' slot  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/portrait**: Party frames bake no live portraits - PartyFrameUiLaw's source enum only offers the TemporaryPortrait circular stand-in or empty, vs Benilla's party1-4 booth slots  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/quest_markers**: No overhead markers are rendered at all: the status->model dispatch (grey/gold !/?, light-blue ?, attachment-18 seat, 1/L counter-scale, low/raised bob anims) has no counterpart - questgivers show nothing above their heads  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/quest_markers**: No proactive status querying: visible UNIT_NPC_FLAG_QUESTGIVER creatures are never swept on create, and none of the re-ask law (self descriptor watch / packet-epoch sweep, per-unit flag/reaction re-ask, teardown when the questgiver bit drops) exists - status is only fetched on direct interaction or dev command  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/quest_markers**: No flight-master green marker (TalkToMeGreen) either  ← `triage-2026-08-09/batch-systems-2.json`
+- **systems/raid_marks**: No overhead raid-mark billboard on marked world units (Benilla raid_marks.rs: fixed 1x1 world-unit camera-facing quad from the UI-RaidTargetingIcons 4x2 atlas, seated one line-pitch above the unit's overhead name block, bare anchor when no name shows).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/raid_marks**: No nameplate/V-plate raid-icon child, and no plate-vs-billboard mutual exclusion (a plated unit should show the mark on its plate instead of the world billboard).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/raid_marks**: TargetFrame raid-target icon is explicitly classified NOT-DRAWN in Program.UnitFrames.cs:133 - a marked target shows no icon on the target frame either.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/raid_marks**: GroupUiLaw.RaidTargetIndex (the Lua-facing 1..8 index) is defined but never consumed, so no UI surface reflects the tracked board at all.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No zone music or zone/interior ambience (Benilla sound/zone.rs, interior.rs): entering a zone plays nothing; no music/ambience category volumes (Sound Options button is disabled with 'There is no sound subsystem yet' - Program.Settings.cs:636), so the reference CVar defaults (music 0.4, ambience 0.6) have no counterpart.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No footstep audio (sound/footsteps.rs) for self or observed units.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No weather audio and no SMSG_WEATHER handling at all (sound/weather.rs; opcode absent from Program.Net.cs dispatch).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No melee combat impact sounds and no creature vocalizations - aggro/wound/death cries (sound/combat.rs, creature.rs, anim_events.rs).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No emote sounds and no CMSG/SMSG_TEXT_EMOTE sound path (sound/emote.rs; SMSG_TEXT_EMOTE is declared in Opcodes.cs but never dispatched).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No money/coin sounds on loot or coinage change (sound/money.rs) and no item-push pickup cue (SMSG_ITEM_PUSH_RESULT is handled for bags/loot but plays nothing).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No mount/dismount audio (sound/mount.rs) and no sheathe/unsheathe weapon sounds (sound/sheathe.rs - MSUI tracks sheath state on the wire but plays no cue).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No water/liquid loops, underwater muffling, or interior reverb (sound/liquid_loop.rs, water.rs, reverb.rs).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No GameObject sound emitters (sound/gameobject.rs) and no NPC greeting/farewell voice lines on interaction open/close (sound/greeting.rs).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No glue-screen (login/character-select) music or UI sounds outside the world session (sound/glue.rs).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: No exploration fanfare - SMSG_EXPLORATION_EXPERIENCE unhandled (sound/zone.rs ExplorationSounds).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: Server-scripted SMSG_PLAY_SOUND and SMSG_PLAY_MUSIC are not handled - scripted world moments stay silent.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/sound**: Backend is Windows-only MCI; other platforms are observable-but-silent by design (Benilla's mixer plays everywhere a device exists). Listener model is a raw position handed per Play call, not the reference listener-at-character pose/orientation law with pan.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/transport**: Type-15 MO_TRANSPORT boats/zeppelins never move: no TaxiPathNode.dbc timetable build from the template's (taxiPathId, moveSpeed, accelRate) tuple, no (anchor + elapsed) % period sampling - a streamed boat renders frozen at its create pose (if rendered at all).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/transport**: Type-11 TRANSPORT elevators/lifts never move: no TransportAnimation.dbc keyframe path keyed by template entry, no spawn-quat composed sampling.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/transport**: Observed riders are not carried: the on-transport local pose from create blocks and MSG_MOVE_* relays is discarded, so a deck NPC or fellow passenger renders at a stale world pose instead of being composed through the transport's live matrix.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/transport**: No dock/depart behavior, no off-map hiding of a transport sailing another continent's leg.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_follow**: No follow intent path (unit-popup Follow row / slash command) and no follow movement mode to bridge.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_follow**: No AUTOFOLLOW_BEGIN/END equivalent events or on-screen status text with the reference's latched-name and 4-second linear fade semantics.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_hide**: No ALT-Z/TOGGLEUI binding to hide every player-UI surface at once (bars, frames, chat, plates, floating text) while world rendering, keyboard input, and UI state production continue - the screenshot-mode behavior the reference ships.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_session**: The gossip menu has no out-of-range/despawn auto-close - range is checked only at open (Program.Gossip.cs); walking away leaves the menu up until manually closed.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_session**: Trainer, taxi, mail, and bank sessions have no range/despawn lifecycle guard either (open-time range checks only in Program.Trainer.cs; nothing polls after open).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_session**: Range-law inconsistency: the vendor guard uses the byte-verified 5.5556 yd while the quest guard reuses GossipInteractDistance = 6f - Benilla applies the single 5.5556 service gate to every session so window-close and cursor-gray agree.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_session**: No open-NPC portrait feed equivalent (Benilla's InteractNpc collapse for the interaction window's unit-model portrait slot); MSUI interaction windows do not point a live portrait at the NPC.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_text**: No inline markup parsing anywhere: |cAARRGGBB / |r color escapes are not resolved (server- or DBC-supplied colored strings, e.g. quality-color prefixes, would render as literal escape text), where Benilla's markup.rs splits lines into color runs with malformed-escape passthrough.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_text**: No |H...|h hyperlink support: item/player links in chat are neither styled, clickable, nor shift-click insertable (Benilla carries LinkInfo through every wrapped run).  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_text**: |T...|t inline-texture escapes are not stripped, so such a string would show raw markup instead of silently dropping the texture reference.  ← `triage-2026-08-09/batch-systems-3.json`
+- **systems/ui_text**: No general FontString overflow/ellipsize law (Benilla's layout/overflow.rs ellipsize_to_fit) - truncation behavior outside chat wrap is per-panel ad hoc.  ← `triage-2026-08-09/batch-systems-3.json`
+- **ui/actionbar**: CMSG_CANCEL_AUTO_REPEAT never sent - the auto-repeat (wand/Shoot) toggle cannot be cancelled the reference way  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/actionbar**: SMSG_INVENTORY_CHANGE_FAILURE not consumed - item-action failures from the server produce no error line  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/actionbar**: SMSG_MOUNTRESULT / SMSG_DISMOUNTRESULT not consumed - mount action outcomes give no feedback  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/bagframe**: The frozen keyring pushed and hover-highlight state art is not rendered by the current MSUI keyring button.  ← `claim-bagframe-keyring-state-art-gap-001`
+- **ui/bagframe**: The frozen UI-Quickslot-Depress pushed art is not rendered by MSUI bag item slots.  ← `claim-bagframe-slot-depress-art-gap-001`
+- **ui/bagframe**: Keyring pushed+hover art; bag item-slot depress art.  ← `session-memory-2026-08-08`
+- **ui/bankframe**: The six bank-bag popout container windows (Benilla BenillaBankBagFrame1..6, container ids 5..10) do not exist - purchased bank bag slots show ring art only; bags placed there cannot be opened or used  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/bankframe**: No drag-and-drop cursor flow for bank slots (click withdraws whole item by entry; no place-into-specific-slot, no stack split)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/bankframe**: No banker portrait/name title (Benilla binds SetPortraitTexture 'npc' and BANKFRAME_OPENED name)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/bankframe**: No player money display on the window (Benilla BenillaBankFrameMoneyCoin1..3), and no purchase confirmation popup (CONFIRM_BUY_BANK_SLOT) - purchase fires immediately  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/chatframe**: Text emotes do not exist - no /wave //dance/emote alias table and CMSG_TEXT_EMOTE is never sent (Benilla builds the full EMOTE<i>_CMD alias table from GlobalStrings)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/chatframe**: No utility slash commands: /roll (MSG_RANDOM_ROLL), /played (CMSG_PLAYED_TIME), /sit (CMSG_STANDSTATECHANGE), /invite //uninvite //promote group management (CMSG_GROUP_SET_LEADER, CMSG_GROUP_UNINVITE) are all absent from ParseChatCommand  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/chatframe**: No channel join/leave or numbered-channel sends, and SMSG_CHANNEL_NOTIFY is not consumed (channel RECEIVE formatting exists)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/chatframe**: The Combat Log tab does not filter - DrawChatMessages ignores _chatSelectedTab, so both tabs show the same stream  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/chatframe**: Chat menu button is draw-only - the emote/channel popup menu it opens in the reference is unwired  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/combattext**: No aura gain/fade lines (COMBAT_TEXT_SHOW_AURAS default on in Benilla)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/combattext**: No entering/leaving-combat state lines (COMBAT_TEXT_SHOW_COMBAT_STATE default on)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/combattext**: No low-health / low-mana threshold warnings (20% law)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/combattext**: No honor-gained line (COMBAT_TEXT_SHOW_HONOR_GAINED default on)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/comboframe**: Entire ComboFrame surface: five ComboPoint dots (socket/highlight/shine layers), fade-in chain, PLAYER_COMBO_POINTS/PLAYER_TARGET_CHANGED driven show/clear  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/craftframe**: No rank StatusBar (BenillaCraftRankFrame) - skill shown as plain 'value / max' text, no bar fill  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/craftframe**: No scrollbar widget on the recipe list (Benilla ships the faux-scroll kit with up/down buttons; MSUI is mouse-wheel only)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/craftframe**: No expand/collapse header row or CollapseAll button (Benilla ships them, engine no-op; MSUI omits entirely)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/craftframe**: No craft description/subtext lines (BenillaCraftDescription, $parentSubText) in the detail pane  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/deathframe**: No Release Spirit dialog - RequestRepop is only reachable through the live-run dev protocol ('repop' command in Program.LiveRun.cs); a dead player has no UI button to release, and no release countdown text  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/deathframe**: No spirit-healer CONFIRM_XP_LOSS confirmation dialog (25% durability / resurrection sickness texts) - SpiritHealerActivate exists on the wire but no UI asks first  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/deathframe**: Resurrect-request text lacks the reference sickness variants ('...You will be afflicted with resurrection sickness')  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/deathframe**: No RECOVER_CORPSE_IN_INSTANCE variant  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/duelframe**: DUEL_REQUESTED challenge popup (Accept/Decline, igPlayerInvite sound)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/duelframe**: DUEL_OUTOFBOUNDS 10s forfeit-countdown popup with INBOUNDS hide  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/duelframe**: Duel countdown and outcome system-chat lines  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/duelframe**: CMSG_DUEL_ACCEPTED / CMSG_DUEL_CANCELLED sends  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/durabilityframe**: Entire DurabilityFrame surface: inventory-alert status computation (damaged <20% / broken), the 11-region atlas figure, show/hide law, and minimap-relative managed seating  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/errorsframe**: No live UIErrorsFrame: no fixed 512x60 top-anchored 3-line message area with newest-on-top insert, 5s hold and fade  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/errorsframe**: No yellow UI_INFO_MESSAGE class (quest objective-progress toasts) - only red error-styled pushes exist  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/errorsframe**: Parity stub is not wired to real errors (hardcoded message, shown only when armed)  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/friendsframe**: No Send Message button (BenillaFriendsFrameSendMessageButton) - whispering a selected friend requires typing /w manually  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/gossipframe**: No per-row icons: gossip options lack the GOSSIP_ICON-typed textures (Gossip/Vendor/Taxi/Trainer/Binder/Tabard/BattleMaster GossipIcon) and quest rows lack ActiveQuestIcon/AvailableQuestIcon - MSUI renders '> text' / '[level] title' plain rows  ← `triage-2026-08-09/batch-ui-1.json`
+- **ui/grouplootframe**: No GroupLootFrame dialog (icon, name plate, Pass/Need/Greed buttons, countdown StatusBar) exists anywhere in MSUI  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/grouplootframe**: SMSG_LOOT_START_ROLL / SMSG_LOOT_ROLL / SMSG_LOOT_ROLL_WON / SMSG_LOOT_ALL_PASSED not decoded (absent from Opcodes.cs)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/grouplootframe**: CMSG_LOOT_ROLL never sent (no RollOnLoot equivalent)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/grouplootframe**: No bind-on-pickup CONFIRM_LOOT_ROLL confirmation popup  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/grouplootframe**: No 4-frame stacking / UIParent managed-position consumer wired (the GroupLoot placement row in UiParentUiLaw is currently unused)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemref**: No |H...|h chat hyperlink parsing or clickable link regions in the chat frame  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemref**: No ItemRefTooltip (persistent item tooltip parked bottom-center with close button)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemref**: No player-link routing (left-click whisper, right-click FRIEND dropdown, shift-click editbox insert)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemref**: No Ctrl/Shift modifier link behaviors  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: No bag-letter read route: an inventory item with ITEM_FIELD_ITEM_TEXT_ID shows the read hover cursor (InventoryUiLaw.HoverCursor) but right-click never opens the reader; Benilla opens the ItemTextFrame with the mail item-text cache  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: No title FontString (item/object name) or creator 'From,' line  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: No page navigation: MSUI concatenates all fetched pages into one view instead of Prev/Next buttons + current-page number  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: No material variants (Stone/Marble/Bronze corner textures, material text/title color tables) - parchment-only  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: CMSG_READ_ITEM / SMSG_READ_ITEM_OK multi-page book flow absent (matches registry; also a named follow-up in Benilla)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: No open/close sounds (igMainMenuOpen/Close) and no ITEM_TEXT_TRANSLATION progress bar (the latter never fires in Benilla either)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/itemtextframe**: Body text is drawn with the default ImGui font at a rough line-wrap estimate, not the ItemTextFontNormal (Morpheus 15) that FontObjectLaw already defines  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/keybindingspage**: No modifier-chord capture: FirstBindableKeyDown binds bare keys only - ALT-/CTRL-/SHIFT-key combinations cannot be bound  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/keybindingspage**: No mouse button (3/4/5) or mouse-wheel binding capture  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/keybindingspage**: Character Specific Key Bindings checkbox is cosmetic: _characterSpecificBindings is never read by SaveBindings/LoadBindings - no per-character binding set exists  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/keybindingspage**: Stealing a key silently unbinds its previous owner with no KEY_UNBOUND_ERROR-style red warning naming the victim  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/keybindingspage**: Category headers are plain labels - no collapse/expand sections and no binding search  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/lootframe**: No loot-window sounds (reference LootFrame_OnShow plays per-loot-type open kits, e.g. LOOTWINDOWOPENEMPTY); Program.Loot.cs has no PlaySound calls  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/lootframe**: Skull overlay is static corpse art only - fishing loot icon swap not modeled (same reduction Benilla notes for itself)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/macroframe**: No name/icon picker popup (the reference MacroPopup: 20-icon paged grid + name editbox on Okay/Cancel) - macros are created in place and the icon cannot be chosen  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/macroframe**: No General vs Character-specific tab split (reference: two tabbed macro sets; MSUI has one flat 18-slot set)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/macroframe**: No scrollbar on the body editor (reference MacroFrameScrollFrame)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/macroframe**: Macro execution supports only a small command subset, with 'Unsupported macro command' chat fallback (engine scope, noted for honesty)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/macroframe**: No open/close/save sounds (reference keeps igCharacterInfoOpen/Close, gsTitleOptionOK)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/merchantframe**: Request/list/buy basics exist, but frozen left-click PickupMerchantItem and shared cursor-item authority remain incomplete.  ← `claim-merchantframe-row-click-001`
+- **ui/merchantframe**: Typed merchant tooltip subsets exist, but the complete frozen template, live item feed, cursor arbitration, and verification closure remain incomplete.  ← `claim-merchantframe-row-hover-001`
+- **ui/merchantframe**: Buyback commands and partial presentation support exist, but the complete twelve-slot server snapshot and page projection are not implemented.  ← `claim-merchantframe-buyback-page-001`
+- **ui/merchantframe**: Recent buyback remains dependent on the missing authenticated complete buyback snapshot.  ← `claim-merchantframe-recent-buyback-001`
+- **ui/merchantframe**: Repair input, disabled-state fencing, and hover title behavior are implemented, but the frozen reputation-discount cost contract remains missing.  ← `claim-merchantframe-repair-001`
+- **ui/merchantframe**: Merchant show/update/close and money refresh exist, but shared UIPanel left-slot authority and replacement semantics remain incomplete.  ← `claim-merchantframe-lifecycle-001`
+- **ui/merchantframe**: The authored portrait seat exists, but live vendor-GUID portrait resolution is not implemented.  ← `claim-merchantframe-portrait-001`
+- **ui/micromenu**: Tooltip is a single line - no NEWBIE_TOOLTIP_* second paragraph (1.12 ships detailed tips ON by default)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/micromenu**: Binding-key suffix is hardcoded in the labels ('(C)', '(P)', '(Esc)') instead of resolved live from the binding table, so rebinding does not update the tooltips and most buttons show no key at all  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/micromenu**: No talent-button level gating (reference disables/re-labels below level 10)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/minimapcluster**: Zone text is always gold - no PVP-type tinting (friendly green / hostile red / contested orange) and no zone hover tooltip with the territory line  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/minimapcluster**: Zoom buttons never grey at bounds (reference disables ZoomIn at max, ZoomOut at 0) and play no igMiniMapZoomIn/Out sounds  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/minimapcluster**: Minimap toggle plays no igMiniMapOpen/Close sounds  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/minimapcluster**: Mail icon has no 'You have unread mail' hover tooltip  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/minimapcluster**: No day/night indicator, minimap ping, or battlefield/meeting-stone buttons (Benilla also scopes these out)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/mirrortimer**: SMSG_START_MIRROR_TIMER / SMSG_PAUSE_MIRROR_TIMER / SMSG_STOP_MIRROR_TIMER not in Opcodes.cs and never decoded  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/mirrortimer**: No mirror-timer bar UI (colored StatusBar + label + border under the top-center of the screen)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/mirrortimer**: No client-side countdown integration (value + signed rate per tick)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/optionsframe**: No Sound/Audio options page - the Game Menu's Sound Options button is permanently disabled ('no sound subsystem yet', a stale claim now that PlayUiSound exists) despite UI sounds being live  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/optionsframe**: No nameplate options rows (Benilla's Nameplates page: show friendly/enemy plates etc.)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/optionsframe**: No settings search  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/optionsframe**: No per-page Defaults button (only whole-quality presets)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: List shows only the first 6 quests with no scroll offset, wheel, or scrollbar - quests 7..20 are unreachable in the log UI  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: No zone/category headers on the list (Benilla defers too, but MSUI also lacks the flat-list scroll that makes >6 reachable)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: No quest level or difficulty coloring on title rows (reference QuestDifficultyColor law)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: Detail pane has no per-objective progress lines (kill/item counters with done-coloring) - a single cached progress string with a placeholder fallback stands in  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: No rewards section (items/money/spell) in the log detail pane  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: No quest-watch tracking (SHIFT-click watch toggle, on-screen tracker)  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: Abandon sends immediately with no ABANDON_QUEST confirmation popup  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: Share Quest button is permanently disabled (no quest push) - matches Benilla's own v1 stub, noted for completeness  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/questlogframe**: No timed-quest countdown display  ← `triage-2026-08-09/batch-ui-2.json`
+- **ui/spellbookframe**: The frozen XML registers cooldown refresh and declares a centered 36x36 Cooldown child, while current DrawSpellButton renders no cooldown child.  ← `claim-spellbookframe-cooldown-gap-001`
+- **ui/spellbookframe**: Skill-line tabs have a checked ring, but spell buttons do not render the frozen current-cast/current-form checked overlay.  ← `claim-spellbookframe-selection-gap-001`
+- **ui/spellbookframe**: Current DrawSpellButton does not reproduce the frozen shift-click pickup/macro-append branch or full receive-drag contract.  ← `claim-spellbookframe-input-gap-001`
+- **ui/spellbookframe**: The frozen window declares eight skill-line tab seats, while current SpellbookLaw.MaxClassTabs is four and DrawSpellbook truncates the model.  ← `claim-spellbookframe-tabs-five-eight-gap-001`
+- **ui/spellbookframe**: Cooldown child overlay, checked overlay, shift-click behavior, and tabs 5-8 (blocked on unpromoted dependency packets).  ← `session-memory-2026-08-08`
+- **ui/stacksplit**: Vanilla StackSplitFrame visuals absent: UI-MoneyFrame parchment plate, Arrow-Left/Right spinner buttons with disabled states, OKAY/CANCEL UI-Panel-Button faces (MSUI draws an ImGui slider window instead)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/stacksplit**: Frame is anchored at the mouse cursor, not to the owning slot (ref anchors BOTTOMRIGHT of the owner button)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/stacksplit**: Split maximum is stackCount-1 (ref allows splitting up to the full stack count)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/stancebar**: Entire stance bar surface: form buttons (icon/checked/castable tint/cooldown), show/hide on form count, click-to-cast the form spell, hover tooltip  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/stancebar**: Managed bottom-stack reposition on bar show/hide (the law knows the anchor but nothing consumes it)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: No route lines: the ref/Benilla draw single-hop spokes from the current node plus the full (multi-hop) route on hover via TaxiRouteFrame textures; MSUI draws nothing between nodes  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: No fare display: ref shows the destination cost (GameTooltip money line); MSUI tooltip has name only  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: Only two icon states (green current / yellow other): the REACHABLE-white vs DISTANT-yellow distinction is absent  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: No CMSG_ACTIVATETAXIEXPRESS path (edge-less multi-hop chain activation) and no SMSG_NEW_TAXI_PATH first-visit learn handling (registry's two missing opcodes)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: No ERR_TAXINOPATHS error toast on a no-single-hop-destination refusal  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: No flight-master portrait on the window's portrait ring  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/taxiframe**: Node placement uses a bespoke bounding-box normalization over the continent's node extents rather than the WorldMapContinent projection - icon positions likely drift from the authored map  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeframe**: Slot 7 is drawn identically to slots 1-6: the ref separates the 7th 'Will not be traded' slot with its own label/highlight region  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeframe**: Stack counts are not rendered on trade-slot icons  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeframe**: No un-accept path: after clicking Trade the button disables; the ref lets the player retract (CMSG_UNACCEPT_TRADE) - MSUI only resets accept on an item/gold change  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeframe**: No item tooltips on trade slots (GetTradePlayerItem/GetTradeTargetItem tooltip)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeframe**: No partner portrait on the window ring; partner-accept is a text line rather than the ref's highlight glow over the partner column  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: Flat recipe list: no collapsible subclass group headers (+/- fold rows), no Collapse All button  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: No filter dropdowns (subclass filter, inventory-slot filter)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: Skill rank shows as text 'value / max' with no status-bar fill (ref TradeSkillRankFrame is a StatusBar)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: List scrolls by mouse wheel only - no scrollbar widget on the recipe list (the trainer window has one; this one does not)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: No item tooltips on the product icon or reagent rows  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/tradeskillframe**: No creation-count spinner (ref's number input with +/- and the typed count next to Create)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/trainerframe**: Flat list: no collapsible skill-line tree headers and no Collapse All control (Benilla/backport groups services under fold-able skill-line headers)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/trainerframe**: No filter dropdown (Available / Unavailable / Already Known visibility toggles)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/trainerframe**: Title is the hardcoded string 'Trainer' - the NPC's name is never resolved into it  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/trainerframe**: No NPC portrait on the window ring  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/trainerframe**: No player money purse display, and cost renders as plain text rather than the coin-icon money rig with red unaffordable tint  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/uipanels**: The frozen center/fullscreen seat setters, getters, and left-center movement semantics remain outside the bounded Character/SpellBook host adapter.  ← `claim-uipanels-center-fullscreen-authority-gap-001`
+- **ui/uipanels**: MSUI retains surface-owned Escape and close paths, but there is no authoritative frozen global CloseWindows/CloseAllWindows coordinator with the full center-ignore and ordered closure contract.  ← `claim-uipanels-close-windows-gap-001`
+- **ui/uipanels**: The frozen world-item delete confirmation driver and its event-bound hidden frame are not integrated with MSUI's world inventory runtime.  ← `claim-uipanels-delete-item-confirm-gap-001`
+- **ui/uipanels**: The frozen edit-box Enter callback, edit-box frame, input-border slices, anchors, focus, and production key handling remain absent from the Party-only popup renderer.  ← `claim-uipanels-popup-editbox-gap-001`
+- **ui/unitframes**: No PVP icons on player/target frames (Benilla's three-branch UpdatePvP law: Alliance/Horde/FFA) and no CMSG_TOGGLE_PVP anywhere (the registry's missing opcode; Benilla exposes it via /pvp)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitframes**: No elite/rare/rareelite/worldboss classification border swap on the target frame (Benilla landed CheckClassification)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitframes**: No rest icon/status glow on the player frame (Program.UnitFrames.cs lines 125-134 self-declare PlayerRestIcon, PlayerStatusGlow, PlayerAttackIcon etc. NOT-DRAWN)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitframes**: No leader/master-looter icons and no group indicator plate  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitframes**: No right-click dropdown wired to the player/target frames themselves (the unit popup opens only from party frames and world-click)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitpopup**: SELF menu now opens with Leave party, but the loot method/threshold submenus and loot-promote rows are still deferred (no CMSG_LOOT_METHOD sender)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitpopup**: No Duel row (CMSG_DUEL semantics)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitpopup**: Follow row was a dead stub; now hidden outright (reference deferral pattern) until a follow movement mode exists — see systems/ui_follow  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/unitpopup**: No auto-timeout/hover-away close; the card look is bespoke buttons rather than the vanilla menu rows  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/worldmapframe**: No click-to-navigate (ProcessMapClick): a continent view's zones cannot be clicked into, and arbitrary zones cannot be viewed - only own-zone <-> own-continent toggling  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/worldmapframe**: No continent/zone dropdown pickers  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/worldmapframe**: No exploration/discovery overlays (explored sub-areas painting their detail over the base parchment)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/worldmapframe**: No hovered-area highlight (ADD-blend zone highlight) and no hovered-area label pair  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/worldmapframe**: Player blip is a plain circle with no facing (Benilla spins MinimapArrow art by GetPlayerFacing)  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/zonetext**: Zone-name splash on NEW_AREA/INDOORS zone change (fade-in/hold/fade-out) with the cached-zone-text change gate  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/zonetext**: PvP territory line (Contested / %s Territory / Sanctuary coloring) under the zone name  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/zonetext**: Subzone splash with its under-the-zone-name seating law and FFA 'PvP Area' line  ← `triage-2026-08-09/batch-ui-3.json`
+- **ui/zonetext**: AutoFollowStatus text (moot until follow exists, but part of this file's surface)  ← `triage-2026-08-09/batch-ui-3.json`
+
+## 3. Verification debt — blocked on a live authenticated session
+
+106 claims across 19 entries are implemented but nonterminal until live verification runs.
+
+- **ui/bagframe** — 12 claims to verify
+- **systems/net** — 11 claims to verify
+- **ui/uipanels** — 8 claims to verify
+- **ui/mailframe** — 7 claims to verify
+- **ui/merchantframe** — 7 claims to verify
+- **systems/ui_party** — 6 claims to verify
+- **ui/gametooltip** — 6 claims to verify
+- **ui/questframe** — 6 claims to verify
+- **ui/spellbookframe** — 6 claims to verify
+- **protocol/group** — 5 claims to verify
+- **ui/inspectframe** — 5 claims to verify
+- **ui/characterframe** — 4 claims to verify
+- **ui/fonts** — 4 claims to verify
+- **ui/petactionbar** — 4 claims to verify
+- **ui/uiparent** — 4 claims to verify
+- **ui/buffframe** — 3 claims to verify
+- **ui/multibars** — 3 claims to verify
+- **ui/partyframe** — 3 claims to verify
+- **ui/gamemenuframe** — 2 claims to verify
+
+## 4. Not yet reviewed — triage frontier
+
+No claims cover these yet. Review each against MSUI: classify as equivalent / missing /
+divergent, then promote gaps into section 2.
+
+## 5. Deliberate MSUI preferences (preserved)
+
+- none recorded yet

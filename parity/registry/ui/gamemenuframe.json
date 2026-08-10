@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/gamemenuframe",
+  "title": "gamemenuframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/GameMenuFrame.xml",
+      "fileSha256": "0137193c532a396c0c9cc31964c5af7435a41bdc2e454b47ea7d982f4a498a30",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Engine/UI/LogoutUiLaw.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Logout.cs",
+    "MSUIClient/Program.Net.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Engine/UI/GameMenuUiLaw.cs",
+    "MSUIClient/Engine/UI/WowSkin.cs",
+    "MSUIClient/Program.Targeting.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/before/msui-clinical-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/reference/benilla-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/clinical-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/after/msui-clinical-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/protocols/game-menu-live-gate.txt",
+    "parity/packets/pair-de1462d2f83d2f33/gamemenuframe-part-01-packet-baa61a2c1366b658/evidence/verification/deterministic-2026-08-07.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI retains its complete build-5875 Game Menu and logout presentation. Escape now follows the frozen special-rung order with one consumer per edge, the Main Menu micro seat truly opens/closes through the modal, center ownership displaces existing panels and gates new routed opens, logout dialogs emit one Open/Close cue per visibility edge, and observational capture reports actual rendered state without staging. Connected visual/audio/input/wire proof remains outstanding.",
+  "openItems": [
+    {
+      "id": "item-claim-gamemenu-layout-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete existing game-menu composition is preserved; only missing behavior was added, and Benilla's different Era ladder did not replace present MSUI controls.",
+      "source": "claim-gamemenu-layout-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gamemenu-actions-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI's live menu destinations now play the exact main-menu sound kits while retaining their existing navigation.",
+      "source": "claim-gamemenu-actions-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gamemenu-logout-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now implements the full build-5875 server-owned Logout/Exit Game round trip, response table, cancellation, countdown dialogs, completion split, and seamless authenticated return to character select.",
+      "source": "claim-gamemenu-logout-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gamemenu-lifecycle-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's modal ownership, pushed micro-menu state, and blocked bag input are equivalent; its existing bag-bar presentation is preserved instead of adding Benilla's temporary disabled tint.",
+      "source": "claim-gamemenu-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-gamemenu-layout-001",
+    "claim-gamemenu-actions-001",
+    "claim-gamemenu-logout-001",
+    "claim-gamemenu-lifecycle-001"
+  ],
+  "traces": [
+    "trace-gamemenu-layout-001",
+    "trace-gamemenu-actions-001",
+    "trace-gamemenu-logout-001",
+    "trace-gamemenu-lifecycle-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-07T22:47:52.9000284+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/items",
+  "title": "items",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/items.rs",
+      "fileSha256": "091db0e4dbe14c8dec44130a74032cd53dfa3d5384e5de551f7e0f1ff0ddc28f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/items.rs",
+      "fileSha256": "8e75a0666ebfb0fa22b9c66128fee385152372cd80173dbe495d7c226fff5a65",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/Items.cs",
+    "MSUIClient/Program.Inventory.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the item wire: template query/response, use/open/auto-equip/auto-store/swap/swap-inv/split/destroy/set-ammo bodies, and the SMSG_INVENTORY_CHANGE_FAILURE + SMSG_ITEM_ENCHANT_TIME_UPDATE reads. MSUI implements the query pair, CMSG_USE_ITEM, CMSG_AUTOEQUIP_ITEM, CMSG_SWAP_ITEM, CMSG_SWAP_INV_ITEM, CMSG_SPLIT_ITEM, CMSG_SET_AMMO, and handles SMSG_ITEM_PUSH_RESULT.",
+  "openItems": [
+    {
+      "id": "item-triage-20b4676e",
+      "kind": "gap",
+      "text": "CMSG_OPEN_ITEM: absent - lockboxes/wrapped/openable items cannot be cracked open",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b19beed2",
+      "kind": "gap",
+      "text": "CMSG_DESTROYITEM (bag, slot, count): absent - items cannot be destroyed",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-dd98eb9f",
+      "kind": "gap",
+      "text": "CMSG_AUTOSTORE_BAG_ITEM: absent (bag-to-bag auto-store; MSUI only has explicit swap/split)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-cd52c5cb",
+      "kind": "gap",
+      "text": "SMSG_INVENTORY_CHANGE_FAILURE: no handler - every refused move/equip fails silently with no red error text",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2c48d531",
+      "kind": "gap",
+      "text": "SMSG_ITEM_ENCHANT_TIME_UPDATE: no handler (temporary enchant countdown updates dropped)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

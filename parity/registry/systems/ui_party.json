@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/ui_party",
+  "title": "ui_party",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/ui_party/feed.rs",
+      "fileSha256": "f6419047b9ee0e602f37c03c8cd1b10bfc343ac893706d61320123dd37b76964",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_party/mod.rs",
+      "fileSha256": "c2e2d37e52a5f0215c7bc5057b3cc5b9c1b3110a81cd764a109069385205207e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Engine/UI/GroupUiLaw.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "tools/interface-wire-check/GroupProtocolClinicalChecks.cs",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/before/target-baseline.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/reference/frozen-obligations.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/decision/trace-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/after/current-implementation.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/feed-part-01-packet-b27811a95376641a/evidence/live/unverified.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/before/target-baseline.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/reference/frozen-obligations.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/decision/trace-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/after/current-implementation.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/mod-part-01-packet-6b19d8133b06b28b/evidence/live/unverified.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI's direct C# path now contains the linked Party handlers and deterministic laws. The direct architecture and synthetic absence remain protected; runtime completeness/equivalence and authenticated feed/render behavior are unverified.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-invite-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned runtime and deterministic checks implement the bounded invite popup, exact ordered effects, wire-body law, timeout, same-type override, direct-hide, and drag-off behavior.",
+      "source": "claim-partyframe-invite-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-partyframe-member-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic checks implement merged member state, FULL and delta law, exact status, icon, pulse, input, SetUnit behavior, circular containment, and observational telemetry.",
+      "source": "claim-partyframe-member-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-partyframe-instances-driver-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic parser, topology, and session checks implement full-roster retention, exact compact-slot derivation, four instances, atomic packets, leave reset, and world or session boundaries.",
+      "source": "claim-partyframe-instances-driver-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-state-composer-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned handlers retain complete group metadata, full stats snapshots, and raid-target state, compose exact ordered system lines from packet notices and ungated roster diffs, and reset only at frozen leave/session boundaries.",
+      "source": "claim-group-state-composer-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-protocol-wire-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Strict readers and byte-exact send builders cover the frozen build-5875 group opcode family; reachable state routes are applied, while frozen parsed-but-unused minimap-ping and ready-check notifications are intentionally ignored after validation.",
+      "source": "claim-group-protocol-wire-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-direct-feed-equivalence-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI's direct state-to-render path preserves the observable roster, compact-slot, invite, and merged-member-state feed behavior without recreating Benilla's Lua PARTY_* event bus.",
+      "source": "claim-group-direct-feed-equivalence-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-synthetic-preserve-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI intentionally keeps /partytest and Benilla's synthetic local roster sandbox absent.",
+      "source": "claim-group-synthetic-preserve-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-invite-contract-001",
+    "claim-partyframe-member-runtime-001",
+    "claim-partyframe-instances-driver-001",
+    "claim-group-state-composer-001",
+    "claim-group-protocol-wire-001",
+    "claim-group-direct-feed-equivalence-001",
+    "claim-group-synthetic-preserve-001"
+  ],
+  "traces": [
+    "trace-partyframe-invite-contract-001",
+    "trace-partyframe-member-runtime-001",
+    "trace-partyframe-instances-driver-001",
+    "trace-group-session-boundary-001",
+    "trace-group-roster-state-lines-001",
+    "trace-group-notification-lines-001",
+    "trace-party-member-stats-full-wire-001",
+    "trace-raid-target-board-wire-001",
+    "trace-group-reachable-intents-001",
+    "trace-group-wire-builders-001",
+    "trace-group-internal-wire-support-001",
+    "trace-group-direct-feed-equivalence-001",
+    "trace-group-synthetic-preserve-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T07:38:47.4048719+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

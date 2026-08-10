@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--opcode_names",
+  "notes": [
+    {
+      "id": "note-16cf06d70d2e",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): opcode_names.rs is Benilla's 825-entry opcode->debug-name string table used purely for logging/tracing; it names every 1.12 opcode including hundreds Benilla itself never sends or parses (GM/cheat/obsolete). MSUI realizes the same concern through its C# Op enum, whose member names print via ToString; there is no independent wire-visible contract.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

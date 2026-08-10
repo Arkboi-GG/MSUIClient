@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/npc_text",
+  "title": "npc_text",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/npc_text.rs",
+      "fileSha256": "5fac9915186e1773a52e713877f6cae086a5073af08a4206dd74a69b9aed209e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/QuestTextMacroLaw.cs",
+    "MSUIClient/Program.Quest.cs",
+    "MSUIClient/Program.Gossip.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI transcribes the byte-carved $-token grammar into QuestTextMacroLaw.Expand: exactly the B/C/E/G/N/R/T/W set, decimal prefix consumed ahead of every token (and lost with an unaccepted one), case-as-output-switch for $R/$C, the $G/$T gender branch with ==0 first-arm semantics, marker-and-spaces-consumed malformed-branch behavior, and re-emitted $ on failure. The world-state table is live: SMSG_INIT_WORLD_STATES and SMSG_UPDATE_WORLD_STATE are both parsed into _questWorldStates and $nW/$nE read it (negated key for E, %d render). The subject is the self player's name + race/class/gender from descriptors, applied via ExpandQuestText at the gossip/quest/mail feed seams - the same seam set Benilla routes.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

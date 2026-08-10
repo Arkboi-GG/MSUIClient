@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/errorsframe",
+  "title": "errorsframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ErrorsFrame.xml",
+      "fileSha256": "e92fc2601fc9090d3327031493e544eefdc5d3186add11ce20c15232208038e0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.UiErrorsParity.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.DevTools.SpellErrors.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Loot.cs"
+  ],
+  "status": "partial",
+  "summary": "Error text reaches the screen, but through a different surface: SMSG_CAST_RESULT / loot errors route via ShowSpellError/ShowUiError into the center scrolling combat text (red, damage-styled). Program.UiErrorsParity.cs is only a parity-capture stub drawing a hardcoded 'You are too far away!' at the reference 512x60 TOP position - it is not a live message frame.",
+  "openItems": [
+    {
+      "id": "item-triage-dd3a5f4e",
+      "kind": "gap",
+      "text": "No live UIErrorsFrame: no fixed 512x60 top-anchored 3-line message area with newest-on-top insert, 5s hold and fade",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8c57133d",
+      "kind": "gap",
+      "text": "No yellow UI_INFO_MESSAGE class (quest objective-progress toasts) - only red error-styled pushes exist",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-37e317d8",
+      "kind": "gap",
+      "text": "Parity stub is not wired to real errors (hardcoded message, shown only when armed)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

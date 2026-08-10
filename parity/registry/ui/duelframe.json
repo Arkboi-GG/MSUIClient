@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/duelframe",
+  "title": "duelframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/DuelFrame.xml",
+      "fileSha256": "4381fb5cd88081f71c36c27fd449ab2285358de3b87958a566348e403167141d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_duel.rs",
+      "fileSha256": "54162433c362e7788eac1e1524ba0d226fcab1eab16a844d54e3a699e779380a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "MSUI has no duel support at all. The only match for 'Duel' in the repo is an enum string in Net/SpellCastResultNames.cs. None of the duel opcodes (SMSG_DUEL_REQUESTED/COUNTDOWN/COMPLETE/WINNER/INBOUNDS/OUTOFBOUNDS, CMSG_DUEL_ACCEPTED/CANCELLED) are handled - matching the registry's 1/16 opcode hit.",
+  "openItems": [
+    {
+      "id": "item-triage-6d2babfa",
+      "kind": "gap",
+      "text": "DUEL_REQUESTED challenge popup (Accept/Decline, igPlayerInvite sound)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-17077856",
+      "kind": "gap",
+      "text": "DUEL_OUTOFBOUNDS 10s forfeit-countdown popup with INBOUNDS hide",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-809d8fd8",
+      "kind": "gap",
+      "text": "Duel countdown and outcome system-chat lines",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8a94754c",
+      "kind": "gap",
+      "text": "CMSG_DUEL_ACCEPTED / CMSG_DUEL_CANCELLED sends",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

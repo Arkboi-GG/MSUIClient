@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--combattext",
+  "notes": [
+    {
+      "id": "note-56a9371ca1d2",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): The center-screen scrolling combat text exists: CenterText cues for melee/spell damage (with crit grow-shrink sizing), heals, periodic ticks, energize/power, environmental damage, and miss words, scrolling up at the reference 1.9 speed with fade, plus per-unit floating world text. Covers the damage/heal core of Blizzard_CombatText.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-70b453e3de4d",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: MSUI splits the surface into world-anchored floating text over units plus a center stream; the reference addon is purely center-screen. Functional overlap is high for damage/heal classes; the missing classes above are real functionality gaps.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

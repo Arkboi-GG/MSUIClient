@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--lifecycle",
+  "notes": [
+    {
+      "id": "note-ecb2b42eb2bf",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the three session-obligation sends (CMSG_PING with sequence+lastRtt, CMSG_LOGOUT_REQUEST/CMSG_LOGOUT_CANCEL, CMSG_COMPLETE_CINEMATIC) plus their answers. MSUI sends all four (ping body with counters, empty logout/cancel/cinematic bodies) and handles SMSG_PONG, SMSG_LOGOUT_RESPONSE, SMSG_LOGOUT_CANCEL_ACK, SMSG_LOGOUT_COMPLETE and SMSG_TRIGGER_CINEMATIC (acked as an immediate ESC-style skip).",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/bagframe",
+  "title": "bagframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/BagFrame.xml",
+      "fileSha256": "0de4ea687bae374fc702aa95ebf7d2c9268d72f2cae2ec3c570fd13a0bde3aff",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_items/drain.rs",
+      "fileSha256": "86f8e8330c6c56d28803bd2bc5389e409e93041fdad2c34376f0ce31ccc17ac2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_items/equip_error.rs",
+      "fileSha256": "7a567a79bd6e366244dca9bdbf2e909ebec053f2f8e9858656565f1a000bb8be",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_items/feed.rs",
+      "fileSha256": "cf584331209643b64b4504c2536949af66458ee2186b53707d0b28b8c55c9504",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_items/mod.rs",
+      "fileSha256": "8c1d9eda90e6da566c9221c6a1b9b799b35ccbbb30d4238b409195665df6c12b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Engine/UI/InventoryUiLaw.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/World/Spells/SpellSoundSystem.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/Items.cs",
+    "MSUIClient/Program.Loot.cs",
+    "MSUIClient/Engine/UI/BagIconContainmentLaw.cs",
+    "MSUIClient/Engine/UI/GameplayArt.cs",
+    "MSUIClient/Engine/UI/IconApertureMask.cs",
+    "MSUIClient/Program.Bindings.cs",
+    "MSUIClient/Program.DevTools.BagContainment.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "MSUIClient/Program.Net.cs",
+    "tools/inventory-parity-check/Program.cs"
+  ],
+  "status": "partial",
+  "summary": "Plain B toggles only the backpack; Shift+B toggles all occupied normal bags; tested lifecycle transitions emit exactly one expected named cue; representative bag-bar and equipped-bag portrait icons are strictly contained; live Bag 4 remains item 14156 with 24 slots. Overall reference parity is not yet established.",
+  "openItems": [
+    {
+      "id": "item-claim-bagframe-protocol-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Use, player-array swap, bag swap, and stack split now have exact build-5875 opcodes, endpoint selection, and byte ordering with deterministic regression coverage.",
+      "source": "claim-bagframe-protocol-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-slot-input-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Whole-item carry/place, context action, Shift-split, same-slot cancel, and drag source/receive use one tested routing law and the shared inventory move dispatcher.",
+      "source": "claim-bagframe-slot-input-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-slot-hover-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Opposite-side item tooltips and tested Buy/Inspect cursor priority are wired through the shared inventory hover path.",
+      "source": "claim-bagframe-slot-hover-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-slot-visual-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Slot icons, NumberFontNormal counts, ring, depressed state, hover highlight, lock dimming, and item cooldown/finish flash are present; pixel acceptance is not yet captured.",
+      "source": "claim-bagframe-slot-visual-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-slot-index-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Live slot 1 maps to physical button N, physical button 1 remains bottom-right, and plus-two top rows right-align exactly for every container capacity.",
+      "source": "claim-bagframe-slot-index-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-window-render-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Backpack, generalized equipped-bag, and keyring windows now use the exact one-row, plus-two, multi-row, middle, and bottom texture laws with original assets and authored titles.",
+      "source": "claim-bagframe-window-render-001",
+      "added": "2026-08-09",
+      "resolved": true
+    },
+    {
+      "id": "item-claim-bagframe-window-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Container transitions centralize open order, checked state, Escape closure, and the exact named backpack/keyring open and close cues; batch transitions play exactly one sound.",
+      "source": "claim-bagframe-window-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-allbags-stack-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Shift+B/OpenAllBags closes all normal bags when any is open, otherwise opens backpack plus every equipped non-empty bag; plain B independently toggles only the backpack.",
+      "source": "claim-bagframe-allbags-stack-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-bagbar-render-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The five normal bag buttons now bind live icons, rings, checked/hover states, lock tint, and the current OpenAllBags binding; rendered acceptance remains.",
+      "source": "claim-bagframe-bagbar-render-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-bagbar-input-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Equipped-bag buttons use a tested toggle/place/no-op decision law and the shared equipment endpoint for click and drag placement.",
+      "source": "claim-bagframe-bagbar-input-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-keyring-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The distinct -2 keyring path is implemented end-to-end: descriptor fields, BagFamily parsing, HasKey gate, 4/8/12/16 capacity, wire slots 81-96, window/button art, sounds, and first-empty drop with full refusal.",
+      "source": "claim-bagframe-keyring-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-itempush-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. SMSG_ITEM_PUSH_RESULT now restarts the exact one-second alpha/scale/drop animation on its resolved backpack, equipped-bag, or keyring button; rendered acceptance remains.",
+      "source": "claim-bagframe-itempush-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-disable-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Game-menu state now disables and greys the backpack plus four equipped-bag controls while retaining rings and excluding the keyring from Disable_BagButtons; visual acceptance remains.",
+      "source": "claim-bagframe-disable-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-keyring-state-art-gap-001",
+      "kind": "gap",
+      "text": "The frozen keyring pushed and hover-highlight state art is not rendered by the current MSUI keyring button.",
+      "source": "claim-bagframe-keyring-state-art-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-bagframe-slot-depress-art-gap-001",
+      "kind": "gap",
+      "text": "The frozen UI-Quickslot-Depress pushed art is not rendered by MSUI bag item slots.",
+      "source": "claim-bagframe-slot-depress-art-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-known-15",
+      "kind": "gap",
+      "text": "Keyring pushed+hover art; bag item-slot depress art.",
+      "source": "session-memory-2026-08-08",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-bagframe-protocol-001",
+    "claim-bagframe-slot-input-001",
+    "claim-bagframe-slot-hover-001",
+    "claim-bagframe-slot-visual-001",
+    "claim-bagframe-slot-index-001",
+    "claim-bagframe-window-render-001",
+    "claim-bagframe-window-lifecycle-001",
+    "claim-bagframe-allbags-stack-001",
+    "claim-bagframe-bagbar-render-001",
+    "claim-bagframe-bagbar-input-001",
+    "claim-bagframe-keyring-001",
+    "claim-bagframe-itempush-001",
+    "claim-bagframe-disable-001",
+    "claim-bagframe-notruntime-dbc-001",
+    "claim-bagframe-notruntime-uipanels-001",
+    "claim-bagframe-keyring-state-art-gap-001",
+    "claim-bagframe-file-boundary-001",
+    "claim-bagframe-slot-depress-art-gap-001"
+  ],
+  "traces": [
+    "trace-bagframe-protocol-001",
+    "trace-bagframe-slot-input-001",
+    "trace-bagframe-slot-hover-001",
+    "trace-bagframe-slot-visual-001",
+    "trace-bagframe-slot-index-001",
+    "trace-bagframe-window-render-001",
+    "trace-bagframe-window-lifecycle-001",
+    "trace-bagframe-allbags-stack-001",
+    "trace-bagframe-bagbar-render-001",
+    "trace-bagframe-bagbar-input-001",
+    "trace-bagframe-keyring-001",
+    "trace-bagframe-itempush-001",
+    "trace-bagframe-disable-001",
+    "trace-bagframe-keyring-state-art-gap-001",
+    "trace-bagframe-file-boundary-001",
+    "trace-bagframe-slot-depress-art-gap-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:09:11.668164+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

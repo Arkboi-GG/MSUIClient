@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/ui_net",
+  "title": "ui_net",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/ui_net.rs",
+      "fileSha256": "a3a178df908fc54450fbbd0fc69803652a080bef13246e0d17aea6562ad035bf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Program.ActionBars.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI runs the keepalive CMSG_PING loop, measures round-trip on SMSG_PONG into NetworkClient.LatencyMs, and draws the main-bar performance meter from the real UI-MainMenuBar-PerformanceBar art tinted by the FrameXML thresholds (green <=300 ms, yellow <=600, red above) with a 'Latency: Nms' tooltip.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

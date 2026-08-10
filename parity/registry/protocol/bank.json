@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/bank",
+  "title": "bank",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/bank.rs",
+      "fileSha256": "8ae205f9968ddcffdffb02547ebc1cd67dca303ee3d7913f728b70620c52d1af",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/bank.rs",
+      "fileSha256": "ae88b3484c9420b5f7db08f805ed400862e42943e6226c8ec365e533aafba156",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.Bank.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the six-opcode bank wire: CMSG_BANKER_ACTIVATE, SMSG_SHOW_BANK, CMSG_BUY_BANK_SLOT, SMSG_BUY_BANK_SLOT_RESULT, plus CMSG_AUTOBANK_ITEM (deposit) and CMSG_AUTOSTORE_BANK_ITEM (direction-tolerant withdraw). MSUI implements the window-open/buy-slot four but moves items across the bank boundary with generic CMSG_SWAP_ITEM (Program.Bank.cs computes destination slots client-side) instead of the reference auto-move opcodes.",
+  "openItems": [
+    {
+      "id": "item-triage-273be47d",
+      "kind": "gap",
+      "text": "CMSG_AUTOBANK_ITEM: absent (deposit uses CMSG_SWAP_ITEM with a client-picked bank slot instead of letting the server choose the first free slot)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-048f19ff",
+      "kind": "gap",
+      "text": "CMSG_AUTOSTORE_BANK_ITEM: absent (withdraw likewise diverges from the reference right-click auto-move wire)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

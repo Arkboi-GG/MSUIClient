@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/zonetext",
+  "title": "zonetext",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ZoneText.xml",
+      "fileSha256": "ccf9b35359bbfc228c26d3a6def28da18e2f59c7b82d23d99e589b543abcdb3d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/FontObjectLaw.cs",
+    "MSUIClient/Engine/UI/UiFrameFadeLaw.cs",
+    "MSUIClient/Program.Minimap.cs"
+  ],
+  "status": "missing",
+  "summary": "MSUI has no zone-entry splash surface. Benilla's ZoneText.xml ships ZoneTextFrame (big zone name + PvP territory line on NEW_AREA), SubZoneTextFrame (26px subzone + FFA line), the FadingFrame fade kit, and AutoFollowStatus. In MSUI the supporting laws exist - FontObjectLaw carries ZoneTextFont(102, cream)/SubZoneTextFont(26) definitions and UiFrameFadeLaw is the transcribed fade state machine - but nothing consumes them: no splash renders on zone change; the only zone text drawn is the minimap header label (Program.Minimap.cs), a different surface.",
+  "openItems": [
+    {
+      "id": "item-triage-9f2a884e",
+      "kind": "gap",
+      "text": "Zone-name splash on NEW_AREA/INDOORS zone change (fade-in/hold/fade-out) with the cached-zone-text change gate",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8c251d2d",
+      "kind": "gap",
+      "text": "PvP territory line (Contested / %s Territory / Sanctuary coloring) under the zone name",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8eff8134",
+      "kind": "gap",
+      "text": "Subzone splash with its under-the-zone-name seating law and FFA 'PvP Area' line",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a8c2ddb6",
+      "kind": "gap",
+      "text": "AutoFollowStatus text (moot until follow exists, but part of this file's surface)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

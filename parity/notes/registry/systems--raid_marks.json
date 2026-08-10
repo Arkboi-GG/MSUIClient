@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--raid_marks",
+  "notes": [
+    {
+      "id": "note-2b6cf479709e",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI carries the full MSG_RAID_TARGET_UPDATE wire (set/request outbound, single + full-list inbound parse) and maintains the 8-slot guid board with correct clear-on-leave semantics, but nothing renders a raid mark anywhere: no overhead world billboard, no target-frame icon, and the Lua-facing RaidTargetIndex helper has no caller.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-672ac81cb4a9",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The state layer is done and matches the reference wire (0xff request body, icon+guid set body, list terminator); only presentation is absent, so a player in a marked group sees nothing.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

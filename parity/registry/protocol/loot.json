@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/loot",
+  "title": "loot",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/loot.rs",
+      "fileSha256": "084b03fff43d459f55f68a3e0920c58f376f764996c28e3b548b99c01186906c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/loot.rs",
+      "fileSha256": "80ca2e46d80eeec391ad97ffcca3414da31a5605b253c50fe03365a71c8db013",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/LootState.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Loot.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla implements solo looting (CMSG_LOOT/AUTOSTORE_LOOT_ITEM/LOOT_MONEY/LOOT_RELEASE; SMSG_LOOT_RESPONSE both shapes, LOOT_REMOVED, LOOT_CLEAR_MONEY, LOOT_RELEASE_RESPONSE, LOOT_MONEY_NOTIFY, ITEM_PUSH_RESULT) plus the group-roll family. MSUI fully implements the solo family and CMSG_LOOT_METHOD, but has no group-roll support at all.",
+  "openItems": [
+    {
+      "id": "item-triage-ff0dab23",
+      "kind": "gap",
+      "text": "CMSG_LOOT_ROLL (u64 lootedTarget, u32 itemSlot, u8 rollType) has no sender",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-61907435",
+      "kind": "gap",
+      "text": "SMSG_LOOT_START_ROLL not parsed (no roll window/countdown)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-150244a9",
+      "kind": "gap",
+      "text": "SMSG_LOOT_ROLL not parsed, including the overloaded (roll_number, roll_type) vote-vs-dice disambiguation Benilla encodes in LootRoll::is_dice",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f71632b6",
+      "kind": "gap",
+      "text": "SMSG_LOOT_ROLL_WON not parsed (winner guid rides AFTER the item block)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-12348334",
+      "kind": "gap",
+      "text": "SMSG_LOOT_ALL_PASSED not parsed (note its swapped randomPropId/randomSuffix tail order)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

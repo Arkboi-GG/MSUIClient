@@ -301,7 +301,8 @@ public sealed partial class CreatureRenderer : IDisposable
 
                 Ok = true;
                 Console.WriteLine($"[creature] renderer ready ({di.Count} display rows, {md.Count} models, " +
-                                  $"{(ex?.Count ?? 0)} extended-npc rows, geosets={(_geosets.Ok ? "on" : "no-dbc")})");
+                                  $"{(ex?.Count ?? 0)} extended-npc rows, geosets={(_geosets.Ok ? "on" : "no-dbc")}, " +
+                                  $"itemdisplay={(_itemDisplay is null ? "MISSING" : _itemDisplay.Count.ToString())})");
             }
             else Console.WriteLine("[creature] CreatureDisplayInfo/CreatureModelData DBCs missing — unit rendering off");
         }
@@ -537,7 +538,9 @@ public sealed partial class CreatureRenderer : IDisposable
             return true;
         }
 
-        return TryBuildPlayerModelInfo(entity, model, PlayerItemResolver, out info);
+        bool ok = TryBuildPlayerModelInfo(entity, model, PlayerItemResolver, out info);
+        LogPlayerGearState(entity, ok, info);
+        return ok;
     }
 
     /// <summary>Pure remote-player adapter used by the live renderer and wire regression checks.</summary>
@@ -564,9 +567,11 @@ public sealed partial class CreatureRenderer : IDisposable
         {
             uint entry = entity.Fields.PlayerVisibleItemEntry(visibleSlot);
             if (entry == 0) continue;
-            if (itemResolver is null) return false;
-            (bool settled, ItemTemplate? item) = itemResolver(entry);
-            if (!settled) return false;
+            // A slot whose template has not settled yet is drawn empty rather than blocking
+            // the whole player (invisible-until-settled, or forever if one query dies).
+            // ExtEquipment feeds the appearance cache key, so the settle re-dresses for free.
+            (bool settled, ItemTemplate? item) = itemResolver?.Invoke(entry) ?? (false, null);
+            if (!settled) continue;
             equipment[appearanceSlot] = item?.DisplayInfoId ?? 0;
         }
 
@@ -586,6 +591,43 @@ public sealed partial class CreatureRenderer : IDisposable
         };
         return true;
     }
+
+    /// <summary>
+    /// One console line per remote player whenever their resolved-gear state changes —
+    /// distinguishes zero visible-item entries, unsettled templates, settled-null templates,
+    /// and display ids at a glance. Cheap: a hash compare per frame, string work only on change.
+    /// </summary>
+    private void LogPlayerGearState(WorldEntity entity, bool ok, in CreatureModelInfo info)
+    {
+        ulong signature = ok ? 1UL : 2UL;
+        if (ok)
+            foreach (uint display in info.ExtEquipment)
+                signature = signature * 31 + display;
+        for (int slot = 0; slot < 19; slot++)
+            signature = signature * 31 + entity.Fields.PlayerVisibleItemEntry(slot);
+        if (_playerGearLogState.TryGetValue(entity.Guid, out ulong previous) &&
+            previous == signature) return;
+        _playerGearLogState[entity.Guid] = signature;
+        var parts = new List<string>();
+        for (int slot = 0; slot < 19; slot++)
+        {
+            uint entry = entity.Fields.PlayerVisibleItemEntry(slot);
+            if (entry == 0) continue;
+            string state;
+            if (PlayerItemResolver is null) state = "no-resolver";
+            else
+            {
+                (bool settled, ItemTemplate? item) = PlayerItemResolver(entry);
+                state = !settled ? "pending"
+                    : item is null ? "null-template" : $"disp {item.DisplayInfoId}";
+            }
+            parts.Add($"{slot}:{entry}={state}");
+        }
+        Console.WriteLine($"[player-gear] 0x{entity.Guid:X} drawn={ok} " +
+            (parts.Count == 0 ? "no visible items" : string.Join(" ", parts)));
+    }
+
+    private readonly Dictionary<ulong, ulong> _playerGearLogState = [];
 
     private int CompareUnitDistance(WorldEntity left, WorldEntity right) =>
         Vector3.DistanceSquared(left.Position, _sortCameraPosition)

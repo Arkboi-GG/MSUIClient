@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--client",
+  "notes": [
+    {
+      "id": "note-29d62e8cf1e6",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla's client body builders: auth_session, char_create, messagechat family, channel family, played_time, random_roll, text_emote, creature/pet-name queries, movement, spline-done, teleport ack, force-speed acks, ping, move-flag acks. MSUI implements auth session (WorldHeaderCrypto proof + BuildAuthSession), char create, messagechat (incl. whisper/channel target), creature query, ping, teleport ack, root/unroot ack, and movement sends.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/macroframe",
+  "title": "macroframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/MacroFrame.xml",
+      "fileSha256": "566b5d7465f4222baadc4ec878973b5a9f914addb7cf43729ad98d49ba6c8ef5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_macro/mod.rs",
+      "fileSha256": "9baaacadc5dad95306f1f00eb91a77d770ba086be6118e683f264eff65322326",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_macro/run.rs",
+      "fileSha256": "98a8dd4f382512678f24295ee394a4ad78811172ff27cd46fbf63d6a4c3560b4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_macro/store.rs",
+      "fileSha256": "9e5edf8d17199d16ad1a51a469ab347047e2e249c0f5efa12056c74697c1d666",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Macro.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI has a macro window (Program.Macro.cs): 384x512 shell with MacroFrame-BotLeft/BotRight + MacroFrame-Icon art, an 18-slot icon grid with selection ring, name and multi-line body editors, New/Delete/Run/Exit buttons, drag-from-grid to the action bar, double-click-to-run, and persistence to macros.json. Macro icons are auto-derived from the body (#cast/#use spell/item lookup) rather than picked.",
+  "openItems": [
+    {
+      "id": "item-triage-97d800c2",
+      "kind": "gap",
+      "text": "No name/icon picker popup (the reference MacroPopup: 20-icon paged grid + name editbox on Okay/Cancel) - macros are created in place and the icon cannot be chosen",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-7fd4e541",
+      "kind": "gap",
+      "text": "No General vs Character-specific tab split (reference: two tabbed macro sets; MSUI has one flat 18-slot set)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-82b52425",
+      "kind": "gap",
+      "text": "No scrollbar on the body editor (reference MacroFrameScrollFrame)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e03a4726",
+      "kind": "gap",
+      "text": "Macro execution supports only a small command subset, with 'Unsupported macro command' chat fallback (engine scope, noted for honesty)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-20f59400",
+      "kind": "gap",
+      "text": "No open/close/save sounds (reference keeps igCharacterInfoOpen/Close, gsTitleOptionOK)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

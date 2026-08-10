@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/taxi",
+  "title": "taxi",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/taxi.rs",
+      "fileSha256": "0f2333203a0eed07886e522d72b7883031a95a7a873211423cda2534e3523687",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/taxi.rs",
+      "fileSha256": "127e3e45de58f95c5260284fea18e1ade2192fdce5faf1ae370db64af1c8956a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Taxi.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's flight-master wire: node-status query, taxi-map open (SMSG_SHOWTAXINODES with gate + nearest node + u32[8] known mask), the two flight verbs (single-hop ACTIVATETAXI when a direct TaxiPath edge exists, ACTIVATETAXIEXPRESS with the node chain when not), SMSG_ACTIVATETAXIREPLY codes, and SMSG_NEW_TAXI_PATH on first contact. MSUI implements the status query, map open, mask decode, single-hop activate and reply/lockout handling, but not the express verb or the first-visit learn packet.",
+  "openItems": [
+    {
+      "id": "item-triage-32866148",
+      "kind": "gap",
+      "text": "CMSG_ACTIVATETAXIEXPRESS never sent - MSUI always sends single-hop CMSG_ACTIVATETAXI from the current node, so a destination with no direct TaxiPath edge current->target (Benilla's byte-verified discriminator) cannot be flown",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-0dd25183",
+      "kind": "gap",
+      "text": "SMSG_NEW_TAXI_PATH has no handler - the never-visited-node first-contact learn pair is dropped on the floor",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-fe175487",
+      "kind": "gap",
+      "text": "ApplyTaxiNodes rejects bodies under 20 bytes, so the gated-off 4-byte SMSG_SHOWTAXINODES form (leading gate word 0) throws instead of parsing to a no-op as Benilla does (never sent by vmangos, low impact)",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

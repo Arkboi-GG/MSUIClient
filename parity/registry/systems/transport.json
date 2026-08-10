@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/transport",
+  "title": "transport",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/transport.rs",
+      "fileSha256": "8902d956ae4c94c951388f219e68acab03e90948b52adb9b7d8fa2362ffb6c3b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/UpdateObject.cs",
+    "MSUIClient/Net/MovementInfo.cs"
+  ],
+  "status": "missing",
+  "summary": "MSUI parses the transport wire tolerantly but discards it: the GameObject create-block anchor (path-progress u32) is read and dropped (UpdateObject.cs:80), and observed movers' MOVEFLAG_ONTRANSPORT local-pose tails are read and dropped in the LIVING parse (UpdateObject.cs:49). MovementInfo.cs can carry a TransportPose for the self-player, but no timetable or keyframe evaluation exists anywhere - no TaxiPathNode/TransportAnimation loading, no per-frame cycle sampling.",
+  "openItems": [
+    {
+      "id": "item-triage-7c39444b",
+      "kind": "gap",
+      "text": "Type-15 MO_TRANSPORT boats/zeppelins never move: no TaxiPathNode.dbc timetable build from the template's (taxiPathId, moveSpeed, accelRate) tuple, no (anchor + elapsed) % period sampling - a streamed boat renders frozen at its create pose (if rendered at all).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-99cafc76",
+      "kind": "gap",
+      "text": "Type-11 TRANSPORT elevators/lifts never move: no TransportAnimation.dbc keyframe path keyed by template entry, no spawn-quat composed sampling.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-eb454ec9",
+      "kind": "gap",
+      "text": "Observed riders are not carried: the on-transport local pose from create blocks and MSG_MOVE_* relays is discarded, so a deck NPC or fellow passenger renders at a stale world pose instead of being composed through the transport's live matrix.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-283d311d",
+      "kind": "gap",
+      "text": "No dock/depart behavior, no off-map hiding of a transport sailing another continent's leg.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

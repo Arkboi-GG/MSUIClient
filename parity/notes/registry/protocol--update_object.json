@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--update_object",
+  "notes": [
+    {
+      "id": "note-ede444543fd6",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): Benilla's SMSG_UPDATE_OBJECT decode: the five update kinds, the movement block (LIVING pose + 6 speeds, rider TransportPose, create-time in-progress CreateSpline with the phantom-endpoint trim, transport GO path progress) and the sparse ObjectFields descriptor accessors. MSUI's UpdateObjectParser + ObjectFields port the framing and field decode faithfully (incl. compressed form and created-mask absent=0 semantics), but the movement block only surfaces position/orientation/speeds - the three richer payloads are parsed for alignment and thrown away.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    }
+  ]
+}

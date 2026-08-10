@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--errorsframe",
+  "notes": [
+    {
+      "id": "note-4b1a40887b3d",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Error text reaches the screen, but through a different surface: SMSG_CAST_RESULT / loot errors route via ShowSpellError/ShowUiError into the center scrolling combat text (red, damage-styled). Program.UiErrorsParity.cs is only a parity-capture stub drawing a hardcoded 'You are too far away!' at the reference 512x60 TOP position - it is not a live message frame.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-738c1988b406",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Candidate for Nico's ruling: MSUI routes error lines into the center combat-text stream instead of a dedicated top errors frame. If that is the accepted house look, the remaining hard gap is the missing yellow info-message class and the 3-line hold/fade law.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

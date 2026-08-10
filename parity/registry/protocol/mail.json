@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/mail",
+  "title": "mail",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/mail.rs",
+      "fileSha256": "5ddfd495232dcc757e0542b84210997200b705e8384b056dbbbfe1d35fc6a03d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/mail.rs",
+      "fileSha256": "364b8db9c9af6fe02d4cb29b789d0a99f1f89fe800908f82c0cf92f84b22238c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Mail.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/UI/MailUiLaw.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla's mail writer defines ten sends (GET_MAIL_LIST, SEND_MAIL, TAKE_MONEY, TAKE_ITEM, MARK_AS_READ, RETURN_TO_SENDER, DELETE, CREATE_TEXT_ITEM, ITEM_TEXT_QUERY, MSG_QUERY_NEXT_MAIL_TIME). MSUI sends all ten and handles SMSG_MAIL_LIST_RESULT, SMSG_SEND_MAIL_RESULT, SMSG_ITEM_TEXT_QUERY_RESPONSE, SMSG_RECEIVED_MAIL and the MSG_QUERY_NEXT_MAIL_TIME reply.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

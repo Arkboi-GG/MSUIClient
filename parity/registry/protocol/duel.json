@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/duel",
+  "title": "duel",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/duel.rs",
+      "fileSha256": "a8c9240d9e3aaa2d0c4b1fad6512fb2d759f1a287111ae73773e04ab053295e8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/duel.rs",
+      "fileSha256": "c916cc9afa722b4255fd88baacefc3bfedd1fa22abc5ef2553274dca9bd3a426",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla defines the complete duel family with both ends byte-pinned: SMSG_DUEL_REQUESTED (arbiter+challenger guids), OUTOFBOUNDS/INBOUNDS (empty), COMPLETE (u8 started), WINNER (u8 + two cstrings), COUNTDOWN (u32 ms), and CMSG_DUEL_ACCEPTED/CANCELLED echoing the stored arbiter guid. MSUI has no duel opcode anywhere (not even in Net/Opcodes.cs); only incidental spell-error strings mention dueling.",
+  "openItems": [
+    {
+      "id": "item-triage-5feb5817",
+      "kind": "gap",
+      "text": "SMSG_DUEL_REQUESTED / SMSG_DUEL_COUNTDOWN / SMSG_DUEL_INBOUNDS / SMSG_DUEL_OUTOFBOUNDS / SMSG_DUEL_COMPLETE / SMSG_DUEL_WINNER: no handlers",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-420c9de0",
+      "kind": "gap",
+      "text": "CMSG_DUEL_ACCEPTED / CMSG_DUEL_CANCELLED: no senders (arbiter-guid echo)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

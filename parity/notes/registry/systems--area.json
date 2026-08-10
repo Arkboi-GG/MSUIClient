@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--area",
+  "notes": [
+    {
+      "id": "note-10517aa6155a",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla publishes the zone identity (leaf -> single-hop parent zone), the ZONE_CHANGED/ZONE_CHANGED_NEW_AREA/ZONE_CHANGED_INDOORS election with the WMO-interior naming override (inn splash), the minimap subzone-else-zone line, and GetZonePVPInfo (friendly/hostile/contested + arena flag). MSUI loads AreaTable.dbc, resolves the terrain-chunk areaId per frame, draws the minimap zone-text line (subzone-else-zone) and sends CMSG_ZONEUPDATE on zone change - but the rest of the family is absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-91eae128a322",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The minimap line itself follows the reference's subzone-else-zone law (Program.Minimap.cs DrawMinimapZoneText).",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

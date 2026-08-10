@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/unitframes",
+  "title": "unitframes",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/UnitFrames.xml",
+      "fileSha256": "7fbded2268f1b1d18aa6bea187d40802e1ddaa6f2049ea5d7d1553695dc80c65",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_unit.rs",
+      "fileSha256": "63ef37cb375eb451f6f6d271c50bdafacd95b46f3892a61bd82b64de67c234e7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.UnitFrames.cs",
+    "MSUIClient/Program.Targeting.cs"
+  ],
+  "status": "partial",
+  "summary": "Program.UnitFrames.cs draws the player and target frames on the real mirrored UI-TargetingFrame art with correct recessed layering: portrait (live-baked or fallback), health/power bars with power-type colors, faction-tinted target name background, name + level text with difficulty color, high-level skull, DEAD text, combat flash, and the target's buff/debuff rows with dispel-tinted UI-Debuff-Overlays borders and stack counts (DrawTargetAuras). The file itself enumerates its absent elements for parity capture.",
+  "openItems": [
+    {
+      "id": "item-triage-868f67e3",
+      "kind": "gap",
+      "text": "No PVP icons on player/target frames (Benilla's three-branch UpdatePvP law: Alliance/Horde/FFA) and no CMSG_TOGGLE_PVP anywhere (the registry's missing opcode; Benilla exposes it via /pvp)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-70b9062e",
+      "kind": "gap",
+      "text": "No elite/rare/rareelite/worldboss classification border swap on the target frame (Benilla landed CheckClassification)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6740acd4",
+      "kind": "gap",
+      "text": "No rest icon/status glow on the player frame (Program.UnitFrames.cs lines 125-134 self-declare PlayerRestIcon, PlayerStatusGlow, PlayerAttackIcon etc. NOT-DRAWN)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-08d6e860",
+      "kind": "gap",
+      "text": "No leader/master-looter icons and no group indicator plate",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-1d4009a6",
+      "kind": "gap",
+      "text": "No right-click dropdown wired to the player/target frames themselves (the unit popup opens only from party frames and world-click)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

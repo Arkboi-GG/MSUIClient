@@ -347,10 +347,10 @@ public sealed partial class GameLoop
             else
             {
                 // PARTY origin/token is explicit. Right-click intentionally leaves selection alone.
-                _unitPopupGuid = member.Guid;
-                _unitPopupInspectBinding = InspectBinding.Party(hoveredIndex);
-                _unitPopupPosition = new Vector2(PartyFrameUiLaw.FirstX + 47,
-                    PartyFrameUiLaw.MemberY(hoveredIndex) + 15) * GameplayUiScale();
+                OpenUnitPopup(member.Guid, UnitPopupWhich.Party,
+                    new Vector2(PartyFrameUiLaw.FirstX + 47,
+                        PartyFrameUiLaw.MemberY(hoveredIndex) + 15) * GameplayUiScale(),
+                    InspectBinding.Party(hoveredIndex));
             }
         }
         ClearPartyPress();

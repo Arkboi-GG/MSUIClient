@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/movement",
+  "title": "movement",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/movement.rs",
+      "fileSha256": "2fd9f2a5abd000927f4a11edf2a11b33de59eb93d72fbbcca0aa5081ca41b11c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/movement.rs",
+      "fileSha256": "1ba629b09596b01a04bd0db99bb2ec0dc45abc9c68409dda12987fe4892ee6ae",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the shared MovementInfo body (transport/swim-pitch/jump/spline-elevation conditional tails), the six-kind force-speed-change family with CMSG acks, the four granted move modes (root/water-walk/feather-fall/hover) with acks, and the client-uptime timestamp rule. MSUI ports the MovementInfo body byte-for-byte (all four tails, u32 fallTime, uptime clock) and handles root/unroot with acks plus MSG_MOVE_TELEPORT_ACK, but the speed-change and non-root mode families are absent.",
+  "openItems": [
+    {
+      "id": "item-triage-f0280b78",
+      "kind": "gap",
+      "text": "SMSG_FORCE_{RUN,RUN_BACK,SWIM,SWIM_BACK,WALK}_SPEED_CHANGE / SMSG_FORCE_TURN_RATE_CHANGE not handled and no CMSG_FORCE_*_SPEED_CHANGE_ACK senders (vmangos expects the ack echo; a mount/buff speed change goes unacknowledged)",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-48e7a7ac",
+      "kind": "gap",
+      "text": "Move-mode grants SMSG_MOVE_WATER_WALK/LAND_WALK, SMSG_MOVE_FEATHER_FALL/NORMAL_FALL, SMSG_MOVE_SET_HOVER/UNSET_HOVER not handled; CMSG_MOVE_WATER_WALK_ACK, CMSG_MOVE_FEATHER_FALL_ACK, CMSG_MOVE_HOVER_ACK never sent",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a45dc6e6",
+      "kind": "gap",
+      "text": "SMSG_SPLINE_SET_* speed packets (non-controlled movers) not handled",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-d944faa7",
+      "kind": "gap",
+      "text": "Inbound MSG_MOVE_* relays for other players have no dispatch case in Program.Net.cs - Entities.ApplyRemotePlayerMove exists but has no caller",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

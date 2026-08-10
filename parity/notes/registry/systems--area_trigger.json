@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--area_trigger",
+  "notes": [
+    {
+      "id": "note-0259b3e29584",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla's whole job here is: detect the player walking into an AreaTrigger.dbc volume (exit-latch, first containing row wins, latch cleared on map change) and send CMSG_AREATRIGGER so the SERVER decides what it means. MSUI parses AreaTrigger.dbc, implements the same exit-latch containment check (portal fires once per entry, latch re-seeds on spawn so a return portal does not re-fire), but resolves the destination LOCALLY via a bundled areatrigger_teleport table and teleports itself - it never tells the server.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-da9544d8748d",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The local portal path is a deliberate offline/travel affordance (Program.Instances.cs documents H3/P2: 'when P2 lands the server sends a real position and this becomes a debug affordance'). The latch semantics themselves match the reference law.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

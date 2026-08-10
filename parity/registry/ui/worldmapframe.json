@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/worldmapframe",
+  "title": "worldmapframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/WorldMapFrame.xml",
+      "fileSha256": "ac5f1f4dbabfeefe1e10b705e19286c8e5cb4d4b28d2ea2dc6de3e440afbf1e9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_world_map.rs",
+      "fileSha256": "f4fa05f2750c0f43350478801b052607b3141e5d93b67636c0942159d4660a91",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.WorldMap.cs",
+    "MSUIClient/Formats/WorldMapAreaCatalog.cs"
+  ],
+  "status": "partial",
+  "summary": "Program.WorldMap.cs shows the fullscreen map on the M binding: full-screen blackout, fullscreen scale-to-fit law, the 12-piece UI-WorldMap parchment chrome, the 12 continent/zone detail tiles from WorldMapArea directories, current-zone/continent resolution from the player's area, a player position blip, zone-name label, Zoom Out / Current Zone toggle, close X. Navigation and discovery features of the ref/Benilla are absent.",
+  "openItems": [
+    {
+      "id": "item-triage-b470a0b6",
+      "kind": "gap",
+      "text": "No click-to-navigate (ProcessMapClick): a continent view's zones cannot be clicked into, and arbitrary zones cannot be viewed - only own-zone <-> own-continent toggling",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-40e5c041",
+      "kind": "gap",
+      "text": "No continent/zone dropdown pickers",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f4acd259",
+      "kind": "gap",
+      "text": "No exploration/discovery overlays (explored sub-areas painting their detail over the base parchment)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-5023ea77",
+      "kind": "gap",
+      "text": "No hovered-area highlight (ADD-blend zone highlight) and no hovered-area label pair",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-ec6fcc60",
+      "kind": "gap",
+      "text": "Player blip is a plain circle with no facing (Benilla spins MinimapArrow art by GetPlayerFacing)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

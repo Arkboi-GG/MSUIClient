@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/trainer",
+  "title": "trainer",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/trainer.rs",
+      "fileSha256": "1c872d9e407a96217c36f8d6d6cf9e2eec7031ac3ad2daa18f0e6019515b7bfe",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/trainer.rs",
+      "fileSha256": "125e37b1fb4e7c638d541ed9503d4d281ad347d11530e6a0a06500c97287a747",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/TrainerPackets.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla defines SMSG_TRAINER_LIST (guid, type, count x 38-byte service records, greeting cstring), CMSG_TRAINER_LIST / CMSG_TRAINER_BUY_SPELL, and the BUY_SUCCEEDED/BUY_FAILED replies. MSUI's TrainerPackets.ParseList/ParseSuccess/ParseFailure and WorldSession's two sends match the wire field-for-field (including the two u32 primary-profession booleans and the three prerequisite spell slots), dispatched in Program.Net.cs.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

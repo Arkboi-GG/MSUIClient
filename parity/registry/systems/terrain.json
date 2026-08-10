@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/terrain",
+  "title": "terrain",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/terrain.rs",
+      "fileSha256": "ddddc500ae256d6c1bc27b43ef57b4d54893be64b78752e974fad0de3c40a6a0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/World/TerrainRenderer.cs",
+    "MSUIClient/World/TerrainTile.cs",
+    "MSUIClient/World/TerrainTextures.cs",
+    "MSUIClient/World/LiquidRenderer.cs",
+    "MSUIClient/World/ExteriorLighting.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's terrain.rs is Bevy material/pipeline plumbing (splat ExtendedMaterial, WGSL bindings, per-flag blend/depth specialization for M2/WMO/liquid/WDL). MSUI achieves the observable scene through its own OpenGL pipeline: per-tile ADT splat terrain with height queries, MCLQ liquid with depth fade and submerged tint, foliage, WMO/doodad renderers and WoW-style lighting.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

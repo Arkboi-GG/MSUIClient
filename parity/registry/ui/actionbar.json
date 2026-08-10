@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/actionbar",
+  "title": "actionbar",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ActionBar.xml",
+      "fileSha256": "90962d131906e2431e3a22ea701ebc96d904ab9f70e378b72332c41ffb13ecff",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/cast_fail.rs",
+      "fileSha256": "b9228b437412f83219c274555f9cdd560ee01e34964e0928a44c248199c3104c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/cast_send.rs",
+      "fileSha256": "2b10bd33e0473c579ce25a1203dad979563cc323559e247b4f52378417b62769",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/cast_target.rs",
+      "fileSha256": "bea44d7e0bd0af917420923b698b6b3b9d1b489136715ed7ae6971ecea74cc7b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/drain.rs",
+      "fileSha256": "d1f911a29c77276171b9b6210a3417b88b2fe6471ede77b38ebaa3ae7502f169",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/errors.rs",
+      "fileSha256": "258a77fc4f85692c915dce47dc61a6432f45491d0aa2b0671f3aa5a6083fecbf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/feed.rs",
+      "fileSha256": "32e02c36bd6aa765061c5a516e6fd2a6f474d38986842f610e9168aba8d4520c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/mod.rs",
+      "fileSha256": "dcc0d94a737e52c45ebbba8aec2e20fac10f9a4786be252a998d289832b3e646",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/ranks.rs",
+      "fileSha256": "06feafb1816d9233083ff8be24a63d825788b0dff6998a088f45449a01d38f1b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/state.rs",
+      "fileSha256": "7f1f25b6611b7d5d244a2b8ace11a680cec90dff8f1ba0aa1bbb0faafee32bf8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/targeting/cursor.rs",
+      "fileSha256": "efd2d37600fb94231cef8c948d076b779ca37313352f1043a5be9bfc0cbe3c91",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/targeting/item.rs",
+      "fileSha256": "b810c18783398e42495c13438732199aafe8d01568d448d7c33a02f21b019eca",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/targeting/mod.rs",
+      "fileSha256": "71de08c61a6d38cfc96265e88f2d933af39c9037b2df060ba639df871c4e3707",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/targeting/world.rs",
+      "fileSha256": "c4d01a34abc1f0a11968a3959d18b4fc39f79cb895f13584ddfb6866b102cec5",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/toggle.rs",
+      "fileSha256": "6b21f9da35d5675590c5a814fe4bfc2e7d74a1460ff503cba8f98b5ce39cdf6e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/usable.rs",
+      "fileSha256": "bf0a4f9c114fd98a9bd6a66f49eafa15f9fd17370454f4345ca26e72f5d92cb9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_action/weapon_icon.rs",
+      "fileSha256": "c313f38cf66f17deedb147f741d389db399d5cc5fbee0f4ce3ee6f0fe1c0e2e1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.ActionBars.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Casting.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.RestXp.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/ActionIconLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/MultiActionBarUiLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/CooldownVisualLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "Near-complete. MSUI has the full main action bar: 12 buttons with icon/cooldown swipe+flash/stack count/hotkey (out-of-range red), the three-way usability tint matching ActionButton_UpdateUsable, page up/down arrows + page number (6 pages), spell/item/macro/auto-attack (6603) action kinds, CMSG_SET_ACTION_BUTTON pickup/place, the XP bar with rested state and tooltip, and the performance/latency meter. Cast send/fail, targeting, and rank handling live in Program.Casting.cs / Program.Targeting.cs.",
+  "openItems": [
+    {
+      "id": "item-triage-e0d8fdd3",
+      "kind": "gap",
+      "text": "CMSG_CANCEL_AUTO_REPEAT never sent - the auto-repeat (wand/Shoot) toggle cannot be cancelled the reference way",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-ab83fae1",
+      "kind": "gap",
+      "text": "SMSG_INVENTORY_CHANGE_FAILURE not consumed - item-action failures from the server produce no error line",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-edf20246",
+      "kind": "gap",
+      "text": "SMSG_MOUNTRESULT / SMSG_DISMOUNTRESULT not consumed - mount action outcomes give no feedback",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

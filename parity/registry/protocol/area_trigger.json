@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/area_trigger",
+  "title": "area_trigger",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/area_trigger.rs",
+      "fileSha256": "814a382e738d941fa1b734dfd4b33306c27a87ce04ff720fba396e284999a6fa",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/area_trigger.rs",
+      "fileSha256": "0d865dda63be6b1994800ef47fe88ed51c7bf75e29305b9da955c260442cacd4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla defines the CMSG_AREATRIGGER report (bare u32 AreaTrigger.dbc id) and SMSG_AREA_TRIGGER_MESSAGE (u32 length + cstring refusal text). MSUI has neither opcode anywhere - not even in Net/Opcodes.cs - so walking into instance portals, quest explore volumes, and inn rested-state triggers can never fire, and server refusal text can never display.",
+  "openItems": [
+    {
+      "id": "item-triage-9525b45d",
+      "kind": "gap",
+      "text": "CMSG_AREATRIGGER: no builder/sender anywhere (client never reports entering a trigger volume)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3c31efe8",
+      "kind": "gap",
+      "text": "SMSG_AREA_TRIGGER_MESSAGE: no handler (server refusal text such as level gates is dropped)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/ui_logout",
+  "title": "ui_logout",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/ui_logout.rs",
+      "fileSha256": "b708436cefad1bc6e4504822e065fe14b7b7c21094414ddd5ee403c683f6eea6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Logout.cs",
+    "MSUIClient/Engine/UI/LogoutUiLaw.cs",
+    "MSUIClient/Engine/UI/GameMenuUiLaw.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Program.Logout.cs + LogoutUiLaw realize the whole arc: CMSG_LOGOUT_REQUEST on Logout/Exit, the SMSG_LOGOUT_RESPONSE decision table (reason!=0 refused with an error line and quit-disarm; instant silent awaiting completion; else a 20 s camp/quit countdown dialog), CMSG_LOGOUT_CANCEL via ESC or Cancel with SMSG_LOGOUT_CANCEL_ACK teardown, quit-only 'Exit now' force button, countdown expiry that only narrates (never manufactures completion), and SMSG_LOGOUT_COMPLETE either exiting the process (quit) or tearing down to character select. Menu sounds fire on request and dialog show/hide.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

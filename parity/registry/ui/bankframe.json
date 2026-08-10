@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/bankframe",
+  "title": "bankframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/BankFrame.xml",
+      "fileSha256": "7b61d6c3d9aab699cc0bcf6335f2b53c35c1c280c52e98c103e6fb5c69187673",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_bank.rs",
+      "fileSha256": "325bdd67446d2d8805e2b0ecdd406d40da80f76988daabae182220d2e1751b48",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Bank.cs"
+  ],
+  "status": "partial",
+  "summary": "Bank window exists with real BankFrame art regions, the 24 generic slots as icon buttons with quickslot rings, item tooltips, click-to-withdraw, deposit path, bag-slot purchase with BankBagSlotPrice.dbc pricing and locked/open slot art, and delta-based buy-result observation. All 5 wire opcodes hit per the registry.",
+  "openItems": [
+    {
+      "id": "item-triage-ba7457d3",
+      "kind": "gap",
+      "text": "The six bank-bag popout container windows (Benilla BenillaBankBagFrame1..6, container ids 5..10) do not exist - purchased bank bag slots show ring art only; bags placed there cannot be opened or used",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-77fd546f",
+      "kind": "gap",
+      "text": "No drag-and-drop cursor flow for bank slots (click withdraws whole item by entry; no place-into-specific-slot, no stack split)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-7037b667",
+      "kind": "gap",
+      "text": "No banker portrait/name title (Benilla binds SetPortraitTexture 'npc' and BANKFRAME_OPENED name)",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2ee73b03",
+      "kind": "gap",
+      "text": "No player money display on the window (Benilla BenillaBankFrameMoneyCoin1..3), and no purchase confirmation popup (CONFIRM_BUY_BANK_SLOT) - purchase fires immediately",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

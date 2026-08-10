@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--char_select",
+  "notes": [
+    {
+      "id": "note-6bcf1a19fbfe",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): Benilla's select screen: roster enum, the per-race UI_<Race> glue scene with the selected character geared from its enum record, Enter World / Back / Delete with the typed-name confirm, create entry, PLAYER_LOGIN on pick, logout returning to select. MSUI realizes the same arc: full-bleed skinned char-select chrome over the per-race booth (background follows the selected row's race), roster from SMSG_CHAR_ENUM, CMSG_PLAYER_LOGIN on Enter World, delete with a confirm dialog naming the doomed character followed by CMSG_CHAR_DELETE and a re-enum, create-screen overlay on the same parked net state, and logout back to the roster. All 3 tracked opcodes are hit.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    }
+  ]
+}

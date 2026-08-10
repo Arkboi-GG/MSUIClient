@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/ui_text",
+  "title": "ui_text",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/ui_text/atlas.rs",
+      "fileSha256": "06506367c728b72dff8792736e3ada38df8884e490d5ef510788b01bf5a330ff",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/layout/mod.rs",
+      "fileSha256": "a6adcf6b2cf320da57087369a46538e82c97fc1240874873d3d34f1cfaf806d3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/layout/overflow.rs",
+      "fileSha256": "9efa4a0df4e33226bb7ad132ea9f56b2e3b3d678288010553d89f3f7c8069dde",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/layout/wrap.rs",
+      "fileSha256": "4cbcf4f73c956acb45115f4ce5fb77fa11be2310bd64aac8d501ac74e6782b94",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/markup.rs",
+      "fileSha256": "e5d3552e8e8147b79dba4d9b99a9758b7754277b38491c460bae68283c91851a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_text/mod.rs",
+      "fileSha256": "5e440b5fb351aa48aa1dea6e7ca57f499c8934372797d7dfcb5cd69786a7832c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/GameTextLaw.cs",
+    "MSUIClient/Engine/UI/GameText.cs",
+    "MSUIClient/Engine/UI/FontObjectLaw.cs",
+    "MSUIClient/Program.Chat.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI's GameTextLaw/GameText/FontObjectLaw transcribe the same byte-verified 1.12 text laws Benilla derived: raster size clamp(round(h/768*deviceH),2,32), per-glyph floor(advance)+1 tracking (+1 more for THICK outline, baked per instance), line pitch = em with zero spacing, named FrameXML font objects with face/height/color/shadow/outline, DPI-aware atlas bake, and chat word-wrap to the message width. Both accept the same stb/FreeType hinting divergence.",
+  "openItems": [
+    {
+      "id": "item-triage-e4ef5e41",
+      "kind": "gap",
+      "text": "No inline markup parsing anywhere: |cAARRGGBB / |r color escapes are not resolved (server- or DBC-supplied colored strings, e.g. quality-color prefixes, would render as literal escape text), where Benilla's markup.rs splits lines into color runs with malformed-escape passthrough.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-aa86299a",
+      "kind": "gap",
+      "text": "No |H...|h hyperlink support: item/player links in chat are neither styled, clickable, nor shift-click insertable (Benilla carries LinkInfo through every wrapped run).",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-8fe35def",
+      "kind": "gap",
+      "text": "|T...|t inline-texture escapes are not stripped, so such a string would show raw markup instead of silently dropping the texture reference.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-bb52b462",
+      "kind": "gap",
+      "text": "No general FontString overflow/ellipsize law (Benilla's layout/overflow.rs ellipsize_to_fit) - truncation behavior outside chat wrap is per-panel ad hoc.",
+      "source": "triage-2026-08-09/batch-systems-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

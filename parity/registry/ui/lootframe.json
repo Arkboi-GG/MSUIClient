@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/lootframe",
+  "title": "lootframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/LootFrame.xml",
+      "fileSha256": "8905e9db531c2b99ce0d84c5880cb876e36604536d5ae362c66af104820fefe6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_loot.rs",
+      "fileSha256": "416d7f587d4ee8444692f0fe54901f3823b8460ceaadfdce943df596ea4d7abc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Loot.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Net/LootState.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI's loot window is a close counterpart of Benilla's: Program.Loot.cs draws the 256x256 UI-LootPanel slab at the left UIPanel seat with the TargetDead skull through the portrait ring, quality-colored rows with icon + UI-QuestItemNameFrame parchment plate + stack counts, a synthesized coin row (denomination icon + 'X Gold Y Silver' text), the 4-rows/3+pager paging law with ChatFrame scroll-arrow pager buttons, minimize-style close, row hover highlight + shared item tooltip, click-to-loot (CMSG_AUTOSTORE_LOOT_ITEM / CMSG_LOOT_MONEY), autoloot, and client-authoritative auto-release on movement/despawn. Registry shows 25/25 opcodes hit.",
+  "openItems": [
+    {
+      "id": "item-triage-c56c8ca0",
+      "kind": "gap",
+      "text": "No loot-window sounds (reference LootFrame_OnShow plays per-loot-type open kits, e.g. LOOTWINDOWOPENEMPTY); Program.Loot.cs has no PlaySound calls",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-6999f044",
+      "kind": "gap",
+      "text": "Skull overlay is static corpse art only - fishing loot icon swap not modeled (same reduction Benilla notes for itself)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

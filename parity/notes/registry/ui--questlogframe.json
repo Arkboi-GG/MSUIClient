@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--questlogframe",
+  "notes": [
+    {
+      "id": "note-7948a414e5a3",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI's quest log (Program.Quest.cs, log mode of the shared quest window) exists with the UI-QuestLog book art, title, 'n / 20' count, six selectable title rows, a detail area with quest title + objectives text, and working Abandon (CMSG_QUESTLOG_REMOVE_QUEST) and Close buttons. Registry's 13/13 opcodes are about the wire, not the window - the list and detail panes are far thinner than the reference/Benilla.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

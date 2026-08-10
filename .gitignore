@@ -182,3 +182,10 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 /parity/traces/*
 !/parity/traces/current.jsonl
 /parity/config.local.json
+
+# Parity working data that stays out of history: archive/ is the retired
+# packet-machinery corpus (34k files, 1.2 GB), verification/ the raw triage
+# evidence batches (96 MB). The registry/ tree is the source of truth and IS
+# committed; these two are its bulk inputs, reproducible and unreviewable.
+parity/archive/
+parity/verification/

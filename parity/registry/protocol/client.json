@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/client",
+  "title": "client",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/client.rs",
+      "fileSha256": "13d015597e8daadc8bf8033124d17a3ba6d58079b76d8449918bc43d85e539c7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Net/WorldHeaderCrypto.cs",
+    "MSUIClient/Program.CharCreate.cs",
+    "MSUIClient/Net/LocalMovementSender.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla's client body builders: auth_session, char_create, messagechat family, channel family, played_time, random_roll, text_emote, creature/pet-name queries, movement, spline-done, teleport ack, force-speed acks, ping, move-flag acks. MSUI implements auth session (WorldHeaderCrypto proof + BuildAuthSession), char create, messagechat (incl. whisper/channel target), creature query, ping, teleport ack, root/unroot ack, and movement sends.",
+  "openItems": [
+    {
+      "id": "item-triage-84f8f383",
+      "kind": "gap",
+      "text": "Entire CMSG_CHANNEL_* / JOIN/LEAVE_CHANNEL builder family: absent",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-d3ba516a",
+      "kind": "gap",
+      "text": "CMSG_PLAYED_TIME: absent",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-3a0354fe",
+      "kind": "gap",
+      "text": "MSG_RANDOM_ROLL request body: absent",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-66dd6437",
+      "kind": "gap",
+      "text": "CMSG_TEXT_EMOTE (u32 textId, u32 emoteNum, u64 target): absent - /wave etc. cannot be sent",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-1cc15e11",
+      "kind": "gap",
+      "text": "CMSG_PET_NAME_QUERY (pet number + guid): absent - NPC-summoned pets stay nameless",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-cca3e583",
+      "kind": "gap",
+      "text": "CMSG_MOVE_SPLINE_DONE: opcode-table-only (Net/Opcodes.cs:269), never built/sent after server-driven splines",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-7006023f",
+      "kind": "gap",
+      "text": "CMSG_FORCE_*_SPEED_CHANGE_ACK: only the RUN opcode is in the table (0x00E3) with no handler for SMSG_FORCE_RUN_SPEED_CHANGE and no ack builder - server speed changes are never acknowledged (vmangos will kick/rubber-band)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-ddd55548",
+      "kind": "gap",
+      "text": "move-flag acks for water-walk/feather-fall/hover (move_flag_ack with apply dword): absent - only the root/unroot ack exists",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

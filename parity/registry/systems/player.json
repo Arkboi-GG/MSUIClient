@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/player",
+  "title": "player",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/player.rs",
+      "fileSha256": "c659f1d794e55c24b544c206c74bd56aa0f20fe64224538c58783145bf7d92d4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/arc.rs",
+      "fileSha256": "fbcd86bcc05e9d372131fd96917ffa5635128c2b33008870010f3fb72de9c9b6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/camera.rs",
+      "fileSha256": "e2758a8599ed827868903c8a622349208ce55077068be5fdf363d30111c78e27",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/drunk.rs",
+      "fileSha256": "a9a6dfb245ac9f56bcdae3a127ba90e6559ca27d1fc496d164bcbd38989973d7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/follow.rs",
+      "fileSha256": "40ff0829ef1d6323fd4519fa0546323c8ad11d5e078466c19e3032dfe11f2e9f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/gait.rs",
+      "fileSha256": "b109e133c7f8b035ede3ef17158ca11231eb4110733c418e742fa114904504c9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/land.rs",
+      "fileSha256": "049fee9f0327d3580018efcc395537409d786f5d07a3a6b24561be0e32b17cf1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/move_trace.rs",
+      "fileSha256": "7315fb572f50593a2df8f461723adf3922839132038df39865ee78dd7771d723",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/movement_net.rs",
+      "fileSha256": "d9d8d6aa23b8baca6128f7b4c1bb620a6ed946bd436ecb85ebc15c352a061932",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/mover.rs",
+      "fileSha256": "4db7fa47d60d53d78a7ebf291f7aa7fd2eae3a7642aedbc9f651f9a4b457526c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/probe_cam.rs",
+      "fileSha256": "d16c72d605400664b6261387248fe5b97b2214ec9e83efe269ebb3f90117e97e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/probe_look.rs",
+      "fileSha256": "c4fcc1df3062de029402ab212c5ae12903e1d56a745b54f955207f0720e12df3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/server_ride.rs",
+      "fileSha256": "5b7d1d27816dc8e4080689039077b9c0180c5fc37a8d3b2c88ed401c906fb7c4",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/setup.rs",
+      "fileSha256": "f3e595014d43bcc6629a7a9c3459d62f057cd09bc971e237ab6ca1774ed905e0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/state.rs",
+      "fileSha256": "640636acb7108b0e2859fa6867e64dc79e6eeeb6a2c81b988010a59ee04acc4f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/swim.rs",
+      "fileSha256": "744b2e75c8f83cd6ecfd1f0cfa6f88a03938cf6de6a82b290e56d008c1dcd88d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/player/wire_in.rs",
+      "fileSha256": "fcfe17bd8862e9d522c726820292961140ef1fc425ef871714e2800fdb067f6e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/LocalMovementSender.cs",
+    "MSUIClient/Net/MovementInfo.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "The outbound movement law's core is faithfully present: LocalMovementSender diffs per-axis MSG_MOVE_START/STOP transitions, the jump/fall lifecycle (MSG_MOVE_JUMP with the down-positive ballistic tail, MSG_MOVE_FALL_LAND, the walk-off heartbeat), FALLING/FALLING_FAR flags, the 0.5s heartbeat cadence, SET_FACING suppressed during keyboard turns, normalized orientations, and park-on-detach. Inbound: same-map MSG_MOVE_TELEPORT_ACK is applied-then-acked with camera/facing carry, CMSG_MOVE_WORLDPORT_ACK answers SMSG_NEW_WORLD, and SMSG_FORCE_MOVE_ROOT/UNROOT applies, parks the stream, and acks with MOVEFLAG_ROOT. But most of the server-granted movement family and several whole subsystems are missing.",
+  "openItems": [
+    {
+      "id": "item-triage-0e93dbdb",
+      "kind": "gap",
+      "text": "SMSG_FORCE_*_SPEED_CHANGE is not handled (SMSG_FORCE_RUN_SPEED_CHANGE is only an enum constant): server speed grants (mounts, sprint, slows) neither apply locally nor get acked, which the server treats as an unacknowledged forced change",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f51aa4c4",
+      "kind": "gap",
+      "text": "Swimming is entirely absent: no swim state/pitch, MSG_MOVE_START_SWIM/STOP_SWIM are never sent, and the SWIMMING flag never joins the outbound stream",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-a6990e89",
+      "kind": "gap",
+      "text": "Granted movement modes - water walk, feather/safe fall, hover, levitate - are neither applied nor acked nor echoed back in the outbound flag mask (SMSG_MOVE_WATER_WALK/SMSG_MOVE_FEATHER_FALL/SMSG_MOVE_SET_HOVER unhandled)",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-f14e9eef",
+      "kind": "gap",
+      "text": "SMSG_MOVE_KNOCK_BACK is not handled - no knockback arc or ack",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-e045a610",
+      "kind": "gap",
+      "text": "A bare self-addressed MSG_MOVE_* from the server (.go forward-style GM move) is not applied to the local mover",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-37b07b95",
+      "kind": "gap",
+      "text": "Transport riding is parse-only: the ONTRANSPORT pose tail is decoded but there is no deck-ride state, no boat-local pose streaming, and no ride-through-worldport handling",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-4ad16310",
+      "kind": "gap",
+      "text": "CMSG_STANDSTATECHANGE (sit/stand) and CMSG_MOUNTSPECIAL_ANIM are never sent",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-17acbc67",
+      "kind": "gap",
+      "text": "The drunk system (DRUNKENSTATE screen effect/gait) has no counterpart",
+      "source": "triage-2026-08-09/batch-systems-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

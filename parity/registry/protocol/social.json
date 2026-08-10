@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/social",
+  "title": "social",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/social.rs",
+      "fileSha256": "cd0e459306ef4e1f9ee4fdc86b3ae386f609a5c38bb92ed2ac9afca43194bce3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/social.rs",
+      "fileSha256": "6582fe3cfda091b5b4b59d9209bae5f503a434998c92141a25ae33acfa5f25a2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Social.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Net/WorldSession.cs"
+  ],
+  "status": "partial",
+  "summary": "Benilla defines the friend/ignore/who family: SMSG_FRIEND_LIST (status-conditional tail), SMSG_IGNORE_LIST, SMSG_FRIEND_STATUS (result-code-keyed tail + the ERR_FRIEND_*/ERR_IGNORE_* vocabulary), SMSG_WHO, and the CMSG bodies incl. the full WhoRequest (level range, name/guild, race/class masks, zones, terms, server caps 10/4). MSUI implements the list/who parses byte-correctly and all add/del/refresh sends, but degrades SMSG_FRIEND_STATUS to a blind list re-request and only builds the default name-only /who query.",
+  "openItems": [
+    {
+      "id": "item-triage-a192eec3",
+      "kind": "gap",
+      "text": "SMSG_FRIEND_STATUS result byte and online tail are not decoded (ApplyFriendStatus just re-requests CMSG_FRIEND_LIST) - none of the ERR_FRIEND_*/ERR_IGNORE_* results (list full, not found, wrong faction, already, self...) are surfaced to the player as the reference client's chat-frame messages",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-74060227",
+      "kind": "gap",
+      "text": "CMSG_WHO builder is hard-coded to the default query with only a player-name substring - no level min/max, guild filter, race/class masks, zone-id list, or free search terms, and no WHO_MAX_ZONES/WHO_MAX_SEARCH_TERMS trimming (the /who filter-string parsing Benilla implements app-side is absent)",
+      "source": "triage-2026-08-09/batch-protocol-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

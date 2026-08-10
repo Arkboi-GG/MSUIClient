@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/characterframe",
+  "title": "characterframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/CharacterFrame.xml",
+      "fileSha256": "317087c5ddb2602b01ba7b894abd96de428b78e8638c15c1e649da16014d97d0",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_char.rs",
+      "fileSha256": "4adb62ea808ac37f3a81b6cc491f484dd74c2694d9fdc09131b7f473120f230a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.CharacterPage.cs",
+    "MSUIClient/Engine/UI/PaperDollUiLaw.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/Program.Spellbook.cs",
+    "MSUIClient/Program.Inspect.cs",
+    "MSUIClient/Program.Mail.cs",
+    "tools/interface-wire-check/Program.cs"
+  ],
+  "status": "partial",
+  "summary": "CharacterFrame now has deterministic exact laws and sufficient draw telemetry for the next live comparison, with the reproduced portrait ordering and missing interaction/content paths repaired. It remains implemented/unverified until connected-client pixel, input, protocol, dynamic, and audio acceptance is captured.",
+  "openItems": [
+    {
+      "id": "item-claim-characterframe-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI has the complete character-panel open/close, page/tab, player identity, guild refresh, and visibility lifecycle through its native immediate-mode page state.",
+      "source": "claim-characterframe-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-modifier-colors-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now applies deterministic green, red, or normal character-stat text colors from the net modifier sign.",
+      "source": "claim-characterframe-modifier-colors-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-stats-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI already had complete character statistics, resistances, and tooltips; its broad panels, Attack/Ranged labels and values, damage format, and no-ranged semantics are preserved instead of adopting Benilla's different presentation.",
+      "source": "claim-characterframe-stats-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-equipment-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now routes equipment through exact slot endpoints and one law-bound path for clicks, modifiers, right-click use, drag/drop, auto-equip, tooltips, counts, and locked/broken/fit visual states.",
+      "source": "claim-characterframe-equipment-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-model-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Held rotation, release sounds, and model-pane auto-equip are present; MSUI's established zero facing and 0.12-radian tap are deliberately preserved instead of Benilla's different constants.",
+      "source": "claim-characterframe-model-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-ammo-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI has the authored ammo slot, PLAYER_AMMO_ID binding, exact carried-ammunition filter and total count, and the build-5875 CMSG_SET_AMMO entry body.",
+      "source": "claim-characterframe-ammo-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-characterframe-layout-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's complete native character-frame composition is preserved; no Benilla coordinate, tab, background-slice, or header difference is treated as authorization to replace it.",
+      "source": "claim-characterframe-layout-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-characterframe-lifecycle-001",
+    "claim-characterframe-modifier-colors-001",
+    "claim-characterframe-stats-001",
+    "claim-characterframe-equipment-001",
+    "claim-characterframe-model-001",
+    "claim-characterframe-ammo-001",
+    "claim-characterframe-layout-001"
+  ],
+  "traces": [
+    "trace-characterframe-lifecycle-001",
+    "trace-characterframe-modifier-colors-001",
+    "trace-characterframe-stats-001",
+    "trace-characterframe-equipment-001",
+    "trace-characterframe-model-001",
+    "trace-characterframe-ammo-001",
+    "trace-characterframe-layout-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-07T22:47:52.7450709+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

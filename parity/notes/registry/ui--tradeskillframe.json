@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--tradeskillframe",
+  "notes": [
+    {
+      "id": "note-cbeb952a2bd8",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Program.Professions.cs is MSUI's TradeSkillFrame: opens client-side off the effect-47 opener spell (TryOpenProfession), ClassTrainer/TradeSkill shell art, skill line title + rank value, scrolled recipe list with vanilla difficulty colors (orange/yellow/green/grey from trivial thresholds), detail pane with product icon, reagents with have/need counts red-tinted when short, tools and spell-focus requirement lines with red unmet tint, Create / Create All (batched recasts) / Cancel / Exit, craft-cast confirmation observation. Structural list features of the ref/Benilla are absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

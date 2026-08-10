@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/castingbar",
+  "title": "castingbar",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/CastingBar.xml",
+      "fileSha256": "f8d4f9761ffd2203fd02177103d4a8d19e6aa6156f59e278529c9d7118eb7721",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_cast.rs",
+      "fileSha256": "e3c8255d2c18b43999af982e9d75b7e29d1a0d367fb5aeeda9da8d76971f3124",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Program.Casting.cs",
+    "MSUIClient/Engine/UI/CastingBarUiLaw.cs",
+    "MSUIClient/Net/SpellPackets.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "tools/interface-wire-check/Program.cs",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/before/msui-clinical-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/reference/benilla-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/clinical/castingbar-clinical-2026-08-07.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/after/msui-clinical-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/verification/deterministic-2026-08-07.md",
+    "parity/packets/pair-de1462d2f83d2f33/castingbar-part-01-packet-3d775bf40e48fa14/evidence/live-boundary.md"
+  ],
+  "status": "partial",
+  "summary": "CastingBar now has deterministic visible-bar placement, fill/spark geometry, lifecycle/channel timing, fixed failure labels, active-phase completion guards, exact packet parsers, rendered-frame telemetry, and separated observational versus fixture capture. Deterministic checks are green. A fresh corrected-build connected capture, strict visual diff, full live phase/channel matrix, and user-visible review remain outstanding, so the packet is implemented/unverified.",
+  "openItems": [
+    {
+      "id": "item-claim-castingbar-lifecycle-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements the full cast/channel event state machine, delayed-cast timing, channel correction/expiry, failure guards, and deterministic reference-rate flash/hold/fade phases.",
+      "source": "claim-castingbar-lifecycle-001",
+      "added": "2026-08-09",
+      "resolved": true
+    },
+    {
+      "id": "item-claim-castingbar-art-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI uses the exact cast-bar dimensions, status/border/spark/flash assets, additive modes, fraction bounds, and conditional UIParent-style bottom stacking.",
+      "source": "claim-castingbar-art-001",
+      "added": "2026-08-09",
+      "resolved": true
+    },
+    {
+      "id": "item-claim-castingbar-text-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI's existing centered custom cast-label typography is complete and intentionally preserved instead of being replaced by Benilla's GameFontHighlight declaration.",
+      "source": "claim-castingbar-text-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-castingbar-lifecycle-001",
+    "claim-castingbar-art-001",
+    "claim-castingbar-text-001"
+  ],
+  "traces": [
+    "trace-castingbar-lifecycle-001",
+    "trace-castingbar-art-001",
+    "trace-castingbar-text-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T03:59:55.573251+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

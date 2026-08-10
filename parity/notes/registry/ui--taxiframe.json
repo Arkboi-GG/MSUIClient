@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--taxiframe",
+  "notes": [
+    {
+      "id": "note-dcaa6b649044",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Program.Taxi.cs covers the session and the window: eligibility/distance gating, CMSG_TAXINODE_STATUS_QUERY, CMSG_TAXIQUERYNODES, SMSG_SHOWTAXINODES decode (mask -> known nodes), the 384x512 UI-TaxiFrame four-piece shell, the continent TAXIMAP texture in the 316x352 rect, node icons projected from TaxiNodes.dbc, click-to-fly (CMSG_ACTIVATETAXI), name/You-are-here tooltip, SMSG_ACTIVATETAXIREPLY, flight spline playback with input lockout and arrival hand-off, flight-master title text. Concrete Benilla/ref behaviors are absent.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--talentframe",
+  "notes": [
+    {
+      "id": "note-dcf6f57b5c14",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Program.Talents.cs is a full talent window: 384x512 chassis with the four-piece shell art, per-tab class background tiles (MageFire etc.), 3 tree tabs (VanillaTab), scrolled 296x332 grid with wheel + real scrollbar (arrows/knob/track drag), talent buttons with EmptySlot backdrop / icon grey-out / RankBorder + rank text with maxed-gold coloring, prerequisite link lines colored by met/unmet, points-remaining display, eligibility law (tier 5-per-row gating, prerequisite rank, required spell, free points), CMSG_LEARN_TALENT send with server confirm observation, talent-wipe cost display + Unlearn Talents confirm, Close + minimize close button, player portrait. TalentCatalog decodes Talent/TalentTab DBC.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-6e64cceb4931",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: Prerequisite dependencies are drawn as plain colored lines instead of the ref's UI-TalentBranches/UI-TalentArrows tile textures, and the talent tooltip is a basic ImGui tooltip (name/rank/reason) rather than the full spell tooltip with next-rank text. Both read as deliberate simplified looks of the same function - candidates for ruling rather than hard gaps.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

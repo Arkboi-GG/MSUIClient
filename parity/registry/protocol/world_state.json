@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/world_state",
+  "title": "world_state",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/world_state.rs",
+      "fileSha256": "ec265acfd11c060c4340f7c48a3d495200d2040085c5af77a2b36444c702aa55",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Quest.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla defines SMSG_INIT_WORLD_STATES (u32 map, u32 zone, u16 count, count x raw (id,value) dword pairs incl. the (0,0) terminator) and SMSG_UPDATE_WORLD_STATE (one pair), feeding the NPC-text $<n>w/$<n>e macro expander. MSUI implements both in Program.Quest.cs (ApplyInitialWorldStates/ApplyWorldState with exact-length validation, raw dwords into _questWorldStates) with QuestTextMacroLaw as the same consumer.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

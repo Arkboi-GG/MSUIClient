@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--craftframe",
+  "notes": [
+    {
+      "id": "note-d3e192900c56",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): MSUI implements the Craft window through its shared profession panel: ProfessionPanelOpenerLaw forks effect-47 openers into TradeSkill vs Craft by EffectMiscValue (exactly the reference law), Program.UiPanelOwnership registers 'BenillaCraftFrame' in the left panel area, and DrawProfessionFrame renders the 384x512 four-quadrant shell with skill name + value/max, an 8-row difficulty-colored recipe list with wheel scroll, product icon/name, reagent grid with have/need counts, tool and spell-focus requirement lines, and Create / Create All / Exit-Cancel buttons with batch casting.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-083d85fc7f56",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: MSUI deliberately serves TradeSkill and Craft from one shared panel (mixed ClassTrainer/TradeSkill art) rather than twin windows - candidate for a ruling on whether the single-panel look is accepted; the listed element gaps stand regardless.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

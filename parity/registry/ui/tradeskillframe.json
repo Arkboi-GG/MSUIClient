@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/tradeskillframe",
+  "title": "tradeskillframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/TradeSkillFrame.xml",
+      "fileSha256": "aca583e208bc1f995c6f56335215525b5e961f964f9d0eef673cf2f403e096c7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_tradeskill.rs",
+      "fileSha256": "3e5ad6dc72a2b7e99131c83b6b1dfe72210ae2cf3805360d8058798d21004cf3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Professions.cs"
+  ],
+  "status": "partial",
+  "summary": "Program.Professions.cs is MSUI's TradeSkillFrame: opens client-side off the effect-47 opener spell (TryOpenProfession), ClassTrainer/TradeSkill shell art, skill line title + rank value, scrolled recipe list with vanilla difficulty colors (orange/yellow/green/grey from trivial thresholds), detail pane with product icon, reagents with have/need counts red-tinted when short, tools and spell-focus requirement lines with red unmet tint, Create / Create All (batched recasts) / Cancel / Exit, craft-cast confirmation observation. Structural list features of the ref/Benilla are absent.",
+  "openItems": [
+    {
+      "id": "item-triage-0367972f",
+      "kind": "gap",
+      "text": "Flat recipe list: no collapsible subclass group headers (+/- fold rows), no Collapse All button",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b1972052",
+      "kind": "gap",
+      "text": "No filter dropdowns (subclass filter, inventory-slot filter)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-113e4e29",
+      "kind": "gap",
+      "text": "Skill rank shows as text 'value / max' with no status-bar fill (ref TradeSkillRankFrame is a StatusBar)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-b84e2c92",
+      "kind": "gap",
+      "text": "List scrolls by mouse wheel only - no scrollbar widget on the recipe list (the trainer window has one; this one does not)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-500fc2be",
+      "kind": "gap",
+      "text": "No item tooltips on the product icon or reagent rows",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-30acdece",
+      "kind": "gap",
+      "text": "No creation-count spinner (ref's number input with +/- and the typed count next to Create)",
+      "source": "triage-2026-08-09/batch-ui-3.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

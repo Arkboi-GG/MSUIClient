@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/mirrortimer",
+  "title": "mirrortimer",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/MirrorTimer.xml",
+      "fileSha256": "773336687d9b1e9fee003dd8acf8e3328749c21828a043e112e44bf52f4cf380",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_mirror.rs",
+      "fileSha256": "c04d4a5c8035902ef34e47a5c957e7cc22c2fdc407d91b2aab21084de0f0a713",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla ships the three reference mirror-timer bars (breath/fatigue/feign-death) driven by SMSG_START/PAUSE/STOP_MIRROR_TIMER through the MIRROR_TIMER_* FrameXML events with client-side value+rate integration. MSUIClient has nothing: a repo-wide grep for MIRROR finds no opcode, no decoder, and no bar UI. Swimming underwater produces no breath bar and no drowning warning surface.",
+  "openItems": [
+    {
+      "id": "item-triage-592d97ff",
+      "kind": "gap",
+      "text": "SMSG_START_MIRROR_TIMER / SMSG_PAUSE_MIRROR_TIMER / SMSG_STOP_MIRROR_TIMER not in Opcodes.cs and never decoded",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-46f2ace5",
+      "kind": "gap",
+      "text": "No mirror-timer bar UI (colored StatusBar + label + border under the top-center of the screen)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-661b512f",
+      "kind": "gap",
+      "text": "No client-side countdown integration (value + signed rate per tick)",
+      "source": "triage-2026-08-09/batch-ui-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/uidropdownmenu",
+  "title": "uidropdownmenu",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/UIDropDownMenu.xml",
+      "fileSha256": "d488422644521ffb438e5863614b829d314773df9b8a4a96a952de00d583a208",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Settings.cs"
+  ],
+  "status": "support-only",
+  "summary": "UIDropDownMenu.xml is Benilla's shared dropdown kit (capsule template, row template, 2-level list, MENU displayMode, hover auto-close) - framework plumbing, not a surface. MSUI has no transcription of the kit and none of its consumers currently use a vanilla-styled dropdown (settings use ImGui combos; the world map / trainer / tradeskill filter dropdowns that would consume it are themselves absent - tracked as gaps on those entries). Realized, where needed, through MSUI's own ImGui widgets.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

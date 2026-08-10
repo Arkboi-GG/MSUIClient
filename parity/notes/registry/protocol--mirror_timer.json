@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--mirror_timer",
+  "notes": [
+    {
+      "id": "note-efb4ce04b017",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla decodes the three mirror-timer packets (SMSG_START_MIRROR_TIMER u32 type/remaining/duration/i32 scale/u8 paused/u32 spellId; SMSG_PAUSE_MIRROR_TIMER; SMSG_STOP_MIRROR_TIMER) driving the breath/fatigue/feign-death bars, with START treated as idempotent re-statement. MSUI has no reference to any mirror-timer opcode outside the opcode table and no breath/fatigue bar consumer.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

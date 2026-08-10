@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/selection",
+  "title": "selection",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/world/writer/selection.rs",
+      "fileSha256": "aa4ed4ba6603bacba36ee1037819d2e559e8ac50f8a20fa6477b56b2d645532f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Targeting.cs",
+    "MSUIClient/Program.Inspect.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla's two selection sends: CMSG_SET_SELECTION (full 8-byte guid, 0 clears) and CMSG_INSPECT (full guid; reply unparsed). MSUI implements both as SendFullGuid one-liners (WorldSession.SetSelection/Inspect), wired to targeting (Program.Targeting.cs) and the inspect window (Program.Inspect.cs); MSUI additionally parses SMSG_INSPECT, which Benilla deliberately ignores.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

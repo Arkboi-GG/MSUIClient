@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--aura_visual",
+  "notes": [
+    {
+      "id": "note-70075dc1bc4b",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla's aura-state CharProc layer changes how the unit's own BODY renders for the life of an aura: proc 14 translucency (Stealth 0.3, Invisibility/Fade 0.5, ghost, Shadowform, Banish) with the 1000 ms cubic ramp both ways, proc 1 body tint (Frostbolt chill blue, Immolate orange, poison green), proc 11 animation freeze (Ice Block holds the pose), plus display-row base alpha (Ghost Wolf's CreatureModelAlpha 102). MSUI parses SpellVisualKit CharProcs (Formats/SpellVisualCatalog.cs) but consumes ONLY the type-9 emitter proc; there is no code path applying alpha, tint, or an anim-rate freeze to a unit's model - a stealthed player renders fully opaque, Ice Block does not freeze the pose, no chill/poison tint ever shows.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-d1bbf44e9af8",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The OTHER half of a state kit - attach-point effect models keyed by aura slots (StageLife.AuraState) - IS implemented in SpellEffectSource.cs; only the body-render CharProc half is absent.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

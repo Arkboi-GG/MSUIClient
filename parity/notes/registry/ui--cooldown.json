@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--cooldown",
+  "notes": [
+    {
+      "id": "note-08efbb3e207f",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Cooldown.xml is the shared CooldownFrame_SetTimer helper feeding a native cooldown widget. MSUI realizes the same shared machinery through CooldownVisualLaw plus the DrawCooldownSwipe/DrawCooldownFlash helpers, used by both the action bars (Program.ActionBars.cs) and bag item slots (Program.Inventory.cs ~line 1278). Not a surface of its own.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

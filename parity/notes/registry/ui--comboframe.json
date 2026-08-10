@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--comboframe",
+  "notes": [
+    {
+      "id": "note-2eda4e1e8b90",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): No combo-point surface anywhere in MSUI. Grep for ComboPoint/combo across the repo finds only ImGui.Combo dropdown calls and the NO_COMBO_POINTS cast-result string; the player combo-point field is not read and no dot display exists on or near the target frame.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

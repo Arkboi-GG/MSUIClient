@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/gameobject",
+  "title": "gameobject",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/gameobject.rs",
+      "fileSha256": "6802677700e3a7f5895ebb8f2d872715b0ca2f67e45e0a8a959705d3d9deae19",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/gameobject.rs",
+      "fileSha256": "dcb8cbc321cb1bf2ffcb7e10b3a632c503d2f829e16abea926e3dd907a5e6ce9",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.GameObjects.cs",
+    "MSUIClient/Program.Net.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "Benilla defines CMSG_GAMEOBJ_USE (bare full guid), CMSG_GAMEOBJECT_QUERY (entry + guid), and the SMSG_GAMEOBJECT_QUERY_RESPONSE parse (miss = entry|0x80000000; hit = type, display, name, 3 empty names + icon cstring, data[24], no trailing size float). MSUI matches all three byte-for-byte: WorldSession.GameObjectUse/GameObjectQuery and Program.GameObjects.ApplyGameObjectQuery.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/world_state",
+  "title": "world_state",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/world_state.rs",
+      "fileSha256": "d8ff9d0e6b24b8bdf565dc71b557e63808947c199fa9cb9dbddb89e754a9a16f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Quest.cs",
+    "MSUIClient/Engine/UI/QuestFrameUiLaw.cs",
+    "MSUIClient/Engine/UI/QuestTextMacroLaw.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI handles both wires (SMSG_INIT_WORLD_STATES -> ApplyInitialWorldStates, SMSG_UPDATE_WORLD_STATE -> ApplyWorldState) into a raw u32->u32 table and reproduces every deliberate semantic Benilla pinned: init performs upserts with no table clear (QuestWorldStateLaw.ApplyInit documents the unresolved-reference-call rationale), the (0,0) terminator is written as ordinary data, and the one consumer - the quest/NPC text $<n>w / $<n>e macros - reads a miss as 0, negates the key for $e via unchecked(0u - id), and formats through signed %d width (QuestTextMacroLaw.cs:39-48).",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

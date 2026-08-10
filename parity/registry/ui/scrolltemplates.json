@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/scrolltemplates",
+  "title": "scrolltemplates",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ScrollTemplates.xml",
+      "fileSha256": "4b3ddae6f41e10c1adcdaa9525034dbbe5c9f35226a353b93001a332d371484b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.Keybindings.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Program.SkillFrame.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/SkillFrameUiLaw.cs",
+    "C:/Users/nico/source/repos/MSUIClient/MSUIClient/Engine/UI/QuestFrameUiLaw.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's ScrollTemplates.xml is shared plumbing (the faux-scroll kit and the real-scroll/clip kit: scrollbar slider, arrow buttons, wheel bubbling, offset math). MSUIClient realizes the same affordances through its own ImGui framework rather than as a surface: DrawVanillaScrollBar (keybindings), the SkillFrame scrollbar with arrow buttons/knob/track-drag law (SkillFrameUiLaw), quest-panel clip + wheel scrolling (QuestFrameUiLaw.ClampScroll), and per-panel paging where the reference pages (loot). No standalone counterpart is expected.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--ui_gamma",
+  "notes": [
+    {
+      "id": "note-9d4508e3d485",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): Benilla's ui_gamma exists because Bevy composites in linear: it decodes the gamma-composited UI target once and vendors gamma copies of the Bevy-UI shaders. MSUI's ImGui UI pass draws directly into the presentation framebuffer, which already holds gamma bytes - FfxGlow.cs documents MSUI's scene/post targets as the same gamma-byte lane with a direct gamma write at present - so tints and blends are byte arithmetic like the reference with no decode node needed.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-17b9bdc2b7b0",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "question",
+      "text": "TRIAGE FINDING: The one behavioral consequence worth watching is additive-blend UI highlights (alphaMode=ADD gossip/quest row lift, GlueAdditive): MSUI's architecture composites those in gamma by construction, which is the reference posture; no per-site audit was done here.",
+      "tags": [
+        "triage",
+        "finding"
+      ],
+      "resolved": false
+    }
+  ]
+}

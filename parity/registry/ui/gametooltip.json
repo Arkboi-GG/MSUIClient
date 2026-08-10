@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/gametooltip",
+  "title": "gametooltip",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/GameTooltip.xml",
+      "fileSha256": "c46b742706df6eb8a479eee0752aa3581fd0dbda4248caf341df66198e6c3186",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/ui_tooltip.rs",
+      "fileSha256": "1534278dc44b015b9828a9c76aeecb5393d144713cb3023bd5d8ced401ef169a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Net/NetworkClient.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "MSUIClient/Engine/UI/WowSkin.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.CharacterPage.cs",
+    "MSUIClient/Program.Minimap.cs",
+    "MSUIClient/Engine/UI/GameTooltipUiLaw.cs",
+    "MSUIClient/Program.GameTooltip.cs",
+    "MSUIClient/Program.GameTooltip.Renderer.cs",
+    "tools/interface-wire-check/GameTooltipClinicalChecks.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "MSUIClient/Program.GameTooltip.WorldUnit.cs",
+    "MSUIClient/Engine/UI/UiParentUiLaw.cs",
+    "MSUIClient/Program.Spellbook.cs",
+    "MSUIClient/Program.Pet.cs",
+    "MSUIClient/Program.Mail.cs",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/before/target-baseline.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/reference/frozen-obligations.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/decision/trace-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/after/current-implementation.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/gametooltip-part-01-packet-9a1c649d1b69d3d6/evidence/live/unverified.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI now has one shared tooltip lifecycle and immutable renderer for the implemented content channels while existing presenters remain protected. The packet is implemented/unverified: no physical owner race, live unit sequence, or pixel equivalence is claimed.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-member-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic checks implement merged member state, FULL and delta law, exact status, icon, pulse, input, SetUnit behavior, circular containment, and observational telemetry.",
+      "source": "claim-partyframe-member-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gametooltip-existing-presentations-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). Existing MSUI tooltip presentations retain their current shell, Thicken treatment, and pixel choices under the preserve-present-differences decision.",
+      "source": "claim-gametooltip-existing-presentations-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gametooltip-shopping-pair-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI preserves its present equipment-comparison presentation rather than reproducing the frozen two-frame ShoppingTooltip XML shell.",
+      "source": "claim-gametooltip-shopping-pair-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gametooltip-fade-teardown-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements token-fenced fade start, tick, cancellation, replacement safety, and teardown for the shared GameTooltip.",
+      "source": "claim-gametooltip-fade-teardown-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gametooltip-money-row-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements a shared-law tooltip money row with exact denomination collapse, coin UVs, NumberFontNormal digits, and clear/set replacement semantics.",
+      "source": "claim-gametooltip-money-row-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-gametooltip-newbie-tip-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The shared tooltip content law supports conditional normal and newbie guidance under owner arbitration.",
+      "source": "claim-gametooltip-newbie-tip-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-tooltip-unit-content-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements typed frozen unit-tooltip rows, color/classification laws, and the backdrop/Thicken renderer through shared ownership.",
+      "source": "claim-tooltip-unit-content-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-tooltip-unit-live-token-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements owner-fenced live unit-token refresh and the matching tooltip health-bar lifecycle.",
+      "source": "claim-tooltip-unit-live-token-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-tooltip-minimap-presentation-001",
+      "kind": "adjudicate",
+      "text": "MSUI diverges from Benilla \u2014 decide: port Benilla behavior, or record a decision preserving MSUI (only allowed if UI/graphics). MSUI preserves its current minimap tooltip presentation and anchoring rather than normalizing it to the frozen adapter.",
+      "source": "claim-tooltip-minimap-presentation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-member-runtime-001",
+    "claim-gametooltip-existing-presentations-001",
+    "claim-gametooltip-shopping-pair-001",
+    "claim-gametooltip-fade-teardown-001",
+    "claim-gametooltip-money-row-001",
+    "claim-gametooltip-newbie-tip-001",
+    "claim-tooltip-unit-content-001",
+    "claim-tooltip-unit-live-token-001",
+    "claim-tooltip-minimap-presentation-001"
+  ],
+  "traces": [
+    "trace-partyframe-member-runtime-001",
+    "trace-gametooltip-existing-presentations-001",
+    "trace-gametooltip-shopping-pair-001",
+    "trace-gametooltip-fade-teardown-001",
+    "trace-gametooltip-money-row-001",
+    "trace-gametooltip-newbie-tip-001",
+    "trace-tooltip-unit-content-001",
+    "trace-tooltip-unit-live-token-001",
+    "trace-tooltip-minimap-presentation-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T12:17:13.3893457+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

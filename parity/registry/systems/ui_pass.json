@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/ui_pass",
+  "title": "ui_pass",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/ui_pass.rs",
+      "fileSha256": "e80c24a723388f27f5f877b15bd05d6e8ac2ad051cfe17bfd6242a1b67bf15c1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/WowSkin.cs",
+    "MSUIClient/Engine/UI/GameplayArt.cs",
+    "MSUIClient/Engine/ClientWindow.cs"
+  ],
+  "status": "support-only",
+  "summary": "Benilla's ui_pass is a custom sorted-quad render substrate built because bevy_ui could not express the WoW (stratum, level, layer, sublayer, decl) total order. MSUI's UI is ImGui draw lists: painter's-order submission per window plus explicit panel ordering and WowSkin/GameplayArt texture draws achieve the same on-screen layering through a different substrate, and the gamma compositing question is handled by drawing straight into the gamma framebuffer.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

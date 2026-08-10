@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/pvp",
+  "title": "pvp",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/world/writer/pvp.rs",
+      "fileSha256": "adbcad2b739d9a19ed7e5e80383209138af4661b60548362a098fb8794edb2bc",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla's pvp writer has one verb: CMSG_TOGGLE_PVP with a deliberately empty body (toggle, not set-state), no ack, flag state arriving via the UNIT_FIELD_FLAGS PvP bit. MSUI has no sender for it outside the opcode name and no /pvp surface.",
+  "openItems": [
+    {
+      "id": "item-triage-9c4e8c83",
+      "kind": "gap",
+      "text": "CMSG_TOGGLE_PVP never sent - no way to flip the PvP flag from MSUI",
+      "source": "triage-2026-08-09/batch-protocol-2.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

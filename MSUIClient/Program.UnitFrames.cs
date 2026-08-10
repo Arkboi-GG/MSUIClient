@@ -136,6 +136,61 @@ public sealed partial class GameLoop
             MarkUiParityFrameComplete();
         }
         ImGui.End();
+        DrawUnitFrameHitRect(unit, authoredOrigin, playerFrame, s);
+    }
+
+    /// <summary>
+    /// The frame's authored HitRectInsets as a transparent input window — the art window stays
+    /// NoInputs so the dead margin keeps letting clicks through to the world. PlayerFrame
+    /// insets are 6/0/4/9 and TargetFrame's 96/6/4/9 (their FrameXML), and click-up acts like
+    /// PlayerFrame_OnClick / TargetFrame_OnClick.
+    /// </summary>
+    private void DrawUnitFrameHitRect(WorldEntity unit, Vector2 authoredOrigin, bool playerFrame,
+        float s)
+    {
+        Vector2 hitOffset = playerFrame ? new Vector2(6, 4) : new Vector2(96, 4);
+        Vector2 hitSize = playerFrame ? new Vector2(226, 87) : new Vector2(130, 87);
+        Vector2 hitMin = (authoredOrigin + hitOffset) * s;
+        ImGui.SetNextWindowPos(hitMin, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(hitSize * s, ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground |
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoBringToFrontOnFocus;
+        bool begun = ImGui.Begin(playerFrame ? "##player-frame-hit" : "##target-frame-hit", flags);
+        ImGui.PopStyleVar(2);
+        if (!begun) { ImGui.End(); return; }
+        ImGui.SetCursorScreenPos(hitMin);
+        bool released = ImGui.InvisibleButton(
+            playerFrame ? "##player-frame-click" : "##target-frame-click", hitSize * s,
+            ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight);
+        ImGui.End();
+        if (!released) return;
+        if (ImGui.IsMouseReleased(ImGuiMouseButton.Right))
+        {
+            // Ref anchor: the DropDownList TOPLEFT sits (106,27) / (120,10) up from the frame's
+            // BOTTOMLEFT (the ToggleDropDownMenu calls in PlayerFrame/TargetFrame OnClick).
+            Vector2 anchor = playerFrame ? new Vector2(106, 100 - 27) : new Vector2(120, 100 - 10);
+            if (UnitFrameMenuWhich(unit) is { } which)
+                OpenUnitPopup(unit.Guid, which, (authoredOrigin + anchor) * s,
+                    InspectBinding.Target);
+        }
+        else if (playerFrame)
+            CommitSelection(unit.Guid, beginAttack: false); // TargetUnit("player")
+    }
+
+    /// <summary>
+    /// TargetFrameDropDown_Initialize's menu pick. The reference's non-player branch opens
+    /// RAID_TARGET_ICON, which rides the raid-marks arc — deferred, so no menu here.
+    /// </summary>
+    private UnitPopupWhich? UnitFrameMenuWhich(WorldEntity unit)
+    {
+        if (_net is not null && unit.Guid == _net.PlayerGuid) return UnitPopupWhich.Self;
+        if (!unit.IsPlayer) return null;
+        return _partyMembers.Any(member => member.Guid == unit.Guid)
+            ? UnitPopupWhich.Party : UnitPopupWhich.Player;
     }
 
     private static (Vector2 Min, Vector2 Size) DrawUnitFrameText(ImDrawListPtr dl, Vector2 center,

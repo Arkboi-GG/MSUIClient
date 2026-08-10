@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "protocol/channel",
+  "title": "channel",
+  "area": "protocol",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-protocol/src/messages/channel.rs",
+      "fileSha256": "ed26542203ac06ff6d097df7e0590aedd9ab92efeb2526b244f21dc292dd8494",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-protocol/src/world/writer/channel.rs",
+      "fileSha256": "d95eb9a5b6df0f2b62fc29f430b648751a27bbac3f21d68f88e93194de22617f",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "Benilla defines the full chat-channel subsystem: CMSG_JOIN/LEAVE_CHANNEL, CMSG_CHANNEL_LIST/PASSWORD/OWNER/SET_OWNER/MODERATOR/UNMODERATOR/MUTE/UNMUTE/INVITE/KICK/BAN/UNBAN/ANNOUNCEMENTS/MODERATE (shared cstrings body), SMSG_CHANNEL_NOTIFY (32 notice types with per-notice tails), and SMSG_CHANNEL_LIST (roster). MSUI has none of it - the only trace is a comment in Engine/UI/ChatFrameLaw.cs; no channel opcode exists even in Net/Opcodes.cs.",
+  "openItems": [
+    {
+      "id": "item-triage-dca9cf01",
+      "kind": "gap",
+      "text": "CMSG_JOIN_CHANNEL / CMSG_LEAVE_CHANNEL: no senders - custom/world channels cannot be joined",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-47eb11cd",
+      "kind": "gap",
+      "text": "CMSG_CHANNEL_* moderation family (LIST, PASSWORD, OWNER, SET_OWNER, MODERATOR, UNMODERATOR, MUTE, UNMUTE, INVITE, KICK, BAN, UNBAN, ANNOUNCEMENTS, MODERATE): no senders",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2b4f09af",
+      "kind": "gap",
+      "text": "SMSG_CHANNEL_NOTIFY: no handler (join/leave/kick/invite/owner notices with typed tails are undecodable)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-5edfe07d",
+      "kind": "gap",
+      "text": "SMSG_CHANNEL_LIST: no handler (member roster)",
+      "source": "triage-2026-08-09/batch-protocol-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

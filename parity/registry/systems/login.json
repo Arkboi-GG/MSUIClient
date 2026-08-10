@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/login",
+  "title": "login",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/login/mod.rs",
+      "fileSha256": "b00e986f9e93f0892b39891c539f4a21966030a3b6ff0b335b86e347c0b9ee2e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/login/screen.rs",
+      "fileSha256": "625fcc2253c995a4babe007ebaa666d7accd49eec146a451e233a5510afea01b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/GlueScene.cs",
+    "MSUIClient/Net/NetworkClient.cs"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI realizes the AccountLogin glue: the UI_MainMenu burning-gate scene rendered through the model's own authored camera/fog/light rig (GlueScene), account/password edit boxes with AccountLogin.xml-derived insets, the Remember Account Name checkbox, and the riveted GlueDialog logon-progress dialogs with the 1.12 captions (Connecting / Authentication Successful / Entering World) and a Cancel that stops the session. The credential retry path is explicitly hardened: a refused password cleanly resets the worker so a re-typed submit works (the documented RETRY BUG fix), matching Benilla's never-auto-retry-a-refusal policy.",
+  "openItems": [],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

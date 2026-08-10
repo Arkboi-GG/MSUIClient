@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/multibars",
+  "title": "multibars",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/MultiBars.xml",
+      "fileSha256": "b75ee64324302989d218b6e931a94e0e4c4b0fbbdc80ac1d4d0dab006f51e9a7",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/MultiActionBarUiLaw.cs",
+    "MSUIClient/Program.ActionBars.cs",
+    "MSUIClient/Program.Bindings.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Formats/SpellCatalog.cs",
+    "MSUIClient/Net/Items.cs",
+    "MSUIClient/Net/ObjectFields.cs",
+    "MSUIClient/Net/WorldSession.cs",
+    "MSUIClient/Program.Inventory.cs",
+    "MSUIClient/Program.Pet.cs",
+    "MSUIClient/Program.Settings.cs",
+    "MSUIClient/Program.DevTools.UiParity.cs",
+    "MSUIClient/Program.LiveRun.cs",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/README.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/evidence-index.json",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/before/msui-clinical-before.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/reference/benilla-closure.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/clinical-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/after/msui-clinical-after.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/invalid/old-evidence-boundary.md",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/protocols/multibars-live-gate.txt",
+    "parity/packets/pair-de1462d2f83d2f33/multibars-part-01-packet-c5f64e6e922cc2b1/evidence/verification/deterministic-2026-08-08.md"
+  ],
+  "status": "implemented-unverified",
+  "summary": "MSUI now has deterministic release latches, exact pass-through gaps/hidden seats, persistent two-button action pickup/placement, clinical item-action behavior, exact packet tests, and strong observational coverage for both bottom roots. Geometry, wire bands, vertical bars, product layout, binding model, common art, HIGH ordering, and broad spell verdict remain unchanged. Connected physical-input, server-wire, rendered, audio, and user-visible proof is still outstanding.",
+  "openItems": [
+    {
+      "id": "item-claim-multibars-runtime-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI now has the missing 24 bindings, exact wire-slot law, release-trigger semantics, shared action feedback, mouse use, drag/drop, and cursor-only empty wells while preserving the reference's ignored toggle opcode.",
+      "source": "claim-multibars-runtime-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-multibars-bottomleft-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The bottom-left bar is always hosted with exact 500x38 geometry, 17-pixel main-bar offset, twelve-button pitch, slot base 60, and high draw ordering.",
+      "source": "claim-multibars-bottomleft-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-multibars-bottomright-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. The bottom-right bar is always hosted with exact 500x38 geometry, 10-pixel inter-bar gap, twelve-button pitch, slot base 48, and high draw ordering; MSUI's existing vertical bars are deliberately preserved.",
+      "source": "claim-multibars-bottomright-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-multibars-runtime-001",
+    "claim-multibars-bottomleft-001",
+    "claim-multibars-bottomright-001"
+  ],
+  "traces": [
+    "trace-multibars-runtime-001",
+    "trace-multibars-bottomleft-001",
+    "trace-multibars-bottomright-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-07T22:09:43.8856711+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

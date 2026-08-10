@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "systems--cursor",
+  "notes": [
+    {
+      "id": "note-a3d2c0709417",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence medium): Benilla ships the full Interface/Cursor BLP set as a hardware cursor driven by the targeting classifier (Point default, Attack over hostiles, Speak/Buy/Trainer/Taxi over service NPCs, Loot/Skin over corpses, grayed Unable* twins out of range) plus the held drag payload's item icon as the cursor. MSUI draws Interface/Cursor art at the mouse in specific UI contexts - Buy/UnableBuy over vendor rows, Repair in repair mode, Inspect for readables - and draws the carried item's icon at the cursor while dragging, but the world cursor is the plain OS arrow everywhere.",
+      "tags": [
+        "triage",
+        "medium"
+      ],
+      "resolved": false
+    }
+  ]
+}

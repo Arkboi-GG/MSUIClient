@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "ui/comboframe",
+  "title": "comboframe",
+  "area": "ui",
+  "deviationPolicy": "ui-allowed",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/assets/ui/ComboFrame.xml",
+      "fileSha256": "e05e2bb068711e5b06cd5b87c77f7defab67761eb031f6a0481c998b539c0035",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [],
+  "status": "missing",
+  "summary": "No combo-point surface anywhere in MSUI. Grep for ComboPoint/combo across the repo finds only ImGui.Combo dropdown calls and the NO_COMBO_POINTS cast-result string; the player combo-point field is not read and no dot display exists on or near the target frame.",
+  "openItems": [
+    {
+      "id": "item-triage-4c302133",
+      "kind": "gap",
+      "text": "Entire ComboFrame surface: five ComboPoint dots (socket/highlight/shine layers), fade-in chain, PLAYER_COMBO_POINTS/PLAYER_TARGET_CHANGED driven show/clear",
+      "source": "triage-2026-08-09/batch-ui-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

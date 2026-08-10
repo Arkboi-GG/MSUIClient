@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/entities",
+  "title": "entities",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/entities.rs",
+      "fileSha256": "1c26b07b06cd1622a012af32122c5abc1b936fbb1ec75fbbb5b361328f735233",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/attach/char_skin.rs",
+      "fileSha256": "8e77a3b096cb90d432e6951b9dffc4eddd20b6499360df037f5374a08a511ccf",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/attach/dress.rs",
+      "fileSha256": "31f7c5be8886fe058b6ed6757dd5b8276f2aae724ce7cd5bbdc0a58f120ceab2",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/attach/glue_preview.rs",
+      "fileSha256": "8d22342c6c1a35aad26dc3fdf181b07e0c962bbaa49c30cb931108a1649619dd",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/attach/mod.rs",
+      "fileSha256": "fbf76bda1090a1d60c12d52f9bdbb1dec59022828d108062e9b97f4d888eef7b",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/attach/redress.rs",
+      "fileSha256": "b9152bacbf7abf2121ba8526916c45c2268a17210b29c30dbd26b65f97330d51",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/carried_light.rs",
+      "fileSha256": "9789126490e9243f7600e2c61de649c0223c4790bb40658e1592b43512663d3a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/chain_beam.rs",
+      "fileSha256": "3501f9f56ae9165a678083e8e77bc7007e93d2f7ccde16c3a6b2f0d1fcc0ca54",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/collision_height.rs",
+      "fileSha256": "715e0e89ee07bd20d3b256017ef48c49efd74efe307468aa2d1cf3811c83936e",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/conform.rs",
+      "fileSha256": "d9168b6a5887936517df82dbfc68edbcd46957afca8c9268b7a3fc8ce6bb89b6",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/dest_fx.rs",
+      "fileSha256": "09d2a483a46210d43a109e730562b5325bbab2176ebd7d335be6a8ec313315ca",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/display.rs",
+      "fileSha256": "21b68c3ff1e79ef170341fe43f22cbd14d0cb00f94bb8d78fb2fd911cfb78f25",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/equipment/mod.rs",
+      "fileSha256": "c57683372943e9981bfab779d21761385561864c6ad3e760e190343cb8b71879",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/equipment/resolve.rs",
+      "fileSha256": "b3ab8642ea5dde14fea92c50f3ddadffe332cc9c07c0ccba070296f4db5cfb2c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/equipment/spawn.rs",
+      "fileSha256": "205823328fabc271a25404d7dcb38cc42fc3b3eb5fa10d5b3ed0c9bb6e8915fa",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/item_glow.rs",
+      "fileSha256": "0b254625653a7586a4f0919dd33a2620f06b4242c762dec4fc29345983525529",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/live_display.rs",
+      "fileSha256": "c067bf23e09a723f2dc7f9e353bf4012016692b4de85effc77f6b3d4be866218",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/missile.rs",
+      "fileSha256": "d1af271926e4db95284e88ce3002f49f73e0dcc75b0f2415b8829da333c947e1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/mount.rs",
+      "fileSha256": "5e268bedc5f39bf738d56829adb3166d4335a18fead85a3b5de6bc21edeafa80",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/spell_fx/lifecycle.rs",
+      "fileSha256": "5a71265e1bdb16294a8d69d419d8a16efaebb5906f2ffffeaa44a34ead6bfbc3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/spell_fx/mod.rs",
+      "fileSha256": "842d1f56f49c899edc7bfc5d9664d584266a78a70b485c11f26fdb0df13b7d17",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/entities/wmo_props.rs",
+      "fileSha256": "3ae3a19e4b4dd9d7f0291084642fb1de309db95fe832efa6f7e99351fb9ff12a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/World/Units/CreatureRenderer.cs",
+    "MSUIClient/World/Units/CharacterRenderer.cs",
+    "MSUIClient/World/Units/CharacterEquipment.cs",
+    "MSUIClient/World/Units/AttachedItemRenderer.cs",
+    "MSUIClient/World/Units/SpellEffectSource.cs",
+    "MSUIClient/World/Units/SpellMissileLaw.cs"
+  ],
+  "status": "partial",
+  "summary": "MSUI's World/Units stack realizes the bulk of the entity-visual layer: display-id resolution for creatures and players (with live re-resolve), character dress/redress from public item fields (CharacterEquipment paints streamed players' gear, geosets and attached weapon/helm/shoulder items via AttachedItemRenderer), spell missiles (SpellMissileLaw), per-unit spell-FX lifecycle with precast/channel holds and aura-state owners (SpellEffectSource), scale, and collision. 8/10 tracked opcodes hit. Several distinct observables from the reference's sub-modules are absent.",
+  "openItems": [
+    {
+      "id": "item-triage-e0a2c68a",
+      "kind": "gap",
+      "text": "Mounts are not rendered: UNIT_MOUNTDISPLAYID is read for UI rules (cast refusal, pet bar) but no renderer consumes it - a mounted unit shows standing on foot with no mount model.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-86bcfb10",
+      "kind": "gap",
+      "text": "SMSG_SPELL_UPDATE_CHAIN_TARGETS unhandled: chain spells (Chain Lightning/Chain Heal) draw no jump beams between targets.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-2e9fa2a8",
+      "kind": "gap",
+      "text": "No enchant item glow: an enchanted weapon's glow effect (item_glow) has no counterpart.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-triage-c4a44627",
+      "kind": "gap",
+      "text": "No carried-light: point lights attached to carried items (lanterns/torches on NPCs) are not spawned.",
+      "source": "triage-2026-08-09/batch-systems-1.json",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [],
+  "traces": [],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-09T04:25:14.700324+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

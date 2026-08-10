@@ -1,0 +1,306 @@
+{
+  "schemaVersion": 1,
+  "id": "systems/net",
+  "title": "net",
+  "area": "systems",
+  "deviationPolicy": "must-match",
+  "benillaSources": [
+    {
+      "path": "crates/benilla-app/src/net.rs",
+      "fileSha256": "78753e4d9e94696ce3b220e30e914f0882fd8042616564e360905481922dec28",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply.rs",
+      "fileSha256": "db3ee2d087973d41f05963a24398c2b76399957fb47b1b060d4334dc69bd510c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/anim.rs",
+      "fileSha256": "aedab971d1e66369aba7492702dc50fe1c0c9ddfcd0cf4648ec87b6c3332224c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/chat.rs",
+      "fileSha256": "2504e11db181e777588362ceb19395503632f289b4d5bfcf9bb919b9501d8049",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/combat.rs",
+      "fileSha256": "6c3fe30edab46215d81e7feb59e601a4f112fe5de9f8581ed22792c6f658ab63",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/combat_log.rs",
+      "fileSha256": "2bbf862de56feb2e31b45c7cd95321cecdf63f9265ed664f9efa4770855dad82",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/death.rs",
+      "fileSha256": "10f0f5dce5c9bd714b58259191004548febca086da327d8ba0a99357dea0b202",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/group.rs",
+      "fileSha256": "ada80c539b09fd432f7f557541e9623c17cfa47340d5ed3c89685e9ea2af0842",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/loot.rs",
+      "fileSha256": "7e596e217fc1524dd56f875a060c30d9a2039e8b1d7cf752e934d2418fc204ce",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/mail.rs",
+      "fileSha256": "32512117afa9d4d0fc8e2d292b8c2302003e8746d7af37e550dc9e4bc9b4773c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/mount.rs",
+      "fileSha256": "9b668aa88e2006836e72c4e57828baccdb425e852ddacb194d7daab8c58961f3",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/names.rs",
+      "fileSha256": "1019c64eb106acb83491eaee3c23306c272d41f9c64e4698c9838e8a1d617195",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/npc.rs",
+      "fileSha256": "6edc35d080dc8800e769854aac952b2bd8bed3501c0a9ba9b6dd15b0b6978822",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/objects.rs",
+      "fileSha256": "2ea07ecccd657a316744c5050e9e58fed7347f6262b7359fc37d355bd759f7bb",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/pet.rs",
+      "fileSha256": "b7c5a68d30adc7cb9029fdddb4063a20c6bc216773b192c13586d1ac0f7f9a23",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/quests.rs",
+      "fileSha256": "87265286bb5659a6d59fd8ecb304c110b0dc4a39c137cccf0f1d760b2b3e2de1",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/session.rs",
+      "fileSha256": "74d9a0e056f33a90904d8cd4acf834649029c668d229dd6b03f211db0cbb996d",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/spells.rs",
+      "fileSha256": "3f6c18e6c6b28863dc3493e726eac4a676ec96e03606f6e59df5e693029c75de",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/trade.rs",
+      "fileSha256": "6b625438ac80311ff86cce3391928d84de3439dcbf5f5841b09b600839ecd697",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/apply/world.rs",
+      "fileSha256": "cdeb86407be2c293c5135115993812ef742c85d13a3eb4589326be17fcbd6774",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/io.rs",
+      "fileSha256": "c973a97473db76abfb3baf2aad016a48c3eea567e06182df2ec21cdad82f71d8",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion.rs",
+      "fileSha256": "01f545c6066779554076829254de07854e261a393b0466c0c3983f4033938810",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/facing.rs",
+      "fileSha256": "0ad56a1b63f43800b82a61a6aa6a7405e8362702729444ef00d619e7f327bb9c",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/relay.rs",
+      "fileSha256": "2c1ea7c6f57788a07226a04f3821d014557508db0d40b7962c8268c9fa8509ad",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/remote.rs",
+      "fileSha256": "03ab6dbd2846758f572e83271c695df14fb454e51c2a5ef6f6fefd93f7dbfc82",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    },
+    {
+      "path": "crates/benilla-app/src/net/motion/spline.rs",
+      "fileSha256": "e977d3402472034935cc1382df8700767970e35331d75cbda9d9232fc0f5e50a",
+      "snapshotId": "benilla-5089066fea6adbc3"
+    }
+  ],
+  "msuiAnchors": [
+    "MSUIClient/Engine/UI/PartyFrameUiLaw.cs",
+    "MSUIClient/Net/Opcodes.cs",
+    "MSUIClient/Program.PartyFrames.cs",
+    "tools/interface-wire-check/Program.cs",
+    "MSUIClient/Program.Net.cs",
+    "MSUIClient/Engine/UI/GroupUiLaw.cs",
+    "tools/interface-wire-check/PartyFrameClinicalChecks.cs",
+    "tools/interface-wire-check/GroupProtocolClinicalChecks.cs",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/audit.json",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/before/target-baseline.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/reference/frozen-obligations.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/reference/co-resident-preserve-facts.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/decision/trace-matrix.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/after/current-implementation.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/verification/deterministic.md",
+    "parity/packets/pair-de1462d2f83d2f33/session-part-01-packet-231ad7e7968d59c3/evidence/live/unverified.md"
+  ],
+  "status": "partial",
+  "summary": "MSUI now retains complete Party state and clears it only at the frozen leave/disconnect boundary while preserving it on worldport. The exact 31 unrelated session facts remain outside the implementation and verification claim.",
+  "openItems": [
+    {
+      "id": "item-claim-partyframe-invite-contract-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned runtime and deterministic checks implement the bounded invite popup, exact ordered effects, wire-body law, timeout, same-type override, direct-hide, and drag-off behavior.",
+      "source": "claim-partyframe-invite-contract-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-partyframe-instances-driver-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source and deterministic parser, topology, and session checks implement full-roster retention, exact compact-slot derivation, four instances, atomic packets, leave reset, and world or session boundaries.",
+      "source": "claim-partyframe-instances-driver-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-group-state-composer-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. Source-pinned handlers retain complete group metadata, full stats snapshots, and raid-target state, compose exact ordered system lines from packet notices and ungated roster diffs, and reset only at frozen leave/session boundaries.",
+      "source": "claim-group-state-composer-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-login-stage-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI implements the equivalent observable login progression, failure surfacing, and connected transition in its own network client and glue screens.",
+      "source": "claim-sessionrs-login-stage-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-character-management-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI handles SMSG_CHAR_CREATE/SMSG_CHAR_DELETE results and parses SMSG_CHAR_ENUM into its character select list.",
+      "source": "claim-sessionrs-character-management-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-cinematic-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI handles SMSG_TRIGGER_CINEMATIC in its world session and net pump.",
+      "source": "claim-sessionrs-cinematic-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-logout-complete-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI handles SMSG_LOGOUT_COMPLETE through its logout flow back to character select.",
+      "source": "claim-sessionrs-logout-complete-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-mail-time-query-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI handles MSG_QUERY_NEXT_MAIL_TIME in its world session and net pump.",
+      "source": "claim-sessionrs-mail-time-query-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-teleport-transfer-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI acknowledges teleports and applies pending transfers and new-world positions through its world session and net pump.",
+      "source": "claim-sessionrs-teleport-transfer-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-transfer-aborted-gap-001",
+      "kind": "gap",
+      "text": "SMSG_TRANSFER_ABORTED is defined in the MSUI opcode table but never handled; aborted far transfers surface nothing.",
+      "source": "claim-sessionrs-transfer-aborted-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-time-speed-gap-001",
+      "kind": "gap",
+      "text": "SMSG_LOGIN_SETTIMESPEED is defined in the MSUI opcode table but never handled; server game time and speed are not applied.",
+      "source": "claim-sessionrs-time-speed-gap-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-reputation-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI seeds factions from SMSG_INITIALIZE_FACTIONS and applies SMSG_SET_FACTION_STANDING updates in its net pump.",
+      "source": "claim-sessionrs-reputation-001",
+      "added": "2026-08-09",
+      "resolved": false
+    },
+    {
+      "id": "item-claim-sessionrs-pong-001-verify",
+      "kind": "verify",
+      "text": "Implemented but needs live-session verification. MSUI consumes SMSG_PONG in its network client keepalive.",
+      "source": "claim-sessionrs-pong-001",
+      "added": "2026-08-09",
+      "resolved": false
+    }
+  ],
+  "claims": [
+    "claim-partyframe-invite-contract-001",
+    "claim-partyframe-instances-driver-001",
+    "claim-group-state-composer-001",
+    "claim-sessionrs-file-boundary-001",
+    "claim-sessionrs-login-stage-001",
+    "claim-sessionrs-character-management-001",
+    "claim-sessionrs-cinematic-001",
+    "claim-sessionrs-logout-complete-001",
+    "claim-sessionrs-mail-time-query-001",
+    "claim-sessionrs-teleport-transfer-001",
+    "claim-sessionrs-transfer-aborted-gap-001",
+    "claim-sessionrs-time-speed-gap-001",
+    "claim-sessionrs-reputation-001",
+    "claim-sessionrs-pong-001",
+    "claim-sessionrs-packet-dropped-001"
+  ],
+  "traces": [
+    "trace-partyframe-invite-contract-001",
+    "trace-partyframe-instances-driver-001",
+    "trace-group-session-boundary-001",
+    "trace-group-roster-state-lines-001",
+    "trace-group-notification-lines-001",
+    "trace-party-member-stats-full-wire-001",
+    "trace-raid-target-board-wire-001",
+    "trace-sessionrs-file-boundary-001",
+    "trace-sessionrs-login-stage-001",
+    "trace-sessionrs-character-management-001",
+    "trace-sessionrs-cinematic-001",
+    "trace-sessionrs-logout-complete-001",
+    "trace-sessionrs-mail-time-query-001",
+    "trace-sessionrs-teleport-transfer-001",
+    "trace-sessionrs-transfer-aborted-gap-001",
+    "trace-sessionrs-time-speed-gap-001",
+    "trace-sessionrs-reputation-001",
+    "trace-sessionrs-pong-001",
+    "trace-sessionrs-packet-dropped-001"
+  ],
+  "decisions": [],
+  "lastReviewedUtc": "2026-08-08T19:53:38.076217+00:00",
+  "seededUtc": "2026-08-09T03:36:17.848398+00:00"
+}

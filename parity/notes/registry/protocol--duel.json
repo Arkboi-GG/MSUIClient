@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "protocol--duel",
+  "notes": [
+    {
+      "id": "note-af6889e146e1",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): Benilla defines the complete duel family with both ends byte-pinned: SMSG_DUEL_REQUESTED (arbiter+challenger guids), OUTOFBOUNDS/INBOUNDS (empty), COMPLETE (u8 started), WINNER (u8 + two cstrings), COUNTDOWN (u32 ms), and CMSG_DUEL_ACCEPTED/CANCELLED echoing the stored arbiter guid. MSUI has no duel opcode anywhere (not even in Net/Opcodes.cs); only incidental spell-error strings mention dueling.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}

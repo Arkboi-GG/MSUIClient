@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--mailframe",
+  "notes": [
+    {
+      "id": "note-4a24f02bbebc",
+      "utc": "2026-08-09T03:59:55.573251+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "Live session 2026-08-09: simulated inbox list capture recorded (54 draw rows) \u2014 fixture provenance, list rendering only. Real mailbox wire flow not exercised (no mailbox at bootstrap vantage).",
+      "tags": [
+        "verification"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-952139ae83d2",
+      "utc": "2026-08-09T03:59:55.573251+00:00",
+      "author": "claude-fable-review",
+      "kind": "question",
+      "text": "FINDING: mail tab-send plays igMainMenuOptionCheckBoxOn (uChatScrollButton.wav) + igSpellBookOpen (iAbilitiesOpenA.wav) in category 'ui' (run-c step 29). Check Benilla MailFrame.xml tab sound expectation \u2014 is the checkbox+spellbook pair the build-5875 behavior, or an MSUI divergence?",
+      "tags": [
+        "finding",
+        "sound"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-c59dda046b6b",
+      "utc": "2026-08-09T04:09:11.668164+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "VERIFIED (live 2026-08-09 session 2): claim-mail-inbox-composition-001 \u2014 Real mailbox session: 384x512 shell, seven MailItem rows, Mail-Icon portrait, ItemText corner art and spellbook paging buttons \u2014 cross-checked against Benilla MailFrame.xml reference texture list, exact match. run-d2 step 23 capture.",
+      "tags": [
+        "verified"
+      ],
+      "resolved": false
+    },
+    {
+      "id": "note-97ab8cbf066c",
+      "utc": "2026-08-09T04:09:11.668164+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "Live session-2: real mailbox opened over the wire (observed-runtime provenance, run-d2). Self-send 'mail send Magetest' correctly REFUSED \u2014 the vanilla cannot-mail-yourself gate works, supporting compose-runtime's negative behavior. Inbox was empty, so decode-branch/paging row content claims still need a second character to send real mail.",
+      "tags": [
+        "verification",
+        "run-d2"
+      ],
+      "resolved": false
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--characterframe",
+  "notes": [
+    {
+      "id": "note-bc11683a2177",
+      "utc": "2026-08-09T03:59:55.573251+00:00",
+      "author": "claude-fable-review",
+      "kind": "note",
+      "text": "Live session 2026-08-09: observational default-tab capture (run-a) plus staged tab 2 (reputation) and tab 3 (skills) captures (run-b). Claims on modifier colors and equipment slots still need an equipped character comparison.",
+      "tags": [
+        "verification"
+      ],
+      "resolved": false
+    }
+  ]
+}

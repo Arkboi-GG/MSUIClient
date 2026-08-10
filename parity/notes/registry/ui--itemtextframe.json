@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pairId": "registry",
+  "packetId": "ui--itemtextframe",
+  "notes": [
+    {
+      "id": "note-eb05df523547",
+      "utc": "2026-08-09T04:25:14.700324+00:00",
+      "author": "claude-fable-triage",
+      "kind": "note",
+      "text": "TRIAGED (source review 2026-08-09, confidence high): MSUI has an authored ItemTextFrame shell: Program.GameObjects.cs DrawItemTextFrame draws the 384x512 window with the four-piece UI-ItemText-* art and minimize-style close button, filled with gameobject page text fetched via CMSG_PAGE_TEXT_QUERY (chained pages followed via the next-page id). CMSG_ITEM_TEXT_QUERY exists but only serves the mail frame's letter bodies. The reader lacks most of the reference furniture and the bag-letter route.",
+      "tags": [
+        "triage",
+        "high"
+      ],
+      "resolved": false
+    }
+  ]
+}
