@@ -1,6 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine.UI;
+using MSUIClient.Net;
 
 namespace MSUIClient;
 
@@ -151,6 +152,32 @@ public sealed partial class GameLoop
         Settings.LaunchMode = mode;
         SettingsFile?.Save();
         Console.WriteLine($"[creator] launch mode -> {mode} (saved to {SettingsFile?.FilePath})");
+
+        // The launch choice wins over the legacy server.enabled master switch, and it
+        // takes effect NOW: on a serverless boot the network client was never built,
+        // so switching to client mode used to change nothing until a manual config
+        // edit + restart. Enable the server path and build the client on the spot —
+        // the login screen re-renders with the account fields on the next frame
+        // (auto-login fires if configured).
+        if (mode == LaunchModeClient)
+        {
+            if (!_config.Server.Enabled)
+            {
+                _config.Server.Enabled = true;
+                Console.WriteLine("[net] server enabled by Launch Options (client mode)");
+            }
+            bool hadNet = _net is not null;
+            EnsureNetworkClient(suppressAutoLogin: false);
+            // A creator-mode boot with the server enabled built the client but held
+            // auto-login back; honour it now that the user chose client mode.
+            if (hadNet && _net is { State: NetState.Idle } net && _config.Server.AutoConnect &&
+                !string.IsNullOrWhiteSpace(_config.Server.Account) &&
+                !string.IsNullOrWhiteSpace(_config.Server.Password))
+            {
+                net.Login(_config.Server.Account, _config.Server.Password);
+                Console.WriteLine($"[net] auto-login as {_config.Server.Account} (launch mode switch)");
+            }
+        }
     }
 
     /// <summary>
