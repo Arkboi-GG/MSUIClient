@@ -1140,15 +1140,22 @@ public sealed partial class GameLoop
                 ImGui.SameLine();
                 if (ImGui.SmallButton("Restore authored")) RemoveCreatorAudio(cue);
 
+                var defaults = CreatorAudioDefaults(doc, cue);
                 float volume = track!.Volume;
                 ImGui.SetNextItemWidth(150f * cs);
                 if (ImGui.SliderFloat("Volume", ref volume, 0f, 1f, "%.2f"))
                     track.Volume = volume;
+                if (CreatorResetKnob("avolume")) track.Volume = defaults.Volume;
                 bool missileLoop = cue == CreatorAudioCue.Missile;
                 bool loop = missileLoop || track.Looping;
                 if (missileLoop) ImGui.BeginDisabled();
                 bool loopChanged = ImGui.Checkbox("Loop", ref loop);
                 if (missileLoop) ImGui.EndDisabled();
+                if (!missileLoop && CreatorResetKnob("aloop") && track.Looping != defaults.Looping)
+                {
+                    loop = defaults.Looping;
+                    loopChanged = true;
+                }
                 if (!missileLoop && loopChanged)
                 {
                     track.Looping = loop;
@@ -1169,15 +1176,23 @@ public sealed partial class GameLoop
                     bool noDup = track.NoDuplicates;
                     if (ImGui.Checkbox("No immediate duplicate", ref noDup))
                         track.NoDuplicates = noDup;
+                    if (CreatorResetKnob("anodup")) track.NoDuplicates = defaults.NoDuplicates;
                     float min = track.MinDistance, cutoff = track.CutoffDistance;
                     ImGui.SetNextItemWidth(150f * cs);
                     if (ImGui.SliderFloat("Full volume distance", ref min, 0f, 50f, "%.1f yd"))
                         track.MinDistance = Math.Min(min, track.CutoffDistance);
+                    if (CreatorResetKnob("amindist"))
+                        track.MinDistance = Math.Min(defaults.MinDistance, track.CutoffDistance);
                     ImGui.SetNextItemWidth(150f * cs);
                     if (ImGui.SliderFloat("Cutoff distance", ref cutoff, 0f, 150f, "%.1f yd"))
                     {
                         track.CutoffDistance = cutoff;
                         track.MinDistance = Math.Min(track.MinDistance, cutoff);
+                    }
+                    if (CreatorResetKnob("acutoff"))
+                    {
+                        track.CutoffDistance = defaults.CutoffDistance;
+                        track.MinDistance = Math.Min(track.MinDistance, defaults.CutoffDistance);
                     }
                 }
             }
@@ -1212,6 +1227,27 @@ public sealed partial class GameLoop
         return token.Trim('_');
     }
 
+    /// <summary>The authored-cue values a custom track starts from - shared by
+    /// import and the per-knob resets in the Audio section.</summary>
+    private (float Volume, bool Looping, bool NoDuplicates, uint SoundType, uint ExtraFlags,
+        uint Eax, float MinDistance, float CutoffDistance)
+        CreatorAudioDefaults(CreatorSpellDoc doc, CreatorAudioCue cue)
+    {
+        uint? sourceId = CreatorAuthoredSound(doc, cue);
+        SoundEntry source = default;
+        bool hasSource = _spellSounds?.TryGetEntry(sourceId, out source) == true;
+        return (
+            hasSource ? source.Volume : 1f,
+            cue == CreatorAudioCue.Missile || (hasSource && source.Looping) ||
+                (!hasSource && cue is CreatorAudioCue.State or CreatorAudioCue.Channel or CreatorAudioCue.Area),
+            hasSource && source.NoDuplicates,
+            hasSource ? source.Type : 1u,
+            hasSource ? source.Flags & ~(0x200u | 0x20u) : 0u,
+            hasSource ? source.Eax : 0u,
+            hasSource ? source.MinDistance : 10f,
+            hasSource ? source.CutoffDistance : 80f);
+    }
+
     private void ImportCreatorAudio(CreatorAudioCue cue, string file)
     {
         if (_creatorSpell is not { } doc) return;
@@ -1237,23 +1273,20 @@ public sealed partial class GameLoop
             string cueName = cue.ToString().ToLowerInvariant();
             string mpqPath = $@"Sound\Spells\Custom\{doc.Info.Id}_{spell}\{cueName}_{stem}{ext}";
 
-            uint? sourceId = CreatorAuthoredSound(doc, cue);
-            SoundEntry source = default;
-            bool hasSource = _spellSounds?.TryGetEntry(sourceId, out source) == true;
+            var defaults = CreatorAudioDefaults(doc, cue);
             var track = new CreatorAudioTrack
             {
                 SourcePath = full,
                 MpqPath = mpqPath,
                 Bytes = bytes,
-                Volume = hasSource ? source.Volume : 1f,
-                Looping = cue == CreatorAudioCue.Missile || (hasSource && source.Looping) ||
-                          (!hasSource && cue is CreatorAudioCue.State or CreatorAudioCue.Channel or CreatorAudioCue.Area),
-                NoDuplicates = hasSource && source.NoDuplicates,
-                SoundType = hasSource ? source.Type : 1,
-                ExtraFlags = hasSource ? source.Flags & ~(0x200u | 0x20u) : 0,
-                Eax = hasSource ? source.Eax : 0,
-                MinDistance = hasSource ? source.MinDistance : 10f,
-                CutoffDistance = hasSource ? source.CutoffDistance : 80f,
+                Volume = defaults.Volume,
+                Looping = defaults.Looping,
+                NoDuplicates = defaults.NoDuplicates,
+                SoundType = defaults.SoundType,
+                ExtraFlags = defaults.ExtraFlags,
+                Eax = defaults.Eax,
+                MinDistance = defaults.MinDistance,
+                CutoffDistance = defaults.CutoffDistance,
             };
             if (doc.Audio.Remove(cue, out CreatorAudioTrack? old))
                 _spellSounds?.RemoveCustomFile(old.MpqPath);
@@ -1731,12 +1764,15 @@ public sealed partial class GameLoop
                 ImGui.SetNextItemWidth(130f * cs);
                 ImGui.Combo("Line axis", ref _creatorLineAxis,
                     CreatorLineAxes, CreatorLineAxes.Length);
+                if (CreatorResetKnob("lineaxis")) _creatorLineAxis = 0;
                 ImGui.SetNextItemWidth(130f * cs);
                 ImGui.Combo("Line count", ref _creatorLineCountChoice,
                     CreatorLineCounts, CreatorLineCounts.Length);
+                if (CreatorResetKnob("linecount")) _creatorLineCountChoice = 1;
                 ImGui.SetNextItemWidth(CreatorControlWidth);
                 ImGui.SliderFloat("Line spacing", ref _creatorLineSpacing,
                     0.05f, 10f, "%.2f yd");
+                if (CreatorResetKnob("linespacing")) _creatorLineSpacing = 1f;
                 if (ImGui.SmallButton("Create centered line"))
                 {
                     int count = 3 + _creatorLineCountChoice * 2;
