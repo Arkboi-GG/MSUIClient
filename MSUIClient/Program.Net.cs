@@ -1293,12 +1293,17 @@ public sealed partial class GameLoop
         {
             // No server configured: creator mode IS the offline world, so one
             // button covers it (the separate offline viewer was redundant).
-            var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
-            ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s));
-            if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
+            // Hidden while the Launch Options modal is up — its top edge pokes
+            // into the modal's bottom border and would steal those clicks.
+            if (!_launchMenuOpen)
             {
-                SetLaunchMode(LaunchModeCreator);
-                EnterOfflineWorld();
+                var bigSize = new Vector2(230f * s, 45f * s * GlueTune.ButtonHeightMul);
+                ImGui.SetCursorScreenPos(new Vector2(cx - bigSize.X * 0.5f, 505f * s));
+                if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
+                {
+                    SetLaunchMode(LaunchModeCreator);
+                    EnterOfflineWorld();
+                }
             }
         }
         else if (creatorMode)
@@ -1314,8 +1319,14 @@ public sealed partial class GameLoop
             if (_skin?.GlueButton("Enter Creator Mode", bigSize) ?? ImGui.Button("Enter Creator Mode", bigSize))
                 EnterOfflineWorld();
         }
-        else
+        else if (!_launchMenuOpen)
         {
+            // The account/password fields and Login button sit exactly where the Launch
+            // Options modal draws. They are real ImGui items: left visible under the
+            // modal they EAT its clicks wherever the rects overlap (the "Creator Mode"
+            // button's centre lands on the account box — clicking it did nothing), and
+            // their foreground text bled through the parchment. While the modal is up,
+            // this whole cluster simply does not exist.
             float boxW = 160f * s, boxH = 37f * s;
             LoginField(dl, "Account Name", "##acct", _acctBuf, cx, disp.Y - 345f * s, boxW, boxH, s, false, out _);
             LoginField(dl, "Account Password", "##pass", _passBuf, cx, disp.Y - 270f * s, boxW, boxH, s, true, out bool submit);
