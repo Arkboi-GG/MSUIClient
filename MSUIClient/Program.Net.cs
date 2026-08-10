@@ -76,6 +76,19 @@ public sealed partial class GameLoop
     private void InitNet(GL gl)
     {
         _gl = gl;
+
+        // The Launch Options choice is the user's declared intent and wins over the
+        // legacy server.enabled master switch. Before this, picking "SuperUI Client
+        // Mode" saved the sticky LaunchMode but a server.enabled=false config kept
+        // the serverless front door and never built the network client — the only
+        // escape was editing client-config.json (and its bin-dir copy) by hand.
+        // Fresh installs (empty LaunchMode) keep the offline-viewer default.
+        if (!_config.Server.Enabled && Settings.LaunchMode == LaunchModeClient && !BatchInstrumentActive)
+        {
+            _config.Server.Enabled = true;
+            Console.WriteLine("[net] server.enabled=false overridden by Launch Options (LaunchMode=Client)");
+        }
+
         bool creator = CreatorLaunchActive;
         if (!_config.Server.Enabled && !GlueFrontDoorActive)
         {
@@ -170,6 +183,19 @@ public sealed partial class GameLoop
             return;
         }
 
+        EnsureNetworkClient(suppressAutoLogin: creator);
+    }
+
+    /// <summary>
+    /// Construct the network client (does not connect the world; auto-login only when
+    /// configured and not suppressed). Safe to call again: a live client is kept. Also
+    /// the runtime half of the Launch Options switch — picking "SuperUI Client Mode"
+    /// on a serverless boot builds the client here so the switch works without a
+    /// restart or a config edit.
+    /// </summary>
+    private void EnsureNetworkClient(bool suppressAutoLogin)
+    {
+        if (_net is not null) return;
         try
         {
             NetSettings netSettings = _config.ToNetSettings();
@@ -182,7 +208,7 @@ public sealed partial class GameLoop
             _net = new NetworkClient(netSettings, CaptureWirePacket,
                 _config.DevTools ? ObserveSocketWrite : null);
             _net.CombatSendObserved = ObserveCombatSend;
-            if (!creator && _config.Server.AutoConnect &&
+            if (!suppressAutoLogin && _config.Server.AutoConnect &&
                 !string.IsNullOrWhiteSpace(_config.Server.Account) &&
                 !string.IsNullOrWhiteSpace(_config.Server.Password))
             {
