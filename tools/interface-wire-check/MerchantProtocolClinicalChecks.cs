@@ -162,9 +162,9 @@ internal static class MerchantProtocolClinicalChecks
     private static void CheckSlotBasedStockRuntimeFence()
     {
         string root = ClientConfig.FindRepoRoot();
-        string vendorSource = File.ReadAllText(Path.Combine(root,
+        string vendorSource = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Vendor.cs"));
-        string netSource = File.ReadAllText(Path.Combine(root,
+        string netSource = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Net.cs")).Replace("\r\n", "\n",
                 StringComparison.Ordinal);
 

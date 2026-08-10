@@ -436,17 +436,17 @@ internal static class MerchantFrameClinicalChecks
     private static void CheckRuntimeIntegrationSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string renderer = File.ReadAllText(Path.Combine(client, "Program.Vendor.Render.cs"));
-        string session = File.ReadAllText(Path.Combine(client, "Program.Vendor.Session.cs"));
-        string repair = File.ReadAllText(Path.Combine(client, "Program.Vendor.Repair.cs"));
-        string vendor = File.ReadAllText(Path.Combine(client, "Program.Vendor.cs"));
-        string inventory = File.ReadAllText(Path.Combine(client, "Program.Inventory.cs"));
-        string character = File.ReadAllText(Path.Combine(client, "Program.CharacterPage.cs"));
-        string settings = File.ReadAllText(Path.Combine(client, "Program.Settings.cs"));
-        string quest = File.ReadAllText(Path.Combine(client, "Program.Quest.cs"));
-        string net = File.ReadAllText(Path.Combine(client, "Program.Net.cs"));
-        string program = File.ReadAllText(Path.Combine(client, "Program.cs"));
-        string items = File.ReadAllText(Path.Combine(client, "Net", "Items.cs"));
+        string renderer = SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
+        string session = SourceText.Read(Path.Combine(client, "Program.Vendor.Session.cs"));
+        string repair = SourceText.Read(Path.Combine(client, "Program.Vendor.Repair.cs"));
+        string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs"));
+        string inventory = SourceText.Read(Path.Combine(client, "Program.Inventory.cs"));
+        string character = SourceText.Read(Path.Combine(client, "Program.CharacterPage.cs"));
+        string settings = SourceText.Read(Path.Combine(client, "Program.Settings.cs"));
+        string quest = SourceText.Read(Path.Combine(client, "Program.Quest.cs"));
+        string net = SourceText.Read(Path.Combine(client, "Program.Net.cs"));
+        string program = SourceText.Read(Path.Combine(client, "Program.cs"));
+        string items = SourceText.Read(Path.Combine(client, "Net", "Items.cs"));
 
         Check(renderer.Contains(
                   "physical <= MerchantFrameUiLaw.MerchantItemsPerPage", StringComparison.Ordinal) &&
@@ -544,8 +544,16 @@ internal static class MerchantFrameClinicalChecks
                   "bool repairReleased = _vendorRepairMode && hovered &&") == 2 &&
               Count(inventory + character,
                   "ImGui.IsMouseReleased(ImGuiMouseButton.Left) && ImGui.IsItemDeactivated();") == 2 &&
-              Count(inventory + character, "bool leftClicked = !_vendorRepairMode &&") == 2 &&
-              Count(inventory + character, "bool rightClicked = !_vendorRepairMode &&") == 2 &&
+              // Bag clicks carry the possession read-only gate (interactive = controlling
+              // your own character); the paperdoll's stay session-scoped.
+              inventory.Contains("bool leftClicked = interactive && !_vendorRepairMode &&",
+                  StringComparison.Ordinal) &&
+              inventory.Contains("bool rightClicked = interactive && !_vendorRepairMode &&",
+                  StringComparison.Ordinal) &&
+              character.Contains("bool leftClicked = !_vendorRepairMode &&",
+                  StringComparison.Ordinal) &&
+              character.Contains("bool rightClicked = !_vendorRepairMode &&",
+                  StringComparison.Ordinal) &&
               Count(inventory + character,
                   "if (!_vendorRepairMode && _itemCastSpell == 0 && " +
                   "_enchantConfirmation is null)") == 2 &&

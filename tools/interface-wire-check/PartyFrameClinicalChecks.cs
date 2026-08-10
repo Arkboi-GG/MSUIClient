@@ -368,14 +368,14 @@ internal static class PartyFrameClinicalChecks
             "build-5875 party opcode drift");
 
         string root = ClientConfig.FindRepoRoot();
-        string partyLaw = File.ReadAllText(Path.Combine(root, "MSUIClient", "Engine", "UI",
+        string partyLaw = SourceText.Read(Path.Combine(root, "MSUIClient", "Engine", "UI",
             "PartyFrameUiLaw.cs"));
-        string runtime = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.PartyFrames.cs"));
-        string net = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.Net.cs"));
-        string settings = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.Settings.cs"));
-        string session = File.ReadAllText(Path.Combine(root, "MSUIClient", "Net", "WorldSession.cs"));
-        string live = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.LiveRun.cs"));
-        string capture = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.DevTools.UiParity.cs"));
+        string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.PartyFrames.cs"));
+        string net = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.Net.cs"));
+        string settings = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.Settings.cs"));
+        string session = SourceText.Read(Path.Combine(root, "MSUIClient", "Net", "WorldSession.cs"));
+        string live = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.LiveRun.cs"));
+        string capture = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.DevTools.UiParity.cs"));
 
         CheckFrozenStaticPopupSources(root);
 

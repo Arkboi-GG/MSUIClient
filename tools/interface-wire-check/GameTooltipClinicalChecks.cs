@@ -1053,13 +1053,13 @@ internal static class GameTooltipClinicalChecks
     {
         string root = ClientConfig.FindRepoRoot();
         string client = Path.Combine(root, "MSUIClient");
-        string combat = File.ReadAllText(Path.Combine(client, "Program.CombatFeedback.cs"));
-        string coordinator = File.ReadAllText(Path.Combine(client, "Program.GameTooltip.cs"));
-        string party = File.ReadAllText(Path.Combine(client, "Program.PartyFrames.cs"));
-        string minimap = File.ReadAllText(Path.Combine(client, "Program.Minimap.cs"));
-        string worldUnit = File.ReadAllText(
+        string combat = SourceText.Read(Path.Combine(client, "Program.CombatFeedback.cs"));
+        string coordinator = SourceText.Read(Path.Combine(client, "Program.GameTooltip.cs"));
+        string party = SourceText.Read(Path.Combine(client, "Program.PartyFrames.cs"));
+        string minimap = SourceText.Read(Path.Combine(client, "Program.Minimap.cs"));
+        string worldUnit = SourceText.Read(
             Path.Combine(client, "Program.GameTooltip.WorldUnit.cs"));
-        string merchant = File.ReadAllText(
+        string merchant = SourceText.Read(
             Path.Combine(client, "Program.Vendor.Render.cs"));
 
         int drawStart = combat.IndexOf("private void DrawCombatHud()", StringComparison.Ordinal);
@@ -1182,7 +1182,7 @@ internal static class GameTooltipClinicalChecks
 
         int producerReferences = Directory.EnumerateFiles(client, "Program*.cs",
                 SearchOption.TopDirectoryOnly)
-            .Sum(path => Count(File.ReadAllText(path), "QueueSharedGameTooltipRenderer"));
+            .Sum(path => Count(SourceText.Read(path), "QueueSharedGameTooltipRenderer"));
         Check(Count(coordinator, "QueueSharedGameTooltipRenderer") == 3 &&
               Count(party, "QueueSharedGameTooltipRenderer") == 1 &&
               Count(minimap, "QueueSharedGameTooltipRenderer") == 1 &&
@@ -1195,9 +1195,9 @@ internal static class GameTooltipClinicalChecks
     private static void CheckB2ProducerSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string spellbook = File.ReadAllText(Path.Combine(client, "Program.Spellbook.cs"));
-        string actions = File.ReadAllText(Path.Combine(client, "Program.ActionBars.cs"));
-        string pet = File.ReadAllText(Path.Combine(client, "Program.Pet.cs"));
+        string spellbook = SourceText.Read(Path.Combine(client, "Program.Spellbook.cs"));
+        string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
+        string pet = SourceText.Read(Path.Combine(client, "Program.Pet.cs"));
         string adapters = spellbook + actions + pet;
 
         Check(!adapters.Contains("QueueSharedGameTooltipRenderer", StringComparison.Ordinal) &&
@@ -1360,17 +1360,17 @@ internal static class GameTooltipClinicalChecks
     private static void CheckB3ItemProducerSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string inventory = File.ReadAllText(Path.Combine(client, "Program.Inventory.cs"));
-        string character = File.ReadAllText(Path.Combine(client, "Program.CharacterPage.cs"));
-        string inspect = File.ReadAllText(Path.Combine(client, "Program.Inspect.cs"));
-        string combat = File.ReadAllText(Path.Combine(client, "Program.CombatFeedback.cs"));
-        string bank = File.ReadAllText(Path.Combine(client, "Program.Bank.cs"));
-        string mail = File.ReadAllText(Path.Combine(client, "Program.Mail.cs"));
-        string loot = File.ReadAllText(Path.Combine(client, "Program.Loot.cs"));
-        string quest = File.ReadAllText(Path.Combine(client, "Program.Quest.cs"));
-        string vendor = File.ReadAllText(Path.Combine(client, "Program.Vendor.cs")) +
-                        File.ReadAllText(Path.Combine(client, "Program.Vendor.Render.cs"));
-        string actions = File.ReadAllText(Path.Combine(client, "Program.ActionBars.cs"));
+        string inventory = SourceText.Read(Path.Combine(client, "Program.Inventory.cs"));
+        string character = SourceText.Read(Path.Combine(client, "Program.CharacterPage.cs"));
+        string inspect = SourceText.Read(Path.Combine(client, "Program.Inspect.cs"));
+        string combat = SourceText.Read(Path.Combine(client, "Program.CombatFeedback.cs"));
+        string bank = SourceText.Read(Path.Combine(client, "Program.Bank.cs"));
+        string mail = SourceText.Read(Path.Combine(client, "Program.Mail.cs"));
+        string loot = SourceText.Read(Path.Combine(client, "Program.Loot.cs"));
+        string quest = SourceText.Read(Path.Combine(client, "Program.Quest.cs"));
+        string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs")) +
+                        SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
+        string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
 
         string allPrograms = string.Concat(Directory.EnumerateFiles(client, "Program*.cs",
                 SearchOption.TopDirectoryOnly).Select(File.ReadAllText));
@@ -1593,9 +1593,9 @@ internal static class GameTooltipClinicalChecks
     private static void CheckB4B5ProducerSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string unitFrames = File.ReadAllText(Path.Combine(client, "Program.UnitFrames.cs"));
-        string minimap = File.ReadAllText(Path.Combine(client, "Program.Minimap.cs"));
-        string combat = File.ReadAllText(Path.Combine(client, "Program.CombatFeedback.cs"));
+        string unitFrames = SourceText.Read(Path.Combine(client, "Program.UnitFrames.cs"));
+        string minimap = SourceText.Read(Path.Combine(client, "Program.Minimap.cs"));
+        string combat = SourceText.Read(Path.Combine(client, "Program.CombatFeedback.cs"));
 
         int auraDrawStart = unitFrames.IndexOf("private void DrawPlayerAuraBar()",
             StringComparison.Ordinal);
@@ -1847,16 +1847,16 @@ internal static class GameTooltipClinicalChecks
     private static void CheckB6WorldUnitSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string query = File.ReadAllText(Path.Combine(client, "Net", "CreatureQuery.cs"));
-        string fields = File.ReadAllText(Path.Combine(client, "Net", "ObjectFields.cs"));
-        string targeting = File.ReadAllText(Path.Combine(client, "Program.Targeting.cs"));
-        string nameplates = File.ReadAllText(Path.Combine(client, "Program.Nameplates.cs"));
-        string net = File.ReadAllText(Path.Combine(client, "Program.Net.cs"));
-        string world = File.ReadAllText(
+        string query = SourceText.Read(Path.Combine(client, "Net", "CreatureQuery.cs"));
+        string fields = SourceText.Read(Path.Combine(client, "Net", "ObjectFields.cs"));
+        string targeting = SourceText.Read(Path.Combine(client, "Program.Targeting.cs"));
+        string nameplates = SourceText.Read(Path.Combine(client, "Program.Nameplates.cs"));
+        string net = SourceText.Read(Path.Combine(client, "Program.Net.cs"));
+        string world = SourceText.Read(
             Path.Combine(client, "Program.GameTooltip.WorldUnit.cs"));
-        string renderer = File.ReadAllText(
+        string renderer = SourceText.Read(
             Path.Combine(client, "Program.GameTooltip.Renderer.cs"));
-        string combat = File.ReadAllText(Path.Combine(client, "Program.CombatFeedback.cs"));
+        string combat = SourceText.Read(Path.Combine(client, "Program.CombatFeedback.cs"));
 
         Check(query.Contains("public sealed record CreatureQueryInfo(",
                   StringComparison.Ordinal) &&
@@ -2143,10 +2143,10 @@ internal static class GameTooltipClinicalChecks
     private static void CheckB7B8RuntimePresentationSourceFence()
     {
         string client = Path.Combine(ClientConfig.FindRepoRoot(), "MSUIClient");
-        string law = File.ReadAllText(Path.Combine(client, "Engine", "UI",
+        string law = SourceText.Read(Path.Combine(client, "Engine", "UI",
             "GameTooltipUiLaw.cs"));
-        string coordinator = File.ReadAllText(Path.Combine(client, "Program.GameTooltip.cs"));
-        string renderer = File.ReadAllText(
+        string coordinator = SourceText.Read(Path.Combine(client, "Program.GameTooltip.cs"));
+        string renderer = SourceText.Read(
             Path.Combine(client, "Program.GameTooltip.Renderer.cs"));
 
         Check(law.Contains("ShowSilver: silver > 0", StringComparison.Ordinal) &&
@@ -2334,14 +2334,14 @@ internal static class GameTooltipClinicalChecks
         string[] programFiles = Directory.GetFiles(client, "Program*.cs",
             SearchOption.TopDirectoryOnly);
         string allPrograms = string.Join('\n', programFiles.Select(File.ReadAllText));
-        string mail = File.ReadAllText(Path.Combine(client, "Program.Mail.cs"));
-        string inventory = File.ReadAllText(Path.Combine(client, "Program.Inventory.cs"));
-        string vendor = File.ReadAllText(Path.Combine(client, "Program.Vendor.cs")) +
-                        File.ReadAllText(Path.Combine(client, "Program.Vendor.Render.cs"));
-        string minimap = File.ReadAllText(Path.Combine(client, "Program.Minimap.cs"));
-        string actions = File.ReadAllText(Path.Combine(client, "Program.ActionBars.cs"));
-        string bindings = File.ReadAllText(Path.Combine(client, "Program.Bindings.cs"));
-        string settings = File.ReadAllText(Path.Combine(client, "Program.Settings.cs"));
+        string mail = SourceText.Read(Path.Combine(client, "Program.Mail.cs"));
+        string inventory = SourceText.Read(Path.Combine(client, "Program.Inventory.cs"));
+        string vendor = SourceText.Read(Path.Combine(client, "Program.Vendor.cs")) +
+                        SourceText.Read(Path.Combine(client, "Program.Vendor.Render.cs"));
+        string minimap = SourceText.Read(Path.Combine(client, "Program.Minimap.cs"));
+        string actions = SourceText.Read(Path.Combine(client, "Program.ActionBars.cs"));
+        string bindings = SourceText.Read(Path.Combine(client, "Program.Bindings.cs"));
+        string settings = SourceText.Read(Path.Combine(client, "Program.Settings.cs"));
         Check(Count(allPrograms, "TryShowNewbieGameTooltip(") == 1 &&
               Count(allPrograms, "SetSharedGameTooltipMoney(") == 2 &&
               !settings.Contains("SHOW_NEWBIE_TIPS", StringComparison.Ordinal) &&

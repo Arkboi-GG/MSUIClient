@@ -493,13 +493,13 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
     private static void CheckProfessionSourceFence()
     {
         string root = ClientConfig.FindRepoRoot();
-        string law = File.ReadAllText(Path.Combine(root,
+        string law = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Engine", "UI", "ProfessionPanelOpenerLaw.cs"));
-        string professions = File.ReadAllText(Path.Combine(root,
+        string professions = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Professions.cs"));
         string tryOpen = Slice(professions, "    private bool TryOpenProfession(uint spellId)",
             "    private bool OpenFirstProfession()");
-        string actionBars = File.ReadAllText(Path.Combine(root,
+        string actionBars = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.ActionBars.cs"));
         string tryCast = Slice(actionBars, "    private void TryCast(uint spellId)",
             "    private void CommitCastSend(in SpellInfo spell");
@@ -581,9 +581,9 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         string adapter = Slice(AdapterSource(),
             "    private UiPanelOwnershipSample CaptureUiPanelOwnershipSample()",
             "    /// <summary>\n    /// The first authoritative host wedge");
-        string observer = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+        string observer = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Engine", "UI", "UiPanelOwnershipObserver.cs"));
-        string program = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+        string program = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
             "MSUIClient", "Program.cs"));
 
         string[] exactCensus =
@@ -659,20 +659,20 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
     private static void CheckHostTransitionSourceFence()
     {
         string root = ClientConfig.FindRepoRoot();
-        string transition = File.ReadAllText(Path.Combine(root,
+        string transition = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Engine", "UI", "UiPanelHostTransition.cs"));
         string adapter = AdapterSource();
-        string character = File.ReadAllText(Path.Combine(root,
+        string character = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.CharacterPage.cs"));
-        string spellbook = File.ReadAllText(Path.Combine(root,
+        string spellbook = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Spellbook.cs"));
-        string actionBars = File.ReadAllText(Path.Combine(root,
+        string actionBars = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.ActionBars.cs"));
-        string settings = File.ReadAllText(Path.Combine(root,
+        string settings = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.Settings.cs"));
-        string devParity = File.ReadAllText(Path.Combine(root,
+        string devParity = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.DevTools.UiParity.cs"));
-        string liveRun = File.ReadAllText(Path.Combine(root,
+        string liveRun = SourceText.Read(Path.Combine(root,
             "MSUIClient", "Program.LiveRun.cs"));
 
         int incomingPreflight = transition.IndexOf("if (!incoming.PreflightShow())",
@@ -877,7 +877,7 @@ internal static class UiPanelOwnershipAdapterClinicalChecks
         UiPanelOwnershipObservation observation) =>
         observation.AdvisoryEffects.Select(effect => effect.Kind);
 
-    private static string AdapterSource() => File.ReadAllText(Path.Combine(
+    private static string AdapterSource() => SourceText.Read(Path.Combine(
         ClientConfig.FindRepoRoot(), "MSUIClient", "Program.UiPanelOwnership.cs"));
 
     private static int Count(string source, string value)

@@ -342,8 +342,8 @@ internal static class GroupProtocolClinicalChecks
     private static void CheckRuntimeRoutes()
     {
         string root = FindRepoRoot();
-        string net = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.Net.cs"));
-        string runtime = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.PartyFrames.cs"));
+        string net = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.Net.cs"));
+        string runtime = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.PartyFrames.cs"));
         foreach (string route in new[]
                  {
                      "ApplyPartyDecline(body);", "ApplyPartyUninvited(body);",

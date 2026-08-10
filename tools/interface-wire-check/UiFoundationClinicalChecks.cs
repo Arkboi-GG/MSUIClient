@@ -416,7 +416,7 @@ internal static class UiFoundationClinicalChecks
     private static void CheckVanillaUiAdapter()
     {
         string root = ClientConfig.FindRepoRoot();
-        string source = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.VanillaUi.cs"));
+        string source = SourceText.Read(Path.Combine(root, "MSUIClient", "Program.VanillaUi.cs"));
         Check(!source.Contains("ImGui.IsItemClicked()", StringComparison.Ordinal) &&
               Count(source, "bool releasedInside = ImGui.InvisibleButton") == 6 &&
               Count(source, "ButtonInteractionLaw.ResolveVisual") == 3 &&

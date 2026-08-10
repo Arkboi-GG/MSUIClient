@@ -302,7 +302,7 @@ Check(PaperDollUiLaw.OpenSound == new PaperDollUiLaw.SoundTransition("igCharacte
       PaperDollUiLaw.TabSwitchSound == new PaperDollUiLaw.SoundTransition("igCharacterInfoTab", 2) &&
       PaperDollUiLaw.RotateTapSound == new PaperDollUiLaw.SoundTransition("igInventoryRotateCharacter", 2),
     "CharacterFrame audio cue/count law drift");
-string characterPageSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string characterPageSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.CharacterPage.cs"));
 int portraitDraw = characterPageSource.IndexOf("DrawCharacterPortrait(dl, origin, scale, player, panelClip);",
     StringComparison.Ordinal);
@@ -318,7 +318,7 @@ Check(rangedAttackHit >= 0 && rangedPowerGate > rangedAttackHit &&
       characterPageSource.Contains("offhand?.Class == 2", StringComparison.Ordinal) &&
       characterPageSource.Contains("if (ranged is not null)", StringComparison.Ordinal),
     "CharacterFrame static ranged-attack hover or weapon/wand/offhand tooltip gates drift");
-string inventorySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inventorySource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Inventory.cs"));
 Check(inventorySource.Contains("PreparePaperDollComparisonTooltips(item);", StringComparison.Ordinal) &&
       inventorySource.Contains("PaperDollUiLaw.ShowBagItemComparison", StringComparison.Ordinal) &&
@@ -448,17 +448,17 @@ Check(LogoutResponse.Parse(Convert.FromHexString("0000000000")) == new LogoutRes
       LogoutUiLaw.CountdownText(true, .1f) == "1 second until exit",
     "GameMenuFrame logout response/countdown law drift");
 
-string gameMenuSettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuSettingsSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Settings.cs"));
-string gameMenuActionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuActionSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.ActionBars.cs"));
-string gameMenuLogoutSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuLogoutSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Logout.cs"));
-string gameMenuSkinSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuSkinSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Engine", "UI", "WowSkin.cs"));
-string gameMenuCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
-string gameMenuLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gameMenuLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
 Check(gameMenuSettingsSource.Contains("InputKeyDown(Silk.NET.Input.Key.Escape)", StringComparison.Ordinal) &&
       gameMenuSettingsSource.Contains("ClearCarriedItemOnEscape();", StringComparison.Ordinal) &&
@@ -1039,17 +1039,17 @@ Check(MultiActionBarUiLaw.PickupAction(heldMultiAction.Packed) ==
           .SequenceEqual(Convert.FromHexString("30241B0080")),
       "bottom multibar pickup/place-hop or five-byte SET_ACTION_BUTTON body drift");
 
-string multiActionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiActionSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.ActionBars.cs"));
-string multiInventorySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiInventorySource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Inventory.cs"));
-string multiItemSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiItemSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Net", "Items.cs"));
-string multiSpellSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiSpellSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Formats", "SpellCatalog.cs"));
-string multiCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
-string multiLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string multiLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
 Check(multiActionSource.Contains("ImGuiWindowFlags.NoMouseInputs", StringComparison.Ordinal) &&
       multiActionSource.Contains("MultiActionBarUiLaw.InteractiveSlot", StringComparison.Ordinal) &&
@@ -1247,11 +1247,11 @@ Check((ushort)Op.CMSG_PET_SET_ACTION == 0x174 && (ushort)Op.CMSG_PET_ACTION == 0
       "pet action protocol opcodes");
 
 string petRoot = ClientConfig.FindRepoRoot();
-string petRuntimeSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Pet.cs"));
-string petTargetingSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Targeting.cs"));
-string petNetSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Net.cs"));
-string petLogoutSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient", "Program.Logout.cs"));
-string petCaptureSource = File.ReadAllText(Path.Combine(petRoot, "MSUIClient",
+string petRuntimeSource = SourceText.Read(Path.Combine(petRoot, "MSUIClient", "Program.Pet.cs"));
+string petTargetingSource = SourceText.Read(Path.Combine(petRoot, "MSUIClient", "Program.Targeting.cs"));
+string petNetSource = SourceText.Read(Path.Combine(petRoot, "MSUIClient", "Program.Net.cs"));
+string petLogoutSource = SourceText.Read(Path.Combine(petRoot, "MSUIClient", "Program.Logout.cs"));
+string petCaptureSource = SourceText.Read(Path.Combine(petRoot, "MSUIClient",
     "Program.DevTools.UiParity.cs"));
 int petCancelAura = petRuntimeSource.IndexOf("PetCancelAura(petGuid, action)",
     StringComparison.Ordinal);
@@ -1386,9 +1386,9 @@ Check((ushort)Op.CMSG_QUESTGIVER_COMPLETE_QUEST == 0x018A &&
       (ushort)Op.SMSG_INIT_WORLD_STATES == 0x02C2 &&
       (ushort)Op.SMSG_UPDATE_WORLD_STATE == 0x02C3,
       "quest completion/reward/world-state opcode identities drift");
-string questSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string questSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Quest.cs"));
-string gossipSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string gossipSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Gossip.cs"));
 Check(questSource.Contains("RequestQuestReward();", StringComparison.Ordinal) &&
       questSource.Contains("GuidInfo.IsItem(guid)", StringComparison.Ordinal) &&
@@ -1402,9 +1402,9 @@ int questPanelArt = questSource.IndexOf("foreach(var r in art)", StringCompariso
 Check(questPortraitDraw >= 0 && questPanelArt > questPortraitDraw &&
       questSource.Contains("BenillaQuestFramePortraitAperture", StringComparison.Ordinal),
       "quest portrait must draw beneath panel chrome and retain round-aperture containment telemetry");
-string liveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string liveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
-string uiParitySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string uiParitySource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
 Check(liveRunSource.Contains("quest[1].Equals(\"assert-wire\"", StringComparison.Ordinal) &&
       liveRunSource.Contains("TryQuestWireSpec", StringComparison.Ordinal) &&
@@ -1712,17 +1712,17 @@ Check(PaperDollUiLaw.EquipmentSlotLabel(2) == "Shoulders" &&
       PaperDollUiLaw.EquipmentSlotLabel(16) == "Off Hand",
     "inspect empty-slot localized label mapping drift");
 
-string inspectSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Inspect.cs"));
-string inspectTargetingSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectTargetingSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Targeting.cs"));
-string inspectPartySource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectPartySource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.PartyFrames.cs"));
-string inspectPopupSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectPopupSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.UnitPopup.cs"));
-string inspectCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
-string inspectLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string inspectLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
 int inspectRequest = inspectSource.IndexOf("private bool RequestInspect", StringComparison.Ordinal);
 int inspectRequestClose = inspectSource.IndexOf("CloseInspect(playSound: true);", inspectRequest,
@@ -1918,17 +1918,17 @@ string[] skillAssets =
 Check(skillAssets.All(path => spellbookMpq.ReadFile(path) is not null),
     "SkillFrame newly ported collapse/scroll/divider/bar/unlearn asset closure missing");
 
-string skillCharacterSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillCharacterSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.CharacterPage.cs"));
-string skillRuntimeSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillRuntimeSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.SkillFrame.cs"));
-string skillBindingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillBindingsSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Bindings.cs"));
-string skillSettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillSettingsSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Settings.cs"));
-string skillCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
-string skillLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string skillLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
 Check(skillBindingsSource.Contains("GameBinding.OpenSkills, SkillFrameUiLaw.BindingLabel, Key.K",
           StringComparison.Ordinal) &&
@@ -2314,19 +2314,19 @@ Check((ushort)Op.SMSG_GROUP_INVITE == 0x006f && (ushort)Op.CMSG_GROUP_ACCEPT == 
       (ushort)Op.SMSG_PARTY_MEMBER_STATS_FULL == 0x02f2,
     "build-5875 party invite/roster/stats opcodes drift");
 
-string partyRuntimeSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partyRuntimeSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.PartyFrames.cs"));
-string partyLawSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partyLawSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Engine", "UI", "PartyFrameUiLaw.cs"));
-string partyNetSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partyNetSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Net.cs"));
-string partySettingsSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partySettingsSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.Settings.cs"));
-string partySessionSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partySessionSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Net", "WorldSession.cs"));
-string partyLiveRunSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partyLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.LiveRun.cs"));
-string partyCaptureSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string partyCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
 PartyFrameClinicalChecks.CheckFrozenStaticPopupSources(ClientConfig.FindRepoRoot());
 int partyParseRoster = partyRuntimeSource.IndexOf("PartyFramePacketLaw.ParseRoster(body)",
@@ -2605,7 +2605,7 @@ Check(fontBakePairs.Contains((FontFace.Morpheus, 18f, false)) &&
       fontBakePairs.Contains((FontFace.FrizQt, 13f, false)) &&
       UiFont.Morpheus == FontFace.Morpheus,
     "active Quest/Mail font objects lost their exact Morpheus/FRIZQT bake pairs");
-string fontBootstrapSource = File.ReadAllText(Path.Combine(ClientConfig.FindRepoRoot(),
+string fontBootstrapSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.cs"));
 Check(fontBootstrapSource.Contains("UiFont.Morpheus", StringComparison.Ordinal) &&
       fontBootstrapSource.Contains(
@@ -2643,7 +2643,7 @@ var rawTextPattern = new System.Text.RegularExpressions.Regex(
 foreach (string panelFile in Directory.GetFiles(panelSourceDir, "Program.*.cs"))
 {
     string name = Path.GetFileName(panelFile);
-    int raw = rawTextPattern.Matches(File.ReadAllText(panelFile)).Count;
+    int raw = rawTextPattern.Matches(SourceText.Read(panelFile)).Count;
     int allowed = rawTextBaseline.GetValueOrDefault(name, 0);
     Check(raw <= allowed,
         $"{name}: {raw} raw AddText(ImGui.GetFont()) draw(s) exceed the migration baseline " +
