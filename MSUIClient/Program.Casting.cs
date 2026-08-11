@@ -39,7 +39,8 @@ public sealed partial class GameLoop
                 StageLife.Persistent, NowSeconds(), "PRECAST");
         if (_net is not null && packet.Caster == ControlledGuid)
         {
-            _character?.BeginSpellVisual(anim);
+            if (ControlledBodyIsStreamed) _creatures?.BeginSpellVisual(packet.Caster, anim);
+            else _character?.BeginSpellVisual(anim);
             if (info is { } startedInfo)
                 EmitSpellAnimation(startedInfo, "PRECAST", SpellStageKitId(startedInfo.VisualId, "precast"), anim, "SERVER_START");
             if (info?.Ranged == true) SetVisualSheath(2);
@@ -68,7 +69,8 @@ public sealed partial class GameLoop
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_GO");
             if (_pendingCastSpell == packet.SpellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == packet.SpellId) _queuedMeleeSpell = 0;
-            _character?.ReleaseSpellVisual(anim);
+            if (ControlledBodyIsStreamed) _creatures?.ReleaseSpellVisual(packet.Caster, anim);
+            else _character?.ReleaseSpellVisual(anim);
             if (info is { } completedInfo)
                 EmitSpellAnimation(completedInfo, "CAST", SpellStageKitId(completedInfo.VisualId, "cast"), anim, "SERVER_GO");
             if (info?.Ranged == true) SetVisualSheath(2);
@@ -151,7 +153,7 @@ public sealed partial class GameLoop
         {
             if (animation is not { } anim || anim == 0) return;
             bool wound = anim is 8 or 9 or 10;
-            if (_net is not null && target == ControlledGuid)
+            if (_net is not null && target == ControlledGuid && !ControlledBodyIsStreamed)
             {
                 if (wound) _character?.TriggerCombatReaction(0, landedHit: true);
                 else _character?.TriggerOneShot(anim);
@@ -390,7 +392,8 @@ public sealed partial class GameLoop
             _spellSounds?.StopHold(ControlledGuid);
             PlaySpellSound(ControlledGuid, channelResolved?.Sound);
         }
-        _character?.BeginSpellVisual(animation);
+        if (ControlledBodyIsStreamed) _creatures?.BeginSpellVisual(ControlledGuid, animation);
+        else _character?.BeginSpellVisual(animation);
         if (_spellCatalog?.TryGet(spellId, out SpellInfo channelInfo) == true &&
             _spellVisualCatalog?.TryGetStages(channelInfo.VisualId, out SpellVisualStages channelStages) == true)
             EmitSpellAnimation(channelInfo, "CHANNEL", channelStages.Channel, animation, "SERVER_CHANNEL");
@@ -592,7 +595,10 @@ public sealed partial class GameLoop
 
     private SpellUnitPose SpellEffectUnitPose(ulong guid)
     {
-        if (guid == ControlledGuid && _controller is not null)
+        // The first-person body's pose is the CONTROLLER's — which in the free view is the
+        // fly rig, i.e. the middle of the screen. A spell cast from up there has to come out
+        // of the caster standing in the world, so fall through to its streamed pose.
+        if (guid == ControlledGuid && _controller is not null && !_freeView)
             return _character?.SpellPose(BuildUnitState()) ?? SpellUnitPose.Missing;
         if (_creatures?.TryGetSpellPose(guid, out SpellUnitPose pose) == true)
             return pose;

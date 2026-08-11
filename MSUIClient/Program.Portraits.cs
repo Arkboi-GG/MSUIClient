@@ -34,9 +34,13 @@ public sealed partial class GameLoop
     private double _targetPortraitRetryAt;
 
     // ── Party member portraits: real 3-D bakes of the streamed bodies ─────────────────────────
-    // Baked from CreatureRenderer.RenderPortrait (the same machinery as the inspect paper
-    // doll), so every member shows its ACTUAL race/geosets/hair/gear instead of the static
-    // TemporaryPortrait art. Keyed by an appearance hash; at most one bake per frame.
+    // Baked through TryBakeCreaturePortrait — the SAME booth that bakes the target frame's
+    // portrait: the model's authored M2 portrait camera when it has one, the DBC-framed
+    // bounds camera when it does not, a blank-bake retry between them, and the same tuning
+    // overrides the own-character portrait reads (keyed player:race-gender, so a race tuned
+    // for the player frame is tuned for its party frames too). Every member therefore shows
+    // its ACTUAL race/geosets/hair/gear instead of the static TemporaryPortrait art, framed
+    // like every other portrait in the HUD. Keyed by an appearance hash; one bake per frame.
     private sealed class PartyPortrait
     {
         public PortraitRenderTarget? Target;
@@ -59,23 +63,30 @@ public sealed partial class GameLoop
         return hash;
     }
 
-    /// <summary>A usable baked portrait texture for a party member, or 0.</summary>
+    /// <summary>
+    /// A usable baked portrait texture for a party member, or 0. The ROUND copy: the
+    /// party frame draws the authored chrome, whose aperture is a circular hole, exactly
+    /// like the player/target frames in their non-painterly path.
+    /// </summary>
     private uint PartyPortraitHandle(ulong guid) =>
         _partyPortraits.TryGetValue(guid, out PartyPortrait? entry) &&
-        entry is { Usable: true, Target: not null } ? entry.Target.TextureHandle : 0;
+        entry is { Usable: true, Target: not null } ? entry.Target.CircularTextureHandle : 0;
 
     private void UpdatePartyPortraits()
     {
         if (_creatures is null || _gl is null) return;
 
-        // Reap members who left the roster so their GL targets don't linger.
+        // The FRAME set, not the wire roster: while a bot is possessed it holds the player
+        // frame and the abandoned own character takes a party slot, so that is whose faces
+        // need baking. Reap anyone no longer in it before their GL targets pile up.
+        PartyMember[] framed = PartyFrameMembers();
         if (_partyPortraits.Count > 0)
         {
             List<ulong>? stale = null;
             foreach (ulong guid in _partyPortraits.Keys)
             {
                 bool present = false;
-                foreach (PartyMember member in _partyMembers)
+                foreach (PartyMember member in framed)
                     if (member.Guid == guid) { present = true; break; }
                 if (!present) (stale ??= []).Add(guid);
             }
@@ -87,9 +98,10 @@ public sealed partial class GameLoop
                 }
         }
 
-        foreach (PartyMember member in _partyMembers)
+        foreach (PartyMember member in framed)
         {
-            if (member.Guid == LocalPlayerGuid) continue;
+            // The driven unit owns the PLAYER frame and bakes through _playerPortrait.
+            if (member.Guid == ControlledGuid) continue;
             if (!_entities.TryGet(member.Guid, out WorldEntity unit) || !unit.IsPlayer) continue;
 
             ulong appearance = PlayerAppearanceSignature(unit);
@@ -97,8 +109,8 @@ public sealed partial class GameLoop
                 _partyPortraits[member.Guid] = entry = new PartyPortrait();
             if (entry.Usable && entry.Appearance == appearance) continue;
             if (NowSeconds() < entry.RetryAt) continue;
-            if (!_creatures.TryGetPortraitFraming(unit, out CreatureRenderer.PortraitFraming framing))
-                continue;
+            // Still streaming in: no target allocated, no backoff — retry next frame.
+            if (!_creatures.TryGetPortraitFraming(unit, out _)) continue;
 
             try
             {
@@ -111,24 +123,19 @@ public sealed partial class GameLoop
                 continue;
             }
 
-            // Head-and-shoulders framing for the round frame cut-out.
-            const float fov = 30f;
-            float window = MathF.Max(0.4f, framing.Height * 0.40f);
-            float distance = (window * .5f) / MathF.Tan(fov * .5f * MathF.PI / 180f);
-            Camera camera = PortraitCamera(unit.Position, unit.Orientation,
-                framing.Height * 0.82f, distance);
-            camera.FieldOfViewDegrees = fov;
-            camera.AspectRatio = 1f;
-            camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
+            (PortraitTuning tuning, bool storeHit) = ResolveTuningWithHit(PlayerPortraitKey(unit));
+            if (!TryBakeCreaturePortrait(entry.Target, unit, tuning, storeHit,
+                    out CreaturePortraitBake bake))
+                continue;
 
-            bool drawn = false;
-            entry.Target.Bake(() => drawn = _creatures.RenderPortrait(camera, unit));
-            PortraitRenderTarget.ReadbackStats stats = entry.Target.Analyze();
-            entry.Usable = drawn && stats.HasSubject;
+            entry.Usable = bake.Drawn && bake.Stats.HasSubject;
             if (entry.Usable)
             {
-                entry.Target.ApplyCircularMask();
+                // Pigment then aperture, in that order and for the reason the player bake
+                // gives: the round copy is a SNAPSHOT, so styling has to land in the bake
+                // before the disc is cut from it.
                 if (PainterlyUi) StylePortrait(entry.Target);
+                entry.Target.UpdateCircularCopy();
                 entry.Appearance = appearance;
                 entry.RetryAt = 0;
             }
@@ -586,6 +593,17 @@ public sealed partial class GameLoop
 
     private static string PlayerPortraitKey(CharacterRenderer character) =>
         $"player:{character.Race.ToLowerInvariant()}-{character.Gender.ToLowerInvariant()}";
+
+    /// <summary>
+    /// The same tuning key for a STREAMED player (party members), built from the wire
+    /// bytes rather than the loaded avatar. RaceFolder is what feeds CharacterRenderer.Race,
+    /// so "player:nightelf-female" resolves identically whichever side asks for it.
+    /// </summary>
+    private static string PlayerPortraitKey(WorldEntity unit)
+    {
+        (byte race, _, byte gender, _) = unit.Fields.Bytes0;
+        return $"player:{RaceFolder(race).ToLowerInvariant()}-{(gender == 1 ? "female" : "male")}";
+    }
 
     private static string CreaturePortraitKey(int displayId) => $"creature:{displayId}";
 

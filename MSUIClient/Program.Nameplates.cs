@@ -220,7 +220,7 @@ public sealed partial class GameLoop
         // In the free view the rig IS the camera — the character stands in the world
         // at its streamed position, and its name must stay planted on it.
         _net is not null && unit.Guid == ControlledGuid && _controller is not null &&
-        _controlState != ControlState.FreeCam
+        !_freeView
             ? _controller.Position : unit.Position;
 
     private float UnitOverheadHeight(WorldEntity unit)

@@ -57,11 +57,12 @@ public sealed partial class GameLoop
                 parent: "", point: "TOPRIGHT", strata: "BACKGROUND");
         }
 
-        // Painterly mode presents the map SQUARE. Vanilla's roundness is not a
-        // clip - DrawMovingMinimap already crops to a rectangle - it is entirely
-        // the UI-Minimap-Border art painted over the corners. So the square
-        // variant simply declines to draw that art and frames the same rect,
-        // which also lets the body grow into the corners the circle threw away.
+        // Painterly mode presents the map SQUARE: it declines to draw the ring art and frames
+        // the same rect, which lets the body grow into the corners the circle throws away.
+        // (The old note here claimed vanilla's roundness was just border art painted over the
+        // corners. It is not — FrameXML declares `<Minimap name="Minimap">`, a widget type the
+        // engine crops to a disc, and the ring's corners are transparent. DrawMovingMinimap
+        // does the crop itself now; without it the tile plane leaked past the ornament.)
         bool squareMap = PainterlyUi;
         Vector2 mapMin = (root + (squareMap ? new Vector2(12, 26) : new Vector2(35, 22))) * s;
         Vector2 mapMax = mapMin + new Vector2(squareMap ? 168 : 140) * s;
@@ -71,7 +72,7 @@ public sealed partial class GameLoop
         Vector3 playerPosition = _controller?.Position ?? player.Position;
         float playerOrientation = _controller?.Yaw ?? player.Orientation;
         MinimapProjection projection = MinimapProjection.FromWorld(playerPosition);
-        DrawMovingMinimap(dl, mapMin, mapMax, projection);
+        DrawMovingMinimap(dl, mapMin, mapMax, projection, circular: !squareMap);
         UpdateMinimapArea(projection);
 
         if (ImGui.IsMouseHoveringRect(mapMin, mapMax, false))
@@ -323,8 +324,13 @@ public sealed partial class GameLoop
         }
         MinimapResourceTooltipCandidate? hoveredTooltip = null;
         dl.PushClipRect(mapMin, mapMax, true);
+        // The aperture is round, so a blip is in or out by RADIUS — a rect clip alone let one
+        // sit in a corner outside the ring. Same 66px cut the party dots already use, and the
+        // in-range test above is by yards, which is not the same thing once zoom is in play.
+        float blipLimit = PainterlyUi ? float.MaxValue : 66f * s;
         foreach (var row in visible)
         {
+            if (Vector2.DistanceSquared(row.Dot, center) > blipLimit * blipLimit) continue;
             Vector2 half = new(4f * s);
             if (icons != 0)
                 dl.AddImage((nint)icons, row.Dot - half, row.Dot + half,
@@ -447,7 +453,7 @@ public sealed partial class GameLoop
     }
 
     private void DrawMovingMinimap(ImDrawListPtr dl, Vector2 mapMin, Vector2 mapMax,
-        MinimapProjection player)
+        MinimapProjection player, bool circular)
     {
         EnsureMinimapTileMap();
         float halfTiles = 0.10f + _minimapZoom * 0.025f;
@@ -458,6 +464,12 @@ public sealed partial class GameLoop
         // The old implementation cropped one BLP and clamped its UVs. At the
         // edge of that BLP the crop stopped moving. Vanilla instead presents a
         // continuous plane of neighboring minimap tiles beneath a fixed arrow.
+        //
+        // The aperture is a DISC unless painterly has squared it. FrameXML declares the map as
+        // `<Minimap name="Minimap">` — a dedicated widget type the engine crops to a circle —
+        // and `UI-Minimap-Border` is only the ornament ringing it, so a rectangular clip alone
+        // leaks the tile plane into the four corners.
+        float circleRadius = circular ? (mapMax.X - mapMin.X) * .5f : 0f;
         dl.PushClipRect(mapMin, mapMax, true);
         for (int rowOffset = -1; rowOffset <= 1; rowOffset++)
         for (int columnOffset = -1; columnOffset <= 1; columnOffset++)
@@ -473,9 +485,90 @@ public sealed partial class GameLoop
                 row - (player.TileRow + player.TileV)) * pixelsPerTile;
             Vector2 max = min + new Vector2(pixelsPerTile);
             if (max.X <= mapMin.X || max.Y <= mapMin.Y || min.X >= mapMax.X || min.Y >= mapMax.Y) continue;
-            dl.AddImage((nint)handle, min, max);
+            if (circular) AddImageCircleClipped(dl, handle, min, max, center, circleRadius);
+            else dl.AddImage((nint)handle, min, max);
         }
         dl.PopClipRect();
+    }
+
+    /// <summary>
+    /// Draw an axis-aligned textured rect clipped to a CIRCLE.
+    ///
+    /// ImGui has no circular clip — clip rects are rectangles — and this backend cannot borrow
+    /// AddImageRounded, which emits a single textured fan triangle here (the same finding that
+    /// sent the round portraits through a baked alpha mask instead). A render target is the
+    /// other way out, but the tiles are draw-list images, not GL draws, so there is nothing to
+    /// redirect into one. So the quad is clipped ANALYTICALLY: Sutherland-Hodgman against the
+    /// half-planes of a regular polygon whose edges are tangent to the circle, emitted as a
+    /// textured fan. UVs are exact rather than approximated — the rect is axis-aligned, so
+    /// inverting the map is one lerp per component.
+    /// </summary>
+    private static void AddImageCircleClipped(ImDrawListPtr dl, uint texture,
+        Vector2 rectMin, Vector2 rectMax, Vector2 centre, float radius, int segments = 48)
+    {
+        Vector2 size = rectMax - rectMin;
+        if (size.X <= 0f || size.Y <= 0f || radius <= 0f) return;
+
+        // Clipping a convex polygon by N half-planes adds at most one vertex per plane.
+        int capacity = segments + 8;
+        Span<Vector2> poly = stackalloc Vector2[capacity];
+        Span<Vector2> clipped = stackalloc Vector2[capacity];
+        poly[0] = rectMin;
+        poly[1] = new Vector2(rectMax.X, rectMin.Y);
+        poly[2] = rectMax;
+        poly[3] = new Vector2(rectMin.X, rectMax.Y);
+        int count = 4;
+
+        for (int i = 0; i < segments && count >= 3; i++)
+        {
+            (float sin, float cos) = MathF.SinCos(i * MathF.Tau / segments);
+            var normal = new Vector2(cos, sin);
+            int written = 0;
+            for (int j = 0; j < count; j++)
+            {
+                Vector2 current = poly[j];
+                Vector2 previous = poly[(j + count - 1) % count];
+                float dCurrent = Vector2.Dot(current - centre, normal) - radius;
+                float dPrevious = Vector2.Dot(previous - centre, normal) - radius;
+                if (dCurrent <= 0f)
+                {
+                    if (dPrevious > 0f)
+                        written = Cross(clipped, written, previous, current, dPrevious, dCurrent);
+                    clipped[written++] = current;
+                }
+                else if (dPrevious <= 0f)
+                    written = Cross(clipped, written, previous, current, dPrevious, dCurrent);
+            }
+            count = written;
+            clipped[..count].CopyTo(poly);
+        }
+        if (count < 3) return;
+
+        // ImGui's own convex-fill contract: capture the base index BEFORE reserving.
+        uint baseIndex = dl._VtxCurrentIdx;
+        dl.PushTextureID((nint)texture);
+        dl.PrimReserve((count - 2) * 3, count);
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 p = poly[i];
+            dl.PrimWriteVtx(p,
+                new Vector2((p.X - rectMin.X) / size.X, (p.Y - rectMin.Y) / size.Y), 0xFFFFFFFFu);
+        }
+        for (int i = 2; i < count; i++)
+        {
+            dl.PrimWriteIdx((ushort)baseIndex);
+            dl.PrimWriteIdx((ushort)(baseIndex + i - 1));
+            dl.PrimWriteIdx((ushort)(baseIndex + i));
+        }
+        dl.PopTextureID();
+
+        static int Cross(Span<Vector2> into, int at, Vector2 from, Vector2 to,
+            float dFrom, float dTo)
+        {
+            float t = dFrom / (dFrom - dTo);
+            into[at] = from + (to - from) * t;
+            return at + 1;
+        }
     }
 
     private void UpdateMinimapArea(MinimapProjection projection)

@@ -57,10 +57,39 @@ public sealed partial class GameLoop
     private bool _partyTooltipParityCompletionPending;
     private bool _partyTooltipParityRendererCollected;
 
-    private PartyMember[] PartyFrameMembers() => _partyMembers
-        .Where(member => (member.Subgroup & 0x7f) == (_partyOwnFlags & 0x7f))
-        .Take(PartyFrameUiLaw.MemberCount)
-        .ToArray();
+    /// <summary>
+    /// The party frames as seen from whoever is being DRIVEN, not from the session character.
+    ///
+    /// The wire roster always excludes the recipient, which is right while you are your own
+    /// character. Possess a bot and the two halves swap: the bot becomes the player frame,
+    /// so it has to leave the party list, and your abandoned body — now just another member
+    /// running on AI — has to join it. Without this the possessed bot appeared TWICE (player
+    /// frame plus its old party slot) and your real character vanished from the HUD entirely.
+    /// </summary>
+    private PartyMember[] PartyFrameMembers()
+    {
+        IEnumerable<PartyMember> roster = _partyMembers
+            .Where(member => (member.Subgroup & 0x7f) == (_partyOwnFlags & 0x7f));
+
+        ulong driven = ControlledGuid;
+        if (driven != LocalPlayerGuid)
+            roster = OwnCharacterPartyRow().Concat(roster.Where(member => member.Guid != driven));
+
+        return roster.Take(PartyFrameUiLaw.MemberCount).ToArray();
+    }
+
+    /// <summary>
+    /// The session character as a party row, for the possessed case. It is never in the wire
+    /// roster (the server excludes the recipient), so the row is synthesised: online, own
+    /// subgroup, no flags. Name comes from the same store the frames already resolve against.
+    /// </summary>
+    private IEnumerable<PartyMember> OwnCharacterPartyRow()
+    {
+        if (LocalPlayerGuid == 0) yield break;
+        string name = _playerNames.TryGetValue(LocalPlayerGuid, out string? known)
+            ? known : _net?.Player?.Name ?? "You";
+        yield return new PartyMember(LocalPlayerGuid, name, 1, _partyOwnFlags, 0);
+    }
 
     private ulong PartyFrameMemberGuid(int zeroBasedIndex)
     {
@@ -467,8 +496,14 @@ public sealed partial class GameLoop
             // The real member: a live bake of its streamed body (geosets/hair/gear),
             // circular-masked like every round portrait. Tint carries the offline/
             // dead/ghost/low-health states unchanged.
+            //
+            // V IS FLIPPED. This is a render target, not a BLP: OpenGL's framebuffer
+            // origin is bottom-left and ImGui's image origin is top-left, so the flat-art
+            // UVs the fallback branch below uses turn a baked portrait upside down (which
+            // is what made party members read as a slab of robe instead of a face).
+            // Same convention as DrawPortrait and DrawUnitPortraitImage's live path.
             dl.AddImage((nint)bakedPortrait, portraitMin, portraitMin + portraitSize,
-                Vector2.Zero, Vector2.One, portraitTint);
+                new Vector2(0, 1), new Vector2(1, 0), portraitTint);
             if (capture)
                 CollectUiParityDraw(root + "Portrait", "Texture", portraitMin, portraitSize, root,
                     new("party-member-baked-portrait", portraitTint, "BACKGROUND", "TOPLEFT", root,

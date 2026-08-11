@@ -36,6 +36,42 @@ public sealed partial class GameLoop
     private ControlState _controlState = ControlState.OwnChar;
     private ulong _controlTargetGuid;
 
+    /// <summary>
+    /// The RTS camera is up: detached fly rig, marquee selection, order clicks, ground FX.
+    ///
+    /// DELIBERATELY INDEPENDENT of <see cref="_controlState"/>. Clicking a party toon from
+    /// the sky takes control of it — its bars, bags and spells become the live HUD — but the
+    /// camera STAYS in the sky, because possession is a control decision and the free view is
+    /// a camera decision. Ctrl+F is the only thing that puts the camera down. (Before this,
+    /// <see cref="ControlState.FreeCam"/> conflated the two and every possess dropped you
+    /// out of the free view.)
+    /// </summary>
+    private bool _freeView;
+
+    /// <summary>
+    /// Raise or lower the free view, TELLING THE SERVER about the transition.
+    ///
+    /// The server has to know, because the free view is not just a client camera to it: while
+    /// it is up the server keeps a streaming eye under the camera, and treats a possessed bot
+    /// as commanded-remotely — which deliberately runs that bot's OWN AI, on the reasoning
+    /// that the client's movement stream is parked and nothing else would move it.
+    ///
+    /// Landing without saying so leaves both switches on. The bot's AI then keeps driving it
+    /// while you believe you are: your movement is local-only prediction, your swings never
+    /// land, nobody follows you, and the moment control is released the server's position wins
+    /// and you snap back to the group. Every transition goes through here for that reason.
+    /// </summary>
+    private void SetFreeView(bool up)
+    {
+        if (_freeView == up) return;
+        _freeView = up;
+        _freeViewExitRequested = false;
+        // Force the next heartbeat: on the way up it rebuilds the eye the possess tore down,
+        // and on the way down this IS the notification.
+        _freecamCamSentAt = 0;
+        if (!up) _net?.SuiCam(0f, 0f, 0f, active: false);
+    }
+
     /// <summary>The unit whose data the gameplay UI shows and whose movement input drives.</summary>
     internal ulong ControlledGuid =>
         _controlState is ControlState.Possessing or ControlState.ReleasePending && _controlTargetGuid != 0
@@ -44,10 +80,11 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Guid excluded from the streamed-player render pass because the first-person
-    /// CharacterRenderer body stands in for it. 0 in FreeCam: everyone (own character included)
-    /// renders as a streamed player.
+    /// CharacterRenderer body stands in for it. 0 in the free view: the rig is not standing
+    /// anywhere, so everyone — own character and any possessed bot alike — renders from the
+    /// entity stream where their body actually is.
     /// </summary>
-    internal ulong RenderSelfGuid => _controlState == ControlState.FreeCam ? 0UL : ControlledGuid;
+    internal ulong RenderSelfGuid => _freeView ? 0UL : ControlledGuid;
 
     // ── Per-unit action stores ────────────────────────────────────────────────────────────────
     // The session socket only ever streams the logged-in character's spellbook/bars/cooldowns;
@@ -75,13 +112,28 @@ public sealed partial class GameLoop
     /// controlled unit's, exactly as before.
     /// </summary>
     internal ulong BarsGuid =>
-        _controlState == ControlState.FreeCam && _freecamSelection.Count == 1 &&
-        _freecamSelection[0] != LocalPlayerGuid
+        // Read-only inspection is the fallback, NOT a competitor: while you are commanding a
+        // toon its bars stay live and castable no matter what the marquee is highlighting,
+        // because commanding a character from the sky has to give you the same character you
+        // would have driving it directly. Selecting someone else picks who your right-click
+        // ORDERS — it does not quietly demote the character you are playing to a spectator.
+        // Inspection therefore only applies when nobody is commanded.
+        _freeView && _controlState != ControlState.Possessing &&
+        _freecamSelection.Count == 1 && _freecamSelection[0] != ControlledGuid
             ? _freecamSelection[0]
             : ControlledGuid;
 
     /// <summary>Free-view inspection shows another unit's bars; they must never act.</summary>
     private bool BarsReadOnly => BarsGuid != ControlledGuid;
+
+    /// <summary>
+    /// Which renderer owns the CONTROLLED unit's skeleton. Normally the first-person
+    /// CharacterRenderer; in the free view that body is not drawn at all — the driven unit
+    /// streams in like any other player and CreatureRenderer owns it. Body animations
+    /// (cast, channel, one-shots, wound reactions) have to follow, or they play on a body
+    /// nobody is looking at and the commanded toon casts without moving a muscle.
+    /// </summary>
+    private bool ControlledBodyIsStreamed => _freeView;
 
     /// <summary>
     /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
@@ -92,6 +144,31 @@ public sealed partial class GameLoop
 
     /// <summary>Enter-world reset: drop every per-unit store (replaces `_actions.Clear()`).</summary>
     private void ResetActionStores() => _actionsByGuid.Clear();
+
+    /// <summary>
+    /// Session-loss reset. Possession and the free view both normally end on a server ACK;
+    /// with the socket gone that ACK is never coming, so the client returns itself to its
+    /// own character on the ground rather than stranding the fly rig with a parked stream.
+    /// </summary>
+    private void ResetSuiControl()
+    {
+        if (!_freeView && _controlState == ControlState.OwnChar) return;
+        SetFreeView(false);
+        _controlState = ControlState.OwnChar;
+        _controlTargetGuid = 0;
+        _controlSwitchQueued = 0;
+        _controlledBodyPending = false;
+        _freecamRequested = false;
+        _freeViewExitRequested = false;
+        _freecamSelection.Clear();
+        ClearRtsWaypointChain();
+        _suiRoster.Clear();
+        PurgeSuiSnapshot();
+        _movementSender.Parked = false;
+        if (_controller is not null) _controller.Flying = false;
+        if (_character is not null) _character.Enabled = true;
+        _window.FreeSelectMode = false;
+    }
 
     // ── SMSG_SUI_CONTROL_ACK result codes (SuperUI-Core SuiPossess.h) ─────────────────────────
     private const byte SuiAckOk = 0;
@@ -113,7 +190,11 @@ public sealed partial class GameLoop
     private readonly List<ulong> _freecamSelection = [];
     private const float FreecamDragThresholdPixels = 6f;
     private readonly List<(Vector3 Pos, double Born, Vector3 Tint)> _rtsMoveMarkers = [];
-    private readonly List<Vector3> _rtsWaypointChain = [];   // Ctrl+RightClick chain dots
+    private readonly List<Vector3> _rtsWaypointChain = [];   // Shift+RightClick chain dots
+    private readonly List<ulong> _rtsWaypointSubjects = [];  // who the chain was issued to
+    private double _rtsWaypointProgressAt;                   // last leg consumed / chain issued
+    private const float RtsWaypointReachedYards = 3.5f;
+    private const double RtsWaypointStaleSeconds = 45.0;
     private Vector3 _freecamCamSentPosition;                 // last CMSG_SUI_CAM position
     private double _freecamCamSentAt;                        // and when it went out
     private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
@@ -121,6 +202,9 @@ public sealed partial class GameLoop
     private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
     private bool _freecamKeyWasDown;
     private bool _freecamRequested;          // the in-flight release asked for the free view
+    private bool _freeViewExitRequested;     // ...and this one asks to LEAVE it
+    private double _freecamPanAt;            // last edge-pan tick, for its own dt
+    private const float FreecamEdgePanMargin = 14f;   // px from a screen edge that starts a pan
     private const byte SuiRosterControllable = 0x01;
     private const byte SuiRosterPossessed = 0x02;
     private const double ControlAckTimeoutSeconds = 3.0;
@@ -149,13 +233,19 @@ public sealed partial class GameLoop
 
         if (result == SuiAckOk)
         {
+            // Whoever we were driving is about to start drawing from the entity stream instead
+            // of from the controller — file where they actually stand first.
+            SyncDrivenEntityToController();
             _controlTargetGuid = guid;
             _controlState = ControlState.Possessing;
+            // No-op on the camera while the free view is up (see SeatControllerOnControlled).
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(guid);
             EnterPlayerAuraWorld(guid);
             ApplyControlledCharacter();
-            AddChatMessage($"You take control of {ResolveUnitName(guid)}.");
+            AddChatMessage(_freeView
+                ? $"Commanding {ResolveUnitName(guid)} — bars and bags are live, camera stays up."
+                : $"You take control of {ResolveUnitName(guid)}.");
             return;
         }
 
@@ -168,24 +258,43 @@ public sealed partial class GameLoop
             // Enter the free view: nobody is driven, the whole party (own character
             // included) runs on AI. The controller becomes the fly rig where it stands;
             // RenderSelfGuid goes 0 so everyone renders from the entity stream.
+            // Same hand-off as a possess: RenderSelfGuid goes 0, so the driven body stops being
+            // drawn from the controller and starts being drawn from its (stale) streamed entity.
+            SyncDrivenEntityToController();
             _freecamRequested = false;
             _controlTargetGuid = 0;
+            SetFreeView(true);
             _controlState = ControlState.FreeCam;
             _movementSender.Parked = false;       // the Flying branch parks it from here
             if (_controller is not null) _controller.Flying = true;
-            if (_character is not null) _character.Enabled = false;
             EnterPlayerAuraWorld(LocalPlayerGuid);
             PurgeSuiSnapshot();
-            AddChatMessage("Free view: drag-select the party, RightClick to move/attack, " +
-                "Ctrl+RightClick chains waypoints, Ctrl+F returns.");
+            AddChatMessage("Free view: drag-select the party, click a toon to command it, " +
+                "RightClick to move/attack, Shift+RightClick chains waypoints, Ctrl+F returns.");
             return;
         }
 
         if (result >= SuiAckFirstRelease)
         {
             bool wasPossessing = _controlState is ControlState.Possessing or ControlState.ReleasePending;
+            // The bot we were driving reverts to a streamed body on this line; file where we
+            // actually walked it to, or it snaps back to where we picked it up.
+            SyncDrivenEntityToController();
             _controlTargetGuid = 0;
-            _controlState = ControlState.OwnChar;
+
+            // A SOLICITED release (16/17) inside the free view is a control change only —
+            // clicking your own toon, or the release half of a bot-to-bot switch. The camera
+            // stays in the sky. Only the FORCED codes (18+: death, teleport, group change)
+            // mean the server has put you back in your body, which ends the free view.
+            //
+            // ...UNLESS the release WAS the Ctrl+F that asked to leave. Both arrive as 16, so
+            // the reason code cannot tell them apart — only the client knows which it sent,
+            // and without that flag Ctrl+F answered its own exit by staying put.
+            bool staysInFreeView = _freeView && !_freeViewExitRequested &&
+                result <= SuiAckReleasedFreecam;
+            if (!staysInFreeView) SetFreeView(false);
+            _freeViewExitRequested = false;
+            _controlState = staysInFreeView ? ControlState.FreeCam : ControlState.OwnChar;
             SeatControllerOnControlled(x, y, z, o);
             _net?.SetActiveMover(LocalPlayerGuid);
             EnterPlayerAuraWorld(LocalPlayerGuid);
@@ -198,6 +307,7 @@ public sealed partial class GameLoop
                     19 => "Control released: teleport.",
                     20 => "Control released: group changed.",
                     21 => "Control released: logout.",
+                    _ when staysInFreeView => "Commanding no one — the party runs itself.",
                     _ => "Control returned to your character.",
                 });
             // A queued cycle switch survives the voluntary release that preceded it.
@@ -314,7 +424,18 @@ public sealed partial class GameLoop
         uint talentPoints = r.ReadU32();
         uint coinage = r.ReadU32();
         int count = r.ReadU16();
-        if (source != ControlledGuid || !_entities.TryGet(source, out WorldEntity bot)) return;
+        // The snapshot is the ONLY way a possessed bot's bags/gold/talents can exist client
+        // side (the wire never streams owner-only fields to a non-owner), so a silent drop
+        // here is indistinguishable from "the bot has nothing". Say which it was.
+        if (source != ControlledGuid || !_entities.TryGet(source, out WorldEntity bot))
+        {
+            Console.WriteLine($"[sui] snapshot DROPPED for 0x{source:X} " +
+                $"(controlled=0x{ControlledGuid:X}, resident={_entities.TryGet(source, out _)}), " +
+                $"{count} items, {coinage} copper");
+            return;
+        }
+        Console.WriteLine($"[sui] snapshot for {ResolveUnitName(source)}: {count} items, " +
+            $"{coinage / 10000}g{coinage % 10000 / 100}s{coinage % 100}c, {talentPoints} talent pts");
 
         PurgeSuiSnapshot();
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
@@ -373,6 +494,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void ExitFreeCamLocally()
     {
+        SetFreeView(false);
         _controlState = ControlState.OwnChar;
         _controlTargetGuid = 0;
         if (_entities.TryGet(LocalPlayerGuid, out WorldEntity self))
@@ -388,9 +510,60 @@ public sealed partial class GameLoop
         ApplyControlledCharacter();
     }
 
-    /// <summary>Snap the local, client-authoritative controller onto the ACK position.</summary>
+    /// <summary>
+    /// Publish the controller's position into the entity of whichever unit it is DRIVING.
+    ///
+    /// Movement is client-authoritative for the unit you drive: the controller is the
+    /// continuously updated truth, and that unit's object-store entity is only the last SERVER
+    /// snapshot — the server does not echo your own mover's movement back to you, so it stays
+    /// frozen at wherever the unit stood when you took control. It never shows while you are
+    /// driving, because RenderSelfGuid excludes that unit from the streamed pass and the
+    /// controller draws its body. The moment control hands off, it starts drawing from the
+    /// stale entity and snaps back to the spot you picked it up at, then jumps forward again
+    /// as soon as its AI emits a real move.
+    ///
+    /// Applies to ANY driven unit, not just the own character — releasing a bot you walked
+    /// across the zone strands it the same way. Called at every hand-off, BEFORE the controller
+    /// is re-seated onto someone else.
+    /// </summary>
+    private void SyncDrivenEntityToController()
+    {
+        // In the free view the controller is a CAMERA and drives nobody. Writing its position
+        // into a character would file that character in the sky — worse than the staleness.
+        if (_freeView || _controller is null) return;
+        // ONLY while the movement stream is actually live. Parked or flying means the server is
+        // hearing nothing from us, so ITS position is the truth and ours is local fiction —
+        // publishing anyway would paint the fiction over the fact and hide a desync behind a
+        // selection ring that follows you perfectly while the character has not moved at all.
+        if (_movementSender.Parked || _controller.Flying) return;
+        if (!_entities.TryGet(ControlledGuid, out WorldEntity driven)) return;
+        driven.Position = _controller.Position;
+        driven.Orientation = _controller.Yaw;
+    }
+
+    /// <summary>
+    /// Snap the local, client-authoritative controller onto the ACK position.
+    ///
+    /// NO-OP ON THE CAMERA IN THE FREE VIEW, and that is the whole mechanism behind
+    /// "possessing from the sky does not land you": every possess/release path funnels
+    /// through here, so guarding it once keeps the fly rig, the parked movement stream
+    /// and the hidden first-person body intact no matter which of them fired. The
+    /// portrait bakes still have to be invalidated — the HUD identity did change.
+    /// </summary>
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
+        if (_freeView)
+        {
+            _freecamRequested = false;
+            // The server tears the streaming eye down on possess and rebuilds it on the next
+            // CMSG_SUI_CAM. Force that heartbeat out on the very next frame rather than
+            // waiting up to 2 s for the idle cadence, so the gap where nothing streams the
+            // world in around the camera closes immediately.
+            _freecamCamSentAt = 0;
+            _playerPortraitDirty = true;
+            _paperDollDirty = true;
+            return;
+        }
         _movementSender.Parked = false;
         _freecamRequested = false;
         if (_controller is not null) _controller.Flying = false;   // exits the free-view fly rig
@@ -436,17 +609,44 @@ public sealed partial class GameLoop
         _controlPendingReturn = ControlState.Possessing;
         _controlPendingSince = NowSeconds();
         _freecamRequested = toFreecam;
-        _net.SuiControlRelease(toFreecam ? (byte)1 : (byte)0);
+        // Mode 1 means "I am NOT taking my body back". Releasing while the free view is up is
+        // exactly that, so it must go out as 1 even though the caller only asked to release:
+        // SuiPossess::DoRelease answers mode 0 by running DetachUnattendedAI on the own
+        // character and RemoveFreecamEye on the session. That is what left the abandoned
+        // character with no AI to obey RTS orders — the client said "move to", the server had
+        // nobody listening — and killed the streaming eye out from under the camera.
+        _net.SuiControlRelease(toFreecam || _freeView ? (byte)1 : (byte)0);
     }
 
     /// <summary>
-    /// Ctrl+F: enter/leave the CRPG free view. From the own character or a possessed bot
+    /// Ctrl+F: raise/lower the CRPG free view. From the own character or a possessed bot
     /// the server keeps/attaches the unattended AI (release mode 1); from the free view a
     /// plain release (mode 0) returns to manual control of the own character.
     /// </summary>
     private void ToggleFreeView()
     {
         if (_net is not { IsInWorld: true } || _controller is null) return;
+
+        // Already commanding a toon from the sky: Ctrl+F is purely a camera decision, so it
+        // just lands on the unit whose bars are already live. No release, no server round
+        // trip — you keep driving what you were already driving.
+        if (_freeView && _controlState == ControlState.Possessing)
+        {
+            SetFreeView(false);
+            if (_entities.TryGet(_controlTargetGuid, out WorldEntity bot))
+                SeatControllerOnControlled(bot.Position.X, bot.Position.Y, bot.Position.Z,
+                    bot.Orientation);
+            else
+            {
+                if (_controller is not null) _controller.Flying = false;
+                if (_character is not null) _character.Enabled = true;
+                _movementSender.Parked = false;
+            }
+            ApplyControlledCharacter();
+            AddChatMessage($"You take control of {ResolveUnitName(_controlTargetGuid)}.");
+            return;
+        }
+
         switch (_controlState)
         {
             case ControlState.OwnChar:
@@ -463,6 +663,7 @@ public sealed partial class GameLoop
                 break;
             case ControlState.FreeCam:
                 // No pending state: stay in the fly rig until the ACK teleports us home.
+                _freeViewExitRequested = true;
                 _net.SuiControlRelease(0);
                 break;
         }
@@ -517,17 +718,26 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateFreeCamSelection()
     {
-        bool inFreeCam = _controlState == ControlState.FreeCam;
-        _window.FreeSelectMode = inFreeCam;
-        if (!inFreeCam)
+        _window.FreeSelectMode = _freeView;
+        if (!_freeView)
         {
             _freecamDragOrigin = null;
             _freecamDragActive = false;
             _freecamMarqueeConsumedClick = false;
             _freecamSelection.Clear();
-            _rtsWaypointChain.Clear();
+            ClearRtsWaypointChain();
+            _freecamPanAt = 0;
             return;
         }
+
+        // Re-assert the rig every frame rather than only on entry: a possess from the sky
+        // runs ApplyControlledCharacter, which puts the controller back on the ground.
+        // _character.Enabled is deliberately NOT touched — the world pass skips the body on
+        // _freeView instead, so the portrait booth (same Render method) keeps working.
+        if (_controller is not null) _controller.Flying = true;
+
+        UpdateFreeCamEdgePan();
+        UpdateRtsWaypointProgress();
 
         // Keep the server's streaming eye under the camera: heartbeat every 2 s, and
         // whenever the rig has flown more than a few yards since the last send.
@@ -569,6 +779,103 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>
+    /// Retire chain legs as the party walks them. The route is drawn from
+    /// <see cref="_rtsWaypointChain"/>, and the server consumes its own copy on arrival, so
+    /// without this the dots and the dashed line stayed on screen over a party standing at
+    /// the end of the route it had already finished. The client cannot see the server's
+    /// arrival callback, so it watches the same thing the eye does: the leading leg is spent
+    /// once any ordered subject stands on it.
+    /// </summary>
+    private void UpdateRtsWaypointProgress()
+    {
+        if (_rtsWaypointChain.Count == 0) return;
+
+        while (_rtsWaypointChain.Count > 0)
+        {
+            Vector3 leg = _rtsWaypointChain[0];
+            bool reached = false;
+            foreach (ulong guid in _rtsWaypointSubjects.Count > 0
+                         ? _rtsWaypointSubjects : FreeCamSelectableGuids())
+            {
+                if (!_entities.TryGet(guid, out WorldEntity unit)) continue;
+                // Horizontal only: a member on the abbey steps is at the waypoint even
+                // though its Z is a storey off.
+                float dx = unit.Position.X - leg.X, dy = unit.Position.Y - leg.Y;
+                if (dx * dx + dy * dy <= RtsWaypointReachedYards * RtsWaypointReachedYards)
+                { reached = true; break; }
+            }
+            if (!reached) break;
+            _rtsWaypointChain.RemoveAt(0);
+            _rtsWaypointProgressAt = NowSeconds();
+        }
+
+        // Nobody is coming (stuck path, dead subject, order overridden server-side). Drop the
+        // route rather than leaving a permanent decoration on the ground.
+        if (_rtsWaypointChain.Count > 0 &&
+            NowSeconds() - _rtsWaypointProgressAt > RtsWaypointStaleSeconds)
+            ClearRtsWaypointChain();
+    }
+
+    private void ClearRtsWaypointChain()
+    {
+        _rtsWaypointChain.Clear();
+        _rtsWaypointSubjects.Clear();
+        _rtsWaypointProgressAt = 0;
+    }
+
+    /// <summary>
+    /// RTS edge scroll: the pointer within a few pixels of a screen edge slides the fly rig
+    /// that way, camera-relative, so the free view is drivable without touching the keyboard.
+    ///
+    /// Speed scales with altitude above the ground the way every RTS does it — a map-level
+    /// camera has to cover map-level distances, and the same yards/second that reads as a
+    /// nudge at 5 yards up reads as a crawl at 60. Suppressed while a marquee drag is live
+    /// (the rectangle is anchored in SCREEN space, so panning under it selects a lie) and
+    /// whenever ImGui owns the pointer, which keeps the bottom edge usable as a UI strip.
+    /// </summary>
+    private void UpdateFreeCamEdgePan()
+    {
+        if (_controller is null) return;
+
+        double now = NowSeconds();
+        double previous = _freecamPanAt;
+        _freecamPanAt = now;
+        if (previous <= 0) return;                       // first frame in the view: no dt yet
+        float dt = (float)Math.Clamp(now - previous, 0.0, 0.1);
+        if (dt <= 0f) return;
+
+        if (_freecamDragActive || _window.MouseCaptured || ImGui.GetIO().WantCaptureMouse) return;
+
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        Vector2 mouse = _window.MousePosition;
+        if (display.X < 1f || display.Y < 1f) return;
+        // Pointer outside the window (alt-tabbed, or dragged onto a second monitor): no pan.
+        if (mouse.X < 0f || mouse.Y < 0f || mouse.X > display.X || mouse.Y > display.Y) return;
+
+        float x = (mouse.X <= FreecamEdgePanMargin ? -1f : 0f) +
+                  (mouse.X >= display.X - FreecamEdgePanMargin ? 1f : 0f);
+        float y = (mouse.Y <= FreecamEdgePanMargin ? 1f : 0f) +
+                  (mouse.Y >= display.Y - FreecamEdgePanMargin ? -1f : 0f);
+        if (x == 0f && y == 0f) return;
+
+        float yaw = _window.Camera.Yaw;
+        // Same basis the controller uses, so a pan and a WASD fly agree on which way is which.
+        var forward = new Vector3(MathF.Cos(yaw), MathF.Sin(yaw), 0f);
+        var right = new Vector3(MathF.Sin(yaw), -MathF.Cos(yaw), 0f);
+
+        // Off-map or unloaded terrain returns null; fall back to a mid-altitude rate rather
+        // than crawling because the height sample happened to miss.
+        float altitude = 10f;
+        if (_terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float ground)
+            altitude = MathF.Max(2f, _controller.Position.Z - ground);
+        float speed = _config.Movement.FlySpeed * Math.Clamp(altitude / 12f, 0.45f, 3.0f);
+
+        Vector3 pan = forward * y + right * x;
+        if (pan.LengthSquared() > 1e-6f)
+            _controller.Position += Vector3.Normalize(pan) * speed * dt;
+    }
+
     /// <summary>Party members (own character + group) — the v1 selectable set.</summary>
     private IEnumerable<ulong> FreeCamSelectableGuids()
     {
@@ -594,14 +901,15 @@ public sealed partial class GameLoop
         if (_freecamSelection.Count == 1)
             EnsureBotBarForViewing(_freecamSelection[0]);
         if (_freecamSelection.Count > 0)
-            AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, a hostile to attack.");
+            AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, " +
+                "a hostile to attack, Shift+RightClick to chain waypoints.");
     }
 
     /// <summary>
     /// Free-view world click (routed from the targeting click queue). Left selects (a
     /// party member joins the highlighted set; empty ground clears it). RightClick
     /// orders the HIGHLIGHTED set: hostile under cursor → attack, ground → move.
-    /// Ctrl+RightClick keeps ordering the whole party regardless of the selection.
+    /// Shift+RightClick keeps ordering the whole party regardless of the selection.
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click)
     {
@@ -613,13 +921,19 @@ public sealed partial class GameLoop
                 return;
             }
             ulong pickedUnit = PickUnit(click.Position);
-            // CRPG rule: clicking a party toon in the free view IS taking control of it —
-            // the same jump as Ctrl+Tab / Alt+clicking its portrait. Bars go live.
+            // CRPG rule: clicking a party toon in the free view IS taking command of it —
+            // its bars, bags and spells become the live HUD, the same as Ctrl+Tab. The
+            // CAMERA does not move: you stay in the sky until Ctrl+F says otherwise.
             if (pickedUnit != 0)
                 foreach (ulong guid in FreeCamSelectableGuids())
                     if (guid == pickedUnit)
                     {
                         SwitchControlTo(guid);
+                        // Ringed as well as commanded: one click gives you the halo, the bars
+                        // and the order target, which is the whole point of the free view.
+                        _freecamSelection.Clear();
+                        _freecamSelection.Add(guid);
+                        EnsureBotBarForViewing(guid);
                         return;
                     }
             CommitSelection(pickedUnit, beginAttack: false);
@@ -628,25 +942,40 @@ public sealed partial class GameLoop
         }
         if (click.Button != MouseButton.Right) return;
 
-        bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        // SHIFT, not Ctrl, queues waypoints: Ctrl is the control-chord modifier (Ctrl+F,
+        // Ctrl+Tab), so entering the free view with Ctrl still down turned the very first
+        // right-click into a chained waypoint instead of a move. Shift is also what every
+        // RTS uses for queue-this-order, so the collision fix is the conventional binding.
+        bool queue = ShiftHeld();
+        // The commanded toon is ordered like any other member — no filtering. In the free view
+        // a possessed bot IS orderable: SuiPossess::orderBot waives its IsPossessed() bail when
+        // the possessor holds a freecam eye, because the conflict that bail guards (a server
+        // MOVE_TO fighting the client's movement stream) cannot arise when the client's
+        // controller is a detached camera and its stream is parked. Commanding a character
+        // from the sky gives you the same character you would have driving it directly.
         List<ulong> subjects = [.. _freecamSelection];
 
         ulong picked = PickUnit(click.Position);
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
             !target.IsDead && CanAttack(target))
         {
-            if (subjects.Count == 0 && !ctrl) return;   // nothing highlighted, no accidental orders
+            if (subjects.Count == 0 && !queue) return;   // nothing highlighted, no accidental orders
             _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
             _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
-            _rtsWaypointChain.Clear();
+            ClearRtsWaypointChain();
             AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
         }
         else if (TryPickGround(click.Position, out System.Numerics.Vector3 point))
         {
-            if (ctrl)
+            if (queue)
             {
-                // Ctrl+RightClick chains a waypoint (whole party when nothing is highlighted).
+                // Shift+RightClick chains a waypoint (whole party when nothing is highlighted).
                 _net?.SuiOrder(3, subjects, 0, point.X, point.Y, point.Z);
+                // Re-anchor the chain's ownership on every leg: the highlighted set can change
+                // between clicks, and the route belongs to whoever was last told to walk it.
+                _rtsWaypointSubjects.Clear();
+                _rtsWaypointSubjects.AddRange(subjects);
+                _rtsWaypointProgressAt = NowSeconds();
                 _rtsWaypointChain.Add(point);
                 _rtsMoveMarkers.Add((point, NowSeconds(), RtsNeutralTint));
                 AddChatMessage($"{OrderSubjectLabel(subjects)}: waypoint {_rtsWaypointChain.Count} " +
@@ -657,7 +986,7 @@ public sealed partial class GameLoop
                 if (subjects.Count == 0) return;   // plain move needs a highlighted set
                 _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
                 _rtsMoveMarkers.Add((point, NowSeconds(), RtsFriendlyTint));
-                _rtsWaypointChain.Clear();
+                ClearRtsWaypointChain();
                 AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
             }
         }
@@ -701,7 +1030,7 @@ public sealed partial class GameLoop
     /// <summary>Jump control to a unit, chaining release→possess when already possessing.</summary>
     internal void SwitchControlTo(ulong guid)
     {
-        if (guid == ControlledGuid && _controlState != ControlState.FreeCam) return;
+        if (guid == ControlledGuid) return;
         switch (_controlState)
         {
             case ControlState.OwnChar when guid != LocalPlayerGuid:
@@ -709,9 +1038,12 @@ public sealed partial class GameLoop
                 RequestPossess(guid);
                 break;
             case ControlState.FreeCam:
-                ToggleFreeView();   // clicked the own character: back to driving it
+                // Clicked the own character with nobody possessed. In the free view that is
+                // already the state; landing on it is Ctrl+F's job, not a click's.
                 break;
             case ControlState.Possessing when guid == LocalPlayerGuid:
+                // Hand the bot back. From the sky this drops to commanding nobody and the
+                // camera stays up; on the ground it returns you to your own body as before.
                 RequestControlRelease(toFreecam: false);
                 break;
             case ControlState.Possessing:
@@ -731,7 +1063,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void DrawFreeCamSelectionOverlay()
     {
-        if (_controlState != ControlState.FreeCam) return;
+        if (!_freeView) return;
         var draw = ImGui.GetForegroundDrawList();
         Vector2 display = ImGui.GetIO().DisplaySize;
 
@@ -773,7 +1105,7 @@ public sealed partial class GameLoop
     /// <summary>Party members the live marquee rectangle currently covers (drag preview).</summary>
     private void AddMarqueePreview(ISet<ulong> set)
     {
-        if (_controlState != ControlState.FreeCam ||
+        if (!_freeView ||
             !_freecamDragActive || _freecamDragOrigin is not Vector2 origin) return;
         Vector2 mouse = _window.MousePosition;
         Vector2 min = Vector2.Min(origin, mouse);
@@ -801,7 +1133,7 @@ public sealed partial class GameLoop
         double now = NowSeconds();
         _rtsMoveMarkers.RemoveAll(m => now - m.Born > 0.9);
 
-        if (_controlState == ControlState.FreeCam)
+        if (_freeView)
         {
             List<SpellEffectMeshRenderer.UnitRing> rings = [];
             float pulse = 0.80f + 0.15f * MathF.Sin((float)(now * 3.0));
@@ -844,16 +1176,25 @@ public sealed partial class GameLoop
     /// <summary>Small HUD line while controlling a bot or waiting on the server.</summary>
     private void DrawControlBanner()
     {
-        string text = _controlState switch
+        // The free view is a camera mode, so it prefixes rather than replaces: you can be
+        // in the sky AND commanding a toon, and the banner has to say both.
+        string text;
+        if (_freeView)
+        {
+            string who = _controlState == ControlState.Possessing
+                ? $"commanding {ResolveUnitName(_controlTargetGuid)}"
+                : BarsReadOnly
+                    ? $"{ResolveUnitName(BarsGuid)}'s bars (read-only)"
+                    : "drag: select · click a toon to command it";
+            text = $"Free view — {who} · RightClick: move/attack · " +
+                "Shift+RightClick: chain waypoints · Ctrl+F: land";
+        }
+        else text = _controlState switch
         {
             ControlState.Possessing =>
                 $"Controlling {ResolveUnitName(_controlTargetGuid)} — Ctrl+Tab to switch, Ctrl+F free view",
             ControlState.PossessPending => "Taking control…",
             ControlState.ReleasePending => "Releasing control…",
-            ControlState.FreeCam => _freecamSelection.Count == 1 && _freecamSelection[0] != LocalPlayerGuid
-                ? $"Free view — {ResolveUnitName(_freecamSelection[0])}'s bars (read-only) · " +
-                  "RightClick: move/attack · Ctrl+RightClick: waypoints · Ctrl+F: return"
-                : "Free view — drag: select · RightClick: move/attack · Ctrl+RightClick: chain waypoints · Ctrl+F: return",
             _ => "",
         };
         if (text.Length == 0) return;

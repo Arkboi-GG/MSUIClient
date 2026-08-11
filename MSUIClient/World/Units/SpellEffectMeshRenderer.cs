@@ -748,7 +748,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             if (ProjectDecal(frame, uv, camera.Position) is { } vertices)
                 draws.Add((vertices, ring, 2, r.Tint, r.Opacity, 0));
         }
-        RenderGroundQuads(camera, draws);
+        // The one ground FX that a unit is standing IN: the far arc belongs behind the model,
+        // the way the reference client's selection circle does.
+        RenderGroundQuads(camera, draws, UnitAwareDepthBias);
     }
 
     /// <summary>
@@ -793,9 +795,25 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         RenderGroundQuads(camera, draws);
     }
 
+    /// <summary>
+    /// benilla GROUND_FX_DEPTH_BIAS. Enormous on purpose: a decal projected exactly onto the
+    /// terrain triangles is coplanar with them, and this guarantees it wins that fight at any
+    /// range. The cost is that it also beats anything else standing nearby, which is why
+    /// callers that want to be OCCLUDED by units ask for <see cref="UnitAwareDepthBias"/>.
+    /// </summary>
+    private const float GroundFxDepthBias = -8192f;
+
+    /// <summary>
+    /// Enough to clear the terrain the decal sits on, small enough that a body standing in it
+    /// still wins. At RTS camera range the coarse bias pulls a decal several yards toward the
+    /// eye — that is what made the far arc of a selection ring draw straight through the model
+    /// it was drawn under. The slope term (factor -1) carries the grazing-angle case.
+    /// </summary>
+    private const float UnitAwareDepthBias = -64f;
+
     private unsafe void RenderGroundQuads(Camera camera,
         List<(float[] Vertices, Texture? Texture, int Blend, Vector3 Tint, float Opacity,
-            int FogPolicy)> draws)
+            int FogPolicy)> draws, float depthBias = GroundFxDepthBias)
     {
         if (_groundShader is null || draws.Count == 0) return;
         _groundShader.Use();
@@ -809,10 +827,16 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _groundShader.Set("uFarClip", FarClip);
         _gl.BindVertexArray(_groundVao);
         _gl.Enable(EnableCap.Blend);
+        // Depth TEST on, depth WRITE off: the pass runs after the opaque units, so testing is
+        // what lets a body occlude the decal under it, and not writing keeps a translucent
+        // decal from stamping itself into the buffer. Enabled explicitly rather than inherited
+        // — this ran on whatever state the previous pass happened to leave behind.
+        bool depthWasEnabled = _gl.IsEnabled(EnableCap.DepthTest);
+        _gl.Enable(EnableCap.DepthTest);
         _gl.DepthMask(false);
         _gl.Disable(EnableCap.CullFace);
         _gl.Enable(EnableCap.PolygonOffsetFill);
-        _gl.PolygonOffset(-1f, -8192f); // benilla GROUND_FX_DEPTH_BIAS: coplanar decal must beat the opaque ground
+        _gl.PolygonOffset(-1f, depthBias);
         foreach (var draw in draws)
         {
             if (draw.Vertices.Length == 0) continue;
@@ -829,8 +853,10 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)(draw.Vertices.Length / 6));
         }
         _gl.Disable(EnableCap.PolygonOffsetFill);
+        _gl.PolygonOffset(0f, 0f);
         _gl.Enable(EnableCap.CullFace);
         _gl.DepthMask(true);
+        if (!depthWasEnabled) _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.Blend);
         _gl.BindVertexArray(0);
     }

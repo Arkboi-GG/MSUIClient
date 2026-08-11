@@ -246,6 +246,9 @@ public sealed partial class GameLoop
             // drops the roster. ResetParty is idempotent after the first edge; a decline attempt
             // may be rejected by the already-closed socket and is not claimed as a successful wire.
             ResetParty();
+            // No socket means no possession and no free view: the server's forced-release
+            // ACK can never arrive to end them, so the client has to drop both itself.
+            ResetSuiControl();
         }
         // StaticPopup's monotonic two-slot Advance runs even when WorldMap or another full-screen
         // owner suppresses DrawCombatHud. Keep slot time in the always-pumped lifecycle;
@@ -2231,6 +2234,7 @@ public sealed partial class GameLoop
 
     private void DrawInWorldPanel()
     {
+        if (!_devOverlayVisible) return;   // F1 — same master switch as the dev overlay
         ImGui.SetNextWindowSize(new Vector2(390, 0), ImGuiCond.FirstUseEver);
         if (!ImGui.Begin("Server", ImGuiWindowFlags.NoCollapse)) { ImGui.End(); return; }
         ImGui.TextUnformatted($"player: {_net!.PlayerName}   guid 0x{_net.PlayerGuid:X}");

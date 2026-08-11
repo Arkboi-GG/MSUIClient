@@ -287,13 +287,21 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_ORDER, w.ToArray());
     }
 
-    /// <summary>Free-view camera position; the server relocates the streaming eye to it.</summary>
-    public void SuiCam(float x, float y, float z)
+    /// <summary>
+    /// Free-view camera position; the server relocates the streaming eye to it.
+    ///
+    /// The trailing ACTIVE byte is the free view's on/off signal, not decoration. The server
+    /// keys real behaviour off it — the streaming eye, and whether a possessed bot runs its own
+    /// AI — so it has to be told when the camera comes down, which is otherwise a purely
+    /// client-side decision it can never observe.
+    /// </summary>
+    public void SuiCam(float x, float y, float z, bool active = true)
     {
-        var w = new PacketWriter(12);
+        var w = new PacketWriter(13);
         w.WriteF32(x);
         w.WriteF32(y);
         w.WriteF32(z);
+        w.WriteU8(active ? (byte)1 : (byte)0);
         SendPacket((ushort)Op.CMSG_SUI_CAM, w.ToArray());
     }
 

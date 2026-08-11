@@ -586,6 +586,10 @@ public sealed partial class GameLoop : IDisposable
     private bool _reloadVantageKeyDown;
     private bool _dumpKeyDown;
     private bool _gameplayDumpKeyDown;
+    private bool _devOverlayKeyDown;
+    /// <summary>F1: are the ImGui developer panels on screen? Visibility only — the
+    /// instruments behind them keep running either way.</summary>
+    private bool _devOverlayVisible = true;
     private string? _currentVantage;
 
     // Curated visibility overrides: core data, loaded and honoured always (even in
@@ -1622,6 +1626,19 @@ public sealed partial class GameLoop : IDisposable
             ScreenPick(_window.MousePosition);
         _pickButtonDown = pickButton;
 
+        // F1 hides/shows the whole ImGui developer overlay ("MSUI Client", "Server" and every
+        // instrument panel they own) without disabling DevTools itself, so the instruments keep
+        // running and keep their state — F8/F9/F10/F11 still fire, the panels are just not in
+        // the way of a screenshot. Joins the same F6..F11 dev-key family and is edge-triggered
+        // like the rest.
+        bool devOverlayKey = _window.IsDown(Key.F1);
+        if (devOverlayKey && !_devOverlayKeyDown && !typing && _config.DevTools)
+        {
+            _devOverlayVisible = !_devOverlayVisible;
+            Console.WriteLine($"[dev] overlay {(_devOverlayVisible ? "shown" : "hidden")} (F1)");
+        }
+        _devOverlayKeyDown = devOverlayKey;
+
         // F8 reloads the current vantage - snap back to the saved viewpoint.
         // Edge-triggered so holding it does not re-teleport every frame.
         bool reloadKey = _window.IsDown(Key.F8);
@@ -1745,6 +1762,12 @@ public sealed partial class GameLoop : IDisposable
         long phaseStarted = Stopwatch.GetTimestamp();
         UpdateTaxiSpline();
         _controller.Update(dt, input);
+        // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
+        // never updates for us. Publish every frame, not just at control hand-offs: anything
+        // that reads the entity rather than the controller otherwise renders it standing still
+        // where we picked it up — the selection ring is the visible one, sitting on the ground
+        // behind you as you run off.
+        SyncDrivenEntityToController();
         if (_net is { IsInWorld: true })
         {
             bool movementJumped = movementWasGrounded && !_controller.Grounded &&
@@ -2202,7 +2225,13 @@ public sealed partial class GameLoop : IDisposable
 
         long characterStarted = Stopwatch.GetTimestamp();
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Character);
-        if (WarmStage(3) && _character is not null && _controller is not null)
+        // Not in the free view: there the rig is a camera, not a body, and the driven unit
+        // draws from the entity stream where it actually stands (RenderSelfGuid goes 0).
+        // Suppressed HERE rather than by clearing _character.Enabled, because Enabled also
+        // gates CharacterRenderer.Render — and the portrait booth goes through that same
+        // method, so hiding the body that way silently froze the player-frame portrait on
+        // whatever face was baked last.
+        if (WarmStage(3) && _character is not null && _controller is not null && !_freeView)
             _character.Render(_window.Camera, BuildUnitState());
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;
@@ -2639,6 +2668,7 @@ public sealed partial class GameLoop : IDisposable
         // in-game overlay is developer tooling and is skipped in a release build.
         if (!_config.DevTools || PlayerPanelOpen) return;
         if (_uiParityArmed) return;
+        if (!_devOverlayVisible) return;   // F1
 
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);
@@ -2654,6 +2684,7 @@ public sealed partial class GameLoop : IDisposable
             // but the modal is one keypress away and two copies of a switch is
             // how two surfaces start disagreeing about the truth.
             ImGui.TextDisabled("Esc - game menu / video settings");
+            ImGui.TextDisabled("F1 - hide these developer panels");
 
             DrawUiSkinPanel();
             DrawVerdictsPanel();

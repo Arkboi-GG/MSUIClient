@@ -90,7 +90,9 @@ public sealed partial class GameLoop
         {
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
             // CRPG free view: clicks are selection + RTS orders, never target/attack/loot.
-            if (_controlState == ControlState.FreeCam)
+            // Keyed on the CAMERA, not the control state — commanding a toon from the sky
+            // is still the sky, and its clicks are still orders.
+            if (_freeView)
             {
                 HandleFreeCamWorldClick(click);
                 continue;
