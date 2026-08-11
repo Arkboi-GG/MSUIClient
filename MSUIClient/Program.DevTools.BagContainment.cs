@@ -172,6 +172,11 @@ public sealed partial class GameLoop
         fixed (byte* pixels = bottomUp)
             _gl.ReadPixels(left, framebufferHeight - bottom, (uint)width, (uint)height,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+        // Scene alpha is painterly's material-importance channel, not coverage
+        // (see terrain.frag), and the world writes it whether or not the mode is
+        // on. A crop of the screen is an opaque image; leaving that channel in
+        // makes terrain look translucent in an image viewer.
+        for (int i = 3; i < bottomUp.Length; i += 4) bottomUp[i] = 255;
         byte[] topDown = new byte[bottomUp.Length];
         int stride = width * 4;
         for (int y = 0; y < height; y++)

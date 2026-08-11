@@ -379,4 +379,5 @@ public enum Op : ushort
     SMSG_SUI_CONTROL_ACK         = 0x0340,
     SMSG_SUI_PROXY               = 0x0341,
     SMSG_SUI_SNAPSHOT            = 0x0342,
+    CMSG_SUI_CAM                 = 0x0343,
 }

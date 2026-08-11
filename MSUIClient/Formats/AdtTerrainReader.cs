@@ -58,6 +58,13 @@ public static class AdtTerrainReader
     public const int ALPHA_SIZE_FULL = 64;
     public const int ALPHA_SIZE_HALF = 32;
 
+    // MCSH is a 64x64 one-bit terrain-shadow map: 64 rows of 8 bytes.
+    // It is expanded to one byte per texel once while parsing so every later
+    // stage can treat it as an ordinary R8 texture without bit work.
+    public const int MCSH_SIZE = 64;
+    public const int MCSH_PACKED_BYTES = MCSH_SIZE * MCSH_SIZE / 8; // 512
+    public const int MCSH_TEXEL_BYTES = MCSH_SIZE * MCSH_SIZE;       // 4096
+
     // MCLY flags
     private const uint MCLY_FLAG_COMPRESSED_ALPHA = 0x200;
     private const uint MCLY_FLAG_BIG_ALPHA = 0x100; // 4096 bytes uncompressed (64×64) instead of 2048 (32×64)
@@ -1459,6 +1466,8 @@ public static class AdtTerrainReader
         uint ofsLayer = BitConverter.ToUInt32(data, mcnkDataStart + 0x1C);
         uint ofsAlpha = BitConverter.ToUInt32(data, mcnkDataStart + 0x24);
         uint sizeAlpha = BitConverter.ToUInt32(data, mcnkDataStart + 0x28);
+        uint ofsShadow = BitConverter.ToUInt32(data, mcnkDataStart + 0x2C);
+        uint sizeShadow = BitConverter.ToUInt32(data, mcnkDataStart + 0x30);
         // MCLQ — per-chunk liquid (water/lava/slime). Vanilla 1.x stores liquid here.
         uint ofsLiquid = BitConverter.ToUInt32(data, mcnkDataStart + 0x60);
         uint sizeLiquid = BitConverter.ToUInt32(data, mcnkDataStart + 0x64);
@@ -1534,6 +1543,14 @@ public static class AdtTerrainReader
             }
         }
 
+        // Parse MCSH (the terrain artists' baked 64x64 shadow mask).
+        // Header offsets are untrusted file data, so all arithmetic is widened
+        // before it is compared against BOTH this MCNK and the containing file.
+        // Stock 1.12 ADTs point at an IFF-wrapped MCSH payload; accepting a raw
+        // payload as well mirrors MCAL and keeps older tools' output readable.
+        chunk.ShadowMap = TryParseMcsh(
+            data, mcnkBase, mcnkEnd, ofsShadow, sizeShadow);
+
         // Parse MCLQ (liquid layers).
         //   if (sizeLiquid > 8) → MCLQ block exists.
         //   At mcnkBase + ofsLiquid: 4-byte 'MCLQ' magic + 4-byte size + N×800-byte mclq layers
@@ -1556,6 +1573,55 @@ public static class AdtTerrainReader
             chunk.Layers = Array.Empty<MclyLayer>();
 
         return chunk;
+    }
+
+    /// <summary>
+    /// Expand a packed MCSH payload to R8 texels. MCSH is row-major and uses
+    /// least-significant-bit first within each byte; a set bit is shadowed.
+    /// Returns null for a short payload rather than partially inventing a map.
+    /// </summary>
+    public static byte[]? DecodeMcsh(ReadOnlySpan<byte> packed)
+    {
+        if (packed.Length < MCSH_PACKED_BYTES) return null;
+
+        var expanded = new byte[MCSH_TEXEL_BYTES];
+        for (int y = 0; y < MCSH_SIZE; y++)
+        for (int x = 0; x < MCSH_SIZE; x++)
+        {
+            int byteIndex = y * (MCSH_SIZE / 8) + x / 8;
+            int bitIndex = x & 7;
+            expanded[y * MCSH_SIZE + x] =
+                (packed[byteIndex] & (1 << bitIndex)) != 0 ? (byte)255 : (byte)0;
+        }
+
+        return expanded;
+    }
+
+    private static byte[]? TryParseMcsh(
+        byte[] data, int mcnkBase, int mcnkEnd, uint ofsShadow, uint sizeShadow)
+    {
+        if (ofsShadow == 0 || sizeShadow < MCSH_PACKED_BYTES) return null;
+
+        int boundedEnd = Math.Min(mcnkEnd, data.Length);
+        long blockLong = (long)mcnkBase + ofsShadow;
+        if (blockLong < mcnkBase || blockLong > boundedEnd) return null;
+
+        int block = (int)blockLong;
+        if ((long)block + sizeShadow > boundedEnd) return null;
+        int payload = block;
+
+        // Normal 1.12 form: MCSH magic + uint32 payload size + 512 bytes.
+        if ((long)block + 8 <= boundedEnd &&
+            BitConverter.ToUInt32(data, block) == MAGIC_MCSH)
+        {
+            uint declaredPayload = BitConverter.ToUInt32(data, block + 4);
+            if (declaredPayload < MCSH_PACKED_BYTES ||
+                (long)block + 8 + declaredPayload > boundedEnd) return null;
+            payload += 8;
+        }
+
+        if ((long)payload + MCSH_PACKED_BYTES > boundedEnd) return null;
+        return DecodeMcsh(data.AsSpan(payload, MCSH_PACKED_BYTES));
     }
 
     /// <summary>
@@ -1854,6 +1920,13 @@ public static class AdtTerrainReader
         /// the chunk had no MCNR sub-chunk.
         /// </summary>
         public sbyte[]? Normals { get; set; }
+
+        /// <summary>
+        /// MCSH terrain shadow mask expanded to a row-major 64x64 R8 image.
+        /// Zero is authored light, 255 is authored shadow. Null when the chunk
+        /// has no valid MCSH payload.
+        /// </summary>
+        public byte[]? ShadowMap { get; set; }
 
         /// <summary>
         /// Low-resolution terrain hole bitmask from MCNK header offset 0x3C.

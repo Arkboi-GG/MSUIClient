@@ -65,6 +65,12 @@ uniform vec3  uPortalLightPos;    // camera-relative, same space as vWorldPos
 uniform vec3  uPortalLightColor;  // colour premultiplied by intensity
 uniform float uPortalLightRadius; // yards; 0 = off
 
+// Steady opaque/cutout doodads carry their painterly importance in alpha.
+// uPreserveAlpha is enabled for a draw containing an active appear fade so the
+// same output continues to drive straight-alpha blending correctly.
+uniform float uStyleWeight;
+uniform int   uPreserveAlpha;
+
 out vec4 FragColor;
 
 void main()
@@ -132,5 +138,6 @@ void main()
         outAlpha = fade;
     }
 
+    if (uPreserveAlpha == 0) outAlpha = uStyleWeight;
     FragColor = vec4(mix(lit, uFogColor, fog), outAlpha);
 }

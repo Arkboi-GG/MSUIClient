@@ -357,6 +357,7 @@ public static partial class Program
         config.Window.VSync = settings.Display.VSync;
         config.Window.Fullscreen = settings.Display.Fullscreen;
         config.Window.UiScale = Math.Clamp(settings.Display.UiScale, 0.5f, 4f);
+        config.Window.FontScale = Math.Clamp(settings.Display.FontScale, 0.5f, 3f);
 
         config.Render.MsaaSamples = Math.Clamp(settings.Display.MsaaSamples, 1, 16);
         config.Render.Anisotropy = Math.Clamp(settings.Display.Anisotropy, 1f, 16f);
@@ -421,6 +422,7 @@ public sealed partial class GameLoop : IDisposable
     private AdtCache? _adts;
     private CollisionDebugRenderer? _collisionDebug;
     private CharacterRenderer? _character;
+    private UnitShadowRenderer? _unitShadows;
     private GpuFrameProfiler? _gpuProfiler;
     private readonly WorldAtmosphere _atmosphere = new();
 
@@ -441,6 +443,7 @@ public sealed partial class GameLoop : IDisposable
     private double _foliageScatterMilliseconds;
     private ParticleRenderer? _particles;
     private FfxGlow? _glow;
+    private PainterlyPass? _painterly;
     private double _particleSimulateMilliseconds;
     private double _particleDrawMilliseconds;
 
@@ -739,6 +742,38 @@ public sealed partial class GameLoop : IDisposable
             _glow = null;
         }
 
+        // Painterly mode (Engine/PainterlyPass.cs) - whole-scene illustrated
+        // restyle. Always constructed (two small shaders) so the debug-panel
+        // checkbox can live-toggle it; render.painterly only seeds Enabled.
+        try
+        {
+            _painterly = new PainterlyPass(gl)
+            {
+                Enabled = _config.Render.Painterly,
+                Bands = _config.Render.PainterlyBands,
+                BandStrength = _config.Render.PainterlyBandStrength,
+                Detail = _config.Render.PainterlyDetail,
+                Ink = _config.Render.PainterlyInk,
+                InkThreshold = _config.Render.PainterlyInkThreshold,
+                Silhouette = _config.Render.PainterlySilhouette,
+                DepthFade = _config.Render.PainterlyDepthFade,
+                CalmStart = _config.Render.PainterlyCalmStart,
+                CalmEnd = _config.Render.PainterlyCalmEnd,
+                Saturation = _config.Render.PainterlySaturation,
+                Contrast = _config.Render.PainterlyContrast,
+                Lift = _config.Render.PainterlyLift,
+                Warmth = _config.Render.PainterlyWarmth,
+                Grain = _config.Render.PainterlyGrain,
+                Dither = _config.Render.PainterlyDither,
+                CanvasHeight = _config.Render.PainterlyCanvasHeight,
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[painterly] FAILED - {ex.Message}");
+            _painterly = null;
+        }
+
         // Exterior lighting's authored data (PLAN_09). Applied every frame by
         // UpdateExteriorLighting once loading is done.
         InitLightProbe();
@@ -814,6 +849,16 @@ public sealed partial class GameLoop : IDisposable
         {
             Console.WriteLine($"[character] FAILED - {ex.Message}");
             _character = null;
+        }
+
+        try
+        {
+            if (_mpq is not null) _unitShadows = new UnitShadowRenderer(gl, _mpq);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[unit-shadow] renderer unavailable - {ex.Message}");
+            _unitShadows = null;
         }
 
         try
@@ -1545,8 +1590,14 @@ public sealed partial class GameLoop : IDisposable
         ObserveUiPanelOwnership();
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
+        // Ctrl+F belongs to the CRPG free view (UpdateControlInput); without this
+        // exclusion the same press also flipped the local fly rig, and the two
+        // toggles fought — most visibly as a floor-drop when leaving the free view.
+        // The edge tracker follows the physical key so releasing Ctrl first
+        // doesn't retrigger the local toggle mid-hold.
         bool flyKey = _window.IsDown(Key.F);
-        if (flyKey && !_flyKeyDown && !typing)
+        bool flyCtrlHeld = _window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight);
+        if (flyKey && !_flyKeyDown && !typing && !flyCtrlHeld)
         {
             _controller.Flying = !_controller.Flying;
             Console.WriteLine($"[move] {(_controller.Flying ? "flying" : "walking")}");
@@ -1592,6 +1643,14 @@ public sealed partial class GameLoop : IDisposable
         if (gameplayDumpKey && !_gameplayDumpKeyDown && _config.DevTools)
             ArmGameplayDump();
         _gameplayDumpKeyDown = gameplayDumpKey;
+
+        // F11 records a clean five-frame painterly comparison and restores the
+        // live profile afterwards. It is intentionally a batch: camera, light,
+        // animation time and resolution stay effectively identical.
+        bool painterlyComparisonKey = _window.IsDown(Key.F11);
+        if (painterlyComparisonKey && !_painterlyComparisonKeyDown && _config.DevTools)
+            ArmPainterlyComparison();
+        _painterlyComparisonKeyDown = painterlyComparisonKey;
 
         bool shift = _window.IsDown(Key.ShiftLeft) || _window.IsDown(Key.ShiftRight);
 
@@ -2055,6 +2114,7 @@ public sealed partial class GameLoop : IDisposable
     public void Render(float dt)
     {
         long renderSpanStarted = Stopwatch.GetTimestamp();
+        BeginPainterlyComparisonFrame();
 
         // The loading art is fully exclusive until Fade begins. Do not spend
         // frame time drawing a world that an alpha-1 curtain will discard. The
@@ -2158,6 +2218,7 @@ public sealed partial class GameLoop : IDisposable
         if (WarmStage(4) &&
             (!_worldLoading || _loadCurtainAlpha < 1f || stagedLoadWarmup)) DrawCreatures();
         else _creatures?.NoteKnownNotDrawn(_entities);
+        if (WarmStage(4)) DrawUnitShadows();
         _creatureRenderMilliseconds = Stopwatch.GetElapsedTime(creatureStarted).TotalMilliseconds;
         NoteLoadCreatureDraw(_creatures?.DrawnLastFrame ?? 0);
 
@@ -2196,6 +2257,10 @@ public sealed partial class GameLoop : IDisposable
                 _spellEffectMeshes.RenderTargetingMarker(_window.Camera, reticle,
                     _spellCatalog.TargetingRadius(groundSpell));
         }
+        // CRPG free-view ground FX: selection rings + move markers share the decal machinery
+        // and depth-test against the units drawn above, so rings tuck behind the models.
+        if (WarmStage(5) && _spellEffectMeshes is not null)
+            RenderRtsGroundFx();
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 spellNow, SpellEffectUnitPose), _spellFxBillboardJointPoseB);
@@ -2304,6 +2369,23 @@ public sealed partial class GameLoop : IDisposable
         DrawCharacterSelectScene(); // character-select per-race booth (UI_<Race>), CharacterSelect only
         _glow?.Apply();
 
+        // Painterly restyle, AFTER the glow.
+        //
+        // It ran before the glow originally, on the theory that bloom glazing
+        // over the illustration reads like varnish. In practice that left spell
+        // effects looking untouched by the mode: they are the brightest thing
+        // on screen, so what you actually see of a cast is mostly the ADDITIVE
+        // bloom - and compositing that raw, after the styling, re-covered the
+        // painted frame with an unpainted layer exactly where the eye was
+        // looking. Styling last means the bloom is banded, graded and calmed
+        // with everything else, so casts belong to the picture.
+        //
+        // Still gated on a live terrain, and the glue scenes above are pre-world
+        // only (terrain null), so they are never styled; the loading curtain and
+        // the whole HUD are drawn after this and stay untouched.
+        if (_terrain is not null)
+            _painterly?.Apply(_window.Camera.NearPlane, _window.Camera.FarPlane);
+
         // The loading curtain over the still-streaming world. Drawn last so it
         // covers everything beneath it; fades out when the world is ready.
         if (_loadScreen is not null) DrawLoadingScreen();
@@ -2319,6 +2401,26 @@ public sealed partial class GameLoop : IDisposable
             _hitch.PendingForcedStallMs = 0;
             System.Threading.Thread.Sleep(ms);
         }
+    }
+
+    private void DrawUnitShadows()
+    {
+        if (_unitShadows is null) return;
+
+        UnitShadowCaster? local = null;
+        if (_character is { Enabled: true } &&
+            _controller is { Grounded: true, Flying: false } controller)
+        {
+            float radius = MathF.Max(0.5f, _config.Movement.Radius * 1.45f);
+            if (RenderSelfGuid != 0 && _entities.TryGet(RenderSelfGuid, out WorldEntity self))
+            {
+                float scale = CreatureRenderer.UnitRenderScale(self.Scale);
+                radius = MathF.Max(0.35f, (self.IsCreature ? 0.7f : radius) * scale);
+            }
+            local = new UnitShadowCaster(controller.Position, radius);
+        }
+
+        _unitShadows.Render(_window.Camera, local, _creatures?.ShadowCasters);
     }
 
     private void ApplyAtmosphere()
@@ -2380,10 +2482,28 @@ public sealed partial class GameLoop : IDisposable
             renderer.FogEnd = _atmosphere.ShaderFogEnd;
         }
 
+        void ApplyCreature(CreatureRenderer renderer)
+        {
+            renderer.SunDirection = _atmosphere.SunDirection;
+            renderer.SunColor = _atmosphere.SunColor;
+            renderer.SunIntensity = _atmosphere.SunIntensity;
+            renderer.AmbientColor = _atmosphere.AmbientColor;
+            renderer.AmbientIntensity = _atmosphere.AmbientIntensity;
+            renderer.FogColor = _atmosphere.FogColor;
+            renderer.FogStart = _atmosphere.ShaderFogStart;
+            renderer.FogEnd = _atmosphere.ShaderFogEnd;
+        }
+
         if (_terrain is not null) ApplyTerrain(_terrain);
         if (_wmo is not null) ApplyWmo(_wmo);
         if (_doodads is not null) ApplyDoodads(_doodads);
         if (_character is not null) ApplyCharacter(_character);
+        if (_creatures is not null) ApplyCreature(_creatures);
+        if (_unitShadows is not null)
+        {
+            _unitShadows.FogStart = _atmosphere.ShaderFogStart;
+            _unitShadows.FogEnd = _atmosphere.ShaderFogEnd;
+        }
 
         float effectFarClip = _atmosphere.CullAtFogEnd ? _atmosphere.FogEnd : 0f;
         if (_spellParticles is not null)
@@ -2487,6 +2607,8 @@ public sealed partial class GameLoop : IDisposable
         // Arm before any gameplay widgets draw; OverlayTop writes after the frame.
         BeginGameplayDumpFrame();
 
+        if (PainterlyComparisonHidesUi) return;
+
         // THE SETTINGS MODAL IS DRAWN FIRST, AND DELIBERATELY ABOVE THE RETURN
         // BELOW. It is the PLAYER's surface - the Escape menu - so it must exist
         // in a shipping build where all the developer tooling is off. Moving this
@@ -2557,6 +2679,8 @@ public sealed partial class GameLoop : IDisposable
             if (ImGui.Button("Dump scene (F9)")) DumpScene();
             ImGui.SameLine();
             if (ImGui.Button("Dump gameplay (F10)")) ArmGameplayDump();
+            ImGui.SameLine();
+            if (ImGui.Button("Painterly A/B (F11)")) ArmPainterlyComparison();
 
             if (_currentVantage is not null)
             {
@@ -3404,6 +3528,7 @@ public sealed partial class GameLoop : IDisposable
         DisposePortraits();
         _creatures?.Dispose();
         _selectionRing?.Dispose();
+        _unitShadows?.Dispose();
 
         try { _collisionBuildTask?.GetAwaiter().GetResult(); }
         catch { /* Shutdown must continue after a failed background build. */ }
@@ -3421,6 +3546,7 @@ public sealed partial class GameLoop : IDisposable
         DisposeLoadingArt();
         _sky?.Dispose();
         _glow?.Dispose();
+        _painterly?.Dispose();
         _glueAdd?.Dispose();
         _uploads?.Dispose();
         _assetWorkers?.Dispose();

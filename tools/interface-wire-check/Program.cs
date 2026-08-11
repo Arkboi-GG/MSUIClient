@@ -2328,6 +2328,8 @@ string partyLiveRunSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRo
     "MSUIClient", "Program.LiveRun.cs"));
 string partyCaptureSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
     "MSUIClient", "Program.DevTools.UiParity.cs"));
+string painterlyUiSource = SourceText.Read(Path.Combine(ClientConfig.FindRepoRoot(),
+    "MSUIClient", "Program.PainterlyUi.cs"));
 PartyFrameClinicalChecks.CheckFrozenStaticPopupSources(ClientConfig.FindRepoRoot());
 int partyParseRoster = partyRuntimeSource.IndexOf("PartyFramePacketLaw.ParseRoster(body)",
     StringComparison.Ordinal);
@@ -2345,7 +2347,7 @@ Check(partySessionSource.Contains(
 Check(partyRuntimeSource.Contains("InspectBinding.Party(hoveredIndex))",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("action == PartyPointerAction.Target", StringComparison.Ordinal) &&
-      partyRuntimeSource.Contains("CircularHandle(portraitPath)", StringComparison.Ordinal) &&
+      partyRuntimeSource.Contains("PainterlyRoundArt(portraitPath)", StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("party-token-guid-is-not-streamed", StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("own.Fields.Bytes0.Race", StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("Vector4 portraitColor = new(portraitRgb, portraitAlpha)",
@@ -2370,6 +2372,17 @@ Check(partyRuntimeSource.Contains("InspectBinding.Party(hoveredIndex))",
       !partyRuntimeSource.Contains("zero-health-fraction", StringComparison.Ordinal) &&
       !partyRuntimeSource.Contains("zero-power-fraction", StringComparison.Ordinal),
     "party no-retarget PARTY origin/circular fallback/empty out-of-range/Horde/tooltip-health seam drift");
+// The party portrait now reaches its circular mask through the painterly art
+// path, so the mask guarantee above only holds while that path still degrades
+// to the plain masked copy with the mode off. Painterly is a VARIANT of the
+// normal HUD, never a replacement for it.
+Check(painterlyUiSource.Contains(
+          "if (!PainterlyUi || _painterly is null) return _gameplayArt.CircularHandle(path);",
+          StringComparison.Ordinal) &&
+      painterlyUiSource.Contains(
+          "if (!PainterlyUi || _painterly is null) return _gameplayArt.Handle(path);",
+          StringComparison.Ordinal),
+    "painterly UI art must fall back to the authored handle when the mode is off");
 Check(partyRuntimeSource.Contains("PartyFrameUiLaw.IsLeaveRoster(wire)",
           StringComparison.Ordinal) &&
       partyRuntimeSource.Contains("if (leaving) HidePartyInvite();",

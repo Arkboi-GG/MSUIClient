@@ -766,9 +766,23 @@ public sealed partial class GameLoop
                 if (Slider("uiscale", "Interface scale", () => s.Display.UiScale,
                         v => s.Display.UiScale = v, 0.5f, 3f, "x{0:F2}"))
                 {
+                    // Through the window's law, NOT a raw FontGlobalScale assignment:
+                    // the atlas is supersampled and overwriting its compensation scales
+                    // this very menu off the screen. See ClientWindow.ApplyUiFontScale.
                     float v = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
-                    ImGui.GetIO().FontGlobalScale = v;
+                    _window.ApplyUiFontScale(v, s.Display.FontScale);
                     if (_skin is not null) _skin.Scale = v;
+                }
+
+                if (Slider("fontscale", "Font size", () => s.Display.FontScale,
+                        v => s.Display.FontScale = v, 0.5f, 3f, "x{0:F2}",
+                        "Text size on its own - panels and buttons stay put, only the type\n" +
+                        "grows. For a 4K panel where the interface is the right size but the\n" +
+                        "words are too small to read. Stays crisp all the way to 3.00x,\n" +
+                        "because the typeface is rasterised that much larger than it draws."))
+                {
+                    _window.ApplyUiFontScale(
+                        Math.Clamp(s.Display.UiScale, 0.5f, 4f), s.Display.FontScale);
                 }
 
                 if (ImGui.TreeNode("Advanced##display"))
@@ -782,6 +796,166 @@ public sealed partial class GameLoop
                         v => s.Display.MsaaSamples = v, 1, 16);
                     Slider("aniso", "Anisotropic filtering", () => s.Display.Anisotropy,
                         v => s.Display.Anisotropy = v, 1f, 16f, "{0:F0}x");
+                    ImGui.TreePop();
+                }
+            }
+            EndBox();
+
+            BeginBox("painterly", "Painterly mode");
+            {
+                // Neither of these invalidates art by hand: Check calls
+                // ApplySettings, which refreshes cached painterly art whenever
+                // the state it was baked from moved. Doing it here as well
+                // double-bumped the epoch and hid that fact.
+                Check("Painterly world", () => s.Display.Painterly,
+                    v =>
+                    {
+                        s.Display.Painterly = v;
+                        if (_painterly is not null) _painterly.Enabled = v;
+                    },
+                    "A restrained crisp-flat treatment: it keeps the original textures\n" +
+                    "and colour while lightly organising broad values and silhouettes.\n" +
+                    "The HUD has its own switch below.");
+
+                Check("Painterly HUD", () => s.Display.PainterlyUi,
+                    v => s.Display.PainterlyUi = v,
+                    "Uses the square painted frames and styled icon copies independently\n" +
+                    "from the world effect. Turn it off for clean world-only comparisons.");
+
+                Slider("pbands", "Colour bands", () => s.Display.PainterlyBands,
+                    v => { s.Display.PainterlyBands = v; if (_painterly is not null) _painterly.Bands = v; },
+                    3f, 24f, "{0:F0}",
+                    "How many steps are available in the flattened broad lighting. The\n" +
+                    "strength control below decides how visibly those steps replace the\n" +
+                    "authored values.");
+
+                Slider("pbandstrength", "Value flattening", () => s.Display.PainterlyBandStrength,
+                    v =>
+                    {
+                        s.Display.PainterlyBandStrength = v;
+                        if (_painterly is not null) _painterly.BandStrength = v;
+                    },
+                    0f, 1f, "{0:F2}",
+                    "How strongly the stepped values replace the original broad lighting.\n" +
+                    "0 preserves it, 1 fully posterises it; crisp-flat uses a restrained\n" +
+                    "blend so textures stay readable without looking photographic.");
+
+                Slider("pdetail", "Detail", () => s.Display.PainterlyDetail,
+                    v => { s.Display.PainterlyDetail = v; if (_painterly is not null) _painterly.Detail = v; },
+                    0f, 2f, "{0:F2}",
+                    "How much source texture survives. 1 keeps the original amount; 0\n" +
+                    "removes fine texture, while values above 1 sharpen it and can make\n" +
+                    "a high-resolution scene busy.");
+
+                Slider("pink", "Ink lines", () => s.Display.PainterlyInk,
+                    v => { s.Display.PainterlyInk = v; if (_painterly is not null) _painterly.Ink = v; },
+                    0f, 1f, "{0:F2}",
+                    "Gently darkens strong colour boundaries. Keep this low when the\n" +
+                    "original painted textures and classic shadows already separate\n" +
+                    "objects; 0 turns the extra ink off entirely.");
+
+                Slider("psil", "Silhouettes", () => s.Display.PainterlySilhouette,
+                    v => { s.Display.PainterlySilhouette = v; if (_painterly is not null) _painterly.Silhouette = v; },
+                    0f, 1f, "{0:F2}",
+                    "Adds a line where depth breaks, helping a dark figure separate from\n" +
+                    "a dark background. Modest values aid readability; high values can\n" +
+                    "make characters and props look like cut-out stickers.");
+
+                Slider("pdepth", "Distance calm", () => s.Display.PainterlyDepthFade,
+                    v => { s.Display.PainterlyDepthFade = v; if (_painterly is not null) _painterly.DepthFade = v; },
+                    0f, 1f, "{0:F2}",
+                    "Eases generated outlines, dither and grain off with distance. Authored\n" +
+                    "texture stays crisp; 0 treats every distance the same.");
+
+                Slider("pvalue", "Light and shade", () => s.Display.PainterlyContrast,
+                    v => { s.Display.PainterlyContrast = v; if (_painterly is not null) _painterly.Contrast = v; },
+                    0f, 1f, "{0:F2}",
+                    "Blends in an extra light/dark S-curve before the value steps. 0 is\n" +
+                    "the source lighting; the crisp-flat baseline stays close to it.");
+
+                Slider("plift", "Brightness", () => s.Display.PainterlyLift,
+                    v => { s.Display.PainterlyLift = v; if (_painterly is not null) _painterly.Lift = v; },
+                    0.5f, 2f, "{0:F2}",
+                    "Opens up the midtones without clipping anything - blacks stay black\n" +
+                    "and highlights stay put. Raise it when the styling reads as murk;\n" +
+                    "1.00 leaves the source brightness alone.");
+
+                Slider("psat", "Colour richness", () => s.Display.PainterlySaturation,
+                    v => { s.Display.PainterlySaturation = v; if (_painterly is not null) _painterly.Saturation = v; },
+                    0f, 2f, "{0:F2}",
+                    "Saturation. 1.00 leaves the source colour alone.");
+
+                if (ImGui.TreeNode("Advanced##painterly"))
+                {
+                    Slider("pwarm", "Sun/shade colour", () => s.Display.PainterlyWarmth,
+                        v => { s.Display.PainterlyWarmth = v; if (_painterly is not null) _painterly.Warmth = v; },
+                        0f, 1f, "{0:F2}",
+                        "Split tone: pushes lit surfaces warm and shadows cool. 0 preserves\n" +
+                        "the authored source colour; crisp-flat uses only a slight tint.");
+
+                    Slider("pinkgate", "Ink threshold", () => s.Display.PainterlyInkThreshold,
+                        v => { s.Display.PainterlyInkThreshold = v; if (_painterly is not null) _painterly.InkThreshold = v; },
+                        0.01f, 0.5f, "{0:F2}",
+                        "How strong an edge must be before it inks. Raise it if textured\n" +
+                        "ground starts drawing lines; lower it if silhouettes are not\n" +
+                        "separating from their background.");
+
+                    Slider("pcalmstart", "Calm starts", () => s.Display.PainterlyCalmStart,
+                        v =>
+                        {
+                            s.Display.PainterlyCalmStart = MathF.Min(v, s.Display.PainterlyCalmEnd - 1f);
+                            if (_painterly is not null) _painterly.CalmStart = s.Display.PainterlyCalmStart;
+                        },
+                        5f, 300f, "{0:F0} yd",
+                        "World distance where generated outlines and texture marks begin to settle.");
+
+                    Slider("pcalmend", "Calm completes", () => s.Display.PainterlyCalmEnd,
+                        v =>
+                        {
+                            s.Display.PainterlyCalmEnd = MathF.Max(v, s.Display.PainterlyCalmStart + 1f);
+                            if (_painterly is not null) _painterly.CalmEnd = s.Display.PainterlyCalmEnd;
+                        },
+                        10f, 600f, "{0:F0} yd",
+                        "World distance where generated-mark calming reaches full strength.");
+
+                    Slider("pdither", "Band dither", () => s.Display.PainterlyDither,
+                        v => { s.Display.PainterlyDither = v; if (_painterly is not null) _painterly.Dither = v; },
+                        0f, 1f, "{0:F2}",
+                        "A stable pattern that hides contour rings at low band counts. The\n" +
+                        "crisp-flat profile uses only a trace; raise it when choosing much\n" +
+                        "stronger flattening.");
+
+                    Check("Native-resolution world canvas",
+                        () => s.Display.PainterlyCanvasHeight == 0,
+                        v =>
+                        {
+                            s.Display.PainterlyCanvasHeight = v ? 0 : 1440;
+                            if (_painterly is not null)
+                                _painterly.CanvasHeight = s.Display.PainterlyCanvasHeight;
+                        },
+                        "On styles every physical pixel. The crisp-flat baseline leaves this\n" +
+                        "off so the world can use a clean near-integer pixel scale while the\n" +
+                        "HUD remains native and crisp.");
+                    if (s.Display.PainterlyCanvasHeight > 0)
+                    {
+                        IntSlider("pcanvas", "World canvas height",
+                            () => s.Display.PainterlyCanvasHeight,
+                            v =>
+                            {
+                                s.Display.PainterlyCanvasHeight = v;
+                                if (_painterly is not null) _painterly.CanvasHeight = v;
+                            },
+                            720, 2160,
+                            "1440 is the crisp-flat cap: the renderer picks a nearby exact\n" +
+                            "pixel scale when possible (for example 1200p at 3840x2400).\n" +
+                            "This affects the styled world only, never text or HUD art.");
+                    }
+
+                    Slider("pgrain", "Canvas grain", () => s.Display.PainterlyGrain,
+                        v => { s.Display.PainterlyGrain = v; if (_painterly is not null) _painterly.Grain = v; },
+                        0f, 1f, "{0:F2}",
+                        "Paper tooth over the finished image. 0 preserves a clean source\n" +
+                        "image and is the crisp-flat baseline.");
                     ImGui.TreePop();
                 }
             }
@@ -1207,6 +1381,25 @@ public sealed partial class GameLoop
                         v => s.Lighting.SunStrength = v, 0f, 2f, "{0:F2}");
                     Slider("amb", "Ambient strength", () => s.Lighting.AmbientStrength,
                         v => s.Lighting.AmbientStrength = v, 0f, 2f, "{0:F2}");
+                    Slider("mcsh", "Baked terrain shadows", () => s.Lighting.TerrainShadowStrength,
+                        v =>
+                        {
+                            s.Lighting.TerrainShadowStrength = v;
+                            if (_terrain is not null) _terrain.AuthoredShadowStrength = v;
+                        },
+                        0f, 1f, "{0:F2}",
+                        "Strength of the broad hand-authored MCSH shadows stored in the\n" +
+                        "original terrain. This is classic scene structure, not a modern\n" +
+                        "dynamic shadow-map effect.");
+                    Slider("unitblob", "Unit contact shadows", () => s.Lighting.UnitShadowOpacity,
+                        v =>
+                        {
+                            s.Lighting.UnitShadowOpacity = v;
+                            if (_unitShadows is not null) _unitShadows.Opacity = v;
+                        },
+                        0f, 1f, "{0:F2}",
+                        "Opacity of the classic ShadowBlob under grounded characters.\n" +
+                        "It anchors feet without adding a modern shadow-map pass.");
 
                     Check("Baked interior light - buildings (MOCV)", () => s.Lighting.WmoVertexColors,
                         v => s.Lighting.WmoVertexColors = v);
@@ -1276,6 +1469,16 @@ public sealed partial class GameLoop
                     "Unbounded look with the cursor locked - the mode a game wants, and the\n" +
                     "one a platform is most likely to refuse. If look is dead, turn this OFF\n" +
                     "first.");
+            }
+            EndBox();
+
+            BeginBox("crpg", "CRPG / RTS");
+            {
+                Check("RTS commands on party portraits", () => s.Controls.RtsCommands,
+                    v => s.Controls.RtsCommands = v,
+                    "A command strip beside each party portrait: role (Tank/Healer/DPS,\n" +
+                    "feeds rotations later), Hold (stand your ground) and Patrol (loop the\n" +
+                    "current waypoint chain).");
             }
             EndBox();
 
@@ -1652,6 +1855,41 @@ public sealed partial class GameLoop
         _window.MultisamplingEnabled = s.Display.MultisamplingEnabled;
         if (_skin is not null) _skin.Textured = s.Display.TexturedFrame;
 
+        // Interface scale, so Okay, Cancel and preset loads all put the UI back
+        // where the settings say it is. Without this the slider's live effect
+        // outlived a Cancel: the scale reverted in the file and stayed changed
+        // on screen, which reads as "I can no longer change it".
+        float uiScale = Math.Clamp(s.Display.UiScale, 0.5f, 4f);
+        _window.ApplyUiFontScale(uiScale, s.Display.FontScale);
+        if (_skin is not null) _skin.Scale = uiScale;
+
+        if (_painterly is not null)
+        {
+            // config render.painterly true is a hard-on (scripted/headless runs
+            // seed it there); otherwise the menu setting owns the toggle.
+            _painterly.Enabled = s.Display.Painterly || _config.Render.Painterly;
+            _painterly.Bands = s.Display.PainterlyBands;
+            _painterly.BandStrength = s.Display.PainterlyBandStrength;
+            _painterly.Detail = s.Display.PainterlyDetail;
+            _painterly.Ink = s.Display.PainterlyInk;
+            _painterly.InkThreshold = s.Display.PainterlyInkThreshold;
+            _painterly.Silhouette = s.Display.PainterlySilhouette;
+            _painterly.DepthFade = s.Display.PainterlyDepthFade;
+            _painterly.CalmStart = s.Display.PainterlyCalmStart;
+            _painterly.CalmEnd = s.Display.PainterlyCalmEnd;
+            _painterly.Saturation = s.Display.PainterlySaturation;
+            _painterly.Contrast = s.Display.PainterlyContrast;
+            _painterly.Lift = s.Display.PainterlyLift;
+            _painterly.Warmth = s.Display.PainterlyWarmth;
+            _painterly.Grain = s.Display.PainterlyGrain;
+            _painterly.Dither = s.Display.PainterlyDither;
+            _painterly.CanvasHeight = Math.Clamp(s.Display.PainterlyCanvasHeight, 0, 4320);
+        }
+        // Styled icons and portraits were baked with the OLD knobs. Conditional,
+        // because this method runs on every settings widget change and rebaking
+        // them on an unrelated slider drag is not free.
+        RefreshPainterlyArt();
+
         var cam = _window.Camera;
         cam.FieldOfViewDegrees = s.View.FieldOfView;
         cam.NearPlane = s.View.NearPlane;
@@ -1671,6 +1909,10 @@ public sealed partial class GameLoop
         _atmosphere.UseAuthoredData = s.Lighting.UseAuthoredData;
         _atmosphere.SunStrength = s.Lighting.SunStrength;
         _atmosphere.AmbientStrength = s.Lighting.AmbientStrength;
+        if (_terrain is not null)
+            _terrain.AuthoredShadowStrength = Math.Clamp(s.Lighting.TerrainShadowStrength, 0f, 1f);
+        if (_unitShadows is not null)
+            _unitShadows.Opacity = Math.Clamp(s.Lighting.UnitShadowOpacity, 0f, 1f);
 
         _cycleTimeOfDay = s.Lighting.CycleTimeOfDay;
         _gameHoursPerMinute = s.Lighting.GameHoursPerMinute;
@@ -1876,6 +2118,29 @@ public sealed partial class GameLoop
         s.Display.Fullscreen = _window.Fullscreen;
         s.Display.MultisamplingEnabled = _window.MultisamplingEnabled;
 
+        if (_painterly is not null)
+        {
+            // Mirror live state (the debug panel can change it directly), same
+            // reason CaptureSettings mirrors Fullscreen for Alt+Enter.
+            s.Display.Painterly = _painterly.Enabled;
+            s.Display.PainterlyBands = _painterly.Bands;
+            s.Display.PainterlyBandStrength = _painterly.BandStrength;
+            s.Display.PainterlyDetail = _painterly.Detail;
+            s.Display.PainterlyInk = _painterly.Ink;
+            s.Display.PainterlyInkThreshold = _painterly.InkThreshold;
+            s.Display.PainterlySilhouette = _painterly.Silhouette;
+            s.Display.PainterlyDepthFade = _painterly.DepthFade;
+            s.Display.PainterlyCalmStart = _painterly.CalmStart;
+            s.Display.PainterlyCalmEnd = _painterly.CalmEnd;
+            s.Display.PainterlySaturation = _painterly.Saturation;
+            s.Display.PainterlyContrast = _painterly.Contrast;
+            s.Display.PainterlyLift = _painterly.Lift;
+            s.Display.PainterlyWarmth = _painterly.Warmth;
+            s.Display.PainterlyGrain = _painterly.Grain;
+            s.Display.PainterlyDither = _painterly.Dither;
+            s.Display.PainterlyCanvasHeight = _painterly.CanvasHeight;
+        }
+
         var cam = _window.Camera;
         s.View.FieldOfView = cam.FieldOfViewDegrees;
         s.View.NearPlane = cam.NearPlane;
@@ -1891,6 +2156,10 @@ public sealed partial class GameLoop
         s.Lighting.UseAuthoredData = _atmosphere.UseAuthoredData;
         s.Lighting.SunStrength = _atmosphere.SunStrength;
         s.Lighting.AmbientStrength = _atmosphere.AmbientStrength;
+        if (_terrain is not null)
+            s.Lighting.TerrainShadowStrength = _terrain.AuthoredShadowStrength;
+        if (_unitShadows is not null)
+            s.Lighting.UnitShadowOpacity = _unitShadows.Opacity;
         s.Lighting.CycleTimeOfDay = _cycleTimeOfDay;
         s.Lighting.GameHoursPerMinute = _gameHoursPerMinute;
         s.Lighting.TimeOfDay = _atmosphere.TimeOfDayHours;

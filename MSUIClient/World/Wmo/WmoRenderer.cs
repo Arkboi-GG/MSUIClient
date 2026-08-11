@@ -2916,6 +2916,7 @@ public sealed class WmoRenderer : IDisposable
         _shader.Set("uTexture", 0);
         _shader.Set("uVertexColorScale", VertexColorScale);
         _shader.Set("uInteriorBrightness", InteriorBrightness);
+        _shader.Set("uStyleWeight", 0.62f);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;
@@ -3187,6 +3188,7 @@ public sealed class WmoRenderer : IDisposable
                             _shader.Set("uModel", slice.Model);
                             _shader.Set("uModelViewProjection", slice.Model * viewProjection);
                             _shader.Set("uAppearAlpha", slice.AppearAlpha);
+                            _shader.Set("uPreserveAlpha", transparentPass || slice.Fading ? 1 : 0);
                             sliceUniformsSet = true;
                         }
 

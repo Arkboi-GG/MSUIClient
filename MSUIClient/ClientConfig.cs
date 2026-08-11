@@ -78,6 +78,18 @@ public sealed partial class ClientConfig
         /// Scales fonts and every widget metric together.
         /// </summary>
         public float UiScale { get; set; } = 1.8f;
+
+        /// <summary>
+        /// Text size multiplier, INDEPENDENT of <see cref="UiScale"/> - the
+        /// widgets stay where they are and only the type grows. Exists because
+        /// a 4K panel wants readable menu text without inflating every panel
+        /// and button to match.
+        ///
+        /// Free of charge up to the atlas's supersample factor (3x): the face
+        /// is rasterised that much larger than its display size, so anything
+        /// under 3.0 is DOWN-scaled from a hi-res atlas and stays crisp.
+        /// </summary>
+        public float FontScale { get; set; } = 1f;
     }
 
     /// <summary>
@@ -163,11 +175,104 @@ public sealed partial class ClientConfig
         public int DoodadCollisionBasis { get; set; } = 2;
 
         /// <summary>
-        /// Painterly render mode. The reason this project is native: owning the
-        /// renderer makes this a shader variant plus an alternate texture set,
-        /// rather than a fight with the platform.
+        /// Painterly render mode - the illustrated 2D-RPG restyle in
+        /// Engine/PainterlyPass.cs. The reason this project is native: owning
+        /// the renderer makes this a shader pass rather than a fight with the
+        /// platform.
         /// </summary>
         public bool Painterly { get; set; } = false;
+
+        /// <summary>
+        /// Painted value steps the low-frequency luminance is quantized into
+        /// (3..24). Fewer = bolder, flatter illustration.
+        /// </summary>
+        public float PainterlyBands { get; set; } = 18f;
+
+        /// <summary>
+        /// Strength of the blend toward the quantized broad values (0..1).
+        /// The crisp-flat profile keeps this restrained rather than applying
+        /// full-frame posterization.
+        /// </summary>
+        public float PainterlyBandStrength { get; set; } = 0.30f;
+
+        /// <summary>
+        /// Absolute high-frequency detail gain (0..2): 0 removes source texture
+        /// detail, 1 preserves it, and values above 1 sharpen it.
+        /// </summary>
+        public float PainterlyDetail { get; set; } = 1f;
+
+        /// <summary>
+        /// Ink-line strength (0..1): darkened boundaries, the thing that lets a
+        /// dark tree separate from a dark hill behind it.
+        /// </summary>
+        public float PainterlyInk { get; set; } = 0.10f;
+
+        /// <summary>
+        /// Gradient magnitude an edge must reach before it inks (0.01..0.5).
+        /// The noise gate - raise it if textured ground starts drawing lines.
+        /// </summary>
+        public float PainterlyInkThreshold { get; set; } = 0.19f;
+
+        /// <summary>
+        /// Painterly silhouette ink (0..1) - boundaries drawn from the DEPTH
+        /// buffer, so a dark figure separates from a dark background where
+        /// colour ink finds no edge at all. Inert if the depth resolve fails.
+        /// </summary>
+        public float PainterlySilhouette { get; set; } = 0.22f;
+
+        /// <summary>
+        /// Painterly aerial perspective (0..1) - how far generated ink, dither
+        /// and grain calm down with distance. Authored texture remains crisp;
+        /// 0 treats the whole frame identically.
+        /// </summary>
+        public float PainterlyDepthFade { get; set; } = 0.35f;
+
+        /// <summary>World distance where generated marks start calming.</summary>
+        public float PainterlyCalmStart { get; set; } = 60f;
+
+        /// <summary>World distance where generated-mark calming reaches full strength.</summary>
+        public float PainterlyCalmEnd { get; set; } = 240f;
+
+        /// <summary>Painterly colour richness (0..2; 1 = source saturation).</summary>
+        public float PainterlySaturation { get; set; } = 1.07f;
+
+        /// <summary>
+        /// Painterly midtone lift (0.5..2; 1 = untouched). A gamma, so nothing
+        /// clips - opens up a dim scene after the S-curve and ink take light
+        /// out of it.
+        /// </summary>
+        public float PainterlyLift { get; set; } = 1.01f;
+
+        /// <summary>
+        /// Painterly value structure (0..1) - a non-clipping S-curve applied
+        /// before banding, which separates a flat-lit frame into readable light
+        /// and dark shapes the way a painted backdrop does.
+        /// </summary>
+        public float PainterlyContrast { get; set; } = 0.18f;
+
+        /// <summary>
+        /// Warm-light / cool-shadow split tone (0..1) - painted backdrops
+        /// separate sun from shade by hue, not only by value.
+        /// </summary>
+        public float PainterlyWarmth { get; set; } = 0.08f;
+
+        /// <summary>
+        /// Canvas grain (0..1), independent from colour-band dithering.
+        /// </summary>
+        public float PainterlyGrain { get; set; } = 0f;
+
+        /// <summary>
+        /// Stable colour-band dither (0..1). It prevents contour rings without
+        /// adding paper noise to every surface.
+        /// </summary>
+        public float PainterlyDither { get; set; } = 0.04f;
+
+        /// <summary>
+        /// Maximum internal height of the painted world canvas. The pass may
+        /// choose a nearby lower height to make the final nearest-neighbour
+        /// scale exact; the HUD stays native. Zero styles every physical pixel.
+        /// </summary>
+        public int PainterlyCanvasHeight { get; set; } = 1440;
 
         /// <summary>
         /// FFXGlow whole-scene bloom (Engine/FfxGlow.cs) - the reference client's

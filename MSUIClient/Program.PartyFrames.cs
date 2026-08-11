@@ -320,6 +320,9 @@ public sealed partial class GameLoop
         ClassifyUiParity("PartyMemberFrame5", "Button", "UIParent", "NOT-DRAWN",
             "reference-caps-party-slots-at-four");
 
+        DrawRtsCommandStrips(members);
+        DrawPartyChainLinks(members);
+        DrawPartyDragFeedback(members);
         ResolvePartyPointerRelease(hoveredIndex, members);
         bool tooltipQueued = UpdateAndQueuePartyTooltip(hoveredIndex, hoveredView, now, capture);
         if (capture && !tooltipQueued) MarkUiParityFrameComplete();
@@ -335,6 +338,29 @@ public sealed partial class GameLoop
             if (ImGui.IsMouseReleased(expected)) released = expected;
         }
         if (released == ImGuiMouseButton.COUNT) return;
+
+        // [RTS] Divinity-style chain. Dropping a dragged portrait on ANOTHER portrait (or
+        // the player frame) LINKS the member into the chain; dragging it away and letting
+        // go in the open BREAKS its link — it stands its ground until re-chained.
+        if (_partyPressButton == PartyPointerButton.Left &&
+            _partyPressIndex >= 0 && _partyPressIndex < members.Length)
+        {
+            if ((hoveredIndex >= 0 && hoveredIndex != _partyPressIndex &&
+                 hoveredIndex < members.Length) ||
+                (hoveredIndex < 0 && MouseOverPlayerFrame()))
+            {
+                SetPartyLink(members[_partyPressIndex], linked: true);
+                ClearPartyPress();
+                return;
+            }
+            if (hoveredIndex < 0 && PartyDragDistance(_partyPressIndex) > 60f)
+            {
+                SetPartyLink(members[_partyPressIndex], linked: false);
+                ClearPartyPress();
+                return;
+            }
+        }
+
         // PartyMemberFrameN is the pointer token. If its roster occupant rebinds while held,
         // ButtonUp still acts on that slot's current occupant, exactly like frame.unit.
         PartyPointerAction action = PartyFrameUiLaw.ReleaseAction(_partyPressIndex,
@@ -435,13 +461,30 @@ public sealed partial class GameLoop
 
         dl.PushClipRectFullScreen();
         string portraitPath = "";
-        if (view.Unit is not null)
+        uint bakedPortrait = PartyPortraitHandle(view.Member.Guid);
+        if (bakedPortrait != 0)
+        {
+            // The real member: a live bake of its streamed body (geosets/hair/gear),
+            // circular-masked like every round portrait. Tint carries the offline/
+            // dead/ghost/low-health states unchanged.
+            dl.AddImage((nint)bakedPortrait, portraitMin, portraitMin + portraitSize,
+                Vector2.Zero, Vector2.One, portraitTint);
+            if (capture)
+                CollectUiParityDraw(root + "Portrait", "Texture", portraitMin, portraitSize, root,
+                    new("party-member-baked-portrait", portraitTint, "BACKGROUND", "TOPLEFT", root,
+                        "TOPLEFT", 7, -6, TexCoords: "0|0|1|1", ClipRect: fullClip,
+                        ClipMask: "circular-alpha-mask;UIParent", BlendMode: "BLEND", Strata: "LOW"));
+        }
+        else if (view.Unit is not null)
         {
             (byte race, _, byte gender, _) = view.Unit.Fields.Bytes0;
             string sex = gender == 1 ? "Female" : "Male";
             string raceName = race == 5 ? "Scourge" : RaceName(race).Replace(" ", "");
             portraitPath = $@"Interface\CharacterFrame\TemporaryPortrait-{sex}-{raceName}";
-            uint portrait = _gameplayArt.CircularHandle(portraitPath);
+            // Through the painterly path: these are character stand-ins, so they
+            // belong to the painted set when the mode is on, and resolve to the
+            // identical masked copy when it is off.
+            uint portrait = PainterlyRoundArt(portraitPath);
             if (portrait != 0)
                 dl.AddImage((nint)portrait, portraitMin, portraitMin + portraitSize,
                     Vector2.Zero, Vector2.One, portraitTint);

@@ -88,6 +88,7 @@ public sealed partial class GameLoop
     private void UseAction(int wireSlot)
     {
         if (_net is null || _actions[wireSlot] is not { } slot) return;
+        if (BarsReadOnly) return;   // free-view inspection: bars display, never cast
         _actionUses++;
         switch (slot.Kind)
         {
@@ -387,7 +388,7 @@ public sealed partial class GameLoop
 
     private void DrawActionBars()
     {
-        if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
+        if ((_net is not { IsInWorld: true } && !HudPreview) || _gameplayArt is null) return;
         _hoveredActionSpellTooltip = null;
         _hoveredActionSlot = -1;
         _actionCursorChangedThisFrame = false;
@@ -565,7 +566,7 @@ public sealed partial class GameLoop
                     ButtonUsability.Usable => 0xffffffffu,
                     _ => 0xff666666u,
                 };
-                uint icon = _gameplayArt.Handle(iconPath);
+                uint icon = PainterlyArt(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax, Vector2.Zero, Vector2.One, iconTint);
 
                 if (verdict.Flashing && flashPhase)
@@ -672,7 +673,7 @@ public sealed partial class GameLoop
                 DrawSlotRing(dl, buttonMin, buttonMax,
                     verdict.CarriedGrid
                         ? @"Interface\Buttons\UI-Quickslot"
-                        : @"Interface\Buttons\UI-Quickslot2", scale);
+                        : @"Interface\Buttons\UI-Quickslot2", scale, emptySlot: true);
                 DrawActionText(dl, buttonMin, FriendlyKey(BoundKey(ActionBinding(i))), scale, 0xff999999);
             }
         }
@@ -694,7 +695,7 @@ public sealed partial class GameLoop
 
     private void DrawMultiActionBars()
     {
-        if (_net is not { IsInWorld: true } || _gameplayArt is null) return;
+        if ((_net is not { IsInWorld: true } && !HudPreview) || _gameplayArt is null) return;
         Vector2 display = ImGui.GetIO().DisplaySize;
         float scale = GameplayUiScale();
         Vector2 barMin = GameplayBarMin(display, scale);
@@ -866,7 +867,7 @@ public sealed partial class GameLoop
                     ButtonUsability.Usable => 0xffffffffu,
                     _ => 0xff666666u,
                 };
-                uint icon = _gameplayArt.Handle(iconPath);
+                uint icon = PainterlyArt(iconPath);
                 if (icon != 0) dl.AddImage((nint)icon, buttonMin, buttonMax,
                     Vector2.Zero, Vector2.One, iconTint);
                 if (proofBar)
@@ -1091,7 +1092,7 @@ public sealed partial class GameLoop
                 if (MultiActionBarUiLaw.ShowEmptyWell(gridShown))
                 {
                     bool normalTextureVisible = DrawSlotRing(dl, buttonMin, buttonMax,
-                        @"Interface\Buttons\UI-Quickslot", scale);
+                        @"Interface\Buttons\UI-Quickslot", scale, emptySlot: true);
                     if (proofBar)
                     {
                         Vector2 ringCenter = (buttonMin + buttonMax) * .5f + new Vector2(0, scale);
@@ -1180,14 +1181,18 @@ public sealed partial class GameLoop
 
     private bool PickupActionToCursor(int slot)
     {
-        // A possessed bot's bars are read-only in v1.0: CMSG_SET_ACTION_BUTTON acts on
-        // the SESSION character server-side, so editing here would corrupt the wrong bar.
-        if (ControlledGuid != LocalPlayerGuid) return false;
+        // Free-view inspection of another unit's bars never edits.
+        if (BarsReadOnly) return false;
         if (_net is null || _actionCursor is not null || _actions[slot] is not { } action)
             return false;
         MultiActionPlacement transition = MultiActionBarUiLaw.PickupAction(action.Packed);
         _actions.Set(slot, null);
-        _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        // A possessed bot's edits persist to the layered client bars: CMSG_SET_ACTION_BUTTON
+        // acts on the SESSION character server-side, so the wire is only for the own bar.
+        if (ControlledGuid == LocalPlayerGuid)
+            _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        else
+            SaveBotBarSlot(slot, 0);
         _actionCursor = action;
         _actionCursorChangedThisFrame = true;
         return true;
@@ -1200,12 +1205,15 @@ public sealed partial class GameLoop
     private void PlaceActionPayload(int slot, ActionSlot held)
     {
         if (_net is null) return;
-        if (ControlledGuid != LocalPlayerGuid) return;   // read-only bars while possessing
+        if (BarsReadOnly) return;   // free-view inspection never edits
         ActionSlot? displaced = _actions[slot];
         MultiActionPlacement transition = MultiActionBarUiLaw.PlaceAction(
             held.Packed, displaced?.Packed ?? 0);
         _actions.Set(slot, held);
-        _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        if (ControlledGuid == LocalPlayerGuid)
+            _net.SetActionButton((byte)slot, transition.DestinationPacked);
+        else
+            SaveBotBarSlot(slot, held.Packed);   // layered bot bars, chosen layer
         _actionCursor = displaced;
         _actionCursorChangedThisFrame = true;
     }
@@ -1405,7 +1413,10 @@ public sealed partial class GameLoop
     private void DrawCharacterMicroPortrait(ImDrawListPtr dl, Vector2 buttonMin,
         float scale, bool pushed)
     {
-        uint portrait = _playerPortraitUsable ? _playerPortrait?.TextureHandle ?? 0 : 0;
+        // Round copy: this is a crop of the bake laid over round button art, and
+        // the crop's own corners fall OUTSIDE the inscribed circle - the square
+        // bake shows booth black in them.
+        uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
         if (portrait == 0) return;
 
         // MicroMenu.xml:161-199,244-257: this is a crop of the same player portrait bake,
@@ -1420,6 +1431,17 @@ public sealed partial class GameLoop
 
     private void DrawMainMenuBarArt(ImDrawListPtr dl, Vector2 barMin, float scale)
     {
+        if (PainterlyUi)
+        {
+            // Flat strip instead of the sculpted dwarf plate and end caps.
+            DrawPainterlyBarBacking(dl, barMin + new Vector2(0f, 10f) * scale,
+                new Vector2(GameplayBarWidth, 43f) * scale, scale);
+            DrawCenteredActionText(dl,
+                barMin + new Vector2(GameplayBarWidth * 0.5f + 30f, GameplayBarHeight * 0.5f + 5f) * scale,
+                _actionPage.ToString(), 11f * scale, UiGoldU32());
+            return;
+        }
+
         uint dwarf = _gameplayArt!.Handle(@"Interface\MainMenuBar\UI-MainMenuBar-Dwarf.blp");
         if (dwarf != 0)
         {
@@ -1604,8 +1626,24 @@ public sealed partial class GameLoop
     }
 
     private bool DrawSlotRing(ImDrawListPtr dl, Vector2 buttonMin, Vector2 buttonMax,
-        string art, float scale, uint tint = 0xffffffffu)
+        string art, float scale, uint tint = 0xffffffffu, bool emptySlot = false)
     {
+        // Painterly slots are square. This is the one place both the main bar
+        // and every multi-bar ask for slot chrome, so squaring it here squares
+        // all of them. The usability tint still carries - it moves onto the
+        // frame's rule instead of the ring, so "not enough power" and
+        // "unusable" read exactly as before.
+        if (PainterlyUi)
+        {
+            // fill ONLY for an empty slot: an occupied one already has its icon
+            // drawn underneath, and backing it would black the icon out.
+            // No corner studs either - four per slot across twelve slots reads
+            // as clutter, and the bar's own frame carries the ornament.
+            DrawSquarePanel(dl, buttonMin, buttonMax - buttonMin, scale, fill: emptySlot,
+                ruleColor: tint == 0xffffffffu ? PainterlyFrameRule : tint, studs: false);
+            return true;
+        }
+
         uint ring = _gameplayArt!.Handle(art);
         if (ring == 0) return false;
         // NormalTexture is 66x66, centered on the 36x36 button with a (0,-1) offset.

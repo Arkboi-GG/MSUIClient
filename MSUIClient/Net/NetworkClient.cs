@@ -275,6 +275,7 @@ public sealed class NetworkClient : IDisposable
     public bool SuiControlRelease(byte mode) => InWorld(s => s.SuiControlRelease(mode));
     public bool SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z) =>
         InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
+    public bool SuiCam(float x, float y, float z) => InWorld(s => s.SuiCam(x, y, z));
     public void SetActiveMover(ulong guid) { try { _session?.SetActiveMover(guid); } catch { } }
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>

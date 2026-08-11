@@ -1654,6 +1654,7 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uTexture", 0);
         _shader.Set("uVertexColorScale", VertexColorScale);
+        _shader.Set("uStyleWeight", 0.42f);
         _shader.Set("uAppearFadeEnabled", AppearFade ? 1 : 0);
         _shader.Set("uNow", NowSeconds);
         _shader.Set("uAppearFadeSecs", MathF.Max(AppearFadeSeconds, 0.0001f));
@@ -1687,6 +1688,7 @@ public sealed class DoodadRenderer : IDisposable
             _gl.Enable(EnableCap.Blend);
             _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         }
+        _shader.Set("uPreserveAlpha", AppearFade ? 1 : 0);
 
         foreach (var (model, instances) in _byModel)
         {
@@ -1964,6 +1966,8 @@ public sealed class DoodadRenderer : IDisposable
                 _gl.Disable(EnableCap.Blend);
                 blendOn = false;
             }
+
+            _shader.Set("uPreserveAlpha", wantBlend ? 1 : 0);
 
             uint instanceCount = (uint)_visibleInstances.Count;
             foreach (var batch in model.Batches)

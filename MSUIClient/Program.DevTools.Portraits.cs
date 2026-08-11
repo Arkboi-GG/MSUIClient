@@ -48,7 +48,11 @@ public sealed partial class GameLoop
             : _labSubject == PortraitLabSubject.Specimen || _labShowUnmasked
                 ? _labPortrait
                 : _labSubject == PortraitLabSubject.Player ? _playerPortrait : _targetPortrait;
-        uint evidenceTexture = evidenceTarget?.TextureHandle ?? 0;
+        // The live player/target bakes are no longer masked in place - the disc
+        // lives in their round copy - so the lab asks for that to keep showing
+        // what the HUD actually draws. The lab's own target has no copy and
+        // falls back to its (already masked in place) bake.
+        uint evidenceTexture = evidenceTarget?.CircularTextureHandle ?? 0;
         if (ImGui.BeginChild("##portrait-lab-evidence", new Vector2(0f, 532f), true,
                 ImGuiWindowFlags.HorizontalScrollbar))
         {

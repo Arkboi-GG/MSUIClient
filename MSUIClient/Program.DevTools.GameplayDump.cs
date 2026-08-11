@@ -53,8 +53,9 @@ public sealed partial class GameLoop
         if (!_gameplayDumpArmed) return;
         _gameplayDumpArmed = false;
 
-        string name = _currentVantage ?? DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        string fileName = $"gameplay-{name}";
+        string name = _currentVantage ?? "unsaved-view";
+        string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+        string fileName = $"gameplay-{SafeCaptureName(name)}-{stamp}";
         string relativeJson = Path.Combine("dumps", fileName + ".json").Replace('\\', '/');
         string relativePng = Path.Combine("dumps", fileName + ".png").Replace('\\', '/');
         string jsonPath = _gameplayDumpDirectoryOverride is null ? Path.Combine(_config.RepoRoot, relativeJson) :
@@ -154,6 +155,42 @@ public sealed partial class GameLoop
             name,
             takenLocal = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             map = _config.Start.MapName,
+            render = new
+            {
+                framebuffer = new[] { (int)framebuffer.X, (int)framebuffer.Y },
+                msaaSamples = _window.FramebufferSamples,
+                multisamplingEnabled = _window.MultisamplingEnabled,
+                anisotropy = Settings.Display.Anisotropy,
+                fieldOfView = _window.Camera.FieldOfViewDegrees,
+                terrainShadowStrength = _terrain?.AuthoredShadowStrength,
+                unitShadowOpacity = _unitShadows?.Opacity,
+                glow = _glow is null ? null : new
+                {
+                    enabled = _glow.Enabled,
+                    gain = _glow.Gain,
+                },
+                painterly = _painterly is null ? null : new
+                {
+                    enabled = _painterly.Enabled,
+                    hud = Settings.Display.PainterlyUi,
+                    bands = _painterly.Bands,
+                    detail = _painterly.Detail,
+                    ink = _painterly.Ink,
+                    inkThreshold = _painterly.InkThreshold,
+                    silhouette = _painterly.Silhouette,
+                    distanceCalm = _painterly.DepthFade,
+                    calmStart = _painterly.CalmStart,
+                    calmEnd = _painterly.CalmEnd,
+                    saturation = _painterly.Saturation,
+                    contrast = _painterly.Contrast,
+                    lift = _painterly.Lift,
+                    warmth = _painterly.Warmth,
+                    grain = _painterly.Grain,
+                    dither = _painterly.Dither,
+                    canvasHeight = _painterly.CanvasHeight,
+                    depthAvailable = _painterly.DepthAvailable,
+                },
+            },
             scenario = new
             {
                 player = new
@@ -267,6 +304,13 @@ public sealed partial class GameLoop
         };
     }
 
+    private static string SafeCaptureName(string value)
+    {
+        char[] invalid = Path.GetInvalidFileNameChars();
+        return string.Concat(value.Select(c => invalid.Contains(c) ? '-' : c))
+            .Trim().Replace(' ', '-');
+    }
+
     private unsafe bool TrySaveGameplayScreenshot(string path)
     {
         if (_gl is null) return false;
@@ -277,6 +321,10 @@ public sealed partial class GameLoop
         fixed (byte* pixels = bottomUp)
             _gl.ReadPixels(0, 0, (uint)width, (uint)height,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+        // Scene alpha carries painterly category importance for opaque world
+        // geometry. A desktop screenshot is still an opaque image; exposing the
+        // internal channel here would make terrain look translucent in editors.
+        for (int i = 3; i < bottomUp.Length; i += 4) bottomUp[i] = 255;
         int stride = width * 4;
         byte[] topDown = new byte[bottomUp.Length];
         for (int y = 0; y < height; y++)
@@ -298,6 +346,7 @@ public sealed partial class GameLoop
         fixed (byte* pixels = bottomUp)
             _gl.ReadPixels(0, 0, (uint)sourceWidth, (uint)sourceHeight,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+        for (int i = 3; i < bottomUp.Length; i += 4) bottomUp[i] = 255;
 
         int width = Math.Min(480, sourceWidth);
         int height = Math.Max(1, sourceHeight * width / sourceWidth);

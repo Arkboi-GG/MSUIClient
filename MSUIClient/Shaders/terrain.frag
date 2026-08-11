@@ -16,6 +16,7 @@ flat in float vAlphaLayer;           // this chunk's layer in the alpha array
 
 uniform sampler2DArray uTileset;     // unit 0 - the tile's MTEX textures
 uniform sampler2DArray uAlphaArray;  // unit 1 - one 64x64 mask per chunk
+uniform sampler2DArray uShadowArray; // unit 2 - one 64x64 MCSH mask per chunk
 
 uniform vec3  uCameraPos;
 uniform vec3  uSunDirection;         // points TOWARD the sun, normalised
@@ -23,6 +24,7 @@ uniform vec3  uSunColor;
 uniform float uSunIntensity;
 uniform vec3  uAmbientColor;
 uniform float uAmbientIntensity;
+uniform float uAuthoredShadowStrength;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform vec3  uFogColor;
@@ -138,12 +140,34 @@ void main()
     vec3 ambient = uAmbientColor * uAmbientIntensity
         * mix(0.62, 1.0, n.z * 0.5 + 0.5);
 
-    vec3 color = albedo * (sun + ambient);
+    // MCSH is the broad, hand-authored terrain shadow structure shipped in the
+    // 1.12 ADT. Its texels are binary, but linear sampling softens the edge in
+    // the same deliberately low-resolution way as the original presentation.
+    // At the default strength this is the reference pixel-shader combine:
+    // lit -> 1.0, shadowed -> 0.7, multiplying the whole diffuse light term.
+    // Clamp to texel centres even though the sampler is CLAMP_TO_EDGE: the UV
+    // can land exactly on 0/1 at a chunk vertex and must never form a footprint
+    // outside this chunk's authored map.
+    const float shadowHalfTexel = 0.5 / 64.0;
+    vec2 shadowUV = clamp(
+        vChunkUV,
+        vec2(shadowHalfTexel),
+        vec2(1.0 - shadowHalfTexel));
+    float authoredShadow = texture(
+        uShadowArray, vec3(shadowUV, vAlphaLayer)).r;
+    float authoredLight = 1.0 - authoredShadow
+        * clamp(uAuthoredShadowStrength, 0.0, 1.0);
+
+    vec3 color = albedo * (sun + ambient) * authoredLight;
 
     // Aerial perspective. Cheap here, and the hook the painterly mode extends.
     float dist = length(vWorldPos - uCameraPos);
     float fog  = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
     color = mix(color, uFogColor, fog);
 
-    FragColor = vec4(color, 1.0);
+    // Alpha is a painterly importance channel for opaque world geometry. The
+    // default framebuffer never composites terrain by alpha, so this does not
+    // change ordinary rendering; the post pass uses it to keep ground texture
+    // quieter than characters and architecture.
+    FragColor = vec4(color, 0.22);
 }

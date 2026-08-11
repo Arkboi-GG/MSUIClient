@@ -136,6 +136,12 @@ public sealed partial class GameLoop
         {
             _creatures.HoveredGuid = _hoveredGuid;
             _creatures.SelectedGuid = _selectionGuid;
+            // Free-view multi-selection wears the same target highlight as single targets;
+            // while a marquee drag is live, the members it covers light up as a preview.
+            _creatures.GroupSelectedGuids.Clear();
+            foreach (ulong guid in _freecamSelection)
+                _creatures.GroupSelectedGuids.Add(guid);
+            AddMarqueePreview(_creatures.GroupSelectedGuids);
         }
         UpdateInspectLifecycle();
     }
@@ -390,9 +396,9 @@ public sealed partial class GameLoop
             ? _playerNames.GetValueOrDefault(target.Guid, "Player")
             : _creatureNames.GetValueOrDefault(target.Entry, $"Creature {target.Entry}");
         uint portrait = target.IsCreature && _portraitTargetGuid == target.Guid
-            ? _targetPortraitUsable ? _targetPortrait?.TextureHandle ?? 0 : 0
+            ? UnitFramePortrait(_targetPortrait, _targetPortraitUsable)
             : target.IsPlayer && _net is not null && target.Guid == ControlledGuid
-                ? _playerPortraitUsable ? _playerPortrait?.TextureHandle ?? 0 : 0
+                ? UnitFramePortrait(_playerPortrait, _playerPortraitUsable)
                 : 0;
         DrawVanillaUnitFrame(target, new Vector2(250, 4), playerFrame: false,
             name, reaction, portrait, _targetCombatFlash);

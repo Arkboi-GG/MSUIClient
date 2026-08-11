@@ -69,6 +69,9 @@ public sealed partial class CreatureRenderer : IDisposable
     public ulong HoveredGuid { get; set; }
     public ulong SelectedGuid { get; set; }
     public ulong SelfPlayerGuid { get; set; }
+
+    /// <summary>CRPG free-view multi-selection: every member wears the target highlight.</summary>
+    public HashSet<ulong> GroupSelectedGuids { get; } = [];
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
 
     /// <summary>
@@ -102,9 +105,18 @@ public sealed partial class CreatureRenderer : IDisposable
     /// <summary>Filter humanoid-NPC geosets to the correct variants (off = draw every geoset, the old blob).</summary>
     public bool GeosetFilter { get; set; } = true;
 
-    private static readonly Vector3 SunDir = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
-    private static readonly Vector3 FogColor = new(0.56f, 0.71f, 0.85f);
-    private const float FogStart = 350f, FogEnd = 900f;
+    /// <summary>
+    /// The game loop copies these from WorldAtmosphere every frame. Keeping the same property
+    /// shape as CharacterRenderer also lets streamed equipment inherit the exact unit lighting.
+    /// </summary>
+    public Vector3 SunDirection { get; set; } = Vector3.Normalize(new Vector3(0.45f, 0.35f, 0.82f));
+    public Vector3 SunColor { get; set; } = new(1.00f, 0.95f, 0.85f);
+    public float SunIntensity { get; set; } = 1.15f;
+    public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
+    public float AmbientIntensity { get; set; } = 0.85f;
+    public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
+    public float FogStart { get; set; } = 350f;
+    public float FogEnd { get; set; } = 900f;
 
     private const float DefaultWalkSpeed = 2.5f;
     private const float MovingEpsilon = 0.1f;
@@ -132,6 +144,7 @@ public sealed partial class CreatureRenderer : IDisposable
     private readonly HashSet<ulong> _seen = new();
     private readonly List<ulong> _stale = new();
     private readonly List<WorldEntity> _orderedUnits = [];
+    private readonly List<UnitShadowCaster> _shadowCasters = [];
     private Vector3 _sortCameraPosition;
     private float _globalTime;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -139,6 +152,14 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private readonly record struct CombatAction(int AnimationId, float StartedAt, float ExpiresAt,
         bool AuthoredExact = false);
+
+    /// <summary>Units that completed a model draw this frame, consumed by the shared blob pass.</summary>
+    public IReadOnlyList<UnitShadowCaster> ShadowCasters => _shadowCasters;
+
+    /// <summary>Turns the model's authored XY bounds into a stable contact-shadow half extent.</summary>
+    public static float GroundShadowRadius(float horizontalRadius, float renderScale)
+        => Math.Clamp(MathF.Max(0f, horizontalRadius) * MathF.Max(0.01f, renderScale),
+            0.35f, 12f);
 
     public void TriggerCombatSwing(ulong guid, bool offHand)
     {
@@ -316,6 +337,7 @@ public sealed partial class CreatureRenderer : IDisposable
         AnimatedLastFrame = 0;
         LoadMillisecondsThisFrame = 0;
         LoadsThisFrame = 0;
+        _shadowCasters.Clear();
         if (!Ok || !Enabled || _shader is null || _resolver is null) return;
 
         double nowS = _clock.Elapsed.TotalSeconds;
@@ -331,13 +353,16 @@ public sealed partial class CreatureRenderer : IDisposable
         _gl.Enable(EnableCap.Blend);
         _shader.Use();
         _shader.Set("uViewProj", viewProj);
-        _shader.Set("uSunDir", SunDir);
-        _shader.Set("uAmbientColor", new Vector3(.45f));
-        _shader.Set("uDiffuseColor", new Vector3(.55f));
+        _shader.Set("uSunDir", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
+        ApplyAttachmentAtmosphere();
         _seen.Clear();
         _spellPoses.Clear();
 
@@ -422,7 +447,9 @@ public sealed partial class CreatureRenderer : IDisposable
             Matrix4x4 m = worldModel;
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
-            _shader.Set("uHighlight", e.Guid == HoveredGuid || e.Guid == SelectedGuid ? 64f / 255f : 0f);
+            _shader.Set("uHighlight",
+                e.Guid == HoveredGuid || e.Guid == SelectedGuid || GroupSelectedGuids.Contains(e.Guid)
+                    ? 64f / 255f : 0f);
 
             int boneCount = 0;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
@@ -509,6 +536,10 @@ public sealed partial class CreatureRenderer : IDisposable
                 DrawnLastFrame++;
                 _lifecycle?.NoteFirstDraw(e.Guid);
             }
+
+            if (CastsGroundShadow(e))
+                _shadowCasters.Add(new UnitShadowCaster(e.Position,
+                    GroundShadowRadius(model.HorizontalRadius, scale)));
 
             DrawUnitAttachments(camera, e, model, info, m,
                 boneCount > 0 ? _skin : _bindSkin);
@@ -659,11 +690,33 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void NoteKnownNotDrawn(EntityStore entities)
     {
+        _shadowCasters.Clear();
         if (_lifecycle is null) return;
         foreach (WorldEntity entity in entities.Units)
             if (entity.IsCreature)
                 _lifecycle.NoteReason(entity.Guid,
                     CreatureLifecycleTracker.ReasonCode.NOT_IN_WORLD);
+    }
+
+    private static bool CastsGroundShadow(WorldEntity entity)
+    {
+        if (entity.Spline?.Flying == true) return false;
+        const uint airborneOrSwimming =
+            (uint)(MovementFlags.Falling | MovementFlags.Swimming);
+        return (entity.MoveFlags & airborneOrSwimming) == 0;
+    }
+
+    private void ApplyAttachmentAtmosphere()
+    {
+        if (_attachedItems is null) return;
+        _attachedItems.SunDirection = SunDirection;
+        _attachedItems.SunColor = SunColor;
+        _attachedItems.SunIntensity = SunIntensity;
+        _attachedItems.AmbientColor = AmbientColor;
+        _attachedItems.AmbientIntensity = AmbientIntensity;
+        _attachedItems.FogColor = FogColor;
+        _attachedItems.FogStart = FogStart;
+        _attachedItems.FogEnd = FogEnd;
     }
 
     private void DrawUnitAttachments(Camera camera, WorldEntity entity, LoadedModel model,
@@ -837,14 +890,17 @@ public sealed partial class CreatureRenderer : IDisposable
         _shader.Use();
         _shader.Set("uViewProj", camera.RelativeViewProjection);
         _shader.Set("uModel", transform);
-        _shader.Set("uSunDir", Vector3.Normalize(new Vector3(.25f, -.45f, .85f)));
-        _shader.Set("uAmbientColor", new Vector3(.58f, .56f, .54f));
-        _shader.Set("uDiffuseColor", new Vector3(.85f, .82f, .78f));
+        _shader.Set("uSunDir", SunDirection);
+        _shader.Set("uSunColor", SunColor);
+        _shader.Set("uSunIntensity", SunIntensity);
+        _shader.Set("uAmbientColor", AmbientColor);
+        _shader.Set("uAmbientIntensity", AmbientIntensity);
         _shader.Set("uFogColor", FogColor);
-        _shader.Set("uFogStart", 1000f);
-        _shader.Set("uFogEnd", 2000f);
+        _shader.Set("uFogStart", FogStart);
+        _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uTex", 0);
         _shader.Set("uHighlight", 0f);
+        ApplyAttachmentAtmosphere();
 
         int boneCount = 0;
         if (model.Animator is not null && model.BoneCount > 0)
@@ -1998,20 +2054,25 @@ in vec2 vUv;
 in float vDist;
 uniform sampler2D uTex;
 uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uSunIntensity;
 uniform vec3 uFogColor;
 uniform float uFogStart;
 uniform float uFogEnd;
 uniform float uAlphaCut;
 uniform float uHighlight;
 uniform vec3 uAmbientColor;
-uniform vec3 uDiffuseColor;
+uniform float uAmbientIntensity;
 out vec4 frag;
 void main(){
     vec4 t = texture(uTex, vUv);
     if (t.a < uAlphaCut) discard;
-    float ndl = max(dot(normalize(vNorm), normalize(uSunDir)), 0.0);
-    vec3 light = uAmbientColor + uDiffuseColor * ndl + vec3(uHighlight);
-    float fog = clamp((vDist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+    vec3 normal = normalize(vNorm);
+    if (!gl_FrontFacing) normal = -normal;
+    float ndl = max(dot(normal, normalize(uSunDir)), 0.0);
+    vec3 light = uAmbientColor * uAmbientIntensity
+        + uSunColor * uSunIntensity * ndl + vec3(uHighlight);
+    float fog = clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
     frag = vec4(mix(t.rgb * light, uFogColor, fog), t.a);
 }";
 }

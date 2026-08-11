@@ -21,8 +21,34 @@ public sealed class PortraitRenderTarget : IDisposable
     private readonly GL _gl;
     private uint _framebuffer;
     private uint _depth;
+    private uint _circularTexture;
 
     public uint TextureHandle { get; private set; }
+
+    /// <summary>
+    /// A round-cut COPY of the bake, for frames whose aperture is circular.
+    ///
+    /// It is a copy rather than a mode because ONE bake is drawn by frames with
+    /// different apertures: the unit frames, the character sheet, the talent
+    /// frame and the micro-menu button. Cutting the disc into the shared
+    /// texture made the aperture a global decision, so when painterly's square
+    /// unit frame skipped the cut, every other frame - all of which still draw
+    /// authored art with a round hole - grew a black square around that hole.
+    /// Keeping both shapes alive lets each frame ask for the one its own chrome
+    /// needs, and lets the two HUD styles coexist instead of overwriting each
+    /// other's portrait.
+    ///
+    /// Falls back to the raw bake until <see cref="UpdateCircularCopy"/> runs.
+    /// </summary>
+    public uint CircularTextureHandle => _circularTexture != 0 ? _circularTexture : TextureHandle;
+
+    /// <summary>
+    /// The bake's own framebuffer. Exposed so a post pass can restyle the baked
+    /// texture in place (PainterlyPass.ApplyToTexture) - the whole-frame pass
+    /// runs on the default framebuffer and can never reach an off-screen bake,
+    /// which is why a painted world used to carry an unpainted portrait.
+    /// </summary>
+    public uint FramebufferHandle => _framebuffer;
     public int Width { get; }
     public int Height { get; }
     public int Size => Width;
@@ -152,6 +178,38 @@ public sealed class PortraitRenderTarget : IDisposable
     public unsafe void ApplyCircularMask()
     {
         byte[] rgba = ReadRgba();
+        MaskOutsideCircle(rgba);
+        Upload(TextureHandle, rgba);
+    }
+
+    /// <summary>
+    /// Rebuild <see cref="CircularTextureHandle"/> from the bake as it stands,
+    /// leaving <see cref="TextureHandle"/> square. Call after a successful bake
+    /// AND after any post styling, so the round copy carries the same pixels
+    /// the square one does - the copy is a snapshot, not a live view.
+    /// </summary>
+    public unsafe void UpdateCircularCopy()
+    {
+        byte[] rgba = ReadRgba();
+        MaskOutsideCircle(rgba);
+        if (_circularTexture == 0)
+        {
+            _circularTexture = _gl.GenTexture();
+            _gl.BindTexture(TextureTarget.Texture2D, _circularTexture);
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8,
+                (uint)Width, (uint)Height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, (void*)null);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+            _gl.BindTexture(TextureTarget.Texture2D, 0);
+        }
+        Upload(_circularTexture, rgba);
+    }
+
+    /// <summary>Zero the alpha of every texel outside the inscribed circle.</summary>
+    private void MaskOutsideCircle(byte[] rgba)
+    {
         float cx = (Width - 1) * 0.5f, cy = (Height - 1) * 0.5f;
         float radius = MathF.Min(Width, Height) * 0.5f;
         float r2 = radius * radius;
@@ -164,7 +222,11 @@ public sealed class PortraitRenderTarget : IDisposable
                 if (dx * dx + dy * dy > r2) rgba[(y * Width + x) * 4 + 3] = 0;
             }
         }
-        _gl.BindTexture(TextureTarget.Texture2D, TextureHandle);
+    }
+
+    private unsafe void Upload(uint texture, byte[] rgba)
+    {
+        _gl.BindTexture(TextureTarget.Texture2D, texture);
         fixed (byte* pixels = rgba)
             _gl.TexSubImage2D(TextureTarget.Texture2D, 0, 0, 0, (uint)Width, (uint)Height,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
@@ -220,5 +282,6 @@ public sealed class PortraitRenderTarget : IDisposable
         if (_depth != 0) { _gl.DeleteRenderbuffer(_depth); _depth = 0; }
         if (_framebuffer != 0) { _gl.DeleteFramebuffer(_framebuffer); _framebuffer = 0; }
         if (TextureHandle != 0) { _gl.DeleteTexture(TextureHandle); TextureHandle = 0; }
+        if (_circularTexture != 0) { _gl.DeleteTexture(_circularTexture); _circularTexture = 0; }
     }
 }

@@ -57,6 +57,12 @@ uniform float uPortalLightRadius; // yards; 0 = off
 // instance only while this is below 1, so opaque buildings are unaffected.
 uniform float uAppearAlpha;
 
+// Painterly importance is carried in alpha for steady opaque batches. Blended
+// materials and an appearing instance still need their physical source alpha,
+// selected per draw by uPreserveAlpha.
+uniform float uStyleWeight;
+uniform int   uPreserveAlpha;
+
 out vec4 FragColor;
 
 void main()
@@ -120,5 +126,7 @@ void main()
     // texture alpha is harmless there and required by MOMT blend modes 2+.
     // uAppearAlpha (default 1) scales the whole building down only while it eases
     // in; at 1.0 this is byte-for-byte the original output.
-    FragColor = vec4(mix(lit, uFogColor, fog), albedo.a * uAppearAlpha);
+    float naturalAlpha = albedo.a * uAppearAlpha;
+    float outAlpha = uPreserveAlpha == 1 ? naturalAlpha : uStyleWeight;
+    FragColor = vec4(mix(lit, uFogColor, fog), outAlpha);
 }

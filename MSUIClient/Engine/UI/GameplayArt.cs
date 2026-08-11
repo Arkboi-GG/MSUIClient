@@ -12,6 +12,9 @@ public sealed class GameplayArt : IDisposable
     private readonly Dictionary<string, Texture?> _additiveTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _brightHighlightTextures = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Texture?> _circularTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _painterlyTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Texture?> _painterlyCircularTextures = new(StringComparer.OrdinalIgnoreCase);
+    private int _painterlyEpoch = -1;
 
     public GameplayArt(GL gl, MpqMount mpq) { _gl = gl; _mpq = mpq; }
 
@@ -31,6 +34,131 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>
+    /// Painterly-styled copy of a piece of art, for painterly mode.
+    ///
+    /// Spell icons, item icons and the stand-in portraits are BLPs drawn
+    /// straight onto the UI. The painterly pass runs over the default
+    /// framebuffer and an off-screen bake, so it never touches them: a painted
+    /// world carried a bar of untouched Blizzard icons, which is the single
+    /// loudest way the interface announced it was not part of the picture.
+    ///
+    /// A COPY, never the original: the same texture is drawn unstyled elsewhere
+    /// (tooltips, the spellbook, the cursor payload), so restyling the shared
+    /// handle in place would be visible everywhere at once. <paramref name="style"/>
+    /// receives (destination framebuffer, source texture, width, height).
+    ///
+    /// <paramref name="epoch"/> invalidates the whole cache when the painterly
+    /// knobs move - without it a slider drag would leave every already-styled
+    /// icon frozen at the settings it was first baked with.
+    /// </summary>
+    /// <summary>
+    /// Release every styled copy now.
+    ///
+    /// <see cref="PainterlyHandle"/> drops them lazily on an epoch change, which
+    /// is enough while the mode is ON but never fires when it goes OFF - the
+    /// next styled lookup is the trigger, and there is no next one. That left a
+    /// full set of styled copies resident for the rest of the session.
+    /// </summary>
+    public void ClearPainterlyCache()
+    {
+        foreach (Texture texture in _painterlyTextures.Values.Where(t => t is not null).Distinct()!)
+            texture.Dispose();
+        foreach (Texture texture in _painterlyCircularTextures.Values.Where(t => t is not null).Distinct()!)
+            texture.Dispose();
+        _painterlyTextures.Clear();
+        _painterlyCircularTextures.Clear();
+    }
+
+    public uint PainterlyHandle(string path, int epoch, Action<uint, uint, int, int> style)
+    {
+        if (epoch != _painterlyEpoch)
+        {
+            ClearPainterlyCache();
+            _painterlyEpoch = epoch;
+        }
+
+        if (string.IsNullOrWhiteSpace(path)) path = @"Interface\Icons\INV_Misc_QuestionMark.blp";
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        if (_painterlyTextures.TryGetValue(path, out Texture? cached)) return cached?.Handle ?? Handle(path);
+
+        Texture? source = Get(path);
+        if (source is null) { _painterlyTextures[path] = null; return 0; }
+
+        try
+        {
+            byte[]? bytes = _mpq.ReadFile(path);
+            if (bytes is null) { _painterlyTextures[path] = null; return source.Handle; }
+            // Decoded again only to size and seed the destination; the style
+            // pass overwrites every texel from the source texture.
+            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            Texture destination = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
+
+            uint fbo = _gl.GenFramebuffer();
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, fbo);
+            _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, destination.Handle, 0);
+            if (_gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) == GLEnum.FramebufferComplete)
+                style(fbo, source.Handle, width, height);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            _gl.DeleteFramebuffer(fbo);
+
+            _painterlyTextures[path] = destination;
+            return destination.Handle;
+        }
+        catch { _painterlyTextures[path] = null; return source.Handle; }
+    }
+
+    /// <summary>
+    /// Painterly-styled copy of art drawn inside a ROUND aperture - the party
+    /// portraits are the case: stand-in character art, so they belong to the
+    /// painted set, but they sit in ring chrome that cannot hide square corners.
+    ///
+    /// The disc is cut BEFORE the style pass and carried through it, which works
+    /// because the pass writes the source alpha back out untouched. Styling
+    /// first and masking after would need a readback for no gain.
+    /// </summary>
+    public uint PainterlyCircularHandle(string path, int epoch, Action<uint, uint, int, int> style)
+    {
+        if (epoch != _painterlyEpoch)
+        {
+            ClearPainterlyCache();
+            _painterlyEpoch = epoch;
+        }
+
+        if (string.IsNullOrWhiteSpace(path)) path = @"Interface\Icons\INV_Misc_QuestionMark.blp";
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        if (_painterlyCircularTextures.TryGetValue(path, out Texture? cached))
+            return cached?.Handle ?? CircularHandle(path);
+
+        uint source = CircularHandle(path);
+        if (source == 0) { _painterlyCircularTextures[path] = null; return 0; }
+
+        try
+        {
+            byte[]? bytes = _mpq.ReadFile(path);
+            if (bytes is null) { _painterlyCircularTextures[path] = null; return source; }
+            // Decoded again only to size and seed the destination; the style
+            // pass overwrites every texel from the masked source texture.
+            byte[] bgra = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+            IconApertureMask.ApplyCircularBgra(bgra, width, height);
+            Texture destination = Texture.From2D(_gl, bgra, width, height, mipmaps: false, repeat: false);
+
+            uint fbo = _gl.GenFramebuffer();
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, fbo);
+            _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D, destination.Handle, 0);
+            if (_gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer) == GLEnum.FramebufferComplete)
+                style(fbo, source, width, height);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            _gl.DeleteFramebuffer(fbo);
+
+            _painterlyCircularTextures[path] = destination;
+            return destination.Handle;
+        }
+        catch { _painterlyCircularTextures[path] = null; return source; }
+    }
 
     /// <summary>
     /// Alpha-masked copy for an icon drawn inside circular button chrome. A ring texture cannot
@@ -114,6 +242,8 @@ public sealed class GameplayArt : IDisposable
         foreach (Texture texture in _additiveTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _brightHighlightTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
         foreach (Texture texture in _circularTextures.Values.Where(t => t is not null).Distinct()!) texture.Dispose();
+        // Styled copies are owned solely by this cache - nothing else holds them.
+        ClearPainterlyCache();
         _textures.Clear();
         _additiveTextures.Clear();
         _brightHighlightTextures.Clear();

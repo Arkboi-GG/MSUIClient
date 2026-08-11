@@ -25,7 +25,7 @@ public sealed partial class GameLoop
 
     private void DrawMinimap()
     {
-        if (_net is null || _gameplayArt is null ||
+        if ((_net is null && !HudPreview) || _gameplayArt is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player))
         {
             UpdateAndQueueMinimapResourceTooltip(null);
@@ -57,8 +57,14 @@ public sealed partial class GameLoop
                 parent: "", point: "TOPRIGHT", strata: "BACKGROUND");
         }
 
-        Vector2 mapMin = (root + new Vector2(35, 22)) * s;
-        Vector2 mapMax = mapMin + new Vector2(140) * s;
+        // Painterly mode presents the map SQUARE. Vanilla's roundness is not a
+        // clip - DrawMovingMinimap already crops to a rectangle - it is entirely
+        // the UI-Minimap-Border art painted over the corners. So the square
+        // variant simply declines to draw that art and frames the same rect,
+        // which also lets the body grow into the corners the circle threw away.
+        bool squareMap = PainterlyUi;
+        Vector2 mapMin = (root + (squareMap ? new Vector2(12, 26) : new Vector2(35, 22))) * s;
+        Vector2 mapMax = mapMin + new Vector2(squareMap ? 168 : 140) * s;
         // Local movement is client-authoritative in 1.12. The controller is the
         // continuously updated truth; the object-store entity is only the last
         // server snapshot and can remain unchanged for seconds.
@@ -85,9 +91,10 @@ public sealed partial class GameLoop
                 parent: "MinimapCluster", point: "CENTER", relativePoint: "TOP",
                 offsetX: "9", offsetY: "-92", strata: "BACKGROUND");
 
-        DrawMinimapTexture(dl, root, new(0, 20), new(192),
+        if (squareMap) DrawSquareMinimapFrame(dl, mapMin, mapMax, s);
+        else DrawMinimapTexture(dl, root, new(0, 20), new(192),
             @"Interface\Minimap\UI-Minimap-Border", new(.25f, .125f), new(1f, .875f));
-        if (_uiParityArmed && _uiParityPanel == "minimap")
+        if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapBackdrop", "Frame", (root + new Vector2(0, 20)) * s,
                 new Vector2(192) * s, parent: "Minimap", point: "CENTER",
@@ -98,11 +105,16 @@ public sealed partial class GameLoop
                 strata: "BACKGROUND", texCoords: "0.25|0.125|1.0|0.875");
         }
 
-        DrawMinimapButton(dl, root + new Vector2(157, 113), @"Interface\Minimap\UI-Minimap-ZoomInButton-Up",
+        // The stock zoom buttons sit on the CIRCLE's lower-right arc, which is
+        // inside the square body once the corners come back. Tuck them under
+        // the frame instead.
+        Vector2 zoomIn = squareMap ? new Vector2(120, 196) : new Vector2(157, 113);
+        Vector2 zoomOut = squareMap ? new Vector2(150, 196) : new Vector2(131, 141);
+        DrawMinimapButton(dl, root + zoomIn, @"Interface\Minimap\UI-Minimap-ZoomInButton-Up",
             () => _minimapZoom = Math.Max(0, _minimapZoom - 1));
-        DrawMinimapButton(dl, root + new Vector2(131, 141), @"Interface\Minimap\UI-Minimap-ZoomOutButton-Up",
+        DrawMinimapButton(dl, root + zoomOut, @"Interface\Minimap\UI-Minimap-ZoomOutButton-Up",
             () => _minimapZoom = Math.Min(5, _minimapZoom + 1));
-        if (_uiParityArmed && _uiParityPanel == "minimap")
+        if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapZoomIn", "Button", (root + new Vector2(157, 113)) * s,
                 new Vector2(32) * s, parent: "MinimapBackdrop", point: "CENTER",
@@ -120,9 +132,12 @@ public sealed partial class GameLoop
                 texture: @"Interface\Minimap\UI-Minimap-ZoomOutButton-Up", strata: "BACKGROUND");
         }
 
-        DrawMinimapTexture(dl, root, Vector2.Zero, new(192, 32),
-            @"Interface\Minimap\UI-Minimap-Border", new(.25f, 0), new(1, .125f));
-        if (_uiParityArmed && _uiParityPanel == "minimap")
+        // Square mode draws its own title bar (in DrawSquareMinimapFrame); the
+        // stock top piece is curved art that reads as a mistake on a rectangle.
+        if (!squareMap)
+            DrawMinimapTexture(dl, root, Vector2.Zero, new(192, 32),
+                @"Interface\Minimap\UI-Minimap-Border", new(.25f, 0), new(1, .125f));
+        if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("MinimapBorderTop", "Texture", rootPx, new Vector2(192, 32) * s,
                 parent: "MinimapCluster", point: "TOPRIGHT",
                 texture: @"Interface\Minimap\UI-Minimap-Border", layer: "ARTWORK",
@@ -146,6 +161,42 @@ public sealed partial class GameLoop
                 texture: @"Interface\Buttons\UI-Panel-MinimizeButton-Up", strata: "BACKGROUND");
             MarkUiParityFrameComplete();
         }
+    }
+
+    /// <summary>
+    /// The square map frame: a painted border with a title strip above it,
+    /// drawn from primitives rather than art so it needs no new BLPs. Layered
+    /// dark-to-light outward, which is how the reference's stone frames read.
+    /// </summary>
+    private void DrawSquareMinimapFrame(ImDrawListPtr dl, Vector2 mapMin, Vector2 mapMax, float s)
+    {
+        float pad = MathF.Max(1f, 3f * s);
+        var outerMin = new Vector2(mapMin.X - pad * 2f, mapMin.Y - pad * 2f);
+        var outerMax = new Vector2(mapMax.X + pad * 2f, mapMax.Y + pad * 2f);
+
+        // Title strip over the map's top edge, where the zone name already
+        // lands - carved from the same stone as the frame, so the cluster reads
+        // as one piece rather than a label sitting on a box.
+        float rule = MathF.Max(1f, s);
+        var titleMin = new Vector2(outerMin.X, outerMin.Y - 22f * s);
+        var titleMax = new Vector2(outerMax.X, outerMin.Y);
+        dl.AddRectFilledMultiColor(titleMin, titleMax,
+            PainterlyStoneTop, PainterlyStoneTop, PainterlyStoneLow, PainterlyStoneLow);
+        dl.AddRect(titleMin, titleMax, PainterlyFrameOuter, 0f, ImDrawFlags.None, rule);
+        DrawBevel(dl, titleMin, titleMax, rule, PainterlyStoneTop, PainterlyFrameOuter);
+        dl.AddLine(new Vector2(titleMin.X, titleMax.Y - rule),
+                   new Vector2(titleMax.X, titleMax.Y - rule), PainterlyFrameRule, rule);
+
+        // Frame proper: the shared carved panel, so map, portrait and skill bar
+        // are literally the same stone, inlay and light direction.
+        DrawSquarePanel(dl, mapMin, mapMax - mapMin, s);
+
+        // Compass letter under the map, as on the reference's framed map.
+        float fontSize = 11f * s;
+        Vector2 extent = ImGui.CalcTextSize("N") * (fontSize / MathF.Max(1, ImGui.GetFontSize()));
+        dl.AddText(ImGui.GetFont(), fontSize,
+            new Vector2((outerMin.X + outerMax.X) * .5f - extent.X * .5f, outerMax.Y + 2f * s),
+            UiGoldU32(), "N");
     }
 
     private void DrawMinimapZoneText(ImDrawListPtr dl, Vector2 root, float s)

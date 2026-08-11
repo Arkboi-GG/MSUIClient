@@ -188,8 +188,10 @@ public sealed partial class GameLoop
         // BACKGROUND layer: portrait and the four dynamic tree tiles.
         if (entity is not null)
         {
-            if (_playerPortrait is not null && _playerPortraitUsable)
-                dl.AddImage((nint)_playerPortrait.TextureHandle, origin + new Vector2(7, 6) * s,
+            // Round copy - the talent frame's aperture is authored art in both modes.
+            uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+            if (portrait != 0)
+                dl.AddImage((nint)portrait, origin + new Vector2(7, 6) * s,
                     origin + new Vector2(67, 66) * s, new Vector2(0, 1), new Vector2(1, 0));
             else DrawUnitPortraitImage(dl, entity, origin + new Vector2(7, 6) * s, 60 * s, 0, true);
         }

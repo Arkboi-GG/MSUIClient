@@ -137,6 +137,12 @@ public sealed class TerrainRenderer : IDisposable
     public float SunIntensity { get; set; } = 1.15f;
     public Vector3 AmbientColor { get; set; } = new(0.42f, 0.50f, 0.60f);
     public float AmbientIntensity { get; set; } = 0.85f;
+    /// <summary>
+    /// Opacity of the artists' MCSH terrain shadow. The 1.12 pixel-shader path
+    /// scales the full diffuse modulate by (0.3 * lit + 0.7), i.e. a flat 30%
+    /// reduction in authored shadow with no colour tint.
+    /// </summary>
+    public float AuthoredShadowStrength { get; set; } = 0.3f;
     public Vector3 FogColor { get; set; } = new(0.56f, 0.71f, 0.85f);
     public float FogStart { get; set; } = 350f;
     public float FogEnd { get; set; } = 900f;
@@ -601,15 +607,17 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Set("uSunIntensity", SunIntensity);
         _shader.Set("uAmbientColor", AmbientColor);
         _shader.Set("uAmbientIntensity", AmbientIntensity);
+        _shader.Set("uAuthoredShadowStrength", AuthoredShadowStrength);
         _shader.Set("uFogStart", FogStart);
         _shader.Set("uFogEnd", FogEnd);
         _shader.Set("uFogColor", FogColor);
         _shader.Set("uDebugMode", DebugMode);
         _shader.Set("uTextureScale", TextureScale);
 
-        // Sampler bindings are fixed: unit 0 tileset array, unit 1 alpha array.
+        // Sampler bindings are fixed: unit 0 tileset, unit 1 MCAL, unit 2 MCSH.
         _shader.Set("uTileset", 0);
         _shader.Set("uAlphaArray", 1);
+        _shader.Set("uShadowArray", 2);
 
         var viewProjection = camera.RelativeViewProjection;
         var cameraPosition = camera.Position;

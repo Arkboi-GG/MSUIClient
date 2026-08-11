@@ -663,6 +663,136 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         RenderGroundQuads(camera, [(vertices, rune, 2, Vector3.One, 1f, 0)]);
     }
 
+    // ── RTS ground FX (CRPG free view): selection rings + move markers ────────────────────────
+    // Same decal machinery as the targeting rune: projected onto real terrain triangles and
+    // depth-tested against the already-drawn units, so a ring's far arc disappears behind the
+    // character standing on it instead of floating over the model.
+
+    private Texture? _rtsRingTexture;
+    private Texture? _rtsChevronTexture;
+
+    public readonly record struct UnitRing(Vector3 Centre, float Radius, Vector3 Tint, float Opacity);
+    public readonly record struct MoveMarker(Vector3 Centre, float Age, Vector3 Tint);
+
+    /// <summary>Crisp anti-aliased band + faint inner fill + soft outer glow. White; tinted per draw.</summary>
+    private Texture RtsRingTexture()
+    {
+        if (_rtsRingTexture is not null) return _rtsRingTexture;
+        const int size = 256;
+        byte[] rgba = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = (x + 0.5f) / size * 2f - 1f;
+            float dy = (y + 0.5f) / size * 2f - 1f;
+            float d = MathF.Sqrt(dx * dx + dy * dy);
+            float band = SmoothStep(0.78f, 0.83f, d) * (1f - SmoothStep(0.90f, 0.95f, d));
+            float inner = d < 0.78f ? 0.08f * (0.25f + 0.75f * d / 0.78f) : 0f;
+            float glow = d > 0.95f ? MathF.Max(0f, 1f - (d - 0.95f) / 0.05f) * 0.30f : 0f;
+            float a = MathF.Min(1f, band + inner + glow);
+            int i = (y * size + x) * 4;
+            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
+            rgba[i + 3] = (byte)(a * 255f + 0.5f);
+        }
+        _rtsRingTexture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
+        return _rtsRingTexture;
+    }
+
+    /// <summary>A chevron (arrowhead) pointing +Y in texture space; frame rotation aims it.</summary>
+    private Texture RtsChevronTexture()
+    {
+        if (_rtsChevronTexture is not null) return _rtsChevronTexture;
+        const int size = 128;
+        byte[] rgba = new byte[size * size * 4];
+        Vector2 apex = new(0f, 0.55f);
+        Vector2 left = new(-0.55f, -0.35f);
+        Vector2 right = new(0.55f, -0.35f);
+        const float thickness = 0.17f;
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            // Texture V grows downward; flip so +Y in frame space points "up" the texture.
+            Vector2 p = new((x + 0.5f) / size * 2f - 1f, 1f - (y + 0.5f) / size * 2f);
+            float d = MathF.Min(DistanceToSegment(p, left, apex), DistanceToSegment(p, right, apex));
+            float a = 1f - SmoothStep(thickness * 0.55f, thickness, d);
+            int i = (y * size + x) * 4;
+            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
+            rgba[i + 3] = (byte)(a * 255f + 0.5f);
+        }
+        _rtsChevronTexture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
+        return _rtsChevronTexture;
+    }
+
+    private static float SmoothStep(float a, float b, float x)
+    {
+        float t = Math.Clamp((x - a) / MathF.Max(1e-5f, b - a), 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
+
+    private static float DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float t = Math.Clamp(Vector2.Dot(p - a, ab) / MathF.Max(1e-6f, ab.LengthSquared()), 0f, 1f);
+        return Vector2.Distance(p, a + ab * t);
+    }
+
+    public void RenderSelectionRings(Camera camera, IReadOnlyList<UnitRing> rings)
+    {
+        if (_groundShader is null || rings.Count == 0) return;
+        Texture ring = RtsRingTexture();
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        List<(float[], Texture?, int, Vector3, float, int)> draws = [];
+        foreach (UnitRing r in rings)
+        {
+            var frame = new DecalFrame(r.Centre, 0f, 1f, r.Radius, r.Radius, 2f * r.Radius);
+            if (ProjectDecal(frame, uv, camera.Position) is { } vertices)
+                draws.Add((vertices, ring, 2, r.Tint, r.Opacity, 0));
+        }
+        RenderGroundQuads(camera, draws);
+    }
+
+    /// <summary>
+    /// Classic RTS move confirm: a ring pulse collapsing onto the click point while three
+    /// chevrons slide inward and the whole thing fades. Callers drop markers older than ~0.9 s.
+    /// </summary>
+    public void RenderMoveMarkers(Camera camera, IReadOnlyList<MoveMarker> markers)
+    {
+        if (_groundShader is null || markers.Count == 0) return;
+        Texture ring = RtsRingTexture();
+        Texture chevron = RtsChevronTexture();
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        List<(float[], Texture?, int, Vector3, float, int)> draws = [];
+        foreach (MoveMarker m in markers)
+        {
+            float t = Math.Clamp(m.Age / 0.9f, 0f, 1f);
+            float ease = 1f - (1f - t) * (1f - t);            // fast in, settle out
+            float fade = 1f - SmoothStep(0.55f, 1f, t);
+            const float baseRadius = 0.85f;
+
+            float ringRadius = baseRadius * (1.45f - 0.55f * ease);
+            var ringFrame = new DecalFrame(m.Centre, 0f, 1f, ringRadius, ringRadius, 2f * ringRadius);
+            if (ProjectDecal(ringFrame, uv, camera.Position) is { } ringVertices)
+                draws.Add((ringVertices, ring, 2, m.Tint, fade, 0));
+
+            float slide = baseRadius * (1.7f - 1.05f * ease);
+            const float chevronHalf = 0.42f;
+            for (int k = 0; k < 3; k++)
+            {
+                float angle = k * (MathF.PI * 2f / 3f) + 0.5f;
+                (float sin, float cos) = MathF.SinCos(angle);
+                // Chevron sits out at `slide` along the angle and points back at the centre:
+                // +Y in frame space maps to (-sin, -cos)·slide direction via the frame rotation.
+                Vector3 at = m.Centre + new Vector3(sin * slide, cos * slide, 0f);
+                // Frame rotation of (angle + pi) maps the inward world direction onto frame +Y,
+                // which is where the chevron texture points.
+                var frame = new DecalFrame(at, -sin, -cos, chevronHalf, chevronHalf, 2f * chevronHalf);
+                if (ProjectDecal(frame, uv, camera.Position) is { } chevronVertices)
+                    draws.Add((chevronVertices, chevron, 2, m.Tint, fade, 0));
+            }
+        }
+        RenderGroundQuads(camera, draws);
+    }
+
     private unsafe void RenderGroundQuads(Camera camera,
         List<(float[] Vertices, Texture? Texture, int Blend, Vector3 Tint, float Opacity,
             int FogPolicy)> draws)
@@ -734,6 +864,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         if (_groundVao != 0) _gl.DeleteVertexArray(_groundVao);
         _meshes.Clear(); _textures.Clear(); _shader?.Dispose();
         _groundShader?.Dispose();
+        _rtsRingTexture?.Dispose();
+        _rtsChevronTexture?.Dispose();
     }
 
     private const string FragmentSource = @"#version 330 core

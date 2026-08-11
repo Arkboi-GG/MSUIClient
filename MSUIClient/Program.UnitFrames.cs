@@ -80,7 +80,17 @@ public sealed partial class GameLoop
 
         string framePath = @"Interface\TargetingFrame\UI-TargetingFrame";
         uint frame = _gameplayArt.Handle(framePath);
-        if (frame != 0)
+        if (PainterlyUi)
+        {
+            // Square chrome. The authored UI-TargetingFrame is a round gilded
+            // ring; over a painted world it reads as a different game, and its
+            // transparent corners are the only reason the portrait bake has to
+            // be circle-cut at all (see Program.Portraits). Drawing the frame
+            // from primitives keeps both square and needs no new art.
+            DrawSquarePanel(dl, p + new Vector2(portraitX, 12) * s, new Vector2(64) * s, s);
+            DrawSquarePanel(dl, troughMin, troughSize, s);
+        }
+        else if (frame != 0)
         {
             Vector2 uv0 = playerFrame ? new Vector2(1f, 0) : new Vector2(0.09375f, 0);
             Vector2 uv1 = playerFrame ? new Vector2(0.09375f, 0.78125f) : new Vector2(1f, 0.78125f);
@@ -195,8 +205,14 @@ public sealed partial class GameLoop
     }
 
     private static (Vector2 Min, Vector2 Size) DrawUnitFrameText(ImDrawListPtr dl, Vector2 center,
-        string text, float size, uint color)
+        string? text, float size, uint color)
     {
+        // A missing name draws nothing rather than taking the client down.
+        // ImGui.CalcTextSize throws ArgumentNullException on null, so every
+        // unnamed unit - one whose name query has not come back yet, or a
+        // synthetic one - was a crash waiting on the player frame.
+        if (string.IsNullOrEmpty(text)) return (center, Vector2.Zero);
+
         ImFontPtr font = ImGui.GetFont();
         Vector2 measured = ImGui.CalcTextSize(text) *
             (size / MathF.Max(1f, ImGui.GetFontSize()));
@@ -548,7 +564,10 @@ public sealed partial class GameLoop
                 fallback = $@"Interface\CharacterFrame\TemporaryPortrait-{sex}-{race}";
             }
             else fallback = @"Interface\CharacterFrame\TemporaryPortrait-Monster";
-            texture = _gameplayArt.Handle(fallback);
+            // Through the painterly art path: the stand-in is a flat BLP, not a
+            // render target, so it is the one portrait the bake-time styling in
+            // Program.Portraits can never reach.
+            texture = PainterlyArt(fallback);
             uv0 = Vector2.Zero;
             uv1 = Vector2.One;
         }
@@ -556,11 +575,12 @@ public sealed partial class GameLoop
         {
             // UI-TargetingFrame is the authored circular chrome and is drawn after this quad.
             // Its corners are TRANSPARENT (a thin ring band), so the square bake cannot hide
-            // behind it: live portrait textures are pre-masked to the inscribed circle at bake
-            // time (PortraitRenderTarget.ApplyCircularMask), matching the reference client's
-            // shader-side circular cut. ImGui.NET's rounded-image path emitted only one textured
-            // fan triangle on this backend (the face-shaped wedge captured in-game), so it
-            // cannot serve as a stencil.
+            // behind it: the caller passes the round copy of the bake for that chrome
+            // (UnitFramePortrait -> PortraitRenderTarget.CircularTextureHandle), matching the
+            // reference client's shader-side circular cut, and the square bake only when
+            // painterly's square panel is what gets drawn instead. ImGui.NET's rounded-image
+            // path emitted only one textured fan triangle on this backend (the face-shaped
+            // wedge captured in-game), so it cannot serve as a stencil.
             dl.AddImage((nint)texture, min, min + new Vector2(size), uv0, uv1, tint);
         }
     }

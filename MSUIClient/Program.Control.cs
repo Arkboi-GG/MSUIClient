@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Units;
 using Silk.NET.Input;
 
 namespace MSUIClient;
@@ -68,10 +70,25 @@ public sealed partial class GameLoop
     private PlayerActions OwnActions => ActionsFor(LocalPlayerGuid);
 
     /// <summary>
-    /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
-    /// field name: every existing read of the single-character store now follows possession.
+    /// The guid whose bars/spellbook/talents the HUD displays. In the free view a single
+    /// selected party bot swaps its bars in (read-only inspection); otherwise the
+    /// controlled unit's, exactly as before.
     /// </summary>
-    private PlayerActions _actions => ActionsFor(ControlledGuid);
+    internal ulong BarsGuid =>
+        _controlState == ControlState.FreeCam && _freecamSelection.Count == 1 &&
+        _freecamSelection[0] != LocalPlayerGuid
+            ? _freecamSelection[0]
+            : ControlledGuid;
+
+    /// <summary>Free-view inspection shows another unit's bars; they must never act.</summary>
+    private bool BarsReadOnly => BarsGuid != ControlledGuid;
+
+    /// <summary>
+    /// The store the action-bar/spellbook/talent UI reads. Deliberately keeps the historical
+    /// field name: every existing read of the single-character store now follows possession
+    /// (and, in the free view, the inspected selection).
+    /// </summary>
+    private PlayerActions _actions => ActionsFor(BarsGuid);
 
     /// <summary>Enter-world reset: drop every per-unit store (replaces `_actions.Clear()`).</summary>
     private void ResetActionStores() => _actionsByGuid.Clear();
@@ -86,7 +103,22 @@ public sealed partial class GameLoop
     private double _controlPendingSince;
     private ControlState _controlPendingReturn = ControlState.OwnChar;   // watchdog fallback
     private ulong _controlSwitchQueued;      // cycle target waiting for the in-flight release ACK
+    private bool _controlledBodyPending;     // possessed body rebuild waiting on entity stream-in
     private bool _controlCycleWasDown;
+
+    // ── Free-view marquee selection (party only, v1) ──────────────────────────────────────────
+    private Vector2? _freecamDragOrigin;         // left button went down here, over the world
+    private bool _freecamDragActive;             // travel exceeded the click threshold
+    private bool _freecamMarqueeConsumedClick;   // swallow the release's queued world click
+    private readonly List<ulong> _freecamSelection = [];
+    private const float FreecamDragThresholdPixels = 6f;
+    private readonly List<(Vector3 Pos, double Born, Vector3 Tint)> _rtsMoveMarkers = [];
+    private readonly List<Vector3> _rtsWaypointChain = [];   // Ctrl+RightClick chain dots
+    private Vector3 _freecamCamSentPosition;                 // last CMSG_SUI_CAM position
+    private double _freecamCamSentAt;                        // and when it went out
+    private static readonly Vector3 RtsFriendlyTint = new(0.30f, 0.95f, 0.45f);
+    private static readonly Vector3 RtsHostileTint = new(0.95f, 0.30f, 0.22f);
+    private static readonly Vector3 RtsNeutralTint = new(0.95f, 0.85f, 0.25f);
     private bool _freecamKeyWasDown;
     private bool _freecamRequested;          // the in-flight release asked for the free view
     private const byte SuiRosterControllable = 0x01;
@@ -127,7 +159,11 @@ public sealed partial class GameLoop
             return;
         }
 
-        if (result == SuiAckReleasedFreecam && _freecamRequested)
+        // Both solicited release codes honour a pending free-view request; only the
+        // forced codes (18+: death, teleport, group change) override it. A server
+        // answering 16 to a mode-1 release must not snap the camera back to the
+        // character — that read as a momentary floor-drop.
+        if (_freecamRequested && result is SuiAckFirstRelease or SuiAckReleasedFreecam)
         {
             // Enter the free view: nobody is driven, the whole party (own character
             // included) runs on AI. The controller becomes the fly rig where it stands;
@@ -140,7 +176,8 @@ public sealed partial class GameLoop
             if (_character is not null) _character.Enabled = false;
             EnterPlayerAuraWorld(LocalPlayerGuid);
             PurgeSuiSnapshot();
-            AddChatMessage("Free view: Ctrl+RightClick orders the party, Ctrl+F returns.");
+            AddChatMessage("Free view: drag-select the party, RightClick to move/attack, " +
+                "Ctrl+RightClick chains waypoints, Ctrl+F returns.");
             return;
         }
 
@@ -174,11 +211,22 @@ public sealed partial class GameLoop
             return;
         }
 
-        // Denial: fall back to whatever we were before the request.
+        // Denial: fall back to whatever we were before the request (a free-view
+        // possess click drops back into the free view, not onto the own character).
         if (_controlState == ControlState.PossessPending)
         {
-            _controlState = ControlState.OwnChar;
+            _controlState = _controlPendingReturn == ControlState.FreeCam
+                ? ControlState.FreeCam
+                : ControlState.OwnChar;
             _movementSender.Parked = false;
+        }
+        else if (_controlState == ControlState.FreeCam)
+        {
+            // The server refused the free-view exit (it no longer holds any control
+            // session for us). Land locally on the own character rather than staying
+            // stuck in the fly rig with no way back.
+            ExitFreeCamLocally();
+            return;
         }
         _controlSwitchQueued = 0;
         ShowUiError(result switch
@@ -212,9 +260,15 @@ public sealed partial class GameLoop
         {
             case Op.SMSG_ACTION_BUTTONS:
                 store.ApplyButtons(inner);
+                // Bots own no server-side buttons; an empty wire bar hands the
+                // slots to the layered client bars (base / class / per-bot).
+                if (store.OccupiedCount == 0 && store.KnownSpells.Count > 0)
+                    PopulateBotBar(source);
                 break;
             case Op.SMSG_INITIAL_SPELLS:
                 store.ApplyInitialSpells(inner, MovementInfo.ClientUptimeMs() / 1000.0);
+                if (store.OccupiedCount == 0 && store.KnownSpells.Count > 0)
+                    PopulateBotBar(source);
                 break;
             case Op.SMSG_LEARNED_SPELL:
                 store.Learn(new PacketReader(inner).ReadU16());
@@ -313,6 +367,27 @@ public sealed partial class GameLoop
         _suiSnapshotItemGuids.Clear();
     }
 
+    /// <summary>
+    /// Leave the free view without a server ACK position: seat on the own character's
+    /// streamed entity (or just drop the rig in place when it isn't resident).
+    /// </summary>
+    private void ExitFreeCamLocally()
+    {
+        _controlState = ControlState.OwnChar;
+        _controlTargetGuid = 0;
+        if (_entities.TryGet(LocalPlayerGuid, out WorldEntity self))
+            SeatControllerOnControlled(self.Position.X, self.Position.Y, self.Position.Z, self.Orientation);
+        else
+        {
+            if (_controller is not null) _controller.Flying = false;
+            if (_character is not null) _character.Enabled = true;
+            _movementSender.Parked = false;
+        }
+        _net?.SetActiveMover(LocalPlayerGuid);
+        EnterPlayerAuraWorld(LocalPlayerGuid);
+        ApplyControlledCharacter();
+    }
+
     /// <summary>Snap the local, client-authoritative controller onto the ACK position.</summary>
     private void SeatControllerOnControlled(float x, float y, float z, float o)
     {
@@ -330,18 +405,22 @@ public sealed partial class GameLoop
         _paperDollDirty = true;
     }
 
-    /// <summary>Ask the server for control of a party bot (portrait Alt+click / cycle key).</summary>
+    /// <summary>
+    /// Ask the server for control of a party bot (portrait Alt+click / cycle key / a
+    /// free-view click on a party toon — CRPG mode: click a character, you drive it).
+    /// </summary>
     internal void RequestPossess(ulong guid)
     {
         if (_net is not { IsInWorld: true } || _controller is null) return;
         if (guid == 0 || guid == LocalPlayerGuid) return;
-        if (_controlState != ControlState.OwnChar) return;
+        if (_controlState is not (ControlState.OwnChar or ControlState.FreeCam)) return;
         // Flush a MSG_MOVE_STOP at the own character's position BEFORE the request so no
-        // in-flight movement straggles into the mover swap, then park the stream.
+        // in-flight movement straggles into the mover swap, then park the stream. (From
+        // the free view the stream is already silent — flags are clear, nothing flushes.)
         _movementSender.ParkForRoot(_net, _controller);
         _movementSender.Parked = true;
+        _controlPendingReturn = _controlState;
         _controlState = ControlState.PossessPending;
-        _controlPendingReturn = ControlState.OwnChar;
         _controlPendingSince = NowSeconds();
         _net.SuiControlRequest(guid);
     }
@@ -407,6 +486,13 @@ public sealed partial class GameLoop
             ShowUiError("No answer from the server (SUI control).");
         }
 
+        // A possess granted before the bot's entity streamed in leaves the body
+        // rebuild pending; retry until the fields are resident.
+        if (_controlledBodyPending && _controlState == ControlState.Possessing)
+            ApplyControlledCharacter();
+
+        UpdateFreeCamSelection();
+
         bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
         bool tab = InputKeyDown(Key.Tab);
         bool cyclePressed = ctrl && tab;
@@ -422,34 +508,167 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Free-view world click (routed from the targeting click queue). Left selects;
-    /// Ctrl+RightClick issues the RTS order: hostile under cursor → party attack,
-    /// otherwise ground point → party move.
+    /// Free-view marquee lifecycle, run every frame from the input chain. The window's
+    /// FreeSelectMode keeps the LEFT button out of camera look while the free view is up,
+    /// so a left-drag over the world becomes the RTS selection rectangle. The queued
+    /// world click that the release still produces is swallowed via
+    /// <see cref="_freecamMarqueeConsumedClick"/> (drag travel never accumulates when the
+    /// mouse isn't captured, so the window classifies the release as a click).
+    /// </summary>
+    private void UpdateFreeCamSelection()
+    {
+        bool inFreeCam = _controlState == ControlState.FreeCam;
+        _window.FreeSelectMode = inFreeCam;
+        if (!inFreeCam)
+        {
+            _freecamDragOrigin = null;
+            _freecamDragActive = false;
+            _freecamMarqueeConsumedClick = false;
+            _freecamSelection.Clear();
+            _rtsWaypointChain.Clear();
+            return;
+        }
+
+        // Keep the server's streaming eye under the camera: heartbeat every 2 s, and
+        // whenever the rig has flown more than a few yards since the last send.
+        if (_controller is not null)
+        {
+            double now = NowSeconds();
+            Vector3 rig = _controller.Position;
+            if (now - _freecamCamSentAt > 2.0 ||
+                Vector3.DistanceSquared(rig, _freecamCamSentPosition) > 5f * 5f)
+            {
+                if (_net?.SuiCam(rig.X, rig.Y, rig.Z) == true)
+                {
+                    _freecamCamSentPosition = rig;
+                    _freecamCamSentAt = now;
+                }
+            }
+        }
+
+        bool leftDown = _window.MouseLeftDown;
+        Vector2 mouse = _window.MousePosition;
+
+        if (leftDown && _freecamDragOrigin is null &&
+            !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
+            _freecamDragOrigin = mouse;
+
+        if (leftDown && !_freecamDragActive && _freecamDragOrigin is Vector2 origin &&
+            (mouse - origin).Length() > FreecamDragThresholdPixels)
+            _freecamDragActive = true;
+
+        if (!leftDown && _freecamDragOrigin is Vector2 anchor)
+        {
+            if (_freecamDragActive)
+            {
+                CommitMarqueeSelection(anchor, mouse);
+                _freecamMarqueeConsumedClick = true;
+            }
+            _freecamDragOrigin = null;
+            _freecamDragActive = false;
+        }
+    }
+
+    /// <summary>Party members (own character + group) — the v1 selectable set.</summary>
+    private IEnumerable<ulong> FreeCamSelectableGuids()
+    {
+        yield return LocalPlayerGuid;
+        foreach (PartyMember member in _partyMembers)
+            if (member.Guid != LocalPlayerGuid)
+                yield return member.Guid;
+    }
+
+    private void CommitMarqueeSelection(Vector2 a, Vector2 b)
+    {
+        _freecamSelection.Clear();
+        Vector2 min = Vector2.Min(a, b);
+        Vector2 max = Vector2.Max(a, b);
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        foreach (ulong guid in FreeCamSelectableGuids())
+        {
+            if (!_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead) continue;
+            if (!_window.Camera.TryWorldToScreen(unit.Position, display, out Vector2 screen)) continue;
+            if (screen.X >= min.X && screen.X <= max.X && screen.Y >= min.Y && screen.Y <= max.Y)
+                _freecamSelection.Add(guid);
+        }
+        if (_freecamSelection.Count == 1)
+            EnsureBotBarForViewing(_freecamSelection[0]);
+        if (_freecamSelection.Count > 0)
+            AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, a hostile to attack.");
+    }
+
+    /// <summary>
+    /// Free-view world click (routed from the targeting click queue). Left selects (a
+    /// party member joins the highlighted set; empty ground clears it). RightClick
+    /// orders the HIGHLIGHTED set: hostile under cursor → attack, ground → move.
+    /// Ctrl+RightClick keeps ordering the whole party regardless of the selection.
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click)
     {
         if (click.Button == MouseButton.Left)
         {
-            CommitSelection(PickUnit(click.Position), beginAttack: false);
+            if (_freecamMarqueeConsumedClick)
+            {
+                _freecamMarqueeConsumedClick = false;
+                return;
+            }
+            ulong pickedUnit = PickUnit(click.Position);
+            // CRPG rule: clicking a party toon in the free view IS taking control of it —
+            // the same jump as Ctrl+Tab / Alt+clicking its portrait. Bars go live.
+            if (pickedUnit != 0)
+                foreach (ulong guid in FreeCamSelectableGuids())
+                    if (guid == pickedUnit)
+                    {
+                        SwitchControlTo(guid);
+                        return;
+                    }
+            CommitSelection(pickedUnit, beginAttack: false);
+            _freecamSelection.Clear();
             return;
         }
         if (click.Button != MouseButton.Right) return;
+
         bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
-        if (!ctrl) return;
+        List<ulong> subjects = [.. _freecamSelection];
 
         ulong picked = PickUnit(click.Position);
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
             !target.IsDead && CanAttack(target))
         {
-            _net?.SuiOrder(1, [], picked, 0, 0, 0);
-            AddChatMessage($"Party: attack {ResolveWorldUnitName(picked)}!");
+            if (subjects.Count == 0 && !ctrl) return;   // nothing highlighted, no accidental orders
+            _net?.SuiOrder(1, subjects, picked, 0, 0, 0);
+            _rtsMoveMarkers.Add((target.Position, NowSeconds(), RtsHostileTint));
+            _rtsWaypointChain.Clear();
+            AddChatMessage($"{OrderSubjectLabel(subjects)}: attack {ResolveWorldUnitName(picked)}!");
         }
         else if (TryPickGround(click.Position, out System.Numerics.Vector3 point))
         {
-            _net?.SuiOrder(0, [], 0, point.X, point.Y, point.Z);
-            AddChatMessage($"Party: move to ({point.X:F0}, {point.Y:F0}).");
+            if (ctrl)
+            {
+                // Ctrl+RightClick chains a waypoint (whole party when nothing is highlighted).
+                _net?.SuiOrder(3, subjects, 0, point.X, point.Y, point.Z);
+                _rtsWaypointChain.Add(point);
+                _rtsMoveMarkers.Add((point, NowSeconds(), RtsNeutralTint));
+                AddChatMessage($"{OrderSubjectLabel(subjects)}: waypoint {_rtsWaypointChain.Count} " +
+                    $"({point.X:F0}, {point.Y:F0}).");
+            }
+            else
+            {
+                if (subjects.Count == 0) return;   // plain move needs a highlighted set
+                _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
+                _rtsMoveMarkers.Add((point, NowSeconds(), RtsFriendlyTint));
+                _rtsWaypointChain.Clear();
+                AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
+            }
         }
     }
+
+    private string OrderSubjectLabel(List<ulong> subjects) => subjects.Count switch
+    {
+        0 => "Party",
+        1 => ResolveUnitName(subjects[0]),
+        _ => $"Party ({subjects.Count})",
+    };
 
     private string ResolveWorldUnitName(ulong guid)
     {
@@ -482,11 +701,15 @@ public sealed partial class GameLoop
     /// <summary>Jump control to a unit, chaining release→possess when already possessing.</summary>
     internal void SwitchControlTo(ulong guid)
     {
-        if (guid == ControlledGuid) return;
+        if (guid == ControlledGuid && _controlState != ControlState.FreeCam) return;
         switch (_controlState)
         {
             case ControlState.OwnChar when guid != LocalPlayerGuid:
+            case ControlState.FreeCam when guid != LocalPlayerGuid:
                 RequestPossess(guid);
+                break;
+            case ControlState.FreeCam:
+                ToggleFreeView();   // clicked the own character: back to driving it
                 break;
             case ControlState.Possessing when guid == LocalPlayerGuid:
                 RequestControlRelease(toFreecam: false);
@@ -501,6 +724,123 @@ public sealed partial class GameLoop
     private string ResolveUnitName(ulong guid) =>
         _playerNames.TryGetValue(guid, out string? name) ? name : $"unit {guid:X}";
 
+    /// <summary>
+    /// Free-view selection overlay — only the live marquee rectangle lives in screen
+    /// space now. Selection rings are world-space ground decals (RenderRtsGroundFx) and
+    /// the members inside the rectangle light up through the renderer highlight.
+    /// </summary>
+    private void DrawFreeCamSelectionOverlay()
+    {
+        if (_controlState != ControlState.FreeCam) return;
+        var draw = ImGui.GetForegroundDrawList();
+        Vector2 display = ImGui.GetIO().DisplaySize;
+
+        // Dashed connector through the waypoint chain, so the route reads at a glance.
+        if (_rtsWaypointChain.Count > 1)
+        {
+            Vector2? previous = null;
+            foreach (Vector3 waypoint in _rtsWaypointChain)
+            {
+                if (!_window.Camera.TryWorldToScreen(waypoint, display, out Vector2 screen))
+                { previous = null; continue; }
+                if (previous is Vector2 from) DrawDashedLine(draw, from, screen, 0xAA55D8F0, 10f, 7f);
+                previous = screen;
+            }
+        }
+
+        if (!_freecamDragActive || _freecamDragOrigin is not Vector2 origin) return;
+        Vector2 mouse = _window.MousePosition;
+        Vector2 min = Vector2.Min(origin, mouse);
+        Vector2 max = Vector2.Max(origin, mouse);
+        draw.AddRectFilled(min, max, 0x2240E080);
+        draw.AddRect(min, max, 0xCC40E080);
+    }
+
+    private static void DrawDashedLine(ImDrawListPtr draw, Vector2 from, Vector2 to,
+        uint color, float dash, float gap)
+    {
+        Vector2 delta = to - from;
+        float length = delta.Length();
+        if (length < 1f) return;
+        Vector2 dir = delta / length;
+        for (float at = 0f; at < length; at += dash + gap)
+        {
+            float end = MathF.Min(at + dash, length);
+            draw.AddLine(from + dir * at, from + dir * end, color, 2f);
+        }
+    }
+
+    /// <summary>Party members the live marquee rectangle currently covers (drag preview).</summary>
+    private void AddMarqueePreview(ISet<ulong> set)
+    {
+        if (_controlState != ControlState.FreeCam ||
+            !_freecamDragActive || _freecamDragOrigin is not Vector2 origin) return;
+        Vector2 mouse = _window.MousePosition;
+        Vector2 min = Vector2.Min(origin, mouse);
+        Vector2 max = Vector2.Max(origin, mouse);
+        Vector2 display = ImGui.GetIO().DisplaySize;
+        foreach (ulong guid in FreeCamSelectableGuids())
+        {
+            if (!_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead) continue;
+            if (!_window.Camera.TryWorldToScreen(unit.Position, display, out Vector2 feet)) continue;
+            if (feet.X >= min.X && feet.X <= max.X && feet.Y >= min.Y && feet.Y <= max.Y)
+                set.Add(guid);
+        }
+    }
+
+    /// <summary>
+    /// World-space RTS ground FX: depth-tested selection rings under every selected unit
+    /// (the model occludes the far arc) and the animated move-confirm markers. Runs in the
+    /// 3-D render pass after units have populated depth — never from the HUD.
+    /// </summary>
+    private void RenderRtsGroundFx()
+    {
+        if (_spellEffectMeshes is null) return;
+        _spellEffectMeshes.GatherGround ??= _terrain is not null
+            ? _terrain.GatherGroundTriangles : null;
+        double now = NowSeconds();
+        _rtsMoveMarkers.RemoveAll(m => now - m.Born > 0.9);
+
+        if (_controlState == ControlState.FreeCam)
+        {
+            List<SpellEffectMeshRenderer.UnitRing> rings = [];
+            float pulse = 0.80f + 0.15f * MathF.Sin((float)(now * 3.0));
+            foreach (ulong guid in _freecamSelection)
+            {
+                if (!_entities.TryGet(guid, out WorldEntity unit) || unit.IsDead) continue;
+                float radius = 1.05f * MathF.Max(0.5f, unit.Scale <= 0f ? 1f : unit.Scale);
+                rings.Add(new(unit.Position, radius, RtsFriendlyTint, pulse));
+            }
+            // A non-party pick (mob clicked from the sky) rings in its reaction colour.
+            if (_selectionGuid != 0 && !_freecamSelection.Contains(_selectionGuid) &&
+                _entities.TryGet(_selectionGuid, out WorldEntity target) && !target.IsDead)
+            {
+                Vector3 tint = ReactionTargetTowardPlayer(target) switch
+                {
+                    FactionReaction.Hostile => RtsHostileTint,
+                    FactionReaction.Friendly => RtsFriendlyTint,
+                    _ => RtsNeutralTint,
+                };
+                float radius = 1.05f * MathF.Max(0.5f, target.Scale <= 0f ? 1f : target.Scale);
+                rings.Add(new(target.Position, radius, tint, pulse));
+            }
+            // Waypoint-chain dots: small persistent rings until a plain move/stop replaces them.
+            foreach (Vector3 waypoint in _rtsWaypointChain)
+                rings.Add(new(waypoint, 0.40f, RtsNeutralTint, 0.55f));
+
+            if (rings.Count > 0)
+                _spellEffectMeshes.RenderSelectionRings(_window.Camera, rings);
+        }
+
+        if (_rtsMoveMarkers.Count > 0)
+        {
+            List<SpellEffectMeshRenderer.MoveMarker> markers = [];
+            foreach ((Vector3 pos, double born, Vector3 tint) in _rtsMoveMarkers)
+                markers.Add(new(pos, (float)(now - born), tint));
+            _spellEffectMeshes.RenderMoveMarkers(_window.Camera, markers);
+        }
+    }
+
     /// <summary>Small HUD line while controlling a bot or waiting on the server.</summary>
     private void DrawControlBanner()
     {
@@ -510,7 +850,10 @@ public sealed partial class GameLoop
                 $"Controlling {ResolveUnitName(_controlTargetGuid)} — Ctrl+Tab to switch, Ctrl+F free view",
             ControlState.PossessPending => "Taking control…",
             ControlState.ReleasePending => "Releasing control…",
-            ControlState.FreeCam => "Free view — Ctrl+RightClick: order party · Ctrl+F: return",
+            ControlState.FreeCam => _freecamSelection.Count == 1 && _freecamSelection[0] != LocalPlayerGuid
+                ? $"Free view — {ResolveUnitName(_freecamSelection[0])}'s bars (read-only) · " +
+                  "RightClick: move/attack · Ctrl+RightClick: waypoints · Ctrl+F: return"
+                : "Free view — drag: select · RightClick: move/attack · Ctrl+RightClick: chain waypoints · Ctrl+F: return",
             _ => "",
         };
         if (text.Length == 0) return;
@@ -521,5 +864,34 @@ public sealed partial class GameLoop
         var pos = new Vector2((io.DisplaySize.X - size.X) * 0.5f, 24f);
         draw.AddRectFilled(pos - new Vector2(8, 4), pos + size + new Vector2(8, 4), 0x99000000u, 4f);
         draw.AddText(pos, 0xFF40D0FFu, text);
+
+        if (_controlState == ControlState.Possessing)
+            DrawBotBarLayerToggle(pos.Y + size.Y + 12f);
+    }
+
+    /// <summary>
+    /// While driving a bot, bar edits are client-persisted; this picks the layer they land
+    /// on — the named bot's override map, or the customization shared by its whole class.
+    /// </summary>
+    private void DrawBotBarLayerToggle(float y)
+    {
+        var io = ImGui.GetIO();
+        string className = BotClassName(ControlledGuid, ResolveUnitName(ControlledGuid));
+        ImGui.SetNextWindowPos(new Vector2(io.DisplaySize.X * 0.5f, y), ImGuiCond.Always,
+            new Vector2(0.5f, 0f));
+        ImGui.SetNextWindowBgAlpha(0.55f);
+        if (ImGui.Begin("##botbar-layer", ImGuiWindowFlags.NoDecoration |
+            ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings |
+            ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoFocusOnAppearing))
+        {
+            ImGui.TextUnformatted("Bar edits save to:");
+            ImGui.SameLine();
+            if (ImGui.RadioButton("this bot", !_botBarSaveToClass)) _botBarSaveToClass = false;
+            ImGui.SameLine();
+            if (ImGui.RadioButton(className.Length != 0 ? $"all {className}s" : "class",
+                    _botBarSaveToClass))
+                _botBarSaveToClass = true;
+        }
+        ImGui.End();
     }
 }

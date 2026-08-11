@@ -1136,12 +1136,20 @@ public sealed partial class GameLoop
     {
         if (_character is null) return;
         ulong guid = ControlledGuid;
+        _controlledBodyPending = false;
         if (guid == LocalPlayerGuid)
         {
             ApplyServerCharacter(rebuild: false);
             return;
         }
-        if (!_entities.TryGet(guid, out WorldEntity bot) || !bot.IsPlayer) return;
+        if (!_entities.TryGet(guid, out WorldEntity bot) || !bot.IsPlayer)
+        {
+            // Possession granted before the bot's entity streamed in (far-away
+            // Alt+click). UpdateControlInput retries until the fields arrive so the
+            // body and portrait don't stay stuck on the session character.
+            _controlledBodyPending = true;
+            return;
+        }
 
         (byte race, _, byte gender, _) = bot.Fields.Bytes0;
         (byte skin, byte face, byte hairStyle, byte hairColor) = bot.Fields.PlayerAppearance;
@@ -1250,7 +1258,11 @@ public sealed partial class GameLoop
     private void DrawCreatures()
     {
         if (_creatures is null) return;
-        if (!_creatorWorldRequested && (_net is null || !_net.IsInWorld)) return;
+        if (!_creatorWorldRequested && (_net is null || !_net.IsInWorld))
+        {
+            _creatures.NoteKnownNotDrawn(_entities);
+            return;
+        }
         _creatures.SelfPlayerGuid = RenderSelfGuid;
         _creatures.Render(_window.Camera, _entities);
     }
@@ -1260,6 +1272,16 @@ public sealed partial class GameLoop
     /// <summary>Called from Gui(). Draws whichever glue/status screen matches the connection state.</summary>
     private void NetHud()
     {
+        // Offline HUD preview (Program.HudPreview.cs) - draws the real gameplay
+        // frames against a synthetic player so UI work is checkable in the same
+        // screenshot probe the world uses. FIRST, because the probe that boots
+        // the offline world is the creator sandbox, and the creator branch below
+        // returns before any net state is considered - so anywhere lower down
+        // this never runs. It replaces the creator overlay rather than stacking
+        // on it, which is what makes the screenshot worth reading. Env-gated and
+        // self-disabling the moment a real session exists.
+        if (HudPreview) { DrawHudPreview(); return; }
+
         // Creator sandbox owns the world: its own overlay, no net states involved.
         if (_creatorWorldRequested) { DrawCreatorHud(); return; }
 
@@ -2119,6 +2141,7 @@ public sealed partial class GameLoop
     {
         _glueAdd?.Flush(ImGui.GetIO().DisplaySize, onTop: true);
         FinishGameplayDump();
+        FinishPainterlyComparisonCapture();
         FinishUiParityCapture();
         FinishBagContainmentCapture();
     }

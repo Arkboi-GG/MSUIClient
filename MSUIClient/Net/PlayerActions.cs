@@ -79,6 +79,13 @@ public sealed class PlayerActions
         }
     }
 
+    /// <summary>Seed the spellbook from a client-side cache (free-view bot bars).</summary>
+    public void SeedSpells(IEnumerable<uint> spells)
+    {
+        _knownSpells.Clear();
+        foreach (uint spell in spells) _knownSpells.Add(spell);
+    }
+
     public void Learn(uint spell) => _knownSpells.Add(spell);
     public void Remove(uint spell)
     {

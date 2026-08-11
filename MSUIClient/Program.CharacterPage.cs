@@ -237,8 +237,11 @@ public sealed partial class GameLoop
                     ClipMask: "AUTHORED_ROUND_APERTURE_OVERLAY", BlendMode: "BLEND",
                     Visible: true, InteractionState: liveTarget ? "live-player-model" : "unit-fallback",
                     Strata: "MEDIUM"));
-        if (_playerPortrait is not null && _playerPortraitUsable)
-            dl.AddImage((nint)_playerPortrait.TextureHandle, min, min + size,
+        // The round copy: this frame's aperture is the authored round overlay in
+        // BOTH modes, so it must never be handed the square bake.
+        uint portrait = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+        if (portrait != 0)
+            dl.AddImage((nint)portrait, min, min + size,
                 new Vector2(0, 1), new Vector2(1, 0), 0xffffffff);
         else
             DrawUnitPortraitImage(dl, player, min, size.X, 0, true);

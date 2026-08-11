@@ -163,6 +163,36 @@ public sealed class Texture : IDisposable
     }
 
     /// <summary>
+    /// 2D array texture from one contiguous single-channel buffer, clamped and
+    /// unmipmapped. Terrain uses this for the 64x64-per-chunk MCSH masks: an R8
+    /// allocation keeps the authored shadow independent of the RGBA MCAL blend
+    /// masks and costs exactly one byte per texel.
+    /// </summary>
+    public static unsafe Texture ArrayR8NoMips(
+        GL gl, byte[] red, int width, int height, int layers, GL? ownerGl = null)
+    {
+        uint handle = gl.GenTexture();
+        gl.BindTexture(TextureTarget.Texture2DArray, handle);
+
+        fixed (byte* p = red)
+        {
+            gl.TexImage3D(TextureTarget.Texture2DArray, 0, InternalFormat.R8,
+                (uint)width, (uint)height, (uint)layers, 0,
+                PixelFormat.Red, PixelType.UnsignedByte, p);
+        }
+
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureBaseLevel, 0);
+        gl.TexParameter(TextureTarget.Texture2DArray, TextureParameterName.TextureMaxLevel, 0);
+
+        gl.BindTexture(TextureTarget.Texture2DArray, 0);
+        return new Texture(ownerGl ?? gl, handle, TextureTarget.Texture2DArray, width, height, layers);
+    }
+
+    /// <summary>
     /// Single 2D texture from raw RGBA bytes, clamped and unmipmapped.
     /// </summary>
     public static unsafe Texture FromRgbaNoMips(

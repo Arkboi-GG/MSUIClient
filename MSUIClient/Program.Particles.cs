@@ -137,6 +137,124 @@ public sealed partial class GameLoop
                 ImGui.TextDisabled("   whole-scene; lower for dark interiors (~0.25)");
             }
 
+            // Painterly mode (illustrated 2D-RPG restyle) - owned by the game loop.
+            if (_painterly is not null)
+            {
+                bool painterlyChanged = false;
+                bool paintOn = _painterly.Enabled;
+                if (ImGui.Checkbox("Painterly (illustrated)", ref paintOn))
+                {
+                    _painterly.Enabled = paintOn;
+                    painterlyChanged = true;
+                }
+                float bands = _painterly.Bands;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly bands", ref bands, 3f, 24f, "%.0f"))
+                {
+                    _painterly.Bands = bands;
+                    painterlyChanged = true;
+                }
+                float detail = _painterly.Detail;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly detail", ref detail, 0f, 2f, "%.2f"))
+                {
+                    _painterly.Detail = detail;
+                    painterlyChanged = true;
+                }
+                float ink = _painterly.Ink;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly ink", ref ink, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Ink = ink;
+                    painterlyChanged = true;
+                }
+                float inkGate = _painterly.InkThreshold;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly ink threshold", ref inkGate, 0.01f, 0.5f, "%.2f"))
+                {
+                    _painterly.InkThreshold = inkGate;
+                    painterlyChanged = true;
+                }
+                float sat = _painterly.Saturation;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly saturation", ref sat, 0f, 2f, "%.2f"))
+                {
+                    _painterly.Saturation = sat;
+                    painterlyChanged = true;
+                }
+                float sil = _painterly.Silhouette;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly silhouettes", ref sil, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Silhouette = sil;
+                    painterlyChanged = true;
+                }
+                float depthFade = _painterly.DepthFade;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly distance calm", ref depthFade, 0f, 1f, "%.2f"))
+                {
+                    _painterly.DepthFade = depthFade;
+                    painterlyChanged = true;
+                }
+                float calmStart = _painterly.CalmStart;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly calm starts", ref calmStart, 5f, 300f, "%.0f yd"))
+                {
+                    _painterly.CalmStart = MathF.Min(calmStart, _painterly.CalmEnd - 1f);
+                    painterlyChanged = true;
+                }
+                float calmEnd = _painterly.CalmEnd;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly calm completes", ref calmEnd, 10f, 600f, "%.0f yd"))
+                {
+                    _painterly.CalmEnd = MathF.Max(calmEnd, _painterly.CalmStart + 1f);
+                    painterlyChanged = true;
+                }
+                if (!_painterly.DepthAvailable)
+                    ImGui.TextDisabled("   depth resolve unavailable - those two are inert");
+                float contrast = _painterly.Contrast;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly light/shade", ref contrast, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Contrast = contrast;
+                    painterlyChanged = true;
+                }
+                float lift = _painterly.Lift;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly brightness", ref lift, 0.5f, 2f, "%.2f"))
+                {
+                    _painterly.Lift = lift;
+                    painterlyChanged = true;
+                }
+                float warmth = _painterly.Warmth;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly sun/shade", ref warmth, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Warmth = warmth;
+                    painterlyChanged = true;
+                }
+                float dither = _painterly.Dither;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly band dither", ref dither, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Dither = dither;
+                    painterlyChanged = true;
+                }
+                float grain = _painterly.Grain;
+                ImGui.SetNextItemWidth(160f);
+                if (ImGui.SliderFloat("Painterly grain", ref grain, 0f, 1f, "%.2f"))
+                {
+                    _painterly.Grain = grain;
+                    painterlyChanged = true;
+                }
+                // Marked, not applied: these sliders write onto the pass every
+                // frame of a drag, and rebaking the styled art each of those
+                // frames stutters. FlushPainterlyArt picks it up on release.
+                if (painterlyChanged) MarkPainterlyArtStale();
+                ImGui.TextDisabled("   fewer bands = bolder; detail 0=smooth, 1=source, 2=sharp;\n" +
+                                   "   ink darkens boundaries, raise the threshold if ground inks");
+            }
+
             // Portal "looking glass" surface film - a flat plane, not the sprites.
             bool surf = _particles.PortalSurface;
             if (ImGui.Checkbox("Portal surface film", ref surf)) _particles.PortalSurface = surf;

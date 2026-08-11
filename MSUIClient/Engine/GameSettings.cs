@@ -33,8 +33,10 @@ public sealed class GameSettings
 {
     /// <summary>Bumped when a rename or a units change needs migration handling.
     /// v2: portal culling (PLAN_10) became the shipped default.
-    /// v3: ForceTwoSided went back to being a diagnostic, off by default.</summary>
-    public int Version { get; set; } = 3;
+    /// v3: ForceTwoSided went back to being a diagnostic, off by default.
+    /// v4: painterly detail became an absolute gain and gained explicit calm/dither controls.
+    /// v5: painterly band strength separated subtle flattening from the band count.</summary>
+    public int Version { get; set; } = 5;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -165,11 +167,35 @@ public sealed class GameSettings
         public int WindowHeight { get; set; } = 900;              // restart
         public bool Fullscreen { get; set; }                      // live (Alt+Enter toggles too)
         public bool VSync { get; set; } = true;                   // live
-        public int MsaaSamples { get; set; } = 1;                 // restart
+        public int MsaaSamples { get; set; } = 4;                 // restart
         public bool MultisamplingEnabled { get; set; } = true;    // live (the GL enable, not the count)
         public float Anisotropy { get; set; } = 8f;               // restart
         public float UiScale { get; set; } = 1.8f;                // live
+        public float FontScale { get; set; } = 1f;                // live - text only, independent of UiScale
         public bool TexturedFrame { get; set; } = true;           // live - WowSkin.Textured
+
+        // Painterly mode (Engine/PainterlyPass.cs) - all live. The shipped
+        // crisp-flat profile keeps the source art legible and adds only light
+        // value/edge structure. config render.painterly true is a hard-on
+        // override for scripted runs.
+        public bool Painterly { get; set; }                            // live
+        public bool PainterlyUi { get; set; }                          // live, independently styles HUD art
+        public float PainterlyBands { get; set; } = 18f;               // live, 3..24 painted value steps
+        public float PainterlyBandStrength { get; set; } = 0.30f;      // live, 0..1 blend toward quantized values
+        public float PainterlyDetail { get; set; } = 1f;               // live, 0..2 absolute residual gain; 1=source
+        public float PainterlyInk { get; set; } = 0.10f;               // live, 0..1 boundary darkening
+        public float PainterlyInkThreshold { get; set; } = 0.19f;      // live, 0.01..0.5 edge noise gate
+        public float PainterlySilhouette { get; set; } = 0.22f;        // live, 0..1 depth-edge ink
+        public float PainterlyDepthFade { get; set; } = 0.35f;         // live, 0..1 aerial perspective strength
+        public float PainterlyCalmStart { get; set; } = 60f;           // live, world distance
+        public float PainterlyCalmEnd { get; set; } = 240f;            // live, world distance
+        public float PainterlySaturation { get; set; } = 1.07f;        // live, 0..2 colour richness; 1=source
+        public float PainterlyContrast { get; set; } = 0.18f;          // live, 0..1 value S-curve before banding
+        public float PainterlyLift { get; set; } = 1.01f;              // live, 0.5..2 midtone gamma lift; 1=source
+        public float PainterlyWarmth { get; set; } = 0.08f;            // live, 0..1 sun/shade split tone
+        public float PainterlyGrain { get; set; } = 0f;                // live, 0..1 canvas grain
+        public float PainterlyDither { get; set; } = 0.04f;            // live, 0..1 stable band dither
+        public int PainterlyCanvasHeight { get; set; } = 1440;         // live, 0=native; HUD remains native
     }
 
     /// <summary>
@@ -423,6 +449,8 @@ public sealed class GameSettings
 
         public float SunStrength { get; set; } = 1f;
         public float AmbientStrength { get; set; } = 1f;
+        public float TerrainShadowStrength { get; set; } = 0.3f;
+        public float UnitShadowOpacity { get; set; } = 0.42f;
 
         /// <summary>Interior baked light scale. 2.0 is vanilla - see SYSTEM_WMO_INTERIOR_LIGHTING.md.</summary>
         public float InteriorBrightness { get; set; } = 2.0f;
@@ -460,6 +488,9 @@ public sealed class GameSettings
         public float MaxCameraDistance { get; set; } = 40f;
         public float EyeHeight { get; set; } = 2.2f;
         public float TurnSpeedDegrees { get; set; } = 180f;
+
+        /// <summary>CRPG/RTS command strips beside the party portraits (roles, hold, patrol).</summary>
+        public bool RtsCommands { get; set; }
     }
 
     /// <summary>
@@ -686,8 +717,10 @@ public sealed class SettingsStore
         {
             if (File.Exists(path))
             {
+                string rawJson = File.ReadAllText(path);
+                bool serializedPainterlyDetail = HasSerializedPainterlyDetail(rawJson);
                 var parsed = JsonSerializer.Deserialize<FileShape>(
-                    File.ReadAllText(path), GameSettings.Json);
+                    rawJson, GameSettings.Json);
 
                 if (parsed is not null)
                 {
@@ -695,7 +728,7 @@ public sealed class SettingsStore
                     // the file: a hand-edited percentage should take effect, and a
                     // curve change in a new build should reach an old file.
                     parsed.Settings.ResolveComposites();
-                    Migrate(parsed.Settings);
+                    Migrate(parsed.Settings, serializedPainterlyDetail);
 
                     Console.WriteLine($"[settings] {path}  " +
                                       $"preset '{parsed.Settings.ActivePreset}', " +
@@ -724,7 +757,38 @@ public sealed class SettingsStore
     /// to a stale value. Each step is idempotent and bumps the version; the user's
     /// later choices (saved at the new version) are then respected.
     /// </summary>
-    private static void Migrate(GameSettings s)
+    private static bool HasSerializedPainterlyDetail(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true,
+        });
+
+        return TryGetProperty(document.RootElement, "Settings", out JsonElement settings) &&
+               TryGetProperty(settings, "Display", out JsonElement display) &&
+               TryGetProperty(display, "PainterlyDetail", out _);
+
+        static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+        {
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty property in element.EnumerateObject())
+                {
+                    if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value = property.Value;
+                        return true;
+                    }
+                }
+            }
+
+            value = default;
+            return false;
+        }
+    }
+
+    private static void Migrate(GameSettings s, bool serializedPainterlyDetail)
     {
         // v1 -> v2: WMO portal culling (PLAN_10) became the shipped default - it is
         // the expected 1.12 behaviour (hides Stormwind's roof from inside, holds the
@@ -746,6 +810,34 @@ public sealed class SettingsStore
         {
             s.Detail.ForceTwoSided = false;
             s.Version = 3;
+        }
+
+        // v3 -> v4: Detail used to be an additive boost where zero still kept
+        // all source detail. It is now an honest absolute gain: 0 removes the
+        // residual and 1 preserves it. Preserve old files' appearance first;
+        // users can then simplify from a meaningful zero. The new calm and
+        // dither fields need their new defaults seeded as part of the versioned
+        // transition. Property initializers apply to missing JSON fields, so use
+        // the raw-file presence check to distinguish a real legacy Detail value
+        // from the new absolute-gain initializer.
+        if (s.Version < 4)
+        {
+            s.Display.PainterlyDetail = serializedPainterlyDetail
+                ? Math.Clamp(1f + s.Display.PainterlyDetail, 0f, 2f)
+                : 1f;
+            s.Display.PainterlyCalmStart = 35f;
+            s.Display.PainterlyCalmEnd = 180f;
+            s.Display.PainterlyDither = 0.18f;
+            s.Display.PainterlyUi = s.Display.Painterly;
+            s.Version = 4;
+        }
+
+        // v4 -> v5: band count no longer implies full-strength posterization.
+        // Preserve every existing painterly choice and seed only the new blend.
+        if (s.Version < 5)
+        {
+            s.Display.PainterlyBandStrength = 0.30f;
+            s.Version = 5;
         }
     }
 

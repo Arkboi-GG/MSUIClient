@@ -242,6 +242,12 @@ public sealed class ClientWindow : IDisposable
     /// <summary>True while the mouse is captured for camera look.</summary>
     public bool MouseCaptured => _mouseCaptured;
 
+    /// <summary>
+    /// CRPG free view: the LEFT button is marquee selection, never camera look.
+    /// The right button keeps the look/steer behaviour unchanged.
+    /// </summary>
+    public bool FreeSelectMode { get; set; }
+
     public bool MouseLeftDown { get; private set; }
     public bool MouseRightDown { get; private set; }
 
@@ -340,6 +346,37 @@ public sealed class ClientWindow : IDisposable
     /// 1 = off.
     /// </summary>
     private const float FontSupersample = 3f;
+
+    /// <summary>Whether the atlas was built from a real TTF (see <see cref="ApplyUiFontScale"/>).</summary>
+    private bool _realUiFont;
+
+    /// <summary>
+    /// Set ImGui's FontGlobalScale for an interface-scale preference. THE ONLY
+    /// legal way to change it after startup.
+    ///
+    /// With a real TTF the atlas is rasterised <see cref="FontSupersample"/>x
+    /// larger than its display size, so 1/FontSupersample is not a free
+    /// parameter - it is the compensation that makes in-game widgets come out
+    /// their intended size. Assigning the user's scale over it multiplies the
+    /// ENTIRE ImGui UI by FontSupersample (3x here), which blows the settings
+    /// menu past the screen edge and puts its own slider and Okay/Cancel
+    /// buttons out of reach - i.e. it breaks the one control that could undo
+    /// it. Only the fallback bitmap face, which has no supersampled atlas, may
+    /// be scaled by the preference. Interface scale reaches the real UI through
+    /// WowSkin.Scale, not through this.
+    ///
+    /// <paramref name="fontScale"/> is the user's INDEPENDENT text-size
+    /// preference and is the only thing allowed to move type on its own. It
+    /// rides on top of the compensation, so it stays crisp all the way to
+    /// FontSupersample (3x) - at exactly 3.0 the atlas is drawn 1:1 - and only
+    /// starts up-scaling beyond that, which is why the menu caps it there.
+    /// </summary>
+    public void ApplyUiFontScale(float uiScale, float fontScale = 1f)
+    {
+        float f = Math.Clamp(fontScale, 0.5f, FontSupersample);
+        ImGui.GetIO().FontGlobalScale =
+            _realUiFont ? f / FontSupersample : Math.Clamp(uiScale, 0.5f, 4f) * f;
+    }
 
     public ClientWindow(ClientConfig config) => _config = config;
 
@@ -454,20 +491,22 @@ public sealed class ClientWindow : IDisposable
         // and break every size that was chosen to match a 21-pixel button.
         var scale = Math.Clamp(_config.Window.UiScale, 0.5f, 4f);
         bool realFont = font is not null;
+        _realUiFont = realFont;
 
         // Undo the supersample for ImGui's own widgets (the in-game UI) so they keep their intended
         // size; the glue draw-list text sets its size per call and keeps the full atlas resolution.
-        if (realFont) ImGui.GetIO().FontGlobalScale = 1f / FontSupersample;
+        // ApplyUiFontScale is the same law the live interface-scale slider goes through.
+        ApplyUiFontScale(scale, _config.Window.FontScale);
 
-        if (Math.Abs(scale - 1f) > 0.01f)
-        {
-            if (!realFont) ImGui.GetIO().FontGlobalScale = scale;
-            ImGui.GetStyle().ScaleAllSizes(scale);
-        }
+        // ScaleAllSizes is cumulative and cannot be undone, so it stays a
+        // startup-only step; the live slider moves WowSkin.Scale instead.
+        if (Math.Abs(scale - 1f) > 0.01f) ImGui.GetStyle().ScaleAllSizes(scale);
 
         Console.WriteLine($"[ui] scale {scale:F2}, font " +
                           (realFont ? $"{Path.GetFileName(UiFontPath)} at {UiFontSize}px"
-                                    : "ImGui default (scaled)"));
+                                    : "ImGui default (scaled)") +
+                          $", text x{Math.Clamp(_config.Window.FontScale, 0.5f, FontSupersample):F2}" +
+                          $" (FontGlobalScale {ImGui.GetIO().FontGlobalScale:F3})");
 
         Console.WriteLine($"[gl] {_gl.GetStringS(StringName.Renderer)}");
         Console.WriteLine($"[gl] {_gl.GetStringS(StringName.Version)}");
@@ -500,7 +539,8 @@ public sealed class ClientWindow : IDisposable
                 if (btn is MouseButton.Right or MouseButton.Left)
                 {
                     BeginWorldPress(btn, m.Position);
-                    BeginLook(m);
+                    if (!(FreeSelectMode && btn == MouseButton.Left))
+                        BeginLook(m);
                 }
             };
 
@@ -705,7 +745,8 @@ public sealed class ClientWindow : IDisposable
         // Engage from polling as well as from the event. If MouseDown was
         // swallowed - ImGui claiming the mouse on the wrong frame is the usual
         // culprit - this still starts the look.
-        if (anyButton && !_mouseCaptured && !ImGui.GetIO().WantCaptureMouse)
+        bool lookButton = FreeSelectMode ? MouseRightDown : anyButton;
+        if (lookButton && !_mouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             BeginLook(_mouse);
 
         // And release from polling, so a MouseUp that never arrived cannot leave

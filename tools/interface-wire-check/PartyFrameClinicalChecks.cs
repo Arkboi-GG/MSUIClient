@@ -683,7 +683,9 @@ internal static class PartyFrameClinicalChecks
         Check(runtime.Contains("_unitPopupInspectBinding = InspectBinding.Party(hoveredIndex)",
                   StringComparison.Ordinal) &&
               runtime.Contains("action == PartyPointerAction.Target", StringComparison.Ordinal) &&
-              runtime.Contains("CircularHandle(portraitPath)", StringComparison.Ordinal) &&
+              // Through the painterly art path, which falls back to
+              // CircularHandle with the mode off - asserted in Program.cs.
+              runtime.Contains("PainterlyRoundArt(portraitPath)", StringComparison.Ordinal) &&
               runtime.Contains("party-token-guid-is-not-streamed", StringComparison.Ordinal) &&
               runtime.Contains("own.Fields.Bytes0.Race", StringComparison.Ordinal) &&
               runtime.Contains("hovered.Dead", StringComparison.Ordinal) &&

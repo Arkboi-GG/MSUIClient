@@ -49,5 +49,7 @@ void main()
     vec3  lit = albedo.rgb * light * uBrightness;
 
     float fog = clamp((vDist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
-    FragColor = vec4(mix(lit, uFogColor, fog), 1.0);
+    // Alpha-cutout grass is opaque after discard. Reserve alpha as a painterly
+    // importance value so thousands of cards do not all become hard outlines.
+    FragColor = vec4(mix(lit, uFogColor, fog), 0.08);
 }

@@ -40,7 +40,6 @@ public sealed partial class GameLoop
     private void DrawOverheadName(WorldEntity unit)
     {
         if (_net is null || _vplateUnits.Contains(unit.Guid)) return;
-        bool isSelf = unit.Guid == ControlledGuid;
         bool isTarget = unit.Guid == _selectionGuid;
         if (!isTarget && unit.IsDead && !unit.IsPlayer) return;
 
@@ -51,7 +50,9 @@ public sealed partial class GameLoop
         if (!_window.Camera.TryWorldToScreen(anchor, display, out Vector2 screen)) return;
 
         EnsureUnitNameRequested(unit);
-        string name = isSelf ? _net.PlayerName
+        // The session name belongs to the SESSION character only — a possessed bot
+        // wears its own name (same identity rule as the player frame).
+        string name = unit.Guid == LocalPlayerGuid ? _net.PlayerName
             : unit.IsPlayer ? _playerNames.GetValueOrDefault(unit.Guid, "")
             : _creatureNames.GetValueOrDefault(unit.Entry, "");
         if (name.Length == 0) return;
@@ -216,7 +217,10 @@ public sealed partial class GameLoop
     }
 
     private Vector3 UnitWorldPosition(WorldEntity unit) =>
-        _net is not null && unit.Guid == ControlledGuid && _controller is not null
+        // In the free view the rig IS the camera — the character stands in the world
+        // at its streamed position, and its name must stay planted on it.
+        _net is not null && unit.Guid == ControlledGuid && _controller is not null &&
+        _controlState != ControlState.FreeCam
             ? _controller.Position : unit.Position;
 
     private float UnitOverheadHeight(WorldEntity unit)

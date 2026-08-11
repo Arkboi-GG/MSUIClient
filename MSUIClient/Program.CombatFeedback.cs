@@ -138,6 +138,7 @@ public sealed partial class GameLoop
             DrawPetFrameAndActionBar();
             DrawPartyFrames();
             DrawControlBanner();
+            DrawFreeCamSelectionOverlay();
             DrawUnitPopup();
             DrawPlayerAuraBar();
             DrawMinimap();
@@ -196,10 +197,15 @@ public sealed partial class GameLoop
 
     private void DrawPlayerFrame()
     {
-        if (_net is null || !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+        if ((_net is null && !HudPreview) ||
+            !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
+        // The frame follows possession: a controlled bot's name, the session name otherwise.
+        string name = ControlledGuid == LocalPlayerGuid
+            ? _net?.PlayerName ?? "Preview"
+            : ResolveUnitName(ControlledGuid);
         DrawVanillaUnitFrame(player, new Vector2(-19, 4), playerFrame: true,
-            _net.PlayerName, FactionReaction.Friendly,
-            _playerPortraitUsable ? _playerPortrait?.TextureHandle ?? 0 : 0,
+            name, FactionReaction.Friendly,
+            UnitFramePortrait(_playerPortrait, _playerPortraitUsable),
             _playerCombatFlash);
     }
 

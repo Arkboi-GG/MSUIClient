@@ -287,6 +287,16 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_ORDER, w.ToArray());
     }
 
+    /// <summary>Free-view camera position; the server relocates the streaming eye to it.</summary>
+    public void SuiCam(float x, float y, float z)
+    {
+        var w = new PacketWriter(12);
+        w.WriteF32(x);
+        w.WriteF32(y);
+        w.WriteF32(z);
+        SendPacket((ushort)Op.CMSG_SUI_CAM, w.ToArray());
+    }
+
     /// <summary>Acknowledge SMSG_TRIGGER_CINEMATIC as an immediate ESC-style skip.</summary>
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);

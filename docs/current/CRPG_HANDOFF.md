@@ -1,8 +1,13 @@
 # CRPG/RTS Mode v1.0 — Agent Handoff
 
-Implemented 2026-08-09 across three feature branches (milestones M0–M6, one commit each,
-plus fixes). Client and brain build green; the **server branch has not been compiled yet**
-(no C++ toolchain on the dev machine — build on the vmangos box at `/opt/vmangos`).
+> **SUPERSEDED (2026-08-10): read [`CRPG_RTS_WIP.md`](../../CRPG_RTS_WIP.md) at the repo
+> root first.** This file describes the v1.0 milestone plan; the repo paths below are
+> stale (the SuperUI-Core clone and the brain worktree no longer exist locally — server
+> source lives on the vmangos box at `~/vmangos`, branch `development`), the server HAS
+> been compiled and deployed since, and a large round-2 feature set (free-view RTS
+> orders, streaming eye, chain links, layered bot bars, real party portraits) sits on
+> top of what is documented here. The WIP doc carries the current truth, the owner's
+> binding design decisions, and the open items.
 
 ## What this feature is
 

@@ -32,6 +32,113 @@ public sealed partial class GameLoop
     private float _portraitRequestScale;
     private double _playerPortraitRetryAt;
     private double _targetPortraitRetryAt;
+
+    // ── Party member portraits: real 3-D bakes of the streamed bodies ─────────────────────────
+    // Baked from CreatureRenderer.RenderPortrait (the same machinery as the inspect paper
+    // doll), so every member shows its ACTUAL race/geosets/hair/gear instead of the static
+    // TemporaryPortrait art. Keyed by an appearance hash; at most one bake per frame.
+    private sealed class PartyPortrait
+    {
+        public PortraitRenderTarget? Target;
+        public ulong Appearance;
+        public bool Usable;
+        public double RetryAt;
+    }
+
+    private readonly Dictionary<ulong, PartyPortrait> _partyPortraits = [];
+
+    private static ulong PlayerAppearanceSignature(in WorldEntity unit)
+    {
+        ulong hash = unchecked((ulong)(uint)unit.DisplayId + 1469598103934665603ul);
+        (byte skin, byte face, byte hairStyle, byte hairColor) = unit.Fields.PlayerAppearance;
+        hash = unchecked((hash ^ ((ulong)skin << 24 | (ulong)face << 16 |
+            (ulong)hairStyle << 8 | hairColor)) * 1099511628211ul);
+        hash = unchecked((hash ^ unit.Fields.PlayerFacialHair) * 1099511628211ul);
+        for (int slot = 0; slot < 19; slot++)
+            hash = unchecked((hash ^ unit.Fields.PlayerVisibleItemEntry(slot)) * 1099511628211ul);
+        return hash;
+    }
+
+    /// <summary>A usable baked portrait texture for a party member, or 0.</summary>
+    private uint PartyPortraitHandle(ulong guid) =>
+        _partyPortraits.TryGetValue(guid, out PartyPortrait? entry) &&
+        entry is { Usable: true, Target: not null } ? entry.Target.TextureHandle : 0;
+
+    private void UpdatePartyPortraits()
+    {
+        if (_creatures is null || _gl is null) return;
+
+        // Reap members who left the roster so their GL targets don't linger.
+        if (_partyPortraits.Count > 0)
+        {
+            List<ulong>? stale = null;
+            foreach (ulong guid in _partyPortraits.Keys)
+            {
+                bool present = false;
+                foreach (PartyMember member in _partyMembers)
+                    if (member.Guid == guid) { present = true; break; }
+                if (!present) (stale ??= []).Add(guid);
+            }
+            if (stale is not null)
+                foreach (ulong guid in stale)
+                {
+                    _partyPortraits[guid].Target?.Dispose();
+                    _partyPortraits.Remove(guid);
+                }
+        }
+
+        foreach (PartyMember member in _partyMembers)
+        {
+            if (member.Guid == LocalPlayerGuid) continue;
+            if (!_entities.TryGet(member.Guid, out WorldEntity unit) || !unit.IsPlayer) continue;
+
+            ulong appearance = PlayerAppearanceSignature(unit);
+            if (!_partyPortraits.TryGetValue(member.Guid, out PartyPortrait? entry))
+                _partyPortraits[member.Guid] = entry = new PartyPortrait();
+            if (entry.Usable && entry.Appearance == appearance) continue;
+            if (NowSeconds() < entry.RetryAt) continue;
+            if (!_creatures.TryGetPortraitFraming(unit, out CreatureRenderer.PortraitFraming framing))
+                continue;
+
+            try
+            {
+                entry.Target ??= new PortraitRenderTarget(_gl);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[portrait] party target unavailable: {ex.Message}");
+                entry.RetryAt = NowSeconds() + 30.0;
+                continue;
+            }
+
+            // Head-and-shoulders framing for the round frame cut-out.
+            const float fov = 30f;
+            float window = MathF.Max(0.4f, framing.Height * 0.40f);
+            float distance = (window * .5f) / MathF.Tan(fov * .5f * MathF.PI / 180f);
+            Camera camera = PortraitCamera(unit.Position, unit.Orientation,
+                framing.Height * 0.82f, distance);
+            camera.FieldOfViewDegrees = fov;
+            camera.AspectRatio = 1f;
+            camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
+
+            bool drawn = false;
+            entry.Target.Bake(() => drawn = _creatures.RenderPortrait(camera, unit));
+            PortraitRenderTarget.ReadbackStats stats = entry.Target.Analyze();
+            entry.Usable = drawn && stats.HasSubject;
+            if (entry.Usable)
+            {
+                entry.Target.ApplyCircularMask();
+                if (PainterlyUi) StylePortrait(entry.Target);
+                entry.Appearance = appearance;
+                entry.RetryAt = 0;
+            }
+            else
+            {
+                entry.RetryAt = NowSeconds() + 1.0;
+            }
+            break;   // one bake per frame keeps the render loop smooth
+        }
+    }
     private readonly VerdictRing _verdicts = new();
     private PortraitOverrideStore? _portraitOverrides;
 
@@ -71,8 +178,40 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>
+    /// Force the live portrait bakes to be rebuilt.
+    ///
+    /// Painterly styling is baked INTO the portrait texture, and a bake only
+    /// repeats when its SUBJECT changes - so a portrait painted under one style
+    /// keeps it for as long as the player keeps the same gear and target.
+    /// Toggling painterly off therefore left a painted portrait sitting in an
+    /// unpainted HUD indefinitely, and moving a slider left every portrait
+    /// frozen at the settings it was first baked with. The APERTURE no longer
+    /// depends on the mode at all (PortraitRenderTarget.CircularTextureHandle);
+    /// this exists purely for the pigment.
+    /// </summary>
+    private void InvalidatePortraitStyling()
+    {
+        _playerPortraitDirty = true;
+        _playerPortraitRetryAt = 0;
+        // The target bake has no dirty flag of its own - "not usable" is what
+        // makes BakeDirtyPortraits reconsider it on the next pass.
+        _targetPortraitUsable = false;
+        _targetPortraitRetryAt = 0;
+        // The paper dolls too - they are character renders carrying the same
+        // frozen style. Dirty only, NOT "unusable": these rebake solely while
+        // their frame is open, and dropping the current image would blank the
+        // character sheet for anyone who changed a setting with it closed.
+        _paperDollDirty = true;
+        _inspectPaperDollDirty = true;
+    }
+
     private void BakeDirtyPortraits()
     {
+        // Settle any pending painterly rebake first, so a style change that
+        // lands this frame is baked in this frame rather than the next one.
+        FlushPainterlyArt();
+
         if (_playerPortraitDirty && NowSeconds() >= _playerPortraitRetryAt &&
             _playerPortrait is not null && _character is { Loaded: true, Enabled: true })
         {
@@ -148,7 +287,19 @@ public sealed partial class GameLoop
                 _playerPortraitUsable = stats.HasSubject;
                 // Reference presentation: the round portrait is an inscribed circle cut from the
                 // square bake; the frame ring's corners are transparent and hide nothing.
-                if (_playerPortraitUsable) _playerPortrait.ApplyCircularMask();
+                //
+                // Pigment and aperture are settled here, and they are INDEPENDENT.
+                // Painterly styles the bake (an off-screen render target is invisible
+                // to the whole-frame pass), and the round copy is built either way,
+                // because painterly only squares the UNIT frames - the character
+                // sheet, the talent frame and the micro-menu button keep their
+                // authored round apertures and need a disc to put in them.
+                // Style first, so the copy carries the same pixels as the bake.
+                if (_playerPortraitUsable)
+                {
+                    if (PainterlyUi) StylePortrait(_playerPortrait);
+                    _playerPortrait.UpdateCircularCopy();
+                }
                 Console.WriteLine($"[portrait] player bake " +
                     $"{(_playerPortraitUsable ? "ready" : "BLANK")} ({stats}, " +
                     $"camera={(usedFallbackCamera ? "bounds" : "authored")}, pieces={_character.VisiblePieces})");
@@ -216,6 +367,11 @@ public sealed partial class GameLoop
             camera.FieldOfViewDegrees = 43f;
             camera.AspectRatio = 233f / 224f;
             WithPortraitLighting(() => _paperDoll.Bake(() => _character.Render(camera, state), transparent: true));
+            // Painted like every other character surface when the mode is on.
+            // Safe on a cut-out bake: the style pass writes the SOURCE alpha
+            // back, so the transparent background survives styling and the doll
+            // does not gain a painted rectangle behind it.
+            if (PainterlyUi) StylePortrait(_paperDoll);
             _paperDollDirty = false;
         }
 
@@ -251,12 +407,17 @@ public sealed partial class GameLoop
                 _inspectPaperDollUsable = drawn && stats.HasSubject;
                 if (_inspectPaperDollUsable)
                 {
+                    // After Analyze, whose clear-colour comparison assumes an
+                    // unstyled surface; the cut-out survives styling as above.
+                    if (PainterlyUi) StylePortrait(_inspectPaperDoll);
                     _inspectPaperDollDirty = false;
                     _inspectPaperDollGuid = inspected.Guid;
                     _inspectPaperDollAppearance = appearance;
                 }
             }
         }
+
+        UpdatePartyPortraits();
 
         if (_targetPortrait is null || _creatures is null || _selectionGuid == 0 ||
             !_entities.TryGet(_selectionGuid, out WorldEntity target) || !target.IsCreature)
@@ -322,7 +483,10 @@ public sealed partial class GameLoop
             bake.Camera.NearPlane));
         if (_targetPortraitUsable)
         {
-            _targetPortrait.ApplyCircularMask();
+            // Pigment then aperture, both unconditional in their own right; see
+            // the player bake above for why the round copy is always built.
+            if (PainterlyUi) StylePortrait(_targetPortrait);
+            _targetPortrait.UpdateCircularCopy();
             _portraitTargetGuid = target.Guid;
             _portraitTargetDisplay = target.DisplayId;
             _portraitTargetScale = target.Scale;
@@ -587,5 +751,7 @@ public sealed partial class GameLoop
         _paperDoll = null;
         _inspectPaperDoll = null;
         _labPortrait = null;
+        foreach (PartyPortrait entry in _partyPortraits.Values) entry.Target?.Dispose();
+        _partyPortraits.Clear();
     }
 }

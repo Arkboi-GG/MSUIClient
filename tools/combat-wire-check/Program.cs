@@ -9,6 +9,21 @@ static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidDataException(message);
 }
+static void CheckUnitGrounding()
+{
+    Check(MathF.Abs(CreatureRenderer.UnitRenderScale(0.65f) - 0.65f) < 0.0001f,
+        "unit render scale does not square the server-folded DBC scale");
+    Check(MathF.Abs(CreatureRenderer.GroundShadowRadius(0.8f, 0.65f) - 0.52f) < 0.0001f &&
+          CreatureRenderer.GroundShadowRadius(0.1f, 0.5f) == 0.35f &&
+          CreatureRenderer.GroundShadowRadius(100f, 1f) == 12f,
+        "unit shadow radius follows rendered bounds with stable small/large clamps");
+}
+if (args.Contains("--unit-render-only", StringComparer.OrdinalIgnoreCase))
+{
+    CheckUnitGrounding();
+    Console.WriteLine("unit render grounding checks passed");
+    return;
+}
 static SpellInfo TargetSpell(uint targets, uint implicitTarget) => new(
     Id: 1, Name: "", Rank: "", IconPath: "", Attributes: 0, AttributesEx2: 0,
     AttributesEx3: 0, InterruptFlags: 0, ChannelInterruptFlags: 0,
@@ -180,8 +195,7 @@ var centerRay = camera.ScreenPointToRay(new System.Numerics.Vector2(960, 540),
                                         new System.Numerics.Vector2(1920, 1080));
 Check(centerRay is { } ray && System.Numerics.Vector3.Dot(ray.Direction, camera.Forward) > 0.999f,
       "screen-center ray follows camera forward");
-Check(MathF.Abs(CreatureRenderer.UnitRenderScale(0.65f) - 0.65f) < 0.0001f,
-      "unit render scale does not square the server-folded DBC scale");
+CheckUnitGrounding();
 float faced = EntityStore.TurnToward(6.20f, 0.10f, 0.08f);
 Check(faced < 0.01f || faced > 6.20f, "idle facing takes the short wrapped turn");
 Check(MathF.Abs(EntityStore.TurnToward(0f, MathF.PI, 0.5f) - 0.5f) < 0.0001f,

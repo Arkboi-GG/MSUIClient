@@ -7,8 +7,8 @@ using Texture = MSUIClient.Engine.Texture;
 namespace MSUIClient.World;
 
 /// <summary>
-/// The texture side of one ADT tile: the tileset as a GL array texture, plus a
-/// second array texture holding every chunk's blend masks, one layer each.
+/// The texture side of one ADT tile: the tileset as a GL array texture, plus
+/// per-chunk array textures for blend masks and baked MCSH terrain shadows.
 ///
 /// HOW VANILLA TERRAIN TEXTURING WORKS
 ///   Each ADT lists up to ~16 texture paths in MTEX. Each of its 256 MCNK
@@ -61,6 +61,13 @@ public sealed class TerrainTextures : IDisposable
         /// </summary>
         public byte[] AlphaLayers = [];
 
+        /// <summary>
+        /// Every chunk's expanded 64x64 R8 MCSH mask, back to back. Kept
+        /// separate from AlphaLayers so adding authored light structure cannot
+        /// alter any of the three MCAL blend weights.
+        /// </summary>
+        public byte[] ShadowLayers = [];
+
         public int[][] ChunkLayers = [];
         public int Width;
         public int Height;
@@ -68,6 +75,7 @@ public sealed class TerrainTextures : IDisposable
     }
 
     public const int AlphaSize = 64;
+    public const int ShadowSize = AdtTerrainReader.MCSH_SIZE;
     public const int ChunksPerSide = 16;
 
     /// <summary>Alpha array layers: one per chunk.</summary>
@@ -76,14 +84,18 @@ public sealed class TerrainTextures : IDisposable
     /// <summary>Bytes in one chunk's RGBA mask.</summary>
     private const int AlphaLayerBytes = AlphaSize * AlphaSize * 4;
 
+    /// <summary>Bytes in one chunk's expanded R8 MCSH mask.</summary>
+    private const int ShadowLayerBytes = ShadowSize * ShadowSize;
+
     /// <summary>Flip the within-chunk alpha axes. See the class remarks.</summary>
     public static bool TransposeAlpha { get; set; }
 
     private Texture? _tileset;
     private Texture? _alphaArray;
+    private Texture? _shadowArray;
 
     public int TextureCount => _tileset?.Layers ?? 0;
-    public bool Ready => _tileset is not null && _alphaArray is not null;
+    public bool Ready => _tileset is not null && _alphaArray is not null && _shadowArray is not null;
     public IReadOnlyList<string> TextureNames { get; private set; } = [];
 
     /// <summary>
@@ -135,10 +147,13 @@ public sealed class TerrainTextures : IDisposable
             kept.Add(names[i]);
         }
 
-        // ── alpha array + per-chunk layer indices ────────────────────────────
+        // ── alpha/shadow arrays + per-chunk layer indices ───────────────────
         int alphaBytes = ChunkCount * AlphaLayerBytes;
         var alphaLayers = ArrayPool<byte>.Shared.Rent(alphaBytes);
         Array.Clear(alphaLayers, 0, alphaBytes);
+        int shadowBytes = ChunkCount * ShadowLayerBytes;
+        var shadowLayers = ArrayPool<byte>.Shared.Rent(shadowBytes);
+        Array.Clear(shadowLayers, 0, shadowBytes);
         var layers = new int[ChunkCount][];
 
         for (int i = 0; i < layers.Length; i++) layers[i] = [-1, -1, -1, -1];
@@ -153,6 +168,14 @@ public sealed class TerrainTextures : IDisposable
                 if (cx is < 0 or >= ChunksPerSide || cy is < 0 or >= ChunksPerSide) continue;
 
                 int chunkIndex = cy * ChunksPerSide + cx;
+
+                // MCSH already uses the same row-major orientation as MCAL:
+                // x/column -> chunk U, y/row -> chunk V. Missing or malformed
+                // maps leave this layer zero, which means fully authored light.
+                if (chunk.ShadowMap is { Length: >= ShadowLayerBytes } shadow)
+                    System.Buffer.BlockCopy(
+                        shadow, 0, shadowLayers,
+                        chunkIndex * ShadowLayerBytes, ShadowLayerBytes);
 
                 for (int li = 0; li < chunk.Layers.Length && li < 4; li++)
                 {
@@ -190,6 +213,7 @@ public sealed class TerrainTextures : IDisposable
             Pixels = pixels,
             Names = kept,
             AlphaLayers = alphaLayers,
+            ShadowLayers = shadowLayers,
             ChunkLayers = layers,
             Width = expectedW,
             Height = expectedH,
@@ -213,6 +237,8 @@ public sealed class TerrainTextures : IDisposable
 
             result._alphaArray = Texture.ArrayRgbaNoMips(
                 gl, prepared.AlphaLayers, AlphaSize, AlphaSize, ChunkCount, ownerGl);
+            result._shadowArray = Texture.ArrayR8NoMips(
+                gl, prepared.ShadowLayers, ShadowSize, ShadowSize, ChunkCount, ownerGl);
         }
         finally
         {
@@ -221,24 +247,28 @@ public sealed class TerrainTextures : IDisposable
                 foreach (byte[] pixels in prepared.Pixels)
                     ArrayPool<byte>.Shared.Return(pixels);
                 ArrayPool<byte>.Shared.Return(prepared.AlphaLayers);
+                ArrayPool<byte>.Shared.Return(prepared.ShadowLayers);
                 prepared.Pixels.Clear();
                 prepared.AlphaLayers = [];
+                prepared.ShadowLayers = [];
                 prepared.Pooled = false;
             }
         }
         return result;
     }
 
-    /// <summary>Bind tileset to unit 0 and the alpha array to unit 1.</summary>
+    /// <summary>Bind tileset, MCAL, and MCSH arrays to units 0, 1, and 2.</summary>
     public void Bind()
     {
         _tileset?.Bind(0);
         _alphaArray?.Bind(1);
+        _shadowArray?.Bind(2);
     }
 
     public void Dispose()
     {
         _tileset?.Dispose();
         _alphaArray?.Dispose();
+        _shadowArray?.Dispose();
     }
 }
