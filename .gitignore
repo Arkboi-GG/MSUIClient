@@ -102,6 +102,7 @@ Desktop.ini
 /*.md
 !/PROJECT_HANDBOOK.md
 !/SETUP.md
+!/CRPG_RTS_WIP.md
 
 /docs/*
 !/docs/README.md
