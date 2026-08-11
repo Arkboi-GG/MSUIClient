@@ -127,6 +127,25 @@ public sealed class CharacterController
 
     public bool Grounded { get; private set; }
     public bool Flying { get; set; }
+
+    /// <summary>
+    /// Minimum height the FLY rig keeps above sampled terrain, or null for the
+    /// classic unclamped free-fly. The free view sets this: an RTS camera that
+    /// can sink beneath the map is jank, while the plain F fly toggle stays a
+    /// go-anywhere debug tool. Terrain only — WMO floors (city streets, bridges)
+    /// are not sampled, so interiors stay reachable from above.
+    /// </summary>
+    public float? FlyFloorClearance { get; set; }
+
+    /// <summary>
+    /// The FLY rig sweeps against the collision world instead of ghosting through
+    /// it. The free view sets this (owner decision 2026-08-11): the camera is a
+    /// floating body that stops at walls and ceilings, so a room naturally
+    /// contains its own view and you fly through the DOOR to see the next one.
+    /// Plain F fly stays a ghost.
+    /// </summary>
+    public bool FlyCollide { get; set; }
+
     public float FallTimeMs { get; private set; }
 
     /// <summary>True when downward ground adhesion, rather than penetration, kept support this frame.</summary>
@@ -362,14 +381,52 @@ public sealed class CharacterController
         {
             var velocity = Vector3.Normalize(wish) * speed;
             HorizontalVelocity = new Vector3(velocity.X, velocity.Y, 0f);
-            Position += velocity * dt;
+            FlyMove(velocity * dt);
         }
 
         Velocity = Vector3.Zero;
         Grounded = false;
         FallTimeMs = 0;
         GroundZ = _terrain.SampleHeight(Position.X, Position.Y);
+        if (FlyFloorClearance is float clearance && GroundZ is float ground &&
+            Position.Z < ground + clearance)
+            Position = new Vector3(Position.X, Position.Y, ground + clearance);
         NoGroundBelow = false;
+    }
+
+    /// <summary>
+    /// Move the FLY rig by <paramref name="delta"/>, sweeping against the collision
+    /// world when <see cref="FlyCollide"/> is set and sliding along whatever it
+    /// hits — like <see cref="MoveHorizontal"/> but full-3D and without its
+    /// walkable-slope pass-through or step-up (a drone has no feet). Public so the
+    /// free-view edge pan moves through the same wall test as WASD flight.
+    /// </summary>
+    public void FlyMove(Vector3 delta)
+    {
+        if (!FlyCollide || Collision is null || Collision.IsEmpty)
+        {
+            Position += delta;
+            return;
+        }
+        var move = delta;
+        for (int iter = 0; iter < 3; iter++)
+        {
+            float dist = move.Length();
+            if (dist < 1e-5f) return;
+            var dir = move / dist;
+            var hit = Collision.Raycast(Position, dir, dist + _opts.Radius);
+            if (hit is null || hit.Value.Distance > dist + _opts.Radius)
+            {
+                Position += move;
+                return;
+            }
+            float advance = MathF.Max(0f, hit.Value.Distance - _opts.Radius);
+            if (advance > 1e-5f) Position += dir * advance;
+            // Slide: strip the component pushing into the surface.
+            float into = Vector3.Dot(move, hit.Value.Normal);
+            move -= hit.Value.Normal * into;
+            move *= 0.98f;
+        }
     }
 
     /// <summary>

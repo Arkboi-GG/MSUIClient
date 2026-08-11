@@ -30,6 +30,13 @@ public sealed partial class GameLoop
     private uint TalentPoints()
         => _net is not null && _entities.TryGet(ControlledGuid, out var player) ? player.Fields.TalentPoints : 0;
 
+    // 1.12: the talent system unlocks at level 10 — the micro button is greyed and the
+    // frame refuses to open below it (TalentFrame_LoadUI / MicroButton disable rule).
+    private const uint TalentUnlockLevel = 10;
+
+    private bool TalentsUnlocked()
+        => _entities.TryGet(ControlledGuid, out var player) && player.Level >= TalentUnlockLevel;
+
     private int TalentRank(TalentInfo talent)
     {
         int rank = 0;
@@ -129,6 +136,7 @@ public sealed partial class GameLoop
 
     private bool OpenTalentPanel()
     {
+        if (!TalentsUnlocked()) return false;    // below level 10 the panel stays closed
         byte cls = _net is not null && _entities.TryGet(ControlledGuid, out var p) ? p.Fields.Bytes0.Class : (byte)0;
         TalentTabInfo? first = _talents?.TabsForClass(cls).Cast<TalentTabInfo?>().FirstOrDefault();
         if (first is null) return false;

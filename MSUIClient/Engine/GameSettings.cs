@@ -491,6 +491,19 @@ public sealed class GameSettings
 
         /// <summary>CRPG/RTS command strips beside the party portraits (roles, hold, patrol).</summary>
         public bool RtsCommands { get; set; }
+
+        /// <summary>Divinity-style cutaway: while commanding an indoor toon from the
+        /// free view, the building's shell/roof is hidden so the room shows from the
+        /// sky. Owner verdict 2026-08-11: the open-face dollhouse look is "no good" —
+        /// OFF by default, kept only as an experiment toggle. The wanted UX is a free
+        /// camera that can DESCEND into buildings cleanly instead.</summary>
+        public bool FreeViewCutaway { get; set; }
+
+        /// <summary>The free-view camera is a floating body: it sweeps against walls,
+        /// ceilings and terrain instead of ghosting through them, so a room contains
+        /// its own view and you fly through the door to see the next one (owner
+        /// decision 2026-08-11, replacing the cutaway).</summary>
+        public bool FreeViewCameraCollision { get; set; } = true;
     }
 
     /// <summary>

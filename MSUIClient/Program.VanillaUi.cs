@@ -100,9 +100,13 @@ public sealed partial class GameLoop
                 textX = logicalSize.Y + 2;
             }
         }
-        draw.AddText(ImGui.GetFont(), 10f * scale,
-            min + new Vector2(textX, MathF.Max(1, (logicalSize.Y - 10) * .5f)) * scale,
-            color, text);
+        // ImGui.NET's sized AddText overload throws ArgumentNullException (chars) on an
+        // empty/null string (see GameTextLaw.Draw) - callers may pass "" for a highlight-only
+        // row whose columns are drawn separately.
+        if (!string.IsNullOrEmpty(text))
+            draw.AddText(ImGui.GetFont(), 10f * scale,
+                min + new Vector2(textX, MathF.Max(1, (logicalSize.Y - 10) * .5f)) * scale,
+                color, text);
         return releasedInside;
     }
 

@@ -188,6 +188,19 @@ public sealed partial class GameLoop
         return stage == "precast" ? stages.Precast : stage == "channel" ? stages.Channel : stages.Cast;
     }
 
+    /// <summary>
+    /// Cancel the CONTROLLED unit's held cast animation on whichever renderer
+    /// owns its skeleton (see ControlledBodyIsStreamed). Start/Go already
+    /// branch this way; every cancel path must too, or an interrupted cast in
+    /// the free view leaves the streamed body looping its cast-state forever —
+    /// _character isn't drawn there, so cancelling it changes nothing visible.
+    /// </summary>
+    private void CancelControlledSpellVisual()
+    {
+        if (ControlledBodyIsStreamed) _creatures?.CancelSpellVisual(ControlledGuid);
+        else _character?.CancelSpellVisual();
+    }
+
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
     {
         if (_net is not null && caster == ControlledGuid)
@@ -195,7 +208,7 @@ public sealed partial class GameLoop
             if (_pendingCastSpell == spellId) _pendingCastSpell = 0;
             if (_queuedMeleeSpell == spellId) _queuedMeleeSpell = 0;
             _globalCooldownUntil = 0;
-            _character?.CancelSpellVisual();
+            CancelControlledSpellVisual();
             FailCastBar(spellId, text);
         }
         else _creatures?.CancelSpellVisual(caster);
@@ -217,7 +230,7 @@ public sealed partial class GameLoop
             _net.CancelAutoRepeat();
             _autoRepeatSpell = 0;
             SetVisualSheath(0);
-            _character?.CancelSpellVisual();
+            CancelControlledSpellVisual();
             if (_net is not null) _spellSounds?.StopHold(ControlledGuid);
             return true;
         }
@@ -262,7 +275,7 @@ public sealed partial class GameLoop
     {
         _autoRepeatSpell = 0;
         SetVisualSheath(0);
-        _character?.CancelSpellVisual();
+        CancelControlledSpellVisual();
     }
 
     private void UpdateSpellPresentation()
@@ -364,7 +377,7 @@ public sealed partial class GameLoop
                 EmitCastBarVerdict("CHANNEL_STOP", _castBarSpell);
                 EmitChannelVerdict("STOP", source: "MSG_CHANNEL_UPDATE");
             }
-            _character?.CancelSpellVisual();
+            CancelControlledSpellVisual();
             if (_net is not null)
             {
                 _spellSounds?.StopHold(ControlledGuid);

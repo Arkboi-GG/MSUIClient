@@ -88,7 +88,7 @@ public sealed partial class GameLoop
             panel = "quest-frame";
         }
         if (!_config.DevTools || panel is not ("game-menu" or "options" or "keybindings" or "macro" or "tooltip" or "ui-errors" or "static-popup" or "player-frame" or "target-frame" or "party-frame" or "party-invite" or
-            "action-bar" or "action-button" or "multi-action-bar" or "pet-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "bag-bar" or "equipped-bag" or "enchant-confirm" or "inspect-frame" or "skill-frame" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "quest-frame" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade")) return;
+            "action-bar" or "action-button" or "multi-action-bar" or "pet-action-bar" or "cast-bar" or "buff-frame" or "minimap" or "chat-frame" or "reputation-bar" or "backpack" or "bag-bar" or "equipped-bag" or "enchant-confirm" or "inspect-frame" or "skill-frame" or "character-frame" or "spellbook" or "talent-frame" or "quest-log" or "quest-frame" or "merchant" or "trainer" or "bank" or "mail" or "auction" or "loot" or "guild" or "gossip" or "taxi" or "trade" or "social" or "social-who")) return;
         _uiParityPanel = panel;
         _uiParityStamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff", CultureInfo.InvariantCulture);
         _uiParityRows.Clear(); _uiParityArmed = true; _uiParityFrameSeen = false; _uiParityPresentedFrames = 0;
@@ -173,6 +173,8 @@ public sealed partial class GameLoop
         if (panel == "character-frame") { _characterOpen = true; _characterTab = characterTab; _paperDollDirty = true; }
         if (panel == "spellbook") { _spellbookOpen = true; _characterOpen = false; }
         if (panel == "talent-frame") _talentOpen = true;
+        if (panel == "social") { _socialOpen = true; _socialPage = 0; _showIgnore = false; }
+        if (panel == "social-who") { _socialOpen = true; _socialPage = 1; _net?.Who(""); }
         if (panel == "quest-log") _questLogOpen = true;
         if (panel == "quest-frame") StageQuestFrameProof(
             questFrameState.Length == 0 ? "greeting" : questFrameState);

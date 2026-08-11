@@ -137,7 +137,7 @@ public sealed partial class GameLoop
             _net.CancelAutoRepeat();
             _autoRepeatSpell = 0;
             SetVisualSheath(0);
-            _character?.CancelSpellVisual();
+            CancelControlledSpellVisual();
             return;
         }
         if (spell.OnNextSwing && _queuedMeleeSpell == spellId)
@@ -1305,7 +1305,7 @@ public sealed partial class GameLoop
         [
             ("Character", "Character Info (C)", true, _characterOpen),
             ("Spellbook", "Spellbook & Abilities (P)", true, _spellbookOpen),
-            ("Talents", "Talents", true, _talentOpen),
+            ("Talents", "Talents", TalentsUnlocked(), _talentOpen),
             ("Quest", "Quest Log", true, _questLogOpen),
             ("Socials", "Social", true, _socialOpen),
             ("World", "World Map", true, _worldMapOpen),
@@ -1398,11 +1398,15 @@ public sealed partial class GameLoop
                 GameTooltipOwnerKey tooltipOwner = new("micro-button", (ulong)(i + 1));
                 string tooltipLabel = button.Label;
                 bool tooltipEnabled = button.Enabled;
+                // The Talents button is the only conditionally-disabled micro button, and
+                // 1.12 names the gate (UnitLevel < 10) rather than a generic message.
+                string? tooltipReason = tooltipEnabled ? null
+                    : i == 2 ? $"Available at Level {TalentUnlockLevel}" : "Not available yet";
                 OfferPreservedSharedGameTooltipRenderer(tooltipOwner, () =>
                 {
                     ImGui.BeginTooltip();
                     ImGui.TextUnformatted(tooltipLabel);
-                    if (!tooltipEnabled) ImGui.TextDisabled("Not available yet");
+                    if (tooltipReason is not null) ImGui.TextDisabled(tooltipReason);
                     ImGui.EndTooltip();
                 });
             }

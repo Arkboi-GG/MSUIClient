@@ -127,6 +127,20 @@ public sealed partial class GameLoop
     private bool BarsReadOnly => BarsGuid != ControlledGuid;
 
     /// <summary>
+    /// Divinity-style cutaway subject: the commanded toon's position (eye height
+    /// added for the cell drop test) while the free view is up and the Settings
+    /// checkbox is on; null otherwise. Fed to WmoRenderer.SetCutawaySubject once
+    /// per frame — the single integration point for the whole feature.
+    /// </summary>
+    private Vector3? FreeViewCutawaySubject()
+    {
+        if (!_freeView || !Settings.Controls.FreeViewCutaway) return null;
+        if (_controlState is not ControlState.Possessing || _controlTargetGuid == 0) return null;
+        if (!_entities.TryGet(_controlTargetGuid, out WorldEntity bot)) return null;
+        return bot.Position + new Vector3(0f, 0f, 1.5f);
+    }
+
+    /// <summary>
     /// Which renderer owns the CONTROLLED unit's skeleton. Normally the first-person
     /// CharacterRenderer; in the free view that body is not drawn at all — the driven unit
     /// streams in like any other player and CreatureRenderer owns it. Body animations
@@ -165,6 +179,7 @@ public sealed partial class GameLoop
         _suiRoster.Clear();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
+        _walkToggled = false;
         if (_controller is not null) _controller.Flying = false;
         if (_character is not null) _character.Enabled = true;
         _window.FreeSelectMode = false;
@@ -440,6 +455,8 @@ public sealed partial class GameLoop
         PurgeSuiSnapshot();
         bot.Fields.SetU32(ObjectFields.PLAYER_CHARACTER_POINTS1, talentPoints);
         bot.Fields.SetU32(ObjectFields.PLAYER_COINAGE, coinage);
+        int containersSized = 0;
+        bool statsApplied = false;
 
         for (int i = 0; i < count && r.Remaining >= 19; i++)
         {
@@ -453,10 +470,25 @@ public sealed partial class GameLoop
             var fields = new ObjectFields().AsCreated();
             fields.SetU32(ObjectFields.OBJECT_ENTRY, entry);
             fields.SetU32(ObjectFields.ITEM_STACK_COUNT, stack);
+            // The bag UI sizes windows from CONTAINER_NUM_SLOTS and enumerates
+            // contents with Math.Min(numSlots, 36) — a synthetic container
+            // without the field reads 0 slots, so the items filed into its
+            // CONTAINER_SLOT fields were never even looked at.
+            if (bagSlots > 0)
+            {
+                fields.SetU32(ObjectFields.CONTAINER_NUM_SLOTS, bagSlots);
+                containersSized++;
+            }
             _entities.AddSynthetic(new WorldEntity
             {
                 Guid = itemGuid,
                 Type = bagSlots > 0 ? ObjectTypeId.Container : ObjectTypeId.Item,
+                // Entry is a plain field the UPDATE_OBJECT parser fills for streamed
+                // entities — nothing derives it from OBJECT_ENTRY in Fields. Left at 0,
+                // every template consumer (names, icons, tooltips, bag portraits) reads
+                // "no item" while the field-driven stack counts render fine, and
+                // Require(0, ...) is a silent no-op so nothing ever logged a failure.
+                Entry = entry,
                 Fields = fields,
             });
             _suiSnapshotItemGuids.Add(itemGuid);
@@ -476,6 +508,38 @@ public sealed partial class GameLoop
             }
             if (_net is not null) _items?.Require(entry, itemGuid, _net);
         }
+
+        // ── Snapshot v2: the paper-doll stat block (optional trailing bytes). ──
+        // UNIT_FIELD stats/resists/AP/damage are owner-only on the vanilla wire —
+        // never streamed for another player — so a possessed bot's character
+        // sheet rendered all zeros until the snapshot carried the raw values.
+        // Injected verbatim into the same fields the sheet already reads.
+        if (r.Remaining >= 19 * 4 + 6 * 4)
+        {
+            for (int i = 0; i < 5; i++)
+                bot.Fields.SetU32((ushort)(ObjectFields.UNIT_STAT0 + i), r.ReadU32());
+            for (int i = 0; i < 7; i++)
+                bot.Fields.SetU32((ushort)(ObjectFields.UNIT_RESISTANCES + i), r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_ATTACK_POWER, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_ATTACK_POWER_MODS, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_RANGED_ATTACK_POWER, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_RANGED_ATTACK_POWER_MODS, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_BASEATTACKTIME, r.ReadU32());
+            bot.Fields.SetU32((ushort)(ObjectFields.UNIT_BASEATTACKTIME + 1), r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_RANGEDATTACKTIME, r.ReadU32());
+            bot.Fields.SetU32(ObjectFields.UNIT_MINDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_MAXDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_MINOFFHANDDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_MAXOFFHANDDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_MINRANGEDDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            bot.Fields.SetU32(ObjectFields.UNIT_MAXRANGEDDAMAGE, BitConverter.SingleToUInt32Bits(r.ReadF32()));
+            statsApplied = true;
+        }
+
+        // Version marker: this line existing at all proves the round-13 client is
+        // running; its numbers say whether the wire carried the v2 payloads.
+        Console.WriteLine($"[sui] snapshot v2: stats={(statsApplied ? "applied" : "ABSENT")}, " +
+            $"containers sized={containersSized}");
 
         // Gear templates may have just resolved — rebuild the possessed body once more.
         ApplyControlledCharacter();
@@ -566,6 +630,11 @@ public sealed partial class GameLoop
         }
         _movementSender.Parked = false;
         _freecamRequested = false;
+        // A control hand-off always seats you RUNNING. The walk toggle is easy
+        // to flip unnoticed around control chords (Slash sits next to the
+        // Shift/Ctrl cluster in use during control jumping), and a toggle left
+        // on sticks invisibly to the next body.
+        _walkToggled = false;
         if (_controller is not null) _controller.Flying = false;   // exits the free-view fly rig
         if (_character is not null) _character.Enabled = true;
         _controller?.Teleport(x, y, z);
@@ -727,6 +796,11 @@ public sealed partial class GameLoop
             _freecamSelection.Clear();
             ClearRtsWaypointChain();
             _freecamPanAt = 0;
+            if (_controller is not null)
+            {
+                _controller.FlyFloorClearance = null;
+                _controller.FlyCollide = false;
+            }
             return;
         }
 
@@ -734,7 +808,15 @@ public sealed partial class GameLoop
         // runs ApplyControlledCharacter, which puts the controller back on the ground.
         // _character.Enabled is deliberately NOT touched — the world pass skips the body on
         // _freeView instead, so the portrait booth (same Render method) keeps working.
-        if (_controller is not null) _controller.Flying = true;
+        if (_controller is not null)
+        {
+            _controller.Flying = true;
+            // The RTS camera never sinks beneath the map; plain F fly stays unclamped.
+            _controller.FlyFloorClearance = 2f;
+            // ...and it is a floating body: walls and ceilings stop it (owner
+            // decision replacing the cutaway), so a room contains its own view.
+            _controller.FlyCollide = Settings.Controls.FreeViewCameraCollision;
+        }
 
         UpdateFreeCamEdgePan();
         UpdateRtsWaypointProgress();
@@ -873,7 +955,9 @@ public sealed partial class GameLoop
 
         Vector3 pan = forward * y + right * x;
         if (pan.LengthSquared() > 1e-6f)
-            _controller.Position += Vector3.Normalize(pan) * speed * dt;
+            // Through the same wall test as WASD flight — a direct Position write
+            // here would let the edge pan ghost through what the keys cannot.
+            _controller.FlyMove(Vector3.Normalize(pan) * speed * dt);
     }
 
     /// <summary>Party members (own character + group) — the v1 selectable set.</summary>

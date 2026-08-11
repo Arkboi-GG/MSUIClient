@@ -20,10 +20,13 @@ public sealed partial class GameLoop
     private int _socialPage;
     private bool _showIgnore;
     private uint _whoTotal;
+    private bool _namePopupOpen;      // 1.12 ADD_FRIEND / ADD_IGNORE name-entry dialog
+    private bool _namePopupIgnore;
 
     private void OpenSocial()
     {
         _socialOpen = true;
+        _socialPage = 0; _showIgnore = false;   // always reopen on the Friends tab, never a stuck page
         _net?.FriendList();
     }
 
@@ -83,23 +86,27 @@ public sealed partial class GameLoop
         if (!_socialOpen || _gameplayArt is null) return;
         if (!BeginVanillaWindow("##social", new Vector2(0, 104), new Vector2(384, 512),
                 out ImDrawListPtr dl, out Vector2 origin, out float s)) { ImGui.End(); return; }
+        // FriendsFrame's top half is the plain paperdoll top (UI-Character-General-Top*); only
+        // the BOTTOM half carries the list inset + button recesses (UI-FriendsFrame-Bot*).
+        // Using FriendsFrame-Top* for the top drew a second inset/scrollbar - the "two halves"
+        // seam (FriendsFrame.xml:536-585).
         DrawFourPieceShell(dl, origin, s,
-            @"Interface\FriendsFrame\UI-FriendsFrame-TopLeft",
-            @"Interface\FriendsFrame\UI-FriendsFrame-TopRight",
+            @"Interface\PaperDollInfoFrame\UI-Character-General-TopLeft",
+            @"Interface\PaperDollInfoFrame\UI-Character-General-TopRight",
             @"Interface\FriendsFrame\UI-FriendsFrame-BotLeft",
             @"Interface\FriendsFrame\UI-FriendsFrame-BotRight");
-        string title = _socialPage switch { 1 => "Who List", 2 => "Guild", 3 => "Raid", _ => "Friends List" };
-        DrawCenteredText(dl, origin + new Vector2(192, 18) * s, title, 14f * s, VanillaGold);
+        // FriendsFrameTitleText: GameFontNormal (~12) at TOP centre; text switches to
+        // IGNORE_LIST on the ignore subtab (FriendsFrame.xml:586-593, .lua:97).
+        string title = _socialPage switch { 1 => "Who List", 2 => "Guild", 3 => "Raid",
+            _ => _showIgnore ? "Ignore List" : "Friends List" };
+        DrawCenteredText(dl, origin + new Vector2(192, 18) * s, title, 12f * s, VanillaGold);
 
-        if (_socialPage == 0) DrawFriendsOrIgnore(dl, origin, s);
-        else if (_socialPage == 1) DrawWhoPage(dl, origin, s);
-        else if (_socialPage == 2)
-        {
-            dl.AddText(ImGui.GetFont(), 11f * s, origin + new Vector2(28, 82) * s, 0xffffffff,
-                "Opening the guild roster...");
-            _socialOpen = false; RequestGuildRoster();
-        }
-        else DrawRaidPage(dl, origin, s);
+        // Guild (page 2) is a separate frame reached via the tab click below; it never renders
+        // here, so the dispatch must not close the window from the render path (doing so every
+        // frame made the window un-reopenable once the page got stuck on Guild).
+        if (_socialPage == 1) DrawWhoPage(dl, origin, s);
+        else if (_socialPage == 3) DrawRaidPage(dl, origin, s);
+        else DrawFriendsOrIgnore(dl, origin, s);
 
         string[] outerTabs = ["Friends", "Who", "Guild", "Raid"];
         float[] tabW = outerTabs.Select(text => VanillaCharacterTabWidth(text, s, 0)).ToArray();
@@ -109,10 +116,19 @@ public sealed partial class GameLoop
             if (VanillaTab(dl, $"##social-tab-{i}", origin + new Vector2(tabX, 433) * s,
                     outerTabs[i], tabW[i], s, _socialPage == i))
             {
-                _socialPage = i; _socialSelected = 0;
-                if (i == 0) _net?.FriendList();
-                if (i == 1) _net?.Who(ReadBuffer(_whoInput));
-                if (i == 2) { _socialOpen = false; RequestGuildRoster(); }
+                _socialSelected = 0;
+                if (i == 2)
+                {
+                    // Guild opens its own frame; keep the social page on Friends so reopening
+                    // the social window later never lands on the self-closing Guild page.
+                    _socialOpen = false; _socialPage = 0; RequestGuildRoster();
+                }
+                else
+                {
+                    _socialPage = i;
+                    if (i == 0) _net?.FriendList();
+                    if (i == 1) _net?.Who(ReadBuffer(_whoInput));
+                }
             }
             tabX += tabW[i] - 14;
         }
@@ -120,6 +136,7 @@ public sealed partial class GameLoop
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _socialOpen = false;
+        DrawSocialNamePopup(dl, origin, s);
         ImGui.End();
     }
 
@@ -136,70 +153,145 @@ public sealed partial class GameLoop
             {
                 FriendRow row = _friends[i];
                 string name = _playerNames.GetValueOrDefault(row.Guid, $"Player {row.Guid & 0xffff:X4}");
-                string zone = row.Status == 0 ? "Offline" : _areas?.ZoneName(row.Area) ?? $"Area {row.Area}";
-                string info = row.Status == 0 ? "Offline" : $"Level {row.Level} {ClassName((byte)row.Class)} - {zone}";
-                if (VanillaListRow(dl, $"##friend-{row.Guid}", origin + new Vector2(23, 76 + i * 31) * s,
-                        new Vector2(298, 31), s, $"{name}    {info}", _socialSelected == i,
-                        row.Status == 0 ? 0xff808080 : 0xffffffff)) _socialSelected = i;
+                bool online = row.Status != 0;
+                string zone = online ? _areas?.ZoneName(row.Area) ?? $"Area {row.Area}" : "";
+                Vector2 rowMin = origin + new Vector2(23, 76 + i * 31) * s;
+                if (VanillaListRow(dl, $"##friend-{row.Guid}", rowMin,
+                        new Vector2(298, 31), s, "", _socialSelected == i)) _socialSelected = i;
+                // FriendsFrameButtonTemplate: gold GameFontNormal name/location at (10,-3),
+                // white GameFontHighlightSmall info line below (FriendsFrame.xml:4-44, .lua:185-186).
+                string nameLine = online ? $"{name}  ({zone})" : name;
+                string infoLine = online ? $"Level {row.Level} {ClassName((byte)row.Class)}" : "Offline";
+                GameText.Draw(dl, "GameFontNormal", nameLine, rowMin + new Vector2(10, 4) * s, s,
+                    online ? VanillaGold : 0xff808080);
+                GameText.Draw(dl, "GameFontHighlightSmall", infoLine, rowMin + new Vector2(10, 17) * s, s);
             }
         }
         else for (int i = 0; i < _ignored.Count && i < 20; i++)
         {
             ulong guid = _ignored[i]; string name = _playerNames.GetValueOrDefault(guid, $"Player {guid & 0xffff:X4}");
+            // FriendsFrameIgnoreButtonTemplate name inherits GameFontNormal (gold), not white.
             if (VanillaListRow(dl, $"##ignore-{guid}", origin + new Vector2(23, 76 + i * 16) * s,
-                    new Vector2(298, 16), s, name, _socialSelected == i, 0xffffffff)) _socialSelected = i;
+                    new Vector2(298, 16), s, name, _socialSelected == i, VanillaGold)) _socialSelected = i;
         }
-        VanillaInputText(dl, "##social-name", _friendNameInput,
-            origin + new Vector2(17, 378) * s, new Vector2(302, 22), s);
+        // FriendsListFrame has NO inline name box (FriendsFrame.xml) — Add Friend opens the
+        // ADD_FRIEND popup. Buttons are a 2x2 grid: Add/Send top (y384), Remove/Invite bottom (y410).
+        if (!_showIgnore)
+        {
+            bool haveSel = _friends.Count > 0;
+            if (VanillaButton(dl, "##social-add", "Add Friend",
+                    origin + new Vector2(17, 384) * s, new Vector2(131, 21), s))
+            { _namePopupOpen = true; _namePopupIgnore = false; Array.Clear(_friendNameInput); }
+            if (VanillaButton(dl, "##social-send", "Send Message",
+                    origin + new Vector2(214, 384) * s, new Vector2(131, 21), s, haveSel))
+            {
+                FriendRow sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                OpenChatEditWith($"/w {_playerNames.GetValueOrDefault(sel.Guid, "")} ");
+            }
+            if (VanillaButton(dl, "##social-remove", "Remove Friend",
+                    origin + new Vector2(17, 410) * s, new Vector2(131, 21), s, haveSel))
+                _net?.DeleteFriend(_friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)].Guid);
+            if (VanillaButton(dl, "##social-invite", "Group Invite",
+                    origin + new Vector2(214, 410) * s, new Vector2(131, 21), s, haveSel))
+            {
+                FriendRow sel = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
+                _net?.GroupInvite(_playerNames.GetValueOrDefault(sel.Guid, ""));
+            }
+        }
+        else
+        {
+            if (VanillaButton(dl, "##social-ignore-add", "Ignore Player",
+                    origin + new Vector2(17, 384) * s, new Vector2(131, 21), s))
+            { _namePopupOpen = true; _namePopupIgnore = true; Array.Clear(_friendNameInput); }
+            if (VanillaButton(dl, "##social-ignore-remove", "Stop Ignore",
+                    origin + new Vector2(17, 410) * s, new Vector2(131, 21), s, _ignored.Count > 0))
+                _net?.DeleteIgnore(_ignored[Math.Clamp(_socialSelected, 0, _ignored.Count - 1)]);
+        }
+    }
+
+    // The ADD_FRIEND / ADD_IGNORE StaticPopup: a small centred name-entry dialog. Drawn over the
+    // frame so an empty Friends tab matches 1.12 (no inline box) yet add-by-name still works.
+    private void DrawSocialNamePopup(ImDrawListPtr dl, Vector2 origin, float s)
+    {
+        if (!_namePopupOpen) return;
+        Vector2 min = origin + new Vector2(52, 200) * s;
+        Vector2 size = new Vector2(280, 112);
+        dl.AddRectFilled(min, min + size * s, 0xf00a0a0a);
+        dl.AddRect(min, min + size * s, 0xff8a8a8a, 0, ImDrawFlags.None, 1.5f * s);
+        DrawCenteredText(dl, min + new Vector2(140, 18) * s,
+            _namePopupIgnore ? "Type the name of who to ignore:" : "Type the name of who to add:",
+            11f * s, 0xffffffff);
+        VanillaInputText(dl, "##name-popup", _friendNameInput,
+            min + new Vector2(20, 38) * s, new Vector2(240, 22), s);
         string input = FriendInput();
-        if (VanillaButton(dl, "##social-add", _showIgnore ? "Ignore Player" : "Add Friend",
-                origin + new Vector2(17, 405) * s, new Vector2(131, 21), s, input.Length > 0))
+        if (VanillaButton(dl, "##name-ok", "Okay", min + new Vector2(38, 74) * s,
+                new Vector2(90, 22), s, input.Length > 0))
         {
-            if (_showIgnore) _net?.AddIgnore(input); else _net?.AddFriend(input);
-            Array.Clear(_friendNameInput);
+            if (_namePopupIgnore) _net?.AddIgnore(input); else _net?.AddFriend(input);
+            Array.Clear(_friendNameInput); _namePopupOpen = false;
         }
-        int count = _showIgnore ? _ignored.Count : _friends.Count;
-        if (VanillaButton(dl, "##social-remove", _showIgnore ? "Stop Ignore" : "Remove Friend",
-                origin + new Vector2(17, 431) * s, new Vector2(131, 21), s, count > 0))
+        if (VanillaButton(dl, "##name-cancel", "Cancel", min + new Vector2(152, 74) * s,
+                new Vector2(90, 22), s))
+        { Array.Clear(_friendNameInput); _namePopupOpen = false; }
+    }
+
+    // WhoFrameColumnHeaderTemplate: 3-slice WhoFrame-ColumnTabs (Left 5px, Middle stretched,
+    // Right 4px; all V 0-0.75), 24 tall, GameFontHighlightSmall label +8 (FriendsFrame.xml:166-233).
+    private void DrawWhoColumnHeader(ImDrawListPtr dl, Vector2 min, float width, float s, string label)
+    {
+        uint tex = _gameplayArt?.Handle(@"Interface\FriendsFrame\WhoFrame-ColumnTabs") ?? 0;
+        if (tex != 0)
         {
-            if (_showIgnore) _net?.DeleteIgnore(_ignored[Math.Clamp(_socialSelected, 0, _ignored.Count - 1)]);
-            else _net?.DeleteFriend(_friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)].Guid);
+            const float leftW = 5f, rightW = 4f, h = 24f;
+            float midW = MathF.Max(0f, width - leftW - rightW);
+            Vector2 p = min;
+            dl.AddImage((nint)tex, p, p + new Vector2(leftW, h) * s, new Vector2(0f, 0f), new Vector2(0.078125f, 0.75f));
+            p += new Vector2(leftW, 0f) * s;
+            dl.AddImage((nint)tex, p, p + new Vector2(midW, h) * s, new Vector2(0.078125f, 0f), new Vector2(0.90625f, 0.75f));
+            p += new Vector2(midW, 0f) * s;
+            dl.AddImage((nint)tex, p, p + new Vector2(rightW, h) * s, new Vector2(0.90625f, 0f), new Vector2(0.96875f, 0.75f));
         }
-        if (!_showIgnore && VanillaButton(dl, "##social-invite", "Group Invite",
-                origin + new Vector2(214, 431) * s, new Vector2(131, 21), s, _friends.Count > 0))
-        {
-            FriendRow row = _friends[Math.Clamp(_socialSelected, 0, _friends.Count - 1)];
-            _net?.GroupInvite(_playerNames.GetValueOrDefault(row.Guid, ""));
-        }
+        GameText.Draw(dl, "GameFontHighlightSmall", label, min + new Vector2(8, 7) * s, s);
     }
 
     private void DrawWhoPage(ImDrawListPtr dl, Vector2 origin, float s)
     {
-        string[] headers = ["Name", "Guild", "Lvl", "Class"];
-        float[] x = [20, 152, 247, 280]; float[] w = [134, 97, 35, 78];
-        for (int i = 0; i < headers.Length; i++)
-        {
-            dl.AddRectFilled(origin + new Vector2(x[i], 70) * s,
-                origin + new Vector2(x[i] + w[i], 91) * s, 0xff342517);
-            dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(x[i] + 5, 75) * s, 0xffffffff, headers[i]);
-        }
+        // WhoFrame column headers (FriendsFrame.xml:1302-1398): Name x20 w83, then the sort
+        // dropdown (default ZONE) x101 w105, Lvl x204 w32, Class x234 w92. The 3-slice
+        // WhoFrame-ColumnTabs art and the Zone/Guild/Race sort dropdown are still TODO —
+        // headers render as flat labels for now, but with the correct identity/positions.
+        (string Label, float X, float W)[] cols =
+            [("Name", 20, 83), ("Zone", 101, 105), ("Lvl", 204, 32), ("Class", 234, 92)];
+        foreach (var c in cols)
+            DrawWhoColumnHeader(dl, origin + new Vector2(c.X, 68) * s, c.W, s, c.Label);
         for (int i = 0; i < _who.Count && i < 17; i++)
         {
-            WhoRow row = _who[i]; string guild = row.Guild.Length == 0 ? "" : $"<{row.Guild}>";
-            string line = $"{row.Name,-18}{guild,-14}{row.Level,3}  {ClassName((byte)row.Class)}";
-            if (VanillaListRow(dl, $"##who-{i}", origin + new Vector2(15, 95 + i * 16) * s,
-                    new Vector2(343, 16), s, line, _socialSelected == i, 0xffffffff)) _socialSelected = i;
+            WhoRow row = _who[i];
+            Vector2 rowMin = origin + new Vector2(15, 95 + i * 16) * s;
+            if (VanillaListRow(dl, $"##who-{i}", rowMin, new Vector2(343, 16), s, "",
+                    _socialSelected == i)) _socialSelected = i;
+            // Columns anchored to the header x-positions (row starts at frame x=15).
+            Vector2 ty = new(0, 3);
+            GameText.Draw(dl, "GameFontHighlightSmall", row.Name, rowMin + (new Vector2(5, 0) + ty) * s, s);
+            GameText.Draw(dl, "GameFontHighlightSmall", _areas?.ZoneName(row.Area) ?? "",
+                rowMin + (new Vector2(86, 0) + ty) * s, s);
+            GameText.Draw(dl, "GameFontHighlightSmall", row.Level.ToString(),
+                rowMin + (new Vector2(189, 0) + ty) * s, s);
+            GameText.Draw(dl, "GameFontHighlightSmall", ClassName((byte)row.Class),
+                rowMin + (new Vector2(219, 0) + ty) * s, s);
         }
         dl.AddText(ImGui.GetFont(), 10f * s, origin + new Vector2(25, 371) * s, VanillaGold,
             $"Players: {_who.Count} of {_whoTotal}");
+        // WhoFrameEditBox is 296x32 at top-origin (24,380) (FriendsFrame.xml:1635-1645).
         VanillaInputText(dl, "##who-search", _whoInput,
-            origin + new Vector2(24, 385) * s, new Vector2(296, 22), s);
-        if (VanillaButton(dl, "##who-refresh", "Refresh", origin + new Vector2(19, 423) * s,
+            origin + new Vector2(24, 380) * s, new Vector2(296, 32), s);
+        // Refresh | Add Friend | Group Invite row at y=408 (FriendsFrame.xml:1583-1634).
+        if (VanillaButton(dl, "##who-refresh", "Refresh", origin + new Vector2(19, 408) * s,
                 new Vector2(85, 22), s)) _net?.Who(ReadBuffer(_whoInput));
         bool selected = _who.Count > 0;
-        if (VanillaButton(dl, "##who-friend", "Add Friend", origin + new Vector2(104, 423) * s,
+        if (VanillaButton(dl, "##who-friend", "Add Friend", origin + new Vector2(104, 408) * s,
                 new Vector2(120, 22), s, selected)) _net?.AddFriend(_who[_socialSelected].Name);
-        if (VanillaButton(dl, "##who-invite", "Group Invite", origin + new Vector2(224, 423) * s,
+        if (VanillaButton(dl, "##who-invite", "Group Invite", origin + new Vector2(224, 408) * s,
                 new Vector2(120, 22), s, selected)) _net?.GroupInvite(_who[_socialSelected].Name);
     }
 

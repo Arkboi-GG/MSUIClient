@@ -1479,6 +1479,16 @@ public sealed partial class GameLoop
                     "A command strip beside each party portrait: role (Tank/Healer/DPS,\n" +
                     "feeds rotations later), Hold (stand your ground) and Patrol (loop the\n" +
                     "current waypoint chain).");
+                Check("Cut buildings away in the free view", () => s.Controls.FreeViewCutaway,
+                    v => s.Controls.FreeViewCutaway = v,
+                    "Divinity-style: while you command a toon that is indoors, its\n" +
+                    "building's shell and roof are hidden so the room shows from the sky.\n" +
+                    "Untick for the untouched renderer.");
+                Check("Free-view camera collides with the world", () => s.Controls.FreeViewCameraCollision,
+                    v => s.Controls.FreeViewCameraCollision = v,
+                    "The free camera is a floating body: it stops at walls, ceilings and\n" +
+                    "the ground instead of ghosting through them — a room contains its\n" +
+                    "own view, and you fly through the door to see the next one.");
             }
             EndBox();
 

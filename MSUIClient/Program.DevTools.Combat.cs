@@ -79,6 +79,10 @@ public sealed partial class GameLoop
             $"opcode={opcode} value=0x{(ushort)opcode:X4} bytes={body.Length} text={text}", opcode);
     }
 
+    // Devtools GM-mode probe only. Display now goes through HandleMessageChat /
+    // HandleNotification; this crude whole-body scrape must NOT post to chat (it renders
+    // the packet header bytes as garbage) - it just scans for the GM ON/OFF marker and
+    // fires the GmChatResponse event the spell-matrix scenario waits on.
     private void ObserveGmChatResponse(byte[] body)
     {
         string text=string.Join('|', System.Text.Encoding.UTF8.GetString(body)
@@ -86,7 +90,6 @@ public sealed partial class GameLoop
             .Select(x=>new string(x.Where(ch=>!char.IsControl(ch)).ToArray())).Where(x=>x.Length>1));
         if(text.Contains("GM mode is ON",StringComparison.OrdinalIgnoreCase)) _serverGmMode=true;
         else if(text.Contains("GM mode is OFF",StringComparison.OrdinalIgnoreCase)) _serverGmMode=false;
-        AddChatMessage(text);
         EmitCombat("GmChatResponse","server-chat",0,text.Length==0?$"bytes={body.Length}":text);
     }
 

@@ -917,8 +917,12 @@ public sealed partial class GameLoop
                         ObserveCombatError((Op)opcode, body);
                         break;
                     case Op.SMSG_MESSAGECHAT:
+                        HandleMessageChat(body);       // typed+coloured display
+                        ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
+                        break;
                     case Op.SMSG_NOTIFICATION:
-                        ObserveGmChatResponse(body);
+                        HandleNotification(body);      // clean system line
+                        ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
                         break;
                 }
             }

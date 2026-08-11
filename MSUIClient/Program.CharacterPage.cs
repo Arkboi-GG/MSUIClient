@@ -250,7 +250,11 @@ public sealed partial class GameLoop
     private void DrawCharacterHeader(ImDrawListPtr dl, Vector2 p, float s, WorldEntity player,
         Vector4 panelClip)
     {
-        string name = _net?.PlayerName ?? "";
+        // The sheet shows whoever is being DRIVEN. PlayerName is the session
+        // character, which kept the owner's name over a possessed bot's page.
+        string name = ControlledGuid == LocalPlayerGuid
+            ? _net?.PlayerName ?? ""
+            : ResolveUnitName(ControlledGuid);
         // CharacterNameText inherits GameFontNormal but CharacterFrame.xml overrides its
         // <Color> to white (1,1,1) - the name is white, not GameFontNormal's default gold.
         GameText.DrawCentered(dl, "GameFontNormal", name, p + new Vector2(198, 24) * s, s, 0xffffffff);

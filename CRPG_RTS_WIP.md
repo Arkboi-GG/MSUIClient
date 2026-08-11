@@ -1,9 +1,45 @@
-# CRPG/RTS Mode — WIP (2026-08-10)
+# CRPG/RTS Mode — WIP (updated 2026-08-11)
 
-> **STATUS: WORK IN PROGRESS.** Large feature round landed today across client and
-> server; several pieces are **implemented but not yet play-tested** because the
-> session ended before a joint deploy. Read this whole file before touching the
-> feature. Owner decisions in here are binding — do not redesign them.
+> **STATUS: CORE LOOP OWNER-VERIFIED IN PLAY (2026-08-11).** Possession +
+> movement, party follow, bot bags + character sheet, free-view collision camera
+> all confirmed working in play after Rounds 11–16 (summary below; sections are
+> newest-first). Client is at HEAD; the server binary on the box matches the
+> build tree and was restarted with everything in it. Owner decisions in here
+> are binding — do not redesign them.
+
+## 2026-08-11 session summary (read this first)
+
+The day started with "possession doesn't move the character and nobody follows"
+and ended with the core loop verified. One line per round, newest first — each
+has a full section below:
+
+| Round | What | State |
+|---|---|---|
+| 16 | Camera-through-walls in NORMAL play (pre-existing): MinDistance clamp overrode the wall ray → vanilla-style first-person dip | fixed, needs eyes-on |
+| 15 | Free-view camera is a floating BODY: collides with walls/ceilings, fly through doors (replaces the cutaway) | owner-verified |
+| 14 | Free-view under-map clamp + Divinity cutaway v1 | clamp in; **cutaway REJECTED** (round 15), default OFF |
+| 13 | Bot bags empty (FOUR stacked causes; killer: synthetic entities had `Entry = 0`) + stuck cast animation in free view | owner-verified |
+| 12 | Cape geoset law, sheet name + stats (SNAPSHOT v2 wire block), walk-toggle clear, free-view cast/melee facing | working; facing needs a repro if still off |
+| 11 | **The big one**: stale `SplineDonePending` made the server discard ALL client movement for any AI-walked body | owner-verified |
+
+Open items going into the next session:
+1. **Facing while commanded** (round 12): owner "not sure it's properly fixed" —
+   needs the specific failing scenario (cast error vs model not turning vs melee
+   drift; the last two have known designed limits).
+2. **Walk-mode mystery** (round 12): mitigated by clearing the toggle on
+   hand-offs; if it recurs, first check whether Shift was held (Shift-while-
+   grounded = walk by design and it is in hand during control chords).
+3. **Camera diagonal graze** (round 16): thin edges can still slip the single
+   centre ray; add near-plane corner rays if seen live.
+4. **Cutaway code is parked** behind `Settings.Controls.FreeViewCutaway`
+   (default OFF) — delete it or revive it, but don't ship it silently.
+5. **Scattered bots**: bots that sat in Solo doctrine get quested far away by
+   the brain (pre-round-11 observation: Kaelrunner/Earthadin/Lornkeeper ended up
+   across the world). RefreshDoctrine now abandons Solo-era journeys on joining
+   a party, but there is no recall/regroup UX for already-scattered bots.
+6. **Client TODO (v1.1)**: implement `CMSG_MOVE_SPLINE_DONE` — outside the SUI
+   flows a server spline on the own character (charge-type effects) can still
+   wedge the movement-blocking flag (round 11's clears cover only SUI paths).
 
 ## What this is
 
@@ -20,9 +56,14 @@ chain links on the party portraits, layered per-class/per-bot skillbars.
 | Server C++ | `wowvmangos@192.168.0.2:~/vmangos`, branch `development` (no feature branches — owner rule: work directly on it) | possession, orders, follow/formation, streaming eye |
 | Brain C# | `repos/MangosSuperUI` (deployed at `/opt/mangossuperui` on the box) | fleet goals; STANDS DOWN whenever `pparty=1` |
 
-Server access: `ssh -i ~/.ssh/id_ed25519_msui_vmangos_travel_20260731 wowvmangos@192.168.0.2`.
+Server access (from this machine): `ssh -i MSUIClient/local-credentials/vmangos_ed25519
+wowvmangos@192.168.0.2` (key lives IN THIS REPO, one level deeper than you'd guess;
+`~/.ssh/id_ed25519_msui_vmangos_travel_20260731` is the travel laptop's key).
 Build: `cd ~/vmangos/build && cmake --build . -j$(nproc)`. Deploy (owner runs it):
-`cd ~/vmangos/build && make install && sudo systemctl restart mangosd`.
+`make install`, then restart the **screen session** — mangosd is NOT under systemd:
+`/usr/bin/SCREEN -DmS mangosd ~/vmangos/run/bin/mangosd`. Server logs:
+`~/vmangos/run/bin/Server.log` (+ Movement.log etc. beside it); grep `[SUI]`,
+`[AIBOT-DOCTRINE]`, `[SUI-FOLLOW]`, `[cutaway]` (client console) for this feature.
 
 ## ⚠ HARD RULE: client and server deploy TOGETHER on wire changes
 
@@ -76,7 +117,7 @@ so the **unattended own character obeys orders too**.
   driven*; an unlinked member stands its ground. Not "x follows y".
 - **A real character must NEVER be adoptable by the bot fleet** (see incident).
 
-## Landed today — server (committed on `development`, compiled, deploy pending)
+## Landed 2026-08-10 — server (committed on `development`; deployed + verified 08-11)
 
 `6ef0ba6ae` FindEscortBoss possessed-first pre-pass (fixes party-follows-body)
 `3059145e8` free-view pparty hold + orders reach unattended own char
@@ -89,7 +130,7 @@ so the **unattended own character obeys orders too**.
 `035562171` ORDER_FOLLOW via SET_ESCORT
 `33e15c1f6` ORDER_LINK + DoPartyFollow gate
 
-## Landed today — client (committed as `0169804` "CRPG & RTS Work + Painterly")
+## Landed 2026-08-10 — client (committed as `0169804` "CRPG & RTS Work + Painterly")
 
 - Free-view marquee (window `FreeSelectMode`: left = select, right = look),
   depth-tested ground-decal selection rings + move markers (procedural textures in
@@ -239,6 +280,189 @@ Verified from source + the live `Server.log`:
   transiently falls through to the only real session) or the pre-pass is not on the path that
   actually drives fleet-bot follow. **Needs a live diagnostic, not more code reading.**
 
+## Round 16 — camera-through-walls (PRE-EXISTING, not CRPG; owner-reported 2026-08-11)
+
+Pressing the orbit camera against a wall in NORMAL play let you see through it.
+`ResolveCameraCollision` pulls the boom in correctly (full collision-world ray +
+0.35 clearance) but then clamped `allowed` up to `Camera.MinDistance` (1.5 yd) —
+so any wall closer than that behind the character's head simply won: the camera
+parked inside the wall. Vanilla's answer is the first-person dip, now
+implemented: the collision pass may collapse the boom to `FirstPersonDip`
+(0.25 yd; the zoom wheel still stops at MinDistance), and the first-person body
+render is suppressed below `FirstPersonBodyHide` (0.6 yd) so the camera doesn't
+sit inside the model's head. Watch-for: a diagonal graze past a thin pillar edge
+can still slip the single centre ray — add near-plane corner rays if seen live.
+
+## Round 15 — cutaway REJECTED; free camera is a floating body instead (2026-08-11)
+
+Owner saw the Round 14 cutaway live: the open-face dollhouse look is **"no good"**
+— `FreeViewCutaway` now defaults OFF (kept as an experiment toggle; code intact
+behind it). The clarified intent: in the free view the camera should behave like
+a **floating body** — walls and ceilings stop it, so while the party is in room A
+you naturally see room A and nothing impossible; to see another room you fly
+through the door.
+
+Implemented (client only): `CharacterController.FlyCollide` +
+`FlyMove(delta)` — full-3D swept move with slide against the collision world
+(like MoveHorizontal minus walkable-slope pass-through and step-up). WASD flight
+AND the edge pan route through it; plain F fly stays a ghost. Gated by
+`Settings.Controls.FreeViewCameraCollision` (default ON, checkbox in Settings →
+Controls → CRPG/RTS).
+
+Watch-fors: a rig that somehow starts INSIDE solid geometry may wedge (untick
+the checkbox to escape); single-ray + radius sweep can slip through thin gaps
+at extreme speed; the ORBITING camera around the rig has its own collision
+(ResolveCameraCollision) which was not touched.
+
+## Round 14 — free-view floor clamp + Divinity cutaway v1 (2026-08-11, client only; cutaway REJECTED — see Round 15)
+
+1. **Fly rig can no longer sink beneath the map** in the free view:
+   `CharacterController.FlyFloorClearance` (null = classic unclamped fly; the
+   free view sets 2 yd, plain F fly stays a go-anywhere debug tool). Terrain
+   only — WMO floors (city streets, bridges) are not sampled.
+2. **Divinity-style building cutaway, v1** (owner picked trigger (a): commanding
+   an indoor toon; hard hide, fade is future polish). Rides the PLAN_10 portal
+   machinery: `WmoRenderer.SetCutawaySubject(worldPos)` resolves the commanded
+   toon's cell exactly like the camera's (refusing pure-EXTERIOR 0x08 seed cells
+   — "at the gate" must not cut a city), and for that ONE instance the
+   authoritative ReachableGroups gate is fed by `ComputeCutawayGroups`: a
+   view-independent portal BFS from the toon's cell that never traverses INTO a
+   0x08 group. Shell + roof stay unreached → cull; the room and its
+   portal-connected interior stay. **Deliberately removable**: one Settings
+   checkbox (Controls → "Cut buildings away in the free view",
+   `Settings.Controls.FreeViewCutaway`), and in code three marked blocks
+   (property + seed resolution + flood override in WmoRenderer,
+   `FreeViewCutawaySubject()` in Program.Control.cs, one feed line in
+   Program.cs before UpdateCameraCell).
+   Watch-fors on first live test: WMO-owned doodads (furniture) may still draw
+   inside hidden groups; multi-storey buildings show every floor portal-reachable
+   from the toon's (a "floors above" cut is a future refinement); the cut is
+   per-instance, so neighbouring buildings are untouched.
+
+## Round 13 — bot bags + stuck cast animation (2026-08-11, second play report)
+
+**Bags (FOUR stacked causes, all fixed — the fourth found after the third's
+deploy still showed empty slots):**
+0. Client, the big one: the snapshot's synthetic `WorldEntity`s never set the
+   plain `Entry` FIELD (only OBJECT_ENTRY inside `Fields`), and Entry is what
+   every template consumer keys on — `Require(0, …)` is a silent no-op, so
+   names/icons/tooltips/bag portraits all read "no item" while stack counts
+   (field-driven) rendered fine, and nothing ever logged a failure. Owner
+   verified sizes fixed but items invisible; `Entry = entry` closed it.
+1. Client: `ApplySuiSnapshot` never set `CONTAINER_NUM_SLOTS` on the synthetic
+   container entities, and the bag UI both sizes windows and enumerates contents
+   from it (`Math.Min(numSlots, 36)` → 0 iterations) — the items were filed into
+   CONTAINER_SLOT fields nobody ever read. Now set from the snapshot's bagSlots
+   byte.
+2. Server: vmangos' anti-datamining gate (`Item.PreventDataMining = 1` +
+   `ItemPrototype::Discovered`) answers template queries for undiscovered entries
+   with the not-found tombstone. Fabricated bots' gear can be undiscovered after a
+   restart, so every name/icon/tooltip/bag-size for bot items came back refused.
+   `AppendSnapshotItem` now marks each snapshot item's prototype Discovered.
+3. Client: `Items.Apply` caches a tombstone as a permanent null template
+   (Require never retries) — one refusal is forever. Kept the cache (query-storm
+   guard: DiscoverItemTemplates re-Requires every frame) but it now logs
+   `[items] template query for entry N answered EMPTY` so a refusal is visible.
+
+**Stuck cast animation in the free view (client, fixed):** every spell-hold
+CANCEL path (`ApplySpellFailure`, escape cancel, auto-repeat cancel, channel
+stop) called `_character?.CancelSpellVisual()` — the first-person body — even
+when the controlled unit is streamed (`ControlledBodyIsStreamed`). Start/Go
+branched correctly (Round 5) but the cancels didn't, so an interrupted cast left
+the streamed body looping its cast-state until the next cast overwrote the hold.
+New `CancelControlledSpellVisual()` helper picks the renderer; all four sites
+converted.
+
+**Facing (Round 12) is deployed** (binary md5-verified running since 10:29) but
+owner reports "not sure it's properly fixed" — needs a specific failing scenario:
+cast-time facing errors should be gone; melee only faces at swing START (drift
+mid-fight relies on the bot's own combat AI); mid-cast target movement is not
+re-faced (vanilla behaviour).
+
+## Round 12 — post-fix polish (2026-08-11, after Round 11 verified in play)
+
+Owner confirmed movement is fixed. Four follow-ups from the first real play session:
+
+1. **Cape length changed with the renderer** (client, fixed):
+   `CharacterEquipment.ApplyGeosets` hard-coded cloak geoset variant 2 (the long
+   1502 cloth) for any textured cloak; the streamed body correctly uses
+   `1501 + GeosetGroup[0]` (CharacterGeosets.cs law). The first-person body now
+   applies the same law — driving a toon no longer promotes its cape to long.
+2. **Character sheet identity + stats** (client + server, fixed — WIRE ADDITION):
+   the sheet header always printed the SESSION character's name (`_net.PlayerName`);
+   now resolves the driven unit. Stats/armor/AP/damage are owner-only UNIT_FIELDs
+   the vanilla wire never streams for another player, so the bot sheet was zeros:
+   `SMSG_SUI_SNAPSHOT` now appends a raw stat block (5 stats, 7 resistances,
+   AP+mods, RAP+mods, 3 attack times, 6 damage floats) and the client injects it
+   verbatim into the bot's fields. Optional trailing bytes — old/new client+server
+   mixes degrade gracefully (no new opcode, no kick risk).
+3. **"My character goes into walk mode"** (client, mitigated): the Slash walk
+   toggle (`_walkToggled`) survived control hand-offs invisibly; every hand-off
+   now seats you running. NOTE: holding Shift while grounded is also walk by
+   design (`Walking = _walkToggled || shift`), and Shift is in hand during
+   control chords (reverse cycle, fly boost) — if walk still appears, check
+   whether Shift was held; may deserve its own rethink.
+4. **Free-view casts fail facing** (server, fixed): with the camera parked no
+   orientation packets ever turn the acting unit, so frontal-arc checks failed
+   and the commanded toon could not fight. `HandleCastSpellOpcode` and
+   `HandleAttackSwingOpcode` now face the actor at the target when
+   `SuiPossess::IsFreeViewUp(_player)` (new query: session player holds a live
+   freecam eye — covers both the commanded bot AND the unattended own character
+   acting through the bars). The facing spline this launches is safe because
+   Round 11's arrival auto-clear covers bot-session players.
+
+**Bot bags** were still broken at the end of this round — diagnosed and fixed in
+Round 13 (four stacked causes).
+
+## Round 11 — SplineDonePending: the REAL "I drive but nothing happens" (server, 2026-08-11)
+
+Round 10 was necessary but not sufficient. The definitive signature (owner-reported):
+the client predicts movement freely, but Ctrl+F reveals the body never left the
+pickup spot — the server discarded every movement packet.
+
+Root cause: `MoveSplineInit::Launch` sets `SetSplineDonePending(true)` for EVERY
+spline on a Player, and the flag clears only when the controlling client sends
+`CMSG_MOVE_SPLINE_DONE` — the arrival auto-clear in `Unit::UpdateSplineMovement`
+explicitly skips Players. Fleet bots are Players with fake sessions that never send
+it, so **any bot the AI has ever spline-walked carries the flag for life**. It costs
+the fleet nothing (bots send no client movement) — it only bites when a human takes
+the body: `HandleMovementOpcodes` drops every packet while the flag is set. Same for
+the own character after the unattended AI walked it during the free view. This is why
+possession worked right after the 23:48 restart (bots un-splined since boot; the brain
+holds pparty bots) and failed for freshly created bots minutes later (spline-quested
+through onboarding at creation) and for everything the morning after.
+
+Fixed on the box (`development`, uncommitted; DEPLOYED 2026-08-11 morning and
+owner-verified — "seems fixed"):
+
+1. `Unit.cpp UpdateSplineMovement` — arrival auto-clear now also applies to Players
+   whose own session is a bot session (a fake client can never confirm).
+2. `SuiPossess.cpp TryBegin` — `SetSplineDonePending(false)` AFTER the stop sequence
+   (StopMoving itself launches a stop spline that re-sets the flag), plus
+   `SuiAbandonJourney()` (new AiBotAI helper: task + stored path + RTS waypoints)
+   so the brain-era journey dies when a human takes the body.
+3. `SuiPossess.cpp DetachUnattendedAI` — clear the flag on the own character when
+   the human gets their body back (the AI era splined it).
+4. `SuiPossess.cpp HandleCam(active=false)` — landing while commanding: remove the
+   eye FIRST (kills the commanded waiver), then stop the controlled bot and clear
+   its flag.
+5. `AiBotAIMain.cpp MovementInform(TASK_DEST)` — no journey chaining while
+   `m_possessed && !IsCommandedFromFreeView` (Finalize fires this callback from
+   TryBegin's own stop; the next chunk would re-open a movespline that outranks the
+   human's packets).
+6. `AiBotAIMain.cpp RefreshDoctrine` — entering PlayerParty from Solo calls
+   `SuiAbandonJourney()`: a Solo-era errand must not keep walking a bot that just
+   joined a human's party (live TASK_MOVE_TO also gates DoPartyFollow — the
+   "new member marches away instead of forming up" bug).
+
+Client TODO (v1.1): implement `CMSG_MOVE_SPLINE_DONE`. Until then any server spline
+on the own character OUTSIDE the SUI flows (charge-type effects) still wedges the
+flag with nothing to clear it.
+
+Also deployed in the same binary: the `[SUI-FOLLOW]` per-bot follow diagnostic
+(task/unlinked/commanded/boss/dist every 5 s in PlayerParty), which the previous
+session had built at 2026-08-11 00:16 but never installed.
+
 ## Round 10 — possession must STOP the bot first (server + client)
 
 The "I drive but nothing happens" bug. `HandleMovementOpcodes` drops **every** client movement
@@ -384,11 +608,13 @@ entry-less `ObjectGuid(HIGHGUID_UNIT, counter)` and cannot resolve a creature ei
   from the subject list so the chat line stops promising a move the server threw away).
 - **`BridgeHandleAttackTarget` guid reconstruction** — see the section above.
 
-## NOT yet verified in play (test after the joint deploy)
+## Verification status (2026-08-11 update — this section was "NOT yet verified")
 
-Everything above dated today. Specifically: freecam entity streaming (eye), waypoint
-chains + patrol, links, click-to-possess, party portraits, bot bars end-to-end,
-freecam hold (brain must NOT quest the own char — verified in code, not live).
+The 2026-08-11 joint deploy happened; core loop is owner-verified (see the top
+summary). The "uncommitted / NOT deployed" stamps on Rounds 6–8 below are
+HISTORICAL — that code is compiled into the running server binary. Not yet
+individually exercised in play: waypoint chains + patrol, links, party
+portraits end-to-end, bot bars end-to-end.
 
 ## Known gaps / next steps
 

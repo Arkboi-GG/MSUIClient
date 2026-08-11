@@ -1859,6 +1859,11 @@ public sealed partial class GameLoop : IDisposable
         // after player movement, target following and camera collision. The old
         // placement above movement made every doorway transition one frame stale.
         var portalEye = _window.Camera.Position;
+        // Divinity-style cutaway: hand the renderer the commanded toon's position
+        // (or null) BEFORE the cell update resolves this frame's seeds.
+        Vector3? cutawaySubject = FreeViewCutawaySubject();
+        _wmo?.SetCutawaySubject(cutawaySubject, cutawaySubject is Vector3 cutXy
+            ? _terrain?.SampleHeight(cutXy.X, cutXy.Y) : null);
         _wmo?.UpdateCameraCell(portalEye, _terrain?.SampleHeight(portalEye.X, portalEye.Y));
 
         // Target picking uses the final camera and final collision world for this frame.
@@ -2126,13 +2131,29 @@ public sealed partial class GameLoop : IDisposable
             }
         }
 
-        allowed = Math.Clamp(allowed, cam.MinDistance, cam.Distance);
+        // The collision pass may collapse the boom PAST the user zoom floor —
+        // MinDistance is a zoom-wheel convention, not a physics licence. Clamping
+        // to it here parked the camera INSIDE any wall closer than 1.5 yd behind
+        // the character, which is exactly "press your back to a building and see
+        // through it". Vanilla answers the cornered case by dipping into first
+        // person: the boom collapses toward the head, and the body render is
+        // suppressed below FirstPersonBodyHide at its call site.
+        allowed = Math.Clamp(allowed, FirstPersonDip, cam.Distance);
 
         // In immediately, out gradually.
         cam.EffectiveDistance = allowed < cam.EffectiveDistance
             ? allowed
             : MathF.Min(allowed, cam.EffectiveDistance + _config.Camera.RestoreSpeed * dt);
     }
+
+    /// <summary>Boom length the camera-collision pass may collapse to when cornered
+    /// (just clear of the 0.1 near plane). The zoom wheel still stops at MinDistance.</summary>
+    private const float FirstPersonDip = 0.25f;
+
+    /// <summary>Below this boom length the first-person body is not drawn — the
+    /// camera is effectively inside the character (vanilla hides the model at
+    /// full zoom-in for the same reason).</summary>
+    private const float FirstPersonBodyHide = 0.6f;
 
     public void Render(float dt)
     {
@@ -2231,7 +2252,8 @@ public sealed partial class GameLoop : IDisposable
         // gates CharacterRenderer.Render — and the portrait booth goes through that same
         // method, so hiding the body that way silently froze the player-frame portrait on
         // whatever face was baked last.
-        if (WarmStage(3) && _character is not null && _controller is not null && !_freeView)
+        if (WarmStage(3) && _character is not null && _controller is not null && !_freeView &&
+            _window.Camera.EffectiveDistance > FirstPersonBodyHide)
             _character.Render(_window.Camera, BuildUnitState());
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Character);
         _characterRenderMilliseconds = Stopwatch.GetElapsedTime(characterStarted).TotalMilliseconds;

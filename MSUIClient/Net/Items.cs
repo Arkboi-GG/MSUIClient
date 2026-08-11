@@ -170,6 +170,13 @@ public sealed class ItemTemplateCache
         uint entry = raw & 0x7fff_ffffu;
         _pending.Remove(entry);
         ItemTemplate? item = ItemTemplate.Parse(body);
+        // The refused/unknown tombstone (entry | 0x80000000, no payload) parses to
+        // null and is cached as permanently missing — every icon, name, tooltip and
+        // bag size derived from this entry then stays blank with no visible reason.
+        // Say so once, while the cache entry is written.
+        if (item is null)
+            Console.WriteLine($"[items] template query for entry {entry} answered EMPTY " +
+                "(server refused it: unknown or undiscovered item) — cached as missing");
         if (item is not null && _displays?.Find(item.DisplayInfoId) is { } display && display.InventoryIcon.Length > 0)
             item.IconPath = display.InventoryIcon.StartsWith("Interface", StringComparison.OrdinalIgnoreCase)
                 ? display.InventoryIcon + (display.InventoryIcon.EndsWith(".blp", StringComparison.OrdinalIgnoreCase) ? "" : ".blp")

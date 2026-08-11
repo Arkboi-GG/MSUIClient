@@ -410,13 +410,17 @@ public sealed class CharacterEquipment
         {
             if (piece.Row is null) continue;
 
-            // Cloak display rows name a BLP in the model-texture columns. The
-            // geometry choice is fixed: 1501 is the no-cape back panel and
-            // 1502 is the actual hanging cape cloth.
+            // Cloak display rows name a BLP in the model-texture columns; the
+            // geometry comes from the row's GeosetGroup[0], exactly as
+            // CharacterGeosets.cs applies it for streamed players (1501 + group).
+            // Hard-coding variant 2 promoted every short cape to the long 1502
+            // cloth the moment the first-person body dressed it, so a possessed
+            // bot's cape changed length depending on which renderer drew it.
             if (piece.InventoryType == Slot.Cloak)
             {
                 if (piece.Row.ModelTexture1.Length > 0 || piece.Row.ModelTexture2.Length > 0)
-                    selectedVariant[15] = 2;
+                    selectedVariant[15] = 1 + (piece.Row.GeosetGroup.Length > 0
+                        ? Math.Max(piece.Row.GeosetGroup[0], 0) : 0);
                 continue;
             }
 

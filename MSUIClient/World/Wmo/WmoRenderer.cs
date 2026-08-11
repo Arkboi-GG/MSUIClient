@@ -519,6 +519,28 @@ public sealed class WmoRenderer : IDisposable
     // Nothing here culls anything yet. This is the instrument.
     // ════════════════════════════════════════════════════════════════════════
 
+    // ── SUI free-view cutaway (Divinity-style; deliberately removable) ────────
+    // One input property, one seed resolution in UpdateCameraCell, one override
+    // where the flood is chosen. Delete those three and the renderer is
+    // byte-identical to before; at runtime the same is one Settings checkbox.
+
+    /// <summary>
+    /// World position of the cutaway subject (the commanded toon), or null when
+    /// the feature is off / nobody indoors is commanded. When it resolves to a
+    /// non-shell cell of some instance, that instance's flood is seeded HERE
+    /// instead of from the camera — see <see cref="ComputeCutawayGroups"/>.
+    /// </summary>
+    public void SetCutawaySubject(Vector3? world, float? terrainWorldZ = null)
+    {
+        _cutawaySubject = world;
+        _cutawaySubjectTerrainZ = terrainWorldZ;
+    }
+
+    private Vector3? _cutawaySubject;
+    private float? _cutawaySubjectTerrainZ;
+    private (int InstanceId, HashSet<int> Groups)? _cutaway;
+    private string _cutawayLoggedState = "off";
+
     /// <summary>Where the camera is, in WMO terms. Null means outdoors.</summary>
     public readonly record struct CameraCell(
         string InstancePath, int GroupIndex, string GroupName,
@@ -574,6 +596,51 @@ public sealed class WmoRenderer : IDisposable
 
         CameraGroup = best;
         CameraGroupCandidates = candidates;
+
+        // Cutaway subject: same cell resolution as the camera, once per frame.
+        // A pure-EXTERIOR (0x08) seed cell is refused — those boxes are huge
+        // ("at the gate" is not "inside") and seeding there would cut a whole
+        // city around a toon that is standing outdoors. The flood is computed
+        // HERE and cached: it is view-independent, so per-frame recompute in the
+        // render loop would be pure waste.
+        _cutaway = null;
+        string cutawayState = "off";
+        if (_cutawaySubject is Vector3 subject)
+        {
+            cutawayState = "no-cell";
+            float bestSubjectDrop = float.MaxValue;
+            string seedName = "";
+            foreach (var instance in _instances)
+            {
+                if (!Matrix4x4.Invert(instance.Transform, out var subjInv)) continue;
+                var subjLocal = Vector3.Transform(subject, subjInv);
+                float? subjTerrainZ = _cutawaySubjectTerrainZ is float stz
+                    ? Vector3.Transform(new Vector3(subject.X, subject.Y, stz), subjInv).Z
+                    : null;
+                var seeds = FindCameraSeeds(instance.Model, subjLocal, subjTerrainZ,
+                    out float drop, out _);
+                if (seeds.Length == 0 || drop >= bestSubjectDrop) continue;
+                var seedGroup = instance.Model.Groups.FirstOrDefault(
+                    g => g.GroupIndex == seeds[0]);
+                if (seedGroup is null) continue;
+                if ((seedGroup.GroupFlags & 0x08u) != 0)
+                {
+                    cutawayState = $"shell-cell:{seedGroup.GroupName}";
+                    continue;
+                }
+                bestSubjectDrop = drop;
+                var groups = ComputeCutawayGroups(instance, seeds);
+                _cutaway = (instance.Id, groups);
+                seedName = seedGroup.GroupName;
+                cutawayState = $"engaged:{System.IO.Path.GetFileName(instance.Path)}" +
+                    $"/{seedName} reached={groups.Count}/{instance.Model.Groups.Count}";
+            }
+        }
+        if (cutawayState != _cutawayLoggedState)
+        {
+            _cutawayLoggedState = cutawayState;
+            Console.WriteLine($"[cutaway] {cutawayState}");
+        }
     }
 
     private const float CameraGroupMaxDrop = 1760f;
@@ -717,6 +784,44 @@ public sealed class WmoRenderer : IDisposable
     private const float PortalRectEps = 0.001f;  // benilla RECT_EPS
     private const float PortalWClampBand = 0.001f;
     private const float PortalWClampSub = 1.0e-5f;
+
+    /// <summary>
+    /// View-independent portal flood for the SUI free-view cutaway: every group
+    /// reachable from the subject's cell WITHOUT ever entering a pure-EXTERIOR
+    /// (0x08) group. No screen-rect clipping and no front-side tests — the
+    /// subject is a person in a room, not an eye with a frustum — so the result
+    /// is stable however the sky camera moves. The building's shell and roof are
+    /// 0x08, stay unreached, and cull via the authoritative ReachableGroups gate.
+    /// </summary>
+    private static HashSet<int> ComputeCutawayGroups(Instance instance, int[] seeds)
+    {
+        var model = instance.Model;
+        var byFile = new Dictionary<int, GroupMesh>(model.Groups.Count);
+        foreach (var g in model.Groups) byFile[g.GroupIndex] = g;
+        var reachable = new HashSet<int>();
+        var stack = new Stack<int>();
+        foreach (int s in seeds)
+            if (byFile.ContainsKey(s)) stack.Push(s);
+        while (stack.Count > 0)
+        {
+            int g = stack.Pop();
+            if (!reachable.Add(g)) continue;
+            if (!byFile.TryGetValue(g, out var gm)) continue;
+            int start = gm.PortalStart;
+            int end = Math.Min(gm.PortalStart + gm.PortalCount, model.PortalRefs.Count);
+            for (int i = start; i < end; i++)
+            {
+                if (i < 0) break;
+                int nb = model.PortalRefs[i].GroupIndex;
+                if (nb == 0xFFFF || reachable.Contains(nb)) continue;
+                if (byFile.TryGetValue(nb, out var nbGroup) &&
+                    (nbGroup.GroupFlags & 0x08u) != 0)
+                    continue;   // never through the shell — that IS the cut
+                stack.Push(nb);
+            }
+        }
+        return reachable;
+    }
 
     /// <summary>
     /// The set of group FILE indices reachable from <paramref name="seedGroupIndex"/>
@@ -3000,7 +3105,15 @@ public sealed class WmoRenderer : IDisposable
             //     draw, so the skyline is never lost (D5).
             // D6: no portals, or the flood reaches nothing -> null -> heuristic runs.
             HashSet<int>? reachable = null;
-            if (UsePortalCulling
+            // SUI free-view cutaway: for the ONE instance holding the commanded
+            // toon, the flood is seeded at the toon and the gate becomes the cut
+            // (ReachableGroups is authoritative for every group, shell included).
+            // Reaching nothing falls through to the normal path below.
+            if (_cutaway is { } cut && cut.InstanceId == instance.Id &&
+                cut.Groups.Count > 0)
+                reachable = cut.Groups;
+            if (reachable is null
+                && UsePortalCulling
                 && instance.Model.Portals.Count > 0
                 && instance.Model.PortalRefs.Count > 0)
             {
