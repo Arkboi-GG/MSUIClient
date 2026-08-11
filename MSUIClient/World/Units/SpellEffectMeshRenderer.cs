@@ -795,6 +795,105 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         RenderGroundQuads(camera, draws);
     }
 
+    // ── Dev-window ground discs (aggro radii): filled annuli, terrain-conforming ──────────────
+    // Same projector as the rings, but the texture is a FILLED disc/annulus: the RTS ring's
+    // band sits at a fixed 78-95% of the radius, which at aggro ranges (18-45 yd) reads as a
+    // yards-thick hoop instead of a Fire-Emblem threat fill. Inner cut-outs come from the
+    // texture (an annulus is not convex, so the frame clipper cannot carve the hole), cached
+    // per quantized inner/outer ratio.
+
+    /// <summary>A tinted, filled ground annulus. InnerRadius 0 = a full disc.</summary>
+    public readonly record struct GroundDisc(
+        Vector3 Centre, float InnerRadius, float OuterRadius, Vector3 Tint, float Opacity);
+
+    private readonly Dictionary<int, Texture> _devDiscTextures = new();
+
+    /// <summary>Filled annulus: soft outer edge, brighter defined rim, translucent body.
+    /// White; tinted per draw. Keyed by the inner fraction quantized to 1/32 steps.</summary>
+    private Texture DevDiscTexture(float innerFraction)
+    {
+        int key = Math.Clamp((int)MathF.Round(innerFraction * 32f), 0, 31);
+        if (_devDiscTextures.TryGetValue(key, out Texture? cached)) return cached;
+        float inner = key / 32f;
+        const int size = 256;
+        byte[] rgba = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = (x + 0.5f) / size * 2f - 1f;
+            float dy = (y + 0.5f) / size * 2f - 1f;
+            float d = MathF.Sqrt(dx * dx + dy * dy);
+            // Body between the inner cut and the outer edge, both softened ~2px.
+            float fill = SmoothStep(inner - 0.015f, inner + 0.015f, d)
+                         * (1f - SmoothStep(0.965f, 0.995f, d));
+            // A defined rim just inside the outer edge so bands separate at a glance.
+            float rim = SmoothStep(0.915f, 0.945f, d) * (1f - SmoothStep(0.955f, 0.985f, d));
+            float a = MathF.Min(1f, fill * 0.72f + rim * 0.28f);
+            int i = (y * size + x) * 4;
+            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
+            rgba[i + 3] = (byte)(a * 255f + 0.5f);
+        }
+        var texture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
+        _devDiscTextures[key] = texture;
+        return texture;
+    }
+
+    /// <summary>
+    /// Dev-window aggro/leash discs: terrain-projected filled annuli, depth-tested with the
+    /// unit-aware bias so bodies standing in a disc occlude its far half. Where no terrain
+    /// exists under the centre (WMO floors — dungeon interiors), falls back to a flat
+    /// horizontal disc at the centre's Z so the visualization survives indoors (known v1
+    /// limitation: the flat disc does not follow WMO floor geometry).
+    /// </summary>
+    public void RenderGroundDiscs(Camera camera, IReadOnlyList<GroundDisc> discs)
+    {
+        if (_groundShader is null || discs.Count == 0) return;
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        List<(float[], Texture?, int, Vector3, float, int)> draws = [];
+        foreach (GroundDisc disc in discs)
+        {
+            if (disc.OuterRadius < 0.1f) continue;
+            Texture texture = DevDiscTexture(
+                Math.Clamp(disc.InnerRadius / disc.OuterRadius, 0f, 0.97f));
+            var frame = new DecalFrame(disc.Centre, 0f, 1f,
+                disc.OuterRadius, disc.OuterRadius, 2f * disc.OuterRadius);
+            float[]? vertices = ProjectDecal(frame, uv, camera.Position) ??
+                                FlatDiscVertices(disc.Centre, disc.OuterRadius, camera.Position);
+            if (vertices is not null)
+                draws.Add((vertices, texture, 2, disc.Tint, disc.Opacity, 0));
+        }
+        RenderGroundQuads(camera, draws, UnitAwareDepthBias);
+    }
+
+    /// <summary>The WMO-floor fallback: a flat fan at the centre's Z, camera-relative,
+    /// in the ground-quad vertex layout (pos³ + uv² + alpha).</summary>
+    private static float[] FlatDiscVertices(Vector3 centre, float radius, Vector3 camera)
+    {
+        const int segments = 24;
+        var dst = new List<float>(segments * 18);
+        for (int i = 0; i < segments; i++)
+        {
+            float a0 = i * MathF.PI * 2f / segments;
+            float a1 = (i + 1) * MathF.PI * 2f / segments;
+            EmitFlat(dst, centre, radius, camera, 0f, 0f);
+            EmitFlat(dst, centre, radius, camera, MathF.Cos(a0), MathF.Sin(a0));
+            EmitFlat(dst, centre, radius, camera, MathF.Cos(a1), MathF.Sin(a1));
+        }
+        return dst.ToArray();
+
+        // (nx, ny) is the unit offset from the centre; uv maps the disc onto the texture.
+        static void EmitFlat(List<float> dst, Vector3 centre, float radius, Vector3 camera,
+            float nx, float ny)
+        {
+            dst.Add(centre.X + nx * radius - camera.X);
+            dst.Add(centre.Y + ny * radius - camera.Y);
+            dst.Add(centre.Z - camera.Z);
+            dst.Add(0.5f + 0.5f * nx);
+            dst.Add(0.5f + 0.5f * ny);
+            dst.Add(1f);
+        }
+    }
+
     /// <summary>
     /// benilla GROUND_FX_DEPTH_BIAS. Enormous on purpose: a decal projected exactly onto the
     /// terrain triangles is coplanar with them, and this guarantees it wins that fight at any
@@ -892,6 +991,8 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _groundShader?.Dispose();
         _rtsRingTexture?.Dispose();
         _rtsChevronTexture?.Dispose();
+        foreach (Texture texture in _devDiscTextures.Values) texture.Dispose();
+        _devDiscTextures.Clear();
     }
 
     private const string FragmentSource = @"#version 330 core

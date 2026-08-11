@@ -775,6 +775,10 @@ public sealed partial class GameLoop
         if (freecamPressed && !_freecamKeyWasDown && !typing && _net is { IsInWorld: true })
             ToggleFreeView();
         _freecamKeyWasDown = freecamPressed;
+
+        // Ctrl+N: the NPC dev window (spawn/pathing/aggro overlays). Same edge
+        // pattern; no in-world gate so it also opens in creator mode.
+        UpdateDevWindowInput(typing);
     }
 
     /// <summary>

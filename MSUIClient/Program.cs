@@ -2312,6 +2312,10 @@ public sealed partial class GameLoop : IDisposable
         // and depth-test against the units drawn above, so rings tuck behind the models.
         if (WarmStage(5) && _spellEffectMeshes is not null)
             RenderRtsGroundFx();
+        // NPC dev window (Ctrl+N): aggro discs + through-wall aggro beams. Same decal
+        // machinery and bias as the RTS rings; no-op while the window is closed.
+        if (WarmStage(5))
+            RenderDevOverlays3D();
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 spellNow, SpellEffectUnitPose), _spellFxBillboardJointPoseB);
@@ -2679,6 +2683,15 @@ public sealed partial class GameLoop : IDisposable
         {
             DrawSettingsModal();
             return;
+        }
+
+        // The NPC dev window is deliberately ABOVE the creator-mode return below:
+        // unlike the F1 instrument stack it serves both live and creator mode
+        // (Ctrl+N). Never over the glue front door or the creator launch screens.
+        if (!GlueFrontDoorActive && !CreatorLaunchActive)
+        {
+            DrawDevWindow();
+            DrawDevOverlayLabels();
         }
 
         // Creator mode replaces the whole developer instrument stack with its own

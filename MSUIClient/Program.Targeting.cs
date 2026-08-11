@@ -89,6 +89,10 @@ public sealed partial class GameLoop
         while (_window.TryDequeueWorldClick(out WorldMouseClick click))
         {
             if (_settingsOpen || ImGui.GetIO().WantCaptureMouse) continue;
+            // NPC dev window: an armed edit mode (waypoint drawing / spawn move) owns
+            // every world click, ahead of the free-view router - no stray RTS orders
+            // while placing path nodes. No-op unless a mode is armed.
+            if (HandleDevEditClick(click)) continue;
             // CRPG free view: clicks are selection + RTS orders, never target/attack/loot.
             // Keyed on the CAMERA, not the control state — commanding a toon from the sky
             // is still the sky, and its clicks are still orders.

@@ -136,6 +136,13 @@ public sealed partial class GameLoop
         // Deliberately modifier-insensitive. This preserves MSUI's current Escape contract while
         // the rising-edge latch prevents OS/key-repeat from consuming more than one layer.
         bool escape = InputKeyDown(Silk.NET.Input.Key.Escape);
+        // Dev-tool pre-gate, deliberately OUTSIDE GameMenuUiLaw (the law transcribes
+        // vanilla layers; an armed NPC-dev edit mode is tooling and owns Escape first).
+        if (escape && !_escapeKeyDown && ConsumeDevEditEscape())
+        {
+            _escapeKeyDown = escape;
+            return;
+        }
         if (escape && !_escapeKeyDown)
         {
             GameMenuEscapePlan plan = GameMenuUiLaw.ResolveEscape(new(

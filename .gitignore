@@ -190,3 +190,6 @@ live-runs/N2-0-2-1-unit-frames-20260801-155000/
 # committed; these two are its bulk inputs, reproducible and unreviewable.
 parity/archive/
 parity/verification/
+
+# NPC dev window: cached DB exports (regenerated on demand from MangosSuperUI)
+/dev-cache/

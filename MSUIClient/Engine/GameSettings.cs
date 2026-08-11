@@ -62,6 +62,7 @@ public sealed class GameSettings
     public LightingSettings Lighting { get; set; } = new();
     public ControlSettings Controls { get; set; } = new();
     public StreamingSettings Streaming { get; set; } = new();
+    public DevWindowSettings DevWindow { get; set; } = new();
 
     // ── groups ───────────────────────────────────────────────────────────────
 
@@ -504,6 +505,44 @@ public sealed class GameSettings
         /// its own view and you fly through the door to see the next one (owner
         /// decision 2026-08-11, replacing the cutaway).</summary>
         public bool FreeViewCameraCollision { get; set; } = true;
+    }
+
+    /// <summary>
+    /// The NPC dev window (Ctrl+N): spawn/pathing/aggro overlays for flying around
+    /// in the free view. Data comes from MangosSuperUI over HTTP; edits become
+    /// change-set files, never direct writes.
+    /// </summary>
+    public sealed class DevWindowSettings
+    {
+        public bool ShowSpawnLabels { get; set; } = true;
+        public bool ShowObservedPaths { get; set; } = true;
+        public bool ShowAggroDiscs { get; set; } = true;
+        public bool ShowWhoAggros { get; set; } = true;
+
+        /// <summary>DB waypoint routes (creature_movement / _template) as solid polylines.</summary>
+        public bool ShowDbPaths { get; set; } = true;
+
+        /// <summary>DB spawn rows: authored spawn point markers, wander circles, and dimmed
+        /// markers for spawns the server is not currently streaming.</summary>
+        public bool ShowDbSpawns { get; set; } = true;
+
+        /// <summary>Only draw aggro discs for creatures hostile to the player.</summary>
+        public bool HostilesOnly { get; set; } = true;
+
+        /// <summary>Aggro reference level: "Level60" (raid), "MyLevel" (the controlled
+        /// toon), or "NpcLevel" (each creature vs its own level = its base ring).</summary>
+        public string AggroReference { get; set; } = "MyLevel";
+
+        /// <summary>Concentric bands below the reference level (1 = single disc).</summary>
+        public int AggroBandCount { get; set; } = 3;
+
+        public float DiscOpacity { get; set; } = 0.32f;
+
+        /// <summary>Overlays are culled beyond this many yards from the camera.</summary>
+        public float OverlayRange { get; set; } = 150f;
+
+        /// <summary>MangosSuperUI base URL for DB reads (and later, change-set upload).</summary>
+        public string SuiBaseUrl { get; set; } = "http://192.168.0.2:5000";
     }
 
     /// <summary>

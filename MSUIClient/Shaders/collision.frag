@@ -20,7 +20,7 @@ uniform float uSlopeLimit;    // cos(maxSlopeDegrees)
 uniform float uFadeStart;
 uniform float uFadeEnd;
 uniform float uSourceFilter;  // -1 draws all
-uniform int   uHighlight;     // 1 = yellow physics surface, 2 = cyan player marker
+uniform int   uHighlight;     // 1 = yellow physics surface, 2 = cyan player marker, 3 = red aggro beam
 
 out vec4 FragColor;
 
@@ -35,6 +35,12 @@ void main()
     if (uHighlight == 2)
     {
         FragColor = vec4(0.20, 0.85, 1.0, 1.0);
+        return;
+    }
+
+    if (uHighlight == 3)
+    {
+        FragColor = vec4(1.0, 0.22, 0.12, 1.0);
         return;
     }
 

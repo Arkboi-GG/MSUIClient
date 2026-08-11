@@ -587,8 +587,14 @@ public sealed partial class GameLoop
                             {
                                 ObserveTaxiSpline(mm);
                                 _entities.ApplyMonsterMove(mm, MovementInfo.ClientUptimeMs());
+                                // Dev window: observed-path history (no-op while it is closed).
+                                RecordDevObservedPath(mm);
                             }
                         }
+                        break;
+                    case Op.SMSG_AI_REACTION:
+                        // Dev window: the server's own aggro moment (no-op while closed).
+                        ApplyAiReaction(body);
                         break;
                     case Op.SMSG_ACTION_BUTTONS:
                         // Un-proxied wire feeds always describe the logged-in character; a
