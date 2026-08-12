@@ -902,14 +902,17 @@ public sealed partial class GameLoop : IDisposable
     {
         if (_doodads is null || _terrain is null || _adts is null) return;
 
-        Vector2 centre = TerrainRenderer.TileCenter(centreTile.col, centreTile.row);
+        Vector2 centre = _globalWmoPlacement is null
+            ? TerrainRenderer.TileCenter(centreTile.col, centreTile.row)
+            : new Vector2(_controller?.Position.X ?? _config.Start.X,
+                          _controller?.Position.Y ?? _config.Start.Y);
         float radius = ObjectResidencyRadius;
 
         // Two very different jobs share this method's cost: walking nine ADTs'
         // MDDF lists, and enumerating every MODD placement of every resident
         // WMO. At 7,562 placements this measured 71 ms and we do not yet know
         // which half. Split before optimizing - that has been right every time.
-        if (includeOutdoor)
+        if (includeOutdoor && _globalWmoPlacement is null)
         {
             long doodadPhase = Stopwatch.GetTimestamp();
             _doodads.LoadForTiles(
@@ -950,6 +953,11 @@ public sealed partial class GameLoop : IDisposable
     private void UpdateWorldResidency()
     {
         if (_controller is null || _terrain is null || _adts is null) return;
+
+        // Global-WMO instances have no ADT grid. Their single WDT placement is
+        // resident for the whole map; treating movement as tile crossings would
+        // reset that placement and replace BRD with an empty terrain ring.
+        if (_globalWmoPlacement is not null) return;
 
         var next = TerrainRenderer.TileAt(_controller.Position.X, _controller.Position.Y);
         if (_residentCentre == next) return;
@@ -1585,6 +1593,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateSpellbookInput(typing);
         UpdateWorldMapInput(typing);
         UpdateTargetBinding(typing);
+        UpdateNameplateInput(typing);
         UpdateControlInput(typing);
         UpdateRunBinding(typing);
         UpdateSheathInput(typing);
@@ -1599,8 +1608,8 @@ public sealed partial class GameLoop : IDisposable
         // toggles fought — most visibly as a floor-drop when leaving the free view.
         // The edge tracker follows the physical key so releasing Ctrl first
         // doesn't retrigger the local toggle mid-hold.
-        bool flyKey = _window.IsDown(Key.F);
-        bool flyCtrlHeld = _window.IsDown(Key.ControlLeft) || _window.IsDown(Key.ControlRight);
+        bool flyKey = InputKeyDown(Key.F);
+        bool flyCtrlHeld = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
         if (flyKey && !_flyKeyDown && !typing && !flyCtrlHeld)
         {
             _controller.Flying = !_controller.Flying;
@@ -1747,7 +1756,7 @@ public sealed partial class GameLoop : IDisposable
             Forward = forward,
             Strafe = strafe,
             Up = typing || _movementRooted || _iceBlockFrozen ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
-                                (_window.IsDown(Key.ControlLeft) ? 1f : 0f)),
+                                (InputKeyDown(Key.ControlLeft) ? 1f : 0f)),
             Yaw = _iceBlockFrozen ? _iceBlockFacing : _window.Camera.Yaw,
             Jump = !_movementRooted && !_iceBlockFrozen && (_movementScript is not null
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),
@@ -2109,7 +2118,21 @@ public sealed partial class GameLoop : IDisposable
             if (hit is not null) allowed = MathF.Min(allowed, hit.Value.Distance - clearance);
         }
 
-        if (_terrain is not null)
+        // ADT terrain is only a camera obstacle while the target is on its
+        // outdoor side. Interiors such as Blackrock Mountain sit beneath that
+        // height field: at the BRM entrance the eye is near Z=168 and the ADT
+        // mountain shell is near Z=275. Treating that overhead shell as ground
+        // makes the first march sample collide and forces EffectiveDistance to
+        // FirstPersonDip forever, even though wheel input still changes the
+        // requested Distance. WMO collision above remains active and supplies
+        // the real interior walls.
+        var terrain = _terrain;
+        float? terrainAtEye = terrain?.SampleHeight(eye.X, eye.Y);
+        float terrainOverheadSlack = _controller?.UndergroundSlack ?? 1f;
+        bool terrainIsOverhead = Camera.TerrainIsOverhead(
+            eye.Z, terrainAtEye, terrainOverheadSlack);
+
+        if (terrain is not null && !terrainIsOverhead)
         {
             const int steps = 10;
             float step = cam.Distance / steps;
@@ -2120,7 +2143,7 @@ public sealed partial class GameLoop : IDisposable
                 if (d > allowed) break;
 
                 var p = eye + dir * d;
-                float? ground = _terrain.SampleHeight(p.X, p.Y);
+                float? ground = terrain.SampleHeight(p.X, p.Y);
                 if (ground is null) continue;
 
                 if (p.Z < ground.Value + clearance)
@@ -2292,9 +2315,8 @@ public sealed partial class GameLoop : IDisposable
         long spellEffectStarted = Stopwatch.GetTimestamp();
         if (WarmStage(5) && _spellEffects is not null && _spellEffectMeshes is not null)
         {
-            // Ground-decal projection needs the terrain's triangle gatherer (rings + reticle).
-            _spellEffectMeshes.GatherGround ??= _terrain is not null
-                ? _terrain.GatherGroundTriangles : null;
+            // Ground decals follow ADT terrain and indoor WMO collision floors.
+            _spellEffectMeshes.GatherGround ??= GatherGroundEffectTriangles;
             IEnumerable<SpellMeshDraw> spellMeshes = _spellEffects.MeshInstances(
                 spellNow, SpellEffectUnitPose);
             if (_spellParticles is not null)

@@ -126,7 +126,26 @@ public sealed class CharacterController
     private const float GroundContactEpsilon = 0.05f;
 
     public bool Grounded { get; private set; }
-    public bool Flying { get; set; }
+
+    private bool _flying;
+
+    /// <summary>
+    /// A flight exit or teleport is an explicit discontinuity: the supplied Z
+    /// is more trustworthy than the outdoor height field on the first landing.
+    /// Keep that fact until the controller finds support so an interior point
+    /// below a mountain is not immediately lifted onto the mountain surface.
+    /// </summary>
+    private bool _landingAfterDiscontinuousMove;
+
+    public bool Flying
+    {
+        get => _flying;
+        set
+        {
+            if (_flying && !value) _landingAfterDiscontinuousMove = true;
+            _flying = value;
+        }
+    }
 
     /// <summary>
     /// Minimum height the FLY rig keeps above sampled terrain, or null for the
@@ -182,6 +201,13 @@ public sealed class CharacterController
 
     /// <summary>True when the feet are over a quad the MCNK holes field cut away.</summary>
     public bool InTerrainHole { get; private set; }
+
+    /// <summary>
+    /// The active map deliberately has no terrain height field because its
+    /// entire world is one WMO. Missing terrain on these maps means "keep
+    /// falling and look for a WMO floor", not corrupt/missing streaming data.
+    /// </summary>
+    public bool TerrainAbsentByDesign { get; set; }
 
     /// <summary>
     /// Choose ground the way vanilla's Map::GetHeight does rather than by
@@ -243,6 +269,7 @@ public sealed class CharacterController
         Grounded = false;
         FallTimeMs = 0;
         _warnedNoGround = false;
+        _landingAfterDiscontinuousMove = true;
     }
 
     /// <summary>How far the last depenetration pass had to push, in yards.</summary>
@@ -356,9 +383,11 @@ public sealed class CharacterController
 
         Velocity.Z -= _opts.Gravity * dt;
         if (Velocity.Z < -_opts.TerminalVelocity) Velocity.Z = -_opts.TerminalVelocity;
+        float verticalStartZ = Position.Z;
         Position.Z += Velocity.Z * dt;
 
-        ResolveGround(wasGrounded && !jumped);
+        ResolveGround(wasGrounded && !jumped,
+            MathF.Max(0f, verticalStartZ - Position.Z));
 
         LastBlockAgeSeconds += dt;
 
@@ -526,27 +555,45 @@ public sealed class CharacterController
     /// highest-wins can only ever put you on the mountain, never in the mine
     /// under it.
     ///
-    /// THE PROBE STARTS AT StepHeight, NOT AT Height, AND THAT MATTERS.
+    /// THE PROBE NORMALLY STARTS AT StepHeight, NOT AT Height, AND THAT MATTERS.
     /// Casting from head height finds surfaces up to two yards ABOVE the feet,
     /// and the snap below then yanks the character onto them — so walking near
     /// a staircase teleports you up it before you reach it, and standing under
     /// any low overhang glues you to its underside. Starting the ray at
-    /// StepHeight means the highest surface it can possibly report is exactly
+    /// StepHeight means the highest surface it can normally report is exactly
     /// one step up, which is the whole rule: you may climb a step, you may not
-    /// be levitated onto a landing.
+    /// be levitated onto a landing. During a fall the origin grows only by this
+    /// frame's downward travel, making the probe a swept landing test without
+    /// admitting a higher step.
     ///
     /// The browser build had this same structure and the same latent bug. It
     /// was ported faithfully, which was the right default and the wrong outcome
     /// here.
     /// </summary>
-    private void ResolveGround(bool allowGroundAdhesion)
+    private void ResolveGround(bool allowGroundAdhesion, float downwardTravel)
     {
         float? groundZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
+
+        // A server teleport and the F-key fly rig both supply an intentional Z.
+        // If that Z is well below the outdoor height field, the terrain sample
+        // is overhead (a mountain/tunnel roof), not a floor. This exception is
+        // deliberately limited to discontinuous placement: ordinary walking
+        // keeps the existing terrain authority and its uphill penetration slack.
+        bool terrainOverheadDuringLanding = _landingAfterDiscontinuousMove &&
+            groundZ is float overheadDuringLanding &&
+            overheadDuringLanding - Position.Z > UndergroundSlack;
+        bool deepCollisionLandingProbe = _landingAfterDiscontinuousMove &&
+            (terrainOverheadDuringLanding || groundZ is null);
 
         InTerrainHole = inHole;
         TerrainGroundZ = groundZ;
         CollisionGroundZ = null;
-        GroundSource = groundZ is null ? (inHole ? "hole" : "none") : "terrain";
+        if (terrainOverheadDuringLanding)
+        {
+            groundZ = null;
+            GroundSource = "terrain-overhead";
+        }
+        else GroundSource = groundZ is null ? (inHole ? "hole" : "none") : "terrain";
         GroundProbeOffset = Vector2.Zero;
         GroundProbesLastFrame = 0;
         GroundAdhesion = false;
@@ -567,11 +614,28 @@ public sealed class CharacterController
             {
                 GroundProbesLastFrame++;
                 var offset = direction * probeRadius;
-                var origin = Position + new Vector3(offset.X, offset.Y, _opts.StepHeight);
+                // Include this frame's downward travel in the probe origin. At
+                // terminal velocity a frame can cover more than StepHeight; a
+                // fixed origin would then start below a floor crossed this frame
+                // and let the character tunnel straight through it.
+                float probeLift = MathF.Max(_opts.StepHeight,
+                    downwardTravel + GroundContactEpsilon);
+                var origin = Position + new Vector3(offset.X, offset.Y, probeLift);
 
                 // Reach well below the feet so a fast fall onto a bridge or a
-                // WMO floor is not missed between frames.
-                var hit = Collision.Raycast(origin, Down, _opts.StepHeight + 5f);
+                // WMO floor is not missed between frames. A discontinuous move
+                // into an interior (terrain overhead or no terrain answer) gets
+                // one stronger guarantee: search to the bottom of the resident
+                // collision world. Five yards was too shallow for teleports and
+                // for leaving fly mode high inside a cavern, so the terrain
+                // above won before the lower floor was even considered.
+                float probeDepth = probeLift + 5f;
+                if (deepCollisionLandingProbe)
+                {
+                    float collisionBottom = Collision.BoundsMin.Z + Collision.Offset.Z;
+                    probeDepth = MathF.Max(probeDepth, origin.Z - collisionBottom + 0.01f);
+                }
+                var hit = Collision.Raycast(origin, Down, probeDepth);
                 if (hit is null || hit.Value.Normal.Z <= _minGroundZ) return;
 
                 float surfaceZ = origin.Z - hit.Value.Distance;
@@ -630,14 +694,14 @@ public sealed class CharacterController
 
         GroundZ = groundZ;
 
-        if (groundZ is null && inHole)
+        if (groundZ is null &&
+            (inHole || terrainOverheadDuringLanding || TerrainAbsentByDesign))
         {
-            // A hole is not missing data, it is authored geometry: the ground
-            // was cut away on purpose so a WMO interior is reachable. Standing
-            // in the doorway with no collision under the feet yet means we
-            // should FALL — which is how you get into the mine — not freeze.
-            // Vanilla draws the same line between INVALID_HEIGHT (a hole, keep
-            // falling) and VMAP_INVALID_HEIGHT_VALUE (no data at all).
+            // None of these cases is missing data: a hole is authored geometry,
+            // a global-WMO map has no terrain by design, and the discarded
+            // sample is known to be above an explicitly placed interior point.
+            // Keep falling so a deeper WMO floor can become reachable; do not
+            // freeze or snap onto the roof.
             NoGroundBelow = false;
             _warnedNoGround = false;
             Grounded = false;
@@ -705,6 +769,7 @@ public sealed class CharacterController
             Position.Z = groundZ.Value;
             Velocity.Z = 0f;
             Grounded = true;
+            _landingAfterDiscontinuousMove = false;
         }
         else if (allowGroundAdhesion && Velocity.Z <= 0f &&
                  Position.Z - groundZ.Value <= MathF.Max(0f, _opts.GroundSnapDistance))
@@ -717,6 +782,7 @@ public sealed class CharacterController
             Velocity.Z = 0f;
             Grounded = true;
             GroundAdhesion = true;
+            _landingAfterDiscontinuousMove = false;
         }
         else
         {

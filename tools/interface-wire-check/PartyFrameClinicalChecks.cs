@@ -379,7 +379,7 @@ internal static class PartyFrameClinicalChecks
 
         CheckFrozenStaticPopupSources(root);
 
-        int worldStart = net.IndexOf("if (_net.TakeEnterWorld()", StringComparison.Ordinal);
+        int worldStart = net.IndexOf("if (_queuedWorldEntry is { } enter", StringComparison.Ordinal);
         int worldEnd = net.IndexOf("// Drain + dispatch the inbound packet stream", worldStart,
             StringComparison.Ordinal);
         int inviteLifecycleCall = net.IndexOf("UpdatePartyInviteLifecycle();",

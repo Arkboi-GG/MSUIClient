@@ -1285,26 +1285,7 @@ public sealed class WmoRenderer : IDisposable
         }
 
         foreach (var (model, w) in pending)
-        {
-            var transform = BuildPlacement(w);
-            var (min, max) = TransformedBounds(model, transform);
-
-            _instances.Add(new Instance
-            {
-                Id = ++_nextInstanceId,
-                Model = model,
-                Transform = transform,
-                WorldMin = min,
-                WorldMax = max,
-                Origin = Vector3.Transform(new Vector3(w.PosX, w.PosY, w.PosZ), PlacementToWorld),
-                Path = w.ModelPath,
-                DoodadSet = w.DoodadSet,
-                AppearStart = ResolveAppearStart(
-                    $"{w.ModelPath}|{w.PosX:F2}|{w.PosY:F2}|{w.PosZ:F2}"),
-            });
-
-            VerifyPlacement(w, min, max);
-        }
+            PlaceResolvedModel(model, w, globalMap: false);
 
         if (pending.Count > 0) BumpLiquidVersion();
 
@@ -1336,6 +1317,81 @@ public sealed class WmoRenderer : IDisposable
             foreach (var name in _failedTextures.Take(10))
                 Console.WriteLine($"[wmo]   {name}");
         }
+    }
+
+    /// <summary>
+    /// Queue the single root WMO named by a global-WMO map's WDT. These maps
+    /// have no ADTs, so routing this through <see cref="QueuePreloadForTiles"/>
+    /// can never discover the model.
+    /// </summary>
+    public void QueuePreloadGlobal(AdtTerrainReader.WmoInstance placement)
+    {
+        string path = placement.ModelPath;
+        if (string.IsNullOrWhiteSpace(path) ||
+            path.StartsWith("Unknown_", StringComparison.Ordinal) ||
+            _models.ContainsKey(path) ||
+            FindPreloadJob(path) is not null ||
+            !_preloadQueued.Add(path)) return;
+
+        _preloadQueue.Enqueue(path, 0f);
+    }
+
+    /// <summary>
+    /// Place the WDT-level WMO used by maps such as Blackrock Depths. Its MODF
+    /// coordinates are centred on the instance map, not on the 64x64 ADT grid;
+    /// using the terrain placement transform moves it about 17,000 yards away.
+    /// </summary>
+    public bool LoadGlobal(AdtTerrainReader.WmoInstance placement, bool warmedOnly = false)
+    {
+        string path = placement.ModelPath;
+        if (string.IsNullOrWhiteSpace(path) ||
+            path.StartsWith("Unknown_", StringComparison.Ordinal)) return false;
+
+        string key = PlacementKey(placement);
+        if (_placed.Contains(key)) return true;
+
+        var model = warmedOnly ? _models.GetValueOrDefault(path) : ResolveModel(path);
+        if (model is null || !_placed.Add(key)) return false;
+
+        PlaceResolvedModel(model, placement, globalMap: true);
+        BumpLiquidVersion();
+        TotalTriangles = _instances.Sum(i => i.Model.TriangleCount);
+        Console.WriteLine($"[wmo-global] {Path.GetFileName(path)}, " +
+                          $"{model.Groups.Count} group(s), {TotalTriangles:N0} triangles");
+        return true;
+    }
+
+    private static string PlacementKey(AdtTerrainReader.WmoInstance placement)
+        => $"{placement.ModelPath}|{placement.PosX:F2}|{placement.PosY:F2}|{placement.PosZ:F2}";
+
+    private void PlaceResolvedModel(Model model, AdtTerrainReader.WmoInstance placement,
+                                    bool globalMap)
+    {
+        string key = PlacementKey(placement);
+        var transform = globalMap
+            ? BuildGlobalPlacement(placement)
+            : BuildPlacement(placement);
+        var (min, max) = TransformedBounds(model, transform);
+        Matrix4x4 placementToWorld = globalMap
+            ? GlobalPlacementToWorld
+            : PlacementToWorld;
+
+        _instances.Add(new Instance
+        {
+            Id = ++_nextInstanceId,
+            Model = model,
+            Transform = transform,
+            WorldMin = min,
+            WorldMax = max,
+            Origin = Vector3.Transform(
+                new Vector3(placement.PosX, placement.PosY, placement.PosZ),
+                placementToWorld),
+            Path = placement.ModelPath,
+            DoodadSet = placement.DoodadSet,
+            AppearStart = ResolveAppearStart(key),
+        });
+
+        VerifyPlacement(placement, min, max, placementToWorld);
     }
 
     /// <summary>
@@ -1539,6 +1595,19 @@ public sealed class WmoRenderer : IDisposable
         CoordShift, CoordShift, 0f, 1f);
 
     /// <summary>
+    /// Global-WMO MODF space uses the same axes as an ADT MODF but is already
+    /// centred on the instance map. It therefore needs the linear part of
+    /// <see cref="PlacementToWorld"/> without the continent-corner translation.
+    /// BRD's transformed bounds become X 259..1487, Y -848..265, Z -209..171,
+    /// which contains the server entrance (457, 34, -68).
+    /// </summary>
+    private static Matrix4x4 GlobalPlacementToWorld => new(
+        0f, -1f, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        -1f, 0f, 0f, 0f,
+        0f, 0f, 0f, 1f);
+
+    /// <summary>
     /// Model vertex basis to placement basis: (x, y, z) -> (x, z, -y).
     ///
     /// Settled by calibration and then confirmed in game, so the 64-candidate
@@ -1575,6 +1644,13 @@ public sealed class WmoRenderer : IDisposable
     private const float HeadingCorrectionDegrees = 180f;
 
     private static Matrix4x4 BuildPlacement(AdtTerrainReader.WmoInstance w)
+        => BuildPlacement(w, PlacementToWorld);
+
+    private static Matrix4x4 BuildGlobalPlacement(AdtTerrainReader.WmoInstance w)
+        => BuildPlacement(w, GlobalPlacementToWorld);
+
+    private static Matrix4x4 BuildPlacement(
+        AdtTerrainReader.WmoInstance w, Matrix4x4 placementToWorld)
     {
         const float deg = MathF.PI / 180f;
 
@@ -1593,7 +1669,7 @@ public sealed class WmoRenderer : IDisposable
         return Basis
              * rotation
              * Matrix4x4.CreateTranslation(w.PosX, w.PosY, w.PosZ)
-             * PlacementToWorld;
+             * placementToWorld;
     }
 
     /// <summary>
@@ -1802,10 +1878,13 @@ public sealed class WmoRenderer : IDisposable
     /// MODF's own bounding box for the placed model, in world space. This is
     /// the target every candidate is scored against.
     /// </summary>
-    private static (Vector3 min, Vector3 max) ModfBoxInWorld(AdtTerrainReader.WmoInstance w)
+    private static (Vector3 min, Vector3 max) ModfBoxInWorld(
+        AdtTerrainReader.WmoInstance w, Matrix4x4 placementToWorld)
     {
-        var a = Vector3.Transform(new Vector3(w.BbMinX, w.BbMinY, w.BbMinZ), PlacementToWorld);
-        var b = Vector3.Transform(new Vector3(w.BbMaxX, w.BbMaxY, w.BbMaxZ), PlacementToWorld);
+        var a = Vector3.Transform(
+            new Vector3(w.BbMinX, w.BbMinY, w.BbMinZ), placementToWorld);
+        var b = Vector3.Transform(
+            new Vector3(w.BbMaxX, w.BbMaxY, w.BbMaxZ), placementToWorld);
         return (Vector3.Min(a, b), Vector3.Max(a, b));
     }
 
@@ -1818,9 +1897,11 @@ public sealed class WmoRenderer : IDisposable
     /// building that lands somewhere else entirely while the rest are fine —
     /// which a single global convention cannot fix and is worth knowing about.
     /// </summary>
-    private static void VerifyPlacement(AdtTerrainReader.WmoInstance w, Vector3 min, Vector3 max)
+    private static void VerifyPlacement(AdtTerrainReader.WmoInstance w,
+                                        Vector3 min, Vector3 max,
+                                        Matrix4x4 placementToWorld)
     {
-        var (mMin, mMax) = ModfBoxInWorld(w);
+        var (mMin, mMax) = ModfBoxInWorld(w, placementToWorld);
 
         var centreError = ((min + max) * 0.5f) - ((mMin + mMax) * 0.5f);
         float error = centreError.Length();

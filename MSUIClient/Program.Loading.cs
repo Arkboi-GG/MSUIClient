@@ -3,6 +3,7 @@ using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 using MSUIClient.World;
 // Silk.NET.OpenGL also defines a Texture type; disambiguate to ours, the same
 // way TerrainTextures/DoodadRenderer/WmoRenderer do.
@@ -63,12 +64,23 @@ public sealed partial class GameLoop
     private int _loadInteriorRequested, _loadInteriorPlaced;
     private int _liquidStage, _liquidTileIndex, _interiorPreloadIndex;
     private int _finishStage;
+    private bool _loadSpawnFailureLogged;
+    private bool _loadSpawnRecoveryAttempted;
+    private bool _loadSpawnRecoveryAwaitingWorldport;
+    private long _loadSpawnRecoveryStamp;
     private (int col, int row)[] _liquidTiles = [];
     private IEnumerator<(string ModelPath, Matrix4x4 Transform, Vector4 Light,
         int WmoInstanceId, int[] OwnerGroups)>? _interiorPreloadEnumerator;
     private readonly List<(string Path, float DistanceSq)> _interiorPreloadCandidates =
         new(4096);
     private (int col, int row) _loadCentre;
+    /// <summary>
+    /// The WDT-level placement for maps made from one global WMO (BRD, the
+    /// Stockade, Molten Core, etc.). Null means the active map uses ADT tiles.
+    /// This remains set after loading so runtime tile residency cannot tear the
+    /// instance back down when the player crosses an imaginary ADT boundary.
+    /// </summary>
+    private AdtTerrainReader.WmoInstance? _globalWmoPlacement;
     private WorldLoadPhase _loadPhase = WorldLoadPhase.Done;
     private readonly Stopwatch _loadClock = new();
     private readonly Stopwatch _loadPhaseClock = new();
@@ -131,6 +143,20 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
+    /// Drop a curtain raised for a server transfer that was subsequently
+    /// refused. Never interrupts a load which already owns the curtain.
+    /// </summary>
+    private void CancelPendingWorldCurtain()
+    {
+        if (_worldLoading) return;
+        _loadScreen?.Dispose();
+        _loadScreen = null;
+        _loadScreenMapId = null;
+        _loadProgress = 0f;
+        _loadCurtainAlpha = 0f;
+    }
+
+    /// <summary>
     /// Arm the incremental load. Called at the end of Load once every renderer
     /// exists (empty) and the controller has been created. Returns immediately:
     /// the heavy build is driven by StepWorldLoad across the following frames.
@@ -146,6 +172,15 @@ public sealed partial class GameLoop
         _loadCentre = _residentCentre
             ?? TerrainRenderer.TileAt(_config.Start.X, _config.Start.Y);
         _residentCentre = _loadCentre;
+
+        WdtFile? activeWdt = WdtFile.Read(_config.ClientDataPath, _config.Start.MapName);
+        _globalWmoPlacement = activeWdt is { UsesGlobalWmo: true }
+            ? activeWdt.GlobalWmo
+              ?? throw new InvalidDataException(
+                  $"{_config.Start.MapName}.wdt declares a global WMO but has no MODF placement")
+            : null;
+        if (_controller is not null)
+            _controller.TerrainAbsentByDesign = _globalWmoPlacement is not null;
 
         if (_loadScreen is null || _loadScreenMapId != _config.Start.Map)
         {
@@ -169,6 +204,10 @@ public sealed partial class GameLoop
         _loadInteriorRequested = _loadInteriorPlaced = 0;
         _liquidStage = _liquidTileIndex = _interiorPreloadIndex = 0;
         _finishStage = 0;
+        _loadSpawnFailureLogged = false;
+        _loadSpawnRecoveryAttempted = false;
+        _loadSpawnRecoveryAwaitingWorldport = false;
+        _loadSpawnRecoveryStamp = 0;
         _liquidTiles = [];
         _interiorPreloadEnumerator?.Dispose();
         _interiorPreloadEnumerator = null;
@@ -181,20 +220,37 @@ public sealed partial class GameLoop
         // Start the terrain ring streaming off-thread now (parse + mesh + upload
         // all run on the worker pool + shared-context uploader). One tile past
         // the resident radius, matching the crossing lead.
-        _terrain?.QueuePreload(
-            TerrainRenderer.TileRing(_loadCentre.col, _loadCentre.row, _config.Start.TileRadius + 1),
-            _adts!, _loadCentre);
+        if (_globalWmoPlacement is { } globalWmo)
+        {
+            // Global-WMO maps have no terrain or ADT MODF lists. Their only
+            // building is named directly by the WDT and must be warm before the
+            // collision phase can safely place the player.
+            _terrain?.UnloadAll();
+            _liquid?.UnloadAll();
+            _wmo?.QueuePreloadGlobal(globalWmo);
+        }
+        else
+        {
+            _terrain?.QueuePreload(
+                TerrainRenderer.TileRing(
+                    _loadCentre.col, _loadCentre.row, _config.Start.TileRadius + 1),
+                _adts!, _loadCentre);
 
-        // Start warming the resident ring's building models off-thread too, so the
-        // placement pass below is a cache hit instead of a blocking resolve.
-        _wmo?.QueuePreloadForTiles(
-            TerrainRenderer.TileRing(_loadCentre.col, _loadCentre.row, _config.Start.TileRadius),
-            _adts!, new Vector2(_config.Start.X, _config.Start.Y));
+            // Start warming the resident ring's building models off-thread too, so the
+            // placement pass below is a cache hit instead of a blocking resolve.
+            _wmo?.QueuePreloadForTiles(
+                TerrainRenderer.TileRing(_loadCentre.col, _loadCentre.row,
+                    _config.Start.TileRadius),
+                _adts!, new Vector2(_config.Start.X, _config.Start.Y));
+        }
         _wmoWarmTotal = Math.Max(1, _wmo?.PendingPreloads ?? 1);
 
-        Console.WriteLine("[load] streaming world behind loading screen " +
-                          $"(centre tile [{_loadCentre.col},{_loadCentre.row}], " +
-                          $"radius {_config.Start.TileRadius})");
+        Console.WriteLine(_globalWmoPlacement is null
+            ? "[load] streaming world behind loading screen " +
+              $"(centre tile [{_loadCentre.col},{_loadCentre.row}], " +
+              $"radius {_config.Start.TileRadius})"
+            : "[load] streaming global WMO behind loading screen " +
+              $"({_globalWmoPlacement.ModelPath})");
     }
 
     private void SetLoadPhase(WorldLoadPhase phase)
@@ -330,6 +386,15 @@ public sealed partial class GameLoop
         {
             case WorldLoadPhase.Terrain:
             {
+                if (_globalWmoPlacement is not null)
+                {
+                    // A global-WMO map deliberately has no terrain tiles. Do
+                    // not wait for a 3x3 ring of ADTs that cannot exist.
+                    BumpProgress(0.22f);
+                    AdvanceLoadPhase(WorldLoadPhase.WarmBuildings);
+                    break;
+                }
+
                 var ring = TerrainRenderer.TileRing(c.col, c.row, radius);
                 int ready = 0;
                 foreach (var t in ring)
@@ -370,11 +435,21 @@ public sealed partial class GameLoop
                 // Models are warm, so placement is cache-hit fast. Then queue the
                 // outer ring for the first crossings (it streams after the curtain).
                 _wmo?.ResetPlacements();
-                if (_wmo is not null && _terrain is not null)
-                    _wmo.LoadForTiles(_terrain.LoadedTiles, _adts!, warmedOnly: true);
-                _wmo?.QueuePreloadForTiles(
-                    TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius), _adts!,
-                    new Vector2(_config.Start.X, _config.Start.Y));
+                if (_globalWmoPlacement is { } globalWmo)
+                {
+                    bool placed = _wmo?.LoadGlobal(globalWmo, warmedOnly: true) == true ||
+                                  _wmo?.LoadGlobal(globalWmo, warmedOnly: false) == true;
+                    if (!placed)
+                        Console.WriteLine($"[wmo-global] FAILED to place {globalWmo.ModelPath}");
+                }
+                else
+                {
+                    if (_wmo is not null && _terrain is not null)
+                        _wmo.LoadForTiles(_terrain.LoadedTiles, _adts!, warmedOnly: true);
+                    _wmo?.QueuePreloadForTiles(
+                        TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius), _adts!,
+                        new Vector2(_config.Start.X, _config.Start.Y));
+                }
                 BumpProgress(0.48f);
                 AdvanceLoadPhase(WorldLoadPhase.Liquid);
                 break;
@@ -449,7 +524,8 @@ public sealed partial class GameLoop
 
                 _doodadWarmTotal = Math.Max(1, _doodads?.PendingPreloads ?? 0);
 
-                _adts?.Retain(TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius));
+                if (_globalWmoPlacement is null)
+                    _adts?.Retain(TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius));
                 BumpProgress(0.50f);
                 AdvanceLoadPhase(WorldLoadPhase.WarmDoodads);
                 break;
@@ -501,7 +577,9 @@ public sealed partial class GameLoop
 
                 if (_placeDoodadStage == 1)
                 {
-                    Vector2 centre = TerrainRenderer.TileCenter(c.col, c.row);
+                    Vector2 centre = _globalWmoPlacement is null
+                        ? TerrainRenderer.TileCenter(c.col, c.row)
+                        : new Vector2(_config.Start.X, _config.Start.Y);
                     _loadInteriorDoodads = _wmo?.EnumerateDoodads(
                         centre, ObjectResidencyRadius).GetEnumerator();
                     _placeDoodadStage = 2;
@@ -594,12 +672,45 @@ public sealed partial class GameLoop
 
                 if (_finishStage == 1)
                 {
+                    if (!LoadSpawnHasSupport(out string supportFailure))
+                    {
+                        // A watchdog may relax streaming waits, but it may never
+                        // reveal an impossible spawn. In particular, a global-WMO
+                        // map paired with coordinates outside that WMO has no floor
+                        // and immediately drops the character through the world.
+                        if (TryRecoverInvalidLoadSpawn())
+                        {
+                            BumpProgress(0.98f);
+                            break;
+                        }
+
+                        if (!_loadSpawnFailureLogged)
+                        {
+                            _loadSpawnFailureLogged = true;
+                            _travelStatus = supportFailure;
+                            Console.WriteLine($"[load] BLOCKED - {supportFailure}");
+                        }
+                        BumpProgress(0.98f);
+                        break;
+                    }
+
                     float? ground = _terrain?.SampleHeight(_config.Start.X, _config.Start.Y);
                     _controller?.Teleport(_config.Start.X, _config.Start.Y,
                         _config.Server.Enabled && _worldLoadStarted
                             ? _config.Start.Z
                             : (ground ?? _config.Start.Z));
                     if (_controller is not null) _window.Camera.Target = _controller.Position;
+
+                    // Server worldports commonly land inside the paired return
+                    // trigger (BRD is one). Seed the arrival volume before the
+                    // curtain clears so UpdatePortals cannot immediately report
+                    // that exit and bounce a valid .tele/entrance straight back.
+                    _portalLatch = _controller is null
+                        ? 0
+                        : _areaTriggers?.Containing(
+                            _config.Start.Map, _controller.Position)?.Id ?? 0;
+                    if (_portalLatch != 0)
+                        Console.WriteLine($"[portal] arrival latched trigger {_portalLatch}");
 
                     _terrain?.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
                     CompareWmoToCollision();
@@ -609,7 +720,7 @@ public sealed partial class GameLoop
 
                 // Hand the outer ring to the background discovery streamer,
                 // nearest first (what the old Load did at the end).
-                if (_terrain is not null)
+                if (_terrain is not null && _globalWmoPlacement is null)
                 {
                     var loaded = _terrain.LoadedTiles.ToHashSet();
                     foreach (var tile in TerrainRenderer.TileRing(c.col, c.row, WmoPreloadRadius)
@@ -661,6 +772,190 @@ public sealed partial class GameLoop
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// The final reveal invariant. Terrain maps need either an authored height
+    /// sample or nearby building collision. Global-WMO maps have no terrain, so
+    /// their authoritative spawn must lie inside the installed collision bounds
+    /// and have a surface below it.
+    /// </summary>
+    private bool LoadSpawnHasSupport(out string failure)
+    {
+        float x = _config.Start.X;
+        float y = _config.Start.Y;
+        float z = _config.Start.Z;
+
+        if (_globalWmoPlacement is null)
+        {
+            if (_terrain?.SampleHeight(x, y) is not null)
+            {
+                failure = "";
+                return true;
+            }
+
+            if (_collision?.Raycast(new Vector3(x, y, z + 3f), -Vector3.UnitZ, 80f) is not null)
+            {
+                failure = "";
+                return true;
+            }
+
+            failure = $"map {_config.Start.Map} has no loaded terrain or collision support at " +
+                      $"({x:F1}, {y:F1}, {z:F1}); keeping the loading screen up";
+            return false;
+        }
+
+        if (_collision is null || _collision.IsEmpty)
+        {
+            failure = $"global-WMO map {_config.Start.Map} has no installed collision; " +
+                      "keeping the loading screen up";
+            return false;
+        }
+
+        const float BoundsSlop = 3f;
+        if (x < _collision.BoundsMin.X - BoundsSlop || x > _collision.BoundsMax.X + BoundsSlop ||
+            y < _collision.BoundsMin.Y - BoundsSlop || y > _collision.BoundsMax.Y + BoundsSlop)
+        {
+            failure = $"server supplied position ({x:F1}, {y:F1}, {z:F1}) outside map " +
+                      $"{_config.Start.Map}'s collision bounds " +
+                      $"X {_collision.BoundsMin.X:F0}..{_collision.BoundsMax.X:F0}, " +
+                      $"Y {_collision.BoundsMin.Y:F0}..{_collision.BoundsMax.Y:F0}; " +
+                      "server-side position/map must be repaired";
+            return false;
+        }
+
+        float probeDepth = MathF.Max(20f, z - _collision.BoundsMin.Z + 5f);
+        if (_collision.Raycast(new Vector3(x, y, z + 3f), -Vector3.UnitZ, probeDepth) is null)
+        {
+            failure = $"global-WMO map {_config.Start.Map} has no floor below server position " +
+                      $"({x:F1}, {y:F1}, {z:F1}); keeping the loading screen up";
+            return false;
+        }
+
+        failure = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Repair a map/position split instead of leaving the character behind an
+    /// eternal curtain. First prefer the authored portal destination which is
+    /// already within a few yards of the supplied position and ask VMaNGOS to
+    /// correct the map. If administrator worldport is unavailable, force a
+    /// known-supported point on the declared map and immediately report that
+    /// same-map pose so both sides converge again.
+    /// </summary>
+    private bool TryRecoverInvalidLoadSpawn()
+    {
+        if (_loadSpawnRecoveryAwaitingWorldport)
+        {
+            if (Stopwatch.GetElapsedTime(_loadSpawnRecoveryStamp).TotalSeconds < 3.0)
+                return true;
+
+            Console.WriteLine("[load-recovery] server worldport did not arrive in 3s; " +
+                              "falling back to a supported point on the declared map");
+            _loadSpawnRecoveryAwaitingWorldport = false;
+            return ForceSupportedPointOnDeclaredMap();
+        }
+
+        if (_loadSpawnRecoveryAttempted) return false;
+        _loadSpawnRecoveryAttempted = true;
+
+        Vector3 supplied = new(_config.Start.X, _config.Start.Y, _config.Start.Z);
+        AreaTriggerTeleport? intended = null;
+        float intendedSq = 40f * 40f;
+        if (_teleports is not null)
+        {
+            foreach (AreaTriggerTeleport destination in _teleports.ById.Values)
+            {
+                if (destination.TargetMap == _config.Start.Map) continue;
+                float distanceSq = Vector3.DistanceSquared(supplied, destination.TargetPosition);
+                if (distanceSq >= intendedSq) continue;
+                intendedSq = distanceSq;
+                intended = destination;
+            }
+        }
+
+        // CMSG_WORLD_TELEPORT is administrator-only on VMaNGOS. We know GM
+        // state from the server's own notification and never send this packet
+        // for an ordinary account.
+        if (intended is not null && _serverGmMode == true &&
+            _net?.WorldTeleport((uint)intended.TargetMap,
+                intended.TargetPosition, intended.TargetOrientation) == true)
+        {
+            _loadSpawnRecoveryAwaitingWorldport = true;
+            _loadSpawnRecoveryStamp = Stopwatch.GetTimestamp();
+            float distance = MathF.Sqrt(intendedSq);
+            Console.WriteLine($"[load-recovery] impossible map {_config.Start.Map} position " +
+                              $"matches '{intended.Name}' map {intended.TargetMap} destination " +
+                              $"within {distance:F1} yd; requested authoritative server worldport");
+            _travelStatus = $"repairing server position via {intended.Name}";
+            return true;
+        }
+
+        return ForceSupportedPointOnDeclaredMap();
+    }
+
+    private bool ForceSupportedPointOnDeclaredMap()
+    {
+        Vector3 supplied = new(_config.Start.X, _config.Start.Y, _config.Start.Z);
+        Vector3 safe = default;
+        float facing = _config.Start.Orientation;
+        string source = "";
+        bool found = false;
+
+        // An authored destination INTO the declared map is preferable to an
+        // arbitrary mesh edge. Validate it against the collision we just built.
+        if (_teleports is not null && _collision is not null)
+        {
+            float bestSq = float.MaxValue;
+            foreach (AreaTriggerTeleport destination in _teleports.ById.Values)
+            {
+                if (destination.TargetMap != _config.Start.Map) continue;
+                Vector3 p = destination.TargetPosition;
+                if (p.X < _collision.BoundsMin.X || p.X > _collision.BoundsMax.X ||
+                    p.Y < _collision.BoundsMin.Y || p.Y > _collision.BoundsMax.Y) continue;
+                if (_collision.Raycast(p + Vector3.UnitZ * 3f,
+                        -Vector3.UnitZ, 30f) is null) continue;
+                float distanceSq = Vector3.DistanceSquared(supplied, p);
+                if (distanceSq >= bestSq) continue;
+                bestSq = distanceSq;
+                safe = p;
+                facing = destination.TargetOrientation;
+                source = destination.Name;
+                found = true;
+            }
+        }
+
+        if (!found && _collision?.TryFindNearestWalkablePoint(supplied, out Vector3 floor) == true)
+        {
+            // Server/player coordinates are around the body origin rather than
+            // the literal floor plane; match BRD's measured ~1.5 yd clearance.
+            safe = floor + Vector3.UnitZ * 1.5f;
+            source = "nearest collision floor";
+            found = true;
+        }
+
+        if (!found) return false;
+
+        _config.Start.X = safe.X;
+        _config.Start.Y = safe.Y;
+        _config.Start.Z = safe.Z;
+        _config.Start.Orientation = facing;
+        _controller?.Teleport(safe.X, safe.Y, safe.Z);
+        if (_controller is not null)
+        {
+            _controller.Yaw = facing;
+            _window.Camera.Target = _controller.Position;
+        }
+        _movementSender.Reset(facing);
+        _net?.SendMovement(Op.MSG_MOVE_HEARTBEAT,
+            MovementInfo.Create(safe, facing, MovementFlags.None));
+        _portalLatch = _areaTriggers?.Containing(_config.Start.Map, safe)?.Id ?? 0;
+        _loadSpawnFailureLogged = false;
+        Console.WriteLine($"[load-recovery] forced map {_config.Start.Map} to supported {source} " +
+                          $"at ({safe.X:F1}, {safe.Y:F1}, {safe.Z:F1}) and reported the pose to the server");
+        _travelStatus = $"recovered to {source}";
+        return true;
     }
 
     /// <summary>

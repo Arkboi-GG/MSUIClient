@@ -9,7 +9,11 @@ using ImGuiNET;
 
 namespace MSUIClient.Engine;
 
-public readonly record struct WorldMouseClick(MouseButton Button, Vector2 Position);
+/// <summary>A completed world gesture. Modifier state is captured with the gesture,
+/// not polled later by the game loop, so releasing Shift beside the mouse cannot turn
+/// a Shift+Left editor move into an ordinary click.</summary>
+public readonly record struct WorldMouseClick(
+    MouseButton Button, Vector2 Position, bool ShiftDown = false);
 
 /// <summary>
 /// Window, GL context, main loop, input and the debug HUD.
@@ -248,6 +252,32 @@ public sealed class ClientWindow : IDisposable
     /// </summary>
     public bool FreeSelectMode { get; set; }
 
+    /// <summary>
+    /// An armed in-world editor owns left press/drag/release gestures. This is
+    /// separate from <see cref="FreeSelectMode"/> because editing a waypoint in
+    /// the ordinary character view must not redirect the wheel to the free-fly
+    /// rig. Right-drag remains camera look in either mode.
+    /// </summary>
+    public bool LeftButtonReservedForWorldClicks { get; set; }
+
+    /// <summary>Pure ownership rule shared by event and polling input paths.</summary>
+    public static bool CameraLookRequested(bool leftDown, bool rightDown,
+        bool freeSelectMode, bool leftButtonReserved)
+        => rightDown || (leftDown && !freeSelectMode && !leftButtonReserved);
+
+    /// <summary>Wheel clicks accumulated while <see cref="FreeSelectMode"/> is up —
+    /// the free view's altitude control, consumed once per frame by the game loop
+    /// (which flies the rig; the window knows nothing about the controller).</summary>
+    private float _freeFlightScroll;
+
+    /// <summary>Drain the free-view wheel accumulator (positive = wheel up).</summary>
+    public float TakeFreeFlightScroll()
+    {
+        float value = _freeFlightScroll;
+        _freeFlightScroll = 0f;
+        return value;
+    }
+
     public bool MouseLeftDown { get; private set; }
     public bool MouseRightDown { get; private set; }
 
@@ -260,6 +290,8 @@ public sealed class ClientWindow : IDisposable
     private struct WorldPress
     {
         public bool Active;
+        public bool AcceptDragRelease;
+        public bool ShiftDown;
         public Vector2 Position;
         public float Travel;
     }
@@ -538,8 +570,10 @@ public sealed class ClientWindow : IDisposable
                 if (ImGui.GetIO().WantCaptureMouse) return;
                 if (btn is MouseButton.Right or MouseButton.Left)
                 {
-                    BeginWorldPress(btn, m.Position);
-                    if (!(FreeSelectMode && btn == MouseButton.Left))
+                    bool leftReserved = btn == MouseButton.Left &&
+                        (FreeSelectMode || LeftButtonReservedForWorldClicks);
+                    BeginWorldPress(btn, m.Position, leftReserved);
+                    if (!leftReserved)
                         BeginLook(m);
                 }
             };
@@ -548,8 +582,12 @@ public sealed class ClientWindow : IDisposable
             {
                 if (btn is MouseButton.Right or MouseButton.Left)
                 {
-                    EndWorldPress(btn);
-                    EndLook(m);
+                    EndWorldPress(btn, m.Position);
+                    if (!CameraLookRequested(
+                            m.IsButtonPressed(MouseButton.Left),
+                            m.IsButtonPressed(MouseButton.Right),
+                            FreeSelectMode, LeftButtonReservedForWorldClicks))
+                        EndLook(m);
                 }
             };
 
@@ -639,12 +677,19 @@ public sealed class ClientWindow : IDisposable
         }
     }
 
-    private void BeginWorldPress(MouseButton button, Vector2 position)
+    private void BeginWorldPress(MouseButton button, Vector2 position,
+        bool acceptDragRelease)
     {
         ref WorldPress press = ref (button == MouseButton.Left
             ? ref _leftWorldPress
             : ref _rightWorldPress);
-        press = new WorldPress { Active = true, Position = position };
+        press = new WorldPress
+        {
+            Active = true,
+            AcceptDragRelease = acceptDragRelease,
+            ShiftDown = _held.Contains(Key.ShiftLeft) || _held.Contains(Key.ShiftRight),
+            Position = position
+        };
 
         // A two-button chord is camera control, never two coincident clicks.
         ref WorldPress other = ref (button == MouseButton.Left
@@ -657,13 +702,24 @@ public sealed class ClientWindow : IDisposable
         }
     }
 
-    private void EndWorldPress(MouseButton button)
+    private void EndWorldPress(MouseButton button, Vector2 releasePosition)
     {
         ref WorldPress press = ref (button == MouseButton.Left
             ? ref _leftWorldPress
             : ref _rightWorldPress);
-        if (press.Active && press.Travel <= WorldClickDragPixels)
-            _worldClicks.Enqueue(new WorldMouseClick(button, press.Position));
+        if (press.Active &&
+            (press.AcceptDragRelease || press.Travel <= WorldClickDragPixels))
+        {
+            // Editors consume the whole gesture and want the release point so
+            // Shift+left can be used naturally as a drag. Ordinary clicks keep
+            // their stable press point and camera drags remain disqualified.
+            Vector2 clickPosition = press.AcceptDragRelease
+                ? releasePosition
+                : press.Position;
+            bool shiftDown = press.ShiftDown ||
+                _held.Contains(Key.ShiftLeft) || _held.Contains(Key.ShiftRight);
+            _worldClicks.Enqueue(new WorldMouseClick(button, clickPosition, shiftDown));
+        }
         press = default;
     }
 
@@ -740,18 +796,17 @@ public sealed class ClientWindow : IDisposable
 
         _lookTurnsCharacter = MouseRightDown;
 
-        bool anyButton = MouseLeftDown || MouseRightDown;
-
         // Engage from polling as well as from the event. If MouseDown was
         // swallowed - ImGui claiming the mouse on the wrong frame is the usual
         // culprit - this still starts the look.
-        bool lookButton = FreeSelectMode ? MouseRightDown : anyButton;
+        bool lookButton = CameraLookRequested(MouseLeftDown, MouseRightDown,
+            FreeSelectMode, LeftButtonReservedForWorldClicks);
         if (lookButton && !_mouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             BeginLook(_mouse);
 
         // And release from polling, so a MouseUp that never arrived cannot leave
         // the cursor hidden and the view spinning.
-        if (!anyButton && _mouseCaptured)
+        if (!lookButton && _mouseCaptured)
             EndLook(_mouse);
     }
 
@@ -772,7 +827,14 @@ public sealed class ClientWindow : IDisposable
 
         Camera.Rotate(_pendingYaw, _pendingPitch);
         Camera.RotateView(_pendingOrbitYaw);
-        if (_pendingZoom != 0) Camera.Zoom(_pendingZoom);
+        // In the free view the wheel belongs to the FLY RIG (altitude), not the
+        // orbit boom — Camera.Zoom clamps at MaxDistance, which read as a hard
+        // height ceiling from the sky. The game loop consumes the accumulator.
+        if (_pendingZoom != 0)
+        {
+            if (FreeSelectMode) _freeFlightScroll += _pendingZoom;
+            else Camera.Zoom(_pendingZoom);
+        }
         _pendingYaw = _pendingOrbitYaw = _pendingPitch = _pendingZoom = 0;
 
         InputMilliseconds = Stopwatch.GetElapsedTime(inputStarted).TotalMilliseconds;

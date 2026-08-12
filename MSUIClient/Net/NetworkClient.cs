@@ -89,9 +89,6 @@ public sealed class NetworkClient : IDisposable
     private ulong _pendingDelete;
     private int _deleteResult = -1;   // -1 = none pending; else the SMSG_CHAR_DELETE result byte
 
-    private EnterWorldInfo? _pendingEnter;
-    private readonly object _enterLock = new();
-
     private string _account;
     private string _password;
 
@@ -217,7 +214,6 @@ public sealed class NetworkClient : IDisposable
         _parkReq = ParkReq.None;
         _pick.Reset();
         lock (_createLock) { _createResult = -1; _deleteResult = -1; }
-        lock (_enterLock) _pendingEnter = null;
 
         State = NetState.Idle;
         _status = "connecting";
@@ -231,17 +227,6 @@ public sealed class NetworkClient : IDisposable
             opcode = p.Opcode; body = p.Body; receivedStamp = p.ReceivedStamp; return true;
         }
         opcode = 0; body = Array.Empty<byte>(); receivedStamp = 0; return false;
-    }
-
-    /// <summary>Non-null exactly once after entering or changing world — the pose the game loop teleports/loads to.</summary>
-    public EnterWorldInfo? TakeEnterWorld()
-    {
-        lock (_enterLock)
-        {
-            var e = _pendingEnter;
-            _pendingEnter = null;
-            return e;
-        }
     }
 
     // --- outbound pass-throughs (safe no-ops when not in world) ---------------------------------
@@ -287,6 +272,9 @@ public sealed class NetworkClient : IDisposable
     public bool PetCancelAura(ulong petGuid, uint spellId) =>
         InWorld(s => s.PetCancelAura(petGuid, spellId));
     public void ZoneUpdate(uint zoneId) { try { _session?.ZoneUpdate(zoneId); } catch { } }
+    public bool AreaTrigger(uint triggerId) => InWorld(s => s.AreaTrigger(triggerId));
+    public bool WorldTeleport(uint mapId, Vector3 position, float orientation) =>
+        InWorld(s => s.WorldTeleport(mapId, position, orientation));
     public Action<Op, ulong>? CombatSendObserved { get; set; }
     public void AttackSwing(ulong guid)
     {
@@ -644,7 +632,6 @@ public sealed class NetworkClient : IDisposable
                     {
                         var r = new PacketReader(body);
                         var info = new EnterWorldInfo(r.ReadU32(), r.ReadVector3(), r.ReadF32());
-                        SetEnter(info);
                         SetState(NetState.InWorld, $"in world: {PlayerName} - map {info.Map} at ({info.Position.X:F0}, {info.Position.Y:F0}, {info.Position.Z:F0})");
                         StartPing();
                         break;
@@ -654,7 +641,6 @@ public sealed class NetworkClient : IDisposable
                         var r = new PacketReader(body);
                         var info = new EnterWorldInfo(r.ReadU32(), r.ReadVector3(), r.ReadF32());
                         session.WorldportAck();
-                        SetEnter(info);
                         _status = $"changing to map {info.Map}";
                         break;
                     }
@@ -697,11 +683,6 @@ public sealed class NetworkClient : IDisposable
             }
             catch { /* disconnect handled by read loop */ }
         }, null, 0, 10_000);
-    }
-
-    private void SetEnter(EnterWorldInfo info)
-    {
-        lock (_enterLock) _pendingEnter = info;
     }
 
     private void SetState(NetState s, string status)

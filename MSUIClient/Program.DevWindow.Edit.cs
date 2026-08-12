@@ -37,6 +37,11 @@ public sealed partial class GameLoop
     /// <summary>Node screen rects, filled by the overlay draw each frame (nameplate
     /// hit-rect idiom) and consumed by the click handler.</summary>
     private readonly List<(ScreenRect Rect, int Index)> _devEditNodeHits = [];
+    /// <summary>Read-only DB route nodes for the currently inspected creature. Clicking
+    /// one promotes that route into the real waypoint editor instead of falling through
+    /// to ordinary ground targeting and clearing the creature selection.</summary>
+    private readonly List<(ScreenRect Rect, uint SpawnGuid, uint Entry, int Index)>
+        _devDbNodeHits = [];
 
     // Spawn move: proposed position + optional model ghost.
     private Vector3? _devEditSpawnNewPos;
@@ -55,7 +60,7 @@ public sealed partial class GameLoop
 
     // ── mode lifecycle ───────────────────────────────────────────────────────
 
-    private void BeginDevWaypointEdit(uint spawnGuid, uint entry)
+    private void BeginDevWaypointEdit(uint spawnGuid, uint entry, int selectedNode = -1)
     {
         CancelDevEdit();
         DevWorldData? world = DevData.World;
@@ -67,8 +72,11 @@ public sealed partial class GameLoop
         _devEditPath.AddRange(_devEditPathBefore);
         _devEditSpawnGuid = spawnGuid;
         _devEditEntry = entry;
-        _devEditSelectedNode = _devEditPath.Count - 1;   // clicks append after the tail
+        _devEditSelectedNode = selectedNode >= 0 && selectedNode < _devEditPath.Count
+            ? selectedNode
+            : _devEditPath.Count - 1;   // button-started edits append after the tail
         _devEditMode = DevEditMode.WaypointEdit;
+        _window.LeftButtonReservedForWorldClicks = true;
     }
 
     private void BeginDevSpawnMove(uint spawnGuid, uint entry)
@@ -78,11 +86,13 @@ public sealed partial class GameLoop
         _devEditEntry = entry;
         _devEditSpawnNewPos = null;
         _devEditMode = DevEditMode.SpawnMove;
+        _window.LeftButtonReservedForWorldClicks = true;
     }
 
     private void CancelDevEdit()
     {
         _devEditMode = DevEditMode.None;
+        _window.LeftButtonReservedForWorldClicks = false;
         _devEditPath.Clear();
         _devEditPathBefore = [];
         _devEditSelectedNode = -1;
@@ -112,7 +122,20 @@ public sealed partial class GameLoop
     /// node deletes it. Spawn-move mode: left on ground proposes the new position.</summary>
     private bool HandleDevEditClick(WorldMouseClick click)
     {
-        if (_devEditMode == DevEditMode.None || !_devWindowOpen) return false;
+        if (!_devWindowOpen) return false;
+        if (_devEditMode == DevEditMode.None)
+        {
+            // The numbered DB nodes are an affordance, not scenery. A left-click on
+            // the inspected creature's route enters the genuine editor at that node.
+            // Consume it here so ordinary targeting never sees "empty ground" and
+            // clears the inspected creature/focus set.
+            if (click.Button != MouseButton.Left) return false;
+            int dbHit = HitTestDevDbNode(click.Position);
+            if (dbHit < 0) return false;
+            var node = _devDbNodeHits[dbHit];
+            BeginDevWaypointEdit(node.SpawnGuid, node.Entry, node.Index);
+            return true;
+        }
 
         if (_devEditMode == DevEditMode.WaypointEdit)
         {
@@ -125,7 +148,7 @@ public sealed partial class GameLoop
                     return true;
                 }
                 if (!TryPickGround(click.Position, out Vector3 spot)) return true;
-                if (ShiftHeld() && _devEditSelectedNode >= 0 &&
+                if (click.ShiftDown && _devEditSelectedNode >= 0 &&
                     _devEditSelectedNode < _devEditPath.Count)
                 {
                     _devEditPath[_devEditSelectedNode] =
@@ -162,6 +185,13 @@ public sealed partial class GameLoop
     {
         for (int i = _devEditNodeHits.Count - 1; i >= 0; i--)
             if (_devEditNodeHits[i].Rect.Contains(pixel)) return _devEditNodeHits[i].Index;
+        return -1;
+    }
+
+    private int HitTestDevDbNode(Vector2 pixel)
+    {
+        for (int i = _devDbNodeHits.Count - 1; i >= 0; i--)
+            if (_devDbNodeHits[i].Rect.Contains(pixel)) return i;
         return -1;
     }
 
@@ -408,7 +438,7 @@ public sealed partial class GameLoop
             ImGui.TextColored(new Vector4(0.4f, 1f, 0.55f, 1f),
                 $"PATH EDIT - {_devEditPath.Count} nodes " +
                 $"({(_devEditPathOrigin == DevPathOrigin.Template ? "from template - saves as per-guid" : "per-guid")})");
-            ImGui.TextDisabled("left: select node / add after selected  -  Shift+left: move selected");
+            ImGui.TextDisabled("left: select node / add after selected  -  Shift+left: move selected (camera locked)");
             ImGui.TextDisabled("right on node: delete  -  Esc: cancel");
             if (_devEditSelectedNode >= 0 && _devEditSelectedNode < _devEditPath.Count)
             {
