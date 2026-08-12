@@ -529,6 +529,10 @@ public sealed class GameSettings
         /// <summary>Only draw aggro discs for creatures hostile to the player.</summary>
         public bool HostilesOnly { get; set; } = true;
 
+        /// <summary>Overlay scope: false = every creature in range ("All"), true = only
+        /// the focus set built by Ctrl+LeftClick while the window is open ("Selected").</summary>
+        public bool FocusSelectedOnly { get; set; }
+
         /// <summary>Aggro reference level: "Level60" (raid), "MyLevel" (the controlled
         /// toon), or "NpcLevel" (each creature vs its own level = its base ring).</summary>
         public string AggroReference { get; set; } = "MyLevel";

@@ -15,8 +15,10 @@ has a full section below:
 
 | Round | What | State |
 |---|---|---|
+| 18 | SOLO free view: `HandleOrder`'s `if (!group) return;` silently ate every RTS order from a partyless owner → solo now orders the own character (and only it); empty subjects solo = own char. **Compiled on box, mangosd restart pending (owner's call — kicks the live session).** No wire change, no client pairing. | built, deploy pending |
+| 17 | Round 15 REVERSED (owner, 2026-08-11 evening): the floating-body camera reads as a "fake ceiling" when detaching under WMO geometry (indoors, gate arches, city overhangs). Free-view rig is a ghost again — `FlyCollide` hard false in `UpdateFreeCamSelection` (not the saved setting: old default persisted `true` into settings files). Same session: solo own toon now clickable for the halo (`PickUnit` ControlledGuid skip lifts in `_freeView`), free-view wheel flies the rig instead of the 40-yd orbit zoom, and **selection rings + move markers get the FlatDiscVertices WMO-floor fallback** — `RenderSelectionRings`/`RenderMoveMarkers` were terrain-projection-only, so the halo/confirm never drew on Stormwind streets or any WMO floor (party tests passed only because they ran on open Elwynn terrain). | in client build, needs eyes-on |
 | 16 | Camera-through-walls in NORMAL play (pre-existing): MinDistance clamp overrode the wall ray → vanilla-style first-person dip | fixed, needs eyes-on |
-| 15 | Free-view camera is a floating BODY: collides with walls/ceilings, fly through doors (replaces the cutaway) | owner-verified |
+| 15 | Free-view camera is a floating BODY: collides with walls/ceilings, fly through doors (replaces the cutaway) | ~~owner-verified~~ REVERSED by round 17 |
 | 14 | Free-view under-map clamp + Divinity cutaway v1 | clamp in; **cutaway REJECTED** (round 15), default OFF |
 | 13 | Bot bags empty (FOUR stacked causes; killer: synthetic entities had `Entry = 0`) + stuck cast animation in free view | owner-verified |
 | 12 | Cape geoset law, sheet name + stats (SNAPSHOT v2 wire block), walk-toggle clear, free-view cast/melee facing | working; facing needs a repro if still off |

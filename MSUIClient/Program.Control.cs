@@ -794,6 +794,7 @@ public sealed partial class GameLoop
         _window.FreeSelectMode = _freeView;
         if (!_freeView)
         {
+            _window.TakeFreeFlightScroll();   // discard a leftover final-frame wheel tick
             _freecamDragOrigin = null;
             _freecamDragActive = false;
             _freecamMarqueeConsumedClick = false;
@@ -817,9 +818,27 @@ public sealed partial class GameLoop
             _controller.Flying = true;
             // The RTS camera never sinks beneath the map; plain F fly stays unclamped.
             _controller.FlyFloorClearance = 2f;
-            // ...and it is a floating body: walls and ceilings stop it (owner
-            // decision replacing the cutaway), so a room contains its own view.
-            _controller.FlyCollide = Settings.Controls.FreeViewCameraCollision;
+            // The round-15 floating-body camera (walls/ceilings stop the rig) is OFF:
+            // detaching under any WMO geometry — indoors, gate arches, city overhangs —
+            // hit an invisible "fake ceiling" (owner, 2026-08-11 evening). The rig is a
+            // ghost again. Hard false, not the saved setting: the old default persisted
+            // `true` into settings files, and honoring it would keep the ceiling.
+            _controller.FlyCollide = false;
+        }
+
+        // RTS altitude on the wheel: fly the RIG along the camera look direction
+        // (wheel up = toward what you look at, wheel down = pull back and away).
+        // Unlimited height — the orbit boom's MaxDistance no longer caps the view.
+        // Steps scale with altitude like the edge pan, and go through FlyMove so
+        // the wheel cannot ghost through what the keys cannot.
+        float wheel = _window.TakeFreeFlightScroll();
+        if (wheel != 0f && _controller is not null)
+        {
+            float altitude = 10f;
+            if (_terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float floor)
+                altitude = MathF.Max(2f, _controller.Position.Z - floor);
+            float step = Math.Clamp(altitude * 0.30f, 2.5f, 40f);
+            _controller.FlyMove(_window.Camera.Forward * (wheel * step));
         }
 
         UpdateFreeCamEdgePan();
@@ -1009,6 +1028,10 @@ public sealed partial class GameLoop
                 return;
             }
             ulong pickedUnit = PickUnit(click.Position);
+            // NPC dev window focus set: Ctrl+LeftClick multi-selects creatures for the
+            // "Selected only" overlay scope and consumes the click (ahead of the
+            // take-command and marquee-clear behaviour below).
+            if (HandleDevFocusClick(pickedUnit)) return;
             // CRPG rule: clicking a party toon in the free view IS taking command of it —
             // its bars, bags and spells become the live HUD, the same as Ctrl+Tab. The
             // CAMERA does not move: you stay in the sky until Ctrl+F says otherwise.
@@ -1216,8 +1239,7 @@ public sealed partial class GameLoop
     private void RenderRtsGroundFx()
     {
         if (_spellEffectMeshes is null) return;
-        _spellEffectMeshes.GatherGround ??= _terrain is not null
-            ? _terrain.GatherGroundTriangles : null;
+        _spellEffectMeshes.GatherGround ??= GatherGroundEffectTriangles;
         double now = NowSeconds();
         _rtsMoveMarkers.RemoveAll(m => now - m.Born > 0.9);
 

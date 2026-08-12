@@ -39,8 +39,10 @@ redesign owner decisions listed there. The vmangos box is `wowvmangos@192.168.0.
 | Key | Does |
 |---|---|
 | **Ctrl+N** | Toggle the **NPC Dev window** (works in live AND creator mode) |
-| **Ctrl+F** | Free view (fly camera) — the intended way to use the window |
-| **F** | Plain local fly toggle (unchanged) |
+| **Ctrl+F** | Free view (detached RTS fly camera) — the intended way to use the window |
+| **Mouse wheel in free view** | Fly the rig toward/away from where you look — wheel DOWN to gain altitude, no height cap (the wheel no longer pumps the 40-yd orbit zoom) |
+| **F** | Fly WITH the character (single-character mode). Same scheme everywhere: W/S flat, **Space = up, hold Ctrl = down**, Shift = boost, no height cap. Live-verified. |
+| **Ctrl+LeftClick a creature** | While the window is open: add/remove it from the **"Selected only"** overlay set |
 | **Esc** | While a dev EDIT mode is armed: cancels the edit (before the game menu) |
 
 Opening the window kicks the data fetches automatically (creature templates + all
@@ -49,9 +51,12 @@ spawn/waypoint rows for the current map). The toolbar tells you what loaded:
 "in range: N streamed, M DB-only".
 
 ### Window sections (all collapsible)
-- **Overlays** — checkboxes: Spawn labels · Observed pathing (records only while the
-  window is open) · DB patrol routes · DB spawn points + wander circles · Aggro discs ·
-  Who-would-aggro highlight · Hostiles only · range + opacity sliders.
+- **Overlays** — scope radios: **All NPCs** (everything in range) / **Selected only**
+  (just the Ctrl+LeftClick focus set; plain click retargets the set, empty click clears
+  it; DB-only markers hide in this scope). Then checkboxes: Spawn labels · Observed
+  pathing (records only while the window is open) · DB patrol routes · DB spawn points +
+  wander circles · Aggro discs · Who-would-aggro highlight · Hostiles only · range +
+  opacity sliders.
 - **Aggro reference** — the Fire-Emblem selector: **vs level 60 (raid)** / **vs my
   level (dungeon)** / **vs NPC's own level**, plus band count (each band = one level
   lower = one BIGGER ring; legend shows the colors).

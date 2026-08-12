@@ -8,6 +8,9 @@ namespace MSUIClient.Net;
 // fields in SMSG_UPDATE_OBJECT.
 public enum Op : ushort
 {
+    // --- Administrator world recovery ---
+    CMSG_WORLD_TELEPORT          = 0x0008,
+
     // --- Auth / session ---
     SMSG_AUTH_CHALLENGE          = 0x01EC,
     CMSG_AUTH_SESSION            = 0x01ED,
@@ -66,6 +69,8 @@ public enum Op : ushort
     MSG_RAID_READY_CHECK         = 0x0322,
     CMSG_MOVE_WORLDPORT_ACK      = 0x00DC,
     CMSG_ZONEUPDATE              = 0x01F4,
+    CMSG_AREATRIGGER             = 0x00B4,
+    SMSG_AREA_TRIGGER_MESSAGE    = 0x02B8,
 
     // --- Object updates ---
     SMSG_UPDATE_OBJECT           = 0x00A9,

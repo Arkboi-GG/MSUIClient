@@ -547,8 +547,10 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         }
     }
 
-    /// <summary>Signature of TerrainRenderer.GatherGroundTriangles; assigned by the host.</summary>
-    public Action<float, float, float, float, List<(Vector3 A, Vector3 B, Vector3 C)>>? GatherGround;
+    /// <summary>Ground triangles inside a world-space projection box, supplied by
+    /// the host from both ADT terrain and walkable WMO/doodad collision.</summary>
+    public Action<float, float, float, float, float, float,
+        List<(Vector3 A, Vector3 B, Vector3 C)>>? GatherGround;
 
     private readonly List<(Vector3 A, Vector3 B, Vector3 C)> _gatherScratch = new(256);
     private List<Vector3> _clipFront = new(16);
@@ -613,8 +615,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         if (GatherGround is null) return null;
         _gatherScratch.Clear();
         float ext = MathF.Sqrt(frame.HalfX * frame.HalfX + frame.HalfY * frame.HalfY);
-        GatherGround(frame.Center.X - ext, frame.Center.Y - ext,
-            frame.Center.X + ext, frame.Center.Y + ext, _gatherScratch);
+        GatherGround(frame.Center.X - ext, frame.Center.Y - ext, frame.Center.Z - frame.Vert,
+            frame.Center.X + ext, frame.Center.Y + ext, frame.Center.Z + frame.Vert,
+            _gatherScratch);
         if (_gatherScratch.Count == 0) return null;
         var vertices = new List<float>(512);
         foreach ((Vector3 a, Vector3 b, Vector3 c) in _gatherScratch)
@@ -745,7 +748,12 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         foreach (UnitRing r in rings)
         {
             var frame = new DecalFrame(r.Centre, 0f, 1f, r.Radius, r.Radius, 2f * r.Radius);
-            if (ProjectDecal(frame, uv, camera.Position) is { } vertices)
+            // WMO floors (city streets, interiors) have no terrain triangles to
+            // project onto — fall back to a flat disc at feet-Z, like the dev
+            // discs, or the selection halo silently vanishes in Stormwind.
+            float[]? vertices = ProjectDecal(frame, uv, camera.Position) ??
+                                FlatDiscVertices(r.Centre, r.Radius, camera.Position);
+            if (vertices is not null)
                 draws.Add((vertices, ring, 2, r.Tint, r.Opacity, 0));
         }
         // The one ground FX that a unit is standing IN: the far arc belongs behind the model,
@@ -773,7 +781,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
 
             float ringRadius = baseRadius * (1.45f - 0.55f * ease);
             var ringFrame = new DecalFrame(m.Centre, 0f, 1f, ringRadius, ringRadius, 2f * ringRadius);
-            if (ProjectDecal(ringFrame, uv, camera.Position) is { } ringVertices)
+            // Same WMO-floor fallback as the selection rings: move confirms must
+            // read on city streets and interiors too.
+            float[]? ringVertices = ProjectDecal(ringFrame, uv, camera.Position) ??
+                                    FlatDiscVertices(m.Centre, ringRadius, camera.Position);
+            if (ringVertices is not null)
                 draws.Add((ringVertices, ring, 2, m.Tint, fade, 0));
 
             float slide = baseRadius * (1.7f - 1.05f * ease);
@@ -788,8 +800,11 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                 // Frame rotation of (angle + pi) maps the inward world direction onto frame +Y,
                 // which is where the chevron texture points.
                 var frame = new DecalFrame(at, -sin, -cos, chevronHalf, chevronHalf, 2f * chevronHalf);
-                if (ProjectDecal(frame, uv, camera.Position) is { } chevronVertices)
-                    draws.Add((chevronVertices, chevron, 2, m.Tint, fade, 0));
+                // Directional decal: the WMO-floor fallback must keep the frame's
+                // rotation and UVs (a disc fan cannot), so it gets the flat QUAD.
+                float[] chevronVertices = ProjectDecal(frame, uv, camera.Position) ??
+                                          FlatFrameVertices(frame, uv, camera.Position);
+                draws.Add((chevronVertices, chevron, 2, m.Tint, fade, 0));
             }
         }
         RenderGroundQuads(camera, draws);
@@ -839,11 +854,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
     }
 
     /// <summary>
-    /// Dev-window aggro/leash discs: terrain-projected filled annuli, depth-tested with the
-    /// unit-aware bias so bodies standing in a disc occlude its far half. Where no terrain
-    /// exists under the centre (WMO floors — dungeon interiors), falls back to a flat
-    /// horizontal disc at the centre's Z so the visualization survives indoors (known v1
-    /// limitation: the flat disc does not follow WMO floor geometry).
+    /// Dev-window aggro/leash discs: projected onto ADT terrain and walkable WMO collision,
+    /// depth-tested with the unit-aware bias so bodies standing in a disc occlude its far
+    /// half. The flat fallback remains only where neither source has a surface.
     /// </summary>
     public void RenderGroundDiscs(Camera camera, IReadOnlyList<GroundDisc> discs)
     {
@@ -892,6 +905,31 @@ public sealed class SpellEffectMeshRenderer : IDisposable
             dst.Add(0.5f + 0.5f * ny);
             dst.Add(1f);
         }
+    }
+
+    /// <summary>The WMO-floor fallback for DIRECTIONAL decals (chevrons): the frame's
+    /// rotated rectangle as two flat triangles at the centre's Z, keeping the caller's
+    /// corner UVs — a radial disc fan would erase the rotation the texture points along.</summary>
+    private static float[] FlatFrameVertices(in DecalFrame frame, ReadOnlySpan<Vector2> uv,
+        Vector3 camera)
+    {
+        ReadOnlySpan<float> xs = [-frame.HalfX, frame.HalfX, -frame.HalfX, frame.HalfX];
+        ReadOnlySpan<float> ys = [-frame.HalfY, -frame.HalfY, frame.HalfY, frame.HalfY];
+        ReadOnlySpan<int> order = [0, 1, 2, 1, 3, 2];   // CCW from +Z, matching the fan
+        var dst = new List<float>(order.Length * 6);
+        foreach (int i in order)
+        {
+            // Inverse of DecalFrame.InFrame: world offset for a frame-space corner.
+            float dx = xs[i] * frame.Cos + ys[i] * frame.Sin;
+            float dy = ys[i] * frame.Cos - xs[i] * frame.Sin;
+            dst.Add(frame.Center.X + dx - camera.X);
+            dst.Add(frame.Center.Y + dy - camera.Y);
+            dst.Add(frame.Center.Z - camera.Z);
+            dst.Add(uv[i].X);
+            dst.Add(uv[i].Y);
+            dst.Add(1f);
+        }
+        return dst.ToArray();
     }
 
     /// <summary>

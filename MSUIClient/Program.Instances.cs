@@ -601,6 +601,8 @@ public sealed partial class GameLoop
     /// </summary>
     private void TearDownWorldContent()
     {
+        _globalWmoPlacement = null;
+        if (_controller is not null) _controller.TerrainAbsentByDesign = false;
         _collision = null;
         if (_controller is not null) _controller.Collision = null;
         _collisionDebug?.Clear();
@@ -720,7 +722,7 @@ public sealed partial class GameLoop
     private string _lastPortalMessage = "";
 
     /// <summary>
-    /// Fire a portal if the player has walked into one. Called once per Update.
+    /// Report a portal if the player has walked into one. Called once per Update.
     ///
     /// Deliberately NOT gated on DevTools: this is world behaviour, not an
     /// instrument. It is gated on having the teleport table at all, which a
@@ -752,8 +754,7 @@ public sealed partial class GameLoop
         }
 
         Console.WriteLine($"[portal] entered trigger {inside.Id} '{dest.Name}' " +
-                          $"-> map {dest.TargetMap} " +
-                          $"({dest.TargetPosition.X:F0},{dest.TargetPosition.Y:F0},{dest.TargetPosition.Z:F0})");
+                          $"-> asking server for map {dest.TargetMap}");
 
         // The level requirement is recorded and shown, never enforced: there is
         // no character level here yet, and refusing a portal we cannot evaluate
@@ -764,7 +765,21 @@ public sealed partial class GameLoop
             _lastPortalMessage = dest.Name;
 
         _portalLatch = inside.Id;
-        TravelToMapId(dest.TargetMap, dest.TargetPosition, dest.TargetOrientation, dest.Name);
+        if (_net?.AreaTrigger((uint)inside.Id) == true)
+        {
+            // Do not mutate map, position, collision, or entities here. VMaNGOS
+            // validates the trigger against its authoritative player pose and
+            // answers with TRANSFER_PENDING + NEW_WORLD. The old local TravelTo
+            // path rendered the destination without moving the server, allowing
+            // subsequent movement packets to save an outdoor position on the
+            // dungeon map and poisoning the next login.
+            _travelStatus = $"waiting for server: {dest.Name}";
+        }
+        else
+        {
+            _travelStatus = $"portal request failed: {dest.Name}";
+            Console.WriteLine($"[portal] could not send CMSG_AREATRIGGER {inside.Id}");
+        }
     }
 
     /// <summary>

@@ -412,8 +412,8 @@ public static class PartyFrameUiLaw
         (petOrStanceVisible ? TooltipPetBarStep : 0f) +
         (reputationVisible ? TooltipReputationStep : 0f);
 
-    // TakeEnterWorld represents both login verification and SMSG_NEW_WORLD. A live socket/world
-    // transition is not a group-session boundary; only disconnect/session teardown may clear it.
+    // LOGIN_VERIFY_WORLD / NEW_WORLD are map boundaries, not group-session boundaries; only
+    // disconnect/session teardown may clear the session-owned party state.
     public static bool PreservePartyAcrossWorldEnter(bool socketSessionAlive) => socketSessionAlive;
 
     // The frozen OnUpdate pauses on a missing/disconnected token. A connected member outside the

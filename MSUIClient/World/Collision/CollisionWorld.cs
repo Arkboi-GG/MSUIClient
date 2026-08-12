@@ -146,6 +146,122 @@ public sealed class CollisionWorld
         return true;
     }
 
+    /// <summary>
+    /// Append built collision triangles that overlap a world-space box and are
+    /// floor-like enough to receive a projected ground decal. The BVH keeps this
+    /// proportional to nearby geometry; walls are rejected by their absolute
+    /// normal Z because source winding is not consistent across WMO groups.
+    /// </summary>
+    public void GatherWalkableTriangles(float minX, float minY, float minZ,
+        float maxX, float maxY, float maxZ,
+        List<(Vector3 A, Vector3 B, Vector3 C)> output)
+    {
+        if (_nodes.Length == 0) return;
+
+        Vector3 queryMin = Vector3.Min(new(minX, minY, minZ), new(maxX, maxY, maxZ)) - Offset;
+        Vector3 queryMax = Vector3.Max(new(minX, minY, minZ), new(maxX, maxY, maxZ)) - Offset;
+        Span<int> stack = stackalloc int[MaxDepth * 2 + 8];
+        int sp = 0;
+        stack[sp++] = 0;
+
+        while (sp > 0)
+        {
+            int ni = stack[--sp];
+            Node node = _nodes[ni];
+            if (!BoundsOverlap(node.Min, node.Max, queryMin, queryMax)) continue;
+
+            if (node.Count == 0)
+            {
+                if (sp + 2 <= stack.Length)
+                {
+                    stack[sp++] = node.Right;
+                    stack[sp++] = ni + 1;
+                }
+                continue;
+            }
+
+            for (int i = node.Start; i < node.Start + node.Count; i++)
+            {
+                Tri tri = _tris[_index[i]];
+                Vector3 triMin = Vector3.Min(tri.A, Vector3.Min(tri.B, tri.C));
+                Vector3 triMax = Vector3.Max(tri.A, Vector3.Max(tri.B, tri.C));
+                if (!BoundsOverlap(triMin, triMax, queryMin, queryMax)) continue;
+
+                Vector3 normal = Vector3.Cross(tri.B - tri.A, tri.C - tri.A);
+                float length = normal.Length();
+                if (length < 1e-6f || MathF.Abs(normal.Z) / length < 0.5f) continue;
+                output.Add((tri.A + Offset, tri.B + Offset, tri.C + Offset));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rare recovery path: find the closest point on any floor-like collision
+    /// triangle. This is intentionally a full scan; it runs only when the server
+    /// supplies a position outside the active map and prevents an unrecoverable
+    /// loading-screen/fall state when no authored arrival point is available.
+    /// </summary>
+    public bool TryFindNearestWalkablePoint(Vector3 worldPoint, out Vector3 result)
+    {
+        result = default;
+        if (_tris.Length == 0) return false;
+
+        Vector3 query = worldPoint - Offset;
+        float bestSq = float.MaxValue;
+        bool found = false;
+        foreach (Tri tri in _tris)
+        {
+            Vector3 normal = Vector3.Cross(tri.B - tri.A, tri.C - tri.A);
+            float length = normal.Length();
+            if (length < 1e-6f || MathF.Abs(normal.Z) / length < 0.5f) continue;
+
+            Vector3 candidate = ClosestPointOnTriangle(query, tri.A, tri.B, tri.C);
+            float distanceSq = Vector3.DistanceSquared(query, candidate);
+            if (distanceSq >= bestSq) continue;
+            bestSq = distanceSq;
+            result = candidate + Offset;
+            found = true;
+        }
+        return found;
+    }
+
+    // Real-Time Collision Detection, Christer Ericson, closest-point region tests.
+    private static Vector3 ClosestPointOnTriangle(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 ab = b - a, ac = c - a, ap = p - a;
+        float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0f && d2 <= 0f) return a;
+
+        Vector3 bp = p - b;
+        float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0f && d4 <= d3) return b;
+
+        float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+            return a + (d1 / (d1 - d3)) * ab;
+
+        Vector3 cp = p - c;
+        float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0f && d5 <= d6) return c;
+
+        float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0f && d2 >= 0f && d6 <= 0f)
+            return a + (d2 / (d2 - d6)) * ac;
+
+        float va = d3 * d6 - d5 * d4;
+        if (va <= 0f && d4 - d3 >= 0f && d5 - d6 >= 0f)
+            return b + ((d4 - d3) / ((d4 - d3) + (d5 - d6))) * (c - b);
+
+        float denom = 1f / (va + vb + vc);
+        return a + ab * (vb * denom) + ac * (vc * denom);
+    }
+
+    private static bool BoundsOverlap(in Vector3 aMin, in Vector3 aMax,
+        in Vector3 bMin, in Vector3 bMax) =>
+        aMax.X >= bMin.X && aMin.X <= bMax.X &&
+        aMax.Y >= bMin.Y && aMin.Y <= bMax.Y &&
+        aMax.Z >= bMin.Z && aMin.Z <= bMax.Z;
+
     /// <summary>Source id of a hit triangle, or -1. Used to isolate one model.</summary>
     public int SourceIdOf(int triangle)
         => triangle >= 0 && triangle < _source.Length ? _source[triangle] : -1;

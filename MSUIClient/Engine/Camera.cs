@@ -238,6 +238,19 @@ public sealed class Camera
         if (EffectiveDistance > Distance) EffectiveDistance = Distance;
     }
 
+    /// <summary>
+    /// True when the outdoor ADT height field is a shell above an interior
+    /// camera target, rather than ground the camera boom may collide with.
+    ///
+    /// Blackrock Mountain is the canonical case: the character and the WMO
+    /// interior are around Z=166 while the outdoor mountain terrain at the same
+    /// XY is around Z=275. Marching the camera ray against that height field
+    /// collapses the boom to first person on every frame. WMO collision remains
+    /// authoritative for the actual interior walls and floors.
+    /// </summary>
+    public static bool TerrainIsOverhead(float eyeZ, float? terrainZ, float slack)
+        => terrainZ is float surfaceZ && surfaceZ - eyeZ > slack;
+
     public Matrix4x4 View
         => Matrix4x4.CreateLookAt(Position, EyeTarget, AuthoredUp ?? Vector3.UnitZ);
 

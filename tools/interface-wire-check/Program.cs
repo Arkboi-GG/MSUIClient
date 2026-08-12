@@ -1,4 +1,5 @@
 using MSUIClient;
+using MSUIClient.Engine;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
@@ -8,6 +9,25 @@ using System.Numerics;
 static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidDataException(message);
+}
+
+Check(!ClientWindow.CameraLookRequested(
+          leftDown: true, rightDown: false, freeSelectMode: false, leftButtonReserved: true) &&
+      ClientWindow.CameraLookRequested(
+          leftDown: false, rightDown: true, freeSelectMode: false, leftButtonReserved: true) &&
+      ClientWindow.CameraLookRequested(
+          leftDown: true, rightDown: false, freeSelectMode: false, leftButtonReserved: false) &&
+      !ClientWindow.CameraLookRequested(
+          leftDown: true, rightDown: false, freeSelectMode: true, leftButtonReserved: false),
+    "world-editor/free-select left ownership leaked into camera look");
+Check(new WorldMouseClick(Silk.NET.Input.MouseButton.Left, Vector2.Zero, ShiftDown: true).ShiftDown &&
+      !new WorldMouseClick(Silk.NET.Input.MouseButton.Left, Vector2.Zero).ShiftDown,
+    "world-editor click lost its gesture-captured Shift modifier");
+
+if (args.Contains("--world-editor-input-only", StringComparer.Ordinal))
+{
+    Console.WriteLine("interface-wire-check: WorldEditorInput PASS");
+    return;
 }
 
 if (args.Contains("--party-frame-only", StringComparer.Ordinal))
@@ -2404,7 +2424,7 @@ Check(partyRuntimeSource.Contains("PartyFrameUiLaw.IsLeaveRoster(wire)",
       partyRuntimeSource.Contains("MathF.Max(0f, (float)(now - _partyLowHealthLastAt))",
           StringComparison.Ordinal),
     "party leave/slot-tooltip/popup-font/PvP-resolution/full-elapsed seam drift");
-int partyWorldStart = partyNetSource.IndexOf("if (_net.TakeEnterWorld()", StringComparison.Ordinal);
+int partyWorldStart = partyNetSource.IndexOf("if (_queuedWorldEntry is { } enter", StringComparison.Ordinal);
 int partyWorldEnd = partyNetSource.IndexOf("// Drain + dispatch the inbound packet stream",
     partyWorldStart, StringComparison.Ordinal);
 int partyInviteLifecycleCall = partyNetSource.IndexOf("UpdatePartyInviteLifecycle();",

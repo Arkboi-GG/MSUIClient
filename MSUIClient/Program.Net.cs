@@ -46,6 +46,7 @@ public sealed partial class GameLoop
     private World.Spells.SpellSoundSystem? _spellSounds;
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
+    private EnterWorldInfo? _queuedWorldEntry;        // captured at the ordered inbound NEW_WORLD boundary
     private long _netInbound;
     private int _netUpdatesLastFrame;
     private int _creaturesLogged;
@@ -258,15 +259,26 @@ public sealed partial class GameLoop
         // Surface any character-create result (the create request runs while parked at select).
         if (_net.TryTakeCreateResult(out byte ccCode)) OnCreateResult(ccCode);
 
-        // The server has assigned our character + spawn point (SMSG_LOGIN_VERIFY_WORLD / SMSG_NEW_WORLD).
-        if (_net.TakeEnterWorld() is { } enter && _controller is not null)
+        // The server has assigned our character + spawn point. This is populated only when
+        // the ordered inbound drain reaches LOGIN_VERIFY_WORLD / NEW_WORLD below. An
+        // out-of-band notification here could overtake and discard the first destination
+        // UPDATE_OBJECT packet.
+        if (_queuedWorldEntry is { } enter && _controller is not null)
         {
+            _queuedWorldEntry = null;
+            // Capture this BEFORE committing the authoritative destination below.
+            // Comparing after `_config.Start.Map = enter.Map` makes every transfer
+            // look same-map and leaves the old map's terrain/WMO/collision resident
+            // at the destination coordinates.
+            int previousMapId = _config.Start.Map;
+            bool changingMaps = previousMapId != (int)enter.Map;
+
             if (_pendingObjectParse is not null)
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
             _combat.Clear();
             ResetActionStores();
-            // TakeEnterWorld also carries SMSG_NEW_WORLD. Group state is session-owned and must
+            // NEW_WORLD is a map boundary, but group state is session-owned and must
             // survive zoning; the disconnected/session edge above is the authoritative reset.
             ResetPetActionBar();
             EnterPlayerAuraWorld(_net.PlayerGuid);
@@ -295,6 +307,29 @@ public sealed partial class GameLoop
             _pendingObjectUpdates = null;
             _pendingObjectUpdateIndex = 0;
 
+            // SMSG_NEW_WORLD changes the renderer's map identity as well as the
+            // coordinates. This must also run on the first login when the saved
+            // bootstrap map differs from the character's server map.
+            if (changingMaps)
+            {
+                EnsureInstanceData();
+                MapRow? destinationMap = _maps?.Get((int)enter.Map);
+                if (destinationMap is not null && _adts is not null)
+                {
+                    TearDownWorldContent();
+                    _adts.SetMap(destinationMap.Directory);
+                    _residentCentre = null;
+                    _config.Start.MapName = destinationMap.Directory;
+                    // The old map may have collapsed the effective boom at
+                    // these unrelated coordinates. Do not carry that camera
+                    // collision result through an opaque loading transition.
+                    _window.Camera.EffectiveDistance = _window.Camera.Distance;
+                    Console.WriteLine($"[net] map change {previousMapId} -> {enter.Map}: " +
+                                      $"content switched to {destinationMap.Directory}");
+                }
+                else Console.WriteLine($"[net] map {enter.Map} has no Map.dbc/WDT identity");
+            }
+
             // Commit to the server-authoritative spawn. BeginWorldLoad reads _config.Start for the
             // load centre, and its Finish phase teleports us onto real ground there.
             _config.Start.Map = (int)enter.Map;
@@ -310,11 +345,17 @@ public sealed partial class GameLoop
             // spawn orientation was therefore discarded on the very next frame
             // and every login faced whatever the camera happened to be at -
             // Start.Orientation, which is zero. Set the one the controller
-            // actually reads, and clear the orbit so the camera starts behind us
-            // rather than wherever it was left at the character screen.
+            // actually reads. Initial login starts behind the character; a worldport
+            // preserves the user's world-space view direction instead of forcing the
+            // boom directly into the portal wall and collapsing to first person.
             _controller.Yaw = enter.Orientation;
-            _window.Camera.Yaw = enter.Orientation;
-            _window.Camera.OrbitYaw = 0f;
+            if (_worldLoadStarted)
+                _window.Camera.SetFacingKeepingView(enter.Orientation);
+            else
+            {
+                _window.Camera.Yaw = enter.Orientation;
+                _window.Camera.OrbitYaw = 0f;
+            }
             _window.Camera.Target = _controller.Position;
 
             if (!_worldLoadStarted)
@@ -327,23 +368,6 @@ public sealed partial class GameLoop
             }
             else
             {
-                // SMSG_NEW_WORLD changes the authoritative map, not just the coordinates.
-                // Keep the renderer/ADT map in the same transaction; otherwise a server
-                // teleport to Deadmines leaves Azeroth loaded at instance coordinates and
-                // the live runner can never observe the instance's streamed objects.
-                if (_config.Start.Map != (int)enter.Map)
-                {
-                    EnsureInstanceData();
-                    MapRow? destinationMap = _maps?.Get((int)enter.Map);
-                    if (destinationMap is not null && _adts is not null)
-                    {
-                        TearDownWorldContent();
-                        _adts.SetMap(destinationMap.Directory);
-                        _residentCentre = null;
-                        _config.Start.MapName = destinationMap.Directory;
-                    }
-                    else Console.WriteLine($"[net] map {enter.Map} has no Map.dbc/WDT identity");
-                }
                 Console.WriteLine($"[net] moved to map {enter.Map} at " +
                                   $"({enter.Position.X:F0}, {enter.Position.Y:F0}, {enter.Position.Z:F0})");
                 _worldEntryTransitionStage = 3;
@@ -384,6 +408,7 @@ public sealed partial class GameLoop
         }
 
         bool parseStarted = false;
+        bool worldBoundaryReached = false;
         while (packetsDrained < NetDrainPacketBudget &&
                Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs &&
                _net.TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp))
@@ -395,6 +420,34 @@ public sealed partial class GameLoop
             {
                 switch ((Op)opcode)
                 {
+                    case Op.SMSG_TRANSFER_PENDING:
+                        {
+                            // The old world is about to disappear. Cover it now,
+                            // but wait for NEW_WORLD before changing any client
+                            // map identity or position.
+                            var transfer = new PacketReader(body);
+                            uint destinationMap = transfer.ReadU32();
+                            if (_gl is not null)
+                                ArmEnterWorldCurtain(_gl, (int)destinationMap);
+                            _travelStatus = $"server transferring to map {destinationMap}";
+                            _hitch.SuppressFor(5.0);
+                        }
+                        break;
+                    case Op.SMSG_TRANSFER_ABORTED:
+                        CancelPendingWorldCurtain();
+                        _travelStatus = "server refused the portal transfer";
+                        Console.WriteLine("[portal] server aborted the world transfer");
+                        break;
+                    case Op.SMSG_AREA_TRIGGER_MESSAGE:
+                        {
+                            var message = new PacketReader(body);
+                            uint declaredLength = message.ReadU32();
+                            string text = message.Remaining > 0 ? message.ReadCString() : "portal refused";
+                            _lastPortalMessage = text;
+                            _travelStatus = text;
+                            Console.WriteLine($"[portal] server message ({declaredLength} byte(s)): {text}");
+                        }
+                        break;
                     case Op.SMSG_LOGOUT_RESPONSE:
                         ApplyLogoutResponse(body);
                         break;
@@ -403,6 +456,17 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_LOGOUT_COMPLETE:
                         ApplyLogoutComplete();
+                        break;
+                    case Op.SMSG_LOGIN_VERIFY_WORLD:
+                    case Op.SMSG_NEW_WORLD:
+                        {
+                            // Stop exactly at the ordered boundary. The next frame performs
+                            // teardown before any destination object update can begin parsing.
+                            var worldReader = new PacketReader(body);
+                            _queuedWorldEntry = new EnterWorldInfo(worldReader.ReadU32(),
+                                worldReader.ReadVector3(), worldReader.ReadF32());
+                            worldBoundaryReached = true;
+                        }
                         break;
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
@@ -936,7 +1000,7 @@ public sealed partial class GameLoop
             {
                 Console.WriteLine($"[net] parse error on opcode 0x{opcode:X4}: {ex.Message}");
             }
-            if (parseStarted) break;
+            if (parseStarted || worldBoundaryReached) break;
         }
 
     FinishNetPump:

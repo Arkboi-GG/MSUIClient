@@ -350,6 +350,38 @@ public sealed class WorldSession : IDisposable
     }
     public void ZoneUpdate(uint zoneId) =>
         SendPacket((ushort)Op.CMSG_ZONEUPDATE, BuildZoneUpdateBody(zoneId));
+
+    /// <summary>
+    /// Report an AreaTrigger.dbc volume to the server. The trigger id is the
+    /// entire 1.12 packet body; VMaNGOS validates the player's authoritative
+    /// map/position and owns any resulting teleport.
+    /// </summary>
+    public void AreaTrigger(uint triggerId)
+    {
+        var w = new PacketWriter(4);
+        w.WriteU32(triggerId);
+        SendPacket((ushort)Op.CMSG_AREATRIGGER, w.AsSpan());
+    }
+
+    /// <summary>
+    /// Vanilla's administrator worldport packet. VMaNGOS checks account
+    /// security before honoring it; MSUI uses it only to repair an impossible
+    /// server map/position pair which matches an authored portal destination.
+    /// </summary>
+    public void WorldTeleport(uint mapId, Vector3 position, float orientation)
+        => SendPacket((ushort)Op.CMSG_WORLD_TELEPORT,
+            BuildWorldTeleportBody(MovementInfo.ClientUptimeMs(), mapId, position, orientation));
+
+    public static byte[] BuildWorldTeleportBody(uint timestamp, uint mapId,
+        Vector3 position, float orientation)
+    {
+        var w = new PacketWriter(24);
+        w.WriteU32(timestamp);
+        w.WriteU32(mapId);
+        w.WriteVector3(position);
+        w.WriteF32(orientation);
+        return w.ToArray();
+    }
     public static byte[] BuildZoneUpdateBody(uint zoneId)
     {
         var w = new PacketWriter(4); w.WriteU32(zoneId); return w.ToArray();

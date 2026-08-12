@@ -87,6 +87,10 @@ All `Program.*` files are partials of `public sealed partial class GameLoop`.
 | `Program.Net.cs` `SMSG_MONSTER_MOVE` case | `RecordDevObservedPath(mm);` — no-op while the window is closed (instrumentation-hazard rule). |
 | `Program.Net.cs` new `SMSG_AI_REACTION` case | `ApplyAiReaction(body);` — the opcode (0x13C) was declared but unhandled before this feature. |
 | `Engine\GameSettings.cs` | `DevWindowSettings` class + `GameSettings.DevWindow` property. |
+| `Program.Targeting.cs` left-click branch + `Program.Control.cs` free-view left-click | `HandleDevFocusClick(picked)` (Program.DevWindow.cs) — overlay focus-set maintenance, ahead of normal selection: Ctrl+LeftClick toggles a creature in/out and consumes the click; a plain click retargets/clears the set and falls through. |
+| `Engine\ClientWindow.cs` + `Program.Control.cs` free-view update | In FreeSelectMode the wheel accumulates into `TakeFreeFlightScroll()` instead of `Camera.Zoom` (whose MaxDistance=40 read as a height ceiling); the game loop flies the rig along `Camera.Forward` with altitude-scaled steps, through `FlyMove` (collision-swept). Wheel down = climb, unlimited. Flight itself stays flat W/S + Space/Ctrl vertical in BOTH the free view and plain F fly (a look-direction flight experiment was rejected 2026-08-11). |
+| `Program.cs` F toggle + Up axis | Read through `InputKeyDown` (the protocol seam) instead of raw `_window.IsDown`, so scripted runs can exercise F-fly; real-keyboard behaviour unchanged. F-fly climb live-verified (dumps/gameplay-flytest-*). |
+| `Program.Targeting.cs` `PickUnit` | The ControlledGuid pick-skip lifts while `_freeView` is up: solo in the free view YOUR OWN toon is the controlled unit, and the unconditional skip made it the one unit you could not click for the command halo. Normal third-person keeps the skip (you would click your own back constantly). |
 | `World\Units\SpellEffectMeshRenderer.cs` | `GroundDisc` record, `DevDiscTexture(innerFraction)` (per-ratio annulus texture cache, 1/32 steps), `RenderGroundDiscs`, `FlatDiscVertices` (WMO fallback), dispose hook. |
 | `Shaders\collision.frag` + `CollisionDebugRenderer` | `uHighlight == 3` → solid red (x-ray beams). `RenderHighlight` needs no `Build()` — safe with an empty collision debug mesh. |
 | `.gitignore` | `/dev-cache/` (downloaded CSVs). `dev-changes/` will need the OPPOSITE decision in P3 (they are work product — likely committed or at least kept). |
@@ -255,11 +259,23 @@ Rendering specifics worth knowing before touching:
   identical absolute coordinates — `drawnPaths` HashSet dedupes per frame. Path color IS
   provenance: **cyan = per-guid `creature_movement`, gold = shared template**; a dashed
   closing segment hints the loop.
+- **Selected route nodes own their clicks**: numbered DB nodes for the inspected
+  creature have hitboxes even before the edit is armed. Left-clicking one enters the
+  real waypoint editor with that node selected and never falls through to ordinary
+  ground targeting (which would clear the inspected creature). Only node hover reserves
+  ordinary-view left input; the rest of the world retains normal camera look.
 - **X-ray**: the ONLY depth-test-off primitive is `CollisionDebugRenderer.RenderHighlight`
   (modes: 1 yellow physics, 2 cyan player marker, **3 red aggro**). It works without a
   built collision debug mesh.
 - Counters `_devStreamedInRange`/`_devDbOnlyInRange` are written by the label pass and
   read by the toolbar the NEXT frame (window draws first) — off-by-one-frame by design.
+- **Overlay scope** (`Settings.DevWindow.FocusSelectedOnly`, "All NPCs" / "Selected only"
+  radios at the top of the Overlays section): Selected scope draws ONLY the focus set
+  `_devFocusGuids` (Ctrl+LeftClick while the window is open; plain click retargets the
+  set, empty click clears it). DB rows filter through the low-24 join key
+  (`DevFocusSpawnLows`), so DB-only spawns are hidden entirely in Selected scope; the
+  in-range counters count the filtered set. Edit-mode overlays and queued-packet
+  previews draw regardless of scope.
 
 ---
 

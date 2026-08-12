@@ -186,8 +186,13 @@ the feature untestable.
 
 ## 7. Open
 
-- **Stage 3: global-WMO maps.** The Stockade, Gnomeregan and the rest are
-  refused today. Every one of the 21 has a **degenerate MODF** — nameId 0,
+- **Stage 3: global-WMO maps.** Server-authoritative `SMSG_NEW_WORLD` transfers
+  now load the WDT's single global WMO, its doodads, and client-geometry
+  collision before revealing the player. This covers `.tele brd`, entering BRD
+  through the server portal, and logging in while already inside one of these
+  maps. The offline Instances-panel travel buttons still refuse them because
+  that synchronous debug path has not been moved onto the incremental global-WMO
+  loader yet. Every one of the 21 has a **degenerate MODF** — nameId 0,
   uniqueId −1, flags 0, position `(0,0,0)`, rotation `(0,0,0)` — so the bounding
   box is the only field that varies and the placement maths has nothing to get
   wrong except the box. The likeliest failure is falling through the floor:

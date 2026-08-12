@@ -7,9 +7,11 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private readonly HashSet<ulong> _vplateUnits = [];
+    private const float NameplateRangeYards = 20f;
     private readonly List<ScreenRect> _vplateClaims = [];
     private readonly List<(ScreenRect Rect, ulong Guid)> _vplateHits = [];
+    private bool _nameplatesVisible;
+    private bool _nameplateToggleWasDown;
 
     private readonly record struct PlateCandidate(
         WorldEntity Unit, Vector2 Screen, FactionReaction Reaction, float SortDistance);
@@ -27,55 +29,27 @@ public sealed partial class GameLoop
 
     private void DrawWorldUnitNames()
     {
-        _vplateUnits.Clear();
         _vplateHits.Clear();
-        // Foreground draw-list content otherwise paints above DIALOG-strata frames.
-        if (SettingsModalOpen) return;
-        DrawEnemyPlates();
-
-        foreach (WorldEntity unit in _entities.Units)
-            DrawOverheadName(unit);
+        // A world-space unit name is never a separate fallback: if a name is visible,
+        // the bar and level belonging to its in-range nameplate are visible with it.
+        // Background draw-list content also keeps plates below DIALOG-strata frames.
+        if (SettingsModalOpen || !_nameplatesVisible) return;
+        DrawNameplates();
     }
 
-    private void DrawOverheadName(WorldEntity unit)
+    private void UpdateNameplateInput(bool typing)
     {
-        if (_net is null || _vplateUnits.Contains(unit.Guid)) return;
-        bool isTarget = unit.Guid == _selectionGuid;
-        if (!isTarget && unit.IsDead && !unit.IsPlayer) return;
-
-        Vector3 feet = UnitWorldPosition(unit);
-        float anchorHeight = UnitOverheadHeight(unit);
-        Vector3 anchor = feet + new Vector3(0f, 0f, anchorHeight);
-        Vector2 display = ImGui.GetIO().DisplaySize;
-        if (!_window.Camera.TryWorldToScreen(anchor, display, out Vector2 screen)) return;
-
-        EnsureUnitNameRequested(unit);
-        // The session name belongs to the SESSION character only — a possessed bot
-        // wears its own name (same identity rule as the player frame).
-        string name = unit.Guid == LocalPlayerGuid ? _net.PlayerName
-            : unit.IsPlayer ? _playerNames.GetValueOrDefault(unit.Guid, "")
-            : _creatureNames.GetValueOrDefault(unit.Entry, "");
-        if (name.Length == 0) return;
-
-        // benilla nameplates.rs:71-123: a normal unit's one-em pitch is 0.2 WORLD yards,
-        // not a UI-scaled screen font. Project that billboard-world pitch so distance shrinks it.
-        float worldPitch = anchorHeight > 4f ? (anchorHeight / 4f) * 1.5f * 0.2f : 0.2f;
-        float fontSize = ProjectedWorldPitch(anchor, screen, worldPitch, display);
-        if (fontSize < 1f) return;
-
-        ImFontPtr font = ImGui.GetFont();
-        Vector2 extent = ImGui.CalcTextSize(name) *
-            (fontSize / MathF.Max(ImGui.GetFontSize(), 1f));
-        Vector2 position = new(screen.X - extent.X * 0.5f, screen.Y - extent.Y);
-        uint color = ReactionColorU32(ReactionTargetTowardPlayer(unit), unit.IsPlayer, unit.IsDead);
-        // World labels belong above the 3-D scene but below every player-facing
-        // panel. Foreground draw lists punch them through auction/help/map art.
-        ImDrawListPtr draw = ImGui.GetBackgroundDrawList();
-        draw.AddText(font, fontSize, position + Vector2.One, 0xc0000000u, name);
-        draw.AddText(font, fontSize, position, color, name);
+        // 1.12's Ctrl+V behavior: one edge toggles all nearby unit plates. Track the
+        // chord even while typing so Ctrl+V paste cannot fire later on key release.
+        bool control = InputKeyDown(Silk.NET.Input.Key.ControlLeft) ||
+                       InputKeyDown(Silk.NET.Input.Key.ControlRight);
+        bool toggleDown = control && InputKeyDown(Silk.NET.Input.Key.V);
+        if (toggleDown && !_nameplateToggleWasDown && !typing)
+            _nameplatesVisible = !_nameplatesVisible;
+        _nameplateToggleWasDown = toggleDown;
     }
 
-    private void DrawEnemyPlates()
+    private void DrawNameplates()
     {
         if (_net is null || _gameplayArt is null ||
             !_entities.TryGet(ControlledGuid, out WorldEntity player)) return;
@@ -95,11 +69,11 @@ public sealed partial class GameLoop
         {
             if (unit.Guid == ControlledGuid || unit.IsDead ||
                 (unit.Fields.UnitFlags & NotSelectable) != 0 ||
-                Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) > 20f * 20f)
+                Vector3.DistanceSquared(selfPosition, UnitWorldPosition(unit)) >
+                    NameplateRangeYards * NameplateRangeYards)
                 continue;
 
             FactionReaction reaction = ReactionTargetTowardPlayer(unit);
-            if (reaction == FactionReaction.Friendly) continue; // benilla default: enemies ON, friends OFF
 
             Vector3 anchor = UnitWorldPosition(unit) +
                 new Vector3(0f, 0f, UnitOverheadHeight(unit) + 2f / 3f);
@@ -117,12 +91,11 @@ public sealed partial class GameLoop
             ScreenRect plate = ResolveVplate(desired, display);
             _vplateClaims.Add(plate);
             _vplateHits.Add((plate, candidate.Unit.Guid));
-            DrawEnemyPlate(candidate.Unit, candidate.Reaction, plate, basis, nameSize, levelSize, player);
-            _vplateUnits.Add(candidate.Unit.Guid);
+            DrawNameplate(candidate.Unit, candidate.Reaction, plate, basis, nameSize, levelSize, player);
         }
     }
 
-    private void DrawEnemyPlate(WorldEntity unit, FactionReaction reaction, ScreenRect plate,
+    private void DrawNameplate(WorldEntity unit, FactionReaction reaction, ScreenRect plate,
         float basis, float nameSize, float levelSize, WorldEntity player)
     {
         ImDrawListPtr draw = ImGui.GetBackgroundDrawList();

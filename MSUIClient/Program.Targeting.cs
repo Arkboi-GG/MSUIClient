@@ -111,7 +111,12 @@ public sealed partial class GameLoop
             }
             ulong picked = PickUnit(click.Position);
             if (click.Button == MouseButton.Left)
+            {
+                // NPC dev window focus set: Ctrl+LeftClick multi-selects for the
+                // "Selected only" overlay scope and consumes the click.
+                if (HandleDevFocusClick(picked)) continue;
                 CommitSelection(picked, beginAttack: false); // empty left clears
+            }
             else if (click.Button == MouseButton.Right && picked != 0)
             {
                 // Right-click routes by classification (benilla target/click.rs): a dead unit
@@ -328,7 +333,10 @@ public sealed partial class GameLoop
         {
             // Corpses stay pickable - selecting and right-click looting a dead unit is a
             // 1.12 behavior, not an exception. Only NOT_SELECTABLE and the player skip.
-            if (entity.Guid == ControlledGuid ||
+            // The controlled-unit skip lifts in the FREE VIEW: the controller is a
+            // detached camera there and that body is just another toon on the field —
+            // clicking it is how you take command and get the control halo.
+            if ((entity.Guid == ControlledGuid && !_freeView) ||
                 (entity.Fields.UnitFlags & NotSelectable) != 0)
                 continue;
 

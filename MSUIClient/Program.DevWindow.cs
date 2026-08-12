@@ -40,6 +40,60 @@ public sealed partial class GameLoop
             DevData.BeginFetchTemplates(Settings.DevWindow.SuiBaseUrl);
     }
 
+    // ── overlay focus set (the "Selected only" scope) ────────────────────────
+
+    /// <summary>Creatures the "Selected only" overlay scope draws. Maintained by the
+    /// world-click handler below while the window is open; runtime-only.</summary>
+    private readonly HashSet<ulong> _devFocusGuids = [];
+
+    /// <summary>
+    /// Focus-set maintenance for world LEFT clicks while the window is open, called
+    /// from both click routers (normal targeting and the free view) after the edit-mode
+    /// intercept. Ctrl+LeftClick toggles a creature in/out of the set and swallows the
+    /// click (multi-select must not retarget or clear the marquee selection); a plain
+    /// click retargets the set at what was clicked — or clears it on empty ground — and
+    /// falls through to the normal click behaviour. Returns true when the click is
+    /// consumed.
+    /// </summary>
+    private bool HandleDevFocusClick(ulong picked)
+    {
+        if (!_devWindowOpen) return false;
+        bool ctrl = InputKeyDown(Key.ControlLeft) || InputKeyDown(Key.ControlRight);
+        bool creature = picked != 0 &&
+            _entities.TryGet(picked, out WorldEntity unit) && unit.IsCreature;
+
+        if (!ctrl)
+        {
+            // Keep the set in step with plain targeting so flipping to "Selected
+            // only" always starts from whatever is currently clicked. A click on a
+            // PLAYER (free-view take-command) leaves the set alone — commanding a
+            // toon mid-inspection must not blank the overlays being studied.
+            if (creature) { _devFocusGuids.Clear(); _devFocusGuids.Add(picked); }
+            else if (picked == 0) _devFocusGuids.Clear();
+            return false;
+        }
+
+        if (!creature) return true;   // ctrl+click on nothing: keep the set being built
+        if (!_devFocusGuids.Remove(picked))
+        {
+            _devFocusGuids.Add(picked);
+            CommitSelection(picked, beginAttack: false);   // panel shows the newest member
+        }
+        return true;
+    }
+
+    /// <summary>Low-24-bit spawn guids of the focus set (the live↔DB join key), or null
+    /// when the scope is "All" — the overlay passes use null as "no filtering".</summary>
+    private HashSet<uint>? DevFocusSpawnLows()
+    {
+        if (!Settings.DevWindow.FocusSelectedOnly) return null;
+        var lows = new HashSet<uint>();
+        foreach (ulong guid in _devFocusGuids)
+            if (GuidInfo.High(guid) == GuidInfo.HighUnit)
+                lows.Add((uint)(guid & 0xFFFFFF));
+        return lows;
+    }
+
     // ── world-data fetch trigger (control logic only — I/O lives in DevDataClient) ──
 
     private double _devWorldFetchCheckedAt;
@@ -174,6 +228,26 @@ public sealed partial class GameLoop
             if (ImGui.Checkbox(label, ref value)) { set(value); return true; }
             return false;
         }
+
+        // Scope: everything in range, or only the Ctrl+LeftClick focus set.
+        if (ImGui.RadioButton("All NPCs", !dev.FocusSelectedOnly) && dev.FocusSelectedOnly)
+        {
+            dev.FocusSelectedOnly = false;
+            save = true;
+        }
+        ImGui.SameLine();
+        if (ImGui.RadioButton("Selected only", dev.FocusSelectedOnly) && !dev.FocusSelectedOnly)
+        {
+            dev.FocusSelectedOnly = true;
+            save = true;
+            // Start from the current target rather than an empty screen.
+            if (_devFocusGuids.Count == 0 && _selectionGuid != 0 &&
+                _entities.TryGet(_selectionGuid, out WorldEntity target) && target.IsCreature)
+                _devFocusGuids.Add(_selectionGuid);
+        }
+        if (dev.FocusSelectedOnly)
+            ImGui.TextDisabled(
+                $"{_devFocusGuids.Count} in the set - Ctrl+LeftClick creatures to add/remove");
 
         save |= Check("Spawn labels", dev.ShowSpawnLabels, v => dev.ShowSpawnLabels = v);
         save |= Check("Observed pathing (recorded while the window is open)",

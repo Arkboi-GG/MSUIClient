@@ -133,8 +133,7 @@ public sealed partial class GameLoop
         if (!live && !_creatorWorldRequested) return;
         if (!dev.ShowAggroDiscs && !(dev.ShowWhoAggros && live)) return;
 
-        _spellEffectMeshes.GatherGround ??= _terrain is not null
-            ? _terrain.GatherGroundTriangles : null;
+        _spellEffectMeshes.GatherGround ??= GatherGroundEffectTriangles;
         Vector3 eye = _window.Camera.Position;
         float rangeSq = dev.OverlayRange * dev.OverlayRange;
         uint? myLevel = DevMyLevel();
@@ -146,6 +145,7 @@ public sealed partial class GameLoop
         foreach (WorldEntity unit in _entities.Units)
         {
             if (!unit.IsCreature || unit.IsDead) continue;
+            if (dev.FocusSelectedOnly && !_devFocusGuids.Contains(unit.Guid)) continue;
             if (Vector3.DistanceSquared(unit.Position, eye) > rangeSq) continue;
 
             NpcTemplateInfo? tpl = ApplyDevPendingTemplate(DevTemplateFor(unit.Entry), unit.Entry);
@@ -224,8 +224,10 @@ public sealed partial class GameLoop
         DevWorldData world, Vector3 eye, float rangeSq)
     {
         HashSet<uint> streamed = DevStreamedSpawnLows();
+        HashSet<uint>? focusLows = DevFocusSpawnLows();
         foreach (DevSpawnRow spawn in world.SpawnsByGuid.Values)
         {
+            if (focusLows is not null && !focusLows.Contains(spawn.Guid)) continue;
             if (Vector3.DistanceSquared(spawn.Position, eye) > rangeSq) continue;
             bool isStreamed = streamed.Contains(spawn.Guid);
             discs.Add(new(spawn.Position, 0f, 0.7f,
@@ -282,6 +284,11 @@ public sealed partial class GameLoop
 
     private void DrawDevOverlayLabels()
     {
+        // An active editor always owns left gestures. Outside edit mode, only a
+        // currently hovered numbered DB node owns left; ordinary camera look remains
+        // available everywhere else in the world.
+        _window.LeftButtonReservedForWorldClicks = _devEditMode != DevEditMode.None;
+        _devDbNodeHits.Clear();
         if (!_devWindowOpen) return;
         var dev = Settings.DevWindow;
         bool live = _net is { IsInWorld: true };
@@ -295,6 +302,7 @@ public sealed partial class GameLoop
         DevWorldData? world =
             DevData.World is { } w && w.Map == _config.Start.Map ? w : null;
         HashSet<uint> streamedLows = DevStreamedSpawnLows();
+        HashSet<uint>? focusLows = DevFocusSpawnLows();
         _devStreamedInRange = 0;
         _devDbOnlyInRange = 0;
 
@@ -306,6 +314,7 @@ public sealed partial class GameLoop
         foreach (WorldEntity unit in _entities.Units)
         {
             if (!unit.IsCreature) continue;
+            if (dev.FocusSelectedOnly && !_devFocusGuids.Contains(unit.Guid)) continue;
             if (Vector3.DistanceSquared(unit.Position, eye) > rangeSq) continue;
             _devStreamedInRange++;
 
@@ -319,7 +328,8 @@ public sealed partial class GameLoop
                 ? world?.SpawnsByGuid.GetValueOrDefault(spawnGuid) : null;
 
             if (spawn is not null && dev.ShowDbPaths)
-                DrawDevDbRoute(draw, display, world!, spawnGuid, spawn.Entry, drawnPaths);
+                DrawDevDbRoute(draw, display, world!, spawnGuid, spawn.Entry, drawnPaths,
+                    interactive: unit.Guid == _selectionGuid);
 
             // Thin dashed connector current position → authored spawn point.
             if (spawn is not null && dev.ShowDbSpawns &&
@@ -339,10 +349,12 @@ public sealed partial class GameLoop
             foreach (DevSpawnRow spawn in world.SpawnsByGuid.Values)
             {
                 if (streamedLows.Contains(spawn.Guid)) continue;
+                if (focusLows is not null && !focusLows.Contains(spawn.Guid)) continue;
                 if (Vector3.DistanceSquared(spawn.Position, eye) > rangeSq) continue;
                 _devDbOnlyInRange++;
                 if (dev.ShowDbPaths)
-                    DrawDevDbRoute(draw, display, world, spawn.Guid, spawn.Entry, drawnPaths);
+                    DrawDevDbRoute(draw, display, world, spawn.Guid, spawn.Entry, drawnPaths,
+                        interactive: false);
                 if (dev.ShowSpawnLabels)
                     DrawDevDbOnlyLabel(draw, display, spawn);
             }
@@ -350,6 +362,8 @@ public sealed partial class GameLoop
         // ── editing: the working path / proposed spawn move + queued-edit previews ──
         DrawDevEditOverlay(draw, display);
         DrawDevPendingPreviews(draw, display, eye, rangeSq);
+        if (_devEditMode == DevEditMode.None && HitTestDevDbNode(_window.MousePosition) >= 0)
+            _window.LeftButtonReservedForWorldClicks = true;
     }
 
     // ── edit-mode overlay (state lives in Program.DevWindow.Edit.cs) ─────────
@@ -437,30 +451,42 @@ public sealed partial class GameLoop
     /// badges. Color says provenance — cyan = this spawn's own path, gold = template
     /// shared by every spawn of the entry.</summary>
     private void DrawDevDbRoute(ImDrawListPtr draw, Vector2 display, DevWorldData world,
-        uint spawnGuid, uint entry, HashSet<(DevPathOrigin, uint, uint)> drawnPaths)
+        uint spawnGuid, uint entry, HashSet<(DevPathOrigin, uint, uint)> drawnPaths,
+        bool interactive)
     {
         (DevPathOrigin origin, uint key, uint pathId, DevWaypointRow[]? nodes) =
             world.ResolvePath(spawnGuid, entry);
         if (origin == DevPathOrigin.None || nodes is null || nodes.Length == 0) return;
-        if (!drawnPaths.Add((origin, key, pathId))) return;
+        bool drawRoute = drawnPaths.Add((origin, key, pathId));
+        // A shared template route may already have been drawn for a different spawn.
+        // Still build hitboxes when this call belongs to the inspected creature.
+        if (!drawRoute && !interactive) return;
 
         uint color = origin == DevPathOrigin.Guid ? DevGuidPathColor : DevTemplatePathColor;
         var lift = new Vector3(0f, 0f, 0.2f);
         Vector2? previous = null;
-        foreach (DevWaypointRow node in nodes)
+        for (int nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
         {
+            DevWaypointRow node = nodes[nodeIndex];
             if (!_window.Camera.TryWorldToScreen(node.Position + lift, display, out Vector2 px))
             { previous = null; continue; }
-            if (previous is Vector2 from) draw.AddLine(from, px, color, 2f);
-            draw.AddCircleFilled(px, 3.5f, color);
-            string label = node.WaitMs > 0
-                ? $"{node.Point} ({node.WaitMs / 1000f:0.#}s)" : node.Point.ToString();
-            draw.AddText(px + new Vector2(5f, -14f), 0xc0000000u, label);
-            draw.AddText(px + new Vector2(4f, -15f), color, label);
+            if (drawRoute)
+            {
+                if (previous is Vector2 from) draw.AddLine(from, px, color, 2f);
+                draw.AddCircleFilled(px, 3.5f, color);
+                string label = node.WaitMs > 0
+                    ? $"{node.Point} ({node.WaitMs / 1000f:0.#}s)" : node.Point.ToString();
+                draw.AddText(px + new Vector2(5f, -14f), 0xc0000000u, label);
+                draw.AddText(px + new Vector2(4f, -15f), color, label);
+            }
+            if (interactive)
+                _devDbNodeHits.Add((
+                    new ScreenRect(px.X - 12f, px.Y - 12f, px.X + 12f, px.Y + 12f),
+                    spawnGuid, entry, nodeIndex));
             previous = px;
         }
         // A patrol loops: close the ring visually so route direction reads at a glance.
-        if (nodes.Length > 2 &&
+        if (drawRoute && nodes.Length > 2 &&
             _window.Camera.TryWorldToScreen(nodes[0].Position + lift, display, out Vector2 first) &&
             _window.Camera.TryWorldToScreen(nodes[^1].Position + lift, display, out Vector2 last))
             DrawDashedLine(draw, last, first, (color & 0x00ffffff) | 0x80000000, 6f, 6f);
