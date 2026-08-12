@@ -97,12 +97,9 @@ Desktop.ini
 .DS_Store
 
 # ── Documentation policy ─────────────────────────────────────────────────────
-# Keep the repository root from accumulating ad-hoc Markdown dumps. Detailed
-# maintained documentation belongs in the three allow-listed docs trees.
-/*.md
-!/PROJECT_HANDBOOK.md
-!/SETUP.md
-!/CRPG_RTS_WIP.md
+# Root-level .md docs are tracked (owner decision 2026-08-11: feature handbooks
+# like NPC_DEV_WINDOW.md / CRPG_RTS_WIP.md live at the root and must be pushable).
+# Keep the root to REAL maintained docs - scratch notes go in /can delete or move/.
 
 /docs/*
 !/docs/README.md
