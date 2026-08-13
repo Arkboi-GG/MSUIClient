@@ -4,6 +4,51 @@ using System.Text.Json.Serialization;
 namespace MSUIClient.Engine;
 
 /// <summary>
+/// How exterior lighting interprets the authored Light.dbc chain. Both modes
+/// consume the authored data (SYSTEM_EXTERIOR_LIGHTING.md); they differ in
+/// interpretation:
+///
+///   Msui       - the tuned MSUI look: authored colours applied directly with
+///                no daylight intensity curve, and a boosted interior doorway
+///                spill. Exactly the pre-v6 runtime behaviour.
+///   Parity112  - as close to the vanilla 1.12 client as we can get: the
+///                authored colours are additionally scaled by the day/night
+///                intensity curve the real client ships in World\dnc.db, and
+///                the interior spill multiplier stays at the neutral 1.0.
+///
+/// Serialised as a string so settings.json stays hand-editable.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum LightingMode
+{
+    Msui,
+    Parity112,
+}
+
+/// <summary>
+/// Where the world clock (WorldAtmosphere.TimeOfDayHours) comes from - the v7
+/// replacement for the old fixed TimeOfDay + CycleTimeOfDay pair:
+///
+///   Server - track the game time the server sends (SMSG_LOGIN_SETTIMESPEED)
+///            and advance it locally at the server's timescale, like the real
+///            client. Falls back to this machine's wall-clock time of day when
+///            no server time has arrived (offline, creator mode). The default.
+///   Fixed  - pin the world at LightingSettings.TimeOfDay (the pre-v7
+///            behaviour, which shipped pinned to noon).
+///   Cycle  - the accelerated debug day/night cycle, advancing at
+///            LightingSettings.GameHoursPerMinute.
+///
+/// Serialised as a string so settings.json stays hand-editable.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TimeSource
+{
+    Server,
+    Fixed,
+    Cycle,
+}
+
+/// <summary>
 /// The player's preferences: everything the settings modal owns, and nothing
 /// else. Loaded from settings.json at the repo root, written back when the modal
 /// is accepted, and applied to the live renderers by GameLoop (Program.Settings.cs).
@@ -35,8 +80,12 @@ public sealed class GameSettings
     /// v2: portal culling (PLAN_10) became the shipped default.
     /// v3: ForceTwoSided went back to being a diagnostic, off by default.
     /// v4: painterly detail became an absolute gain and gained explicit calm/dither controls.
-    /// v5: painterly band strength separated subtle flattening from the band count.</summary>
-    public int Version { get; set; } = 5;
+    /// v5: painterly band strength separated subtle flattening from the band count.
+    /// v6: Lighting.UseAuthoredData became Lighting.Mode (MSUI Lighting / 1.12 Parity)
+    ///     and the WMO doorway-spill multiplier became persisted (InteriorSpill).
+    /// v7: Lighting.CycleTimeOfDay became Lighting.TimeSource, defaulting to tracking
+    ///     the server's game clock instead of a world pinned at noon.</summary>
+    public int Version { get; set; } = 7;
 
     /// <summary>Name of the preset last selected, or "Custom". Cosmetic; the values below are the truth.</summary>
     public string ActivePreset { get; set; } = "Custom";
@@ -339,6 +388,15 @@ public sealed class GameSettings
         public bool Enabled { get; set; } = true;
 
         /// <summary>
+        /// Draw WMO liquid (MLIQ) — Blackrock's lava lake, the Stormwind canals.
+        /// DEFAULT ON: this pass is draw-only (WMO surfaces are never added to
+        /// TryGetSurface / submersion), so unlike the first PLAN_15 build it
+        /// cannot regress open-world water. New key, so old settings files pick
+        /// up the default without a migration step.
+        /// </summary>
+        public bool DrawWmoLiquid { get; set; } = true;
+
+        /// <summary>
         /// PLAN_12's A/B: take ocean/river colour from LightIntBand 13-16 instead
         /// of the hand-tuned constants.
         ///
@@ -436,17 +494,26 @@ public sealed class GameSettings
     }
 
     /// <summary>
-    /// Sky, sun and ambient. UseAuthoredData is the important one: on, the client
-    /// resolves Light.dbc for your position and time; off, it falls back to the
-    /// invented constants SYSTEM_EXTERIOR_LIGHTING.md replaced. Leave it on.
+    /// Sky, sun and ambient. Mode is the important one: both modes resolve
+    /// Light.dbc for your position and time (the hand-invented constants that
+    /// SYSTEM_EXTERIOR_LIGHTING.md replaced survive only as the no-data
+    /// fallback); the modes differ in how the authored values are interpreted.
+    /// See SYSTEM_EXTERIOR_LIGHTING.md section "Lighting modes".
     ///
-    /// TimeOfDay is here because cycling is a preference, but it is ALSO a
-    /// DevTools instrument when pinned - the one control both surfaces keep.
+    /// TimeSource is here because where the clock comes from is a preference -
+    /// but the hour itself is ALSO a DevTools instrument when pinned, the one
+    /// control both surfaces keep.
     /// </summary>
     public sealed class LightingSettings
     {
         public bool DynamicLighting { get; set; } = true;
-        public bool UseAuthoredData { get; set; } = true;
+
+        /// <summary>
+        /// How the authored Light.dbc values are interpreted. Replaced the old
+        /// bool UseAuthoredData at settings v6 (that key in an old file is
+        /// simply ignored on load; migration pins pre-v6 files to Msui).
+        /// </summary>
+        public LightingMode Mode { get; set; } = LightingMode.Msui;
 
         public float SunStrength { get; set; } = 1f;
         public float AmbientStrength { get; set; } = 1f;
@@ -455,6 +522,40 @@ public sealed class GameSettings
 
         /// <summary>Interior baked light scale. 2.0 is vanilla - see SYSTEM_WMO_INTERIOR_LIGHTING.md.</summary>
         public float InteriorBrightness { get; set; } = 2.0f;
+
+        /// <summary>
+        /// Extra multiplier on baked MOCV light, on TOP of InteriorBrightness -
+        /// WmoRenderer.InteriorBrightness, the knob that decides how strongly
+        /// interior light spills from a doorway (the Northshire Abbey glow).
+        /// Was a DevTools-only slider that silently reset to 1.0 every launch,
+        /// which is why the spill always shipped faint. Per-mode recommended
+        /// values live in ApplyLightingModeDefaults; the user can still override
+        /// in Advanced.
+        /// </summary>
+        public float InteriorSpill { get; set; } = MsuiInteriorSpill;
+
+        /// <summary>Recommended doorway spill for MSUI Lighting - deliberately
+        /// stronger than the old effective 1.0 (owner: the abbey spill was far
+        /// too faint).</summary>
+        public const float MsuiInteriorSpill = 1.8f;
+
+        /// <summary>Recommended doorway spill for 1.12 Parity: neutral - the
+        /// authored 2.0 VertexColorScale chain and nothing else.</summary>
+        public const float ParityInteriorSpill = 1.0f;
+
+        /// <summary>
+        /// Switch the lighting mode and push that mode's RECOMMENDED values for
+        /// the knobs whose right answer is mode-dependent. Same contract as
+        /// ApplyQuality: a real value push, not a label - and quality presets
+        /// must never call this (the mode is not a quality dial).
+        /// </summary>
+        public void ApplyLightingModeDefaults(LightingMode mode)
+        {
+            Mode = mode;
+            InteriorSpill = mode == LightingMode.Parity112
+                ? ParityInteriorSpill
+                : MsuiInteriorSpill;
+        }
 
         /// <summary>
         /// Doodad baked light scale. MUST track InteriorBrightness or a barrel
@@ -472,8 +573,17 @@ public sealed class GameSettings
         public float SkyStopBand1 { get; set; } = 0.18f;
         public float SkyStopBand2 { get; set; } = 0.06f;
 
-        public bool CycleTimeOfDay { get; set; }
+        /// <summary>
+        /// Where the world clock comes from. Replaced the old CycleTimeOfDay
+        /// bool at settings v7 (the raw file is consulted during migration
+        /// because the key no longer exists to deserialize into).
+        /// </summary>
+        public TimeSource TimeSource { get; set; } = TimeSource.Server;
+
+        /// <summary>Debug-cycle speed. Only consumed when TimeSource is Cycle.</summary>
         public float GameHoursPerMinute { get; set; } = 1f;
+
+        /// <summary>The pinned hour. Only consumed when TimeSource is Fixed.</summary>
         public float TimeOfDay { get; set; } = 12f;
     }
 
@@ -775,6 +885,7 @@ public sealed class SettingsStore
             {
                 string rawJson = File.ReadAllText(path);
                 bool serializedPainterlyDetail = HasSerializedPainterlyDetail(rawJson);
+                bool legacyCycleTimeOfDay = ReadLegacyCycleTimeOfDay(rawJson);
                 var parsed = JsonSerializer.Deserialize<FileShape>(
                     rawJson, GameSettings.Json);
 
@@ -784,7 +895,7 @@ public sealed class SettingsStore
                     // the file: a hand-edited percentage should take effect, and a
                     // curve change in a new build should reach an old file.
                     parsed.Settings.ResolveComposites();
-                    Migrate(parsed.Settings, serializedPainterlyDetail);
+                    Migrate(parsed.Settings, serializedPainterlyDetail, legacyCycleTimeOfDay);
 
                     Console.WriteLine($"[settings] {path}  " +
                                       $"preset '{parsed.Settings.ActivePreset}', " +
@@ -824,27 +935,46 @@ public sealed class SettingsStore
         return TryGetProperty(document.RootElement, "Settings", out JsonElement settings) &&
                TryGetProperty(settings, "Display", out JsonElement display) &&
                TryGetProperty(display, "PainterlyDetail", out _);
-
-        static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
-        {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                foreach (JsonProperty property in element.EnumerateObject())
-                {
-                    if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        value = property.Value;
-                        return true;
-                    }
-                }
-            }
-
-            value = default;
-            return false;
-        }
     }
 
-    private static void Migrate(GameSettings s, bool serializedPainterlyDetail)
+    /// <summary>
+    /// Raw-file read of the pre-v7 Lighting.CycleTimeOfDay flag, which no longer
+    /// exists as a property to deserialize into (same pattern as the painterly
+    /// presence check above). Absent or false both mean "was not cycling".
+    /// </summary>
+    private static bool ReadLegacyCycleTimeOfDay(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true,
+        });
+
+        return TryGetProperty(document.RootElement, "Settings", out JsonElement settings) &&
+               TryGetProperty(settings, "Lighting", out JsonElement lighting) &&
+               TryGetProperty(lighting, "CycleTimeOfDay", out JsonElement cycle) &&
+               cycle.ValueKind == JsonValueKind.True;
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static void Migrate(GameSettings s, bool serializedPainterlyDetail, bool legacyCycleTimeOfDay)
     {
         // v1 -> v2: WMO portal culling (PLAN_10) became the shipped default - it is
         // the expected 1.12 behaviour (hides Stormwind's roof from inside, holds the
@@ -894,6 +1024,38 @@ public sealed class SettingsStore
         {
             s.Display.PainterlyBandStrength = 0.30f;
             s.Version = 5;
+        }
+
+        // v5 -> v6 (2026-08-12): Lighting.UseAuthoredData became Lighting.Mode.
+        // Every pre-v6 install was on the authored path with the MSUI
+        // interpretation, so Msui - REGARDLESS of what UseAuthoredData said
+        // (the old key is not even read; false only ever selected the
+        // hand-invented constants, which survive as the no-data fallback).
+        // InteriorSpill is new: it persists the WMO doorway-spill multiplier
+        // that used to be a DevTools slider resetting to 1.0 every launch.
+        // Seeding the Msui default deliberately CHANGES the look - the owner
+        // called the Northshire Abbey doorway glow far too faint.
+        if (s.Version < 6)
+        {
+            s.Lighting.Mode = LightingMode.Msui;
+            s.Lighting.InteriorSpill = GameSettings.LightingSettings.MsuiInteriorSpill;
+            s.Version = 6;
+        }
+
+        // v6 -> v7 (2026-08-12): the CycleTimeOfDay bool became TimeSource, and
+        // the default changed from a world pinned at noon to TRACKING the game
+        // clock - the server's SMSG_LOGIN_SETTIMESPEED time online, the local
+        // wall clock otherwise. The owner explicitly wants the vanilla day/night
+        // to move, so pre-v7 files map to Server (or Cycle if they were already
+        // cycling). This deliberately CHANGES what an existing install sees;
+        // the old pinned look stays one click away (TimeSource = Fixed - the
+        // saved TimeOfDay hour is preserved untouched). The legacy flag comes
+        // from the raw file because the property no longer exists to
+        // deserialize into.
+        if (s.Version < 7)
+        {
+            s.Lighting.TimeSource = legacyCycleTimeOfDay ? TimeSource.Cycle : TimeSource.Server;
+            s.Version = 7;
         }
     }
 

@@ -46,6 +46,12 @@ layout (location = 7) in vec4 aInstanceLight;
 // the world is visible, so it eases in instead of popping. See model_fade.rs.
 layout (location = 8) in float aAppearStart;
 
+// Per-instance hover-highlight boost: 64/255 for the server gameobject under
+// the mouse (the same additive brighten the creature/player shaders apply to a
+// hovered unit), 0 for everything else. The GL default for a disabled
+// attribute is 0, so static terrain doodads never brighten.
+layout (location = 9) in float aHighlight;
+
 uniform mat4 uViewProjection;
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
@@ -55,12 +61,23 @@ uniform int  uUseInstancing;
 uniform vec4 uInstanceLight;
 // Same payload as aAppearStart, for the non-instanced draw path.
 uniform float uAppearStart;
+// Same payload as aHighlight, for the non-instanced draw path.
+uniform float uHighlight;
+
+// Per-BATCH animated UV translation (M2 texture transform), set every draw by
+// DoodadRenderer - zero for the static majority. This is the scrolling-lava /
+// waterfall machinery: the Blackrock lavafalls are static wedges whose texture
+// slides ~1 V per 3.333 s loop. Applied as a plain add, the same convention
+// the glue scene uses for the identical M2 tracks; the textures repeat, so
+// whole-number wraps are seamless.
+uniform vec2 uUvOffset;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
 out vec2 vUV;
 out vec4 vLight;
 out float vAppearStart;
+out float vHighlight;
 
 void main()
 {
@@ -79,9 +96,10 @@ void main()
     // inverse-transpose is still unnecessary here.
     vNormal = normalize(mat3(model) * aNormal);
 
-    vUV = aUV;
+    vUV = aUV + uUvOffset;
     vLight = uUseInstancing == 1 ? aInstanceLight : uInstanceLight;
     vAppearStart = uUseInstancing == 1 ? aAppearStart : uAppearStart;
+    vHighlight = uUseInstancing == 1 ? aHighlight : uHighlight;
 
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world

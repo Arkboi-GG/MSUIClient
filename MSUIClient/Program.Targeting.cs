@@ -34,6 +34,7 @@ public sealed partial class GameLoop
     {
         CloseInspect(playSound: false);
         _hoveredGuid = 0;
+        _hoveredGameObjectGuid = 0;
         _selectionGuid = 0;
         _attackTargetGuid = 0;
         // Resolved hit and negative records are template identities and survive zoning/session
@@ -73,7 +74,15 @@ public sealed partial class GameLoop
             CommitSelection(0, beginAttack: false);
 
         if (!_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse && !_settingsOpen)
-            _hoveredGuid = PickUnit(_window.MousePosition);
+        {
+            _hoveredGuid = PickUnit(_window.MousePosition, out float unitHit);
+            // Vanilla nearest-wins: a gameobject hovers only when its hit is
+            // strictly nearer than any unit hit, and then it owns the hover -
+            // the two hovers are exclusive by construction. Drives the doodad
+            // highlight tint and the world-GO name tooltip.
+            _hoveredGameObjectGuid = PickGameObject(_window.MousePosition, unitHit, out _);
+            if (_hoveredGameObjectGuid != 0) _hoveredGuid = 0;
+        }
 
         // Armed ground AoE: track the terrain point under the cursor every frame so the
         // render pass can draw the 1.12 targeting rune circle there in realtime.
@@ -109,7 +118,19 @@ public sealed partial class GameLoop
                     CommitGroundCast(armed, spot);
                 continue;
             }
-            ulong picked = PickUnit(click.Position);
+            ulong picked = PickUnit(click.Position, out float pickedUnitHit);
+            // A gameobject strictly in front of any unit owns a right-click:
+            // vanilla routes it to the object's interaction (mailbox opens
+            // mail, chest sends CMSG_GAMEOBJ_USE), never to selection.
+            // UseGameObject already gates range, type and world-state.
+            ulong goClicked = click.Button == MouseButton.Right
+                ? PickGameObject(click.Position, pickedUnitHit, out _)
+                : 0;
+            if (goClicked != 0)
+            {
+                UseGameObject(goClicked);
+                continue;
+            }
             if (click.Button == MouseButton.Left)
             {
                 // NPC dev window focus set: Ctrl+LeftClick multi-selects for the
@@ -154,6 +175,11 @@ public sealed partial class GameLoop
                 _creatures.GroupSelectedGuids.Add(guid);
             AddMarqueePreview(_creatures.GroupSelectedGuids);
         }
+        // The hovered gameobject brightens exactly like a hovered creature; the
+        // doodad renderer applies the same 64/255 boost to that one dynamic
+        // placement in both its opaque and blended passes.
+        if (_doodads is not null)
+            _doodads.HighlightedDynamicKey = _hoveredGameObjectGuid;
         UpdateInspectLifecycle();
     }
 
@@ -315,12 +341,23 @@ public sealed partial class GameLoop
         return false;
     }
 
-    private ulong PickUnit(Vector2 pixel)
+    private ulong PickUnit(Vector2 pixel) => PickUnit(pixel, out _);
+
+    /// <summary>Same pick, plus how FAR the hit is — so the gameobject picker
+    /// can lose to a unit in front of it. A nameplate rect hit reports 0 (UI
+    /// always wins); no unit reports +infinity.</summary>
+    private ulong PickUnit(Vector2 pixel, out float hitDistance)
     {
+        hitDistance = float.PositiveInfinity;
+
         // Benilla vplates.rs:47-50,111-116: last frame's mouse-enabled plate rects feed
         // the shared hover/selection pick before the 3-D world ray.
         for (int i = _vplateHits.Count - 1; i >= 0; i--)
-            if (_vplateHits[i].Rect.Contains(pixel)) return _vplateHits[i].Guid;
+            if (_vplateHits[i].Rect.Contains(pixel))
+            {
+                hitDistance = 0f;
+                return _vplateHits[i].Guid;
+            }
 
         var ray = _window.Camera.ScreenPointToRay(pixel, _window.FramebufferSize);
         if (ray is null) return 0;
@@ -354,6 +391,7 @@ public sealed partial class GameLoop
         if (picked != 0 && _collision?.Raycast(origin, direction, nearest) is { } worldHit &&
             worldHit.Distance < nearest - 0.01f)
             return 0;
+        if (picked != 0) hitDistance = nearest;
         return picked;
     }
 

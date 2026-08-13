@@ -1224,6 +1224,15 @@ public sealed partial class GameLoop
             {
                 Check("Render water", () => s.Water.Enabled, v => s.Water.Enabled = v);
 
+                Check("Draw WMO liquid", () => s.Water.DrawWmoLiquid,
+                    v => s.Water.DrawWmoLiquid = v,
+                    "MLIQ surfaces inside buildings and dungeons: Blackrock's lava\n" +
+                    "lake, the Stormwind canals. Draw-only - WMO liquid does not\n" +
+                    "affect swimming, submersion or the underwater tint.");
+                if (s.Water.DrawWmoLiquid && _liquid is not null)
+                    ImGui.TextDisabled($"  {_liquid.WmoSurfaceCount} WMO surface(s) meshed, " +
+                        $"{_liquid.WmoSurfacesDrawnLastFrame} drawn last frame");
+
                 Check("Authored water colours (Light.dbc)  [KNOWN BAD]",
                     () => s.Water.UseAuthoredColors,
                     v => s.Water.UseAuthoredColors = v,
@@ -1377,13 +1386,67 @@ public sealed partial class GameLoop
 
             BeginBox("light", "Lighting and sky");
             {
+                // Both modes resolve the real Light.dbc lighting for your
+                // position and time; they differ in interpretation. Switching
+                // pushes the mode's recommended values (doorway spill) exactly
+                // like a quality button pushes its numbers - and quality
+                // buttons never touch the mode (it is not a quality dial).
+                {
+                    int mode = (int)s.Lighting.Mode;
+                    ImGui.SetNextItemWidth(200f * S);
+                    if (ImGui.Combo("Lighting mode##lightmode", ref mode,
+                                    _lightingModeLabels, _lightingModeLabels.Length))
+                    {
+                        s.Lighting.ApplyLightingModeDefaults((LightingMode)mode);
+                        ApplySettings(s);
+                        _settingsStatus = $"lighting mode set to {_lightingModeLabels[mode]}";
+                    }
+                    Tip("MSUI Lighting is this client's tuned look: the authored Light.dbc\n" +
+                        "colours applied directly, plus a boosted interior doorway glow.\n" +
+                        "1.12 Parity follows the vanilla client as closely as we can: the same\n" +
+                        "colours scaled by the real day/night intensity curve (World\\dnc.db)\n" +
+                        "and a neutral doorway glow. Switching resets the mode's recommended\n" +
+                        "values; Advanced below can still override them.");
+                }
                 Check("Time-of-day lighting", () => s.Lighting.DynamicLighting,
                     v => s.Lighting.DynamicLighting = v);
-                Check("Use authored lighting data (Light.dbc)", () => s.Lighting.UseAuthoredData,
-                    v => s.Lighting.UseAuthoredData = v,
-                    "On resolves the real zone lighting for your position and time out of the\n" +
-                    "MPQs. Off falls back to hand-invented constants that\n" +
-                    "SYSTEM_EXTERIOR_LIGHTING.md replaced with data. Leave it on.");
+
+                // Where the world clock comes from (v7). Server is the vanilla
+                // behaviour: SMSG_LOGIN_SETTIMESPEED's game time, advanced
+                // locally, with the machine's wall clock as the offline
+                // fallback. Fixed keeps the old pinned-hour slider; Cycle is
+                // the accelerated debug day/night.
+                {
+                    int src = (int)s.Lighting.TimeSource;
+                    ImGui.SetNextItemWidth(200f * S);
+                    if (ImGui.Combo("Time of day##timesource", ref src,
+                                    _timeSourceLabels, _timeSourceLabels.Length))
+                    {
+                        s.Lighting.TimeSource = (TimeSource)src;
+                        _timeSource = s.Lighting.TimeSource;
+                        _devTimePin = false;   // an explicit source choice ends any dev pin
+                        if (_timeSource == TimeSource.Fixed)
+                            _atmosphere.TimeOfDayHours = s.Lighting.TimeOfDay;
+                        _settingsStatus = $"time of day now {_timeSourceLabels[src]}";
+                    }
+                    Tip("Server tracks the game-world clock the server sends, like the\n" +
+                        "vanilla client - day and night actually pass. Until a server time\n" +
+                        "arrives (offline, creator mode) it follows this machine's clock.\n" +
+                        "Fixed pins the world at the hour below.\n" +
+                        "Cycle runs an accelerated day/night for debugging.");
+
+                    if (s.Lighting.TimeSource == TimeSource.Fixed)
+                        Slider("tod", "Hour", () => s.Lighting.TimeOfDay,
+                            v => { s.Lighting.TimeOfDay = v; _atmosphere.TimeOfDayHours = v; },
+                            0f, 24f, "{0:F2} h");
+                    else
+                        ImGui.TextDisabled($"  world clock: {WorldClockDescription()}");
+
+                    if (s.Lighting.TimeSource == TimeSource.Cycle)
+                        Slider("ghpm", "Game hours per minute", () => s.Lighting.GameHoursPerMinute,
+                            v => { s.Lighting.GameHoursPerMinute = v; _gameHoursPerMinute = v; },
+                            0.1f, 12f, "{0:F1}");
+                }
 
                 if (ImGui.TreeNode("Advanced##lighting"))
                 {
@@ -1430,6 +1493,15 @@ public sealed partial class GameLoop
                         Slider("dib", "Prop interior brightness", () => s.Lighting.DoodadInteriorBrightness,
                             v => s.Lighting.DoodadInteriorBrightness = v, 0.5f, 4f, "x{0:F2}");
 
+                    Slider("spill", "Interior doorway glow", () => s.Lighting.InteriorSpill,
+                        v => s.Lighting.InteriorSpill = v, 0.5f, 3f, "x{0:F2}",
+                        "Extra multiplier on baked interior light, on top of Interior\n" +
+                        "brightness - it decides how strongly a lit room spills from its\n" +
+                        "doorway (the Northshire Abbey glow). MSUI Lighting recommends " +
+                        $"{GameSettings.LightingSettings.MsuiInteriorSpill:F1};\n" +
+                        $"1.12 Parity recommends the neutral {GameSettings.LightingSettings.ParityInteriorSpill:F1}. " +
+                        "Switching mode resets it.");
+
                     Check("Draw the sky gradient", () => s.Lighting.SkyEnabled, v => s.Lighting.SkyEnabled = v);
                     Slider("skym", "Sky horizon band", () => s.Lighting.SkyStopMiddle,
                         v => s.Lighting.SkyStopMiddle = v, 0f, 1f, "{0:F3}",
@@ -1440,13 +1512,6 @@ public sealed partial class GameLoop
                         v => s.Lighting.SkyStopBand1 = v, 0f, 1f, "{0:F3}");
                     Slider("sky2", "Sky band 2", () => s.Lighting.SkyStopBand2,
                         v => s.Lighting.SkyStopBand2 = v, 0f, 1f, "{0:F3}");
-
-                    Check("Cycle time of day", () => s.Lighting.CycleTimeOfDay,
-                        v => { s.Lighting.CycleTimeOfDay = v; _cycleTimeOfDay = v; });
-                    Slider("ghpm", "Game hours per minute", () => s.Lighting.GameHoursPerMinute,
-                        v => { s.Lighting.GameHoursPerMinute = v; _gameHoursPerMinute = v; }, 0.1f, 12f, "{0:F1}");
-                    Slider("tod", "Time of day", () => s.Lighting.TimeOfDay,
-                        v => { s.Lighting.TimeOfDay = v; _atmosphere.TimeOfDayHours = v; }, 0f, 24f, "{0:F2} h");
                     ImGui.TreePop();
                 }
             }
@@ -1926,7 +1991,7 @@ public sealed partial class GameLoop
         _atmosphere.FogEnd = MathF.Max(s.View.FogEnd, s.View.FogStart + 1f);
         _atmosphere.CullAtFogEnd = s.View.CullAtFogEnd;
         _atmosphere.DynamicLighting = s.Lighting.DynamicLighting;
-        _atmosphere.UseAuthoredData = s.Lighting.UseAuthoredData;
+        _atmosphere.Mode = s.Lighting.Mode;
         _atmosphere.SunStrength = s.Lighting.SunStrength;
         _atmosphere.AmbientStrength = s.Lighting.AmbientStrength;
         if (_terrain is not null)
@@ -1934,8 +1999,13 @@ public sealed partial class GameLoop
         if (_unitShadows is not null)
             _unitShadows.Opacity = Math.Clamp(s.Lighting.UnitShadowOpacity, 0f, 1f);
 
-        _cycleTimeOfDay = s.Lighting.CycleTimeOfDay;
+        _timeSource = s.Lighting.TimeSource;
         _gameHoursPerMinute = s.Lighting.GameHoursPerMinute;
+        // Fixed means the SETTING owns the hour; seed it so a saved fixed time
+        // survives a restart. The tracking sources (Server / Cycle) write the
+        // clock every frame in UpdateWorldClock and need no seed.
+        if (_timeSource == TimeSource.Fixed)
+            _atmosphere.TimeOfDayHours = s.Lighting.TimeOfDay;
 
         _window.MouseSensitivity = s.Controls.MouseSensitivity;
         _window.RawCursor = s.Controls.RawCursor;
@@ -1971,6 +2041,7 @@ public sealed partial class GameLoop
             _wmo.OcclusionMinDistance = s.Detail.OcclusionMinDistance;
             _wmo.UseVertexColors = s.Lighting.WmoVertexColors;
             _wmo.VertexColorScale = s.Lighting.InteriorBrightness;
+            _wmo.InteriorBrightness = s.Lighting.InteriorSpill;
             _wmo.UsePortalCulling = s.Detail.WmoPortalCulling;
             _wmo.AppearFade = s.Detail.AppearFade;
             _wmo.AppearFadeSeconds = s.Detail.AppearFadeSeconds;
@@ -2085,6 +2156,7 @@ public sealed partial class GameLoop
         var w = _liquid;
 
         w.Enabled = s.Water.Enabled;
+        w.WmoLiquidEnabled = s.Water.DrawWmoLiquid;
         w.UseAuthoredColors = s.Water.UseAuthoredColors;
         w.TextureScale = s.Water.TextureScale;
         w.AnimationFps = s.Water.AnimationFps;
@@ -2173,16 +2245,21 @@ public sealed partial class GameLoop
         s.View.DistanceCustom = true;
 
         s.Lighting.DynamicLighting = _atmosphere.DynamicLighting;
-        s.Lighting.UseAuthoredData = _atmosphere.UseAuthoredData;
+        // NOT UseAuthoredData: since v6 that is a transient probe A/B, and
+        // mirroring it here is exactly how it would leak back into the file.
+        s.Lighting.Mode = _atmosphere.Mode;
         s.Lighting.SunStrength = _atmosphere.SunStrength;
         s.Lighting.AmbientStrength = _atmosphere.AmbientStrength;
         if (_terrain is not null)
             s.Lighting.TerrainShadowStrength = _terrain.AuthoredShadowStrength;
         if (_unitShadows is not null)
             s.Lighting.UnitShadowOpacity = _unitShadows.Opacity;
-        s.Lighting.CycleTimeOfDay = _cycleTimeOfDay;
+        s.Lighting.TimeSource = _timeSource;
         s.Lighting.GameHoursPerMinute = _gameHoursPerMinute;
-        s.Lighting.TimeOfDay = _atmosphere.TimeOfDayHours;
+        // Only Fixed writes the live hour back: under Server / Cycle the clock
+        // is derived state, and capturing it would stomp the saved Fixed hour.
+        if (_timeSource == TimeSource.Fixed)
+            s.Lighting.TimeOfDay = _atmosphere.TimeOfDayHours;
 
         if (_sky is not null)
         {
@@ -2218,6 +2295,7 @@ public sealed partial class GameLoop
             s.View.BuildingDistance = _wmo.DrawDistance;
             s.Lighting.WmoVertexColors = _wmo.UseVertexColors;
             s.Lighting.InteriorBrightness = _wmo.VertexColorScale;
+            s.Lighting.InteriorSpill = _wmo.InteriorBrightness;
             s.Detail.BuildingDetailCustom = true;
         }
 
@@ -2272,6 +2350,7 @@ public sealed partial class GameLoop
         {
             var w = _liquid;
             s.Water.Enabled = w.Enabled;
+            s.Water.DrawWmoLiquid = w.WmoLiquidEnabled;
             s.Water.UseAuthoredColors = w.UseAuthoredColors;
             s.Water.WakeEnabled = w.WakeEnabled;
             s.Water.WakeStrength = w.WakeStrength;

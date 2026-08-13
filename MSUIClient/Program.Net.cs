@@ -468,6 +468,25 @@ public sealed partial class GameLoop
                             worldBoundaryReached = true;
                         }
                         break;
+                    case Op.SMSG_LOGIN_SETTIMESPEED:
+                        {
+                            // The server's game clock: a bit-packed game time (minute:6,
+                            // hour:5, weekday:3, day:6, month:4, year:5 from the LSB)
+                            // plus the timescale in game-minutes per real second
+                            // (vanilla 0.01666667 = real time). The world clock advances
+                            // it locally from the receive stamp; TimeSource.Server feeds
+                            // it to the atmosphere every frame (UpdateWorldClock).
+                            var timeReader = new PacketReader(body);
+                            uint packedTime = timeReader.ReadU32();
+                            float timescale = timeReader.Remaining >= 4
+                                ? timeReader.ReadF32()
+                                : WorldClock.VanillaTimescale;
+                            _worldClock.SetServerTime(packedTime, timescale, receivedStamp);
+                            Console.WriteLine(
+                                $"[net] server game time {_worldClock.ServerHour:D2}:{_worldClock.ServerMinute:D2} " +
+                                $"(timescale {timescale:F7} game-min/s)");
+                        }
+                        break;
                     case Op.SMSG_GROUP_LIST:
                         ApplyPartyRoster(body);
                         break;

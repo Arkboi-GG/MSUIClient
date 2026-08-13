@@ -1,6 +1,11 @@
 # Plan 15 — WMO liquid (MLIQ): canals, fountains, indoor pools
 
-Status: **specified, format half DERIVED FROM BYTES, code not yet built.**
+Status: **BUILT 2026-08-12, draw-only.** (History: first built 2026-07-26,
+reverted the same day for shipping default-ON while also rewriting the shared
+`TryGetSurface`. The rebuild leaves that path untouched — a separate WMO mesh
+set in `LiquidRenderer`, rebuilt on a `WmoRenderer.LiquidVersion` poll, default
+ON via `Water.DrawWmoLiquid`. Submersion/underwater tint for WMO liquid is
+still NOT wired; SYSTEM_WATER.md §7 is the authoritative description.)
 Written 2026-07-26. Owner docs it will feed: `SYSTEM_WATER.md` (§5's "WMO liquid
 (MLIQ)" entry is what this closes) and, for the type mapping,
 `SYSTEM_EXTERIOR_LIGHTING.md` §2.2.

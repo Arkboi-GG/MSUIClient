@@ -121,23 +121,51 @@ public sealed class DoodadRenderer : IDisposable
         public bool Unlit;
 
         /// <summary>
-        /// This batch needs the fragment shader's alpha-test discard: M2
-        /// blending mode 0 is opaque and does not.
+        /// The material's M2 blending mode, ACTED ON since 2026-08-12:
+        /// 0 opaque, 1 alpha-key, 2 alpha, 3 no-alpha-add, 4 add, 5 modulate,
+        /// 6 modulate2x.
         ///
-        /// PARSED BUT NOT YET ACTED ON, deliberately. The obvious use — passing
-        /// a cutoff of 0 for opaque batches — buys nothing: a driver disables
-        /// early depth rejection on the STATIC presence of `discard` in the
-        /// shader, not on the uniform's value, and doodad.frag discards
-        /// unconditionally in two places. All that would change is that a mode-0
-        /// batch whose texture happens to carry a cutout alpha would start
-        /// rendering as a solid quad.
-        ///
-        /// The real win needs a second shader program with no discard in it,
-        /// selected per batch off this flag. That is a bigger change than it
-        /// looks (two programs, two uniform sets, a state sort) and belongs in
-        /// its own pass. The data is here and correct when someone does it.
+        /// Modes 0 and 1 draw in the main pass — mode 1 with the classic 0.5
+        /// cutout cutoff, mode 0 with no cutoff at all, so an opaque material
+        /// whose BLP happens to carry junk alpha can no longer lose fragments
+        /// to a test it never asked for. Modes 2–6 are deferred to a second
+        /// BLENDED pass after all opaque geometry: depth test on, depth write
+        /// off, per-mode glBlendFunc (see SetBatchBlendFunc), and a cutoff of
+        /// ~1/255 so faint halo texels survive. That second pass is what makes
+        /// a lamp glow (Glow32.blp, blend 4 additive, alpha 0..0.6) visible:
+        /// the old single pass alpha-tested it at 0.5 and drew the survivors
+        /// opaque, which deleted the halo and left a hard-edged core.
         /// </summary>
-        public bool AlphaTest;
+        public ushort BlendMode;
+
+        /// <summary>Modes 2-6: drawn in the blended pass, not the opaque one.</summary>
+        public bool Blended => BlendMode >= 2;
+
+        /// <summary>
+        /// M2 material flag 0x10. Honoured in the opaque pass only; the blended
+        /// pass never writes depth for anything.
+        /// </summary>
+        public bool NoDepthWrite;
+
+        /// <summary>
+        /// uFogMode for doodad.frag: 0 normal fog, 1 unfogged (render flag
+        /// 0x02), 2 fog-to-black (additive), 3 fog-to-white (modulate),
+        /// 4 fog-to-grey (modulate2x). Computed once at build so the draw loop
+        /// only forwards it.
+        /// </summary>
+        public int FogMode;
+
+        /// <summary>
+        /// The batch's animated UV translation (M2 texture transform), resolved
+        /// once at build via batch +22 → uvAnimLookup → uvAnimations. Null =
+        /// static UVs, which is every tree, rock and fence. THIS is what makes
+        /// a lavafall pour: the Blackrock falls are static wedge meshes whose
+        /// lava texture scrolls ~1 V per 3.333 s loop; without evaluating it
+        /// they sit frozen at their t=0 UV state (the "black wedge").
+        /// Only X/Y of each key are UV — Z is authoring garbage (see
+        /// M2TextureTransform).
+        /// </summary>
+        public M2AnimTrack<Vector3>? UvTranslation;
     }
 
     private sealed class Model : IDisposable
@@ -146,6 +174,51 @@ public sealed class DoodadRenderer : IDisposable
         public List<Batch> Batches = [];
         public Vector3 LocalMin, LocalMax;
         public int TriangleCount;
+
+        /// <summary>
+        /// Any batch with blend mode 2+. Cached so the draw loops can skip the
+        /// deferred-pass bookkeeping for the overwhelming majority of models
+        /// (trees, rocks, fences) that have nothing to blend.
+        /// </summary>
+        public bool HasBlendedBatches;
+
+        /// <summary>
+        /// The parsed M2, retained ONLY when some batch carries a UV-translation
+        /// track — M2TrackSampling needs the model's sequences/global-sequence
+        /// table to evaluate it. Null for the static majority, so their parsed
+        /// data stays collectable exactly as before. (Emitter models already
+        /// retain the whole M2Model through Emitters[i].OwnerModel.)
+        /// </summary>
+        public M2Model? UvAnimSource;
+
+        // ── Animated STATIC doodads (2026-08-13) ────────────────────────────
+        //
+        // The Blackrock lava BUBBLES are M2 doodads whose entire behaviour is a
+        // bone-scale loop: five root bones, one 17-vertex dome rigidly weighted
+        // to each, a linear scale track 1.0 → 2.78 → snap to 1.0 (the pop),
+        // and paired UV-translation tracks that flip the texture to its burst
+        // frame in sync. Rendering them as bind-pose meshes leaves frozen domes
+        // sitting on the lava. Models classified by BuildModel as animated
+        // (small bone/vertex counts, at least one multi-key bone track) get a
+        // CPU re-skin ONCE PER MODEL PER FRAME into the shared VBO — instances
+        // stay instanced and pop in sync, which matches how the WMO places them
+        // (a shared model with shared timing). Everything else in the pipeline
+        // (instancing, blended pass, uUvOffset, highlight attribute) is
+        // untouched; a null BoneAnimSource is the static fast path.
+
+        /// <summary>The parsed M2, retained for bone-track sampling and the
+        /// bind-pose vertices/weights. Null = static (the vast majority).</summary>
+        public M2Model? BoneAnimSource;
+
+        /// <summary>Interleaved skinned vertices, reused every frame.</summary>
+        public float[]? AnimVertexScratch;
+
+        /// <summary>Per-bone model-space transforms, reused every frame.</summary>
+        public Matrix4x4[]? AnimBoneMatrices;
+
+        /// <summary>Wall clock of the last re-skin, so a second render pass in
+        /// the same frame does not skin (and upload) twice.</summary>
+        public float LastAnimSampleTime = float.NegativeInfinity;
 
         /// <summary>The M2's own collision hull, local space, three verts per triangle.</summary>
         public Vector3[] CollisionTriangles = [];
@@ -245,8 +318,9 @@ public sealed class DoodadRenderer : IDisposable
 
     /// <summary>
     /// What actually goes in the instance VBO: the placement matrix, the baked
-    /// light, then the appear-fade start. Sequential layout of 21 floats with no
-    /// padding, which is what the stride arithmetic in BuildModel assumes.
+    /// light, the appear-fade start, then the hover-highlight boost. Sequential
+    /// layout of 22 floats with no padding, which is what the stride arithmetic
+    /// in BuildModel assumes.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     private struct InstanceData
@@ -254,6 +328,12 @@ public sealed class DoodadRenderer : IDisposable
         public Matrix4x4 Transform;
         public Vector4 Light;
         public float AppearStart;
+
+        /// <summary>Additive brightness for the hovered dynamic placement —
+        /// the same 64/255 boost CreatureRenderer adds for a hovered unit.
+        /// 0 for every static doodad and every non-hovered gameobject, which is
+        /// also the GL default for a disabled attribute.</summary>
+        public float Highlight;
     }
 
     private readonly GL _gl;
@@ -506,7 +586,7 @@ public sealed class DoodadRenderer : IDisposable
     public float VisibilityDistance { get; set; } = float.PositiveInfinity;
 
     /// <summary>
-    /// Alpha below which a doodad fragment is discarded.
+    /// Alpha below which an ALPHA-KEY (M2 blend mode 1) fragment is discarded.
     ///
     /// This MUST be set. DoodadRenderer owns its own Shader instance — a
     /// separate GL program built from the same source as the WMO one — so
@@ -514,6 +594,10 @@ public sealed class DoodadRenderer : IDisposable
     /// left it at zero, no alpha test ran, and every foliage card rendered as
     /// an opaque black rectangle. Tree leaves are alpha cutouts; without this
     /// the forest becomes a wall of dark panels.
+    ///
+    /// Since 2026-08-12 it applies to mode-1 batches only: mode 0 (opaque)
+    /// draws with no test, and modes 2-6 use the blended pass's 1/255 cutoff
+    /// (see Batch.BlendMode and BlendedAlphaCutoff).
     /// </summary>
     public float AlphaCutoff { get; set; } = 0.5f;
 
@@ -720,6 +804,7 @@ public sealed class DoodadRenderer : IDisposable
         _byModel.Clear();
         _cullBounds.Clear();
         _placed.Clear();
+        _dynamicByKey.Clear();   // instances died with _byModel; the GO sync re-adds via HasDynamic
         InstanceCount = 0;
         InteriorLitCount = 0;
         TotalTriangles = 0;
@@ -1050,6 +1135,168 @@ public sealed class DoodadRenderer : IDisposable
         return true;
     }
 
+    // ── dynamic (server gameobject) placements ───────────────────────────────
+
+    /// <summary>Outcome of <see cref="AddDynamic"/>. Pending means the model is
+    /// still streaming (it was queued here) and the caller should retry next
+    /// frame; Unavailable is permanent for the session — the M2 is missing from
+    /// the MPQs or has no renderable content.</summary>
+    public enum DynamicPlacement { Placed, Pending, Unavailable }
+
+    /// <summary>
+    /// Live per-key placements (server gameobjects, keyed by GUID). The
+    /// Instance itself lives in <see cref="_byModel"/> next to every static
+    /// doodad, so the opaque pass AND the deferred blended pass — instanced or
+    /// not — draw it with no extra path; this map only remembers which Instance
+    /// belongs to which key so a despawn or a re-add can find and remove it.
+    /// Cleared by <see cref="ResetPlacements"/> along with everything else —
+    /// the per-frame gameobject sync notices HasDynamic went false and re-adds.
+    /// </summary>
+    private readonly Dictionary<ulong, (Model Model, Instance Instance)> _dynamicByKey = [];
+
+    public bool HasDynamic(ulong key) => _dynamicByKey.ContainsKey(key);
+
+    /// <summary>
+    /// The dynamic placement (gameobject GUID) currently under the mouse, or 0.
+    /// Set per frame by the targeting pass, exactly like
+    /// CreatureRenderer.HoveredGuid; the matching instance draws with an
+    /// additive brightness boost in BOTH the opaque and blended passes,
+    /// instanced or not (the boost rides the per-instance VBO, so the deferred
+    /// blended pass inherits it for free).
+    /// </summary>
+    public ulong HighlightedDynamicKey { get; set; }
+
+    /// <summary>The vanilla hover brighten — the same 64/255 additive boost the
+    /// creature/player shaders use for a hovered or selected unit.</summary>
+    private const float DynamicHighlightBoost = 64f / 255f;
+
+    /// <summary>
+    /// Nearest dynamic placement (server gameobject) hit by a world ray, for
+    /// mouse-over picking. Tests the same per-instance world AABBs the cull
+    /// uses — deliberately loose the way unit picking's vertical cylinders are.
+    /// Static doodads are never tested: a tree is scenery, not an entity.
+    /// A hit strictly beyond <paramref name="maxDistance"/> does not count, so
+    /// callers can pass the nearest unit hit and let the unit win ties.
+    /// </summary>
+    public bool TryPickDynamic(
+        Vector3 origin, Vector3 direction, float maxDistance, out ulong key, out float distance)
+    {
+        key = 0;
+        distance = maxDistance;
+        bool hit = false;
+        foreach (var (candidate, entry) in _dynamicByKey)
+        {
+            Instance instance = entry.Instance;
+            if (RayAabb(origin, direction, instance.WorldMin, instance.WorldMax, out float t) &&
+                t < distance)
+            {
+                distance = t;
+                key = candidate;
+                hit = true;
+            }
+        }
+        return hit;
+    }
+
+    /// <summary>Slab test. Enter distance is 0 when the origin is inside the
+    /// box, which keeps a gameobject pickable while standing against it.</summary>
+    private static bool RayAabb(
+        Vector3 origin, Vector3 direction, Vector3 min, Vector3 max, out float enter)
+    {
+        enter = 0f;
+        float t0 = 0f, t1 = float.PositiveInfinity;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float o = axis == 0 ? origin.X : axis == 1 ? origin.Y : origin.Z;
+            float d = axis == 0 ? direction.X : axis == 1 ? direction.Y : direction.Z;
+            float lo = axis == 0 ? min.X : axis == 1 ? min.Y : min.Z;
+            float hi = axis == 0 ? max.X : axis == 1 ? max.Y : max.Z;
+            if (MathF.Abs(d) < 1e-8f)
+            {
+                if (o < lo || o > hi) return false;
+                continue;
+            }
+            float inv = 1f / d;
+            float ta = (lo - o) * inv, tb = (hi - o) * inv;
+            if (ta > tb) (ta, tb) = (tb, ta);
+            t0 = MathF.Max(t0, ta);
+            t1 = MathF.Min(t1, tb);
+            if (t0 > t1) return false;
+        }
+        enter = t0;
+        return true;
+    }
+
+    /// <summary>
+    /// Place (or replace) a dynamic per-entity model. Deliberately NOT routed
+    /// through <see cref="AddPlaced"/>: that path's positional dedup key is
+    /// wrong for entities — a gameobject's identity is its GUID, and a re-add
+    /// with a new transform/display must replace the old placement, not be
+    /// swallowed as a duplicate.
+    /// </summary>
+    public DynamicPlacement AddDynamic(ulong key, string modelPath, Matrix4x4 transform)
+    {
+        RemoveDynamic(key);
+
+        var model = ResolveModel(modelPath);
+        if (model is null)
+        {
+            // A cached null is the permanent "missing / unrenderable" verdict;
+            // an absent cache entry just means the model has not streamed yet.
+            if (_models.ContainsKey(ModelCacheKey(modelPath)))
+                return DynamicPlacement.Unavailable;
+            QueuePreloadModel(modelPath, 0f, "gameobject");
+            return DynamicPlacement.Pending;
+        }
+
+        var (min, max) = TransformedBounds(model, transform);
+
+        if (!_byModel.TryGetValue(model, out var list))
+        {
+            list = [];
+            _byModel[model] = list;
+        }
+
+        var instance = new Instance
+        {
+            Transform = transform,
+            WorldMin = min,
+            WorldMax = max,
+            Path = modelPath,
+            AppearStart = ResolveAppearStart($"go|{key:X16}"),
+        };
+        list.Add(instance);
+        CullBoundsFor(model).Add(new CullBounds(min, max));
+        _dynamicByKey[key] = (model, instance);
+
+        InstanceCount++;
+        TotalTriangles += model.TriangleCount;
+        return DynamicPlacement.Placed;
+    }
+
+    /// <summary>Remove a dynamic placement (despawn, out-of-range, or the first
+    /// half of a re-add). The parallel cull-bounds entry goes at the same index,
+    /// like <see cref="RemoveNearEmitterPlacement"/>; RebuildCullBounds would
+    /// self-heal any drift regardless.</summary>
+    public bool RemoveDynamic(ulong key)
+    {
+        if (!_dynamicByKey.Remove(key, out var entry)) return false;
+        if (_byModel.TryGetValue(entry.Model, out var list))
+        {
+            int index = list.IndexOf(entry.Instance);
+            if (index >= 0)
+            {
+                if (entry.Instance.Light.W < 0.5f) InteriorLitCount--;
+                list.RemoveAt(index);
+                if (_cullBounds.TryGetValue(entry.Model, out var bounds) && index < bounds.Count)
+                    bounds.RemoveAt(index);
+                InstanceCount--;
+                TotalTriangles -= entry.Model.TriangleCount;
+            }
+        }
+        return true;
+    }
+
     /// <summary>Report after a batch of AddPlaced calls.</summary>
     public void ReportInterior(int requested, int placed, double seconds)
         => Console.WriteLine(
@@ -1173,7 +1420,9 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         var m2 = M2Reader.Parse(bytes);
-        if (m2 is null || !m2.IsValid)
+        // HasRenderableContent, not IsValid: an emitter-only model (no render
+        // mesh, just particles) is real content and must load.
+        if (m2 is null || !m2.HasRenderableContent)
         {
             _models[cacheKey] = null;
             return null;
@@ -1200,7 +1449,8 @@ public sealed class DoodadRenderer : IDisposable
         if (bytes is null) return new PreparedModel { Missing = true };
 
         var parsed = M2Reader.Parse(bytes);
-        if (parsed is null || !parsed.IsValid) return new PreparedModel();
+        // HasRenderableContent, not IsValid — see ResolveModel.
+        if (parsed is null || !parsed.HasRenderableContent) return new PreparedModel();
 
         var prepared = new PreparedModel { Parsed = parsed };
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1326,7 +1576,20 @@ public sealed class DoodadRenderer : IDisposable
         var vertices = BuildVertexArray(m2, out var min, out var max);
 
         var indices = m2.Indices.ToArray();
-        if (indices.Length < 3) return null;
+        bool hasGeometry = m2.Vertices.Count > 0 && indices.Length >= 3;
+        if (!hasGeometry)
+        {
+            // Pure-emitter models (brazier smoke, waterfall mist) have no
+            // render mesh at all — M2Reader.HasRenderableContent admits them
+            // for their particle/ribbon emitters. They still get a Model (and
+            // an empty VAO nothing is ever drawn from) so their emitters
+            // register through the normal placement path; a model with neither
+            // geometry nor emitters genuinely has nothing to offer.
+            if (m2.ParticleEmitters.Count == 0 && m2.RibbonEmitters.Count == 0)
+                return null;
+            indices = [];
+            min = max = Vector3.Zero;
+        }
 
         uint vao = _gl.GenVertexArray();
         _gl.BindVertexArray(vao);
@@ -1361,9 +1624,9 @@ public sealed class DoodadRenderer : IDisposable
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, instanceVbo);
 
         // 16 floats of placement matrix, then 4 of baked light, then 1 appear-fade
-        // start: one InstanceData. Locations 3..6 are the matrix rows, 7 the light,
-        // 8 the appear-fade start.
-        const uint instanceStride = 21 * sizeof(float);
+        // start, then 1 hover-highlight boost: one InstanceData. Locations 3..6 are
+        // the matrix rows, 7 the light, 8 the appear-fade start, 9 the highlight.
+        const uint instanceStride = 22 * sizeof(float);
         for (uint row = 0; row < 4; row++)
         {
             uint location = 3 + row;
@@ -1383,6 +1646,11 @@ public sealed class DoodadRenderer : IDisposable
             instanceStride, (void*)(20 * sizeof(float)));
         _gl.VertexAttribDivisor(8, 1);
 
+        _gl.EnableVertexAttribArray(9);
+        _gl.VertexAttribPointer(9, 1, VertexAttribPointerType.Float, false,
+            instanceStride, (void*)(21 * sizeof(float)));
+        _gl.VertexAttribDivisor(9, 1);
+
         _gl.BindVertexArray(0);
 
         var model = new Model
@@ -1398,6 +1666,7 @@ public sealed class DoodadRenderer : IDisposable
         model.Attach(_gl);
 
         BuildBatches(m2, model, indices.Length);
+        ClassifyBoneAnimation(m2, model, hasGeometry);
         model.CollisionTriangles = BuildCollision(m2, CollisionBasisIndex);
         model.Emitters = m2.ParticleEmitters;
         model.EmitterTexturePaths = new string[m2.ParticleEmitters.Count];
@@ -1475,17 +1744,32 @@ public sealed class DoodadRenderer : IDisposable
                     texture = ResolveTexture(m2.Textures[texIdx].Filename);
             }
 
-            bool twoSided = batch.MaterialIndex < m2.RenderFlags.Count
-                && m2.RenderFlags[batch.MaterialIndex].TwoSided;
-            bool unlit = batch.MaterialIndex < m2.RenderFlags.Count
-                && m2.RenderFlags[batch.MaterialIndex].Unlit;
+            var material = batch.MaterialIndex < m2.RenderFlags.Count
+                ? m2.RenderFlags[batch.MaterialIndex]
+                : null;
+            bool twoSided = material?.TwoSided ?? false;
+            bool unlit = material?.Unlit ?? false;
 
             // Vanilla M2 blending modes: 0 opaque, 1 alpha-key, 2 alpha,
-            // 3 additive, 4 mod, 5 mod2x. Only 0 is genuinely opaque. This pass
-            // does not blend, so everything above 0 keeps the cutoff it had —
-            // the change is that mode 0 now gets early-Z back.
-            bool alphaTest = batch.MaterialIndex >= m2.RenderFlags.Count
-                || m2.RenderFlags[batch.MaterialIndex].BlendingMode != 0;
+            // 3 no-alpha-add, 4 add, 5 modulate, 6 modulate2x. A batch with no
+            // material entry is treated as alpha-key — the cutout behaviour
+            // every batch used to get, and the safe guess for foliage.
+            ushort blendMode = material?.BlendingMode ?? 1;
+            if (blendMode > 6) blendMode = 2; // out-of-spec: plain alpha blend
+
+            int fogMode = 0;
+            if (material?.Unfogged == true) fogMode = 1;
+            else if (blendMode is 3 or 4) fogMode = 2;   // additive: fog to black
+            else if (blendMode == 5) fogMode = 3;        // modulate: fog to white
+            else if (blendMode == 6) fogMode = 4;        // modulate2x: fog to grey
+
+            // Animated UV translation (scrolling lava/water). A track with no
+            // keys is authored-empty and stays null so the draw loop's
+            // zero-offset fast path applies.
+            int uvAnim = m2.GetTextureTransformForBatch(batch);
+            M2AnimTrack<Vector3>? uvTrack =
+                uvAnim >= 0 ? m2.TextureTransforms[uvAnim].Translation : null;
+            if (uvTrack is not null && uvTrack.Keys.Count == 0) uvTrack = null;
 
             model.Batches.Add(new Batch
             {
@@ -1496,11 +1780,18 @@ public sealed class DoodadRenderer : IDisposable
                 // faces. A missing leaf reads as a bug, a doubled one does not.
                 TwoSided = twoSided || texture is null,
                 Unlit = unlit,
-                AlphaTest = alphaTest,
+                BlendMode = blendMode,
+                NoDepthWrite = material?.NoZWrite ?? false,
+                FogMode = fogMode,
+                UvTranslation = uvTrack,
             });
         }
 
-        if (model.Batches.Count == 0)
+        model.HasBlendedBatches = model.Batches.Any(b => b.Blended);
+        if (model.Batches.Any(b => b.UvTranslation is not null))
+            model.UvAnimSource = m2;
+
+        if (model.Batches.Count == 0 && indexCount > 0)
         {
             model.Batches.Add(new Batch
             {
@@ -1626,6 +1917,255 @@ public sealed class DoodadRenderer : IDisposable
 
     // ── drawing ──────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Cutoff for the blended pass. Not zero — fully-transparent texels of an
+    /// additive halo contribute nothing but still cost a blend read-modify-
+    /// write — but low enough that Glow32.blp's faint outer alpha (0..0.6)
+    /// survives where the opaque pass's 0.5 cutout test deleted it.
+    /// </summary>
+    private const float BlendedAlphaCutoff = 1f / 255f;
+
+    /// <summary>
+    /// Blended draws deferred from the opaque loop, replayed after ALL opaque
+    /// geometry so a lamp halo cannot be painted over by an opaque wall drawn
+    /// later. Reused every frame; a handful of entries in practice (lamps,
+    /// torches, glow planes).
+    /// </summary>
+    private readonly List<(Model Model, Instance Instance)> _deferredBlended = [];
+    private readonly List<(Model Model, uint InstanceCount)> _deferredBlendedInstanced = [];
+
+    /// <summary>
+    /// glBlendFunc per M2 blend mode, the same equations the WMO MOMT split
+    /// uses for its modes (§3.25) extended with the additive/modulate family:
+    ///   2 alpha        (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+    ///   3 no-alpha-add (ONE, ONE)
+    ///   4 add          (SRC_ALPHA, ONE)
+    ///   5 modulate     (DST_COLOR, ZERO)
+    ///   6 modulate2x   (DST_COLOR, SRC_COLOR)
+    /// </summary>
+    private void SetBatchBlendFunc(ushort blendMode)
+    {
+        switch (blendMode)
+        {
+            case 3: _gl.BlendFunc(BlendingFactor.One, BlendingFactor.One); break;
+            case 4: _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); break;
+            case 5: _gl.BlendFunc(BlendingFactor.DstColor, BlendingFactor.Zero); break;
+            case 6: _gl.BlendFunc(BlendingFactor.DstColor, BlendingFactor.SrcColor); break;
+            default: _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); break;
+        }
+    }
+
+    /// <summary>
+    /// The cutoff the OPAQUE pass hands doodad.frag for a batch. Mode 1
+    /// (alpha-key) keeps the classic cutout test; mode 0 (opaque) gets none,
+    /// so junk alpha in an opaque material's BLP cannot discard fragments.
+    /// Untextured batches never test — see the AlphaCutoff docstring.
+    /// </summary>
+    private float OpaqueCutoffFor(Batch batch)
+        => batch.Texture is not null && batch.BlendMode == 1 ? AlphaCutoff : 0f;
+
+    /// <summary>
+    /// The batch's animated UV offset at the world clock, or zero for static
+    /// UVs. Sampled against sequence 0 (Stand — the only sequence a placed
+    /// doodad plays; the Blackrock falls author exactly one) on the same
+    /// NowSeconds clock the appear fade uses, so all instances of a model
+    /// scroll in lockstep and the loop wraps seamlessly (the authored
+    /// translations are whole UV multiples per cycle). Tracks that declare a
+    /// global sequence take M2TrackSampling's global-clock path automatically.
+    /// Applied as vUV = aUV + offset — the same convention GlueScene's login
+    /// scene already uses for these tracks. Z is authoring garbage; only X/Y
+    /// are UV.
+    /// </summary>
+    private Vector2 UvOffsetFor(Model model, Batch batch)
+    {
+        if (batch.UvTranslation is null || model.UvAnimSource is null) return Vector2.Zero;
+        // A bone-animated doodad samples its UV tracks on the same absolute-
+        // timeline clock the bones use, so the lava bubble's burst-frame UV
+        // flip lands on the same frame as the scale pop. The bubble's UV keys
+        // live in the CHAINED second sequence (band 3333..6667); the
+        // sequence-0 sampler below never reaches them.
+        if (model.BoneAnimSource is not null)
+        {
+            var a = M2TrackSampling.AbsoluteVector(
+                batch.UvTranslation, model.UvAnimSource, NowSeconds, Vector3.Zero);
+            return new Vector2(a.X, a.Y);
+        }
+        var t = M2TrackSampling.Vector(
+            batch.UvTranslation, model.UvAnimSource, 0, NowSeconds, Vector3.Zero);
+        return new Vector2(t.X, t.Y);
+    }
+
+    // ── Animated static doodads: classification + CPU re-skin ────────────────
+
+    /// <summary>
+    /// Scope guard: this path exists for bubbles and kin — a handful of bones
+    /// scaling/nudging a tiny mesh — not for creature-grade rigs. A model over
+    /// either cap stays static exactly as before. (The Blackrock bubble is
+    /// 5 bones / 85 vertices.)
+    /// </summary>
+    private const int MaxAnimatedDoodadBones = 16;
+    private const int MaxAnimatedDoodadVertices = 768;
+
+    /// <summary>Models currently classified bone-animated, for diagnostics.</summary>
+    public int AnimatedModelCount { get; private set; }
+
+    /// <summary>
+    /// Decide whether a doodad model gets the per-frame CPU re-skin, and
+    /// pre-size its scratch buffers. Also inflates the model's local cull
+    /// bounds by the largest authored bone scale/translation so a bubble
+    /// mid-pop (2.78x) is not frustum-rejected at the screen edge — the
+    /// instance AABBs are computed from these bounds at placement time.
+    /// </summary>
+    private void ClassifyBoneAnimation(M2Model m2, Model model, bool hasGeometry)
+    {
+        if (!hasGeometry || !m2.HasSkeleton) return;
+        if (m2.Bones.Count > MaxAnimatedDoodadBones) return;
+        if (m2.Vertices.Count > MaxAnimatedDoodadVertices) return;
+        if (m2.Sequences.Count == 0 || !m2.HasAnimatedBones) return;
+
+        model.BoneAnimSource = m2;
+        model.AnimVertexScratch = new float[m2.Vertices.Count * FloatsPerVertex];
+        model.AnimBoneMatrices = new Matrix4x4[m2.Bones.Count];
+        AnimatedModelCount++;
+
+        // Conservative animated bounds: every corner scaled by the largest
+        // authored scale key about every bone pivot, padded by the largest
+        // translation key. Exact for the bubble (uniform scale about pivots).
+        float maxScale = 1f;
+        float maxTranslation = 0f;
+        foreach (var bone in m2.Bones)
+        {
+            foreach (var k in bone.Scale.Keys)
+                maxScale = MathF.Max(maxScale,
+                    MathF.Max(MathF.Abs(k.X), MathF.Max(MathF.Abs(k.Y), MathF.Abs(k.Z))));
+            foreach (var k in bone.Translation.Keys)
+                maxTranslation = MathF.Max(maxTranslation, k.Length());
+        }
+        if (maxScale > 1f || maxTranslation > 0f)
+        {
+            var min = model.LocalMin;
+            var max = model.LocalMax;
+            foreach (var bone in m2.Bones)
+            {
+                for (int c = 0; c < 8; c++)
+                {
+                    var corner = new Vector3(
+                        (c & 1) == 0 ? model.LocalMin.X : model.LocalMax.X,
+                        (c & 2) == 0 ? model.LocalMin.Y : model.LocalMax.Y,
+                        (c & 4) == 0 ? model.LocalMin.Z : model.LocalMax.Z);
+                    var p = bone.Pivot + (corner - bone.Pivot) * maxScale;
+                    min = Vector3.Min(min, p);
+                    max = Vector3.Max(max, p);
+                }
+            }
+            var pad = new Vector3(maxTranslation);
+            model.LocalMin = min - pad;
+            model.LocalMax = max + pad;
+        }
+
+        Console.WriteLine(
+            $"[doodad] animated doodad: {m2.Name} — {m2.Bones.Count} bone(s), " +
+            $"{m2.Vertices.Count} vertice(s), loop {m2.AbsoluteTimelineDurationMs} ms");
+    }
+
+    /// <summary>
+    /// Sample the bone tracks at the world clock, re-skin the (tiny) vertex
+    /// buffer on the CPU, and re-upload the model's shared VBO. Runs once per
+    /// MODEL per frame — instances share the result, so all placements of one
+    /// bubble model animate in sync, exactly as they share the mesh. The VAO's
+    /// attribute pointers captured the VBO at build time, so re-specifying the
+    /// buffer's data needs no attribute rebinding.
+    ///
+    /// Bone law (vanilla M2): p' = pivot + translation(t) + R(t)·S(t)·(p − pivot),
+    /// composed with the parent. In System.Numerics row-vector convention that
+    /// is T(−pivot)·S·R·T(pivot+translation), then local · parent.
+    /// </summary>
+    private unsafe void UpdateAnimatedVertices(Model model)
+    {
+        var m2 = model.BoneAnimSource;
+        if (m2 is null || model.AnimVertexScratch is null || model.AnimBoneMatrices is null)
+            return;
+        if (model.LastAnimSampleTime == NowSeconds) return;
+        model.LastAnimSampleTime = NowSeconds;
+
+        var mats = model.AnimBoneMatrices;
+        for (int i = 0; i < m2.Bones.Count; i++)
+        {
+            var bone = m2.Bones[i];
+            var translation = M2TrackSampling.AbsoluteVector(
+                bone.Translation, m2, NowSeconds, Vector3.Zero);
+            var rotation = M2TrackSampling.AbsoluteQuaternion(bone.Rotation, m2, NowSeconds);
+            var scale = M2TrackSampling.AbsoluteVector(bone.Scale, m2, NowSeconds, Vector3.One);
+
+            var local = Matrix4x4.CreateTranslation(-bone.Pivot)
+                      * Matrix4x4.CreateScale(scale)
+                      * Matrix4x4.CreateFromQuaternion(rotation)
+                      * Matrix4x4.CreateTranslation(bone.Pivot + translation);
+
+            // M2 bones are ordered parent-before-child; a forward reference
+            // (malformed) degrades to treating the bone as a root.
+            mats[i] = bone.ParentBone >= 0 && bone.ParentBone < i
+                ? local * mats[bone.ParentBone]
+                : local;
+        }
+
+        var dst = model.AnimVertexScratch;
+        for (int i = 0; i < m2.Vertices.Count; i++)
+        {
+            var v = m2.Vertices[i];
+            var bindPos = new Vector3(v.PosX, v.PosY, v.PosZ);
+            var bindNorm = new Vector3(v.NormX, v.NormY, v.NormZ);
+
+            Vector3 pos = Vector3.Zero, norm = Vector3.Zero;
+            float total = 0f;
+            for (int w = 0; w < 4; w++)
+            {
+                byte weight = w switch
+                {
+                    0 => v.BoneWeight0, 1 => v.BoneWeight1,
+                    2 => v.BoneWeight2, _ => v.BoneWeight3,
+                };
+                if (weight == 0) continue;
+                byte index = w switch
+                {
+                    0 => v.BoneIndex0, 1 => v.BoneIndex1,
+                    2 => v.BoneIndex2, _ => v.BoneIndex3,
+                };
+                if (index >= mats.Length) continue;
+                float f = weight / 255f;
+                pos += Vector3.Transform(bindPos, mats[index]) * f;
+                norm += Vector3.TransformNormal(bindNorm, mats[index]) * f;
+                total += f;
+            }
+            if (total < 1e-3f)
+            {
+                pos = bindPos;
+                norm = bindNorm;
+            }
+            else if (total < 0.999f || total > 1.001f)
+            {
+                float inv = 1f / total;
+                pos *= inv;
+            }
+            if (norm.LengthSquared() > 1e-12f) norm = Vector3.Normalize(norm);
+
+            int o = i * FloatsPerVertex;
+            dst[o + 0] = pos.X;
+            dst[o + 1] = pos.Y;
+            dst[o + 2] = pos.Z;
+            dst[o + 3] = norm.X;
+            dst[o + 4] = norm.Y;
+            dst[o + 5] = norm.Z;
+            dst[o + 6] = v.TexU;
+            dst[o + 7] = v.TexV;
+        }
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, model.Vbo);
+        fixed (float* p = dst)
+            _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(dst.Length * sizeof(float)), p, BufferUsageARB.StreamDraw);
+    }
+
     public unsafe void Render(Camera camera)
     {
         long started = Stopwatch.GetTimestamp();
@@ -1658,6 +2198,14 @@ public sealed class DoodadRenderer : IDisposable
         _shader.Set("uAppearFadeEnabled", AppearFade ? 1 : 0);
         _shader.Set("uNow", NowSeconds);
         _shader.Set("uAppearFadeSecs", MathF.Max(AppearFadeSeconds, 0.0001f));
+        _shader.Set("uBlendedBatch", 0);
+        _shader.Set("uHighlight", 0f);
+
+        // The hovered gameobject's Instance, if it is placed right now. Resolved
+        // once; the draw loops compare by reference.
+        Instance? highlighted = HighlightedDynamicKey != 0 &&
+            _dynamicByKey.TryGetValue(HighlightedDynamicKey, out var highlightedEntry)
+                ? highlightedEntry.Instance : null;
 
         var viewProjection = camera.RelativeViewProjection;
         var eye = camera.Position;
@@ -1671,7 +2219,7 @@ public sealed class DoodadRenderer : IDisposable
 
         if (UseInstancing)
         {
-            RenderInstanced(viewProjection, eye, maxDistanceSq, ref cullingOn);
+            RenderInstanced(viewProjection, eye, maxDistanceSq, highlighted, ref cullingOn);
             if (!cullingOn) _gl.Enable(EnableCap.CullFace);
             _gl.BindVertexArray(0);
             MaybeLogCull(effectiveDrawDistance);
@@ -1689,6 +2237,9 @@ public sealed class DoodadRenderer : IDisposable
             _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
         }
         _shader.Set("uPreserveAlpha", AppearFade ? 1 : 0);
+
+        _deferredBlended.Clear();
+        bool depthWriteOn = true;
 
         foreach (var (model, instances) in _byModel)
         {
@@ -1710,6 +2261,8 @@ public sealed class DoodadRenderer : IDisposable
 
                 if (!bound)
                 {
+                    // Same re-skin hook as the instanced path, once per model.
+                    if (model.BoneAnimSource is not null) UpdateAnimatedVertices(model);
                     _gl.BindVertexArray(model.Vao);
                     bound = true;
                 }
@@ -1724,9 +2277,18 @@ public sealed class DoodadRenderer : IDisposable
                 _shader.Set("uInstanceLight",
                     InteriorLighting ? instance.Light : ExteriorLight);
                 _shader.Set("uAppearStart", instance.AppearStart);
+                _shader.Set("uHighlight",
+                    ReferenceEquals(instance, highlighted) ? DynamicHighlightBoost : 0f);
+
+                // Blended batches (M2 blend modes 2-6) are deferred until all
+                // opaque geometry is down; only the opaque family draws here.
+                if (model.HasBlendedBatches)
+                    _deferredBlended.Add((model, instance));
 
                 foreach (var batch in model.Batches)
                 {
+                    if (batch.Blended) continue;
+
                     if (batch.TwoSided && cullingOn)
                     {
                         _gl.Disable(EnableCap.CullFace);
@@ -1738,19 +2300,26 @@ public sealed class DoodadRenderer : IDisposable
                         cullingOn = true;
                     }
 
+                    if (batch.NoDepthWrite == depthWriteOn)
+                    {
+                        depthWriteOn = !batch.NoDepthWrite;
+                        _gl.DepthMask(depthWriteOn);
+                    }
+
                     if (batch.Texture is not null)
                     {
                         batch.Texture.Bind(0);
                         _shader.Set("uHasTexture", 1);
-                        _shader.Set("uAlphaCutoff", AlphaCutoff);
                     }
                     else
                     {
                         _shader.Set("uHasTexture", 0);
-                        _shader.Set("uAlphaCutoff", 0f);
                     }
+                    _shader.Set("uAlphaCutoff", OpaqueCutoffFor(batch));
 
                     _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                    _shader.Set("uFogMode", batch.FogMode);
+                    _shader.Set("uUvOffset", UvOffsetFor(model, batch));
 
                     _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
                         DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
@@ -1763,6 +2332,10 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         if (AppearFade) _gl.Disable(EnableCap.Blend);
+        if (!depthWriteOn) { _gl.DepthMask(true); depthWriteOn = true; }
+
+        DrawBlendedDeferred(camera, eye, highlighted, ref cullingOn);
+
         if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
         MaybeLogCull(effectiveDrawDistance);
@@ -1774,6 +2347,142 @@ public sealed class DoodadRenderer : IDisposable
         CullMilliseconds = InstanceUploadMilliseconds = DrawMilliseconds = 0;
         UploadedModelsLastFrame = FirstTouchModelsLastFrame = 0;
         CullModelsLastFrame = CullInstancesLastFrame = 0;
+    }
+
+    /// <summary>
+    /// The BLENDED pass, non-instanced flavour: replay every deferred
+    /// (model, instance) after the whole opaque world is down. Depth TEST stays
+    /// on — a halo behind a wall is still occluded — but depth WRITE is off, so
+    /// glows never punch holes for each other. Order is the opaque pass's
+    /// iteration order, deliberately unsorted: the common modes (additive,
+    /// modulate) are order-independent, and a global depth sort is not worth
+    /// its cost for a handful of lamp halos.
+    /// </summary>
+    private unsafe void DrawBlendedDeferred(
+        Camera camera, Vector3 eye, Instance? highlighted, ref bool cullingOn)
+    {
+        if (_deferredBlended.Count == 0) return;
+
+        _gl.Enable(EnableCap.Blend);
+        _gl.DepthMask(false);
+        _shader!.Set("uBlendedBatch", 1);
+
+        Model? boundModel = null;
+        foreach (var (model, instance) in _deferredBlended)
+        {
+            if (!ReferenceEquals(model, boundModel))
+            {
+                _gl.BindVertexArray(model.Vao);
+                boundModel = model;
+            }
+
+            var modelTransform = instance.Transform;
+            modelTransform.M41 -= eye.X;
+            modelTransform.M42 -= eye.Y;
+            modelTransform.M43 -= eye.Z;
+
+            _shader.Set("uModel", modelTransform);
+            _shader.Set("uModelViewProjection", modelTransform * camera.RelativeViewProjection);
+            _shader.Set("uInstanceLight",
+                InteriorLighting ? instance.Light : ExteriorLight);
+            _shader.Set("uAppearStart", instance.AppearStart);
+            _shader.Set("uHighlight",
+                ReferenceEquals(instance, highlighted) ? DynamicHighlightBoost : 0f);
+
+            DrawBlendedBatches(model, 0, ref cullingOn);
+        }
+
+        _shader.Set("uBlendedBatch", 0);
+        _gl.DepthMask(true);
+        // Leave the engine-default straight-alpha func behind, not whatever
+        // additive/modulate func the last batch selected.
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        _gl.Disable(EnableCap.Blend);
+        _deferredBlended.Clear();
+    }
+
+    /// <summary>
+    /// The BLENDED pass, instanced flavour. Each deferred model's InstanceVbo
+    /// still holds exactly this frame's visible set — uploaded by the opaque
+    /// loop, and nothing touches it in between — so this pass re-binds the VAO
+    /// and issues only the blended batches over the same instances.
+    /// </summary>
+    private unsafe void DrawBlendedDeferredInstanced(ref bool cullingOn)
+    {
+        if (_deferredBlendedInstanced.Count == 0) return;
+
+        _gl.Enable(EnableCap.Blend);
+        _gl.DepthMask(false);
+        _shader!.Set("uBlendedBatch", 1);
+
+        foreach (var (model, instanceCount) in _deferredBlendedInstanced)
+        {
+            _gl.BindVertexArray(model.Vao);
+            DrawBlendedBatches(model, instanceCount, ref cullingOn);
+        }
+
+        _shader.Set("uBlendedBatch", 0);
+        _gl.DepthMask(true);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        _gl.Disable(EnableCap.Blend);
+        _deferredBlendedInstanced.Clear();
+    }
+
+    /// <summary>
+    /// Issue a model's blend-mode-2+ batches with per-mode blend state.
+    /// instanceCount 0 means the non-instanced DrawElements path; the caller
+    /// has already set the per-instance uniforms (or uploaded instance data).
+    /// </summary>
+    private unsafe void DrawBlendedBatches(Model model, uint instanceCount, ref bool cullingOn)
+    {
+        foreach (var batch in model.Batches)
+        {
+            if (!batch.Blended) continue;
+
+            if (batch.TwoSided && cullingOn)
+            {
+                _gl.Disable(EnableCap.CullFace);
+                cullingOn = false;
+            }
+            else if (!batch.TwoSided && !cullingOn)
+            {
+                _gl.Enable(EnableCap.CullFace);
+                cullingOn = true;
+            }
+
+            SetBatchBlendFunc(batch.BlendMode);
+
+            if (batch.Texture is not null)
+            {
+                batch.Texture.Bind(0);
+                _shader!.Set("uHasTexture", 1);
+                _shader.Set("uAlphaCutoff", BlendedAlphaCutoff);
+            }
+            else
+            {
+                _shader!.Set("uHasTexture", 0);
+                _shader.Set("uAlphaCutoff", 0f);
+            }
+
+            _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+            _shader.Set("uFogMode", batch.FogMode);
+            _shader.Set("uUvOffset", UvOffsetFor(model, batch));
+
+            if (instanceCount > 0)
+            {
+                _gl.DrawElementsInstanced(PrimitiveType.Triangles, batch.IndexCount,
+                    DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)),
+                    instanceCount);
+                TrianglesLastFrame += (long)(batch.IndexCount / 3) * instanceCount;
+            }
+            else
+            {
+                _gl.DrawElements(PrimitiveType.Triangles, batch.IndexCount,
+                    DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)));
+                TrianglesLastFrame += batch.IndexCount / 3;
+            }
+            DrawCallsLastFrame++;
+        }
     }
 
     /// <summary>
@@ -1825,7 +2534,8 @@ public sealed class DoodadRenderer : IDisposable
     }
 
     private unsafe void RenderInstanced(
-        Matrix4x4 viewProjection, Vector3 eye, float maxDistanceSq, ref bool cullingOn)
+        Matrix4x4 viewProjection, Vector3 eye, float maxDistanceSq, Instance? highlighted,
+        ref bool cullingOn)
     {
         // Three accumulators rather than three brackets around the whole loop:
         // the phases interleave per model, so only a running total is honest.
@@ -1846,6 +2556,8 @@ public sealed class DoodadRenderer : IDisposable
         // actually have an instance mid-fade, which in practice is a handful for
         // two seconds after a tile streams in and none at all thereafter.
         bool blendOn = false;
+        bool depthWriteOn = true;
+        _deferredBlendedInstanced.Clear();
 
         foreach (var (model, instances) in _byModel)
         {
@@ -1886,6 +2598,8 @@ public sealed class DoodadRenderer : IDisposable
                         Transform = transform,
                         Light = InteriorLighting ? instance.Light : ExteriorLight,
                         AppearStart = instance.AppearStart,
+                        Highlight = ReferenceEquals(instance, highlighted)
+                            ? DynamicHighlightBoost : 0f,
                     });
                 }
             }
@@ -1914,6 +2628,8 @@ public sealed class DoodadRenderer : IDisposable
                         Transform = transform,
                         Light = InteriorLighting ? instance.Light : ExteriorLight,
                         AppearStart = instance.AppearStart,
+                        Highlight = ReferenceEquals(instance, highlighted)
+                            ? DynamicHighlightBoost : 0f,
                     });
                 }
             }
@@ -1921,6 +2637,12 @@ public sealed class DoodadRenderer : IDisposable
             cullTicks += Stopwatch.GetTimestamp() - cullStarted;
 
             if (_visibleInstances.Count == 0) continue;
+
+            // Bone-animated doodads (lava bubbles): re-skin the shared VBO at
+            // the world clock before any of this model's batches draw. Null for
+            // the static majority; visible-only, so off-screen bubbles cost
+            // nothing.
+            if (model.BoneAnimSource is not null) UpdateAnimatedVertices(model);
 
             _drawnThisFrame.Add(model);
             if (!_drawnPreviousFrame.Contains(model)) firstTouch++;
@@ -1970,8 +2692,18 @@ public sealed class DoodadRenderer : IDisposable
             _shader.Set("uPreserveAlpha", wantBlend ? 1 : 0);
 
             uint instanceCount = (uint)_visibleInstances.Count;
+
+            // Blended batches (M2 blend modes 2-6) draw after ALL opaque
+            // geometry. The instance data uploaded just above stays valid in
+            // model.InstanceVbo until next frame, so the deferred pass only
+            // needs the model and the count.
+            if (model.HasBlendedBatches)
+                _deferredBlendedInstanced.Add((model, instanceCount));
+
             foreach (var batch in model.Batches)
             {
+                if (batch.Blended) continue;
+
                 if (batch.TwoSided && cullingOn)
                 {
                     _gl.Disable(EnableCap.CullFace);
@@ -1983,19 +2715,26 @@ public sealed class DoodadRenderer : IDisposable
                     cullingOn = true;
                 }
 
+                if (batch.NoDepthWrite == depthWriteOn)
+                {
+                    depthWriteOn = !batch.NoDepthWrite;
+                    _gl.DepthMask(depthWriteOn);
+                }
+
                 if (batch.Texture is not null)
                 {
                     batch.Texture.Bind(0);
                     _shader.Set("uHasTexture", 1);
-                    _shader.Set("uAlphaCutoff", AlphaCutoff);
                 }
                 else
                 {
                     _shader.Set("uHasTexture", 0);
-                    _shader.Set("uAlphaCutoff", 0f);
                 }
+                _shader.Set("uAlphaCutoff", OpaqueCutoffFor(batch));
 
                 _shader.Set("uUnlit", batch.Unlit ? 1 : 0);
+                _shader.Set("uFogMode", batch.FogMode);
+                _shader.Set("uUvOffset", UvOffsetFor(model, batch));
 
                 _gl.DrawElementsInstanced(PrimitiveType.Triangles, batch.IndexCount,
                     DrawElementsType.UnsignedShort, (void*)(batch.IndexStart * sizeof(ushort)),
@@ -2009,6 +2748,11 @@ public sealed class DoodadRenderer : IDisposable
         }
 
         if (blendOn) _gl.Disable(EnableCap.Blend);
+        if (!depthWriteOn) _gl.DepthMask(true);
+
+        long deferredStarted = Stopwatch.GetTimestamp();
+        DrawBlendedDeferredInstanced(ref cullingOn);
+        drawTicks += Stopwatch.GetTimestamp() - deferredStarted;
 
         double perTick = 1000.0 / Stopwatch.Frequency;
         CullMilliseconds = cullTicks * perTick;

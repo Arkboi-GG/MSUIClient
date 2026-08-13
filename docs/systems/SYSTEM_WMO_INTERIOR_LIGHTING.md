@@ -163,7 +163,7 @@ one changes, both must.
 | File | Responsibility |
 |---|---|
 | `Formats/WmoReader.cs` | Parse MOCV; run `FixVertexColors`; expose `VertexColors`, `GroupFlags`, `InteriorVertexStart` |
-| `World/Wmo/WmoRenderer.cs` | Classify each batch (1/2/3); upload colours; own `UseVertexColors` and `VertexColorScale` |
+| `World/Wmo/WmoRenderer.cs` | Classify each batch (1/2/3); upload colours; own `UseVertexColors`, `VertexColorScale` and `InteriorBrightness` (the doorway-glow multiplier, persisted since v6) |
 | `Shaders/wmo.vert` | Pass the vertex colour through as `vColor` |
 | `Shaders/wmo.frag` | The three-way `uBatchType` branch; apply `uVertexColorScale` |
 | `Program.cs` | Buildings panel: the MOCV checkbox and the brightness slider |
@@ -177,12 +177,26 @@ one changes, both must.
 - **Interior brightness** — `VertexColorScale`, 0.5–4.0. **2.00 is vanilla.**
   Buildings must be reloaded to re-read MOCV after some changes; the tooltip
   says so.
+- **Interior doorway glow** (added to the schema 2026-08-12, settings v6) —
+  `WmoRenderer.InteriorBrightness`, persisted as `Lighting.InteriorSpill`. A
+  SECOND multiplier stacked on `VertexColorScale` in `wmo.frag`
+  (`vColor.rgb * uVertexColorScale * uInteriorBrightness`), so it scales the
+  baked light on interior AND transition batches — which is what decides how
+  strongly a lit room spills through its doorway (the Northshire Abbey glow).
+  It used to be a DevTools-only slider that reset to `1.0` every launch, which
+  is why the spill always shipped faint. Now applied by `ApplySettings`, with
+  per-lighting-mode recommended defaults: **MSUI Lighting `1.8`** (owner: the
+  abbey spill was far too faint), **1.12 Parity `1.0`** (the authored `2.0`
+  chain and nothing else). The DevTools Buildings-panel slider and the modal's
+  Advanced slider write the same value.
 
 ---
 
 ## 5. Not done — the honest ceiling
 
-- **MOLT (interior light sources) is parsed but unused.** In vanilla it is
+- **MOLT (interior light sources) is not parsed at all** (corrected 2026-08-12;
+  this line used to claim "parsed but unused" — `WmoReader` has no MOLT chunk
+  handler, only the unrelated liquid `SMOLTile` bytes). In vanilla it is
   essentially decorative — the baked MOCV already contains the result of those
   lights. Two independent editors (noggit3, noggit-red) compute a nearest-MOLT
   direction per doodad and then never read it; that dead code was the same trap

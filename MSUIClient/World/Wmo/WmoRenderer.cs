@@ -3791,4 +3791,17 @@ public sealed class WmoLiquidSurface
     };
 
     public bool IsHidden(int i, int j) => Liquid.IsHidden(i, j);
+
+    /// <summary>
+    /// Authored per-vertex texture coordinate in repeats (raw MLIQ int16 s/t
+    /// over 255). Meaningful ONLY where the tiles are magma — for the other
+    /// substances the same bytes are flow data and the shader must keep its
+    /// planar mapping (it gates on the vertex type, so passing the value
+    /// through unconditionally is safe). See WmoLiquid.VertexS.
+    /// </summary>
+    public System.Numerics.Vector2 AuthoredUv(int i, int j)
+    {
+        var (u, v) = Liquid.UvAt(i, j);
+        return new System.Numerics.Vector2(u, v);
+    }
 }

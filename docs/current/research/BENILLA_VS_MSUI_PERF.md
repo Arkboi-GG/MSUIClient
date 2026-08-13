@@ -118,7 +118,9 @@ program.
   state (WmoRenderer.cs:2680); mirror it.
 - DoodadRenderer.cs:1670 sets `uAlphaCutoff` for every textured batch regardless of whether the
   material has an alpha channel, so the `discard` at doodad.frag:76 is live on all doodad geometry.
-  WMO does this right with `batch.AlphaTest` (WmoRenderer.cs:2841).
+  WMO does this right with `batch.AlphaTest` (WmoRenderer.cs:2841). *(Fixed 2026-08-12: the cutoff
+  now follows the batch's M2 blend mode, and modes 2-6 draw in a deferred blended pass — see the
+  "Backed out" section's superseded note below.)*
 - No LOD, no impostors, no billboards anywhere in DoodadRenderer. A tree is drawn identically —
   thousands of alpha-tested two-sided leaf triangles — at 3 yards and at 341. Alpha-test discard on
   tiny distant foliage is the classic quad-overshading pathology on this hardware.
@@ -556,6 +558,14 @@ a solid quad.
 `Batch.AlphaTest` is still derived (correctly, from M2 `BlendingMode != 0`) and documented as
 parsed-but-unused. The real win needs a second shader program with no `discard`, selected per batch
 — item 13 on the frame-cost list.
+
+> **Superseded 2026-08-12.** `Batch.AlphaTest` no longer exists; DoodadRenderer now carries the
+> full M2 `BlendMode` per batch and splits drawing into an opaque pass (modes 0-1; mode 1 keeps the
+> 0.5 cutout cutoff, mode 0 passes cutoff 0) and a deferred BLENDED pass (modes 2-6; depth write
+> off, per-mode `glBlendFunc`, cutoff 1/255) in both the instanced and non-instanced paths. This was
+> done for correctness — additive lamp/lantern halos (e.g. LampPost.m2's Glow32.blp, blend 4) were
+> being alpha-tested to nothing — not for the early-Z win, which still needs the discard-free
+> second program described above.
 
 ## Verification status
 

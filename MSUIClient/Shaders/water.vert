@@ -21,6 +21,11 @@
 layout (location = 0) in vec3  aPosition;   // absolute WoW world position
 layout (location = 1) in float aType;       // liquid type: 1 ocean, 3 slime, 4 river, 6 magma
 layout (location = 2) in float aDepth;      // water depth here (surfaceZ - groundZ), yards
+// WMO (MLIQ) meshes only: the authored per-vertex s/t in texture repeats
+// (raw int16 / 255). ADT tile VAOs do NOT enable this attribute, so they read
+// the GL default (0,0); the frag additionally gates on uWmoAuthoredUv, which
+// is 0 for the whole ADT pass, keeping that path bit-identical.
+layout (location = 3) in vec2  aLiquidUv;
 
 uniform mat4  uViewProjection;   // camera.RelativeViewProjection
 uniform vec3  uCameraOrigin;     // camera.Position
@@ -33,6 +38,7 @@ out vec2  vAbsXY;     // undisplaced absolute world XY, for stable ripple/foam n
 out float vDepth;     // water depth, passed through for shoreline fade
 out float vWave;      // raw wave height at this vertex, for crest foam
 out vec3  vNormal;    // analytic surface normal (Z-up)
+out vec2  vLiquidUv;  // authored MLIQ UV in repeats (WMO magma only; else 0,0)
 flat out float vType;
 
 // One Gerstner wave contributes vertical + horizontal displacement and a slope.
@@ -150,6 +156,7 @@ void main()
     vDepth  = aDepth;
     vWave   = wv.height * shore;
     vType   = aType;
+    vLiquidUv = aLiquidUv;
 
     gl_Position = uViewProjection * vec4(rel, 1.0);
 }

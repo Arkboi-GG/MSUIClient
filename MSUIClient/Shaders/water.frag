@@ -26,6 +26,7 @@ in vec2  vAbsXY;     // absolute world XY, for world-locked ripples and foam
 in float vDepth;     // water depth in yards
 in float vWave;      // raw Gerstner wave height, for crest foam
 in vec3  vNormal;    // analytic surface normal from the vertex stage
+in vec2  vLiquidUv;  // authored MLIQ UV in repeats (meaningful for WMO magma only)
 flat in float vType;
 
 uniform vec3  uSunDirection;
@@ -52,6 +53,14 @@ uniform int   uFramesSlime;
 uniform int   uFramesMagma;
 uniform float uWaterFps;
 uniform float uTexScale;
+
+// 1 for the WMO (MLIQ) draw loop, 0 for the ADT loop. With it raised, MAGMA
+// fragments sample the authored per-vertex MLIQ s/t (vLiquidUv) instead of the
+// planar world-XY mapping — that is Blizzard's hand-painted flow field, the
+// big swirls of lava dragged around Blackrock's central spire. Water, ocean
+// and slime keep planar mapping on both paths: their MLIQ vertex bytes are
+// flow data, not texture coordinates.
+uniform float uWmoAuthoredUv;
 
 // Live tuning knobs (Water Tuning HUD). All default to the current look.
 uniform float uFrameBlend;   // 0 = discrete frame swap, 1 = full cross-fade
@@ -261,6 +270,35 @@ void main()
         bool  tmagma = (vType > 5.5);
         bool  tslime = (vType > 2.5 && vType < 3.5);
         bool  tocean = (vType > 0.5 && vType < 1.5);
+
+        // MAGMA IS MAPPED COARSER THAN WATER, AND IT CREEPS. Measured live
+        // 2026-08-13 (Blackrock probe): at water's 6.25 yd/repeat the 30
+        // lava.N.blp frames differ so little per texel that mip filtering
+        // averages the boil to a frozen sheet a few yards out - the exact
+        // "frames don't cycle" report, on ADT and WMO magma alike (both run
+        // THIS branch; the per-frame pixel change measured equal on both).
+        // Blizzard authors MLIQ magma s/t at one repeat per ~35-200 yd
+        // (Blackrock groups 38/43), so the boil cells are big enough to
+        // survive minification, and vanilla lava also drifts slowly. 0.25x
+        // puts one repeat at 25 yd - inside the authored range - and the
+        // scroll is about one cell per 80 s, a slow vanilla-style creep.
+        // Water/ocean/slime UVs are untouched.
+        //
+        // WMO MAGMA USES THE AUTHORED MAPPING (2026-08-13). MLIQ magma verts
+        // carry hand-painted int16 s/t (one repeat per 255 units, so vLiquidUv
+        // arrives pre-divided in repeats). On Blackrock's lakes that field is
+        // warped and anisotropic - one repeat per ~35-175 yd on the big lake,
+        // ~8-30 yd on the small one, stretched along the flow direction - and
+        // is what draws the lava visibly dragged around the central spire.
+        // The same slow creep is added so ADT and WMO magma keep drifting at
+        // the same UV rate; the planar fallback below stays for ADT magma,
+        // which has no authored UVs.
+        if (tmagma)
+        {
+            vec2 creep = uTime * vec2(0.012, 0.007);
+            tuv = (uWmoAuthoredUv > 0.5) ? (vLiquidUv + creep)
+                                         : (tuv * 0.25 + creep);
+        }
 
         vec4 liq;
         if      (tmagma) liq = sampleLiquid(uTexMagma, uFramesMagma, tuv);

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.World;
 
@@ -23,7 +24,11 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private readonly ExteriorLighting _exteriorLight = new();
+    private readonly DayNightCycle _dayNightCycle = new();
     private ExteriorLighting.Sample? _lightSample;
+
+    private static readonly string[] _lightingModeLabels = ["MSUI Lighting", "1.12 Parity"];
+    private static readonly string[] _timeSourceLabels = ["Server", "Fixed", "Cycle"];
 
     /// <summary>
     /// Time the probe reports at. Follows the world clock unless pinned, so the
@@ -39,6 +44,70 @@ public sealed partial class GameLoop
     private void InitLightProbe()
     {
         _exteriorLight.Load(_config.ClientDataPath);
+
+        // The vanilla day/night intensity table (World\dnc.db). Only the
+        // 1.12 Parity lighting mode consumes it - WorldAtmosphere ignores the
+        // delegate in Msui mode, and a missing table degrades Parity to
+        // "no curve", which is Msui's behaviour.
+        _dayNightCycle.Load(_config.ClientDataPath);
+        if (_dayNightCycle.Ready)
+            _atmosphere.ParityDaylightIntensity = _dayNightCycle.SunIntensityAt;
+    }
+
+    // ── The world clock (2026-08-12) ─────────────────────────────────────────
+    //
+    // THIS IS CORE, like UpdateExteriorLighting below: it decides what hour the
+    // atmosphere lights, in every build. It lives beside the lighting resolve
+    // because the two are one pipeline - clock, then resolve at that clock.
+
+    /// <summary>
+    /// Advance <see cref="WorldAtmosphere.TimeOfDayHours"/> from the configured
+    /// source. Server follows <see cref="WorldClock"/> (server game time, local
+    /// wall clock until one arrives); Cycle is the accelerated debug day/night;
+    /// Fixed leaves the value alone - the settings slider owns it. A dev pin
+    /// (HUD slider, vantage restore) freezes the clock without touching the
+    /// persisted preference.
+    /// </summary>
+    private void UpdateWorldClock(float dt)
+    {
+        if (_devTimePin) return;
+        switch (_timeSource)
+        {
+            case TimeSource.Server:
+                _atmosphere.TimeOfDayHours = _worldClock.CurrentHours;
+                break;
+            case TimeSource.Cycle:
+                _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Dev override from the HUD: set the hour, and freeze the clock there if a
+    /// tracking source would otherwise overwrite it next frame. In Fixed mode
+    /// this is just the slider writing the value it owns.
+    /// </summary>
+    private void PinWorldClockAt(float hours)
+    {
+        _atmosphere.TimeOfDayHours = hours;
+        if (_timeSource != TimeSource.Fixed) _devTimePin = true;
+    }
+
+    /// <summary>One-line clock status shared by the HUD, probe and settings page.</summary>
+    private string WorldClockDescription()
+    {
+        if (_devTimePin)
+            return $"pinned at {_atmosphere.TimeOfDayHours:F2} h (dev override)";
+        return _timeSource switch
+        {
+            TimeSource.Fixed => $"fixed at {_atmosphere.TimeOfDayHours:F2} h",
+            TimeSource.Cycle => $"cycling at {_atmosphere.TimeOfDayHours:F2} h " +
+                                $"(x{_gameHoursPerMinute:F1} game h/min)",
+            _ => _worldClock.HasServerTime
+                ? $"server game time {_atmosphere.TimeOfDayHours:F2} h " +
+                  $"(timescale {_worldClock.Timescale:F5})"
+                : $"local clock {_atmosphere.TimeOfDayHours:F2} h (no server time yet)",
+        };
     }
 
     /// <summary>
@@ -182,7 +251,7 @@ public sealed partial class GameLoop
         else
         {
             ImGui.SameLine();
-            ImGui.TextDisabled($"following world clock ({_atmosphere.TimeOfDayHours:F2} h)");
+            ImGui.TextDisabled($"following world clock: {WorldClockDescription()}");
         }
 
         // The channel-order check, made one click instead of an argument. The
@@ -285,11 +354,30 @@ public sealed partial class GameLoop
         ImGui.Separator();
         ImGui.Text("data  vs  applied");
 
+        // The MODE is the setting (Video Options -> Lighting and sky); this
+        // combo is the same value through the same path, so the two surfaces
+        // cannot disagree. ApplyLightingModeDefaults pushes the mode's
+        // recommended doorway spill exactly like the settings page does.
+        int lightingMode = (int)Settings.Lighting.Mode;
+        ImGui.SetNextItemWidth(160f);
+        if (ImGui.Combo("Lighting mode", ref lightingMode,
+                        _lightingModeLabels, _lightingModeLabels.Length))
+        {
+            Settings.Lighting.ApplyLightingModeDefaults((Engine.LightingMode)lightingMode);
+            ApplySettings(Settings);
+        }
+        ImGui.TextDisabled(Settings.Lighting.Mode == Engine.LightingMode.Parity112
+            ? $"  parity: band 0 x dnc.db intensity " +
+              $"({(_dayNightCycle.Ready ? $"{_dayNightCycle.SunIntensityAt(_atmosphere.TimeOfDayHours):F2} now" : "NOT LOADED - no curve")})"
+            : "  msui: authored colours applied raw (pre-v6 look)");
+
+        // Transient dev A/B, deliberately NOT persisted since v6: off routes
+        // everything to the hand-tuned fallback constants for comparison.
         bool useAuthored = _atmosphere.UseAuthoredData;
-        if (ImGui.Checkbox("Use authored lighting (PLAN_09 A/B)", ref useAuthored))
+        if (ImGui.Checkbox("Use authored lighting (dev A/B, not saved)", ref useAuthored))
             _atmosphere.UseAuthoredData = useAuthored;
         ImGui.TextDisabled(useAuthored
-            ? "  deltas should read 0.000 - the sliders are multipliers now"
+            ? "  deltas should read 0.000 in MSUI mode at strength 1.0"
             : "  running on the hand-tuned constants; deltas show how far apart they are");
 
         if (_sky is not null)

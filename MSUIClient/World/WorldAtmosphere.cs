@@ -1,4 +1,5 @@
 using System.Numerics;
+using MSUIClient.Engine;
 
 namespace MSUIClient.World;
 
@@ -61,8 +62,30 @@ public sealed class WorldAtmosphere
     // cool". The authored value at noon is (0.408, 0.510, 0.604). The tune was
     // fighting the data almost exactly.
 
-    /// <summary>Use resolved DBC values when available. The A/B for all of PLAN_09.</summary>
+    /// <summary>
+    /// Use resolved DBC values when available. The A/B for all of PLAN_09.
+    /// SINCE 2026-08-12 THIS IS A DEV INSTRUMENT, NOT A SETTING: both lighting
+    /// modes consume the authored data, so this is no longer persisted and no
+    /// player surface writes it. The light probe keeps it as the transient
+    /// data-vs-constants A/B; off routes everything to the hand-tuned fallback
+    /// constants above.
+    /// </summary>
     public bool UseAuthoredData { get; set; } = true;
+
+    /// <summary>
+    /// How the authored values are interpreted (SYSTEM_EXTERIOR_LIGHTING.md
+    /// "Lighting modes"). Msui applies them exactly as before v6; Parity112
+    /// additionally scales the diffuse by the vanilla client's own day/night
+    /// intensity curve (World\dnc.db, see ParityDaylightIntensity).
+    /// </summary>
+    public LightingMode Mode { get; set; } = LightingMode.Msui;
+
+    /// <summary>
+    /// hours -> intensity, wired by GameLoop from <see cref="DayNightCycle"/>
+    /// when dnc.db loaded. Only Parity112 consumes it; null (no data) means no
+    /// curve, which is exactly Msui's behaviour.
+    /// </summary>
+    public Func<float, float>? ParityDaylightIntensity { get; set; }
 
     /// <summary>True once a resolved sample has been handed over.</summary>
     public bool HasAuthored { get; private set; }
@@ -219,7 +242,7 @@ public sealed class WorldAtmosphere
             FogStart = _authoredFogStart;
             FogEnd = _authoredFogEnd;
 
-            SunDirection = SunDirectionAt(TimeOfDayHours);
+            SunDirection = SunDirectionFor(Mode, TimeOfDayHours);
             SunColor = _authoredDiffuse;
             AmbientColor = _authoredAmbient;
             FogColor = _authoredFog;
@@ -227,7 +250,18 @@ public sealed class WorldAtmosphere
             // The sliders become multipliers on authored values rather than on
             // invented ones (PLAN_09 §10). At 1.0 the data is used exactly,
             // which is what makes the probe's data-vs-applied deltas read zero.
-            SunIntensity = SunStrength;
+            //
+            // MODE SEAM (2026-08-12). Msui applies band 0 raw - the pre-v6 look,
+            // preserved bit for bit. Parity112 multiplies in the vanilla
+            // client's own day/night intensity curve from World\dnc.db (0.8
+            // through daytime, 1.0 deep night), because that is what the real
+            // client does with band 0 - it is why the band's noon value can be
+            // pure orange 0xFF8800 and still render as plausible daylight.
+            // Nothing else attenuates the authored colours in either mode.
+            float modeScale = Mode == LightingMode.Parity112
+                ? ParityDaylightIntensity?.Invoke(TimeOfDayHours) ?? 1f
+                : 1f;
+            SunIntensity = SunStrength * modeScale;
             AmbientIntensity = AmbientStrength;
             return;
         }
@@ -278,9 +312,18 @@ public sealed class WorldAtmosphere
     public void SetNight() => TimeOfDayHours = 0f;
 
     /// <summary>
+    /// The per-mode seam for the sun's day arc. Both modes share the invented
+    /// arc today: vanilla's REAL arc exists (World\dnc.db DayX/Y/Z - X pinned
+    /// at 0.7, Y/Z rotating hourly) but its mapping into our world space is
+    /// unverified, so wiring it here per-mode is future work, not a default.
+    /// </summary>
+    private static Vector3 SunDirectionFor(LightingMode mode, float hours)
+        => SunDirectionAt(hours);
+
+    /// <summary>
     /// Six is sunrise, twelve solar noon, eighteen sunset. Shared by both paths
     /// because Light.dbc carries no sun position - the one thing here that is
-    /// still ours to invent.
+    /// still ours to invent (but see SunDirectionFor: dnc.db does carry one).
     /// </summary>
     private static Vector3 SunDirectionAt(float hours)
     {

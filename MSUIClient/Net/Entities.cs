@@ -36,6 +36,22 @@ public sealed class WorldEntity
     public uint NpcFlags => Fields.NpcFlags;
     public uint GameObjectType => Fields.GameObjectType;
 
+    /// <summary>
+    /// Render yaw for a gameobject. Build 5875 carries the facing twice: the
+    /// GAMEOBJECT_ROTATION quaternion (fields 10-13; vmangos writes
+    /// z=sin(yaw/2), w=cos(yaw/2), x=y=0 for every static spawn) and the
+    /// movement block's Orientation. Prefer the quaternion when it is set —
+    /// it is the authoritative descriptor — else fall back to Orientation.
+    /// </summary>
+    public float GameObjectFacing
+    {
+        get
+        {
+            System.Numerics.Quaternion q = Fields.GameObjectRotation;
+            return q.Z != 0f || q.W != 0f ? 2f * MathF.Atan2(q.Z, q.W) : Orientation;
+        }
+    }
+
     /// <summary>Auto-attack engagement bracketed by SMSG_ATTACKSTART/STOP.</summary>
     public bool Engaged { get; internal set; }
     public ulong? CombatTarget { get; internal set; }

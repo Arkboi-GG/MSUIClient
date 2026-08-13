@@ -360,8 +360,26 @@ knob apply as you drag.
 Low / Fair / Good / High / Ultra live in `GameSettings.ApplyQuality` so an old
 `settings.json` cannot pin them to a stale definition. User presets are stored in
 the file. A preset deliberately does **not** touch the 1.12 authenticity
-switches, the water colour set or the lighting data source — those are not
-quality dials.
+switches, the water colour set or the **lighting mode** — those are not quality
+dials.
+
+### 3.6 Lighting mode (settings v6, 2026-08-12)
+
+`Lighting.UseAuthoredData` (bool) became `Lighting.Mode` — a string-serialised
+enum, `"Msui"` (MSUI Lighting) or `"Parity112"` (1.12 Parity). Both modes
+consume the authored `Light.dbc` chain; they differ in interpretation
+(SYSTEM_EXTERIOR_LIGHTING.md "Lighting modes"). The old JSON key is simply
+ignored on load and the v6 migration pins every pre-v6 file to `Msui`, so an
+existing install sees exactly the exterior look it had.
+
+v6 also **persists the WMO doorway-spill multiplier** as
+`Lighting.InteriorSpill` (was `WmoRenderer.InteriorBrightness`, a DevTools-only
+slider that reset to `1.0` every launch — why the Northshire Abbey doorway glow
+always shipped faint). The mode combo pushes per-mode recommended values through
+`LightingSettings.ApplyLightingModeDefaults` (Msui `1.8`, Parity `1.0`) — a real
+value push in the §3.3 sense, overridable in Advanced. The mode combo lives at
+the top of *Video Options → Lighting and sky* and is mirrored (same value, same
+path) in the DevTools light probe panel.
 
 ---
 
@@ -372,12 +390,12 @@ quality dials.
 is off. Do not move that call and do not add a DevTools check to it.
 
 This is the first real consumer on the non-DevTools side of the seam
-(FOUNDATION_PLAN §12), and it puts weight on an existing defect the handbook
-already records: **authored exterior lighting is reached only through
-`UpdateLightProbe`, which early-returns when DevTools is off.** In a
-DevTools-off build the Lighting section offers `Use authored lighting data`
-while the probe that resolves it never runs. **Fix that seam before trusting
-that section.**
+(FOUNDATION_PLAN §12), and it put weight on a defect that has since been
+**fixed (2026-07-25)**: authored exterior lighting used to be reached only
+through `UpdateLightProbe`, which early-returned when DevTools was off. The
+resolve now runs in every build (`UpdateExteriorLighting` is core; see
+SYSTEM_EXTERIOR_LIGHTING.md §4.0), so the Lighting section's mode combo is
+honest in a DevTools-off build.
 
 ### What moved out of the dev HUD
 

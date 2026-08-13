@@ -1248,6 +1248,60 @@ public sealed class LoadingScreenTable
     }
 }
 
+/// <summary>
+/// GameObjectDisplayInfo.dbc — displayId → model path for SERVER-SPAWNED
+/// gameobjects (shop signs, mailboxes, chests, doors, herb/ore nodes). These
+/// models are in no ADT/WMO placement list — Stormwind's shop signs sit in
+/// Stormwind.wmo's MODN name table with ZERO MODD placements — so without this
+/// table a server gameobject has no visual at all.
+///
+/// Verified against build 5875: 1,638 rows, 12 fields, 48-byte records;
+/// field 0 = id, field 1 = the model path string (WORLD\...\*.MDL / *.MDX —
+/// swapped to .m2 by the doodad loader's PathCandidates, like every MDDF
+/// placement). Fields 2-11 (sound ids, unused) are ignored. (2026-08-12)
+/// </summary>
+public sealed class GameObjectDisplayTable
+{
+    public const string MpqPath = @"DBFilesClient\GameObjectDisplayInfo.dbc";
+
+    private const int FieldId = 0;
+    private const int FieldModelPath = 1;
+
+    private readonly Dictionary<uint, string> _byId = [];
+
+    public int Count => _byId.Count;
+
+    /// <summary>The model path for a GAMEOBJECT_DISPLAYID, or null when the row
+    /// is absent or authored without a model (invisible triggers, traps).</summary>
+    public string? ModelPath(uint displayId) =>
+        _byId.TryGetValue(displayId, out string? path) ? path : null;
+
+    public static GameObjectDisplayTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+
+        if (dbc.FieldCount <= FieldModelPath)
+        {
+            Console.WriteLine($"[dbc] GameObjectDisplayInfo: {dbc.FieldCount} field(s), expected " +
+                              $"more than {FieldModelPath}. NOT LOADED.");
+            return null;
+        }
+
+        var table = new GameObjectDisplayTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            string path = dbc.GetString(r, FieldModelPath);
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            table._byId[dbc.GetUInt(r, FieldId)] = path;
+        }
+
+        Console.WriteLine($"[dbc] GameObjectDisplayInfo: {dbc.RecordCount} record(s), " +
+                          $"{dbc.FieldCount} field(s), {table._byId.Count} with a model path");
+        return table;
+    }
+}
+
 /// <summary>Build-5875 BankBagSlotPrices.dbc: id + copper price.</summary>
 public sealed class BankBagSlotPriceTable
 {

@@ -215,6 +215,15 @@ and neither has been re-run since. F3 is handbook §7.1 item 7.*
 
 ## H. WMO liquid — PLAN_15, the thing just built (2026-07-26) ★
 
+> **2026-08-12 update.** The build this checklist was written for was reverted;
+> PLAN_15 was **rebuilt today as a DRAW-ONLY pass** (SYSTEM_WATER.md §7). The
+> checks below still apply with three amendments: the log line is now
+> `[liquid] WMO liquid vN: X surface(s) meshed, Y fully hidden` (H2's `escape`
+> diagnostic lives in `WmoRenderer.LiquidEscapeCheck()`, not the load path);
+> **H5 is NOT APPLICABLE** — submersion for WMO liquid is deliberately not
+> wired, `TryGetSurface` is untouched and the overlay must not fire in a canal;
+> and H7's depth slider does not exist — depth is a baked constant 3.0.
+
 Six files changed and **none of it has been compiled.** H1 and H2 need no
 screenshot and catch the two ways this can be wrong.
 
@@ -291,7 +300,9 @@ edge looks bad at every value, that is the signal to spend the raycast.*
    traversal is not. Experimental; §3.35 warns it trades popout. **C1 upgraded
    this**: §5A.20 found WMO is 72-86% of GPU time and named portal culling, not
    the swap chain, as the next lever — so this is now the performance item too.
-2. ~~**WMO liquid (MLIQ)**~~ — **BUILT 2026-07-26, PLAN_15.** See section H.
+2. ~~**WMO liquid (MLIQ)**~~ — **BUILT 2026-08-12, PLAN_15, draw-only** (the
+   2026-07-26 build was reverted; the rebuild draws but does not wire
+   submersion). See section H and SYSTEM_WATER.md §7.
 3. **Streaming**, if C1 says something decisive.
 4. **P2 networking** — the actual project goal, and nothing above is a
    prerequisite. Everything above is polish on a world that already renders.

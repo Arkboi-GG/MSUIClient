@@ -58,7 +58,11 @@ public sealed partial class GameLoop
             SunStrength = _atmosphere.SunStrength,
             AmbientStrength = _atmosphere.AmbientStrength,
 
-            CycleTimeOfDay = _cycleTimeOfDay,
+            // A vantage keeps the old bool shape: "was the clock advancing".
+            // Server tracking counts as advancing too, but a vantage exists to
+            // reproduce ONE frame, so only an explicit debug cycle is captured
+            // as cycling; everything else restores as a pinned hour.
+            CycleTimeOfDay = !_devTimePin && _timeSource == TimeSource.Cycle,
             CoupleFarPlaneToFog = _coupleFarPlaneToFog,
             GameHoursPerMinute = _gameHoursPerMinute,
         };
@@ -133,7 +137,12 @@ public sealed partial class GameLoop
         _atmosphere.SunStrength = v.SunStrength;
         _atmosphere.AmbientStrength = v.AmbientStrength;
 
-        _cycleTimeOfDay = v.CycleTimeOfDay;
+        // Reproducing one frame means pinning the clock at the captured hour -
+        // via the DEV PIN, so the player's TimeSource preference is untouched
+        // and "Resume clock" hands the world back to it. A cycling vantage
+        // resumes cycling instead.
+        _devTimePin = !v.CycleTimeOfDay;
+        if (v.CycleTimeOfDay) _timeSource = TimeSource.Cycle;
         _coupleFarPlaneToFog = v.CoupleFarPlaneToFog;
         _gameHoursPerMinute = v.GameHoursPerMinute;
 

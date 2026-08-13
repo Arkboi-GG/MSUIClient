@@ -162,8 +162,9 @@ public sealed partial class GameLoop
         if (!_sharedTooltipFrameOpen || _sharedTooltipFrameResolved) return false;
 
         // `_hoveredGuid` is the existing PickUnit/nameplate verdict. This adapter consumes it
-        // without ray-casting or changing selection. World-gameobject hover remains an explicit
-        // ingress gap until a stable GO picker/cursor verdict exists.
+        // without ray-casting or changing selection. World-gameobject hover has its own
+        // adapter (Program.GameTooltip.WorldGameObject.cs) fed by the PickGameObject verdict;
+        // the two hovers are exclusive by construction.
         WorldEntity? hovered = _hoveredGuid != 0 &&
             _entities.TryGet(_hoveredGuid, out WorldEntity candidate) && candidate.IsUnit
                 ? candidate

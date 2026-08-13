@@ -429,7 +429,18 @@ public sealed partial class GameLoop : IDisposable
     /// <summary>Last crosshair WMO-group pick result, shown in the HUD.</summary>
     private List<World.Wmo.WmoRenderer.GroupHit> _lastPick = new();
 
-    private bool _cycleTimeOfDay;
+    /// <summary>Where the world clock comes from (settings.Lighting.TimeSource).</summary>
+    private TimeSource _timeSource = TimeSource.Server;
+
+    /// <summary>Server game time from SMSG_LOGIN_SETTIMESPEED, advanced locally;
+    /// local wall clock until one arrives. See Program.LightProbe.UpdateWorldClock.</summary>
+    private readonly WorldClock _worldClock = new();
+
+    /// <summary>Dev override: freezes the world clock at whatever the HUD slider
+    /// or a vantage set, WITHOUT touching the persisted TimeSource preference.
+    /// Cleared by "Resume clock" in the HUD or by re-picking a source in settings.</summary>
+    private bool _devTimePin;
+
     private bool _coupleFarPlaneToFog = true;
     private float _gameHoursPerMinute = 1f;
     private SkyRenderer? _sky;
@@ -1563,8 +1574,10 @@ public sealed partial class GameLoop : IDisposable
                 Stopwatch.GetElapsedTime(snapshotStarted).TotalMilliseconds;
         }
 
-        if (_cycleTimeOfDay)
-            _atmosphere.TimeOfDayHours += dt * _gameHoursPerMinute / 60f;
+        // Advance the world clock - server game time, the pinned hour or the
+        // debug cycle - before the lighting resolve below consumes it, so both
+        // lighting modes light the world at the same instant.
+        UpdateWorldClock(dt);
 
         // Resolve what Light.dbc says here, now, and APPLY it. This is core and
         // runs in every build - the comment that used to sit here said "Read-only:
@@ -1817,6 +1830,9 @@ public sealed partial class GameLoop : IDisposable
 
         subStarted = Stopwatch.GetTimestamp();
         QueueVisibleDoodadDemand(dt);
+        // Server gameobjects (signs, mailboxes, chests) ride the same doodad
+        // renderer as dynamic per-GUID placements, resynced every frame.
+        UpdateGameObjectDoodads();
         _doodadDemandMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
 
         // NOTE the budget only gates the SECOND WMO/doodad warm call. Those
@@ -2407,6 +2423,14 @@ public sealed partial class GameLoop : IDisposable
                 _liquid.UpdateWake(feet, _controller.Yaw, dt, inWater);
             }
 
+            // WMO liquid (MLIQ). A per-frame INT COMPARE against LiquidVersion,
+            // not a tile-crossing event: groups are adopted several frames after
+            // their instance is placed, so an event-driven rebuild would run
+            // before Model.Liquids is populated and never retry (SYSTEM_WATER.md
+            // §7.6). When the version has not moved this line costs nothing.
+            if (_wmo is not null)
+                _liquid.UpdateWmoLiquid(_wmo.LiquidVersion, _wmo.EnumerateLiquid());
+
             _liquid.Render(_window.Camera);
 
             var eye = _window.Camera.Position;
@@ -2850,13 +2874,19 @@ public sealed partial class GameLoop : IDisposable
             // vanilla-visibility preset - is now Escape / Graphics.
             float time = _atmosphere.TimeOfDayHours;
             if (ImGui.SliderFloat("Time of day", ref time, 0f, 24f, "%.2f h"))
-                _atmosphere.TimeOfDayHours = time;
+                PinWorldClockAt(time);
 
-            if (ImGui.Button("Noon")) _atmosphere.SetDay();
+            if (ImGui.Button("Noon")) PinWorldClockAt(12f);
             ImGui.SameLine();
-            if (ImGui.Button("Sunset")) _atmosphere.SetSunset();
+            if (ImGui.Button("Sunset")) PinWorldClockAt(18.25f);
             ImGui.SameLine();
-            if (ImGui.Button("Night")) _atmosphere.SetNight();
+            if (ImGui.Button("Night")) PinWorldClockAt(0f);
+            if (_devTimePin)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Resume clock")) _devTimePin = false;
+            }
+            ImGui.TextDisabled($"clock: {WorldClockDescription()}");
 
             ImGui.TextDisabled(
                 $"fog {_atmosphere.FogStart:F0} -> {_atmosphere.FogEnd:F0} yd" +
@@ -3052,11 +3082,18 @@ public sealed partial class GameLoop : IDisposable
                 ImGui.Text($"  occluded groups: {_wmo.OccludedGroupsLastFrame}" +
                            $"{(_wmo.OcclusionCulling ? "" : "  (occlusion off)")}");
 
+                // Persisted since settings v6 as Lighting.InteriorSpill (it is
+                // the doorway-glow knob, per-mode defaults on the mode switch).
+                // Written through the settings object so this slider and the
+                // modal's Advanced slider are one value, not two.
                 float interiorBright = _wmo.InteriorBrightness;
                 ImGui.SetNextItemWidth(160f);
-                if (ImGui.SliderFloat("Interior brightness", ref interiorBright, 0.5f, 3f, "%.2f"))
+                if (ImGui.SliderFloat("Interior spill brightness", ref interiorBright, 0.5f, 3f, "%.2f"))
+                {
                     _wmo.InteriorBrightness = interiorBright;
-                ImGui.TextDisabled("   brightens MOCV-lit interiors (Deadmines etc.); exterior untouched");
+                    Settings.Lighting.InteriorSpill = interiorBright;
+                }
+                ImGui.TextDisabled("   brightens MOCV-lit interiors and their doorway glow; exterior untouched");
 
                 bool visTrace = _wmo.VisTrace;
                 if (ImGui.Checkbox("Console visibility trace", ref visTrace))

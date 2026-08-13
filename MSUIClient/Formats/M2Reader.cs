@@ -50,6 +50,19 @@ public class M2Model
     public List<M2AnimTrack<short>> TransparencyTracks { get; set; } = new();
     public List<ushort> TransparencyLookup { get; set; } = new();
 
+    // ── Texture transforms (uvAnimations, header 0x074 / lookup 0x0AC) ───────
+    //
+    // The scrolling-texture machinery: a lavafall or waterfall is a STATIC mesh
+    // whose material texture is translated in UV space every frame. Byte-checked
+    // against the Blackrock lavafall M2s (2026-08-12): each authors one 2-key
+    // linear translation track per material, (0,0,0) → (~0, ±1, junk) over one
+    // 3333 ms loop — a pure V scroll that wraps seamlessly because the texture
+    // repeats. Without applying these, the falls freeze at their t=0 UV state.
+    public List<M2TextureTransform> TextureTransforms { get; set; } = new();
+
+    /// <summary>batch.TextureTransformIndex → TextureTransforms index; -1 (0xFFFF) = static.</summary>
+    public List<short> TextureTransformLookup { get; set; } = new();
+
     // ── Sequences (Session O — animation) ────────────────────────────────────
     //
     // Vanilla 1.12 stores all animation data INLINE in the M2 (no .anim file
@@ -97,6 +110,45 @@ public class M2Model
     public bool HasRenderableContent => IsValid || ParticleEmitters.Count > 0 || RibbonEmitters.Count > 0;
     public bool HasSkeleton => Bones.Count > 0;
 
+    private uint? _absoluteTimelineDurationMs;
+
+    /// <summary>
+    /// Length of the model's whole shared track timeline in ms: the largest
+    /// sequence EndTimestamp. Placed doodads that author several CHAINED
+    /// sequences (all animId 0, linked by nextAnimationId) lay their bands out
+    /// contiguously on this one timeline — the Blackrock lava bubble is
+    /// seq[0] 0..3300 (rest hold, next=1) then seq[1] 3333..6667 (the pops), so
+    /// looping wall-clock time over 0..6667 and bracket-sampling the full
+    /// shared arrays replays the authored rest+pop cycle without a sequence
+    /// scheduler. See M2TrackSampling.SampleAbsolute.
+    /// </summary>
+    public uint AbsoluteTimelineDurationMs
+    {
+        get
+        {
+            if (_absoluteTimelineDurationMs is uint cached) return cached;
+            uint end = 0;
+            foreach (var s in Sequences) end = Math.Max(end, s.EndTimestamp);
+            _absoluteTimelineDurationMs = end;
+            return end;
+        }
+    }
+
+    /// <summary>Any bone with a real (multi-key) TRS track. One key is a
+    /// constant, not motion, and does not make a doodad animated.</summary>
+    public bool HasAnimatedBones
+    {
+        get
+        {
+            foreach (var b in Bones)
+                if (b.Translation.Keys.Count > 1 ||
+                    b.Rotation.Keys.Count > 1 ||
+                    b.Scale.Keys.Count > 1)
+                    return true;
+            return false;
+        }
+    }
+
     /// <summary>
     /// Resolve a batch's "is this drawn at all in idle pose?" alpha.
     /// Chain: batch.TextureWeightIndex → TransparencyLookup[idx] →
@@ -112,6 +164,22 @@ public class M2Model
         if (trackIdx >= TransparencyStaticAlphas.Count) return 1.0f;
 
         return TransparencyStaticAlphas[trackIdx];
+    }
+
+    /// <summary>
+    /// Resolve a batch's animated texture transform, or -1 for static UVs.
+    /// Chain: batch.TextureTransformIndex → TextureTransformLookup[idx] →
+    /// TextureTransforms[idx]. A lookup entry of -1 (stored 0xFFFF) means
+    /// "this batch does not animate" — BlackRockLavaFalls02 authors exactly
+    /// that for its static dirt-floor batch between seven scrolling ones.
+    /// </summary>
+    public int GetTextureTransformForBatch(M2Batch batch)
+    {
+        if (TextureTransforms.Count == 0) return -1;
+        int idx = batch.TextureTransformIndex;
+        if (idx >= TextureTransformLookup.Count) return -1;
+        int t = TextureTransformLookup[idx];
+        return t >= 0 && t < TextureTransforms.Count ? t : -1;
     }
 
     /// <summary>
@@ -146,6 +214,25 @@ public sealed class M2ColorAnimation
 {
     public M2AnimTrack<Vector3> Color { get; set; } = new();
     public M2AnimTrack<short> Alpha { get; set; } = new();
+}
+
+/// <summary>
+/// One M2 texture transform (uvAnimation). 84-byte wire stride: three 28-byte
+/// AnimationBlockM2s — translation Vector3, rotation Quaternion, scale Vector3.
+///
+/// Only TRANSLATION is parsed. Rotation and scale are unauthored (zero keys) on
+/// every Blackrock/Burning Steppes lavafall checked against the real bytes,
+/// and translation is the entire effect for scrolling lava/water.
+///
+/// Keys stay in RAW UV SPACE — no Z-up→Y-up axis swap, because these are
+/// texture coordinates, not positions. Only X/Y are meaningful; the Z float is
+/// uninitialised authoring garbage in real files (−1687.95 on
+/// BlackRockLavaFalls01 track 0, +1175.60 on Falls02 track 1) and must be
+/// ignored by consumers.
+/// </summary>
+public sealed class M2TextureTransform
+{
+    public M2AnimTrack<Vector3> Translation { get; set; } = new();
 }
 
 public sealed class M2EventMarker
@@ -222,7 +309,24 @@ public class M2Batch
     public ushort MaterialLayer { get; set; }
     public ushort TextureCount { get; set; }
     public ushort TextureIndex { get; set; }
+
+    /// <summary>
+    /// The texcoord combo at batch +18 (textureCoordComboIndex / texUnitLookup):
+    /// which UV set / env-mapping mode the batch uses. NOT the texture-transform
+    /// index — that lives at +22. This field was misread as the transform index
+    /// until 2026-08-12, which pinned every batch to lookup slot 0 (it is 0 on
+    /// every byte-checked doodad) and froze all multi-track scrollers.
+    /// </summary>
+    public ushort TextureCoordIndex { get; set; }
+
+    /// <summary>
+    /// The texture-transform combo at batch +22 (textureTransformComboIndex),
+    /// an index into M2Model.TextureTransformLookup. Byte-verified against the
+    /// Blackrock lavafalls: their batches carry 0..N-1 here while +18 is all
+    /// zeros. Resolve through <see cref="M2Model.GetTextureTransformForBatch"/>.
+    /// </summary>
     public ushort TextureTransformIndex { get; set; }
+
     public ushort TextureWeightIndex { get; set; }
 }
 
@@ -573,6 +677,51 @@ public static class M2TrackSampling
     public static ushort UShort(M2AnimTrack<ushort> track, M2Model model, int sequence,
         float seconds, ushort fallback = 0)
         => Sample(track, model, sequence, seconds, fallback, static (a, _, _) => a);
+
+    // ── Absolute-timeline sampling (animated doodads, 2026-08-13) ────────────
+    //
+    // Per-sequence sampling answers "where is this bone T seconds into clip N".
+    // A PLACED doodad has no clip driver: the reference client chains its
+    // animId-0 sequences end to end (nextAnimationId) and the shared track
+    // arrays are laid out contiguously on one absolute timeline. So the doodad
+    // path asks a simpler question — "where is this bone at wall-clock T mod
+    // the whole timeline" — which replays the authored chain (rest bands
+    // included) with a plain bracket over the full arrays. Tracks that declare
+    // a global sequence keep their own independent clock, as everywhere else.
+
+    public static Vector3 AbsoluteVector(M2AnimTrack<Vector3> track, M2Model model,
+        float seconds, Vector3 fallback)
+        => SampleAbsolute(track, model, seconds, fallback, Vector3.Lerp);
+
+    /// <summary>Rotation keys arrive as Vector4 (already axis-swapped by
+    /// M2Reader); nlerp between brackets, normalized at the end.</summary>
+    public static Quaternion AbsoluteQuaternion(M2AnimTrack<Vector4> track, M2Model model,
+        float seconds)
+    {
+        Vector4 v = SampleAbsolute(track, model, seconds, new Vector4(0f, 0f, 0f, 1f),
+            static (a, b, t) => Vector4.Lerp(a, b, t));
+        var q = new Quaternion(v.X, v.Y, v.Z, v.W);
+        return q.LengthSquared() > 1e-12f ? Quaternion.Normalize(q) : Quaternion.Identity;
+    }
+
+    private static T SampleAbsolute<T>(M2AnimTrack<T> track, M2Model model,
+        float seconds, T fallback, Func<T, T, float, T> lerp) where T : struct
+    {
+        if (track.Keys.Count == 0 || track.Timestamps.Count != track.Keys.Count) return fallback;
+        float ms;
+        if (track.GlobalSequence >= 0)
+        {
+            uint duration = track.GlobalSequence < model.GlobalSequenceDurations.Count
+                ? model.GlobalSequenceDurations[track.GlobalSequence] : 0;
+            ms = duration > 0 ? seconds * 1000f % duration : seconds * 1000f;
+        }
+        else
+        {
+            uint loop = model.AbsoluteTimelineDurationMs;
+            ms = loop > 0 ? seconds * 1000f % loop : seconds * 1000f;
+        }
+        return Bracket(track.Timestamps, track.Keys, ms, track.IsLinear, lerp, fallback);
+    }
 
     private static T Sample<T>(M2AnimTrack<T> track, M2Model model, int sequence,
         float seconds, T fallback, Func<T, T, float, T> lerp) where T : struct
@@ -1434,6 +1583,10 @@ public class M2Reader
                 ReadUInt32(data, 0x064), ReadUInt32(data, 0x068), model);
             ParseTransparencyLookup(data,
                 ReadUInt32(data, 0x0A4), ReadUInt32(data, 0x0A8), model);
+            ParseTextureTransforms(data,
+                ReadUInt32(data, 0x074), ReadUInt32(data, 0x078), model);
+            ParseTextureTransformLookup(data,
+                ReadUInt32(data, 0x0AC), ReadUInt32(data, 0x0B0), model);
 
             // ── Attachments ─────────────────────────────────────────────────
             uint nAttachments = ReadUInt32(data, 0x104);
@@ -1997,8 +2150,11 @@ public class M2Reader
                     MaterialLayer = ReadUInt16(data, bOff + 12),
                     TextureCount = ReadUInt16(data, bOff + 14),
                     TextureIndex = ReadUInt16(data, bOff + 16),
-                    TextureTransformIndex = ReadUInt16(data, bOff + 18),
+                    TextureCoordIndex = ReadUInt16(data, bOff + 18),
                     TextureWeightIndex = ReadUInt16(data, bOff + 20),
+                    // +22, NOT +18 — see the M2Batch field docs. Verified against
+                    // BlackRockLavaFalls01: six batches carry 0..5 here, +18 is 0.
+                    TextureTransformIndex = ReadUInt16(data, bOff + 22),
                 });
             }
         }
@@ -2185,6 +2341,42 @@ public class M2Reader
         model.TransparencyLookup.Capacity = (int)count;
         for (uint i = 0; i < count; i++)
             model.TransparencyLookup.Add(ReadUInt16(data, (int)(offset + i * 2)));
+    }
+
+    // ── Texture transforms (uvAnimations, header 0x074) ─────────────────────
+    //
+    // Wire stride 0x54 (84): three consecutive 28-byte AnimationBlockM2s —
+    // translation Vector3 (+0), rotation Quaternion (+28), scale Vector3 (+56).
+    // Only translation is read; see the M2TextureTransform class doc for why,
+    // and for the uninitialised-Z caveat on real files.
+    private static void ParseTextureTransforms(byte[] data, uint count, uint offset, M2Model model)
+    {
+        const int stride = 84;
+        if (count == 0 || offset == 0 || count > 4096) return;
+        if (offset + (long)count * stride > data.Length) return;
+
+        model.TextureTransforms.Capacity = (int)count;
+        for (uint i = 0; i < count; i++)
+        {
+            model.TextureTransforms.Add(new M2TextureTransform
+            {
+                // Raw UV-space keys — deliberately NO Z-up→Y-up swap here.
+                Translation = ParseAnimTrack<Vector3>(data,
+                    (int)(offset + i * stride), model.Sequences.Count, 12,
+                    static (b, k) => new Vector3(
+                        ReadFloat(b, k), ReadFloat(b, k + 4), ReadFloat(b, k + 8))),
+            });
+        }
+    }
+
+    private static void ParseTextureTransformLookup(byte[] data, uint count, uint offset, M2Model model)
+    {
+        if (count == 0 || offset == 0) return;
+        if (offset + count * 2 > data.Length) return;
+
+        model.TextureTransformLookup.Capacity = (int)count;
+        for (uint i = 0; i < count; i++)
+            model.TextureTransformLookup.Add((short)ReadUInt16(data, (int)(offset + i * 2)));
     }
 
     // ── Binary helpers ──────────────────────────────────────────────────────

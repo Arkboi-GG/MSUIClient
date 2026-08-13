@@ -140,6 +140,10 @@ public sealed partial class GameLoop
                 return;
             }
             UpdateAndQueueWorldUnitGameTooltip(NowSeconds());
+            // After the unit adapter, deliberately: when hover moves from a
+            // unit to a gameobject the GO claim must be the one that lands,
+            // and the two hovers are exclusive (Program.Targeting.cs).
+            UpdateAndQueueWorldGameObjectGameTooltip(NowSeconds());
             DrawFloatingCombatText();
             DrawWorldUnitNames();
             DrawPlayerFrame();

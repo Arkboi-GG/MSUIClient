@@ -15,6 +15,7 @@ in vec3 vNormal;
 in vec2 vUV;
 in vec4 vLight;
 in float vAppearStart;
+in float vHighlight;
 
 uniform sampler2D uTexture;
 uniform int   uHasTexture;
@@ -71,6 +72,26 @@ uniform float uPortalLightRadius; // yards; 0 = off
 uniform float uStyleWeight;
 uniform int   uPreserveAlpha;
 
+// 1 while the renderer's blended pass (M2 blend modes 2-6) is drawing. The
+// glBlendFunc for those modes reads source alpha, so the output alpha must stay
+// the TEXTURE alpha - a lamp halo authored as alpha 0..0.6 additive must not be
+// overwritten with the style weight or the appear fade. During an appear fade
+// the texture alpha is MULTIPLIED by the fade instead of replaced, so a fading
+// lantern's glow eases in without ever blowing out to full strength.
+uniform int   uBlendedBatch;
+
+// How this batch meets fog, per M2 render-flag 0x02 and blend mode:
+//   0 - normal: mix toward uFogColor (opaque geometry).
+//   1 - unfogged (render flag 0x02): fog never touches it. Lamp glows carry
+//       this flag because a halo tinted toward daylight fog reads as a dirty
+//       decal, not a light.
+//   2 - additive (blend 3/4): fade toward BLACK, because black is the additive
+//       identity. Mixing toward the fog colour would make distant glows ADD the
+//       fog colour to the framebuffer - fog would emit light.
+//   3 - modulate (blend 5): fade toward WHITE, the multiplicative identity.
+//   4 - modulate2x (blend 6): fade toward 0.5 grey, the 2x-modulate identity.
+uniform int   uFogMode;
+
 out vec4 FragColor;
 
 void main()
@@ -116,28 +137,49 @@ void main()
 
     if (uUnlit == 1) lighting = vec3(1.0);
 
+    // Mouse-over highlight for the hovered server gameobject: the same
+    // additive brighten the creature/player shaders apply (light + 64/255),
+    // added AFTER the unlit clamp so even a glow batch brightens on hover.
+    lighting += vec3(vHighlight);
+
     vec3 lit = albedo.rgb * lighting;
 
     float dist = distance(uCameraPos, vWorldPos);
     float fog = clamp((dist - uFogStart) / max(uFogEnd - uFogStart, 1.0), 0.0, 1.0);
 
+    // See uFogMode. The identity colour per blend equation, or no fog at all.
+    vec3 fogTarget = uFogColor;
+    if      (uFogMode == 1) fog = 0.0;
+    else if (uFogMode == 2) fogTarget = vec3(0.0);
+    else if (uFogMode == 3) fogTarget = vec3(1.0);
+    else if (uFogMode == 4) fogTarget = vec3(0.5);
+
     // Appear fade: cutout stays keyed on the texture alpha (the discard above),
     // so the silhouette is stable; the surviving fragments fade together as
-    // alpha = t^3. Non-fading instances (vAppearStart <= 0) resolve to alpha 1,
-    // i.e. exactly the original opaque output.
-    float outAlpha = albedo.a;
-    if (uAppearFadeEnabled == 1)
+    // alpha = t^3. Non-fading instances (vAppearStart <= 0) resolve to fade 1.
+    float fade = 1.0;
+    if (uAppearFadeEnabled == 1 && vAppearStart > 0.0)
     {
-        float fade = 1.0;
-        if (vAppearStart > 0.0)
-        {
-            float t = clamp((uNow - vAppearStart) / max(uAppearFadeSecs, 0.0001), 0.0, 1.0);
-            fade = t * t * t;
-        }
+        float t = clamp((uNow - vAppearStart) / max(uAppearFadeSecs, 0.0001), 0.0, 1.0);
+        fade = t * t * t;
         if (fade <= 0.0) discard;   // invisible AND writes no depth
-        outAlpha = fade;
     }
 
-    if (uPreserveAlpha == 0) outAlpha = uStyleWeight;
-    FragColor = vec4(mix(lit, uFogColor, fog), outAlpha);
+    float outAlpha;
+    if (uBlendedBatch == 1)
+    {
+        // The blend func consumes this alpha (see uBlendedBatch). Multiplying
+        // by the appear fade eases the batch in without conflicting blend
+        // state - the func stays the batch's own.
+        outAlpha = albedo.a * fade;
+    }
+    else
+    {
+        // Exactly the original opaque-pass output: fade while easing in,
+        // texture alpha otherwise, style weight whenever nothing is blending.
+        outAlpha = uAppearFadeEnabled == 1 ? fade : albedo.a;
+        if (uPreserveAlpha == 0) outAlpha = uStyleWeight;
+    }
+
+    FragColor = vec4(mix(lit, fogTarget, fog), outAlpha);
 }

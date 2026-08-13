@@ -6,7 +6,13 @@ plus the handbook's cross-cutting ground truth (§3.1 coordinates, §8.5 shader
 ASCII rule, §11 working agreements) before touching water. You should not need
 the rest of the handbook for a water change.
 
-Version: Draft 5 — 2026-07-26 (the body-colour fix landed — **new §8**, which is the
+Version: Draft 6 — 2026-08-12 (**WMO liquid is BUILT, as a DRAW-ONLY pass** — §7
+now describes code that exists. `LiquidRenderer` keeps a second, separate mesh
+set fed by `WmoRenderer.EnumerateLiquid()` and rebuilt on a per-frame
+`LiquidVersion` int-compare. WMO surfaces are **still NOT in `TryGetSurface`** —
+submersion, the underwater tint and the wake ignore WMO liquid, deliberately,
+because rewriting that shared path is what got the first build reverted.)
+Previous: Draft 5 — 2026-07-26 (the body-colour fix landed — **new §8**, which is the
 section the shader and settings comments point at. Water colour is now declared
 **SUFFICIENT, not 1:1 with the 1.12 client**, and closed until a much later
 refining pass; see §8.4. Foliage no longer grows in the river.)
@@ -243,10 +249,11 @@ to one cause (mis-routing, frame cross-fade, wave normal, lighting gain).
   tagged as ocean, the fix is in `ParseMclqLayers`' type detection (read the type
   from the MCNK header flags), not the texture.
 - **WMO liquid (MLIQ).** Stormwind canals, fountains, indoor pools — parsed from
-  MLIQ in local space, not ADT MCLQ. **Still NOT rendered.** PLAN_15 built it on
-  2026-07-26 and it was **reverted the same day**: it was landed default-ON and it
-  also rewrote `TryGetSurface`, which existing water depended on. §7 below is the
-  specification and the format research, which stand. The code does not exist.
+  MLIQ in local space, not ADT MCLQ. **RENDERED as of 2026-08-12, draw-only** —
+  see §7. (The first PLAN_15 build of 2026-07-26 was reverted the same day
+  because it also rewrote `TryGetSurface`; the rebuild leaves that path
+  untouched, so WMO liquid still contributes nothing to submersion or the
+  underwater tint. That half remains open debt.)
 - **`LiquidType.dbc` colours/materials.** Textures are now real, but the shader's
   colour/lighting constants are hand-tuned, not read from the DBC.
 - **THE AUTHORED OCEAN/RIVER COLOURS ARE WRONG. Default OFF as of 2026-07-26.**
@@ -330,19 +337,29 @@ the target, and record why here.
 
 ---
 
-## 7. WMO liquid — canals, fountains, indoor pools (PLAN_15) — SPEC, NOT BUILT
+## 7. WMO liquid — canals, fountains, indoor pools (PLAN_15) — BUILT, DRAW-ONLY
 
-> **The code described here was written on 2026-07-26 and reverted the same day.**
-> It shipped default-ON into a working system and additionally rewrote
-> `TryGetSurface`, which open-world water depended on. Nothing below is in the
-> client today.
+> **Rebuilt 2026-08-12 as a draw-only pass.** The first build (2026-07-26) was
+> reverted the same day because it also rewrote `TryGetSurface`, which
+> open-world water depended on. The rebuild does not touch that path at all:
+> `LiquidRenderer` keeps a **second, fully separate mesh set** (`_wmoMeshes`)
+> fed by `EnumerateLiquid()`, rebuilt when `WmoRenderer.LiquidVersion` moves
+> (a per-frame int compare, NOT a tile-crossing event — see §7.6), and drawn
+> in the same pass with the same shader, uniforms and GL state.
 >
-> **What survives is §7.2 and §7.3** — the MLIQ format facts, derived from 235 real
-> groups and since cross-confirmed twice: `LiquidType.dbc` (extracted from
-> `patch.MPQ`: 1 Water, 2 Ocean, 3 Magma, 4 Slime) and WoWee's own
+> **Deliberately deferred: submersion.** WMO surfaces are NOT in
+> `TryGetSurface`, so swimming state, the underwater tint and the walking wake
+> ignore WMO liquid. Wiring that is a separate, careful change to the shared
+> query — the exact thing that broke last time.
+>
+> **Default ON** (`Water.DrawWmoLiquid` in settings). The old "default OFF"
+> instruction below applied to a build that rewrote the shared path; a
+> draw-only pass cannot regress open-world water, so it ships on.
+>
+> §7.2 and §7.3 remain the ground truth — the MLIQ format facts, derived from
+> 235 real groups and since cross-confirmed twice: `LiquidType.dbc` (extracted
+> from `patch.MPQ`: 1 Water, 2 Ocean, 3 Magma, 4 Slime) and WoWee's own
 > `(liquidType - 1) % 4` reduction both match the `& 3` grouping exactly.
->
-> If this is rebuilt: **default OFF, and do not touch the shared water path.**
 
 
 Stormwind's canals, Ironforge's lava channels, Undercity's slime, Blackrock's
@@ -409,6 +426,35 @@ A plausible-looking alternative was tried and rejected: MLIQ's `CornerZ` is *not
 the pool floor. Measured, it equals the minimum vertex height, so
 `height - CornerZ` is zero across the **87%** of surfaces that are flat, which
 would paint every pool entirely at shoreline alpha.
+
+### 7.4b Magma UV scale + creep — the "frames don't cycle" report (2026-08-13)
+
+The first Blackrock test read as **"the lava lake renders but the magma frames
+don't cycle."** Instrumented live (an env-gated probe that re-rendered the lake
+mesh into a fixed screen rect and diffed gameplay dumps): the frames DO cycle,
+and **ADT and WMO magma cycle identically** — they run the same `water.frag`
+branch with the same uniforms, and the per-second pixel change measured equal on
+both. There was no WMO-specific bug to fix.
+
+What made it *look* frozen: magma was sampled at the water texture scale
+(`uTexScale` = one repeat per 6.25 yd). Consecutive `lava.N.blp` frames differ by
+only ~0.5% mean per texel (measured across all 30), so at that cell size mip
+filtering averages the boil away a few yards out — on the 120-yd Blackrock lake
+the surface is effectively static. Blizzard authors MLIQ magma `s/t` at one
+repeat per **~35–200 yd** (read from Blackrock groups 38/43), which is why
+vanilla's boil cells are big enough to stay visible.
+
+The fix is in `water.frag`'s magma branch only: `tuv = tuv * 0.25 + uTime *
+vec2(0.012, 0.007)` — 25 yd cells (inside the authored range) plus a slow
+vanilla-style creep (~one cell per 80 s). It applies to magma on BOTH paths
+(deliberate: they must stay identical); water, ocean and slime UVs are
+untouched. Verified live with the probe: per-1.1 s pixel change on the Blackrock
+lake went from mean 5–7 (under 1.5% of pixels) to mean 24–27 (30–36%).
+
+The authored `s/t` are still discarded at parse (`WmoReader.cs` MLIQ reads
+skip bytes 0–3 of each vertex). Adopting them — a flow-warped, hand-authored
+mapping, not a uniform scale — is the remaining fidelity step, and needs a
+UV attribute in the liquid vertex format plus the MCLQ equivalent for ADT.
 
 ### 7.5 How to test it
 

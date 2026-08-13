@@ -2,6 +2,7 @@ using System.Numerics;
 using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
+using MSUIClient.World.Wmo;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -41,7 +42,29 @@ namespace MSUIClient.World;
 /// </summary>
 public sealed class LiquidRenderer : IDisposable
 {
-    private const int FloatsPerVertex = 5;   // position(3) + type(1) + depth(1)
+    private const int FloatsPerVertex = 5;   // ADT path: position(3) + type(1) + depth(1)
+
+    /// <summary>
+    /// WMO (MLIQ) vertex format only: position(3) + type(1) + depth(1) + authored
+    /// UV(2). The two extra floats carry the MLIQ per-vertex s/t — Blizzard's
+    /// hand-authored magma flow mapping (the big swirls dragged around
+    /// Blackrock's central spire). The ADT path keeps its 5-float format and its
+    /// planar mapping BIT-IDENTICALLY: water.vert reads the UV from attribute 3,
+    /// which ADT VAOs never enable, and the shader only looks at it when the
+    /// uWmoAuthoredUv uniform is raised for the WMO draw loop below (and the
+    /// vertex is magma — for WMO water/slime the same MLIQ bytes are flow data,
+    /// not UVs, so those keep planar mapping too).
+    /// </summary>
+    private const int WmoFloatsPerVertex = 7;
+
+    /// <summary>
+    /// MSUI_WMO_LIQUID_TRACE=1: log every WMO liquid surface as it is meshed —
+    /// world Z range of the visible region, tile substances, authored-UV range.
+    /// The instrument that verified Blackrock's lava height against the MLIQ
+    /// bytes (SYSTEM_WATER.md §7.4b).
+    /// </summary>
+    private static readonly bool WmoLiquidTrace =
+        Environment.GetEnvironmentVariable("MSUI_WMO_LIQUID_TRACE") == "1";
 
     /// <summary>CPU-side copy of one water layer, kept so the camera/player can be
     /// tested for submersion without reading back from the GPU.</summary>
@@ -89,7 +112,33 @@ public sealed class LiquidRenderer : IDisposable
     private uint _overlayVao;
     private readonly Dictionary<(int col, int row), TileMesh> _tiles = [];
 
+    // ── WMO liquid (MLIQ) — a second, fully separate mesh set ───────────────
+    //
+    // Built from WmoRenderer.EnumerateLiquid() and rebuilt whenever
+    // WmoRenderer.LiquidVersion moves (groups are adopted asynchronously, so a
+    // tile-crossing trigger would fire before Model.Liquids is populated).
+    //
+    // DRAW-ONLY, on purpose: these meshes are NOT added to TryGetSurface, so
+    // WMO liquid contributes nothing to submersion, the underwater tint or the
+    // walking wake. That is the SYSTEM_WATER.md §7 warning — the first PLAN_15
+    // build rewrote the shared surface query and broke open-world water; this
+    // one cannot, because the shared path never sees these meshes.
+    private readonly List<TileMesh> _wmoMeshes = [];
+    private int _wmoLiquidVersionSeen = int.MinValue;
+
     public bool Enabled { get; set; } = true;
+
+    /// <summary>Draw the WMO (MLIQ) liquid set — Blackrock's lava lake, the
+    /// Stormwind canals. Off skips only the WMO draw loop; ADT water is
+    /// untouched either way.</summary>
+    public bool WmoLiquidEnabled { get; set; } = true;
+
+    /// <summary>WMO liquid surfaces currently meshed (surfaces whose tiles were
+    /// all hidden build nothing and are not counted).</summary>
+    public int WmoSurfaceCount => _wmoMeshes.Count;
+
+    /// <summary>WMO liquid surfaces that survived the frustum test this frame.</summary>
+    public int WmoSurfacesDrawnLastFrame { get; private set; }
 
     // --- Real vanilla animated liquid textures, loaded from the client MPQs ---
     // Vanilla stores each liquid as numbered BLP frames; we stack the frames of
@@ -596,6 +645,12 @@ public sealed class LiquidRenderer : IDisposable
     {
         foreach (var mesh in _tiles.Values) mesh.Dispose();
         _tiles.Clear();
+        // The WMO set goes too, and the version sentinel resets so the next
+        // UpdateWmoLiquid call rebuilds even if LiquidVersion happens to
+        // repeat the last value seen on the previous map.
+        foreach (var mesh in _wmoMeshes) mesh.Dispose();
+        _wmoMeshes.Clear();
+        _wmoLiquidVersionSeen = int.MinValue;
         ClearWake();   // a trail must not survive a map change
     }
 
@@ -743,10 +798,221 @@ public sealed class LiquidRenderer : IDisposable
         return mesh;
     }
 
+    /// <summary>
+    /// Rebuild the WMO liquid mesh set if <paramref name="version"/> has moved
+    /// since the last call. Call every frame with WmoRenderer.LiquidVersion —
+    /// the int compare is the whole cost when nothing changed. Version-driven,
+    /// NOT tile-crossing-driven: groups are adopted several frames after their
+    /// instance is placed (SYSTEM_WATER.md §7.6), so an event fired on the
+    /// crossing would enumerate before the liquid exists and never retry.
+    /// </summary>
+    public void UpdateWmoLiquid(int version, IEnumerable<WmoLiquidSurface> surfaces)
+    {
+        if (version == _wmoLiquidVersionSeen) return;
+        _wmoLiquidVersionSeen = version;
+
+        foreach (var mesh in _wmoMeshes) mesh.Dispose();
+        _wmoMeshes.Clear();
+
+        int hiddenOnly = 0;
+        foreach (var surface in surfaces)
+        {
+            var mesh = BuildWmoSurface(surface);
+            if (mesh is not null) _wmoMeshes.Add(mesh);
+            else hiddenOnly++;
+        }
+
+        if (_wmoMeshes.Count > 0 || hiddenOnly > 0)
+            Console.WriteLine($"[liquid] WMO liquid v{version}: {_wmoMeshes.Count} surface(s) " +
+                $"meshed, {hiddenOnly} fully hidden");
+    }
+
+    /// <summary>
+    /// One MLIQ surface -> one mesh in the existing 5-float vertex format, so
+    /// the ADT water shader, uniforms and tuning HUD apply unchanged.
+    ///
+    /// Two details carry the whole feature:
+    ///
+    ///   TYPE comes from WmoLiquidSurface.ShaderType — the MLIQ→MCLQ code
+    ///   translation. The raw MLIQ magma code is 2, which water.frag routes as
+    ///   ocean: skip the translation and Blackrock's lava lake renders blue.
+    ///
+    ///   INDICES are emitted only for tiles where !IsHidden. Roughly 40% of all
+    ///   MLIQ tiles are hidden — the grid is a bounding rectangle with the pool
+    ///   cut out of it, and ignoring the mask draws a lava slab across the
+    ///   whole mountain. The VERTEX grid stays complete so indices keep lining
+    ///   up; only the index list is cut.
+    ///
+    /// DEPTH is a per-surface constant 3.0: deep enough that the shoreline fade
+    /// never bites. MLIQ has no per-vertex floor to measure against — CornerZ
+    /// is NOT the floor, it equals the minimum vertex height (rejected in
+    /// SYSTEM_WATER.md §7.4).
+    /// </summary>
+    private unsafe TileMesh? BuildWmoSurface(WmoLiquidSurface surface)
+    {
+        int xv = surface.XVerts, yv = surface.YVerts;
+        int xt = surface.XTiles, yt = surface.YTiles;
+        if (surface.Vertices.Length < xv * yv) return null;
+
+        var indices = new List<uint>();
+        for (int j = 0; j < yt; j++)
+        for (int i = 0; i < xt; i++)
+        {
+            if (surface.IsHidden(i, j)) continue;
+            uint tl = (uint)(j * xv + i);
+            uint tr = tl + 1;
+            uint bl = (uint)((j + 1) * xv + i);
+            uint br = bl + 1;
+            indices.Add(tl); indices.Add(bl); indices.Add(tr);
+            indices.Add(tr); indices.Add(bl); indices.Add(br);
+        }
+        if (indices.Count == 0) return null;   // every tile hidden - nothing to draw
+
+        // Fallback type for vertices whose adjacent tiles are all hidden: the
+        // first visible tile's type. A surface is almost always one substance.
+        byte defaultType = 4;
+        bool foundDefault = false;
+        for (int j = 0; j < yt && !foundDefault; j++)
+        for (int i = 0; i < xt; i++)
+            if (!surface.IsHidden(i, j))
+            {
+                defaultType = surface.ShaderType(i, j);
+                foundDefault = true;
+                break;
+            }
+
+        const float wmoLiquidDepth = 3.0f;
+
+        var verts = new float[xv * yv * WmoFloatsPerVertex];
+        int v = 0;
+        for (int j = 0; j < yv; j++)
+        for (int i = 0; i < xv; i++)
+        {
+            var p = surface.Vertices[j * xv + i];
+
+            // Per-vertex type from the first VISIBLE tile touching this vertex.
+            // Hidden tiles carry flag value 0x0F, whose low bits would decode as
+            // slime; asking them for a type would tint pool edges green.
+            byte type = defaultType;
+            for (int tj = Math.Max(j - 1, 0); tj <= Math.Min(j, yt - 1); tj++)
+            {
+                for (int ti = Math.Max(i - 1, 0); ti <= Math.Min(i, xt - 1); ti++)
+                {
+                    if (surface.IsHidden(ti, tj)) continue;
+                    type = surface.ShaderType(ti, tj);
+                    tj = yt; break;   // found - leave both loops
+                }
+            }
+
+            // The authored MLIQ s/t, in repeats. Written for every vertex;
+            // water.frag only reads it for magma with uWmoAuthoredUv raised,
+            // so the flow-byte garbage a water surface would decode to here is
+            // never sampled.
+            var uv = surface.AuthoredUv(i, j);
+
+            verts[v++] = p.X;
+            verts[v++] = p.Y;
+            verts[v++] = p.Z;
+            verts[v++] = type;
+            verts[v++] = wmoLiquidDepth;
+            verts[v++] = uv.X;
+            verts[v++] = uv.Y;
+        }
+
+        if (WmoLiquidTrace) TraceWmoSurface(surface);
+
+        var ia = indices.ToArray();
+        var mesh = new TileMesh { IndexCount = ia.Length };   // Surfaces stays
+        // empty ON PURPOSE: TryGetSurface iterates _tiles only, and WMO liquid
+        // is deliberately excluded from submersion (SYSTEM_WATER.md §7).
+
+        for (int f = 0; f < verts.Length; f += WmoFloatsPerVertex)
+        {
+            var p = new Vector3(verts[f], verts[f + 1], verts[f + 2]);
+            mesh.BoundsMin = Vector3.Min(mesh.BoundsMin, p);
+            mesh.BoundsMax = Vector3.Max(mesh.BoundsMax, p);
+        }
+
+        mesh.Attach(_gl);
+        mesh.Vao = _gl.GenVertexArray();
+        _gl.BindVertexArray(mesh.Vao);
+
+        mesh.Vbo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, mesh.Vbo);
+        fixed (float* p = verts)
+            _gl.BufferData(BufferTargetARB.ArrayBuffer,
+                (nuint)(verts.Length * sizeof(float)), p, BufferUsageARB.StaticDraw);
+
+        mesh.Ebo = _gl.GenBuffer();
+        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, mesh.Ebo);
+        fixed (uint* p = ia)
+            _gl.BufferData(BufferTargetARB.ElementArrayBuffer,
+                (nuint)(ia.Length * sizeof(uint)), p, BufferUsageARB.StaticDraw);
+
+        const uint stride = WmoFloatsPerVertex * sizeof(float);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, stride, (void*)0);
+        _gl.EnableVertexAttribArray(1);
+        _gl.VertexAttribPointer(1, 1, VertexAttribPointerType.Float, false, stride, (void*)(3 * sizeof(float)));
+        _gl.EnableVertexAttribArray(2);
+        _gl.VertexAttribPointer(2, 1, VertexAttribPointerType.Float, false, stride, (void*)(4 * sizeof(float)));
+        // Attribute 3: the authored MLIQ UV. ADT tile VAOs never enable this
+        // attribute, so their shader invocations read the GL default (0,0) and
+        // the uniform gate keeps them on planar mapping regardless.
+        _gl.EnableVertexAttribArray(3);
+        _gl.VertexAttribPointer(3, 2, VertexAttribPointerType.Float, false, stride, (void*)(5 * sizeof(float)));
+        _gl.BindVertexArray(0);
+
+        return mesh;
+    }
+
+    /// <summary>
+    /// MSUI_WMO_LIQUID_TRACE=1 instrument: one line per meshed WMO surface with
+    /// the numbers that settle a "wrong height / wrong mapping" report — the
+    /// world Z range of vertices the visible tiles actually use, the substance
+    /// histogram, and the authored UV range in repeats.
+    /// </summary>
+    private static void TraceWmoSurface(WmoLiquidSurface surface)
+    {
+        int xv = surface.XVerts, yv = surface.YVerts;
+        int xt = surface.XTiles, yt = surface.YTiles;
+        float zMin = float.MaxValue, zMax = float.MinValue;
+        float uMin = float.MaxValue, uMax = float.MinValue;
+        float vMin = float.MaxValue, vMax = float.MinValue;
+        int visible = 0;
+        var typeCounts = new Dictionary<byte, int>();
+        for (int j = 0; j < yt; j++)
+        for (int i = 0; i < xt; i++)
+        {
+            if (surface.IsHidden(i, j)) continue;
+            visible++;
+            byte t = surface.ShaderType(i, j);
+            typeCounts[t] = typeCounts.GetValueOrDefault(t) + 1;
+            for (int c = 0; c < 4; c++)
+            {
+                int ci = i + (c & 1), cj = j + (c >> 1);
+                var p = surface.Vertices[cj * xv + ci];
+                zMin = MathF.Min(zMin, p.Z); zMax = MathF.Max(zMax, p.Z);
+                var uv = surface.AuthoredUv(ci, cj);
+                uMin = MathF.Min(uMin, uv.X); uMax = MathF.Max(uMax, uv.X);
+                vMin = MathF.Min(vMin, uv.Y); vMax = MathF.Max(vMax, uv.Y);
+            }
+        }
+        string types = string.Join(",", typeCounts.Select(kv => $"{kv.Key}:{kv.Value}"));
+        Console.WriteLine(
+            $"[wmo-liquid-trace] {Path.GetFileName(surface.ModelPath)}[{surface.GroupIndex}] " +
+            $"'{surface.GroupName}' grid {xv}x{yv} visible {visible}/{xt * yt} types {types} " +
+            $"worldZ {zMin:F2}..{zMax:F2} uv U {uMin:F2}..{uMax:F2} V {vMin:F2}..{vMax:F2}");
+    }
+
     public unsafe void Render(Camera camera)
     {
         TrianglesLastFrame = 0;
-        if (!Enabled || _shader is null || _tiles.Count == 0) return;
+        WmoSurfacesDrawnLastFrame = 0;
+        // On global-WMO maps (Blackrock Depths/Spire, ...) there is no terrain,
+        // so _tiles is empty FOREVER — the WMO set must be able to draw alone.
+        bool anyWmo = WmoLiquidEnabled && _wmoMeshes.Count > 0;
+        if (!Enabled || _shader is null || (_tiles.Count == 0 && !anyWmo)) return;
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
@@ -839,6 +1105,11 @@ public sealed class LiquidRenderer : IDisposable
         var cameraPosition = camera.Position;
         TilesDrawnLastFrame = 0;
 
+        // ADT pass: planar magma mapping, exactly as before. The uniform is the
+        // gate that keeps this path bit-identical — attribute 3 is not even
+        // enabled on these VAOs.
+        _shader.Set("uWmoAuthoredUv", 0f);
+
         foreach (var mesh in _tiles.Values)
         {
             // The one visibility test this pass never had. Water surfaces are
@@ -854,6 +1125,31 @@ public sealed class LiquidRenderer : IDisposable
                 DrawElementsType.UnsignedInt, (void*)0);
             TrianglesLastFrame += mesh.IndexCount / 3;
             TilesDrawnLastFrame++;
+        }
+
+        // The WMO (MLIQ) set: same shader, same uniforms, same GL state — the
+        // meshes bake the correct MCLQ-coded type per vertex, so the existing
+        // magma/slime/ocean routing in water.frag just works.
+        if (anyWmo)
+        {
+            // WMO magma switches to the authored MLIQ per-vertex UVs carried in
+            // attribute 3; WMO water/ocean/slime stay planar (the shader gates
+            // on the vertex type as well as this uniform).
+            _shader.Set("uWmoAuthoredUv", 1f);
+
+            foreach (var mesh in _wmoMeshes)
+            {
+                if (FrustumCulling &&
+                    !Camera.BoxInFrustum(viewProjection,
+                        mesh.BoundsMin - cameraPosition,
+                        mesh.BoundsMax - cameraPosition)) continue;
+
+                _gl.BindVertexArray(mesh.Vao);
+                _gl.DrawElements(PrimitiveType.Triangles, (uint)mesh.IndexCount,
+                    DrawElementsType.UnsignedInt, (void*)0);
+                TrianglesLastFrame += mesh.IndexCount / 3;
+                WmoSurfacesDrawnLastFrame++;
+            }
         }
 
         _gl.Enable(EnableCap.CullFace);
@@ -953,6 +1249,8 @@ public sealed class LiquidRenderer : IDisposable
     {
         foreach (var m in _tiles.Values) m.Dispose();
         _tiles.Clear();
+        foreach (var m in _wmoMeshes) m.Dispose();
+        _wmoMeshes.Clear();
         _texWater?.Dispose(); _texOcean?.Dispose(); _texSlime?.Dispose(); _texMagma?.Dispose();
         _dummyTex?.Dispose();
         _texWakeMask?.Dispose(); _dummy2D?.Dispose();

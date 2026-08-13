@@ -235,6 +235,14 @@ has multiple samples.
 >
 > ### What shipped
 >
+> **[2026-08-12 correction: the LiquidRenderer/draw half of this session was
+> REVERTED the same day** — it shipped default-ON and rewrote the shared
+> `TryGetSurface`, breaking open-world water. The parsing/placement half
+> (`WmoReader.cs`, `WmoRenderer.EnumerateLiquid`) survived. **The draw consumer
+> was rebuilt 2026-08-12 as a draw-only pass** — separate WMO mesh set,
+> `TryGetSurface` untouched, submersion deliberately not wired. SYSTEM_WATER.md
+> §7 is current truth; read the paragraphs below as history.]
+>
 > **PLAN_15 — WMO liquid.** Canals, fountains, indoor pools, lava channels.
 > `WmoRenderer.EnumerateLiquid()` yields placed surfaces; `LiquidRenderer` draws
 > them through the *same* shader and uniforms as open-world water. Six files
@@ -616,7 +624,7 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | Doc | Covers | Status |
 |---|---|---|
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
-| `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and (Draft 3) WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 3)** — 2026-07-26. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid; its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
+| `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 6)** — 2026-08-12. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid — **BUILT 2026-08-12 as a draw-only pass** (submersion for WMO liquid deliberately not wired); its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
 | `SYSTEM_DOODAD_LIGHTING.md` | WMO furniture: `MODD.color` as a baked light, MODR interior gate, Unlit materials, the instance-light path | **Written** |
 | `SYSTEM_FOLIAGE.md` | Ground effects: the MCLY -> GroundEffectTexture -> GroundEffectDoodad chain, cell layer map, no-doodad mask, holes, per-kind curation, asynchronous cold-asset residency | **Written (Draft 3)** — 2026-07-29. Cold MPQ/M2/BLP/GL work no longer runs inside `Scatter`; the full resident-cell rebuild remains measured debt |
@@ -632,7 +640,7 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 | `PLAN_10_WMO_PORTALS.md` | Portal traversal from MOPV/MOPT/MOPR: the doorway-chain rule, the `side`-bit convention, the approach case | **BUILT and verified.** `SYSTEM_WMO_PORTALS.md` is current truth; the plan retains the derivation and decisions |
 | `PLAN_13_INSTANCES.md` | Loading in and out of dungeons: `Map.dbc`, the WDT, and the two structurally different kinds of instance map | **Stages 1 and 2 BUILT AND VERIFIED** on 2026-07-26 — the panel reproduces all 44 rows, and Deadmines/Shadowfang/Scarlet Monastery/Razorfen Kraul travel in and back out. **`SYSTEM_INSTANCES.md` is now the current truth**; this plan keeps the 44-row reference table (§11) and the derivation. Stage 3 (global-WMO maps) specified, not built |
 | `PLAN_14_PARTICLES.md` | M2 particle emitters: the layout derived from the bytes, and what the dungeon portal actually is | **Stages 1 and 2 BUILT** — parse, panel, CPU simulator, billboard renderer; the Deadmines portal draws. **`SYSTEM_PARTICLES.md` is now the current truth**; this plan keeps the derivation record and, more usefully, **every wrong turn** — four direction models, the FBlock reconstruction that failed 0/200, and the reference-implementation citation that was void because the code never ran for this model |
-| `PLAN_15_WMO_LIQUID.md` | WMO liquid: the MLIQ coordinate convention, tile unit, flag encoding and liquid-type mapping, each derived from 235 real groups in `wmo.MPQ` | **BUILT** 2026-07-26. `SYSTEM_WATER.md` §7 is now the current truth; this plan keeps the **derivation record** — five scored candidate layouts, the 470/470 corner snap that fixed the tile unit, and the escape metric that is *monotonically biased* and ranked the wrong unit first. **§6 documents `tools/mpqpy/`, which is the reusable part** |
+| `PLAN_15_WMO_LIQUID.md` | WMO liquid: the MLIQ coordinate convention, tile unit, flag encoding and liquid-type mapping, each derived from 235 real groups in `wmo.MPQ` | **BUILT 2026-08-12, draw-only** (the 2026-07-26 build was reverted the same day for rewriting the shared `TryGetSurface`; the rebuild leaves it untouched, so WMO submersion is open debt). `SYSTEM_WATER.md` §7 is now the current truth; this plan keeps the **derivation record** — five scored candidate layouts, the 470/470 corner snap that fixed the tile unit, and the escape metric that is *monotonically biased* and ranked the wrong unit first. **§6 documents `tools/mpqpy/`, which is the reusable part** |
 | `FOUNDATION_PLAN.md` + `PLAN_01`–`PLAN_06` | Shared-language layer: vantages, scene dump, reason codes, override DB, DevTools seam, HUD/TuningState | **Written AND built.** Plans 01–04 and 06 are code; 05's `TuningState` exists in `Program.DevTools.cs` but the HUD is not fully reorganized. Its own §11 index is correct |
 | `SYSTEM_WMO_PORTALS.md` | Traversal, collision-face camera seeding, doorway crossing, MODR ownership and the `side`-bit convention | **Written and verified** — updated 2026-07-29. **NAMING TRAP: this is interior visibility culling, NOT the dungeon doorways in `SYSTEM_INSTANCES.md` and NOT the swirling effect in `SYSTEM_PARTICLES.md`. Three meanings, one word** |
 | `SYSTEM_TERRAIN.md` | ADT terrain: MCNK/MCVT tessellation, texturing/splat, tile placement | Planned extraction from §1.1/§3 |
@@ -1082,6 +1090,58 @@ alpha-key, and modes 2+ are transparent. Applying the global alpha cutoff to
 every WMO texture with non-opaque pixels made ordinary walls and roofs look
 like torn sheets. The renderer now cuts mode 1 only and renders modes 2+ in a
 second blended pass with depth writes disabled.
+
+Doodads follow the same split since 2026-08-12: DoodadRenderer keeps M2 blend
+modes 0-1 in its opaque pass (mode 1 cutout-tested, mode 0 not tested at all)
+and defers modes 2-6 to a blended pass after all opaque geometry — depth write
+off, per-mode `glBlendFunc` (alpha, add, modulate, modulate2x), cutoff 1/255.
+That pass is what makes additive lamp/lantern halos (Glow32.blp, blend 4)
+visible instead of being alpha-tested away at 0.5.
+
+**M2 texture transforms (2026-08-12).** The Blackrock lavafalls froze as static
+wedges because two things were unread: the uvAnimations table (header `0x074`,
+stride 84 — translation/rotation/scale AnimationBlocks; only translation is
+authored on every lavafall checked) and the batch's transform combo, which
+lives at batch `+22`, **not** `+18` (`+18` is the texcoord combo, zero on every
+byte-checked doodad; reading it as the transform index pinned everything to
+lookup slot 0). M2Reader now parses both; DoodadRenderer resolves each batch's
+translation track at build, samples it per frame on the NowSeconds clock
+(sequence 0, global-sequence tracks on their own clock via M2TrackSampling),
+and hands `doodad.vert` a `uUvOffset` added to the UV in both the opaque and
+blended passes, instanced or not. Key caveat from the bytes: the Vec3 keys'
+Z is uninitialised authoring garbage (thousands, on real files) — only X/Y
+are UV.
+
+**Bone-animated static doodads (2026-08-13).** The Blackrock lava BUBBLES
+(`BlackrockStatueLavaBubble.m2`, placed by the Blackrock WMO) rendered as
+frozen domes: their entire behaviour is bone animation, which the doodad path
+never evaluated. The bytes say: 5 independent root bones, one 17-vertex dome
+rigidly weighted (255) to each, animated ONLY by a linear uniform **scale**
+track (1.0 → 1.20 → 2.78 → snap to 1.0 — the inflate/pop), plus paired
+UV-translation tracks that flip the texture to its burst frame in sync. No
+alpha/colour animation. The model authors two CHAINED sequences, both
+animId 0: seq[0] 0..3300 is a rest hold with `nextAnimationId = 1`, seq[1]
+3333..6667 carries the pops — so the shared track arrays span one contiguous
+absolute timeline and looping wall-clock ms mod the largest sequence
+EndTimestamp (`M2Model.AbsoluteTimelineDurationMs`) replays the authored
+rest+pop cycle without a sequence scheduler
+(`M2TrackSampling.AbsoluteVector/AbsoluteQuaternion`; global-sequence tracks
+keep their own clock).
+
+DoodadRenderer classifies a model as bone-animated at build (has geometry, a
+skeleton of ≤16 bones, ≤768 vertices, and at least one multi-key bone TRS
+track) and then CPU re-skins the shared VBO **once per model per frame,
+visible models only** — full T(pivot)·T·R·S·T(−pivot) parent-composed bone
+law over the already-parsed vertex weights/indices, StreamDraw re-upload.
+Instances share the result and pop in sync, which matches vanilla's shared
+model timing. UV tracks on such models sample the same absolute clock so the
+burst frame lands on the pop. Local cull bounds are inflated by the largest
+authored scale/translation key so a mid-pop bubble is not frustum-clipped.
+Everything else composes untouched: instancing, the deferred blended pass,
+`uUvOffset`, highlight/appear-fade attributes; a model outside the caps (or
+with static bones) keeps the exact static path. Limits: no billboard bone
+flags, no per-instance phase offset, not a creature-grade rig path — this is
+for bubbles and kin.
 
 ### 3.26 MOGP header offsets and interior visibility
 
@@ -1818,10 +1878,12 @@ Written down because the same three moves have solved almost every hard bug in t
     visible hole), and **the ocean/river colours in bands 13–16, which are the
     authored answer to values `SYSTEM_WATER.md` currently invents.**
     SYSTEM_EXTERIOR_LIGHTING.md §7.
-11. ~~**WMO liquid (MLIQ)**~~ — **DONE 2026-07-26, PLAN_15.** Canals, fountains,
-    indoor pools and lava channels draw. Placement is derived from the bytes and
-    self-checks at load (`[wmo-liquid] escape ...`); **the look is unverified and
-    the depth is a labelled stand-in** — SYSTEM_WATER.md §7.4, §7.5.
+11. ~~**WMO liquid (MLIQ)**~~ — **DONE 2026-08-12, PLAN_15, draw-only.** (The
+    2026-07-26 build was reverted the same day.) Canals, fountains, indoor
+    pools and lava channels draw; placement is derived from the bytes.
+    **Submersion/underwater tint for WMO liquid is deliberately not wired, the
+    look is unverified and the depth is a labelled stand-in (constant 3.0)** —
+    SYSTEM_WATER.md §7.4, §7.5.
 12. **MFOG, per-interior fog** — offered and not taken during the interior
     lighting pass, and named there as the most likely next real gain for
     interiors. SYSTEM_WMO_INTERIOR_LIGHTING.md §5. PLAN_10 D1 has now made
@@ -1968,7 +2030,7 @@ made twice, once on WMO rendering and once on the DBC layer.
 
 | Work | Ask for | Why |
 |---|---|---|
-| WMO liquid (MLIQ) — **built, needs a look-check only** | A real-client capture of the Stormwind canal, and one of Ironforge's lava | The format half is settled from the bytes and does not need WoWee (SYSTEM_WATER.md §7.2). What is unverified is colour/opacity against the real client, and whether the stand-in depth reads badly at a canal edge |
+| WMO liquid (MLIQ) — **rebuilt 2026-08-12 draw-only, needs a look-check only** | A real-client capture of the Stormwind canal, and one of Ironforge's lava | The format half is settled from the bytes and does not need WoWee (SYSTEM_WATER.md §7.2). What is unverified is colour/opacity against the real client, and whether the stand-in depth reads badly at a canal edge |
 | Any emulation-core sign-off | A real 1.12 client screenshot from the named vantage, saved to `refs/<vantage>.png` | FOUNDATION_PLAN §2: emulation-core work is measured against the real client, not by eye. Four shipped systems currently lack this |
 | Streaming smoothness | A post-Draft-14 console log plus the exact moments Nico felt hitches | Separate upload contention, residency publication and steady-state rendering |
 | The flicker (§9) | WoWee `src/rendering/m2_renderer.cpp` render-state setup | Whether they honour NoZWrite, blend mode and priority plane |

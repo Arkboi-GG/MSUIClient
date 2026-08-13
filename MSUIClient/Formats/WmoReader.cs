@@ -616,15 +616,27 @@ public class WmoReader
                                     CornerZ = cornerZ,
                                     MaterialId = mtlId,
                                     VertexHeights = new float[vertCount],
+                                    VertexS = new short[vertCount],
+                                    VertexT = new short[vertCount],
                                     TileFlags = new byte[tileCount],
                                 };
 
-                                // Vertices: 4 bytes union (water-vert flow / magma s,t) + float height.
+                                // Vertices: 4 bytes union + float height. The union is
+                                // per-substance (wowdev SMOWVert/SMOMVert):
+                                //   water/ocean/slime: flow1, flow2, flow1Pct, filler (4 x uint8)
+                                //   magma:             s, t (2 x int16) — authored texture coords
+                                // The height float is at +4 in BOTH layouts. The union is
+                                // stored raw as two int16s here; it is only MEANINGFUL for
+                                // magma tiles (see WmoLiquid.VertexS). Verified against
+                                // Blackrock groups 38/43 (2026-08-13): magma s/t are smooth
+                                // int16 gradients spanning about -1618..1971 across the lake,
+                                // while heights land exactly on the CornerZ..0 band.
                                 int vBase = subData + WMO_LIQUID_HEADER_SIZE;
                                 for (int i = 0; i < vertCount; i++)
                                 {
                                     int vp = vBase + i * WMO_LIQUID_VERT_SIZE;
-                                    // bytes [vp..vp+3] = water/magma metadata — skip.
+                                    liq.VertexS[i] = BitConverter.ToInt16(data, vp);
+                                    liq.VertexT[i] = BitConverter.ToInt16(data, vp + 2);
                                     liq.VertexHeights[i] = BitConverter.ToSingle(data, vp + 4);
                                 }
 
@@ -1001,6 +1013,24 @@ public class WmoLiquid
     public ushort MaterialId { get; set; }
     /// <summary>Vertex heights, row-major over (yverts × xverts): index = j*xverts + i.</summary>
     public float[] VertexHeights { get; set; } = Array.Empty<float>();
+
+    /// <summary>
+    /// The 4-byte per-vertex union that precedes each height float, read as two
+    /// int16s. ONLY MEANINGFUL FOR MAGMA: there it is Blizzard's hand-authored
+    /// texture coordinate (SMOMVert s/t) — one texture repeat per 255 units —
+    /// which is what paints the big swirls of lava dragged around Blackrock's
+    /// central spire. For water/ocean/slime the same bytes are flow data
+    /// (flow1, flow2, flow1Pct, filler as 4 x uint8) and this reinterpretation
+    /// is garbage; callers must gate on the tile substance being magma.
+    ///
+    /// Measured on Blackrock (2026-08-13): with UV = value/255, group 38's lake
+    /// authors one repeat per ~35-175 yd and group 43 per ~8-30 yd — a warped,
+    /// anisotropic flow mapping, not a uniform scale.
+    /// </summary>
+    public short[] VertexS { get; set; } = Array.Empty<short>();
+
+    /// <summary>See <see cref="VertexS"/>.</summary>
+    public short[] VertexT { get; set; } = Array.Empty<short>();
     /// <summary>Tile flag bytes, row-major over (ytiles × xtiles): index = j*xtiles + i.
     ///
     /// MEASURED over all 235 MLIQ groups (PLAN_15 §4.3): the LOW NIBBLE takes only the
@@ -1051,6 +1081,19 @@ public class WmoLiquid
     {
         int k = j * XVerts + i;
         return (uint)k >= (uint)VertexHeights.Length ? 0f : VertexHeights[k];
+    }
+
+    /// <summary>
+    /// Authored texture coordinate of grid vertex (i, j), in repeats (the raw
+    /// int16 s/t divided by 255). ONLY meaningful when the surrounding tiles are
+    /// magma — see <see cref="VertexS"/>.
+    /// </summary>
+    public (float U, float V) UvAt(int i, int j)
+    {
+        int k = j * XVerts + i;
+        return (uint)k >= (uint)VertexS.Length
+            ? (0f, 0f)
+            : (VertexS[k] / 255f, VertexT[k] / 255f);
     }
 }
 

@@ -460,7 +460,16 @@ public sealed partial class GameLoop
                 if (_liquidStage == 0)
                 {
                     if (_liquid is not null && _terrain is not null)
-                    _liquid.LoadForTiles(_terrain.LoadedTiles, _adts!);
+                        _liquid.LoadForTiles(_terrain.LoadedTiles, _adts!);
+
+                    // WMO liquid (MLIQ). Crucial on global-WMO maps (Blackrock
+                    // Depths/Spire): they have NO terrain, so the ADT gate above
+                    // never fires there and this is the only liquid they get.
+                    // Groups still adopting after this point bump LiquidVersion
+                    // and the per-frame poll in the render pass rebuilds.
+                    if (_liquid is not null && _wmo is not null)
+                        _liquid.UpdateWmoLiquid(_wmo.LiquidVersion, _wmo.EnumerateLiquid());
+
                     _liquidTiles = _terrain?.LoadedTiles.ToArray() ?? [];
                     _liquidStage = 1;
                     break;

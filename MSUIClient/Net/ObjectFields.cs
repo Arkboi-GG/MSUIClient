@@ -66,6 +66,7 @@ public sealed class ObjectFields
     public const ushort UNIT_MAXRANGEDDAMAGE = 172;
 
     public const ushort GAMEOBJECT_DISPLAYID = 8;
+    public const ushort GAMEOBJECT_ROTATION = 10;    // f32 x4 quaternion (vmangos packs sin/cos of the half-yaw into z/w)
     public const ushort GAMEOBJECT_TYPE_ID = 21;
 
     public const ushort ITEM_STACK_COUNT = 14;
@@ -219,6 +220,14 @@ public sealed class ObjectFields
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
     public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
+    /// <summary>GAMEOBJECT_ROTATION as a quaternion. All-zero when the server
+    /// left the fields unset — the renderer then falls back to the movement
+    /// block's Orientation (see <see cref="WorldEntity.GameObjectFacing"/>).</summary>
+    public Quaternion GameObjectRotation => new(
+        GetF32(GAMEOBJECT_ROTATION) ?? 0f,
+        GetF32((ushort)(GAMEOBJECT_ROTATION + 1)) ?? 0f,
+        GetF32((ushort)(GAMEOBJECT_ROTATION + 2)) ?? 0f,
+        GetF32((ushort)(GAMEOBJECT_ROTATION + 3)) ?? 0f);
     public uint MountDisplayId => GetU32(UNIT_MOUNTDISPLAYID) ?? 0;
     public uint Health => GetU32(UNIT_HEALTH) ?? 0;
     public uint MaxHealth => GetU32(UNIT_MAXHEALTH) ?? 0;

@@ -6,13 +6,17 @@ Read this plus the handbook's cross-cutting ground truth (§3.1 coordinates, §1
 working agreements) before touching anything atmospheric. You should not need the
 rest of the handbook.
 
-Version: Draft 1 — 2026-07-25. Written during the session that built the light
-probe and adopted `Light.dbc`. **Every number in this doc was read out of Nico's
-own MPQs by the probe**, not estimated; the ones still open are marked as open.
+Version: Draft 2 — 2026-08-12 (Draft 1 2026-07-25). Written during the session
+that built the light probe and adopted `Light.dbc`; revised when the lighting
+MODES landed (§4.5) and the band-0 mystery was solved (§2.3). **Every number in
+this doc was read out of Nico's own MPQs by the probe** (or, for the 2026-08-12
+pass, by `tools/mpqpy` against the same archives), not estimated; the ones still
+open are marked as open.
 
 Owner files: `World/ExteriorLighting.cs` (resolve), `World/WorldAtmosphere.cs`
-(evaluate + apply), `World/SkyRenderer.cs` + `Shaders/sky.vert|frag` (draw),
-`Program.LightProbe.cs` (the instrument), the four Light tables in
+(evaluate + apply), `World/DayNightCycle.cs` (`World\dnc.db`, the vanilla
+day/night intensity table), `World/SkyRenderer.cs` + `Shaders/sky.vert|frag`
+(draw), `Program.LightProbe.cs` (the instrument), the four Light tables in
 `Formats/DbcReader.cs`.
 
 ---
@@ -114,6 +118,10 @@ result and logs its margin. Under 2x it warns that the test did not decide.
 The 6 float bands: **0** fog end (x36), **1** fog start multiplier, **2**
 celestial glow-through, **3** cloud density, **4-5** unknown.
 
+> These names are what the code uses (`LightIntBandTable.BandNames`) and slots
+> 8–17 are **suspect** since 2026-08-12 — noggit/wowdev name that range
+> differently (see the end of §2.3). Slots 0–7 are confirmed.
+
 ### 2.3 Azeroth's default light at noon, as measured
 
 ```
@@ -130,11 +138,39 @@ celestial glow-through, **3** cloud density, **4-5** unknown.
 Ambient keys: `0h, 3h, 6h, 12h, 21h, 22h`. The noon sample lands exactly on the
 12h key, which is why it can be checked against the raw key list by eye.
 
-> **Bands 0 and 8 look wrong and probably are not ours to fix.** A pure-orange
-> "global diffuse" and a flat grey "sun" at noon are not plausible daylight. This
-> is the MAP DEFAULT record — a fallback nothing carefully authored — and the
-> sky, fog and water bands in the same record are all sane. Do not tune around
-> it; check first whether a zone light supplies better values where it applies.
+> ~~**Bands 0 and 8 look wrong and probably are not ours to fix.**~~
+> **SOLVED, 2026-08-12** — investigated with `tools/mpqpy` against the real
+> archives (`Light.dbc` lives in `patch.MPQ`, not `dbc.MPQ`). Three hypotheses
+> were tested and all three of the "our decode is broken" ones are FALSE:
+>
+> 1. **The coordinate convention is right.** All six candidates were scored
+>    against Northshire `(-8913,-137)`, Stormwind `(-8913,505)`, the gates
+>    `(-8400,600)` and Goldshire `(-9450,60)`. Only the shipped winner
+>    (`X=H-z, Y=H-x`) produces ANY containment — light 77 (params 79, reach
+>    418..495 yd) lands 134 yd from Stormwind centre, lights 51/52 (params 62)
+>    on the gates. Every other convention covers nothing anywhere.
+> 2. **The channel order is right.** Sky bands 2–6 decode blue-dominant at noon
+>    with `0x00RRGGBB`; so does the coastal params-14 diffuse `0x82b9de`.
+> 3. **Band 0 really is the exterior diffuse, and really is `0xFF8800` at noon**
+>    for the Azeroth default (keys `6h 0xff6700, 12h 0xff8800, 21h 0xff6d00`,
+>    night `0x6182a2`). Stormwind's own params 79 has the SAME noon value.
+>
+> The missing piece was never in `Light.dbc`: **the vanilla client multiplies
+> band 0 by the day/night intensity curve in `World\dnc.db`** (misc.MPQ), the
+> classic-only day-night table (removed in TBC). Its 24 hourly rows carry
+> `DayIntensity` (0 at night, ramping to **0.8** through 6h–19h),
+> `NightIntensity` (1.0 at night), the two light directions, and grey
+> day/ambient/fog ramps — the same combination the vanilla-era open renderers
+> (wowmapview lineage) used: `diffuse = band0 * dayIntensity`. That is what the
+> 1.12 Parity mode reproduces (§4.5); MSUI mode keeps applying band 0 raw.
+>
+> Band 8's flat grey (`0x4d4d4d` noon) stays open: per noggit/wowdev the
+> 18-band layout is `8 = unknown, 9 = sun+halo, 10 = larger sun halo,
+> 12 = clouds, 14..17 = ocean light/dark, river light/dark` — which does NOT
+> match our §2.2 names (we call 8 "sun" and read water from 13–16). Band 9
+> decodes to a plausible warm-white sun `(1.00,0.97,0.87)` at noon, band 13 to
+> a blue-grey that noggit calls unknown. **Suspected off-by-one in our water
+> bands** — see §7.
 
 ---
 
@@ -151,7 +187,11 @@ exceptions layered on top.
 
 This surprised the first reading and cost a round of investigation, so it is
 recorded loudly: *"only the map default applies here"* is the expected answer in
-open country.
+open country. **Re-verified 2026-08-12** offline against all 81 map-0 rows:
+under every one of the six candidate conventions, nothing covers Northshire or
+Goldshire — the map default is genuinely vanilla's answer there, and the noon
+look it produces is explained by the dnc.db curve (§2.3), not by a missed zone
+light.
 
 Blending is by falloff, never nearest-wins: full strength inside `falloffStart`,
 linear to zero at `falloffEnd`, applied farthest-first over the map default so
@@ -194,9 +234,10 @@ class as rebuilding placements at a tile boundary.
 > instead of resolved twice, which the old code did.
 >
 > **The switch that decides whether the renderer consumes authored data is
-> `WorldAtmosphere.UseAuthoredData` — a setting on the Video Options → Lighting
-> page (SYSTEM_SETTINGS_UI.md). It is not the DevTools flag and must never
-> become it again.**
+> `WorldAtmosphere.UseAuthoredData`. It is not the DevTools flag and must never
+> become it again.** (Since 2026-08-12 it is a transient probe-panel A/B rather
+> than a persisted setting — the player-facing switch is now the lighting MODE,
+> §4.2, and both modes consume the authored data.)
 >
 > **What let it survive several readings:** the call site's comment asserted the
 > opposite of the truth — *"Read-only: it feeds the probe panel and nothing
@@ -220,8 +261,8 @@ class as rebuilding placements at a tile boundary.
 | Fog start / end | **data**, float bands 0 and 1 |
 | Sky: 5 band colours | **data**, bands 2-6 |
 | Sky: band **heights** | **ours** — three HUD sliders |
-| Sun **direction** | **ours** — computed from time of day |
-| Sun / ambient **strength** | **ours** — HUD multipliers, 1.0 = use data exactly |
+| Sun **direction** | **ours** — computed from time of day (dnc.db carries the real arc, unwired — §4.2) |
+| Sun / ambient **strength** | **ours** — HUD multipliers, 1.0 = use data exactly (Parity mode additionally scales sun by the dnc.db curve — §4.2) |
 
 Two honest gaps, both deliberate:
 
@@ -245,6 +286,62 @@ with no geometry to build, cull, or get wrong at the poles.
 disabling the sky pass restores exactly the old flat behaviour rather than
 exposing a hard far-clip edge. **Do not remove the clear until the sky has been
 checked against a real-client capture.**
+
+### 4.2 Lighting modes (2026-08-12)
+
+The old bool (`UseAuthoredData`, data vs constants) became a MODE
+(`Lighting.Mode`, settings v6 — SYSTEM_SETTINGS_UI.md §3.6): **both modes
+consume the authored data** and the hand-tuned constants survive only as the
+no-data fallback. The seam is one multiplier in `WorldAtmosphere.Evaluate`'s
+authored branch plus per-mode recommended values pushed by
+`LightingSettings.ApplyLightingModeDefaults`:
+
+| | **MSUI Lighting** (`Msui`, the default) | **1.12 Parity** (`Parity112`) |
+|---|---|---|
+| Colours (bands 0/1/7, sky 2–6) | authored, raw | authored, raw |
+| Sun intensity | `SunStrength` only — the pre-v6 look, preserved exactly | `SunStrength ×` **the dnc.db curve** (`DayNightCycle.SunIntensityAt`) |
+| Ambient intensity | `AmbientStrength` only | `AmbientStrength` only — nothing else attenuates |
+| Fog distances | authored (float bands 0/1: Azeroth default 500/125 yd) | authored, as-is |
+| Sun direction | the invented arc (`SunDirectionAt`) | same — seam factored in `SunDirectionFor`, dnc arc unwired |
+| WMO doorway spill (`InteriorSpill`) | **1.8** recommended | **1.0** recommended |
+
+The dnc.db curve is `max(DayIntensity, NightIntensity)` — the real client runs
+sun and moon as two lights, we have one, and band 0 already colour-shifts to
+moon-blue at night, so the two intensities collapse honestly to max(): 0.8
+through the day, 1.0 deep night, a dip through the dawn/dusk crossover. If
+`dnc.db` fails to load, Parity degrades to "no curve", i.e. Msui behaviour.
+
+Surfaces: the combo at the top of *Video Options → Lighting and sky*, mirrored
+in the probe panel (same value through `ApplyLightingModeDefaults` +
+`ApplySettings`, so the two surfaces cannot disagree). Quality presets never
+touch the mode.
+
+### 4.3 The world clock — where the hour comes from (2026-08-12)
+
+Until now `TimeOfDayHours` was a slider pinned at noon; the day/night curve
+above never moved. The hour is now supplied by a **time source**
+(`Lighting.TimeSource`, settings v7; pre-v7 files migrate to `Server`, or
+`Cycle` if they had `CycleTimeOfDay=true` — read from the raw file, since the
+key no longer exists):
+
+- **Server** (default) — vanilla behaviour. `SMSG_LOGIN_SETTIMESPEED` (0x0042)
+  carries a bit-packed game time (minute:6, hour:5, weekday:3, day:6, month:4,
+  year:5 from the LSB) plus a timescale in game-minutes per real second
+  (0.01666667 = real time). `World\WorldClock.cs` decodes it in the
+  `Program.Net.cs` drain and advances it locally from the receive stamp; until
+  a server time arrives (offline, creator mode) it follows the machine's wall
+  clock rather than freezing at noon.
+- **Fixed** — the pinned-hour slider, the pre-v7 behaviour.
+- **Cycle** — the accelerated debug day/night (`GameHoursPerMinute`).
+
+`UpdateWorldClock` (Program.LightProbe.cs, beside the resolve — it is CORE,
+same as `UpdateExteriorLighting`) writes `WorldAtmosphere.TimeOfDayHours` once
+per frame, before the Light.dbc resolve consumes it, so **both lighting modes**
+(MSUI raw and Parity's dnc.db curve) light the same instant. The DevTools HUD
+slider / Noon–Sunset–Night buttons and vantage restores act through a
+transient **dev pin** (`_devTimePin`): the clock freezes at the chosen hour
+without touching the persisted preference, and "Resume clock" hands the world
+back to the source.
 
 ---
 
@@ -313,7 +410,17 @@ can be pasted into a plan instead of screenshotted.
   and the `LightParams` alphas now reach `LiquidRenderer` through
   `WorldAtmosphere.SetAuthoredWater`, on the same `UseAuthoredData` gate as the
   sky. PLAN_12 §7 is the test protocol and §4 H4 records why the river pair is
-  suspect.
+  suspect. **More suspect since 2026-08-12** (§2.3): noggit/wowdev put the water
+  colours at bands **14–17**, one past ours, and the decoded values agree —
+  band 16 is a murky river green `(0.31,0.36,0.08)` where band 15 (our "river
+  close") is a deep ocean blue. Not touched in the lighting-mode pass (water
+  rides its own switch); flagged for its own pass.
+- **The dnc.db sun arc is unwired.** `World\dnc.db` `DayX/Y/Z` is the vanilla
+  client's authored sun direction per hour (X pinned at 0.7, Y/Z rotating). Both
+  lighting modes still use the invented `SunDirectionAt` arc; the per-mode seam
+  (`SunDirectionFor`) exists, the dnc arc's mapping into our world space does
+  not. Same for the dnc grey day/ambient/fog colour ramps — only the intensity
+  curve is consumed (§4.2).
 - **Band heights unverified.** §4's three stops are guesses until a real-client
   capture exists. This is the single most likely reason the sky still looks off.
 - **No `refs/` capture.** PLAN_09 §7 steps 6 is unrun; `refs/` holds only a
