@@ -385,4 +385,10 @@ public enum Op : ushort
     SMSG_SUI_PROXY               = 0x0341,
     SMSG_SUI_SNAPSHOT            = 0x0342,
     CMSG_SUI_CAM                 = 0x0343,
+    CMSG_SUI_ZONE_INTEL          = 0x0344,
+    SMSG_SUI_ZONE_INTEL          = 0x0345,
+    CMSG_SUI_RTS_STATE           = 0x0346,
+    SMSG_SUI_RTS_STATE           = 0x0347,
+    CMSG_SUI_RTS_ACTION          = 0x0348,
+    SMSG_SUI_RTS_ACTION_RESULT   = 0x0349,
 }

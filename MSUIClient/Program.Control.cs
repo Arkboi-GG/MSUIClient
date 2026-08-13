@@ -66,6 +66,9 @@ public sealed partial class GameLoop
         if (_freeView == up) return;
         _freeView = up;
         _freeViewExitRequested = false;
+        // A vanilla world map left open would hijack the whole HUD via its
+        // fullscreen early-return; the free view has its own map (M → commander).
+        if (up) _worldMapOpen = false;
         // Force the next heartbeat: on the way up it rebuilds the eye the possess tore down,
         // and on the way down this IS the notification.
         _freecamCamSentAt = 0;
@@ -800,6 +803,7 @@ public sealed partial class GameLoop
             _freecamMarqueeConsumedClick = false;
             _freecamSelection.Clear();
             ClearRtsWaypointChain();
+            _commanderMapOpen = false;      // the commander map is a free-view surface only
             _freecamPanAt = 0;
             if (_controller is not null)
             {
@@ -831,8 +835,12 @@ public sealed partial class GameLoop
         // Unlimited height — the orbit boom's MaxDistance no longer caps the view.
         // Steps scale with altitude like the edge pan, and go through FlyMove so
         // the wheel cannot ghost through what the keys cannot.
+        // While the commander map is up the mouse belongs to the map: no rig
+        // wheel-fly, no edge pan, no marquee. The heartbeat below keeps running —
+        // the map's click-to-fly depends on it (TakeFreeFlightScroll still runs
+        // so a wheel tick over the map is consumed, not banked for landing).
         float wheel = _window.TakeFreeFlightScroll();
-        if (wheel != 0f && _controller is not null)
+        if (wheel != 0f && !_commanderMapOpen && _controller is not null)
         {
             float altitude = 10f;
             if (_terrain?.SampleHeight(_controller.Position.X, _controller.Position.Y) is float floor)
@@ -841,7 +849,7 @@ public sealed partial class GameLoop
             _controller.FlyMove(_window.Camera.Forward * (wheel * step));
         }
 
-        UpdateFreeCamEdgePan();
+        if (!_commanderMapOpen) UpdateFreeCamEdgePan();
         UpdateRtsWaypointProgress();
 
         // Keep the server's streaming eye under the camera: heartbeat every 2 s, and
@@ -864,7 +872,7 @@ public sealed partial class GameLoop
         bool leftDown = _window.MouseLeftDown;
         Vector2 mouse = _window.MousePosition;
 
-        if (leftDown && _freecamDragOrigin is null &&
+        if (leftDown && _freecamDragOrigin is null && !_commanderMapOpen &&
             !_window.MouseCaptured && !ImGui.GetIO().WantCaptureMouse)
             _freecamDragOrigin = mouse;
 

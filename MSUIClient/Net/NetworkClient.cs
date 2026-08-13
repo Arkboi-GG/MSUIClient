@@ -262,6 +262,10 @@ public sealed class NetworkClient : IDisposable
         InWorld(s => s.SuiOrder(orderType, subjects, targetGuid, x, y, z));
     public bool SuiCam(float x, float y, float z, bool active = true) =>
         InWorld(s => s.SuiCam(x, y, z, active));
+    public bool SuiZoneIntel() => InWorld(s => s.SuiZoneIntel());
+    public bool SuiRtsState() => InWorld(s => s.SuiRtsState());
+    public bool SuiRtsAction(byte action, ulong subjectGuid) =>
+        InWorld(s => s.SuiRtsAction(action, subjectGuid));
     public void SetActiveMover(ulong guid) { try { _session?.SetActiveMover(guid); } catch { } }
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>

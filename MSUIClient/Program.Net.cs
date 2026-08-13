@@ -677,6 +677,15 @@ public sealed partial class GameLoop
                     case Op.SMSG_SUI_SNAPSHOT:
                         ApplySuiSnapshot(body);
                         break;
+                    case Op.SMSG_SUI_ZONE_INTEL:
+                        ApplySuiZoneIntel(body);
+                        break;
+                    case Op.SMSG_SUI_RTS_STATE:
+                        ApplySuiRtsState(body);
+                        break;
+                    case Op.SMSG_SUI_RTS_ACTION_RESULT:
+                        ApplySuiRtsActionResult(body);
+                        break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
                         ApplyAuraDuration(body);
                         break;

@@ -123,6 +123,15 @@ public sealed partial class GameLoop
         try
         {
             BakeDirtyPortraits();
+            // The commander map is a full command surface: HUD, free-cam overlays
+            // and banner are all suppressed under it, same rule as the world map.
+            // Unlike DrawWorldMapFrame it must not require the player ENTITY —
+            // in the free view the own character may be unstreamed far away.
+            if (_commanderMapOpen && _freeView)
+            {
+                DrawCommanderMapFrame();
+                return;
+            }
             // WorldMapFrame is a FULLSCREEN frame in the 1.12 FrameXML.  Nothing from
             // the ordinary HUD is allowed to render over it.
             if (_worldMapOpen)

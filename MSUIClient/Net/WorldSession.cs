@@ -305,6 +305,31 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_CAM, w.ToArray());
     }
 
+    /// <summary>Ask for the commander map's per-zone bots/players census (SuperUI extension).</summary>
+    public void SuiZoneIntel()
+    {
+        var w = new PacketWriter(1);
+        w.WriteU8(0);                 // flags, reserved
+        SendPacket((ushort)Op.CMSG_SUI_ZONE_INTEL, w.ToArray());
+    }
+
+    /// <summary>Ask for the tier-2 RTS worldstate snapshot (mode, honor pools, heroes...).</summary>
+    public void SuiRtsState()
+    {
+        var w = new PacketWriter(1);
+        w.WriteU8(0);                 // flags, reserved
+        SendPacket((ushort)Op.CMSG_SUI_RTS_STATE, w.ToArray());
+    }
+
+    /// <summary>RTS action: 1 hero declare / 2 upgrade / 3 revive (answered by SMSG_SUI_RTS_ACTION_RESULT).</summary>
+    public void SuiRtsAction(byte action, ulong subjectGuid)
+    {
+        var w = new PacketWriter(9);
+        w.WriteU8(action);
+        w.WriteU64(subjectGuid);
+        SendPacket((ushort)Op.CMSG_SUI_RTS_ACTION, w.ToArray());
+    }
+
     /// <summary>Acknowledge SMSG_TRIGGER_CINEMATIC as an immediate ESC-style skip.</summary>
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);

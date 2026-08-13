@@ -18,7 +18,12 @@ public sealed partial class GameLoop
     {
         bool down = BindingDown(GameBinding.OpenWorldMap);
         if (down && !_worldMapKeyWasDown && !typing && _net is { IsInWorld: true })
-            _worldMapOpen = !_worldMapOpen;
+        {
+            // In the free view the same binding opens the RTS commander map; the
+            // vanilla map stays exactly what it always was everywhere else.
+            if (_freeView) ToggleCommanderMap();
+            else _worldMapOpen = !_worldMapOpen;
+        }
         _worldMapKeyWasDown = down;
     }
 

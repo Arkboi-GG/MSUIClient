@@ -1,4 +1,4 @@
-# CRPG/RTS Mode — WIP (updated 2026-08-11)
+# CRPG/RTS Mode — WIP (updated 2026-08-12)
 
 > **STATUS: CORE LOOP OWNER-VERIFIED IN PLAY (2026-08-11).** Possession +
 > movement, party follow, bot bags + character sheet, free-view collision camera
@@ -43,12 +43,311 @@ Open items going into the next session:
    flows a server spline on the own character (charge-type effects) can still
    wedge the movement-blocking flag (round 11's clears cover only SUI paths).
 
+## 2026-08-12 — RTS phase R1 BUILT (foundation & ruleset; both sides compile)
+
+⚠ **WIRE CHANGE — deploy together.** New opcodes 838–841 (`CMSG/SMSG_SUI_RTS_STATE`,
+`CMSG_SUI_RTS_ACTION`/`SMSG_SUI_RTS_ACTION_RESULT`), `NUM_MSG_TYPES` → 842, and the
+zone-intel zone row grew 8→9 bytes (+controller, 0 until R3). The pending server
+binary now carries: commander map (836/837) + worldstate scaffold + R1. Client is
+built to match. Nothing installed yet — owner's `make install` + screen restart.
+
+The full phased plan (R1–R5) is approved and recorded (plan file + this doc's
+Parts 3–5). R1 delivers: `SuiRts` module (`src/game/SuperUiBots/SuiRts.{h,cpp}`) —
+boot-time ruleset from `characters.superui_worldstate` KV + `superui_rules_*`
+tables (all DDL idempotent, vanilla DBs boot clean), rate overrides via
+`sWorld.setConfig` (XP/drop/money read live), per-faction bot caps enforced in
+`PlayerBotMgr::AddBot`, faction honor-pool state (atomics + 30 s write-behind +
+shutdown flush), the RTS state/action wire (stride-versioned blocks; action
+answers "unsupported" until R2), `.sui rts status|reload`, and the boot-order fix
+(worldstate+ruleset load moved BEFORE InitZoneScripts). Client: parses RTS state,
+piggybacks the request on the commander-map 5 s cadence, shows "RTS MATCH · Honor
+N" in the header, reads the zone-row controller byte. Key list + wire spec:
+`docs/SUI_WIRE_PROTOCOL.md` on the box (new ruleset appendix — the single source
+the R5.1 web registry must mirror).
+
+R1 verification (owner, after joint deploy): (1) vanilla boot → log
+"[SUI-RTS] vanilla worldstate: all tier-2 modules inert", `.sui rts status` all
+off, commander map header shows no RTS tag; (2) seed
+`REPLACE INTO characters.superui_worldstate VALUES ('mode','rts'),('rate.xp_kill','35');`
++ restart → kill a mob, XP ~35x, log shows the override; (3) add
+`('bots.cap.horde','10')` → horde fleet stops at 10; (4) `.sui worldstate vanilla`
++ `.sui rts reload` flips it all inert live.
+
+## 2026-08-12 — TWO-TIER RULE (owner, binding) + worldstate scaffold
+
+The mode splits in two, and the boundary is binding:
+
+- **Tier 1 — vanilla-valid CRPG/RTS** (possession, free view, orders, links,
+  bot bars, **commander map + zone census**): extensions of rules that are
+  legal in the OG MMO world. ALWAYS available, in the normal world too. Never
+  gate these on the worldstate.
+- **Tier 2 — match mechanics** (XP scaling, hub captures, hero units,
+  non-respawning faction commanders, win conditions): fundamentally CHANGE the
+  game. One core, no second binary — but tier-2 code must be **inert unless
+  the loaded save says otherwise**. The owner's flow: shut down core, the
+  MangosSuperUI web app stows the vanilla world and loads the RTS worldstate
+  (DB snapshot + config); the rules travel WITH the save.
+
+Scaffold (built on the box, in the same pending binary): characters-DB table
+`superui_worldstate` (created idempotently at boot; the ROW `mode='rts'` only
+ships inside an RTS save — the swap machinery owns writing it) →
+`SuiPossess::LoadWorldState()` at boot (logs `[SUI] worldstate: ...`) →
+`SuiPossess::RtsWorldState()` predicate. `.sui worldstate [rts|vanilla]` = GM
+inspection + runtime-only test override. **BINDING RULE: no tier-2 mechanic
+ships without a `RtsWorldState()` gate.** Nothing consumes it yet — heroes/
+match work will be its first customers. To hand-flip a test world:
+`REPLACE INTO characters.superui_worldstate VALUES ('mode','rts');` + restart.
+
+## 2026-08-12 — Commander map v1 BUILT (Part 1 of the future design below)
+
+⚠ **WIRE CHANGE — client and server deploy TOGETHER** (new opcode pair; a new
+client against the live pre-836 binary gets kicked on the first M in free view).
+Server compiled on the box; `make install` + screen restart is the owner's call.
+Client compiled clean. Neither has been seen in play yet.
+
+Owner decisions taken this session (interaction model, supersedes "TBD click
+actions" for v1): continent view hover = intel; **clicking a zone ZOOMS into a
+zone map showing your own units; clicking a unit exits the map and parks the
+free-view camera ~25 yd above it** (ground click = fly there at ~60 yd, map
+stays open). Standard 1.12 zone granularity. Cross-continent clicks are
+DISABLED with a notice — hard server fact: `Camera::SetView` refuses a
+viewpoint on another map, so the streaming eye can never leave the character's
+continent; phase 1.5 (teleport the character under the view) is designed in the
+plan but deferred pending an owner decision on moving the body.
+
+Wire: `CMSG_SUI_ZONE_INTEL` 836 / `SMSG_SUI_ZONE_INTEL` 837 (`NUM_MSG_TYPES`
+→ 838). Client polls every ~5 s while the map is open; reply = per-zone
+{bots, players} census (all maps, sparse) + the asker's own forces with live
+positions (self + group — the client can't see unstreamed members). Both blocks
+carry an explicit row stride so future servers can grow rows without a version
+bump. Full spec: `docs/SUI_WIRE_PROTOCOL.md` on the box (also gained the
+missing CMSG_SUI_CAM section).
+
+Client: new `Program.CommanderMap.cs` (state, census cache, fly-to +
+terrain-settle latch, all drawing); M routing branches on `_freeView` in
+`UpdateWorldMapInput`; draw seam above the world map's in `DrawCombatHud`; Esc
+rides the existing WorldMap escape layer; free-view edge pan / wheel-fly /
+marquee are gated off while the map is up (cam heartbeat deliberately keeps
+running — click-to-fly rides it); leaving the free view force-closes the map,
+entering it force-closes a leftover vanilla map. Fly-to = rig `Teleport` +
+`_freecamCamSentAt = 0`; the eye follows on the next heartbeat and far same-map
+jumps are safe (the eye is an active object — destination grid force-loads).
+
+Deferred/known-cut (v1): zone hover rects are WorldMapArea art rects
+(overlapping — smallest-area wins; coastline overrun accepted), no fog-of-war,
+GM-invisible characters count as players, faction breakdown not shown.
+
+**Hero units (Part 2) are NOT started.** Direction + groundwork trace (core
+hooks: aura scale + `UpdateModelData`, `DoneTotalMod` multiplier, SpellModifier
+hero spells, `Unit::Kill` XP hook, first custom DB table) live in the approved
+plan; owner reframed heroes as part of a MATCH ruleset — MangosSuperUI DB/core
+swap, ~20x XP, 10–30 h matches, win = kill the enemy faction's 4 non-respawning
+commanders.
+
 ## What this is
 
 CRPG/RTS hybrid on top of the SuperUI possession stack: possess any party bot
 (Ctrl+Tab / Alt+click portrait / **click a toon in the free view**), Ctrl+F for a
 free RTS camera with marquee selection and right-click orders, Divinity-style
 chain links on the party portraits, layered per-class/per-bot skillbars.
+
+## Future design — Azeroth commander map + hero units (owner direction, 2026-08-12)
+
+This is the next strategic layer: a proper Azeroth-scale commander view plus
+Warcraft-style hero units that exist and progress inside the live world. The
+requirements below are owner direction; items explicitly marked TBD are open
+design decisions, not permission to silently choose a different design.
+
+### Part 1 — strategic commander map in detached mode
+
+- While the player is in `Ctrl+F` / detached free-view mode, pressing `M` must
+  open a purpose-built **RTS commander map**, not the standard foggy world map.
+- The mental model is **Total War at Azeroth scale**: the world is presented as
+  a set of strategic, hoverable zones rather than only as the ordinary MMO map.
+- Hovering a zone must expose live strategic intelligence. The baseline required
+  information is the number of **bots** and **players** currently in that zone.
+  The zone-intel model should leave room for additional information as the
+  strategic layer develops.
+- This needs to be an information/command surface, not merely a visual reskin of
+  the existing map. Exact click actions and cross-zone command capabilities are
+  still TBD.
+- The normal `M` behavior outside detached mode is unchanged unless separately
+  redesigned later.
+
+TBD: zone boundaries/granularity, faction breakdown and information visibility,
+fog-of-war rules, refresh cadence, which additional zone facts are shown, and
+what selecting/clicking a zone allows the commander to do.
+
+### Part 2 — Warcraft RTS hero units inside the world
+
+Add a hero-unit progression system across both the vmangos server C++ and this
+client. Most authority and gameplay logic should live on the server, with the
+client providing the required presentation, feedback, and control surfaces.
+
+Core direction:
+
+- Each faction can have up to **N active heroes**. `N` is deliberately TBD.
+- Heroes progress through **Hero Level 1–5**. The final in-world name for this
+  progression is TBD; **General** is a current naming candidate.
+- Hero XP comes from a curated, TBD list of important enemies in the live world.
+  Candidates include world bosses, rares, selected NPCs in towns, and major
+  figures in faction cities.
+- Broader overworld faction warfare also contributes a portion of Hero XP:
+  qualifying kills against the opposing faction count whether the defeated
+  combatant is an NPC, bot, or player. The contribution/distribution formula is
+  TBD.
+- A hero's model scales visibly with Hero Level, using this intended ladder:
+
+| Hero Level | Model scale | Ability damage scale |
+|---:|---:|---:|
+| 1 | 1.2x | 1.2x |
+| 2 | 1.4x | 1.4x |
+| 3 | 1.6x | 1.6x |
+| 4 | 1.8x | 1.8x |
+| 5 | 2.0x | 2.0x |
+
+- All damaging abilities receive proportional damage scaling with Hero Level.
+- Each supported class also gets distinctive **hero abilities** made by
+  modifying existing spells. The supported class list and exact modifications
+  are TBD. Illustrative direction: a Hero Level 5 mage's Frost Nova could have
+  **2x radius with a guaranteed freeze**.
+
+TBD: hero-slot cap `N`, final rank terminology, hero eligibility/promotion,
+supported classes, the curated XP-target list, XP values and faction-war share,
+how shared overworld XP is assigned among heroes, persistence/death/replacement
+rules, and the exact hero-spell package and tuning for each class.
+
+### Part 3 — the RTS ruleset is DATA, tunable from SuperUI (owner: CRITICAL; 2026-08-12)
+
+Engineering shape for every tier-2 mechanic — this is what "semi-modular" means:
+
+1. **Scalar knobs** live as key/value rows in `characters.superui_worldstate`
+   (already scaffolded): `mode`, `xp_mult`, `hero_cap`, `bot_cap_per_faction`,
+   `resource_rate`, `ruleset_version`, … Core reads ONCE at boot into a
+   validated immutable `RtsRuleset` (bad/missing → logged default, never a
+   crash). The MangosSuperUI web app gets a ruleset editor page that edits
+   these rows on the stowed RTS save.
+2. **List-shaped config** gets sibling `superui_*` tables in the characters DB
+   (`superui_dungeon_objectives`, `superui_hero_spells`, later
+   `superui_resources_*`): same save, same swap, same editor.
+3. **MODULE RULE**: each mechanic = config table(s) + loader + core hooks
+   gated on `RtsWorldState()` AND config presence. No rows = that module is
+   inert even in RTS mode. A match can run any subset of the mechanics.
+4. **Bend existing knobs before writing code**: at boot an RTS worldstate
+   overrides the stock `Rate.XP.*` / `Rate.Drop.*` world rates from the
+   ruleset (`sWorld.setRate`), so scalar multipliers reuse all existing rate
+   plumbing. New code only where semantics are new (e.g. guaranteed
+   multi-roll boss loot is a loot-fill hook, not a rate).
+
+Owner examples mapped: 30x XP = one row + rate override. "Each Deadmines boss
+drops ~10x guaranteed items from the pool" = loot-fill hook rolling the
+EXISTING reference loot pool N times with guarantee semantics for creatures
+matching a loot-rule row ("lootified"). Hero/bot caps = scalar rows read by
+the hero module and PlayerBotMgr. Resource collection = reserved as its own
+module, NOT designed yet (owner will lay it out; "breaks down into its own
+entire thing").
+
+### Part 4 — dungeons as strategic objectives (owner direction, 2026-08-12)
+
+- Different dungeons grant different **faction-wide buffs**; dungeons are
+  major map objectives.
+- Clearing requires a REAL group run. **First faction to clear possesses the
+  buff**; it holds until THE OTHER faction clears the dungeon (no decay). Only
+  way to flip it.
+- The controlling faction fights at the **entrance, RTS-style, from outside**
+  — and is **locked out of entering while it controls** ("you can only be
+  inside if you don't actively control the dungeon"). Enforcement point: the
+  instance-entry / AreaTrigger check — one clean choke point.
+- **One live run at a time** per dungeon.
+- Mechanics sketch: clear detection = final-boss kill (config row per dungeon:
+  boss entry + buff spell id + loot rule) at the same `Unit::Kill` seam the
+  hero XP uses; buff = aura on every faction member, applied on login + on
+  control flip; control state persisted in `superui_dungeon_control` (part of
+  the save — a match survives restart).
+- **Run lock (owner decision 2026-08-12): one live run PER FACTION** per
+  dungeon. With nobody controlling (match start), both factions can be inside
+  simultaneously racing to the final boss; the controlling faction is locked
+  out of ENTERING entirely. Edge to design later: control flips while the
+  losing faction has a group mid-run — their run presumably continues (they
+  can immediately re-take), but define it explicitly before building.
+- **Ruleset tunability (owner decision 2026-08-12): BOOT-TIME ONLY.** The
+  ruleset is read once when the worldstate loads; changing knobs = edit the
+  save in SuperUI + restart. No hot-reload paths to keep consistent.
+- TBD: exact per-dungeon buffs, whether outside control confers anything
+  beyond the lockout (guards, visibility).
+
+### Part 5 — the RTS loop & economy (owner notes reduced, 2026-08-12)
+
+**THE LOOP: Fight → Honor → Heroes. Hold → Capacity → Scale. Farm the
+accelerated world → Levels & Gear → Strength. Converge on capitals → kill the
+enemy's 4 commanders → win.**
+
+Design philosophy (owner): reuse the existing WoW world and systems as the RTS
+economy; player focus = expansion, army building, leveling, gearing, heroes,
+fighting — NOT resource micromanagement. Macro only: it's about what you
+control and what that gives.
+
+Three axes, deliberately different KINDS of things:
+
+| Axis | Kind | Source | Buys |
+|---|---|---|---|
+| Honor (Tier 0) | currency | ONLY combat vs the enemy faction (bots/NPCs/players; weighted — commanders/bosses worth more, values TBD) | hero declare / upgrade / equip / outfit (maybe ability upgrades, upkeep) |
+| Territory | capacity | capturing hubs → zone control | hero SLOTS (every X zones = +1; e.g. one-per-class roster ≈ 14 zones), resource allotments, strategic position |
+| Skins / Ores / Herbs | throughput | ZONE ALLOTMENTS — each controlled zone grants a config allotment ("2 herb + 1 ore"); NO node-farming, no worker micro | sinks TBD (see open questions) |
+| The world | progression engine | 30–40x XP (target: L1→60 in ~10 h), currency/loot multipliers, 10x lootified dungeon bosses | levels, gear, money — army strength |
+
+- **Capacity/currency split is load-bearing**: territory never generates
+  Honor; Honor never buys slots. Combat = hero POWER, territory = hero COUNT.
+- Bots: per-faction population cap is match config (500 / 800 / …); all bots
+  start L1 and level through the real world; leveling is a meaningful part of
+  the campaign, not instant max armies.
+- Dungeons double as army-building events (lootified 10x boss drops through
+  the existing Lootification system) AND strategic buff objectives (Part 4).
+- **Hub capture**: reuse the Battleground capture-point mechanic — flag in
+  each eligible hub; capture flips ownership, despawns enemy guards, spawns
+  own faction flags + guards; hub becomes occupying faction's territory.
+  Applies to non-capital hubs; capitals are their own category with their own
+  rules (they house the win-condition commanders).
+- Suggested unification (engineering input, not yet owner-confirmed): zone
+  control DERIVES from hub control — one mechanic, one source of truth;
+  hub-less zones are neutral ground.
+- Upkeep (input): possibly no separate upkeep economy at all — falling below
+  a slot threshold IS the pressure; needs a hero demotion rule.
+- All values are ruleset data per Part 3 (`superui_zone_allotments`,
+  `superui_honor_weights`, scalar caps/ratios/multipliers).
+
+**Decided 2026-08-12 (owner):**
+- **Allotments = STANDING SUPPLY**: held zones set the faction's live
+  throughput; lose the zone, lose the supply instantly. No banking, no
+  stockpile UX, no inflation over a long match.
+- **Bot death = TIMED RESPAWN, the vanilla way**: bots die and respawn like
+  any player (corpse/spirit-healer flow), with the AI piloting that flow
+  correctly; scale/modify the existing mechanic rather than inventing
+  attrition. Engineering note: if Honor rides the real vanilla honor system
+  (`Player::RewardHonor`), vanilla's built-in diminishing returns for
+  repeat-killing the same target is the anti-farming guard — free.
+
+- **Hero cap = AoE housing semantics (owner, 2026-08-12)**: territory OPENS
+  cap, never kills what exists. Dropping below the threshold leaves fielded
+  heroes untouched — you're over cap and simply cannot DECLARE a new hero
+  until back above it. One gate at declaration time
+  (`fielded < floor(zones / X)`), no ongoing enforcement, no demotion rule.
+  Pressure lands on REPLACEMENT: a shrinking faction keeps its veterans but
+  cannot rebuild its command without retaking ground.
+
+**Open design questions (the current agenda):**
+1. Resource SINKS: what do skins/ores/herbs supply-gate? (Input suggestion:
+   map onto existing professions — skins→leatherworking, ores→smithing,
+   herbs→alchemy; standing supply gates the faction's crafting/consumable
+   throughput.)
+2. Zone-control definition confirmation (hub-derived?) + capital city rules.
+3. Respawn tuning: timer scaling, where bots respawn when their home hub is
+   captured (graveyard control as a territory asset — AV-style — is the
+   vanilla-native candidate), and whether death carries any cost at all
+   (durability is the vanilla-native candidate).
+4. Hero death rules (what removes a hero — killed in battle? permanently?),
+   now the load-bearing question since cap pressure lands on replacement.
+5. Exact Honor weights, allotment tables, slot ratio — balance data, later.
 
 ## The three codebases (all three matter — none is optional)
 
@@ -58,9 +357,10 @@ chain links on the party portraits, layered per-class/per-bot skillbars.
 | Server C++ | `wowvmangos@192.168.0.2:~/vmangos`, branch `development` (no feature branches — owner rule: work directly on it) | possession, orders, follow/formation, streaming eye |
 | Brain C# | `repos/MangosSuperUI` (deployed at `/opt/mangossuperui` on the box) | fleet goals; STANDS DOWN whenever `pparty=1` |
 
-Server access (from this machine): `ssh -i MSUIClient/local-credentials/vmangos_ed25519
-wowvmangos@192.168.0.2` (key lives IN THIS REPO, one level deeper than you'd guess;
-`~/.ssh/id_ed25519_msui_vmangos_travel_20260731` is the travel laptop's key).
+Server access: `ssh -i ~/.ssh/id_ed25519_msui_vmangos_travel_20260731
+wowvmangos@192.168.0.2` — on THIS machine (2026-08-12) the repo
+`MSUIClient/local-credentials/vmangos_ed25519` path does NOT exist and the
+travel key is the working one; on the desktop the repo key may still apply.
 Build: `cd ~/vmangos/build && cmake --build . -j$(nproc)`. Deploy (owner runs it):
 `make install`, then restart the **screen session** — mangosd is NOT under systemd:
 `/usr/bin/SCREEN -DmS mangosd ~/vmangos/run/bin/mangosd`. Server logs:

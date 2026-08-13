@@ -1595,6 +1595,7 @@ public sealed partial class GameLoop : IDisposable
         UpdateTargetBinding(typing);
         UpdateNameplateInput(typing);
         UpdateControlInput(typing);
+        UpdateCommanderMap();
         UpdateRunBinding(typing);
         UpdateSheathInput(typing);
         UpdatePortraitLabInput(typing);

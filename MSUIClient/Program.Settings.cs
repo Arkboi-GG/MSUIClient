@@ -154,7 +154,7 @@ public sealed partial class GameLoop
                 _settingsOpen && _menuPage != MenuPage.GameMenu,
                 _settingsOpen && _menuPage == MenuPage.GameMenu,
                 _splitContainer != InventoryUiLaw.EmptyContainer,
-                _worldMapOpen,
+                _worldMapOpen || _commanderMapOpen,
                 _openMailId != 0,
                 _net is { IsInWorld: true } && (_autoRepeatSpell != 0 ||
                     _pendingCastSpell != 0 ||
@@ -181,6 +181,7 @@ public sealed partial class GameLoop
                     break;
                 case GameMenuEscapeLayer.WorldMap:
                     _worldMapOpen = false;
+                    _commanderMapOpen = false;
                     break;
                 case GameMenuEscapeLayer.OpenMail:
                     CloseOpenMail(playSound: true, autoDelete: true);
@@ -210,6 +211,7 @@ public sealed partial class GameLoop
         _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipText is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
+        _commanderMapOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
         _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
@@ -234,6 +236,7 @@ public sealed partial class GameLoop
         if (_trainer is not null) { _trainer = null; return true; }
         if (_gameObjectGuid != 0) { _gameObjectGuid = 0; return true; }
         if (_worldMapOpen) { _worldMapOpen = false; return true; }
+        if (_commanderMapOpen) { _commanderMapOpen = false; return true; }
         if (_macroOpen) { _macroOpen = false; return true; }
         if (_helpOpen) { _helpOpen = false; return true; }
         if (_socialOpen) { _socialOpen = false; return true; }
