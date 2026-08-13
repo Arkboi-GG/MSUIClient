@@ -451,10 +451,77 @@ vanilla-style creep (~one cell per 80 s). It applies to magma on BOTH paths
 untouched. Verified live with the probe: per-1.1 s pixel change on the Blackrock
 lake went from mean 5–7 (under 1.5% of pixels) to mean 24–27 (30–36%).
 
-The authored `s/t` are still discarded at parse (`WmoReader.cs` MLIQ reads
-skip bytes 0–3 of each vertex). Adopting them — a flow-warped, hand-authored
-mapping, not a uniform scale — is the remaining fidelity step, and needs a
-UV attribute in the liquid vertex format plus the MCLQ equivalent for ADT.
+~~The authored `s/t` are still discarded at parse~~ — **ADOPTED 2026-08-13,
+see below.** WMO magma now samples Blizzard's per-vertex MLIQ UVs; ADT magma
+keeps the planar 25-yd mapping above (MCLQ has no authored magma UVs to adopt).
+
+#### 2026-08-13 — owner report against a real 1.12 reference shot (Blackrock,
+#### the outer lake around the central spire, near the LBRS balcony)
+
+Two observations: (1) our lava "isn't high enough" relative to the stone
+ledges/stairs; (2) real 1.12 shows large swirls of lava visibly dragged
+around the central rock — which is the authored per-vertex UV mapping this
+section already flagged as discarded.
+
+**HEIGHT — verified end-to-end, no pipeline bug found.** Every layer was
+checked against bytes (`tools/mpqpy`, scripts in the session scratchpad):
+
+* The owner's lake is **group 38, 'Blackrock Spire'** (55×82 verts, the only
+  MLIQ under the central spire; the LBRS balcony at (-7527, -1226, ~181)
+  sits on its edge). Authored surface: **flat at local −67.5 → world 168.40**
+  (3,039 of 3,376 live verts), rim bumps to −60.9 → 175.0 at the lava
+  inflows, `CornerZ` = min = −68.609 → 167.29. Group 43 (the second lake,
+  390 yd away): flat −97.629 → **138.27**.
+* **The vert layout is right**: magma SMOMVert is `int16 s, int16 t, float
+  height` — height at +4, same offset as the water layout, confirmed by the
+  parsed heights landing exactly on the CornerZ..0 band while bytes 0–3 form
+  smooth int16 gradients (the UVs).
+* **`patch.MPQ` DOES override `Blackrock_038/043.wmo`** (159 AZ_Blackrock
+  files — the base-archive-only habit of tools/mpqpy README is NOT safe for
+  this WMO in general), but the patched MLIQ is byte-identical where it
+  matters: same grids, corners, heights, tile masks.
+* **The runtime emits exactly the authored numbers.** New instrument:
+  `MSUI_WMO_LIQUID_TRACE=1` logs every meshed WMO surface. Live at Blackrock:
+  `blackrock.wmo[38] … worldZ 167.29..175.00`, `[43] … worldZ 138.27`; both
+  meshed, both drawn (verified by screenshot from the shore ledge at 172.2).
+  Liquid and walls share `instance.Transform`, so a liquid-only Z offset is
+  structurally impossible.
+* **The static opaque lava-plane batch** (BURNINGSTEPPSLAVA02, flat tris at
+  local −100.2 → world 135.7) exists **only under group 43's lake**, 2.57 yd
+  below its MLIQ — and the drawn MLIQ covers it. There is NO static plane
+  under the big lake, so "we render only the lower plane" is ruled out too.
+
+Conclusion: the surface is at the authored height, 3.6 yd below the shore
+walkway (172.2) and ~13 yd below the balcony. The most plausible source of
+the "too low" reading was the *mapping*, not the geometry: with planar UVs
+the bright boil cells ignore the shoreline, so dark crust texels sit against
+the shore rock and the lava's visible edge reads low and dead. The authored
+UVs (below) hug the flow around the island and the shore, which is what the
+reference shot shows. If the report survives this change, re-measure with
+the trace env var before touching the transform — the numbers above are the
+ground truth to compare against.
+
+#### 2026-08-13 — authored MLIQ magma UVs adopted (the swirl)
+
+* **Parse** (`WmoReader.cs`): the 4-byte union ahead of each height is kept
+  as `WmoLiquid.VertexS/VertexT` (int16 pairs). Meaningful ONLY for magma —
+  for water/ocean/slime those bytes are flow data, and every consumer gates
+  on the substance.
+* **Scale, measured not assumed**: with UV = raw/255 per repeat, group 38
+  authors one repeat per **~35–175 yd** (median |grad|: 95 yd along u, 35 yd
+  along v) and group 43 per ~8–30 yd — anisotropic, warped along the flow
+  direction. That brackets the previously-recorded 35–200 yd band and the
+  25-yd planar compromise, so /255 is the accepted divisor.
+* **Carry** (`WmoRenderer.WmoLiquidSurface.AuthoredUv`) → **WMO-only vertex
+  format** (`LiquidRenderer`): the WMO mesh grew to 7 floats (pos, type,
+  depth, u, v) on attribute 3; the ADT path keeps its 5-float format and
+  never enables the attribute, and a `uWmoAuthoredUv` uniform is 0 for the
+  whole ADT loop — that pass stays bit-identical by construction.
+* **Shader** (`water.frag` magma branch only):
+  `tuv = (uWmoAuthoredUv > 0.5) ? vLiquidUv + creep : tuv*0.25 + creep` with
+  the same `creep = uTime*vec2(0.012, 0.007)` on both, so ADT and WMO magma
+  keep drifting at the same UV rate. Water/ocean/slime are untouched on both
+  paths (their MLIQ "UVs" would be reinterpreted flow bytes — garbage).
 
 ### 7.5 How to test it
 
