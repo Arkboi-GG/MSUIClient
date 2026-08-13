@@ -295,6 +295,15 @@ public sealed class DoodadRenderer : IDisposable
         public string Path = "";
 
         /// <summary>
+        /// Exact server-gameobject owner for dynamic placements; zero for ADT/WMO
+        /// scenery. ParticleRenderer carries this through to its pool identity so
+        /// two summoned effects at the same rounded position never share state,
+        /// and so procedural GameObject portal surfaces are never inferred from a
+        /// generic model-space emitter.
+        /// </summary>
+        public ulong DynamicGuid;
+
+        /// <summary>
         /// Baked interior light for THIS placement. rgb is MODD.color / 255,
         /// a is how much daylight to use instead (0 interior, 1 exterior).
         ///
@@ -442,7 +451,7 @@ public sealed class DoodadRenderer : IDisposable
     /// </summary>
     public IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
                         int EmitterIndex, string TexturePath, double AnimationTime, int AnimationId,
-                        Vector3? LocalOrigin, Quaternion? LocalRotation)>
+                        Vector3? LocalOrigin, Quaternion? LocalRotation, ulong OwnerGuid)>
         EmitterInstances(Vector3 near, float radius)
     {
         float r2 = radius * radius;
@@ -459,7 +468,7 @@ public sealed class DoodadRenderer : IDisposable
                     string tex = e < model.EmitterTexturePaths.Length
                         ? model.EmitterTexturePaths[e] : "";
                     yield return (inst.Path, inst.Transform, model.Emitters[e], e, tex, double.NaN, 0,
-                        null, null);
+                        null, null, inst.DynamicGuid);
                 }
             }
         }
@@ -667,6 +676,19 @@ public sealed class DoodadRenderer : IDisposable
     private readonly Dictionary<string, float> _appearStartByKey = new(StringComparer.Ordinal);
     private const int AppearKeyCap = 262144;
 
+    /// <summary>
+    /// Start a new opaque world residency epoch. Ring rebuilds deliberately
+    /// preserve fade keys; renderer reuse for a different prepared portal must
+    /// clear them so historic active-world timestamps cannot hold candidate
+    /// doodads permanently transparent.
+    /// </summary>
+    public void BeginOpaqueWorldEpoch(float nowSeconds = 0f)
+    {
+        _appearStartByKey.Clear();
+        NowSeconds = nowSeconds;
+        WorldShown = false;
+    }
+
     /// <summary>Resolve (and remember) the appear-fade start for a placement key.
     /// 0 means "opaque, no fade". Only ever fades a genuinely new placement that
     /// first appears after the world is on screen.</summary>
@@ -870,11 +892,13 @@ public sealed class DoodadRenderer : IDisposable
     }
 
     /// <summary>
-    /// Start CPU preparation on a worker, then finalize at most one texture or
-    /// mesh on the render thread. MPQ extraction, M2 parsing and BLP decoding
-    /// never consume a movement frame; only OpenGL work remains here.
+    /// Start CPU preparation on workers, then advance ready texture/mesh jobs
+    /// on the render thread. MPQ extraction, M2 parsing and BLP decoding never
+    /// consume a movement frame; callers may cap ready-job adoption when this
+    /// is background retirement rather than an opaque loading phase.
     /// </summary>
-    public bool WarmNextPreload(bool waitForWorker = false)
+    public bool WarmNextPreload(
+        bool waitForWorker = false, int maxReadyJobs = int.MaxValue)
     {
         // Keep the worker pool saturated: start prepares until MaxConcurrentPreloads
         // are in flight. THIS is the parallelism - PrepareModel (MPQ read + M2 parse
@@ -903,13 +927,17 @@ public sealed class DoodadRenderer : IDisposable
         // GPU upload (cheap - keeps the upload thread fed) and, once the upload lands,
         // builds + caches the model. The GL build is the only main-thread cost, a few
         // ms per model; upload throughput bounds the rest.
-        for (int i = _preloadJobs.Count - 1; i >= 0; i--)
+        int readyJobsAdvanced = 0;
+        for (int i = _preloadJobs.Count - 1;
+             i >= 0 && readyJobsAdvanced < Math.Max(0, maxReadyJobs);
+             i--)
         {
             var job = _preloadJobs[i];
             if (waitForWorker && !job.Worker.IsCompleted)
                 try { job.Worker.GetAwaiter().GetResult(); } catch { }
             if (!job.Worker.IsCompleted) continue; // still preparing on a worker thread
 
+            readyJobsAdvanced++;
             var stepTimer = System.Diagnostics.Stopwatch.StartNew();
             if (FinalizePreload(job, waitForWorker))
             {
@@ -1263,6 +1291,7 @@ public sealed class DoodadRenderer : IDisposable
             WorldMin = min,
             WorldMax = max,
             Path = modelPath,
+            DynamicGuid = key,
             AppearStart = ResolveAppearStart($"go|{key:X16}"),
         };
         list.Add(instance);
@@ -2166,7 +2195,14 @@ public sealed class DoodadRenderer : IDisposable
                 (nuint)(dst.Length * sizeof(float)), p, BufferUsageARB.StreamDraw);
     }
 
-    public unsafe void Render(Camera camera)
+    public void Render(Camera camera) => Render(camera, null);
+
+    /// <summary>
+    /// Draw props with an optional absolute-world clip plane. The caller owns
+    /// GL_CLIP_DISTANCE0 state; the no-plane overload remains the active-world
+    /// path after a prepared renderer is promoted.
+    /// </summary>
+    public unsafe void Render(Camera camera, WorldClipPlane? worldClipPlane)
     {
         long started = Stopwatch.GetTimestamp();
         DrawnLastFrame = 0;
@@ -2182,6 +2218,9 @@ public sealed class DoodadRenderer : IDisposable
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
+            ? clip.RelativeEquation(camera.Position)
+            : new Vector4(0f, 0f, 0f, 1f));
         _shader.Set("uUseInstancing", UseInstancing ? 1 : 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);

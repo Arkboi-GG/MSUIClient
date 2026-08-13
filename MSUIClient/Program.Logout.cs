@@ -125,6 +125,7 @@ public sealed partial class GameLoop
 
     private void ReturnToCharacterSelectAfterLogout()
     {
+        CancelRealPortalHandoff("logout returned to character select");
         TearDownWorldContent();
         _entities.Clear();
         _combat.Clear();

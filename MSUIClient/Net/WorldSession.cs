@@ -330,6 +330,22 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_RTS_ACTION, w.ToArray());
     }
 
+    /// <summary>Request a correlated REAL_PORTALS descriptor for a nearby portal GO.</summary>
+    public void SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
+        SuiPortalPrepare(PortalWire.Prepare(requestId, portalGuid, requestFlags));
+
+    public void SuiPortalPrepare(PortalPreparePacket packet) =>
+        SendPacket((ushort)Op.CMSG_SUI_PORTAL_PREPARE, PortalWire.BuildPrepare(packet));
+
+    /// <summary>Publish this client's result for one exact descriptor generation/revision/ticket.</summary>
+    public void SuiPortalReady(PortalLoadResult loadResult, ulong portalGuid,
+        uint spawnGeneration, uint descriptorRevision, ulong ticket) =>
+        SuiPortalReady(PortalWire.Ready(
+            loadResult, portalGuid, spawnGeneration, descriptorRevision, ticket));
+
+    public void SuiPortalReady(PortalReadyPacket packet) =>
+        SendPacket((ushort)Op.CMSG_SUI_PORTAL_READY, PortalWire.BuildReady(packet));
+
     /// <summary>Acknowledge SMSG_TRIGGER_CINEMATIC as an immediate ESC-style skip.</summary>
     public void CompleteCinematic() =>
         SendPacket((ushort)Op.CMSG_COMPLETE_CINEMATIC, ReadOnlySpan<byte>.Empty);
@@ -1108,7 +1124,12 @@ public sealed class WorldSession : IDisposable
         w.WriteCString(value); return w.ToArray();
     }
 
-    public void WorldportAck() => SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);
+    /// <summary>
+    /// Acknowledge an adopted SMSG_NEW_WORLD. Ownership belongs to the game-thread
+    /// transition; the socket reader must never call this while world state is stale.
+    /// </summary>
+    public void WorldportAck() =>
+        SendPacket((ushort)Op.CMSG_MOVE_WORLDPORT_ACK, ReadOnlySpan<byte>.Empty);
 
     /// <summary>
     /// Client half of the build-5875 same-map teleport handshake. The server's

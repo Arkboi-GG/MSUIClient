@@ -7,6 +7,7 @@ using MSUIClient.Engine;
 using MSUIClient.Engine.UI;   // WowSkin (glue login chrome)
 using MSUIClient.Net;
 using MSUIClient.World;
+using MSUIClient.World.Portals;
 using MSUIClient.World.Units;
 using MSUIClient.Formats;   // AreaTableCatalog (roster zone names) + AdtTerrainReader
 
@@ -47,6 +48,8 @@ public sealed partial class GameLoop
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
     private EnterWorldInfo? _queuedWorldEntry;        // captured at the ordered inbound NEW_WORLD boundary
+    private bool _worldportAckPending;                // only NEW_WORLD owns this; LOGIN_VERIFY_WORLD never does
+    private uint _pendingWorldportMapId;
     private long _netInbound;
     private int _netUpdatesLastFrame;
     private int _creaturesLogged;
@@ -237,9 +240,18 @@ public sealed partial class GameLoop
         // entered PumpNet with the curtain already active.
         bool loadActiveAtPumpEntry = _worldLoading;
         _wireLog.Pump();
-        if (_net is null) return;
-        if (_net.State is NetState.Failed or NetState.Disconnected)
+        if (_net is not { } net) return;
+        if (net.State is NetState.Failed or NetState.Disconnected)
         {
+            CancelRealPortalHandoff("world connection closed");
+            // A dead session is terminal to packet application. Its queue can
+            // contain a valid world boundary followed by destination updates,
+            // but there is no socket left to ACK or establish their authority.
+            if (_worldportAckPending)
+                AbortPendingWorldportAdoption("world connection closed before destination adoption");
+            else
+                net.Stop();
+            DiscardPendingNetApplicationState();
             ResetQuestSession(clearStatusStore: true);
             ResetPetActionBar();
             ResetVendor();
@@ -250,6 +262,8 @@ public sealed partial class GameLoop
             // No socket means no possession and no free view: the server's forced-release
             // ACK can never arrive to end them, so the client has to drop both itself.
             ResetSuiControl();
+            UpdatePartyInviteLifecycle();
+            return;
         }
         // StaticPopup's monotonic two-slot Advance runs even when WorldMap or another full-screen
         // owner suppresses DrawCombatHud. Keep slot time in the always-pumped lifecycle;
@@ -273,6 +287,38 @@ public sealed partial class GameLoop
             int previousMapId = _config.Start.Map;
             bool changingMaps = previousMapId != (int)enter.Map;
 
+            // Resolve the destination identity before clearing the active
+            // stores. ACKing with the old MapName is worse than refusing the
+            // transfer: the server would publish destination objects while the
+            // client renders unrelated terrain at the new coordinates.
+            MapRow? destinationMap = null;
+            if (changingMaps)
+            {
+                EnsureInstanceData();
+                destinationMap = _maps?.Get((int)enter.Map);
+                WdtFile? destinationWdt = _mapWdts?.GetValueOrDefault((int)enter.Map);
+                if (destinationMap is null || destinationWdt is null || _adts is null)
+                {
+                    string reason = $"map {enter.Map} has no loadable Map.dbc/WDT identity";
+                    if (_worldportAckPending) AbortPendingWorldportAdoption(reason);
+                    else
+                    {
+                        _travelStatus = $"world entry blocked: {reason}";
+                        Console.WriteLine($"[net] FATAL: {reason}; disconnecting");
+                        CancelPendingWorldCurtain();
+                        _net?.Stop();
+                    }
+                    return;
+                }
+            }
+
+            // NEW_WORLD is authoritative over the tentative map-only match made
+            // at TRANSFER_PENDING. Validate its exact destination before the
+            // preview scene is retired by the map teardown below.
+            bool matchedPreparedPortal = ConfirmRealPortalHandoff(
+                enter.Map, enter.Position);
+            bool promotedPreparedWorld = matchedPreparedPortal &&
+                TryPromotePreparedRealPortalWorld(enter.Map, enter.Position);
             if (_pendingObjectParse is not null)
                 _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
             _entities.Clear();
@@ -310,24 +356,24 @@ public sealed partial class GameLoop
             // SMSG_NEW_WORLD changes the renderer's map identity as well as the
             // coordinates. This must also run on the first login when the saved
             // bootstrap map differs from the character's server map.
-            if (changingMaps)
+            if (changingMaps && !promotedPreparedWorld)
             {
-                EnsureInstanceData();
-                MapRow? destinationMap = _maps?.Get((int)enter.Map);
-                if (destinationMap is not null && _adts is not null)
-                {
-                    TearDownWorldContent();
-                    _adts.SetMap(destinationMap.Directory);
-                    _residentCentre = null;
-                    _config.Start.MapName = destinationMap.Directory;
-                    // The old map may have collapsed the effective boom at
-                    // these unrelated coordinates. Do not carry that camera
-                    // collision result through an opaque loading transition.
-                    _window.Camera.EffectiveDistance = _window.Camera.Distance;
-                    Console.WriteLine($"[net] map change {previousMapId} -> {enter.Map}: " +
-                                      $"content switched to {destinationMap.Directory}");
-                }
-                else Console.WriteLine($"[net] map {enter.Map} has no Map.dbc/WDT identity");
+                TearDownWorldContent();
+                _adts!.SetMap(destinationMap!.Directory);
+                _residentCentre = null;
+                _config.Start.MapName = destinationMap.Directory;
+                // The old map may have collapsed the effective boom at
+                // these unrelated coordinates. Do not carry that camera
+                // collision result through an opaque loading transition.
+                _window.Camera.EffectiveDistance = _window.Camera.Distance;
+                Console.WriteLine($"[net] map change {previousMapId} -> {enter.Map}: " +
+                                  $"content switched to {destinationMap.Directory}");
+            }
+            else if (changingMaps)
+            {
+                _window.Camera.EffectiveDistance = _window.Camera.Distance;
+                Console.WriteLine($"[net] map change {previousMapId} -> {enter.Map}: " +
+                                  "adopted prepared renderer/collision bundle");
             }
 
             // Commit to the server-authoritative spawn. BeginWorldLoad reads _config.Start for the
@@ -365,6 +411,22 @@ public sealed partial class GameLoop
                 _worldLoadStarted = true;
                 _preWorldHudPrimed = false;
                 _worldEntryTransitionStage = 1;
+            }
+            else if (promotedPreparedWorld)
+            {
+                if (CompletePendingWorldportAckAfterAdoption(enter.Map))
+                {
+                    CompletePromotedRealPortalTransition();
+                    Console.WriteLine(
+                        $"[net] moved to prepared map {enter.Map} without entering the world loader");
+                }
+                else
+                {
+                    // Keep the transfer curtain closed. The ACK helper has
+                    // already disconnected an ambiguous/failed socket, so this
+                    // prepared scene must never be presented as a live world.
+                    CancelRealPortalHandoff("worldport ACK failed after prepared adoption");
+                }
             }
             else
             {
@@ -411,7 +473,7 @@ public sealed partial class GameLoop
         bool worldBoundaryReached = false;
         while (packetsDrained < NetDrainPacketBudget &&
                Stopwatch.GetElapsedTime(drainStarted).TotalMilliseconds < NetDrainTimeBudgetMs &&
-               _net.TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp))
+               net.TryDequeue(out ushort opcode, out byte[] body, out long receivedStamp))
         {
             packetsDrained++;
             _netInbound++;
@@ -427,6 +489,7 @@ public sealed partial class GameLoop
                             // map identity or position.
                             var transfer = new PacketReader(body);
                             uint destinationMap = transfer.ReadU32();
+                            BeginRealPortalWorldTransfer(destinationMap);
                             if (_gl is not null)
                                 ArmEnterWorldCurtain(_gl, (int)destinationMap);
                             _travelStatus = $"server transferring to map {destinationMap}";
@@ -455,17 +518,49 @@ public sealed partial class GameLoop
                         ApplyLogoutCancelAck();
                         break;
                     case Op.SMSG_LOGOUT_COMPLETE:
+                        _worldportAckPending = false;
+                        _pendingWorldportMapId = 0;
                         ApplyLogoutComplete();
                         break;
                     case Op.SMSG_LOGIN_VERIFY_WORLD:
                     case Op.SMSG_NEW_WORLD:
                         {
+                            // Recognition itself is the ordered boundary. Even a
+                            // malformed/duplicate NEW_WORLD must stop this drain;
+                            // later object packets cannot be applied to the old map.
+                            worldBoundaryReached = true;
                             // Stop exactly at the ordered boundary. The next frame performs
                             // teardown before any destination object update can begin parsing.
                             var worldReader = new PacketReader(body);
-                            _queuedWorldEntry = new EnterWorldInfo(worldReader.ReadU32(),
+                            var worldEntry = new EnterWorldInfo(worldReader.ReadU32(),
                                 worldReader.ReadVector3(), worldReader.ReadF32());
-                            worldBoundaryReached = true;
+                            if (worldReader.Remaining != 0)
+                                throw new InvalidDataException(
+                                    $"{(Op)opcode} has {worldReader.Remaining} trailing byte(s)");
+                            if (worldEntry.Map > int.MaxValue ||
+                                !float.IsFinite(worldEntry.Position.X) ||
+                                !float.IsFinite(worldEntry.Position.Y) ||
+                                !float.IsFinite(worldEntry.Position.Z) ||
+                                !float.IsFinite(worldEntry.Orientation))
+                                throw new InvalidDataException(
+                                    $"{(Op)opcode} contains an invalid map or non-finite pose");
+                            if (_queuedWorldEntry is not null)
+                                throw new InvalidDataException(
+                                    $"{(Op)opcode} arrived while another world boundary awaited adoption");
+
+                            if ((Op)opcode == Op.SMSG_NEW_WORLD)
+                            {
+                                if (!_worldLoadStarted)
+                                    throw new InvalidDataException(
+                                        "NEW_WORLD arrived before initial world adoption");
+                                MarkPendingWorldportAck(worldEntry.Map);
+                            }
+                            else if (_worldLoadStarted || _worldportAckPending)
+                            {
+                                throw new InvalidDataException(
+                                    "LOGIN_VERIFY_WORLD arrived while a world was already active");
+                            }
+                            _queuedWorldEntry = worldEntry;
                         }
                         break;
                     case Op.SMSG_LOGIN_SETTIMESPEED:
@@ -588,16 +683,60 @@ public sealed partial class GameLoop
                             if (teleportReader.Remaining != 0)
                                 throw new InvalidDataException(
                                     $"MSG_MOVE_TELEPORT_ACK has {teleportReader.Remaining} trailing byte(s)");
-                            if (_controller is null || moverGuid != _net.PlayerGuid)
+                            if (_controller is null || moverGuid != net.PlayerGuid)
                             {
                                 Console.WriteLine($"[net] ignored same-map teleport for mover 0x{moverGuid:X16} " +
-                                                  $"(player 0x{_net.PlayerGuid:X16})");
+                                                  $"(player 0x{net.PlayerGuid:X16})");
                                 break;
+                            }
+
+                            // A same-map teleport can still be thousands of yards
+                            // away.  The old handler treated "same map" as "same
+                            // resident scene": it acknowledged immediately, then
+                            // gravity ran while the destination ADTs/WMO collision
+                            // were still streaming.  The hitch recorder caught the
+                            // resulting fall from Z 29.6 to below -100.  Cross-map
+                            // NEW_WORLD already owns an opaque, collision-gated
+                            // adoption; give a non-resident same-map destination the
+                            // same guarantee.
+                            bool destinationResident =
+                                MainWorldHasArrivalSupport(destination.Position);
+                            if (!destinationResident && _gl is null)
+                            {
+                                Console.WriteLine(
+                                    "[net] FATAL: same-map teleport destination has no resident " +
+                                    "support and the world loader is unavailable; disconnecting without ACK");
+                                net.Stop();
+                                break;
+                            }
+
+                            bool promotedPreparedWorld = false;
+                            if (!destinationResident)
+                            {
+                                uint destinationMapId = checked((uint)_config.Start.Map);
+                                bool matchedPreparedPortal = ConfirmRealPortalHandoff(
+                                    destinationMapId, destination.Position);
+                                promotedPreparedWorld = matchedPreparedPortal &&
+                                    TryPromotePreparedRealPortalWorld(
+                                        destinationMapId, destination.Position);
+
+                                if (!promotedPreparedWorld)
+                                {
+                                    TearDownWorldContent();
+                                    _residentCentre = null;
+                                    _hitch.SuppressFor(5.0);
+                                }
+
+                                _window.Camera.EffectiveDistance = _window.Camera.Distance;
                             }
 
                             // Apply on the game thread before acknowledging. Camera yaw is the
                             // next frame's MovementInput yaw, so updating it is what makes the
                             // server orientation survive rather than being overwritten immediately.
+                            _config.Start.X = destination.Position.X;
+                            _config.Start.Y = destination.Position.Y;
+                            _config.Start.Z = destination.Position.Z;
+                            _config.Start.Orientation = destination.Orientation;
                             _controller.Teleport(destination.Position.X, destination.Position.Y,
                                 destination.Position.Z);
                             _controller.Yaw = destination.Orientation;
@@ -607,7 +746,42 @@ public sealed partial class GameLoop
                             _character?.SnapFacing(destination.Orientation);
                             _movementSender.Reset(destination.Orientation);
                             ObserveTeleportApplied(moverGuid, counter, destination);
-                            _net.TeleportAck(moverGuid, counter);
+
+                            if (promotedPreparedWorld)
+                            {
+                                CompletePromotedRealPortalTransition();
+                                Console.WriteLine(
+                                    "[net] same-map teleport adopted the prepared destination without loading");
+                            }
+                            else if (!destinationResident)
+                            {
+                                try
+                                {
+                                    BeginWorldLoad(_gl!);
+                                    var tile = TerrainRenderer.TileAt(
+                                        destination.Position.X, destination.Position.Y);
+                                    Console.WriteLine(
+                                        $"[net] same-map teleport is non-resident; loading " +
+                                        $"destination tile [{tile.col},{tile.row}] behind the curtain");
+                                }
+                                catch
+                                {
+                                    // Do not tell the core a destination was adopted
+                                    // when the client could not even arm its loader.
+                                    CancelRealPortalHandoff(
+                                        "destination loader could not be started");
+                                    net.Stop();
+                                    throw;
+                                }
+                            }
+                            else
+                            {
+                                // No curtain is needed when the main scene already
+                                // supports the authoritative landing point.
+                                CancelRealPortalHandoff(
+                                    "authoritative destination was already resident");
+                            }
+                            net.TeleportAck(moverGuid, counter);
                         }
                         break;
                     case Op.SMSG_FORCE_MOVE_ROOT:
@@ -619,7 +793,7 @@ public sealed partial class GameLoop
                             if (rootReader.Remaining != 0)
                                 throw new InvalidDataException(
                                     $"{(Op)opcode} has {rootReader.Remaining} trailing byte(s)");
-                            if (_controller is null || moverGuid != _net.PlayerGuid)
+                            if (_controller is null || moverGuid != net.PlayerGuid)
                             {
                                 Console.WriteLine($"[movement] ignored {(Op)opcode} for mover " +
                                                   $"0x{moverGuid:X16}");
@@ -628,10 +802,10 @@ public sealed partial class GameLoop
 
                             bool rooted = (Op)opcode == Op.SMSG_FORCE_MOVE_ROOT;
                             _movementRooted = rooted;
-                            if (rooted) _movementSender.ParkForRoot(_net, _controller);
+                            if (rooted) _movementSender.ParkForRoot(net, _controller);
                             MovementInfo ack = MovementInfo.Create(_controller.Position,
                                 _controller.Yaw, rooted ? MovementFlags.Root : MovementFlags.None);
-                            _net.MoveRootAck(moverGuid, counter, rooted, ack);
+                            net.MoveRootAck(moverGuid, counter, rooted, ack);
                             Console.WriteLine($"[movement] mover {(rooted ? "rooted" : "unrooted")} " +
                                               $"counter={counter} ackFlags=0x{ack.Flags:X8}");
                         }
@@ -658,7 +832,7 @@ public sealed partial class GameLoop
                             uint cinematicId = body.Length >= 4
                                 ? new PacketReader(body).ReadU32()
                                 : 0;
-                            _net.CompleteCinematic();
+                            net.CompleteCinematic();
                             Console.WriteLine($"[net] cinematic {cinematicId} triggered - acked (skip)");
                         }
                         break;
@@ -704,6 +878,18 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_RTS_ACTION_RESULT:
                         ApplySuiRtsActionResult(body);
+                        break;
+                    case Op.SMSG_SUI_PORTAL_DESCRIPTOR:
+                        {
+                            PortalDescriptorPacket descriptor = PortalWire.ParseDescriptor(body);
+                            ApplyRealPortalDescriptor(descriptor);
+                        }
+                        break;
+                    case Op.SMSG_SUI_PORTAL_STATE:
+                        {
+                            PortalStatePacket state = PortalWire.ParseState(body);
+                            ApplyRealPortalState(state);
+                        }
                         break;
                     case Op.SMSG_UPDATE_AURA_DURATION:
                         ApplyAuraDuration(body);
@@ -1027,6 +1213,25 @@ public sealed partial class GameLoop
             catch (Exception ex)
             {
                 Console.WriteLine($"[net] parse error on opcode 0x{opcode:X4}: {ex.Message}");
+                if (worldBoundaryReached)
+                {
+                    // Stopping only this frame's drain is insufficient: the
+                    // socket queue may already contain destination object
+                    // updates, which the next frame would otherwise apply to
+                    // the old world. A malformed/duplicate world boundary is
+                    // unrecoverable without a fresh authenticated session.
+                    string reason = $"invalid {(Op)opcode} world boundary: {ex.Message}";
+                    if (_worldportAckPending)
+                        AbortPendingWorldportAdoption(reason);
+                    else
+                    {
+                        _queuedWorldEntry = null;
+                        _worldEntryTransitionStage = 0;
+                        _travelStatus = $"world entry blocked: {reason}";
+                        CancelPendingWorldCurtain();
+                        _net?.Stop();
+                    }
+                }
             }
             if (parseStarted || worldBoundaryReached) break;
         }
@@ -1041,7 +1246,7 @@ public sealed partial class GameLoop
         // Advance every in-progress creature spline so NPCs actually move between packets.
         _entities.TickSplines(MovementInfo.ClientUptimeMs());
         if (_controller is not null)
-            _entities.FaceIdleTargets(dt, _net.PlayerGuid, _controller.Position);
+            _entities.FaceIdleTargets(dt, net.PlayerGuid, _controller.Position);
         DiscoverItemTemplates();
     }
 
@@ -1160,6 +1365,121 @@ public sealed partial class GameLoop
                           $"skin {c.Skin} face {c.Face} hair {c.HairStyle}/{c.HairColor} facial {c.FacialHair} " +
                           $"({c.Equipment.Count(e => e.DisplayId != 0)} equipped)");
     }
+
+    private void MarkPendingWorldportAck(uint destinationMapId)
+    {
+        if (_worldportAckPending)
+        {
+            uint previousMapId = _pendingWorldportMapId;
+            AbortPendingWorldportAdoption(
+                $"received a second NEW_WORLD for map {destinationMapId} while map {previousMapId} still awaited adoption");
+            throw new InvalidDataException(
+                $"duplicate NEW_WORLD while map {previousMapId} awaited adoption");
+        }
+        _worldportAckPending = true;
+        _pendingWorldportMapId = destinationMapId;
+    }
+
+    /// <summary>
+    /// Whether the currently installed main-world scene can safely reveal a
+    /// server teleport at <paramref name="arrival"/>.  Preview-scene readiness
+    /// is intentionally irrelevant here: its terrain and collision are isolated
+    /// and cannot support the live character after the authoritative ACK.
+    /// </summary>
+    private bool MainWorldHasArrivalSupport(in Vector3 arrival)
+    {
+        if (PortalArrivalLaw.HasNearbySupport(
+                arrival, _terrain?.SampleHeight(arrival.X, arrival.Y)))
+            return true;
+
+        var floor = _collision?.Raycast(
+            arrival + new Vector3(0f, 0f, 3f), -Vector3.UnitZ, 80f);
+        return PortalArrivalLaw.HasNearbySupport(arrival, floor?.Point.Z);
+    }
+
+    /// <summary>
+    /// Consume the one ACK owned by the current NEW_WORLD after its destination
+    /// scene/map/pose have been adopted. This is private but callable from any
+    /// GameLoop partial, including the prepared-scene promotion path.
+    /// </summary>
+    private bool CompletePendingWorldportAckAfterAdoption(uint adoptedMapId)
+    {
+        if (!_worldportAckPending) return true;
+
+        if (adoptedMapId != _pendingWorldportMapId)
+        {
+            AbortPendingWorldportAdoption(
+                $"adopted map {adoptedMapId} did not match pending map {_pendingWorldportMapId}");
+            return false;
+        }
+
+        // Consume before touching the socket. A failed/closed session cannot be
+        // made safe by duplicating the ACK later, and a subsequent login must not
+        // inherit this transfer's ownership token.
+        uint destinationMapId = _pendingWorldportMapId;
+        _worldportAckPending = false;
+        _pendingWorldportMapId = 0;
+
+        if (_net?.WorldportAck() == true)
+        {
+            Console.WriteLine($"[net] acknowledged adopted world map {destinationMapId}");
+            return true;
+        }
+        else
+        {
+            // Retrying an ambiguously failed TCP write can duplicate the ACK;
+            // continuing without it leaves the core waiting forever. Close the
+            // session and require a clean login instead.
+            Console.WriteLine(
+                $"[net] FATAL: could not acknowledge adopted world map {destinationMapId}; disconnecting");
+            _net?.Stop();
+            return false;
+        }
+    }
+
+    private void AbortPendingWorldportAdoption(string reason)
+    {
+        uint destinationMapId = _pendingWorldportMapId;
+        _worldportAckPending = false;
+        _pendingWorldportMapId = 0;
+        _queuedWorldEntry = null;
+        _worldEntryTransitionStage = 0;
+        _worldLoading = false;
+        _worldLoadingMapId = null;
+        _loadPhase = WorldLoadPhase.Done;
+        _worldLoadStarted = false;
+        _worldShown = false;
+        _travelStatus = $"world transfer blocked: {reason}";
+        Console.WriteLine(
+            $"[net] FATAL: refused worldport map {destinationMapId}: {reason}; disconnecting without ACK");
+        CancelPendingWorldCurtain();
+        _net?.Stop();
+    }
+
+    private void DiscardPendingNetApplicationState()
+    {
+        _queuedWorldEntry = null;
+        _worldEntryTransitionStage = 0;
+
+        // A parser task owns the buffer instance it captured. If it is still
+        // running, detach a fresh buffer rather than clearing memory it may be
+        // writing concurrently; the abandoned task then completes harmlessly.
+        if (_pendingObjectParse is not null)
+            _objectUpdateBuffer = new ObjectUpdateBuffer(12_000);
+        else
+            _objectUpdateBuffer.Clear();
+        _pendingObjectParse = null;
+        _pendingObjectUpdates?.Clear();
+        _pendingObjectUpdates = null;
+        _pendingObjectUpdateIndex = 0;
+        _pendingObjectReceivedStamp = 0;
+    }
+
+    // Optional scene/transit ownership lives in another GameLoop partial. Parsing
+    // remains here even when the hooks have no implementation, so malformed wire
+    // packets are still rejected at the network boundary.
+    partial void ApplyRealPortalDescriptor(PortalDescriptorPacket descriptor);
+    partial void ApplyRealPortalState(PortalStatePacket state);
 
     /// <summary>
     /// Enter-world ownership transfer is deliberately outside <see cref="PumpNet"/>.  The load

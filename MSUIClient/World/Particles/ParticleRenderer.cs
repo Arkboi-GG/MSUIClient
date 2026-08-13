@@ -54,6 +54,25 @@ public sealed class ParticleRenderer : IDisposable
     private Shader? _surfaceShader;
     private uint _surfaceVao;
     private readonly HashSet<(int, int, int)> _surfaceSeen = new();
+    private readonly List<Pool> _legacySurfacePools = [];
+
+    /// <summary>
+    /// Explicit summoned-Mage-portal apertures, keyed by the server GameObject
+    /// GUID. Unlike the legacy instance-portal film these do not depend on a
+    /// loaded M2, a live emitter pool, or a rounded world-position guess.
+    /// </summary>
+    private readonly Dictionary<ulong, MagePortalAperture> _magePortalApertures = [];
+
+    private readonly record struct MagePortalAperture(
+        Vector3 Center,
+        Vector3 Right,
+        Vector3 Up,
+        float HalfWidth,
+        float HalfHeight,
+        float SealProgress,
+        float SealAlpha,
+        uint LiveTexture,
+        float LiveBlend);
 
     /// <summary>Draw the flat translucent "looking glass" film across an instance
     /// portal's opening - the 1.12 portal SURFACE, a separate flat plane from the
@@ -74,6 +93,85 @@ public sealed class ParticleRenderer : IDisposable
     /// <summary>Surface film colour saturation and brightness (with the hue above).</summary>
     public float PortalSurfaceSat { get; set; } = 1.0f;
     public float PortalSurfaceVal { get; set; } = 1.06f;
+
+    /// <summary>Number of explicit GUID-owned Mage apertures currently registered.</summary>
+    public int MagePortalApertureCount => _magePortalApertures.Count;
+
+    /// <summary>
+    /// Create or update one summoned Mage portal's procedural opening.
+    ///
+    /// <paramref name="right"/> and <paramref name="up"/> are world-space
+    /// aperture axes; they are orthonormalised here. The default half extents
+    /// produce a six-yard-wide by eight-yard-tall doorway. SealProgress is the
+    /// caller-owned pre-animation phase (0 hidden, 1 fully formed). A nonzero
+    /// OpenGL 2D texture may be cross-faded in with liveBlend once it contains a
+    /// complete destination frame. The texture is sampled in framebuffer screen
+    /// space, not stretched across portal-local UVs.
+    /// </summary>
+    public bool UpsertMagePortalAperture(
+        ulong guid,
+        Vector3 center,
+        Vector3 right,
+        Vector3 up,
+        float halfWidth = 3f,
+        float halfHeight = 4f,
+        float sealProgress = 1f,
+        float sealAlpha = 0.82f,
+        uint liveTexture = 0,
+        float liveBlend = 0f)
+    {
+        if (guid == 0 || !Finite(center)) return false;
+
+        up = NormalizedOr(up, Vector3.UnitZ);
+        right -= up * Vector3.Dot(right, up);
+        if (!Finite(right) || right.LengthSquared() <= 1e-8f)
+        {
+            Vector3 seed = MathF.Abs(up.Z) < 0.9f ? Vector3.UnitZ : Vector3.UnitY;
+            right = Vector3.Cross(seed, up);
+        }
+        right = Vector3.Normalize(right);
+
+        halfWidth = float.IsFinite(halfWidth) ? MathF.Max(0.1f, halfWidth) : 3f;
+        halfHeight = float.IsFinite(halfHeight) ? MathF.Max(0.1f, halfHeight) : 4f;
+        sealProgress = float.IsFinite(sealProgress) ? Math.Clamp(sealProgress, 0f, 1f) : 0f;
+        sealAlpha = float.IsFinite(sealAlpha) ? Math.Clamp(sealAlpha, 0f, 1f) : 0.82f;
+        liveBlend = liveTexture != 0 && float.IsFinite(liveBlend)
+            ? Math.Clamp(liveBlend, 0f, 1f)
+            : 0f;
+
+        _magePortalApertures[guid] = new MagePortalAperture(
+            center, right, up, halfWidth, halfHeight, sealProgress, sealAlpha,
+            liveTexture, liveBlend);
+        return true;
+    }
+
+    /// <summary>Remove one despawned/out-of-range summoned portal visual.</summary>
+    public bool RemoveMagePortalAperture(ulong guid) => _magePortalApertures.Remove(guid);
+
+    /// <summary>Drop every explicit Mage aperture at a map/session boundary.</summary>
+    public void ClearMagePortalApertures() => _magePortalApertures.Clear();
+
+    /// <summary>
+    /// Immediately retire every legacy M2 emitter pool owned by one dynamic
+    /// GameObject. This is intentionally GUID-specific: static instance portals
+    /// and every unrelated dynamic effect keep their normal lifetime.
+    /// </summary>
+    public int RemoveOwnedEmitterPools(ulong ownerGuid)
+    {
+        if (ownerGuid == 0 || _pools.Count == 0) return 0;
+        PoolKey[] owned = _pools.Keys.Where(key => key.OwnerGuid == ownerGuid).ToArray();
+        foreach (PoolKey key in owned) _pools.Remove(key);
+        return owned.Length;
+    }
+
+    private static bool Finite(Vector3 v) =>
+        float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+
+    private static Vector3 NormalizedOr(Vector3 value, Vector3 fallback)
+    {
+        if (!Finite(value) || value.LengthSquared() <= 1e-8f) value = fallback;
+        return Vector3.Normalize(value);
+    }
 
     /// <summary>Uniform scale of the whole portal disc (spawn ring, convergence,
     /// sprites AND the surface film) about its fixed centre. >1 pushes the dense
@@ -308,12 +406,12 @@ public sealed class ParticleRenderer : IDisposable
     // ── Pools ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Identity of one emitter on one placement. Position is rounded to a
-    /// tenth of a yard: placements do not move, and a float key would risk a
-    /// pool being orphaned and rebuilt by a re-placement that rounded
-    /// differently, which reads as the effect blinking.
+    /// Identity of one emitter on one placement. Static placement positions are
+    /// rounded to a tenth of a yard; dynamic GameObjects instead use OwnerGuid
+    /// as their exact identity and leave the rounded transform fields at zero.
     /// </summary>
-    private readonly record struct PoolKey(string Path, int X, int Y, int Z, int Emitter, int Rot);
+    private readonly record struct PoolKey(
+        string Path, ulong OwnerGuid, int X, int Y, int Z, int Emitter, int Rot);
 
     private sealed class Pool
     {
@@ -329,6 +427,8 @@ public sealed class ParticleRenderer : IDisposable
         // ~0.8yd, far inside the 4.33yd portal hole, so it would fade the bright
         // converging core to near-zero. This is why precast/impact read as thin.
         public bool Spell;
+        /// <summary>Exact dynamic GameObject owner; zero for static scenery.</summary>
+        public ulong OwnerGuid;
         public uint Seed = 0x9E3779B9;
 
         /// <summary>Uniform scale of the placement, applied to speed and sprite size.</summary>
@@ -444,9 +544,8 @@ public sealed class ParticleRenderer : IDisposable
     // ── Frame ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Advance every pool near the camera. `emitters` yields one entry per
-    /// (placement, emitter) and is expected to be already distance-filtered by
-    /// the caller; anything further than SimulationDistance is dropped here too.
+    /// Compatibility lane for non-world callers such as the login glue scene.
+    /// Those emitters have no server GameObject owner.
     /// </summary>
     public void Simulate(
         float dt,
@@ -455,6 +554,35 @@ public sealed class ParticleRenderer : IDisposable
                      int EmitterIndex, string TexturePath, double AnimationTime,
                      int AnimationId, Vector3? LocalOrigin,
                      Quaternion? LocalRotation)> emitters)
+        => Simulate(dt, cameraPosition, WithoutOwnerGuids(emitters));
+
+    private static IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                                int EmitterIndex, string TexturePath, double AnimationTime,
+                                int AnimationId, Vector3? LocalOrigin,
+                                Quaternion? LocalRotation, ulong OwnerGuid)>
+        WithoutOwnerGuids(
+            IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                         int EmitterIndex, string TexturePath, double AnimationTime,
+                         int AnimationId, Vector3? LocalOrigin,
+                         Quaternion? LocalRotation)> emitters)
+    {
+        foreach (var emitter in emitters)
+            yield return (emitter.Path, emitter.Transform, emitter.Emitter,
+                emitter.EmitterIndex, emitter.TexturePath, emitter.AnimationTime,
+                emitter.AnimationId, emitter.LocalOrigin, emitter.LocalRotation, 0UL);
+    }
+
+    /// <summary>
+    /// World lane. OwnerGuid is zero for static ADT/WMO placements and the exact
+    /// server GameObject GUID for dynamic placements.
+    /// </summary>
+    public void Simulate(
+        float dt,
+        Vector3 cameraPosition,
+        IEnumerable<(string Path, Matrix4x4 Transform, M2ParticleEmitter Emitter,
+                     int EmitterIndex, string TexturePath, double AnimationTime,
+                     int AnimationId, Vector3? LocalOrigin,
+                     Quaternion? LocalRotation, ulong OwnerGuid)> emitters)
     {
         SimulateMilliseconds = 0.0;
         if (!Enabled || _shader is null) return;
@@ -468,7 +596,7 @@ public sealed class ParticleRenderer : IDisposable
         float simSq = SimulationDistance * SimulationDistance;
 
         foreach (var (path, transform, emitter, index, texPath, suppliedAnimationTime, animationId,
-            localOrigin, localRotation) in emitters)
+            localOrigin, localRotation, ownerGuid) in emitters)
         {
             double animationTime = double.IsNaN(suppliedAnimationTime) ? _time : suppliedAnimationTime;
             // The emitter's BONE composes each particle's BIRTH (benilla particles.rs:10-11),
@@ -491,11 +619,12 @@ public sealed class ParticleRenderer : IDisposable
             // pools by their moving position rebuilt the pool every tenth of a
             // yard, deleting the projectile's cloud and making its trail blink.
             bool movingInstance = path.StartsWith("spell:", StringComparison.OrdinalIgnoreCase);
-            var key = new PoolKey(path,
-                movingInstance ? 0 : (int)MathF.Round(transform.M41 * 10f),
-                movingInstance ? 0 : (int)MathF.Round(transform.M42 * 10f),
-                movingInstance ? 0 : (int)MathF.Round(transform.M43 * 10f), index,
-                movingInstance ? 0 : (int)MathF.Round(
+            bool exactOwner = ownerGuid != 0;
+            var key = new PoolKey(path, ownerGuid,
+                movingInstance || exactOwner ? 0 : (int)MathF.Round(transform.M41 * 10f),
+                movingInstance || exactOwner ? 0 : (int)MathF.Round(transform.M42 * 10f),
+                movingInstance || exactOwner ? 0 : (int)MathF.Round(transform.M43 * 10f), index,
+                movingInstance || exactOwner ? 0 : (int)MathF.Round(
                     (transform.M11 + transform.M21 * 3f + transform.M12 * 7f) * 100f));
 
             if (!_pools.TryGetValue(key, out var pool))
@@ -510,14 +639,14 @@ public sealed class ParticleRenderer : IDisposable
                 _pools[key] = pool;
             }
 
-            // Refreshed every frame, not frozen at creation. PoolKey only
-            // carries the rounded translation, so a placement rebuilt with a new
-            // rotation - or a model reloaded - would otherwise keep emitting
-            // along an orientation that no longer exists.
+            // Refreshed every frame, not frozen at creation. Static PoolKeys
+            // carry only a rounded transform and dynamic keys only their exact
+            // owner GUID, so neither identity records the live orientation.
             pool.Transform = transform;
             pool.Emitter = emitter;
             pool.TexturePath = texPath;
             pool.Spell = movingInstance;
+            pool.OwnerGuid = ownerGuid;
             pool.ModelSpace = IsModelSpace(emitter);
             pool.EmitterIndex = index;
             pool.AnimationTime = animationTime;
@@ -839,13 +968,28 @@ public sealed class ParticleRenderer : IDisposable
         DrawnLastFrame = 0;
         DrawMilliseconds = 0.0;
         foreach (Pool pool in _pools.Values) pool.DrawnLastFrame = 0;
-        if (!Enabled || _shader is null || _pools.Count == 0) return;
+        // PortalSurface is the cosmetic toggle for legacy inferred instance
+        // films. Explicit Mage apertures carry readiness/interaction state and
+        // must remain visible independently of that tuning checkbox.
+        bool canDrawSurfaces = portalCamera is not null && _surfaceShader is not null &&
+            (_magePortalApertures.Count != 0 || (PortalSurface && _pools.Count != 0));
+        bool canDrawParticles = Enabled && _shader is not null && _pools.Count != 0;
+        if (!canDrawSurfaces && !canDrawParticles) return;
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // The flat portal-surface film, drawn BEFORE the sprites so they sit over
         // it (interior geometry -> frost film -> additive particles).
-        if (PortalSurface && portalCamera is not null) DrawPortalSurfaces(portalCamera);
+        if (canDrawSurfaces) DrawPortalSurfaces(portalCamera!);
+
+        // The procedural doorway is interaction/readiness presentation, not an
+        // M2 particle. Keep its sealed/live surface available when the user has
+        // disabled motes; only the cosmetic rim sprites follow Enabled.
+        if (!canDrawParticles)
+        {
+            DrawMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return;
+        }
 
         // Group by texture AND blend mode: one draw per combination, and the
         // blend state changes between groups.
@@ -858,10 +1002,14 @@ public sealed class ParticleRenderer : IDisposable
             if (!groups.TryGetValue(key, out var list)) groups[key] = list = [];
             list.Add(pool);
         }
-        if (groups.Count == 0) return;
+        if (groups.Count == 0)
+        {
+            DrawMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return;
+        }
 
 
-        _shader.Use();
+        _shader!.Use();
         _shader.Set("uViewProjection", relativeViewProjection);
         _shader.Set("uCameraOrigin", eye);
         // Screen-facing basis. Cross(forward, worldUp) degenerates when the
@@ -1040,69 +1188,166 @@ public sealed class ParticleRenderer : IDisposable
     /// evenly). The InstancePortal model has no render mesh, so the real client
     /// draws this surface itself; this recreates it.
     ///
-    /// One film per portal placement. A portal is a MODEL-SPACE SPHERE emitter (its
-    /// signature); its two emitters share the disc plane, so dedupe by rounded world
-    /// origin. The disc lies in the emitter's local Y-Z plane (normal = local X), so
-    /// the in-plane basis is the placement's transformed local Y and Z; the centre is
-    /// the bone-pivot world position (pool.Origin).
+    /// One film per InstancePortal model placement. Its two MODEL-SPACE SPHERE
+    /// emitters share the disc plane, so dedupe by rounded world origin. The
+    /// model filename is part of the identity because ordinary props use the
+    /// same emitter flags and shape. The disc lies in the emitter's local Y-Z
+    /// plane (normal = local X), so the in-plane basis is the placement's
+    /// transformed local Y and Z; the centre is the bone-pivot world position
+    /// (pool.Origin).
     /// </summary>
-    private void DrawPortalSurfaces(Camera camera)
+    private unsafe void DrawPortalSurfaces(Camera camera)
     {
         if (_surfaceShader is null) return;
 
+        // Keep the old instance-entrance inference for static scenery only.
+        // A dynamic GameObject must use the explicit GUID registry below: a
+        // model-space sphere emitter is not proof that a GO is a Mage portal.
         _surfaceSeen.Clear();
-        bool began = false;
-
-        foreach (var pool in _pools.Values)
+        _legacySurfacePools.Clear();
+        if (PortalSurface)
         {
-            if (!pool.ModelSpace || pool.Emitter.Shape != ParticleShape.Sphere) continue;
-            if (SoloEmitter >= 0 && pool.EmitterIndex != SoloEmitter) continue;
-            if (pool.Particles.Count == 0) continue;
-
-            var key = ((int)MathF.Round(pool.Origin.X * 4f),
-                       (int)MathF.Round(pool.Origin.Y * 4f),
-                       (int)MathF.Round(pool.Origin.Z * 4f));
-            if (!_surfaceSeen.Add(key)) continue;
-
-            if (!began)
+            foreach ((PoolKey poolKey, Pool pool) in _pools)
             {
-                began = true;
-                _surfaceShader.Use();
-                _surfaceShader.Set("uViewProjection", camera.RelativeViewProjection);
-                _surfaceShader.Set("uCameraOrigin", camera.Position);
-                _surfaceShader.Set("uTime", (float)_time);
-                _surfaceShader.Set("uTint", HsvToRgb(PortalSurfaceHue, PortalSurfaceSat, PortalSurfaceVal));
-                _gl.Enable(EnableCap.Blend);
-                _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-                _gl.Enable(EnableCap.DepthTest);
-                _gl.DepthMask(false);
-                _gl.Disable(EnableCap.CullFace);
-                _gl.BindVertexArray(_surfaceVao);
+                if (pool.OwnerGuid != 0) continue;
+                // Model-space sphere is an emitter-space description, not a
+                // portal identity. Candles, lamps and other ordinary props use
+                // that same combination. Treating all of them as portals drew
+                // green looking-glass quads through nearby walls (usually only
+                // a triangular wedge remained visible). The authored static
+                // entrance is identified by its model name, just as the portal
+                // particle tuning and the reference renderer identify it.
+                if (!IsInstancePortalPath(poolKey.Path)) continue;
+                if (!pool.ModelSpace || pool.Emitter.Shape != ParticleShape.Sphere) continue;
+                if (SoloEmitter >= 0 && pool.EmitterIndex != SoloEmitter) continue;
+                if (pool.Particles.Count == 0) continue;
+
+                var key = ((int)MathF.Round(pool.Origin.X * 4f),
+                           (int)MathF.Round(pool.Origin.Y * 4f),
+                           (int)MathF.Round(pool.Origin.Z * 4f));
+                if (_surfaceSeen.Add(key)) _legacySurfacePools.Add(pool);
             }
-
-            var rot = pool.Transform;
-            rot.M41 = rot.M42 = rot.M43 = 0f;
-            var u = Vector3.TransformNormal(Vector3.UnitY, rot);
-            var v = Vector3.TransformNormal(Vector3.UnitZ, rot);
-            u = u.LengthSquared() > 1e-8f ? Vector3.Normalize(u) : Vector3.UnitY;
-            v = v.LengthSquared() > 1e-8f ? Vector3.Normalize(v) : Vector3.UnitZ;
-
-            float half = MathF.Max(0.1f, pool.Emitter.EmissionAreaLength)
-                       * pool.Scale * MathF.Max(0.1f, PortalSurfaceSize) * PortalScale;
-
-            _surfaceShader.Set("uCenter", pool.Origin);
-            _surfaceShader.Set("uRight", u * half);
-            _surfaceShader.Set("uUp", v * half);
-            _surfaceShader.Set("uAlpha", PortalSurfaceAlpha);
-            _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
         }
 
-        if (began)
+        if (_legacySurfacePools.Count == 0 && _magePortalApertures.Count == 0) return;
+
+        // This pass sits between opaque world geometry and portal sprites. It
+        // must not leak the state it establishes into either the particle pass
+        // or source water. Save every state we mutate, including blend factors
+        // and texture-unit zero rather than restoring assumed defaults.
+        int* iv = stackalloc int[4];
+        _gl.GetInteger(GLEnum.Viewport, iv);
+        var framebufferOrigin = new Vector2(iv[0], iv[1]);
+        var framebufferSize = new Vector2(Math.Max(1, iv[2]), Math.Max(1, iv[3]));
+
+        _gl.GetInteger(GLEnum.CurrentProgram, iv); uint savedProgram = (uint)iv[0];
+        _gl.GetInteger(GLEnum.VertexArrayBinding, iv); uint savedVao = (uint)iv[0];
+        _gl.GetInteger(GLEnum.ActiveTexture, iv); TextureUnit savedActiveTexture = (TextureUnit)iv[0];
+        _gl.GetInteger(GLEnum.DepthWritemask, iv); bool savedDepthMask = iv[0] != 0;
+        _gl.GetInteger(GLEnum.BlendSrcRgb, iv); var savedBlendSrcRgb = (BlendingFactor)iv[0];
+        _gl.GetInteger(GLEnum.BlendDstRgb, iv); var savedBlendDstRgb = (BlendingFactor)iv[0];
+        _gl.GetInteger(GLEnum.BlendSrcAlpha, iv); var savedBlendSrcAlpha = (BlendingFactor)iv[0];
+        _gl.GetInteger(GLEnum.BlendDstAlpha, iv); var savedBlendDstAlpha = (BlendingFactor)iv[0];
+        bool savedDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
+        bool savedCullFace = _gl.IsEnabled(EnableCap.CullFace);
+        bool savedBlend = _gl.IsEnabled(EnableCap.Blend);
+
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.GetInteger(GLEnum.TextureBinding2D, iv); uint savedTexture0 = (uint)iv[0];
+
+        try
         {
-            _gl.BindVertexArray(0);
-            _gl.DepthMask(true);
-            _gl.Enable(EnableCap.CullFace);
-            _gl.Disable(EnableCap.Blend);
+            _surfaceShader.Use();
+            _surfaceShader.Set("uViewProjection", camera.RelativeViewProjection);
+            _surfaceShader.Set("uCameraOrigin", camera.Position);
+            _surfaceShader.Set("uTime", (float)_time);
+            _surfaceShader.Set("uTint", HsvToRgb(PortalSurfaceHue, PortalSurfaceSat, PortalSurfaceVal));
+            _surfaceShader.Set("uPortalView", 0);
+            _surfaceShader.Set("uFramebufferOrigin", framebufferOrigin);
+            _surfaceShader.Set("uMainFramebufferSize", framebufferSize);
+
+            _gl.Enable(EnableCap.Blend);
+            _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+            _gl.Enable(EnableCap.DepthTest);
+            _gl.DepthMask(false);
+            _gl.Disable(EnableCap.CullFace);
+            _gl.BindVertexArray(_surfaceVao);
+
+            // Static instance entrances retain their original circular, faint
+            // looking-glass film and never sample a destination texture.
+            _surfaceShader.Set("uExplicit", 0);
+            _surfaceShader.Set("uPortalViewAvailable", 0);
+            _surfaceShader.Set("uLiveBlend", 0f);
+            _surfaceShader.Set("uSealProgress", 1f);
+            _gl.BindTexture(TextureTarget.Texture2D, 0);
+            foreach (Pool pool in _legacySurfacePools)
+            {
+                var rot = pool.Transform;
+                rot.M41 = rot.M42 = rot.M43 = 0f;
+                var u = NormalizedOr(Vector3.TransformNormal(Vector3.UnitY, rot), Vector3.UnitY);
+                var v = NormalizedOr(Vector3.TransformNormal(Vector3.UnitZ, rot), Vector3.UnitZ);
+
+                float half = MathF.Max(0.1f, pool.Emitter.EmissionAreaLength)
+                           * pool.Scale * MathF.Max(0.1f, PortalSurfaceSize) * PortalScale;
+
+                _surfaceShader.Set("uCenter", pool.Origin);
+                _surfaceShader.Set("uRight", u * half);
+                _surfaceShader.Set("uUp", v * half);
+                _surfaceShader.Set("uAlpha", PortalSurfaceAlpha);
+                _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+            }
+
+            // Summoned Mage portals are explicit, independently-sized oval
+            // doorways. Their seal exists independently of the legacy cosmetic
+            // M2. The inline shader borrows InstancePortal's visual grammar --
+            // broken lanes spiralling inward from the rim -- but owns the motion
+            // across the full aperture and therefore never needs a small nested
+            // copy of that model. Gold also keeps the preload state visually
+            // distinct from the cool destination view that replaces it.
+            _surfaceShader.Set("uExplicit", 1);
+            _surfaceShader.Set("uTint", new Vector3(0.96f, 0.63f, 0.12f));
+            foreach ((ulong guid, MagePortalAperture portal) in _magePortalApertures)
+            {
+                bool live = portal.LiveTexture != 0 && portal.LiveBlend > 0f;
+                // The stock rim/model can sit almost exactly on the procedural
+                // plane. Nudge the film toward the current camera so the same
+                // opening wins the depth test from either approach side without
+                // disabling ordinary foreground occlusion.
+                Vector3 normal = NormalizedOr(
+                    Vector3.Cross(portal.Right, portal.Up), Vector3.UnitX);
+                float cameraSide = Vector3.Dot(camera.Position - portal.Center, normal) >= 0f
+                    ? 1f
+                    : -1f;
+                Vector3 drawCenter = portal.Center + normal * (cameraSide * 0.075f);
+                _surfaceShader.Set("uCenter", drawCenter);
+                _surfaceShader.Set("uRight", portal.Right * portal.HalfWidth);
+                _surfaceShader.Set("uUp", portal.Up * portal.HalfHeight);
+                _surfaceShader.Set("uAlpha", portal.SealAlpha);
+                _surfaceShader.Set("uSealProgress", portal.SealProgress);
+                // Stable per-portal phase: two nearby Mage portals should not
+                // look like one screen-space animation copied in lockstep.
+                uint phaseBits = (uint)(guid ^ (guid >> 32));
+                _surfaceShader.Set("uPortalPhase",
+                    (phaseBits & 0xFFFFu) * (MathF.Tau / 65536f));
+                _surfaceShader.Set("uPortalViewAvailable", live ? 1 : 0);
+                _surfaceShader.Set("uLiveBlend", live ? portal.LiveBlend : 0f);
+                _gl.BindTexture(TextureTarget.Texture2D, live ? portal.LiveTexture : 0);
+                _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
+            }
+        }
+        finally
+        {
+            _gl.UseProgram(savedProgram);
+            _gl.BindVertexArray(savedVao);
+            _gl.ActiveTexture(TextureUnit.Texture0);
+            _gl.BindTexture(TextureTarget.Texture2D, savedTexture0);
+            _gl.ActiveTexture(savedActiveTexture);
+            _gl.DepthMask(savedDepthMask);
+            _gl.BlendFuncSeparate(savedBlendSrcRgb, savedBlendDstRgb,
+                savedBlendSrcAlpha, savedBlendDstAlpha);
+            if (savedDepthTest) _gl.Enable(EnableCap.DepthTest); else _gl.Disable(EnableCap.DepthTest);
+            if (savedCullFace) _gl.Enable(EnableCap.CullFace); else _gl.Disable(EnableCap.CullFace);
+            if (savedBlend) _gl.Enable(EnableCap.Blend); else _gl.Disable(EnableCap.Blend);
         }
     }
 
@@ -1165,24 +1410,120 @@ void main()
     gl_Position = uViewProjection * vec4(world - uCameraOrigin, 1.0);
 }";
 
-    // Soft round frost with a gentle drifting ripple (the looking-glass shimmer),
-    // alpha-blended so it lightly frosts the interior seen through it.
+    // The static lane keeps its original circular frost. The explicit lane is a
+    // tall rounded doorway: an animated sealed film forms from the centre, then
+    // optionally yields to a complete live destination texture sampled in main-
+    // framebuffer screen space. Portal-local UV sampling would stretch the view
+    // like a television and destroy perspective parallax.
     private const string SurfaceFrag = @"#version 330 core
 in vec2 vUv;
 uniform float uTime;
 uniform float uAlpha;
 uniform vec3 uTint;
+uniform int uExplicit;
+uniform float uSealProgress;
+uniform float uPortalPhase;
+uniform sampler2D uPortalView;
+uniform int uPortalViewAvailable;
+uniform float uLiveBlend;
+uniform vec2 uFramebufferOrigin;
+uniform vec2 uMainFramebufferSize;
 out vec4 FragColor;
+
 void main()
 {
-    float r = length(vUv);
-    float edge = smoothstep(1.05, 0.60, r);
-    float ripple = 0.80
-        + 0.10 * sin(vUv.x * 6.0 + uTime * 0.7)
-        + 0.10 * sin((vUv.x + vUv.y) * 5.0 - uTime * 0.5);
-    float a = uAlpha * edge * ripple;
+    if (uExplicit == 0)
+    {
+        float r = length(vUv);
+        float edge = smoothstep(1.05, 0.60, r);
+        float ripple = 0.80
+            + 0.10 * sin(vUv.x * 6.0 + uTime * 0.7)
+            + 0.10 * sin((vUv.x + vUv.y) * 5.0 - uTime * 0.5);
+        float a = uAlpha * edge * ripple;
+        if (a <= 0.002) discard;
+        FragColor = vec4(uTint * ripple, a);
+        return;
+    }
+
+    // A 6x8 world-space ellipse reads as a large portal disc rather than a
+    // luminous UI rectangle. During preload it grows from the centre, then
+    // keeps the InstancePortal character: bright broken streams born around
+    // the rim spiral inward instead of sitting on the opening as a wavy sheet.
+    // This is procedural so it remains aligned to the large GUID-owned aperture
+    // from either side and does not resurrect the small legacy M2 inside it.
+    float radius = length(vUv);
+    float shape = 1.0 - smoothstep(0.975, 1.015, radius);
+    float progress = smoothstep(0.0, 1.0, uSealProgress);
+    float frontier = mix(0.015, 1.035, progress);
+    float formed = 1.0 - smoothstep(frontier - 0.045, frontier + 0.015, radius);
+    float building = step(0.001, progress) * (1.0 - smoothstep(0.94, 1.0, progress));
+    float buildBand = exp(-abs(radius - frontier) * 34.0) * building;
+    float aperture = shape * clamp(formed + buildBand * 0.35, 0.0, 1.0);
+    if (aperture <= 0.002) discard;
+
+    float angle = atan(vUv.y, vUv.x);
+    float outerRim = smoothstep(0.80, 0.94, radius)
+        * (1.0 - smoothstep(0.965, 1.01, radius));
+
+    // The +time term makes constant-phase points move toward smaller radius.
+    // Six curled lanes and the faster counter-lane echo InstancePortal's live
+    // bone sweep, while high powers break them down into bright narrow threads.
+    float laneWave = 0.5 + 0.5 * cos(
+        angle * 6.0 + radius * 18.0 + uTime * 2.55 + uPortalPhase);
+    float counterWave = 0.5 + 0.5 * cos(
+        angle * -5.0 + radius * 23.0 + uTime * 3.15 - uPortalPhase * 0.7);
+    float lane = pow(laneWave, 13.0);
+    float counterLane = pow(counterWave, 17.0);
+
+    // Segment the lanes into converging sparks rather than drawing smooth neon
+    // curves. Their radial packet phase also travels inward as time advances.
+    float beadWave = 0.5 + 0.5 * cos(
+        angle * 31.0 + radius * 11.0 - uTime * 4.1 + uPortalPhase * 1.7);
+    float packetWave = 0.5 + 0.5 * cos(
+        radius * 34.0 + uTime * 4.8 + sin(angle * 6.0 + uPortalPhase) * 2.2);
+    float beads = pow(beadWave, 11.0);
+    float packets = pow(packetWave, 15.0);
+    float streams = lane * (0.22 + beads * 0.78)
+        + counterLane * (0.12 + packets * 0.60);
+
+    // Keep the rim strongest and let the inward trails thin toward the centre,
+    // matching the authored negative-speed emitter without filling the oval
+    // with an opaque gold fog. A small arrival glint sells convergence.
+    float streamEnvelope = smoothstep(0.08, 0.24, radius)
+        * (1.0 - smoothstep(0.91, 1.0, radius));
+    streams *= streamEnvelope;
+    float centreGlint = exp(-radius * 13.0)
+        * (0.45 + 0.55 * sin(uTime * 3.4 + uPortalPhase) * sin(uTime * 3.4 + uPortalPhase));
+    float rimPulse = 0.88 + 0.12 * sin(uTime * 1.65 + uPortalPhase);
+
+    vec3 deepViolet = vec3(0.022, 0.017, 0.050);
+    vec3 paleGold = vec3(1.0, 0.88, 0.48);
+    vec3 filmRgb = deepViolet
+        + uTint * (0.035 + outerRim * 0.54 * rimPulse)
+        + uTint * streams * 0.72
+        + paleGold * (streams * packets * 0.34 + centreGlint * 0.42)
+        + paleGold * buildBand * 0.68;
+    float veil = 0.48 + outerRim * 0.28
+        + clamp(streams, 0.0, 1.0) * 0.20 + centreGlint * 0.12;
+    float filmAlpha = uAlpha * aperture * veil;
+
+    float live = uPortalViewAvailable != 0
+        ? clamp(uLiveBlend, 0.0, 1.0) * smoothstep(0.88, 1.0, progress)
+        : 0.0;
+    // At live==1 no gold preload contribution survives: only the destination
+    // framebuffer remains. The animation is a preparation state, not a glaze.
+    vec3 rgb = filmRgb;
+    if (live > 0.0)
+    {
+        vec2 screenUv = (gl_FragCoord.xy - uFramebufferOrigin)
+            / max(uMainFramebufferSize, vec2(1.0));
+        vec3 destination = texture(uPortalView, clamp(screenUv, vec2(0.0), vec2(1.0))).rgb;
+        rgb = mix(filmRgb, destination, live);
+    }
+
+    float a = mix(filmAlpha, aperture, live);
     if (a <= 0.002) discard;
-    FragColor = vec4(uTint * ripple, a);
+    FragColor = vec4(rgb, a);
 }";
 
     /// <summary>Fill-light colour (HSV knobs premultiplied by intensity), for
@@ -1190,22 +1531,41 @@ void main()
     public Vector3 PortalLightRgb() =>
         HsvToRgb(PortalLightHue, PortalLightSat, PortalLightVal) * PortalLightIntensity;
 
-    /// <summary>World centre of the nearest instance portal (a model-space SPHERE
-    /// pool origin) to the camera, for the beyond-portal fill light. False if none
-    /// within <paramref name="maxDistance"/>.</summary>
+    /// <summary>World centre of the nearest explicit Mage aperture or static
+    /// instance portal, for the beyond-portal fill light. Dynamic GameObjects
+    /// never enter through legacy emitter-shape inference.</summary>
     public bool TryGetNearestPortal(Vector3 camera, float maxDistance, out Vector3 centre)
     {
         centre = default;
         float best = maxDistance * maxDistance;
         bool found = false;
-        foreach (var pool in _pools.Values)
+        foreach (MagePortalAperture portal in _magePortalApertures.Values)
         {
+            float d = Vector3.DistanceSquared(portal.Center, camera);
+            if (d > best) continue;
+            best = d; centre = portal.Center; found = true;
+        }
+        foreach ((PoolKey poolKey, Pool pool) in _pools)
+        {
+            if (pool.OwnerGuid != 0) continue;
+            if (!IsInstancePortalPath(poolKey.Path)) continue;
             if (!pool.ModelSpace || pool.Emitter.Shape != ParticleShape.Sphere) continue;
             float d = Vector3.DistanceSquared(pool.Origin, camera);
             if (d > best) continue;
             best = d; centre = pool.Origin; found = true;
         }
         return found;
+    }
+
+    private static bool IsInstancePortalPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string normalized = path.Replace('/', '\\');
+        int slash = normalized.LastIndexOf('\\');
+        string file = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        int dot = file.LastIndexOf('.');
+        if (dot >= 0) file = file[..dot];
+        return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SetBlend(byte blend)
@@ -1352,6 +1712,7 @@ void main()
         foreach (var t in _textures.Values) t?.Dispose();
         _textures.Clear();
         _pools.Clear();
+        _magePortalApertures.Clear();
         if (_vao != 0) _gl.DeleteVertexArray(_vao);
         if (_quadVbo != 0) _gl.DeleteBuffer(_quadVbo);
         if (_instanceVbo != 0) _gl.DeleteBuffer(_instanceVbo);
@@ -1364,6 +1725,7 @@ void main()
     public void Clear()
     {
         _pools.Clear();
+        _magePortalApertures.Clear();
         LiveParticles = 0;
         ActivePools = 0;
     }

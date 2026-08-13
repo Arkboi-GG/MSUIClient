@@ -29,6 +29,9 @@ layout (location = 4) in float aAlphaLayer; // this chunk's layer in the alpha a
 
 uniform mat4 uViewProjection;
 uniform vec3 uCameraOrigin;
+// Camera-relative equation of an optional world cut. It is ignored unless the
+// caller enables GL_CLIP_DISTANCE0.
+uniform vec4 uWorldClipPlane;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -46,5 +49,6 @@ void main()
     vLayers     = aLayers;
     vAlphaLayer = aAlphaLayer;
 
+    gl_ClipDistance[0] = dot(uWorldClipPlane, vec4(relativePosition, 1.0));
     gl_Position = uViewProjection * vec4(relativePosition, 1.0);
 }

@@ -599,12 +599,19 @@ public sealed partial class GameLoop
     /// starting map's outer-ring tile coordinates and would feed them to the new
     /// map's preloader for the couple of seconds it takes to drain.
     /// </summary>
-    private void TearDownWorldContent()
+    private void TearDownWorldContent(bool preserveWorldBundle = false)
     {
+        // Renderer promotion keeps the same authenticated SUI session. Drop
+        // source apertures/correlations, but retain the negotiated portal-v1
+        // capability so the destination can prepare its own portals immediately.
+        ResetRealPortals(resetCapability: !preserveWorldBundle);
         _globalWmoPlacement = null;
         if (_controller is not null) _controller.TerrainAbsentByDesign = false;
-        _collision = null;
-        if (_controller is not null) _controller.Collision = null;
+        if (!preserveWorldBundle)
+        {
+            _collision = null;
+            if (_controller is not null) _controller.Collision = null;
+        }
         _collisionDebug?.Clear();
 
         // Orphan any in-flight collision build so its result is discarded.
@@ -617,10 +624,19 @@ public sealed partial class GameLoop
         _backgroundDiscovery.Clear();
         _backgroundAdtLoad = null;
 
-        _wmo?.ResetForMapChange();
-        _doodads?.ResetPlacements();
-        _liquid?.UnloadAll();
-        _terrain?.UnloadAll();
+        if (!preserveWorldBundle)
+        {
+            _wmo?.ResetForMapChange();
+            _doodads?.ResetPlacements();
+            _liquid?.UnloadAll();
+            _terrain?.UnloadAll();
+        }
+
+        // Dynamic placement bookkeeping belongs to the renderer instance. A
+        // promoted destination has a different DoodadRenderer, so even a
+        // same-map teleport must let surviving WorldEntities publish their GOs
+        // into that new registry on the next reconciliation pass.
+        _gameObjectPlacements.Clear();
 
         // Pools are keyed by placement position. Keeping them across a map
         // change would leave a dungeon's torches burning in mid-air over Elwynn

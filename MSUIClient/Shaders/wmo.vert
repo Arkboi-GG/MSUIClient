@@ -29,6 +29,7 @@ uniform mat4 uViewProjection;
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
 uniform int uUseInstancing;
+uniform vec4 uWorldClipPlane;
 
 out vec3 vWorldPos;
 out vec3 vNormal;
@@ -55,6 +56,7 @@ void main()
     vUV = aUV;
     vColor = aColor;
 
+    gl_ClipDistance[0] = dot(uWorldClipPlane, world);
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world
         : uModelViewProjection * vec4(aPosition, 1.0);

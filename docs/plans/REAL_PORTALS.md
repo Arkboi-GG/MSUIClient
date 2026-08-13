@@ -1,13 +1,18 @@
 # REAL_PORTALS — true mage-portal windows and seamless walk-through travel
 
-**Status:** specified, source-traced, **not built**.  
+**Status:** first environmental-window vertical slice built 2026-08-13;
+client-detected crossing, prepared-scene promotion, and destination exit
+clipping are built. Server-verified movement crossing and remote actors remain
+pending. See `docs/systems/SYSTEM_REAL_PORTALS.md`.
+
 **Written:** 2026-08-12.  
 **Scope:** summoned Mage portal GameObjects in the standalone MSUI client and the
 custom VMaNGOS/SuperUI core.  
 **Evidence boundary:** the client and the checked-in `.reference-vmangos-core`
-were read directly. The live customized SuperUI core is not present in this
-workspace; its opcode allocation and current `SUI_WIRE_PROTOCOL.md` must be
-reconciled before server code is written.
+were read directly. The live customized SuperUI core was reconciled on
+2026-08-13: opcodes 844-847 and the four fixed packet layouts are now shared by
+both implementations. The core currently provides descriptor/readiness leases;
+the verified movement-crossing hook described below is not built yet.
 
 ---
 
@@ -127,7 +132,9 @@ not render a remote zone through Mage portals.
 - Before this player is ready, the portal behaves like a very thin magical
   membrane. Forward motion is clamped/slid along the plane; source gameplay
   otherwise continues normally.
-- When ready, a front-to-back swept crossing inside the aperture activates it.
+- When ready, a swept crossing from either geometric face inside the aperture
+  activates it. `ONE_WAY` describes source-to-destination topology, not a
+  restriction to one face of the source disc.
 - A player may still click/use the GameObject as a fallback. Stock clients keep
   their existing behavior unchanged.
 - Readiness belongs to `(session, portal GUID, spawn generation, descriptor
@@ -247,11 +254,23 @@ entry pairs:
 | 11419 | 176498 |
 | 11420 | 176500 |
 
-The corresponding city teleport spell rows are the familiar target-database
-teleports `3561`, `3562`, `3563`, `3565`, `3566`, and `3567`: effect 5 with
-implicit target-B 17. Their actual GO association is still read from each
-server `gameobject_template.data0`; neither this list nor names are destination
-authority.
+The familiar Mage self-teleport spells `3561`, `3562`, `3563`, `3565`, `3566`,
+and `3567` are **not** the spell IDs stored by these GameObjects. The deployed
+1.12 world templates contain these authoritative entry -> `data0` use-spell
+pairs:
+
+| GameObject entry | spellcaster `data0` use spell |
+|---:|---:|
+| 176296 | 17334 |
+| 176497 | 17607 |
+| 176498 | 17608 |
+| 176499 | 17609 |
+| 176500 | 17610 |
+| 176501 | 17611 |
+
+The server resolves the destination from that use spell's
+`spell_target_position`. Neither the 356x list nor names are classifier or
+destination authority.
 
 ### 4.3 The destination is server data
 
@@ -1104,7 +1123,8 @@ hit = lerp(previousAccepted, verifiedCandidate, t)
 
 Require:
 
-- front-to-back sign change with epsilon/hysteresis for one-way portals;
+- either-face motion toward/through the plane with epsilon/hysteresis; a
+  one-way portal still leads to the same destination from both source faces;
 - active, matching READY lease;
 - lateral hit within `halfWidth + playerRadius`;
 - player capsule overlaps the aperture’s vertical interval;
@@ -1664,7 +1684,7 @@ generation/revision/ticket.
 
 Pass:
 
-- only front-to-back inside-aperture verified segments commit;
+- only inside-aperture segments moving into the plane from an armed face commit;
 - anticheat runs first;
 - server never publishes a source-map beyond-plane pose;
 - use/charge occurs exactly once;

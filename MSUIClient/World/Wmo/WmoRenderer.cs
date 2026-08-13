@@ -445,6 +445,18 @@ public sealed class WmoRenderer : IDisposable
     public bool FrustumCulling { get; set; } = true;
     public bool UseDistanceLodShells { get; set; } = true;
 
+    /// <summary>
+    /// Reject distance-only impostor groups outright while retaining normal
+    /// detailed-group classification. This is intentionally separate from
+    /// <see cref="UseDistanceLodShells"/>: turning that switch off makes an
+    /// already-classified shell fall through as ordinary detail geometry. The
+    /// isolated real-portal preview uses this fail-closed shell mode because it
+    /// has already warmed the destination's detailed WMO groups and must never
+    /// composite a far-city silhouette over them. Active-world rendering leaves
+    /// it false.
+    /// </summary>
+    public bool SuppressDistanceLodShells { get; set; }
+
     // ── appear fade (benilla model_fade.rs) ─────────────────────────────────────
 
     /// <summary>Ease a streamed-in building in over <see cref="AppearFadeSeconds"/>
@@ -466,6 +478,20 @@ public sealed class WmoRenderer : IDisposable
     /// renderer for the full rationale.</summary>
     private readonly Dictionary<string, float> _appearStartByKey = new(StringComparer.Ordinal);
     private const int AppearKeyCap = 65536;
+
+    /// <summary>
+    /// Start a new opaque world residency epoch. Placement fade keys normally
+    /// survive a same-world ring rebuild, but they must not survive when this
+    /// renderer is recycled as an isolated portal destination: old positive
+    /// timestamps paired with a reset/frozen preview clock make every new WMO
+    /// remain at alpha zero forever.
+    /// </summary>
+    public void BeginOpaqueWorldEpoch(float nowSeconds = 0f)
+    {
+        _appearStartByKey.Clear();
+        NowSeconds = nowSeconds;
+        WorldShown = false;
+    }
 
     private float ResolveAppearStart(string key)
     {
@@ -1778,6 +1804,15 @@ public sealed class WmoRenderer : IDisposable
         float groupDistance = DistanceToBox(ctx.CameraPosition, groupMin, groupMax);
         bool shell = false;
 
+        // Candidate portal views have their destination detail resident. Their
+        // transformed camera can straddle a city's inside/outside cell boundary,
+        // where the normal shell swap would otherwise expose a low-poly exterior
+        // silhouette for some source angles. Suppression must test the baked
+        // classification directly; UseDistanceLodShells=false would instead draw
+        // this same group through the ordinary-detail path.
+        if (SuppressDistanceLodShells && group.IsDistanceLod)
+            return WmoReasonCode.ShellNearSuppressed;
+
         if (!forceShow)
         {
             if (UseDistanceLodShells && group.IsDistanceLod)
@@ -3069,7 +3104,14 @@ public sealed class WmoRenderer : IDisposable
 
     // ── drawing ──────────────────────────────────────────────────────────────
 
-    public unsafe void Render(Camera camera)
+    public void Render(Camera camera) => Render(camera, null);
+
+    /// <summary>
+    /// Draw buildings with an optional absolute-world clip plane. The caller
+    /// owns GL_CLIP_DISTANCE0 state so this can be scoped to an isolated portal
+    /// candidate without changing active-world rendering.
+    /// </summary>
+    public unsafe void Render(Camera camera, WorldClipPlane? worldClipPlane)
     {
         long started = Stopwatch.GetTimestamp();
         DrawnLastFrame = 0;
@@ -3089,6 +3131,9 @@ public sealed class WmoRenderer : IDisposable
 
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
+        _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
+            ? clip.RelativeEquation(camera.Position)
+            : new Vector4(0f, 0f, 0f, 1f));
         _shader.Set("uUseInstancing", 0);
         _shader.Set("uCameraPos", Vector3.Zero);
         _shader.Set("uSunDirection", SunDirection);

@@ -45,6 +45,7 @@ public sealed record NetSettings(
 
 public sealed class NetworkClient : IDisposable
 {
+    private const int MaxInboundPackets = 4096;
     private readonly NetSettings _cfg;
     private readonly WirePacketObserver? _wireObserver;
     private readonly SocketWriteObserver? _socketWriteObserver;
@@ -249,6 +250,9 @@ public sealed class NetworkClient : IDisposable
     public bool LogoutRequest() => InWorld(s => s.LogoutRequest());
     public bool LogoutCancel() => InWorld(s => s.LogoutCancel());
 
+    /// <summary>Game-thread acknowledgement after SMSG_NEW_WORLD adoption.</summary>
+    public bool WorldportAck() => InWorld(s => s.WorldportAck());
+
     public void TeleportAck(ulong guid, uint counter)
     {
         if (State != NetState.InWorld || _session is null) return;
@@ -266,6 +270,16 @@ public sealed class NetworkClient : IDisposable
     public bool SuiRtsState() => InWorld(s => s.SuiRtsState());
     public bool SuiRtsAction(byte action, ulong subjectGuid) =>
         InWorld(s => s.SuiRtsAction(action, subjectGuid));
+    public bool SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
+        InWorld(s => s.SuiPortalPrepare(requestId, portalGuid, requestFlags));
+    public bool SuiPortalPrepare(PortalPreparePacket packet) =>
+        InWorld(s => s.SuiPortalPrepare(packet));
+    public bool SuiPortalReady(PortalLoadResult loadResult, ulong portalGuid,
+        uint spawnGeneration, uint descriptorRevision, ulong ticket) =>
+        InWorld(s => s.SuiPortalReady(
+            loadResult, portalGuid, spawnGeneration, descriptorRevision, ticket));
+    public bool SuiPortalReady(PortalReadyPacket packet) =>
+        InWorld(s => s.SuiPortalReady(packet));
     public void SetActiveMover(ulong guid) { try { _session?.SetActiveMover(guid); } catch { } }
     public bool Inspect(ulong guid) => InWorld(s => s.Inspect(guid));
     public bool PetAction(ulong petGuid, uint packedAction, ulong targetGuid) =>
@@ -644,7 +658,6 @@ public sealed class NetworkClient : IDisposable
                     {
                         var r = new PacketReader(body);
                         var info = new EnterWorldInfo(r.ReadU32(), r.ReadVector3(), r.ReadF32());
-                        session.WorldportAck();
                         _status = $"changing to map {info.Map}";
                         break;
                     }
@@ -668,8 +681,15 @@ public sealed class NetworkClient : IDisposable
             }
             _inbound.Enqueue((opcode, body, Stopwatch.GetTimestamp()));
 
-            // Keep the queue from growing without bound if the app stops draining.
-            while (_inbound.Count > 4096 && _inbound.TryDequeue(out _)) { }
+            // An ordered world boundary may be anywhere in this queue. Dropping
+            // the oldest packet can discard LOGIN_VERIFY_WORLD/NEW_WORLD while
+            // retaining object updates that belong after it, so overflow is a
+            // fatal protocol failure rather than a lossy eviction policy.
+            if (_inbound.Count > MaxInboundPackets)
+            {
+                Fail($"inbound packet queue exceeded {MaxInboundPackets} entries");
+                return false;
+            }
             if (logoutComplete) return true;
         }
         return false;
@@ -732,6 +752,7 @@ public sealed class NetworkClient : IDisposable
         _session = null;
         try { _worker?.Join(1000); } catch { }
         _worker = null;
+        while (_inbound.TryDequeue(out _)) { }
         Characters = Array.Empty<Character>();
         if (State != NetState.Failed) State = NetState.Disconnected;
     }

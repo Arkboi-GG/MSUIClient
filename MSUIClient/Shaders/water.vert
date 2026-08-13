@@ -32,6 +32,7 @@ uniform vec3  uCameraOrigin;     // camera.Position
 uniform float uTime;             // seconds, for wave motion
 uniform float uWaveAmp;          // Water Tuning: 0 = flat plane; >0 = Gerstner waves
 uniform float uWaveSpeed;        // Water Tuning: wave scroll-speed multiplier
+uniform vec4  uWorldClipPlane;   // camera-relative; active with GL_CLIP_DISTANCE0
 
 out vec3  vRelPos;    // camera-relative position (length = view distance, for fog)
 out vec2  vAbsXY;     // undisplaced absolute world XY, for stable ripple/foam noise
@@ -158,5 +159,6 @@ void main()
     vType   = aType;
     vLiquidUv = aLiquidUv;
 
+    gl_ClipDistance[0] = dot(uWorldClipPlane, vec4(rel, 1.0));
     gl_Position = uViewProjection * vec4(rel, 1.0);
 }

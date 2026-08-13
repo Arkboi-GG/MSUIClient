@@ -1005,7 +1005,14 @@ public sealed class LiquidRenderer : IDisposable
             $"worldZ {zMin:F2}..{zMax:F2} uv U {uMin:F2}..{uMax:F2} V {vMin:F2}..{vMax:F2}");
     }
 
-    public unsafe void Render(Camera camera)
+    public void Render(Camera camera) => Render(camera, null);
+
+    /// <summary>
+    /// Draw liquid with an optional absolute-world clip plane. The caller owns
+    /// GL_CLIP_DISTANCE0 state so full-screen underwater tint can remain outside
+    /// the clipped geometry scope.
+    /// </summary>
+    public unsafe void Render(Camera camera, WorldClipPlane? worldClipPlane)
     {
         TrianglesLastFrame = 0;
         WmoSurfacesDrawnLastFrame = 0;
@@ -1017,6 +1024,9 @@ public sealed class LiquidRenderer : IDisposable
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uCameraOrigin", camera.Position);
+        _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
+            ? clip.RelativeEquation(camera.Position)
+            : new Vector4(0f, 0f, 0f, 1f));
         _shader.Set("uSunDirection", SunDirection);
         _shader.Set("uSunColor", SunColor);
         _shader.Set("uSunIntensity", SunIntensity);
@@ -1255,5 +1265,7 @@ public sealed class LiquidRenderer : IDisposable
         _dummyTex?.Dispose();
         _texWakeMask?.Dispose(); _dummy2D?.Dispose();
         if (_overlayVao != 0) { _gl.DeleteVertexArray(_overlayVao); _overlayVao = 0; }
+        _shader?.Dispose(); _shader = null;
+        _underwater?.Dispose(); _underwater = null;
     }
 }

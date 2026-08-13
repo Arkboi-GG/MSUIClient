@@ -70,6 +70,13 @@ public sealed class TerrainRenderer : IDisposable
 
     public int TileCount => _tiles.Count;
     public int PendingPreloads => _preloads.Count;
+    /// <summary>
+    /// True when <see cref="UnloadAll"/> can reclaim every queued terrain
+    /// package without waiting for worker or upload work. This is a snapshot;
+    /// callers must remain on the renderer's owning thread and avoid queueing
+    /// more work between this check and the unload.
+    /// </summary>
+    public bool AllPreloadsCompleted => _preloads.Values.All(static task => task.IsCompleted);
     public Action<int, int>? PreloadDequeued { get; set; }
     public int DrawnLastFrame { get; private set; }
     public int DrawCallsLastFrame { get; private set; }
@@ -583,7 +590,14 @@ public sealed class TerrainRenderer : IDisposable
              + h11 * tr * tc;
     }
 
-    public void Render(Camera camera)
+    public void Render(Camera camera) => Render(camera, null);
+
+    /// <summary>
+    /// Draw terrain with an optional absolute-world clip plane. The caller owns
+    /// GL_CLIP_DISTANCE0 state; the ordinary active-world overload leaves it
+    /// disabled and therefore pays no fragment-discard cost.
+    /// </summary>
+    public void Render(Camera camera, WorldClipPlane? worldClipPlane)
     {
         long started = Stopwatch.GetTimestamp();
         DrawCallsLastFrame = 0;
@@ -598,6 +612,9 @@ public sealed class TerrainRenderer : IDisposable
         _shader.Use();
         _shader.Set("uViewProjection", camera.RelativeViewProjection);
         _shader.Set("uCameraOrigin", camera.Position);
+        _shader.Set("uWorldClipPlane", worldClipPlane is { IsValid: true } clip
+            ? clip.RelativeEquation(camera.Position)
+            : new Vector4(0f, 0f, 0f, 1f));
         _shader.Set("uCameraPos", Vector3.Zero);
         // Normalised HERE, not per pixel. The shader used to call normalize() on
         // this every fragment — on a uniform, over a surface that covers most of

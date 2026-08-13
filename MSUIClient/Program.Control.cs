@@ -249,6 +249,12 @@ public sealed partial class GameLoop
         byte result = r.ReadU8();
         float x = r.ReadF32(), y = r.ReadF32(), z = r.ReadF32(), o = r.ReadF32();
 
+        // A zero-guid request is the backwards-compatible feature probe used by
+        // REAL_PORTALS. Old cores return an ordinary denial; new cores append a
+        // capability trailer. Neither response is a possession attempt or a UI
+        // error, so consume it before the control state machine below.
+        if (ApplyRealPortalCapabilityAck(guid, r)) return;
+
         if (result == SuiAckOk)
         {
             // Whoever we were driving is about to start drawing from the entity stream instead

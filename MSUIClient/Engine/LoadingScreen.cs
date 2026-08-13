@@ -114,6 +114,31 @@ public sealed class LoadingScreen : IDisposable
         _gl.Enable(EnableCap.DepthTest);
     }
 
+    /// <summary>
+    /// Draw an already-complete portal destination frame as the exclusive load
+    /// curtain. No vanilla map art or progress bar is composited. During the
+    /// normal load Fade phase, alpha reveals the now collision-safe live world
+    /// directly beneath this retained image.
+    /// </summary>
+    public void RenderPortalHandoff(uint texture, float alpha)
+    {
+        alpha = Math.Clamp(alpha, 0f, 1f);
+        if (texture == 0 || alpha <= 0f) return;
+
+        _gl.Disable(EnableCap.DepthTest);
+        _gl.Enable(EnableCap.Blend);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        _gl.BindVertexArray(_vao);
+
+        // Portal preview render targets use OpenGL's framebuffer orientation;
+        // unlike top-row-first BLP art, they must not be vertically flipped.
+        TextureRect(texture, -1f, -1f, 1f, 1f, alpha, flipV: false);
+
+        _gl.BindVertexArray(0);
+        _gl.Disable(EnableCap.Blend);
+        _gl.Enable(EnableCap.DepthTest);
+    }
+
     private void Rect(float x0, float y0, float x1, float y1, Vector3 rgb, float alpha)
     {
         _shader.Set("uRect", new Vector4(x0, y0, x1, y1));
@@ -124,13 +149,15 @@ public sealed class LoadingScreen : IDisposable
     private static float CanvasX(float fraction, float extent) => -extent + 2f * extent * fraction;
     private static float CanvasY(float fraction, float extent) => -extent + 2f * extent * fraction;
 
-    private void TextureRect(uint texture, float x0, float y0, float x1, float y1, float alpha)
+    private void TextureRect(
+        uint texture, float x0, float y0, float x1, float y1, float alpha, bool flipV = true)
     {
         _texShader.Use();
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, texture);
         _texShader.Set("uTex", 0);
         _texShader.Set("uAlpha", alpha);
+        _texShader.Set("uFlipV", flipV ? 1 : 0);
         _texShader.Set("uRect", new Vector4(x0, y0, x1, y1));
         _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
     }
@@ -165,13 +192,14 @@ void main() { frag = uColor; }";
 private const string TexVertexSource = @"#version 330 core
 out vec2 vUv;
 uniform vec4 uRect;
+uniform int uFlipV;
 const vec2 kQuad[6] = vec2[6](
     vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.0, 1.0),
     vec2(0.0, 1.0), vec2(1.0, 0.0), vec2(1.0, 1.0));
 void main()
 {
     vec2 c = kQuad[gl_VertexID];
-    vUv = vec2(c.x, 1.0 - c.y);
+    vUv = vec2(c.x, uFlipV != 0 ? 1.0 - c.y : c.y);
     gl_Position = vec4(mix(uRect.xy, uRect.zw, c), 0.0, 1.0);
 }";
 

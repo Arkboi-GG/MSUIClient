@@ -141,6 +141,14 @@ public sealed class Camera
     {
         get
         {
+            if (AuthoredPosition is Vector3 authoredPosition &&
+                AuthoredTarget is Vector3 authoredTarget)
+            {
+                Vector3 authoredForward = authoredTarget - authoredPosition;
+                if (authoredForward.LengthSquared() > 1e-12f)
+                    return Vector3.Normalize(authoredForward);
+            }
+
             float cp = MathF.Cos(Pitch);
             float yaw = ViewYaw;
             return Vector3.Normalize(new Vector3(

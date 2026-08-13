@@ -391,4 +391,11 @@ public enum Op : ushort
     SMSG_SUI_RTS_STATE           = 0x0347,
     CMSG_SUI_RTS_ACTION          = 0x0348,
     SMSG_SUI_RTS_ACTION_RESULT   = 0x0349,
+
+    // 0x034A-0x034B are owned by the RTS branch. REAL_PORTALS starts at the
+    // next audited four-opcode block so the two feature lines can merge.
+    CMSG_SUI_PORTAL_PREPARE      = 0x034C,
+    SMSG_SUI_PORTAL_DESCRIPTOR   = 0x034D,
+    CMSG_SUI_PORTAL_READY        = 0x034E,
+    SMSG_SUI_PORTAL_STATE        = 0x034F,
 }

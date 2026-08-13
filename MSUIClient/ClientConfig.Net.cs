@@ -19,6 +19,13 @@ public sealed partial class ClientConfig
         /// <summary>Connect automatically on launch when Enabled.</summary>
         public bool AutoConnect { get; set; } = true;
 
+        /// <summary>
+        /// Enable the versioned REAL_PORTALS extension used by the matching
+        /// SuperUI core. Disable this when connecting this client to a stock
+        /// server: stock opcode tables do not know the portal prepare packets.
+        /// </summary>
+        public bool RealPortals { get; set; } = false;
+
         /// <summary>Account name (case-insensitive; sent uppercased, like the retail login box).</summary>
         public string Account { get; set; } = "";
 

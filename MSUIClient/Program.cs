@@ -901,6 +901,7 @@ public sealed partial class GameLoop : IDisposable
         // Networked mode stays stateless (no world, no character) until SMSG_LOGIN_VERIFY_WORLD
         // assigns a spawn point; PumpNet then sets _config.Start and calls BeginWorldLoad.
         InitNet(gl);
+        InitRealPortals(gl, shaderDir);
         // Interactive serverless boots sit at the glue front door (mode select +
         // Enter World); only batch instruments still load the world immediately.
         if (!_config.Server.Enabled && !GlueFrontDoorActive)
@@ -1488,6 +1489,11 @@ public sealed partial class GameLoop : IDisposable
             return;
         }
 
+        // Portal retirement owns shared-context completions and main-context
+        // VAO cleanup even while parked at character select. Pump it before all
+        // loading/stateless early returns so logout cannot strand the slot.
+        StepRealPortalRetirement();
+
         // Keep the socket and movement heartbeat alive behind the curtain. The
         // deferred transition may enter BeginWorldLoad, so test the flag afterward.
         if (_worldLoading)
@@ -1782,9 +1788,11 @@ public sealed partial class GameLoop : IDisposable
 
         bool movementWasGrounded = _controller.Grounded;
         float movementPreviousFallMs = _controller.FallTimeMs;
+        Vector3 movementPreviousPosition = _controller.Position;
         long phaseStarted = Stopwatch.GetTimestamp();
         UpdateTaxiSpline();
         _controller.Update(dt, input);
+        ResolveRealPortalMovement(movementPreviousPosition);
         // The unit we drive is client-authoritative, so its ENTITY is the one thing the server
         // never updates for us. Publish every frame, not just at control hand-offs: anything
         // that reads the entity rather than the controller otherwise renders it standing still
@@ -1853,6 +1861,10 @@ public sealed partial class GameLoop : IDisposable
         _warmMilliseconds = Stopwatch.GetElapsedTime(subStarted).TotalMilliseconds;
         _preloadWmoFirst = !_preloadWmoFirst;
         _preloadMilliseconds = Stopwatch.GetElapsedTime(phaseStarted).TotalMilliseconds;
+
+        // Destination-scene streaming owns a separate residency set and its own
+        // small finalisation budget; keep it out of the active doodad timing.
+        UpdateRealPortals(dt);
 
         _walking = input.Walking;
         phaseStarted = Stopwatch.GetTimestamp();
@@ -2230,6 +2242,10 @@ public sealed partial class GameLoop : IDisposable
         bool WarmStage(int stage) => !stagedLoadWarmup || _loadFadeWarmStage == stage;
 
         ApplyAtmosphere();
+        // A prepared portal owns a fully isolated destination scene. Render it
+        // before the source world so the pass can restore GL/atmosphere state,
+        // then composite its completed texture later through the aperture.
+        RenderRealPortalPreview(dt);
         _gpuProfiler?.BeginFrame();
 
         long worldStarted = Stopwatch.GetTimestamp();
@@ -2372,10 +2388,12 @@ public sealed partial class GameLoop : IDisposable
         // Doodad/world particles go through the shared (portal-tuned) renderer.
         // Spell-effect particles go through the SEPARATE benilla-faithful
         // SpellParticleSystem (World/Spells/) so no portal tuning ever touches them.
-        if (WarmStage(5) && _particles is not null && _doodads is not null)
+        if (WarmStage(5) && _particles is not null)
         {
             var eye = _window.Camera.Position;
-            _particles.Simulate(dt, eye, _doodads.EmitterInstances(eye, _particles.SimulationDistance));
+            if (_doodads is not null)
+                _particles.Simulate(dt, eye,
+                    _doodads.EmitterInstances(eye, _particles.SimulationDistance));
             _particles.Render(_window.Camera);
             _particleSimulateMilliseconds = _particles.SimulateMilliseconds;
             _particleDrawMilliseconds = _particles.DrawMilliseconds;
@@ -3664,6 +3682,7 @@ public sealed partial class GameLoop : IDisposable
         _skin = null;
         _character?.Dispose();
         _collisionDebug?.Dispose();
+        DisposeRealPortals();
         _doodads?.Dispose();
         _liquid?.Dispose();
         _foliage?.Dispose();

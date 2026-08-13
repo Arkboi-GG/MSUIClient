@@ -56,6 +56,7 @@ uniform mat4 uViewProjection;
 uniform mat4 uModel;
 uniform mat4 uModelViewProjection;
 uniform int  uUseInstancing;
+uniform vec4 uWorldClipPlane;
 
 // Same payload as aInstanceLight, for the non-instanced draw path.
 uniform vec4 uInstanceLight;
@@ -101,6 +102,7 @@ void main()
     vAppearStart = uUseInstancing == 1 ? aAppearStart : uAppearStart;
     vHighlight = uUseInstancing == 1 ? aHighlight : uHighlight;
 
+    gl_ClipDistance[0] = dot(uWorldClipPlane, world);
     gl_Position = uUseInstancing == 1
         ? uViewProjection * world
         : uModelViewProjection * vec4(aPosition, 1.0);

@@ -5,6 +5,7 @@ using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World;
+using MSUIClient.World.Portals;
 // Silk.NET.OpenGL also defines a Texture type; disambiguate to ours, the same
 // way TerrainTextures/DoodadRenderer/WmoRenderer do.
 using Texture = MSUIClient.Engine.Texture;
@@ -130,6 +131,9 @@ public sealed partial class GameLoop
     /// </summary>
     private void ArmEnterWorldCurtain(GL gl, int mapId)
     {
+        if (_realPortalHandoffPhase == RealPortalHandoffPhase.Armed &&
+            _realPortalHandoffDescriptor?.PreviewMapId != (uint)mapId)
+            CancelRealPortalHandoff("a non-portal enter-world curtain took ownership");
         _loadScreen?.Dispose();
         _loadScreen = new LoadingScreen(gl);
         _loadScreenMapId = mapId;
@@ -149,6 +153,7 @@ public sealed partial class GameLoop
     private void CancelPendingWorldCurtain()
     {
         if (_worldLoading) return;
+        CancelRealPortalHandoff("pending world transfer was cancelled");
         _loadScreen?.Dispose();
         _loadScreen = null;
         _loadScreenMapId = null;
@@ -662,15 +667,6 @@ public sealed partial class GameLoop
                     break;
                 }
 
-                // The reused booth/bootstrap renderer may still be receiving its
-                // server appearance through the asset/upload workers. Never
-                // reveal a stale, missing or half-equipped local player.
-                if (_character is { AppearanceReady: false })
-                {
-                    BumpProgress(0.98f);
-                    break;
-                }
-
                 if (_finishStage == 0)
                 {
                     // Map.dbc, every WDT, AreaTrigger.dbc and the teleport table.
@@ -687,7 +683,7 @@ public sealed partial class GameLoop
                         // reveal an impossible spawn. In particular, a global-WMO
                         // map paired with coordinates outside that WMO has no floor
                         // and immediately drops the character through the world.
-                        if (TryRecoverInvalidLoadSpawn())
+                        if (!_worldportAckPending && TryRecoverInvalidLoadSpawn())
                         {
                             BumpProgress(0.98f);
                             break;
@@ -699,6 +695,8 @@ public sealed partial class GameLoop
                             _travelStatus = supportFailure;
                             Console.WriteLine($"[load] BLOCKED - {supportFailure}");
                         }
+                        if (_worldportAckPending && timedOut)
+                            AbortPendingWorldportAdoption(supportFailure);
                         BumpProgress(0.98f);
                         break;
                     }
@@ -723,7 +721,31 @@ public sealed partial class GameLoop
 
                     _terrain?.VerifyAgainst(_config.Start.X, _config.Start.Y, _config.Start.Z);
                     CompareWmoToCollision();
+
+                    // This is the exact authoritative adoption point: local map
+                    // support and pose are committed. Appearance may remain
+                    // behind the curtain, but must never withhold a worldport
+                    // ACK indefinitely from an already-adopted destination.
+                    if (!CompletePendingWorldportAckAfterAdoption(
+                            checked((uint)_config.Start.Map)))
+                    {
+                        // Stop() changes network state synchronously. Keep the
+                        // curtain closed for this frame; normal disconnect
+                        // teardown owns what is shown next.
+                        BumpProgress(0.98f);
+                        break;
+                    }
+
                     _finishStage = 2;
+                    break;
+                }
+
+                // The reused booth/bootstrap renderer may still be receiving its
+                // server appearance through the asset/upload workers. Never
+                // reveal a stale, missing or half-equipped local player.
+                if (_character is { AppearanceReady: false })
+                {
+                    BumpProgress(0.98f);
                     break;
                 }
 
@@ -776,6 +798,7 @@ public sealed partial class GameLoop
                     _loadScreen?.Dispose();
                     _loadScreen = null;
                     _loadScreenMapId = null;
+                    CancelRealPortalHandoff("destination world became active");
                     NoteLoadCurtainClear();
                 }
                 break;
@@ -797,13 +820,23 @@ public sealed partial class GameLoop
 
         if (_globalWmoPlacement is null)
         {
-            if (_terrain?.SampleHeight(x, y) is not null)
+            Vector3 arrival = new(x, y, z);
+            bool strictPortalArrival =
+                _realPortalHandoffPhase == RealPortalHandoffPhase.Transit;
+            float? terrainFloor = _terrain?.SampleHeight(x, y);
+            if (strictPortalArrival
+                    ? PortalArrivalLaw.HasNearbySupport(arrival, terrainFloor)
+                    : terrainFloor is not null)
             {
                 failure = "";
                 return true;
             }
 
-            if (_collision?.Raycast(new Vector3(x, y, z + 3f), -Vector3.UnitZ, 80f) is not null)
+            var floor = _collision?.Raycast(
+                new Vector3(x, y, z + 3f), -Vector3.UnitZ, 80f);
+            if (strictPortalArrival
+                    ? PortalArrivalLaw.HasNearbySupport(arrival, floor?.Point.Z)
+                    : floor is not null)
             {
                 failure = "";
                 return true;
@@ -834,7 +867,12 @@ public sealed partial class GameLoop
         }
 
         float probeDepth = MathF.Max(20f, z - _collision.BoundsMin.Z + 5f);
-        if (_collision.Raycast(new Vector3(x, y, z + 3f), -Vector3.UnitZ, probeDepth) is null)
+        var globalFloor = _collision.Raycast(
+            new Vector3(x, y, z + 3f), -Vector3.UnitZ, probeDepth);
+        bool globalSupport = _realPortalHandoffPhase == RealPortalHandoffPhase.Transit
+            ? PortalArrivalLaw.HasNearbySupport(new Vector3(x, y, z), globalFloor?.Point.Z)
+            : globalFloor is not null;
+        if (!globalSupport)
         {
             failure = $"global-WMO map {_config.Start.Map} has no floor below server position " +
                       $"({x:F1}, {y:F1}, {z:F1}); keeping the loading screen up";
@@ -891,6 +929,7 @@ public sealed partial class GameLoop
             _net?.WorldTeleport((uint)intended.TargetMap,
                 intended.TargetPosition, intended.TargetOrientation) == true)
         {
+            CancelRealPortalHandoff("load recovery requested a different authoritative destination");
             _loadSpawnRecoveryAwaitingWorldport = true;
             _loadSpawnRecoveryStamp = Stopwatch.GetTimestamp();
             float distance = MathF.Sqrt(intendedSq);
@@ -946,6 +985,7 @@ public sealed partial class GameLoop
 
         if (!found) return false;
 
+        CancelRealPortalHandoff("load recovery selected a different supported destination");
         _config.Start.X = safe.X;
         _config.Start.Y = safe.Y;
         _config.Start.Z = safe.Z;
@@ -985,6 +1025,7 @@ public sealed partial class GameLoop
     {
         if (_loadScreen is null) return;
         float alpha = _loadPhase == WorldLoadPhase.Fade ? MathF.Max(0f, _loadCurtainAlpha) : 1f;
+        if (DrawRealPortalHandoff(alpha)) return;
         _loadScreen.Render(_loadProgress, alpha);
     }
 }

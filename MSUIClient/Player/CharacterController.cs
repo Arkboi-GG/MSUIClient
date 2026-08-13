@@ -77,7 +77,7 @@ public sealed class CharacterController
         new(-0.70710677f, -0.70710677f),
     ];
 
-    private readonly TerrainRenderer _terrain;
+    private TerrainRenderer _terrain;
     private readonly ClientConfig.MovementConfig _opts;
 
     /// <summary>cos(maxSlope): a surface normal's Z must exceed this to be standable.</summary>
@@ -259,6 +259,17 @@ public sealed class CharacterController
         _opts = options;
         _minGroundZ = MathF.Cos(options.MaxSlopeDegrees * MathF.PI / 180f);
         Flying = options.StartFlying;
+    }
+
+    /// <summary>
+    /// Rebind height queries after an already-prepared world renderer is
+    /// promoted into the active slot. Movement state is deliberately retained;
+    /// the authoritative teleport which follows owns the pose reset.
+    /// </summary>
+    public void RebindTerrain(TerrainRenderer terrain)
+    {
+        ArgumentNullException.ThrowIfNull(terrain);
+        _terrain = terrain;
     }
 
     public void Teleport(float x, float y, float z)

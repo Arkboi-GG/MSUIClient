@@ -8,6 +8,7 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private const float GameObjectInteractDistance = 6f;
+    private const float MagePortalClickInteractDistance = 10f;
     private ulong _gameObjectGuid;
     private uint _gameObjectAnimation;
     private readonly List<(uint Id, string Text, uint Next)> _gameObjectPages = [];
@@ -117,10 +118,14 @@ public sealed partial class GameLoop
     {
         WorldEntity? go = null;
         float distance = float.PositiveInfinity;
+        float interactDistance = GameObjectInteractDistance;
         string outcome;
         if (_net is not { IsInWorld: true } || _controller is null) outcome = "REFUSED_NOT_IN_WORLD";
         else if (!_entities.TryGet(guid, out go) || !go.IsGameObject) outcome = "REFUSED_NOT_GAMEOBJECT";
-        else if ((distance = Vector3.Distance(_controller.Position, go.Position)) > GameObjectInteractDistance) outcome = "REFUSED_RANGE";
+        else if ((distance = Vector3.Distance(_controller.Position, go.Position)) >
+                 (interactDistance = IsStockPortalEntry(go.Entry)
+                     ? MagePortalClickInteractDistance
+                     : GameObjectInteractDistance)) outcome = "REFUSED_RANGE";
         else if (go.GameObjectType == 19)
         {
             // Mailbox use is a local panel open. The mail window's CheckInbox equivalent owns the
@@ -135,7 +140,16 @@ public sealed partial class GameLoop
                 outcome = _net.CastSpellOnGameObject(opener, guid) ? "SENT_OPEN_LOCK_SPELL" : "SEND_FAILED";
                 if (outcome.StartsWith("SENT", StringComparison.Ordinal)) _pendingCastSpell = opener;
             }
-            else outcome = _net.GameObjectUse(guid) ? "SENT" : "SEND_FAILED";
+            else
+            {
+                bool sent = _net.GameObjectUse(guid);
+                outcome = sent ? "SENT" : "SEND_FAILED";
+                // Arm only after a READY portal's ordinary authoritative use
+                // was successfully queued. Proximity, clicks on other objects,
+                // and failed sends retain the normal loading-screen path.
+                if (sent && IsStockPortalEntry(go.Entry))
+                    ArmRealPortalHandoffAfterSuccessfulUse(guid);
+            }
         }
         if (outcome.StartsWith("SENT", StringComparison.Ordinal))
         { _gameObjectGuid = guid; _gameObjectAnimation = 0; _gameObjectPages.Clear(); }
@@ -144,7 +158,7 @@ public sealed partial class GameLoop
             ? Convert.ToHexString(WorldSession.BuildCastSpellOnGameObjectBody(lockSpell, guid))
             : Convert.ToHexString(WorldSession.BuildGameObjectUseBody(guid));
         EmitInterface("gameobject", "use", outcome, guid,
-            $"entry={go?.Entry ?? 0};type={go?.GameObjectType ?? 0};kind={GameObjectKind(go?.GameObjectType ?? uint.MaxValue)};distance={distance:R};limit={GameObjectInteractDistance:R};openSpell={lockSpell};body={body}");
+            $"entry={go?.Entry ?? 0};type={go?.GameObjectType ?? 0};kind={GameObjectKind(go?.GameObjectType ?? uint.MaxValue)};distance={distance:R};limit={interactDistance:R};openSpell={lockSpell};body={body}");
         return outcome.StartsWith("SENT", StringComparison.Ordinal) ||
             outcome.Equals("OPENED_MAIL", StringComparison.Ordinal);
     }

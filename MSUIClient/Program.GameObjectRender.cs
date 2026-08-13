@@ -79,6 +79,24 @@ public sealed partial class GameLoop
             uint displayId = e.Fields.GameObjectDisplayId;
             bool tracked = _gameObjectPlacements.TryGetValue(e.Guid, out var placedSignature);
 
+            // REAL_PORTALS owns the complete presentation for the six stock
+            // Mage portals. Their legacy display is InstancePortal.m2, a
+            // particle-only narrow vortex which otherwise stacks inside the
+            // large procedural aperture. Keep the authoritative WorldEntity --
+            // queries, tooltip, selection and CMSG_GAMEOBJ_USE all key off it --
+            // but do not publish its cosmetic M2 to DoodadRenderer. The full
+            // procedural aperture remains the two-sided pick target.
+            if (RealPortalsEnabled && IsPredictedMagePortal(e))
+            {
+                if (tracked) RemoveGameObjectPlacement(e.Guid);
+                // Placement bookkeeping can be reset independently of particle
+                // lifetime during a residency rebuild. Remove by exact owner on
+                // every reconcile so an orphaned legacy vortex cannot linger
+                // inside the procedural aperture after its model is suppressed.
+                _particles?.RemoveOwnedEmitterPools(e.Guid);
+                continue;
+            }
+
             // Display 0 (not yet streamed, or authored invisible) and known-bad
             // displays render nothing; drop any stale placement from before.
             if (displayId == 0 || _gameObjectDisplaysUnrenderable.Contains(displayId))
@@ -156,14 +174,26 @@ public sealed partial class GameLoop
     private ulong PickGameObject(Vector2 pixel, float nearestUnitHit, out float distance)
     {
         distance = float.PositiveInfinity;
-        if (_doodads is null) return 0;
         var ray = _window.Camera.ScreenPointToRay(pixel, _window.FramebufferSize);
         if (ray is null) return 0;
         (Vector3 origin, Vector3 direction) = ray.Value;
 
         float limit = MathF.Min(TargetPickDistance, nearestUnitHit);
-        if (!_doodads.TryPickDynamic(origin, direction, limit, out ulong guid, out float hit))
-            return 0;
+        ulong guid = 0;
+        float hit = limit;
+        if (_doodads?.TryPickDynamic(origin, direction, hit,
+                out ulong doodadGuid, out float doodadHit) == true)
+        {
+            guid = doodadGuid;
+            hit = doodadHit;
+        }
+        if (TryPickRealPortalAperture(origin, direction, hit,
+                out ulong portalGuid, out float portalHit))
+        {
+            guid = portalGuid;
+            hit = portalHit;
+        }
+        if (guid == 0) return 0;
 
         // The placement map can briefly outlive the entity store between the
         // despawn and the next reconcile; never hover a ghost.
