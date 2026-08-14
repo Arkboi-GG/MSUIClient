@@ -155,7 +155,7 @@ save, writes its database rows, and controls installation, deployment, or runtim
    faction(s), normal-mob baseline, and the known-good vanilla save to restore.
 2. Owner boots the known-good vanilla save first. Expected evidence: the worldstate
    and RTS logs say vanilla/inert, `.sui rts status` reports no active modules, the
-   839 state packet reports mode 0, and the commander map has no `RTS MATCH` tag.
+   839 state packet reports mode 0, and the commander map has no `RTS CAMPAIGN` tag.
 3. Owner makes an isolated test copy of the characters save. Its minimal RTS data is
    exact lowercase `mode=rts`, one conspicuous but sane positive `rate.xp_kill`, and
    at least one explicit `bots.cap.alliance` or `bots.cap.horde` value for the first
@@ -164,7 +164,8 @@ save, writes its database rows, and controls installation, deployment, or runtim
    tables empty so unfinished R2-R4 module bits remain zero. Omit `state.flush_ms`.
 4. After the owner's clean boot of that save, confirm the RTS boot/status output
    reports exactly the chosen rate and cap with module flags zero. The commander map
-   must show `RTS MATCH · Honor 0`; the 839 packet must remain well formed. If a
+   must show `RTS CAMPAIGN` without an Honor value while the Honor module is disabled;
+   the 839 packet must remain well formed. If a
    diagnostic exercises an 840 action request, UNSUPPORTED is the expected R1
    result; no R2 action UI is required for this checkpoint.
 5. Kill a normal, non-elite mob under controlled conditions and compare awarded XP
@@ -360,8 +361,12 @@ pump case in `MSUIClient/GameLoop/Scene/GameLoop.Net.cs` â†’ apply handler 
 - **R1 client**: send CMSG_SUI_RTS_STATE on the commander map's existing 5 s
   cadence (piggyback the zone-intel throttle); parse SMSG_SUI_RTS_STATE
   stride-blocks into `_rtsMode`, `_rtsModules`, `_rtsFactions`, `_rtsHeroes`, and
-  `_rtsDungeons`; the header shows mode + honor pool when RTS. Zone-intel parser
-  reads the 9-byte zone row (controller byte, always 0 until R3).
+  `_rtsDungeons`; the header shows the RTS campaign state and adds the Honor pool
+  only when the Honor module is enabled. Zone-intel parser
+  reads the 9-byte zone row (controller byte, always 0 until R3). The fullscreen
+  overview shows both continents; stock ZMP ownership and shaped highlight art
+  drive zone hover/click, and drill-in maps reveal every stock overlay without
+  character exploration fog.
 - **R2 client**: side-panel "HEROES" section (roster rows from the hero block:
   name via guid resolution, HL, dead flag) with Declare/Upgrade/Revive buttons on
   selected/party units â†’ CMSG_SUI_RTS_ACTION; results (841) surface in the

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\MSUIClient\Formats\DbcReader.cs" Link="Formats\DbcReader.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\BlpDecoder.cs" Link="Formats\BlpDecoder.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\MpqMount.cs" Link="Formats\MpqMount.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\Mpq\*.cs" Link="Formats\Mpq\%(Filename)%(Extension)" />
+    <Compile Include="..\..\MSUIClient\Formats\WorldMapAreaCatalog.cs" Link="Formats\WorldMapAreaCatalog.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\WorldMapOverlayCatalog.cs" Link="Formats\WorldMapOverlayCatalog.cs" />
+  </ItemGroup>
+</Project>

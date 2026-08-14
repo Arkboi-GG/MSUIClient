@@ -76,8 +76,9 @@ write-behind + shutdown flush, but no R1 accrual caller), the RTS state/action w
 (stride-versioned blocks; actions answer "unsupported" until R2), `.sui rts
 status|reload`, and the boot-order fix
 (worldstate+ruleset load moved BEFORE InitZoneScripts). Client: parses RTS state,
-piggybacks the request on the commander-map 5 s cadence, shows "RTS MATCH · Honor
-N" in the header, reads the zone-row controller byte. Key list + wire spec:
+piggybacks the request on the commander-map 5 s cadence, shows `RTS CAMPAIGN` in
+RTS mode and appends Honor only when the Honor module is actually enabled, and reads
+the zone-row controller byte. Key list + wire spec:
 `docs/SUI_WIRE_PROTOCOL.md` on the box (new ruleset appendix — the single source
 the R5.1 web registry must mirror). `.sui rts reload` is a development diagnostic,
 not the production save-transition path or proof of boot persistence.
@@ -154,9 +155,13 @@ entering it force-closes a leftover vanilla map. Fly-to = rig `Teleport` +
 `_freecamCamSentAt = 0`; the eye follows on the next heartbeat and far same-map
 jumps are safe (the eye is an active object — destination grid force-loads).
 
-Deferred/known-cut (v1): zone hover rects are WorldMapArea art rects
-(overlapping — smallest-area wins; coastline overrun accepted), no fog-of-war,
-GM-invisible characters count as players, faction breakdown not shown.
+Current presentation: the Commander surface is fullscreen and its overview shows
+Eastern Kingdoms and Kalimdor together. Hover/click ownership comes from the stock
+1.12 continent ZMP grid; the shaped, colored `<Zone>Highlight.blp` art brightens
+the exact zone and labels it. Clicking enters that zone's full map, where every
+`WorldMapOverlay.dbc` row is drawn (Commander has no exploration fog). Population
+presence and the free-camera marker remain layered above the map. Known cuts:
+GM-invisible characters count as players and faction breakdown is not shown.
 
 **Hero units (Part 2) are NOT started.** Direction + groundwork trace (core
 hooks: aura scale + `UpdateModelData`, `DoneTotalMod` multiplier, SpellModifier

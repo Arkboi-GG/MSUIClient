@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -37,16 +38,17 @@ public sealed partial class GameLoop
     private int OwnTeamIndex => _net?.Player?.Race is 2 or 5 or 6 or 8 ? 1 : 0;
 
     private bool _commanderMapOpen;
-    private uint _commanderMapZone;                  // 0 = continent view, else AreaId of the drilled-in zone
-    private int _commanderMapContinent = -1;         // 0 EK / 1 Kalimdor; -1 = derive from the character's map on open
+    private uint _commanderMapZone;                  // 0 = both-continent overview, else AreaId of the drilled-in zone
     private readonly Dictionary<uint, ZoneIntel> _zoneIntel = [];
     private readonly List<CommanderUnit> _commanderUnits = [];
     private double _zoneIntelAt;                     // NowSeconds() of the last SMSG; 0 = never
     private double _zoneIntelSentAt;                 // request throttle; 0 forces an immediate send
     private (float X, float Y, float Alt)? _commanderFlySettle;  // ground snap pending terrain streaming
     private double _commanderFlySettleAt;
-    private List<(WorldMapAreaInfo Zone, Vector2 Min, Vector2 Max)>? _commanderZoneRects;
-    private int _commanderZoneRectsFor = -1;
+    private WorldMapOverlayCatalog? _commanderMapOverlays;
+    private WorldMapHighlightCatalog? _commanderMapHighlights;
+    private WorldMapZoneHitCatalog? _commanderMapHits;
+    private bool _commanderMapOverlaysLoaded;
     private string? _commanderNotice;                // one-line transient message in the footer
     private double _commanderNoticeAt;
 
@@ -61,8 +63,6 @@ public sealed partial class GameLoop
         if (!_commanderMapOpen) return;
         _zoneIntelSentAt = 0;                        // force the census request out this frame
         _commanderMapZone = 0;
-        if (_commanderMapContinent < 0)
-            _commanderMapContinent = _net?.Player?.Map == 1 ? 1 : 0;
     }
 
     /// <summary>
@@ -110,7 +110,9 @@ public sealed partial class GameLoop
             var r = new PacketReader(body);
             ushort zoneCount = r.ReadU16();
             byte zoneRowBytes = r.ReadU8();
-            _zoneIntel.Clear();
+            if (zoneRowBytes < 8) throw new InvalidDataException($"zone row stride {zoneRowBytes} is smaller than 8");
+            var nextIntel = new Dictionary<uint, ZoneIntel>(zoneCount);
+            var nextControl = new Dictionary<uint, byte>(zoneCount);
             for (int i = 0; i < zoneCount; i++)
             {
                 uint zone = r.ReadU32();
@@ -119,12 +121,13 @@ public sealed partial class GameLoop
                 byte controller = 0;
                 if (zoneRowBytes >= 9) controller = r.ReadU8();   // R3 territory; 0x80 = contested
                 if (zoneRowBytes > 9) r.Skip(zoneRowBytes - 9);   // a future server grew the row
-                _zoneIntel[zone] = new ZoneIntel(bots, players);
-                _zoneControl[zone] = controller;
+                nextIntel[zone] = new ZoneIntel(bots, players);
+                nextControl[zone] = controller;
             }
             byte unitCount = r.ReadU8();
             byte unitRowBytes = r.ReadU8();
-            _commanderUnits.Clear();
+            if (unitRowBytes < 29) throw new InvalidDataException($"unit row stride {unitRowBytes} is smaller than 29");
+            var nextUnits = new List<CommanderUnit>(unitCount);
             for (int i = 0; i < unitCount; i++)
             {
                 ulong guid = r.ReadU64();
@@ -133,8 +136,17 @@ public sealed partial class GameLoop
                 Vector3 pos = r.ReadVector3();
                 byte flags = r.ReadU8();
                 if (unitRowBytes > 29) r.Skip(unitRowBytes - 29);
-                _commanderUnits.Add(new CommanderUnit(guid, mapId, zoneId, pos, flags));
+                nextUnits.Add(new CommanderUnit(guid, mapId, zoneId, pos, flags));
             }
+
+            // Publish one complete census. A malformed future packet must not mix
+            // partial new zones with units or territory state from the previous one.
+            _zoneIntel.Clear();
+            foreach ((uint zone, ZoneIntel intel) in nextIntel) _zoneIntel[zone] = intel;
+            _zoneControl.Clear();
+            foreach ((uint zone, byte controller) in nextControl) _zoneControl[zone] = controller;
+            _commanderUnits.Clear();
+            _commanderUnits.AddRange(nextUnits);
             _zoneIntelAt = NowSeconds();
         }
         catch (Exception e)
@@ -217,7 +229,9 @@ public sealed partial class GameLoop
                 3 => "invalid target",
                 _ => "not available",
             };
-            CommanderShowNotice($"{what}: {verdict}  (Honor {poolAfter:n0})");
+            string honor = CommanderMapUiLaw.ShowHonor(_rtsMode, _rtsModules)
+                ? $"  (Honor {poolAfter:n0})" : string.Empty;
+            CommanderShowNotice($"{what}: {verdict}{honor}");
         }
         catch (Exception e)
         {
@@ -257,17 +271,37 @@ public sealed partial class GameLoop
 
     // ── drawing ──────────────────────────────────────────────────────────────
 
+    private readonly record struct CommanderZoneRect(
+        WorldMapAreaInfo Zone, Vector2 Min, Vector2 Max);
+
+    private readonly record struct CommanderOverviewMap(
+        uint MapId, string Name, WorldMapAreaInfo Continent,
+        Vector2 CardMin, Vector2 CardMax, Vector2 MapMin, Vector2 MapSize,
+        Vector4 Crop, IReadOnlyList<CommanderZoneRect> Zones);
+
     private void DrawCommanderMapFrame()
     {
         if (!_commanderMapOpen || _gameplayArt is null || _net is null) return;
         EnsureWorldMapAreas();
+        EnsureCommanderMapOverlays();
         EnsureAreaTableForMinimap();
         if (_worldMapAreas is null) { _commanderMapOpen = false; return; }
 
         Vector2 disp = ImGui.GetIO().DisplaySize;
-        float s = MathF.Min(GameplayUiScale(), MathF.Min(disp.X / 1024f, disp.Y / 768f));
-        Vector2 canvas = new Vector2(1024, 768) * s;
-        Vector2 origin = (disp - canvas) * 0.5f;
+        float s = MathF.Min(GameplayUiScale(),
+            MathF.Min(disp.X / 1024f, disp.Y / 720f));
+        s = Math.Clamp(s, 0.65f, 2.5f);
+        float margin = Math.Clamp(MathF.Min(disp.X, disp.Y) * 0.0125f, 12f * s, 24f * s);
+        float gap = Math.Clamp(disp.X * 0.008f, 12f * s, 22f * s);
+        float headerH = Math.Clamp(disp.Y * 0.055f, 54f * s, 70f * s);
+        float footerH = 34f * s;
+        double now = NowSeconds();
+        bool stale = _zoneIntelAt != 0 && now - _zoneIntelAt > CommanderIntelRefreshSeconds * 3;
+
+        WorldMapAreaInfo drilledZone = default;
+        bool drilled = _commanderMapZone != 0 &&
+                       _worldMapAreas.TryGetArea(_commanderMapZone, out drilledZone);
+        if (!drilled) _commanderMapZone = 0;
 
         PushCreatorStyle();
         ImGui.SetNextWindowPos(Vector2.Zero);
@@ -277,71 +311,69 @@ public sealed partial class GameLoop
             ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse |
             ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoBackground);
 
-        // COMMAND_SURFACE strata: like the vanilla map, everything paints on the
-        // foreground list so the scrim and map cover every ordinary window.
         ImDrawListPtr dl = ImGui.GetForegroundDrawList();
-        dl.AddRectFilled(Vector2.Zero, disp, 0xF41A1614);          // near-opaque cool-dark scrim
+        dl.AddRectFilled(Vector2.Zero, disp, 0xFF111416);
 
-        // Header ----------------------------------------------------------------
-        double now = NowSeconds();
-        dl.AddText(ImGui.GetFont(), 20f * s, origin + new Vector2(24, 12) * s, VanillaGold, "COMMANDER");
+        Vector2 headerMin = new(margin, margin);
+        Vector2 headerMax = new(disp.X - margin, margin + headerH);
+        dl.AddRectFilled(headerMin, headerMax, 0xFA181410, 6f * s);
+        dl.AddRect(headerMin, headerMax, 0x50FFFFFF, 6f * s);
+        dl.AddText(ImGui.GetFont(), 20f * s, headerMin + new Vector2(14f, 7f) * s,
+            VanillaGold, "COMMANDER");
         if (_rtsMode == 1)
         {
-            long ownPool = _rtsFactions[OwnTeamIndex].HonorPool;
-            dl.AddText(ImGui.GetFont(), 12f * s, origin + new Vector2(24, 34) * s, 0xFF60C0E0,
-                $"RTS MATCH  ·  Honor {ownPool:n0}");
+            string campaign = CommanderMapUiLaw.CampaignStatus(
+                _rtsMode, _rtsModules, _rtsFactions[OwnTeamIndex].HonorPool);
+            dl.AddText(ImGui.GetFont(), 11f * s, headerMin + new Vector2(14f, 33f) * s,
+                0xFF60C0E0, campaign);
         }
-        WorldMapAreaInfo drilledZone = default;
-        bool drilled = _commanderMapZone != 0 &&
-                       _worldMapAreas.TryGetArea(_commanderMapZone, out drilledZone);
-        if (!drilled) _commanderMapZone = 0;
 
-        if (CommanderTab(dl, "##cmd-tab-ek", "Eastern Kingdoms", origin + new Vector2(360, 10) * s,
-                new Vector2(150, 26), s, _commanderMapContinent == 0))
-        { _commanderMapContinent = 0; _commanderMapZone = 0; }
-        if (CommanderTab(dl, "##cmd-tab-kal", "Kalimdor", origin + new Vector2(520, 10) * s,
-                new Vector2(120, 26), s, _commanderMapContinent == 1))
-        { _commanderMapContinent = 1; _commanderMapZone = 0; }
-
-        bool stale = _zoneIntelAt != 0 && now - _zoneIntelAt > CommanderIntelRefreshSeconds * 3;
-        string intelText = _zoneIntelAt == 0 ? "awaiting intel..." : $"intel {now - _zoneIntelAt:0}s";
+        string intelText = _zoneIntelAt == 0 ? "Waiting for population data" :
+            stale ? $"Data stale - {now - _zoneIntelAt:0}s" : $"Updated {now - _zoneIntelAt:0}s ago";
         uint intelColor = _zoneIntelAt == 0 ? 0xFF808080 : stale ? 0xFF3E8CE6 : 0xFF9CC49C;
-        dl.AddText(ImGui.GetFont(), 13f * s, origin + new Vector2(860, 18) * s, intelColor, intelText);
-
-        Vector2 close = origin + new Vector2(982, 4) * s;
-        DrawImageButton(dl, "##commander-close", close, new Vector2(32) * s,
+        float intelSize = 12f * s;
+        Vector2 close = new(headerMax.X - 34f * s, headerMin.Y + (headerH - 28f * s) * 0.5f);
+        float intelWidth = ImGui.CalcTextSize(intelText).X * (intelSize / MathF.Max(1f, ImGui.GetFontSize()));
+        string centreTitle = drilled
+            ? $"WORLD OVERVIEW  >  {(drilledZone.MapId == 1 ? "KALIMDOR" : "EASTERN KINGDOMS")}  >  {CommanderZoneName(drilledZone)}"
+            : "WORLD OVERVIEW";
+        float titleSize = (drilled ? 13f : 15f) * s;
+        float titleLeft = headerMin.X + 210f * s;
+        float titleRight = close.X - intelWidth - 22f * s;
+        string fittedTitle = CommanderFitText(centreTitle,
+            MathF.Max(80f * s, titleRight - titleLeft), titleSize);
+        DrawCenteredText(dl, new Vector2((titleLeft + titleRight) * 0.5f,
+                headerMin.Y + headerH * 0.5f),
+            fittedTitle, titleSize, 0xFFF2E8D4);
+        dl.AddText(ImGui.GetFont(), intelSize,
+            new Vector2(close.X - intelWidth - 14f * s, headerMin.Y + (headerH - intelSize) * 0.5f),
+            intelColor, intelText);
+        DrawImageButton(dl, "##commander-close", close, new Vector2(28f) * s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up", @"Interface\Buttons\UI-Panel-MinimizeButton-Down",
             @"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");
         if (ImGui.IsItemClicked()) _commanderMapOpen = false;
 
-        // Layout: map body left, intel panel right --------------------------------
-        int mapId = _commanderMapContinent == 1 ? 1 : 0;
-        Vector2 panelMin = origin + new Vector2(770, 56) * s;
-        Vector2 panelMax = origin + new Vector2(1008, 724) * s;
-        float mapW = 730f * s;
-        float mapH = mapW * (668f / 1002f);
-        Vector2 mapMin = origin + new Vector2(20, 56) * s + new Vector2(0, (668f * s - mapH) * 0.5f);
-        // (668 logical body height; the authored aspect never fills it exactly)
-        mapMin.Y = MathF.Max(mapMin.Y, origin.Y + 56f * s);
-
+        Vector2 bodyMin = new(margin, headerMax.Y + gap);
+        Vector2 bodyMax = new(disp.X - margin, disp.Y - margin - footerH);
         uint playerMap = _net.Player?.Map ?? 0;
         if (!drilled)
-            DrawCommanderContinentView(dl, mapId, playerMap, mapMin, mapW, mapH, s, stale);
+            DrawCommanderWorldOverview(dl, bodyMin, bodyMax, gap, s, playerMap, stale);
         else
-            DrawCommanderZoneView(dl, drilledZone, playerMap, mapMin, mapW, mapH, s);
+            DrawCommanderDrill(dl, drilledZone, bodyMin, bodyMax, gap, s, playerMap);
 
-        DrawCommanderIntelPanel(dl, mapId, drilled, drilledZone, panelMin, panelMax, s, stale);
+        bool noticeActive = _commanderNotice is not null && now - _commanderNoticeAt < 4.0;
+        string hint = noticeActive ? _commanderNotice! : drilled
+            ? "Click ground to fly - click a unit to enter the fight - right-click returns - M / Esc closes"
+            : "Hover a zone for intel - click it to inspect - both continents are fully revealed - M / Esc closes";
+        Vector2 legendPoint = new(margin + 5f * s,
+            disp.Y - margin - footerH * 0.45f);
+        DrawCommanderDiamond(dl, legendPoint, 4.5f * s, VanillaGold);
+        dl.AddText(ImGui.GetFont(), 11f * s,
+            legendPoint + new Vector2(10f, -5.5f) * s,
+            0xFF96918Bu, "Camera  -  B Bots  -  P Players");
+        DrawCenteredText(dl, new Vector2(disp.X * 0.5f, disp.Y - margin - footerH * 0.45f),
+            hint, 12f * s, noticeActive ? 0xFF3EA6E6u : 0xFFB6B0A8u);
 
-        // Footer ------------------------------------------------------------------
-        string hint = drilled
-            ? "Click a unit to take the camera there  ·  click ground to fly there  ·  right-click for the continent  ·  M / Esc closes"
-            : "Hover a zone for intel  ·  click a zone to inspect your forces there  ·  M / Esc closes";
-        DrawCenteredText(dl, origin + new Vector2(512, 744) * s, hint, 13f * s, 0xFF9A948C);
-        if (_commanderNotice is not null && now - _commanderNoticeAt < 4.0)
-            DrawCenteredText(dl, origin + new Vector2(512, 726) * s, _commanderNotice, 14f * s, 0xFF3EA6E6);
-
-        // Right-click backs out of the drill-in (free-view camera look is gated off
-        // while the map is up, so the button is unambiguous here).
         if (drilled && ImGui.IsMouseClicked(ImGuiMouseButton.Right))
             _commanderMapZone = 0;
 
@@ -349,83 +381,373 @@ public sealed partial class GameLoop
         PopCreatorStyle();
     }
 
-    private void DrawCommanderContinentView(ImDrawListPtr dl, int mapId, uint playerMap,
-        Vector2 mapMin, float mapW, float mapH, float s, bool stale)
+    private void EnsureCommanderMapOverlays()
     {
-        if (_worldMapAreas is null || !_worldMapAreas.TryGetContinent((uint)mapId, out WorldMapAreaInfo cont))
-            return;
-
-        DrawCommanderMapTiles(dl, cont.Directory, mapMin, mapW, mapH);
-
-        // Zone rects in continent-fraction space, cached per continent. The
-        // normalizers take X(worldY)/Y(worldX) — the deliberate axis swap every
-        // map projection in this codebase uses.
-        if (_commanderZoneRectsFor != mapId || _commanderZoneRects is null)
+        if (_commanderMapOverlaysLoaded) return;
+        _commanderMapOverlaysLoaded = true;
+        try
         {
-            _commanderZoneRectsFor = mapId;
-            _commanderZoneRects = [];
-            foreach (WorldMapAreaInfo zone in _worldMapAreas.Areas)
+            if (_mpq is not null)
             {
-                if (zone.MapId != (uint)mapId || zone.Directory.Length == 0 || zone.AreaId == 0) continue;
-                Vector2 a = new(cont.X(zone.Left), cont.Y(zone.Top));
-                Vector2 b = new(cont.X(zone.Right), cont.Y(zone.Bottom));
-                _commanderZoneRects.Add((zone, Vector2.Min(a, b), Vector2.Max(a, b)));
+                _commanderMapOverlays = WorldMapOverlayCatalog.Load(_mpq);
+                if (_worldMapAreas is not null)
+                {
+                    _commanderMapHighlights = WorldMapHighlightCatalog.Build(_worldMapAreas);
+                    _commanderMapHits = WorldMapZoneHitCatalog.Load(_mpq, _worldMapAreas);
+                }
             }
         }
-
-        Vector2 mapSize = new(mapW, mapH);
-        foreach ((WorldMapAreaInfo _, Vector2 min, Vector2 max) in _commanderZoneRects)
-            dl.AddRect(mapMin + min * mapSize, mapMin + max * mapSize, 0x24FFFFFF, 0, 0, 1f);
-
-        // Hover hit-test: SMALLEST containing rect wins — WorldMapArea rects
-        // overlap (Stormwind sits inside Elwynn's), and the city must win on it.
-        ImGui.SetCursorScreenPos(mapMin);
-        ImGui.InvisibleButton("##commander-continent", mapSize);
-        (WorldMapAreaInfo Zone, Vector2 Min, Vector2 Max)? hovered = null;
-        if (ImGui.IsItemHovered())
+        catch (Exception e)
         {
-            Vector2 f = (ImGui.GetMousePos() - mapMin) / mapSize;
-            float bestArea = float.MaxValue;
-            foreach (var r in _commanderZoneRects)
-            {
-                if (f.X < r.Min.X || f.X > r.Max.X || f.Y < r.Min.Y || f.Y > r.Max.Y) continue;
-                float area = (r.Max.X - r.Min.X) * (r.Max.Y - r.Min.Y);
-                if (area < bestArea) { bestArea = area; hovered = r; }
-            }
+            Console.WriteLine($"[commander] WorldMapOverlay load failed: {e.Message}");
+        }
+    }
+
+    private string CommanderZoneName(WorldMapAreaInfo zone) =>
+        _areas?.ZoneName(zone.AreaId) is { Length: > 0 } name ? name : zone.Directory;
+
+    private void DrawCommanderWorldOverview(ImDrawListPtr dl, Vector2 bodyMin, Vector2 bodyMax,
+        float gap, float s, uint playerMap, bool stale)
+    {
+        if (_worldMapAreas is null) return;
+
+        int ekRows = CommanderPresenceRows(0).Count;
+        int kalRows = CommanderPresenceRows(1).Count;
+        int visibleRows = Math.Min(3, Math.Max(ekRows, kalRows));
+        float presenceH = Math.Clamp((58f + Math.Max(1, visibleRows) * 21f) * s,
+            84f * s, 132f * s);
+        Vector2 stageMax = new(bodyMax.X, MathF.Max(bodyMin.Y + 220f * s,
+            bodyMax.Y - presenceH - gap));
+        CommanderMapUiLaw.DualViewportLayout layout = CommanderMapUiLaw.LayoutDualViewports(
+            bodyMin, stageMax - bodyMin, gap, 420f);
+
+        CommanderOverviewMap? ek = BuildCommanderOverviewMap(0, "EASTERN KINGDOMS",
+            layout.EasternKingdoms, 30f * s);
+        CommanderOverviewMap? kal = BuildCommanderOverviewMap(1, "KALIMDOR",
+            layout.Kalimdor, 30f * s);
+        if (ek is null || kal is null) return;
+
+        Vector2 presenceMin = new(bodyMin.X, stageMax.Y + gap);
+        Vector2 presenceMax = new(bodyMax.X, bodyMax.Y);
+        uint rowHover = DrawCommanderWorldPresence(dl, ek.Value, kal.Value,
+            presenceMin, presenceMax, gap, s, stale);
+        uint ekHighlight = 0;
+        uint kalHighlight = 0;
+        if (rowHover != 0 &&
+            _worldMapAreas.TryGetArea(rowHover, out WorldMapAreaInfo rowArea))
+        {
+            if (rowArea.MapId == 1) kalHighlight = rowHover;
+            else if (rowArea.MapId == 0) ekHighlight = rowHover;
+        }
+        DrawCommanderOverviewMap(dl, ek.Value, playerMap, s, stale, ekHighlight);
+        DrawCommanderOverviewMap(dl, kal.Value, playerMap, s, stale, kalHighlight);
+    }
+
+    private CommanderOverviewMap? BuildCommanderOverviewMap(uint mapId, string name,
+        CommanderMapUiLaw.ScreenRect cell, float cardHeaderH)
+    {
+        if (_worldMapAreas is null || !_worldMapAreas.TryGetContinent(mapId, out WorldMapAreaInfo continent))
+            return null;
+
+        var zones = new List<CommanderZoneRect>();
+        Vector2 unionMin = Vector2.One;
+        Vector2 unionMax = Vector2.Zero;
+        foreach (WorldMapAreaInfo zone in _worldMapAreas.Areas)
+        {
+            if (zone.MapId != mapId || zone.AreaId == 0 || zone.Directory.Length == 0) continue;
+            Vector2 first = new(continent.X(zone.Left), continent.Y(zone.Top));
+            Vector2 second = new(continent.X(zone.Right), continent.Y(zone.Bottom));
+            Vector2 min = Vector2.Min(first, second);
+            Vector2 max = Vector2.Max(first, second);
+            if (max.X <= min.X || max.Y <= min.Y) continue;
+            zones.Add(new CommanderZoneRect(zone, min, max));
+            unionMin = Vector2.Min(unionMin, min);
+            unionMax = Vector2.Max(unionMax, max);
+        }
+        if (zones.Count == 0) return null;
+
+        CommanderMapUiLaw.ScreenRect mapCell = new(
+            cell.Min + new Vector2(0f, cardHeaderH),
+            new Vector2(cell.Size.X, MathF.Max(1f, cell.Size.Y - cardHeaderH)));
+        var rawCrop = new CommanderMapUiLaw.NormalizedRect(unionMin, unionMax);
+        CommanderMapUiLaw.NormalizedRect padded = CommanderMapUiLaw.PadCrop(rawCrop, new Vector2(0.045f));
+        CommanderMapUiLaw.NormalizedRect crop = CommanderGrowCropToAspect(padded, mapCell.Aspect);
+        CommanderMapUiLaw.ScreenRect viewport = CommanderMapUiLaw.FitViewportToCrop(mapCell, crop);
+        return new CommanderOverviewMap(mapId, name, continent,
+            cell.Min, cell.Max, viewport.Min, viewport.Size,
+            new Vector4(crop.Min.X, crop.Min.Y, crop.Max.X, crop.Max.Y), zones);
+    }
+
+    private static CommanderMapUiLaw.NormalizedRect CommanderGrowCropToAspect(
+        CommanderMapUiLaw.NormalizedRect crop, float screenAspect)
+    {
+        Vector2 min = crop.Min;
+        Vector2 max = crop.Max;
+        Vector2 size = crop.Size;
+        float desiredNormalizedAspect = screenAspect * CommanderMapUiLaw.AuthoredHeight /
+                                        CommanderMapUiLaw.AuthoredWidth;
+        if (size.X / size.Y < desiredNormalizedAspect)
+        {
+            float width = MathF.Min(1f, size.Y * desiredNormalizedAspect);
+            float centre = (min.X + max.X) * 0.5f;
+            min.X = Math.Clamp(centre - width * 0.5f, 0f, 1f - width);
+            max.X = min.X + width;
+        }
+        else
+        {
+            float height = MathF.Min(1f, size.X / desiredNormalizedAspect);
+            float centre = (min.Y + max.Y) * 0.5f;
+            min.Y = Math.Clamp(centre - height * 0.5f, 0f, 1f - height);
+            max.Y = min.Y + height;
+        }
+        return new CommanderMapUiLaw.NormalizedRect(min, max);
+    }
+
+    private static CommanderMapUiLaw.ScreenRect CommanderViewport(in CommanderOverviewMap map) =>
+        new(map.MapMin, map.MapSize);
+
+    private static CommanderMapUiLaw.NormalizedRect CommanderCrop(in CommanderOverviewMap map) =>
+        new(new Vector2(map.Crop.X, map.Crop.Y), new Vector2(map.Crop.Z, map.Crop.W));
+
+    private void DrawCommanderOverviewMap(ImDrawListPtr dl, in CommanderOverviewMap map,
+        uint playerMap, float s, bool stale, uint forcedHighlightArea)
+    {
+        CommanderMapUiLaw.ScreenRect viewport = CommanderViewport(map);
+        CommanderMapUiLaw.NormalizedRect crop = CommanderCrop(map);
+        dl.AddRectFilled(map.CardMin, map.CardMax, 0xF01B1815, 5f * s);
+        DrawCommanderMapTilesCropped(dl, map.Continent.Directory, viewport, crop, 0xFFFFFFFF);
+
+        ImGui.SetCursorScreenPos(viewport.Min);
+        ImGui.InvisibleButton($"##commander-world-{map.MapId}", viewport.Size);
+        CommanderZoneRect? hovered = ImGui.IsItemHovered()
+            ? ResolveCommanderZone(map, ImGui.GetMousePos()) : null;
+        CommanderZoneRect? highlighted = hovered;
+        if (highlighted is null && forcedHighlightArea != 0)
+        {
+            CommanderZoneRect rowZone = map.Zones.FirstOrDefault(
+                z => z.Zone.AreaId == forcedHighlightArea);
+            if (rowZone.Zone.AreaId != 0) highlighted = rowZone;
+        }
+        if (highlighted is CommanderZoneRect highlight)
+            DrawCommanderZoneHighlight(dl, map, highlight, s, drawLabel: true);
+        if (hovered is CommanderZoneRect hover)
+        {
+            if (ImGui.IsItemClicked()) _commanderMapZone = hover.Zone.AreaId;
         }
 
-        // Census pills at rect centres (dimmed while the feed is stale).
-        foreach ((WorldMapAreaInfo zone, Vector2 min, Vector2 max) in _commanderZoneRects)
+        Vector2? cameraPoint = null;
+        if (CommanderMapUiLaw.ShowCameraMarker(map.MapId, playerMap) && _controller is not null)
         {
-            if (!_zoneIntel.TryGetValue(zone.AreaId, out ZoneIntel intel) ||
+            Vector2 normalized = new(map.Continent.X(_controller.Position.Y),
+                map.Continent.Y(_controller.Position.X));
+            if (CommanderMapUiLaw.Contains(crop, normalized))
+                cameraPoint = CommanderMapUiLaw.ProjectCrop(viewport, crop, normalized);
+        }
+
+        var occupied = new List<(Vector2 Min, Vector2 Max)>();
+        foreach (CommanderZoneRect zone in map.Zones)
+        {
+            if (!_zoneIntel.TryGetValue(zone.Zone.AreaId, out ZoneIntel intel) ||
                 intel.Bots + intel.Players == 0) continue;
-            Vector2 centre = mapMin + (min + max) * 0.5f * mapSize;
-            DrawCommanderPill(dl, centre, intel, s, stale);
+            Vector2 centre = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+                (zone.Min + zone.Max) * 0.5f);
+            if (!CommanderMapUiLaw.Contains(viewport, centre)) continue;
+            occupied.Add(DrawCommanderPill(dl, centre, intel, s, stale, cameraPoint,
+                viewport.Min, viewport.Max, occupied));
         }
+        if (cameraPoint is Vector2 camera)
+            DrawCommanderDiamond(dl, camera, 7f * s, VanillaGold);
 
-        // Camera position diamond (only meaningful on the character's continent).
-        if ((uint)mapId == playerMap && _controller is not null)
-        {
-            Vector2 cam = mapMin + new Vector2(cont.X(_controller.Position.Y), cont.Y(_controller.Position.X)) * mapSize;
-            DrawCommanderDiamond(dl, cam, 7f * s, VanillaGold);
-        }
+        dl.AddRectFilled(map.CardMin, new Vector2(map.CardMax.X, map.MapMin.Y), 0xE0181410);
+        dl.AddText(ImGui.GetFont(), 14f * s, map.CardMin + new Vector2(12f, 7f) * s,
+            VanillaGold, map.Name);
+        string summary = highlighted is CommanderZoneRect hz
+            ? CommanderZoneSummary(hz.Zone)
+            : CommanderContinentSummary(map.MapId);
+        DrawCommanderRightAlignedText(dl, map.CardMax.X - 12f * s,
+            map.CardMin.Y + 8f * s, summary, 12f * s,
+            highlighted is null ? 0xFF9A948Du : 0xFFF0E6D2u);
+        dl.AddRect(map.CardMin, map.CardMax, 0x60FFFFFF, 5f * s, ImDrawFlags.None, 1f * s);
+    }
 
-        if (hovered is (WorldMapAreaInfo hz, Vector2 hmin, Vector2 hmax))
+    private CommanderZoneRect? ResolveCommanderZone(in CommanderOverviewMap map, Vector2 screen)
+    {
+        CommanderMapUiLaw.ScreenRect viewport = CommanderViewport(map);
+        CommanderMapUiLaw.NormalizedRect crop = CommanderCrop(map);
+        if (!CommanderMapUiLaw.Contains(viewport, screen)) return null;
+        Vector2 normalized = CommanderMapUiLaw.UnprojectCrop(viewport, crop, screen);
+        if (_commanderMapHits?.TryResolveArea(map.MapId, map.Continent,
+                normalized, out uint areaId) != true)
+            return null;
+        foreach (CommanderZoneRect zone in map.Zones)
+            if (zone.Zone.AreaId == areaId) return zone;
+        return null;
+    }
+
+    private void DrawCommanderZoneHighlight(ImDrawListPtr dl, in CommanderOverviewMap map,
+        in CommanderZoneRect zone, float s, bool drawLabel)
+    {
+        if (_commanderMapHighlights?.TryGetArea(
+                zone.Zone.AreaId, out WorldMapHighlightInfo highlight) != true)
+            return;
+        CommanderMapUiLaw.ScreenRect viewport = CommanderViewport(map);
+        CommanderMapUiLaw.NormalizedRect crop = CommanderCrop(map);
+        Vector2 min = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+            new Vector2(highlight.Bounds.Left, highlight.Bounds.Top));
+        Vector2 max = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+            new Vector2(highlight.Bounds.Right, highlight.Bounds.Bottom));
+        // World-map highlights are colored ADD-authored art. Preserve their authored hue;
+        // AdditiveHandle makes the black field transparent for ImGui without whitening it.
+        uint texture = _gameplayArt!.AdditiveHandle(highlight.TexturePath);
+        dl.PushClipRect(viewport.Min, viewport.Max, true);
+        if (texture != 0)
+            dl.AddImage((nint)texture, Vector2.Min(min, max), Vector2.Max(min, max),
+                Vector2.Zero, new Vector2(highlight.UMax, highlight.VMax),
+                0xFFFFFFFF);
+        if (drawLabel)
+            DrawCommanderOutlinedCenteredText(dl, (min + max) * 0.5f,
+                CommanderZoneName(zone.Zone), 14f * s, VanillaGold);
+        dl.PopClipRect();
+    }
+
+    private string CommanderZoneSummary(WorldMapAreaInfo zone)
+    {
+        _zoneIntel.TryGetValue(zone.AreaId, out ZoneIntel intel);
+        return $"{CommanderZoneName(zone)}  -  B{intel.Bots}  -  P{intel.Players}";
+    }
+
+    private string CommanderContinentSummary(uint mapId)
+    {
+        int zones = 0, bots = 0, players = 0;
+        foreach ((uint areaId, ZoneIntel intel) in _zoneIntel)
         {
-            dl.AddRectFilled(mapMin + hmin * mapSize, mapMin + hmax * mapSize, 0x22FFFFFF);
-            dl.AddRect(mapMin + hmin * mapSize, mapMin + hmax * mapSize, 0xFF60C0E0, 0, 0, 2f * s);
-            _zoneIntel.TryGetValue(hz.AreaId, out ZoneIntel intel);
-            DrawCommanderFlyout(dl, ImGui.GetMousePos() + new Vector2(18f, 10f) * s, s,
-                _areas?.ZoneName(hz.AreaId) is { Length: > 0 } n ? n : hz.Directory,
-                $"Bots {intel.Bots}", $"Players {intel.Players}");
-            if (ImGui.IsItemClicked()) _commanderMapZone = hz.AreaId;
+            if (_worldMapAreas?.TryGetArea(areaId, out WorldMapAreaInfo area) != true ||
+                area.MapId != mapId || intel.Bots + intel.Players == 0) continue;
+            zones++;
+            bots += intel.Bots;
+            players += intel.Players;
         }
+        return zones == 0 ? "No players or bots reported" :
+            $"{zones} populated zones  -  B{bots}  -  P{players}";
+    }
+
+    private List<(WorldMapAreaInfo Area, ZoneIntel Intel, string Name)> CommanderPresenceRows(uint mapId)
+    {
+        var rows = new List<(WorldMapAreaInfo, ZoneIntel, string)>();
+        foreach ((uint areaId, ZoneIntel intel) in _zoneIntel)
+        {
+            if (_worldMapAreas?.TryGetArea(areaId, out WorldMapAreaInfo area) != true ||
+                !CommanderMapUiLaw.ShowWorldPresence(area.MapId, intel.Bots, intel.Players) ||
+                area.MapId != mapId) continue;
+            rows.Add((area, intel, CommanderZoneName(area)));
+        }
+        rows.Sort((a, b) => (b.Item2.Bots + b.Item2.Players).CompareTo(
+            a.Item2.Bots + a.Item2.Players));
+        return rows;
+    }
+
+    private uint DrawCommanderWorldPresence(ImDrawListPtr dl, in CommanderOverviewMap ek,
+        in CommanderOverviewMap kal, Vector2 min, Vector2 max, float gap, float s, bool stale)
+    {
+        dl.AddRectFilled(min, max, 0xF01B1815, 5f * s);
+        dl.AddRect(min, max, 0x50FFFFFF, 5f * s);
+        float half = (max.X - min.X - gap) * 0.5f;
+        uint hover = 0;
+        hover = DrawCommanderPresenceColumn(dl, 0, ek.Name,
+            new Vector2(min.X, min.Y), new Vector2(min.X + half, max.Y), s, stale);
+        uint kalHover = DrawCommanderPresenceColumn(dl, 1, kal.Name,
+            new Vector2(min.X + half + gap, min.Y), max, s, stale);
+        return kalHover != 0 ? kalHover : hover;
+    }
+
+    private uint DrawCommanderPresenceColumn(ImDrawListPtr dl, uint mapId, string continentName,
+        Vector2 min, Vector2 max, float s, bool stale)
+    {
+        List<(WorldMapAreaInfo Area, ZoneIntel Intel, string Name)> rows = CommanderPresenceRows(mapId);
+        int visible = Math.Min(3, rows.Count);
+        float x = min.X + 12f * s;
+        float y = min.Y + 9f * s;
+        dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), VanillaGold,
+            continentName + " PRESENCE");
+        float botRight = max.X - 62f * s;
+        float playerRight = max.X - 12f * s;
+        DrawCommanderRightAlignedText(dl, botRight, y, "BOTS", 10f * s, 0xFF8A8A8A);
+        DrawCommanderRightAlignedText(dl, playerRight, y, "PLAYERS", 10f * s, 0xFF8A8A8A);
+        y += 22f * s;
+        uint hovered = 0;
+        uint color = stale ? 0xFF8A8A8Au : 0xFFE6E6E6u;
+        for (int i = 0; i < visible; i++)
+        {
+            var row = rows[i];
+            ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
+            ImGui.InvisibleButton($"##cmd-world-presence-{mapId}-{row.Area.AreaId}",
+                new Vector2(max.X - x - 8f * s, 20f * s));
+            bool rowHover = ImGui.IsItemHovered();
+            if (rowHover)
+            {
+                hovered = row.Area.AreaId;
+                dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
+                    new Vector2(max.X - 8f * s, y + 17f * s), 0x20FFFFFF, 2f * s);
+            }
+            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y),
+                rowHover ? 0xFFFFFFFFu : color,
+                CommanderFitText(row.Name, botRight - x - 48f * s, 12f * s));
+            DrawCommanderRightAlignedText(dl, botRight, y, row.Intel.Bots.ToString(), 12f * s, color);
+            DrawCommanderRightAlignedText(dl, playerRight, y, row.Intel.Players.ToString(), 12f * s, color);
+            if (ImGui.IsItemClicked()) _commanderMapZone = row.Area.AreaId;
+            y += 20f * s;
+        }
+        if (rows.Count == 0)
+            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                _zoneIntelAt == 0 ? "Waiting for population data." : "No players or bots reported.");
+        else if (rows.Count > visible)
+            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+                $"+{rows.Count - visible} more populated zones");
+        return hovered;
+    }
+
+    private void DrawCommanderDrill(ImDrawListPtr dl, WorldMapAreaInfo zone,
+        Vector2 bodyMin, Vector2 bodyMax, float gap, float s, uint playerMap)
+    {
+        float backH = 34f * s;
+        if (CommanderTab(dl, "##cmd-world-overview", "< World overview", bodyMin,
+                new Vector2(150f, 27f), s, false))
+            _commanderMapZone = 0;
+
+        Vector2 contentMin = new(bodyMin.X, bodyMin.Y + backH);
+        Vector2 contentSize = bodyMax - contentMin;
+        float railW = Math.Clamp(contentSize.X * 0.22f, 280f * s, 380f * s);
+        float availableW = MathF.Max(200f, contentSize.X - railW - gap);
+        float mapW = MathF.Min(availableW,
+            contentSize.Y * CommanderMapUiLaw.AuthoredWidth / CommanderMapUiLaw.AuthoredHeight);
+        float mapH = mapW * CommanderMapUiLaw.AuthoredHeight / CommanderMapUiLaw.AuthoredWidth;
+        Vector2 mapMin = contentMin + new Vector2((availableW - mapW) * 0.5f,
+            (contentSize.Y - mapH) * 0.5f);
+        DrawCommanderZoneView(dl, zone, playerMap, mapMin, mapW, mapH, s);
+
+        Vector2 panelMin = new(contentMin.X + availableW + gap, contentMin.Y);
+        Vector2 panelMax = new(bodyMax.X, bodyMax.Y);
+        DrawCommanderIntelPanel(dl, (int)zone.MapId, true, zone, panelMin, panelMax, s, stale: false);
+    }
+
+    private static void DrawCommanderOutlinedCenteredText(ImDrawListPtr dl, Vector2 centre,
+        string text, float size, uint color)
+    {
+        Vector2 measured = ImGui.CalcTextSize(text) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 at = centre - measured * 0.5f;
+        for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++)
+            if (x != 0 || y != 0)
+                dl.AddText(ImGui.GetFont(), size, at + new Vector2(x, y) * 1.5f,
+                    0xE0000000, text);
+        dl.AddText(ImGui.GetFont(), size, at, color, text);
     }
 
     private void DrawCommanderZoneView(ImDrawListPtr dl, WorldMapAreaInfo zone, uint playerMap,
         Vector2 mapMin, float mapW, float mapH, float s)
     {
         DrawCommanderMapTiles(dl, zone.Directory, mapMin, mapW, mapH);
+        DrawCommanderNoFogOverlays(dl, zone, mapMin, mapW, mapH);
         Vector2 mapSize = new(mapW, mapH);
 
         string zoneName = _areas?.ZoneName(zone.AreaId) is { Length: > 0 } n ? n : zone.Directory;
@@ -439,16 +761,12 @@ public sealed partial class GameLoop
         Vector2 mouse = ImGui.GetMousePos();
 
         CommanderUnit? hoveredUnit = null;
-        Vector2 hoveredPos = default;
         foreach (CommanderUnit unit in _commanderUnits)
         {
-            if (unit.MapId != zone.MapId) continue;
-            Vector2 f = new(zone.X(unit.Pos.Y), zone.Y(unit.Pos.X));
-            bool inside = f.X is > 0.001f and < 0.999f && f.Y is > 0.001f and < 0.999f;
-            if (unit.ZoneId != zone.AreaId && !inside) continue;
-            Vector2 p = mapMin + f * mapSize;
+            if (!CommanderUnitInZone(unit, zone, out Vector2 f)) continue;
+            Vector2 p = CommanderMapUiLaw.Project(mapMin, mapSize, f);
             bool hover = mapHovered && (mouse - p).Length() < 12f * s;
-            if (hover) { hoveredUnit = unit; hoveredPos = p; }
+            if (hover) hoveredUnit = unit;
             DrawCommanderUnitMarker(dl, unit, p, s, hover);
         }
 
@@ -461,7 +779,7 @@ public sealed partial class GameLoop
             if (ImGui.IsItemClicked())
             {
                 if (hu.MapId != playerMap)
-                    CommanderShowNotice("Cross-continent view arrives in phase 1.5 — the streaming eye cannot leave your character's continent.");
+                    CommanderShowNotice("Camera travel is limited to your current continent.");
                 else
                 {
                     CommanderFlyTo(hu.Pos.X, hu.Pos.Y, CommanderUnitAltitude);
@@ -473,11 +791,11 @@ public sealed partial class GameLoop
         {
             // Ground click: inverse transform through the ZONE rect (fraction.X is
             // worldY, fraction.Y is worldX — the same swap as every projection).
-            Vector2 f = (mouse - mapMin) / mapSize;
+            Vector2 f = CommanderMapUiLaw.Unproject(mapMin, mapSize, mouse);
             float worldY = zone.Left + f.X * (zone.Right - zone.Left);
             float worldX = zone.Top + f.Y * (zone.Bottom - zone.Top);
             if (zone.MapId != playerMap)
-                CommanderShowNotice("Cross-continent view arrives in phase 1.5 — the streaming eye cannot leave your character's continent.");
+                CommanderShowNotice("Camera travel is limited to your current continent.");
             else
                 CommanderFlyTo(worldX, worldY, CommanderFlyAltitude);   // map stays open: navigation, not commitment
         }
@@ -487,99 +805,126 @@ public sealed partial class GameLoop
         {
             Vector2 f = new(zone.X(_controller.Position.Y), zone.Y(_controller.Position.X));
             if (f.X is > 0f and < 1f && f.Y is > 0f and < 1f)
-                DrawCommanderDiamond(dl, mapMin + f * mapSize, 7f * s, VanillaGold);
+                DrawCommanderDiamond(dl, CommanderMapUiLaw.Project(mapMin, mapSize, f), 7f * s, VanillaGold);
         }
+    }
+
+    private static bool CommanderUnitInZone(CommanderUnit unit, WorldMapAreaInfo zone, out Vector2 fraction)
+    {
+        fraction = new Vector2(zone.X(unit.Pos.Y), zone.Y(unit.Pos.X));
+        if (unit.MapId != zone.MapId) return false;
+        bool inside = fraction.X is > 0.001f and < 0.999f &&
+                      fraction.Y is > 0.001f and < 0.999f;
+        return unit.ZoneId == zone.AreaId || inside;
     }
 
     private void DrawCommanderIntelPanel(ImDrawListPtr dl, int mapId, bool drilled, WorldMapAreaInfo drilledZone,
         Vector2 panelMin, Vector2 panelMax, float s, bool stale)
     {
-        dl.AddRectFilled(panelMin, panelMax, 0xC0201C18, 4f * s);
-        dl.AddRect(panelMin, panelMax, 0x40FFFFFF, 4f * s);
+        float line = 20f * s;
+        const int maxVisibleRows = 16;
         float x = panelMin.X + 12f * s;
         float y = panelMin.Y + 10f * s;
-        float line = 20f * s;
 
         if (!drilled)
         {
-            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "ACTIVE ZONES");
-            y += line * 1.3f;
-            uint dim = stale ? 0xFF8A8A8Au : 0xFFE6E6E6u;
-            int shown = 0;
-            (uint Zone, ZoneIntel Intel)[] ranked = _zoneIntel
-                .OrderByDescending(kv => kv.Value.Bots + kv.Value.Players)
-                .Select(kv => (kv.Key, kv.Value)).ToArray();
-            ushort otherBots = 0, otherPlayers = 0;
-            foreach ((uint zoneId, ZoneIntel intel) in ranked)
+            var rows = new List<(uint ZoneId, ZoneIntel Intel, WorldMapAreaInfo Area, string Name)>();
+            foreach ((uint zoneId, ZoneIntel intel) in _zoneIntel)
             {
-                if (_worldMapAreas?.TryGetArea(zoneId, out WorldMapAreaInfo za) != true)
-                {
-                    otherBots += intel.Bots; otherPlayers += intel.Players;
-                    continue;
-                }
-                if (shown >= 24) { otherBots += intel.Bots; otherPlayers += intel.Players; continue; }
-                shown++;
-                string name = _areas?.ZoneName(zoneId) is { Length: > 0 } zn ? zn : za.Directory;
+                if (_worldMapAreas?.TryGetArea(zoneId, out WorldMapAreaInfo area) != true ||
+                    !CommanderMapUiLaw.ShowPresence((uint)mapId, area.MapId, intel.Bots, intel.Players)) continue;
+                string name = _areas?.ZoneName(zoneId) is { Length: > 0 } zoneName ? zoneName : area.Directory;
+                rows.Add((zoneId, intel, area, name));
+            }
+            rows.Sort((a, b) => (b.Intel.Bots + b.Intel.Players).CompareTo(a.Intel.Bots + a.Intel.Players));
+
+            int visible = Math.Min(maxVisibleRows, rows.Count);
+            bool overflow = rows.Count > visible;
+            float desiredHeight = (64f + Math.Max(1, visible) * 20f + (overflow ? 20f : 0f)) * s;
+            Vector2 actualMax = new(panelMax.X, MathF.Min(panelMax.Y, panelMin.Y + MathF.Max(112f * s, desiredHeight)));
+            dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
+            dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
+
+            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "ZONE PRESENCE");
+            y += line * 1.25f;
+            float botRight = actualMax.X - 58f * s;
+            float playerRight = actualMax.X - 12f * s;
+            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A, "ZONE");
+            DrawCommanderRightAlignedText(dl, botRight, y, "BOTS", 10f * s, 0xFF8A8A8A);
+            DrawCommanderRightAlignedText(dl, playerRight, y, "PLAYERS", 10f * s, 0xFF8A8A8A);
+            y += line * 0.8f;
+
+            uint dim = stale ? 0xFF8A8A8Au : 0xFFE6E6E6u;
+            for (int i = 0; i < visible; i++)
+            {
+                var row = rows[i];
+                uint zoneId = row.ZoneId;
+                ZoneIntel intel = row.Intel;
+                string name = row.Name;
                 ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
-                ImGui.InvisibleButton($"##cmd-active-{zoneId}", new Vector2(panelMax.X - x - 8f * s, line));
+                ImGui.InvisibleButton($"##cmd-active-{zoneId}", new Vector2(actualMax.X - x - 8f * s, line));
                 bool rowHover = ImGui.IsItemHovered();
                 if (rowHover)
                     dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
-                        new Vector2(panelMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), rowHover ? 0xFFFFFFFFu : dim, name);
-                string counts = $"{intel.Bots} / {intel.Players}";
-                float cw = ImGui.CalcTextSize(counts).X * (13f * s / MathF.Max(1f, ImGui.GetFontSize()));
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(panelMax.X - 12f * s - cw, y), dim, counts);
+                        new Vector2(actualMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
+                string fitted = CommanderFitText(name, botRight - x - 50f * s, 13f * s);
+                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), rowHover ? 0xFFFFFFFFu : dim, fitted);
+                DrawCommanderRightAlignedText(dl, botRight, y, intel.Bots.ToString(), 13f * s, dim);
+                DrawCommanderRightAlignedText(dl, playerRight, y, intel.Players.ToString(), 13f * s, dim);
                 if (ImGui.IsItemClicked())
-                {
-                    _commanderMapContinent = za.MapId == 1 ? 1 : 0;
                     _commanderMapZone = zoneId;
-                }
                 y += line;
             }
-            if (otherBots + otherPlayers > 0)
+            if (rows.Count == 0)
             {
-                y += line * 0.3f;
-                dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A,
-                    $"Elsewhere (dungeons etc.): {otherBots} / {otherPlayers}");
+                string empty = _zoneIntelAt == 0 ? "Waiting for population data." :
+                    "No players or bots reported here.";
+                dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A, empty);
                 y += line;
             }
-            if (_zoneIntel.Count == 0)
-                dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), 0xFF8A8A8A,
-                    _zoneIntelAt == 0 ? "No census yet." : "The world is empty.");
-            y += line * 0.5f;
-            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A, "bots / players");
+            if (overflow)
+                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                    $"+{rows.Count - visible} more populated zones");
         }
         else
         {
-            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "YOUR FORCES");
-            y += line * 1.3f;
-            int listed = 0;
+            var units = new List<CommanderUnit>();
             foreach (CommanderUnit unit in _commanderUnits)
+                if (CommanderUnitInZone(unit, drilledZone, out _)) units.Add(unit);
+            int visible = Math.Min(maxVisibleRows, units.Count);
+            bool overflow = units.Count > visible;
+            float desiredHeight = (58f + Math.Max(1, visible) * 20f + (overflow ? 20f : 0f)) * s;
+            Vector2 actualMax = new(panelMax.X, MathF.Min(panelMax.Y, panelMin.Y + MathF.Max(112f * s, desiredHeight)));
+            dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
+            dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
+
+            dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "YOUR GROUP HERE");
+            y += line * 1.15f;
+            string zoneName = _areas?.ZoneName(drilledZone.AreaId) is { Length: > 0 } resolvedZoneName
+                ? resolvedZoneName : drilledZone.Directory;
+            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+                CommanderFitText(zoneName.ToUpperInvariant(), actualMax.X - x - 12f * s, 10f * s));
+            y += line * 0.9f;
+
+            for (int i = 0; i < visible; i++)
             {
-                if (unit.MapId != drilledZone.MapId || unit.ZoneId != drilledZone.AreaId)
-                {
-                    Vector2 f = new(drilledZone.X(unit.Pos.Y), drilledZone.Y(unit.Pos.X));
-                    if (unit.MapId != drilledZone.MapId ||
-                        f.X is <= 0.001f or >= 0.999f || f.Y is <= 0.001f or >= 0.999f) continue;
-                }
-                listed++;
+                CommanderUnit unit = units[i];
                 string name = CommanderUnitName(unit.Guid);
                 uint color = unit.Alive ? CommanderClassColor(BotClassName(unit.Guid, name)) : 0xFF707070;
                 ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
-                ImGui.InvisibleButton($"##cmd-unit-{unit.Guid}", new Vector2(panelMax.X - x - 8f * s, line));
+                ImGui.InvisibleButton($"##cmd-unit-{unit.Guid}", new Vector2(actualMax.X - x - 8f * s, line));
                 bool rowHover = ImGui.IsItemHovered();
                 if (rowHover)
                     dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
-                        new Vector2(panelMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
+                        new Vector2(actualMax.X - 8f * s, y - 2f * s + line), 0x18FFFFFF, 2f * s);
                 dl.AddCircleFilled(new Vector2(x + 5f * s, y + 7f * s), 4f * s, color);
                 dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x + 14f * s, y),
                     unit.Alive ? (rowHover ? 0xFFFFFFFFu : 0xFFE6E6E6u) : 0xFF8A8A8Au,
-                    name + (unit.Alive ? "" : " (dead)"));
+                    CommanderFitText(name + (unit.Alive ? "" : " (dead)"), actualMax.X - x - 30f * s, 13f * s));
                 if (ImGui.IsItemClicked())
                 {
                     if (unit.MapId != (_net?.Player?.Map ?? 0))
-                        CommanderShowNotice("Cross-continent view arrives in phase 1.5 — the streaming eye cannot leave your character's continent.");
+                        CommanderShowNotice("Camera travel is limited to your current continent.");
                     else
                     {
                         CommanderFlyTo(unit.Pos.X, unit.Pos.Y, CommanderUnitAltitude);
@@ -588,46 +933,154 @@ public sealed partial class GameLoop
                 }
                 y += line;
             }
-            if (listed == 0)
+            if (units.Count == 0)
                 dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), 0xFF8A8A8A, "None of your units are here.");
+            else if (overflow)
+                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                    $"+{units.Count - visible} more units");
         }
+    }
+
+    private static void DrawCommanderRightAlignedText(ImDrawListPtr dl, float right, float y,
+        string text, float size, uint color)
+    {
+        float width = ImGui.CalcTextSize(text).X * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        dl.AddText(ImGui.GetFont(), size, new Vector2(right - width, y), color, text);
+    }
+
+    private static string CommanderFitText(string text, float maxWidth, float size)
+    {
+        if (maxWidth <= 0f) return string.Empty;
+        float scale = size / MathF.Max(1f, ImGui.GetFontSize());
+        if (ImGui.CalcTextSize(text).X * scale <= maxWidth) return text;
+        const string ellipsis = "...";
+        for (int length = text.Length - 1; length > 0; length--)
+        {
+            string candidate = text[..length] + ellipsis;
+            if (ImGui.CalcTextSize(candidate).X * scale <= maxWidth) return candidate;
+        }
+        return ellipsis;
     }
 
     // ── small drawing helpers ────────────────────────────────────────────────
 
     private void DrawCommanderMapTiles(ImDrawListPtr dl, string directory, Vector2 mapMin, float mapW, float mapH)
     {
-        // The authored 1002x668 map in 12 256px tiles, multiplied toward a cool
-        // grey-blue so it reads as a strategic backdrop, not the vanilla parchment.
-        const uint tint = 0xFFB4A296;
-        float tileW = mapW / 4f, tileH = mapH / 3f;
+        // The twelve square textures form a padded 1024x768 atlas. Only its
+        // upper-left 1002x668 is authored map content: preserve square pixels and
+        // clip the 22px right / 100px bottom padding exactly like the vanilla map.
+        const uint tint = 0xFFFFFFFF;
         dl.PushClipRect(mapMin, mapMin + new Vector2(mapW, mapH), true);
         dl.AddRectFilled(mapMin, mapMin + new Vector2(mapW, mapH), 0xFF0E0C0A);
-        for (int row = 0; row < 3; row++)
-        for (int col = 0; col < 4; col++)
+        for (int row = 0; row < CommanderMapUiLaw.TileRows; row++)
+        for (int col = 0; col < CommanderMapUiLaw.TileColumns; col++)
         {
-            int index = row * 4 + col + 1;
+            int index = row * CommanderMapUiLaw.TileColumns + col + 1;
             uint texture = _gameplayArt!.Handle($@"Interface\WorldMap\{directory}\{directory}{index}.blp");
             if (texture == 0) continue;
-            Vector2 min = mapMin + new Vector2(col * tileW, row * tileH);
-            dl.AddImage((nint)texture, min, min + new Vector2(tileW, tileH), Vector2.Zero, Vector2.One, tint);
+            (Vector2 min, Vector2 max) = CommanderMapUiLaw.TileBounds(mapMin, mapW, row, col);
+            dl.AddImage((nint)texture, min, max, Vector2.Zero, Vector2.One, tint);
         }
         dl.PopClipRect();
         dl.AddRect(mapMin, mapMin + new Vector2(mapW, mapH), 0x40FFFFFF);
     }
 
-    private static void DrawCommanderPill(ImDrawListPtr dl, Vector2 centre, ZoneIntel intel, float s, bool stale)
+    private void DrawCommanderMapTilesCropped(ImDrawListPtr dl, string directory,
+        CommanderMapUiLaw.ScreenRect viewport, CommanderMapUiLaw.NormalizedRect crop, uint tint)
     {
-        string text = $"{intel.Bots} / {intel.Players}";
+        float scaleX = viewport.Size.X / (crop.Size.X * CommanderMapUiLaw.AuthoredWidth);
+        float scaleY = viewport.Size.Y / (crop.Size.Y * CommanderMapUiLaw.AuthoredHeight);
+        float scale = MathF.Min(scaleX, scaleY);
+        float authoredW = CommanderMapUiLaw.AuthoredWidth * scale;
+        float authoredH = CommanderMapUiLaw.AuthoredHeight * scale;
+        Vector2 authoredMin = viewport.Min - new Vector2(
+            crop.Min.X * authoredW, crop.Min.Y * authoredH);
+
+        dl.PushClipRect(viewport.Min, viewport.Max, true);
+        dl.AddRectFilled(viewport.Min, viewport.Max, 0xFF0E0C0A);
+        for (int row = 0; row < CommanderMapUiLaw.TileRows; row++)
+        for (int col = 0; col < CommanderMapUiLaw.TileColumns; col++)
+        {
+            int index = row * CommanderMapUiLaw.TileColumns + col + 1;
+            uint texture = _gameplayArt!.Handle(
+                $@"Interface\WorldMap\{directory}\{directory}{index}.blp");
+            if (texture == 0) continue;
+            (Vector2 min, Vector2 max) = CommanderMapUiLaw.TileBounds(
+                authoredMin, authoredW, row, col);
+            dl.AddImage((nint)texture, min, max, Vector2.Zero, Vector2.One, tint);
+        }
+        dl.PopClipRect();
+        dl.AddRect(viewport.Min, viewport.Max, 0x60FFFFFF);
+    }
+
+    private void DrawCommanderNoFogOverlays(ImDrawListPtr dl, WorldMapAreaInfo zone,
+        Vector2 mapMin, float mapW, float mapH)
+    {
+        if (_commanderMapOverlays is null) return;
+        float scale = mapW / CommanderMapUiLaw.AuthoredWidth;
+        dl.PushClipRect(mapMin, mapMin + new Vector2(mapW, mapH), true);
+        foreach (WorldMapOverlayChunk chunk in
+                 _commanderMapOverlays.BuildFullRevealChunks(zone.Id, zone.Directory))
+        {
+            uint texture = _gameplayArt!.Handle(chunk.TexturePath);
+            if (texture == 0) continue;
+            Vector2 min = mapMin + new Vector2(chunk.OffsetX, chunk.OffsetY) * scale;
+            Vector2 max = min + new Vector2(chunk.PixelWidth, chunk.PixelHeight) * scale;
+            dl.AddImage((nint)texture, min, max, Vector2.Zero,
+                new Vector2(chunk.UMax, chunk.VMax), 0xFFFFFFFF);
+        }
+        dl.PopClipRect();
+    }
+
+    private static (Vector2 Min, Vector2 Max) DrawCommanderPill(ImDrawListPtr dl,
+        Vector2 centre, ZoneIntel intel, float s, bool stale, Vector2? avoid,
+        Vector2 frameMin, Vector2 frameMax, IReadOnlyList<(Vector2 Min, Vector2 Max)> occupied)
+    {
+        string text = $"B{intel.Bots}  ·  P{intel.Players}";
         float size = 12f * s;
         Vector2 measured = ImGui.CalcTextSize(text) * (size / MathF.Max(1f, ImGui.GetFontSize()));
         Vector2 pad = new(6f * s, 3f * s);
-        Vector2 min = centre - measured * 0.5f - pad;
-        Vector2 max = centre + measured * 0.5f + pad;
+        Vector2 source = centre;
+        Vector2 min = default, max = default;
+        float step = measured.Y + pad.Y * 2f + 5f * s;
+        for (int attempt = 0; attempt < 7; attempt++)
+        {
+            int level = (attempt + 1) / 2;
+            int direction = attempt == 0 ? 0 : attempt % 2 == 1 ? -1 : 1;
+            centre = source + new Vector2(0, direction * level * step);
+            min = centre - measured * 0.5f - pad;
+            max = centre + measured * 0.5f + pad;
+
+            Vector2 correction = Vector2.Zero;
+            float inset = 4f * s;
+            if (min.X < frameMin.X + inset) correction.X += frameMin.X + inset - min.X;
+            if (max.X > frameMax.X - inset) correction.X -= max.X - (frameMax.X - inset);
+            if (min.Y < frameMin.Y + inset) correction.Y += frameMin.Y + inset - min.Y;
+            if (max.Y > frameMax.Y - inset) correction.Y -= max.Y - (frameMax.Y - inset);
+            centre += correction;
+            min += correction;
+            max += correction;
+
+            bool blocked = avoid is Vector2 point && CommanderRectsOverlap(min, max,
+                point - new Vector2(8f * s), point + new Vector2(8f * s), 0f);
+            if (!blocked)
+                foreach ((Vector2 usedMin, Vector2 usedMax) in occupied)
+                    if (CommanderRectsOverlap(min, max, usedMin, usedMax, 3f * s))
+                    { blocked = true; break; }
+            if (!blocked) break;
+        }
+        if (Vector2.DistanceSquared(source, centre) > 1f)
+            dl.AddLine(source, centre, 0x70D2B870, 1f * s);
         dl.AddRectFilled(min, max, stale ? 0x90242424u : 0xC8242C30u, (max.Y - min.Y) * 0.5f);
         dl.AddText(ImGui.GetFont(), size, centre - measured * 0.5f,
             stale ? 0xFF9A9A9Au : 0xFFF0E6D2u, text);
+        return (min, max);
     }
+
+    private static bool CommanderRectsOverlap(Vector2 aMin, Vector2 aMax,
+        Vector2 bMin, Vector2 bMax, float margin) =>
+        aMin.X < bMax.X + margin && aMax.X > bMin.X - margin &&
+        aMin.Y < bMax.Y + margin && aMax.Y > bMin.Y - margin;
 
     private static void DrawCommanderDiamond(ImDrawListPtr dl, Vector2 centre, float r, uint color)
     {
@@ -689,10 +1142,11 @@ public sealed partial class GameLoop
         ImGui.SetCursorScreenPos(min);
         bool clicked = ImGui.InvisibleButton(id, size);
         bool hover = ImGui.IsItemHovered();
-        uint fill = selected ? 0xC8303A40u : hover ? 0x60303A40u : 0x30282C30u;
+        uint fill = selected ? 0xE0303A40u : hover ? 0xD0303A40u : 0xB0282C30u;
         dl.AddRectFilled(min, min + size, fill, 4f * s);
-        if (selected) dl.AddRect(min, min + size, 0xFF60C0E0, 4f * s);
-        DrawCenteredText(dl, min + size * 0.5f, label, 13f * s, selected ? 0xFFFFFFFFu : 0xFFC0BCB4u);
+        dl.AddRect(min, min + size, selected ? 0xFF60C0E0u : 0x50FFFFFFu, 4f * s);
+        DrawCenteredText(dl, min + size * 0.5f, label, 13f * s,
+            selected ? 0xFFFFFFFFu : hover ? 0xFFF0ECE4u : 0xFFD0CAC2u);
         return clicked;
     }
 
