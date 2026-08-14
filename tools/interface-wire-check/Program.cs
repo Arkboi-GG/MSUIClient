@@ -11,6 +11,34 @@ static void Check(bool condition, string message)
     if (!condition) throw new InvalidDataException(message);
 }
 
+static void CheckGameMenuLayout()
+{
+    Vector2 authored = GameMenuUiLaw.ResolveOptionsSize(Vector2.Zero, 2f,
+        new Vector2(2000f, 1400f));
+    Vector2 remembered = GameMenuUiLaw.ResolveOptionsSize(new Vector2(700f, 500f),
+        1.5f, new Vector2(1600f, 900f));
+    Vector2 smallViewport = GameMenuUiLaw.ResolveOptionsSize(new Vector2(1200f, 900f),
+        2f, new Vector2(700f, 500f));
+    Check(authored == new Vector2(900f, 1150f) &&
+          remembered == new Vector2(1050f, 750f) &&
+          smallViewport == new Vector2(672f, 460f) &&
+          GameMenuUiLaw.ToLogicalOptionsSize(remembered, 1.5f) == new Vector2(700f, 500f) &&
+          !GameMenuUiLaw.OptionsEnvironmentChanged(
+              new Vector2(1600f, 900f), new Vector2(1600.1f, 900.1f), 1.5f, 1.5f) &&
+          GameMenuUiLaw.OptionsEnvironmentChanged(
+              new Vector2(1600f, 900f), new Vector2(1280f, 720f), 1.5f, 1.5f) &&
+          GameMenuUiLaw.OptionsEnvironmentChanged(
+              new Vector2(1600f, 900f), new Vector2(1600f, 900f), 1.5f, 2f),
+        "GameMenuFrame option windows must restore logical size and clamp to the viewport");
+}
+
+if (args.Contains("--game-menu-layout-only", StringComparer.Ordinal))
+{
+    CheckGameMenuLayout();
+    Console.WriteLine("interface-wire-check: GameMenuLayout PASS");
+    return;
+}
+
 Check(!ClientWindow.CameraLookRequested(
           leftDown: true, rightDown: false, freeSelectMode: false, leftButtonReserved: true) &&
       ClientWindow.CameraLookRequested(
@@ -73,11 +101,19 @@ if (args.Contains("--merchant-frame-only", StringComparer.Ordinal))
     return;
 }
 
+if (args.Contains("--unit-popup-only", StringComparer.Ordinal))
+{
+    UnitPopupClinicalChecks.Run();
+    Console.WriteLine("interface-wire-check: UnitPopup PASS");
+    return;
+}
+
 UiFoundationClinicalChecks.Run();
 GameTooltipClinicalChecks.Run();
 UiPanelOwnershipAdapterClinicalChecks.Run();
 MerchantFrameClinicalChecks.Run();
 MerchantProtocolClinicalChecks.Run();
+UnitPopupClinicalChecks.Run();
 
 static byte[] BuildMultiActionItemTemplateFixture()
 {
@@ -367,6 +403,7 @@ Check(GameMenuUiLaw.FrameWidth == 195f && GameMenuUiLaw.FrameHeight == 246f &&
 Check(Enumerable.Range(0, 8).Select(GameMenuUiLaw.ButtonTop).SequenceEqual(
       new[] { 26.5f, 48.5f, 70.5f, 92.5f, 114.5f, 136.5f, 158.5f, 195.5f }),
     "GameMenuFrame preserved eight-rung ladder drift");
+CheckGameMenuLayout();
 
 GameMenuEscapeState idleEscape = new(false, false, false, false, false, false,
     false, false, false, false, false);
@@ -547,6 +584,18 @@ var northshire = MinimapProjection.FromWorld(new System.Numerics.Vector3(-8949.9
 Check(northshire.TileColumn == 32 && northshire.TileRow == 48 &&
       northshire.ChunkX == 3 && northshire.ChunkY == 12,
       "Northshire world position projects to Azeroth minimap/MCNK coordinates");
+Check(WmoMinimapProjection.Stem(
+          @"World\wmo\KhazModan\Cities\Ironforge\Ironforge.wmo") ==
+      @"wmo\khazmodan\cities\ironforge\ironforge",
+      "WMO minimap stem strips World prefix/extension and normalizes case");
+Check(WmoMinimapProjection.LogicalTile(
+          @"wmo\khazmodan\cities\ironforge\ironforge", 66, 1, 1) ==
+      @"wmo\khazmodan\cities\ironforge\ironforge_066_01_01.blp",
+      "WMO minimap logical tile key");
+Check(WmoMinimapProjection.AxisGrid(20.6f) == (1, 32f) &&
+      WmoMinimapProjection.AxisGrid(201f) == (2, 128f) &&
+      WmoMinimapProjection.AxisGrid(185.6f) == (2, 128f),
+      "WMO minimap group grid matches Ironforge 0.5yd/texel authoring");
 Check((ushort)Op.CMSG_ZONEUPDATE == 500, "CMSG_ZONEUPDATE opcode");
 Check(WorldSession.BuildZoneUpdateBody(12).SequenceEqual(Convert.FromHexString("0C000000")),
       "zone update body");

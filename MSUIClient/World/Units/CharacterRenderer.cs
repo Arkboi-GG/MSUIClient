@@ -510,6 +510,19 @@ public sealed partial class CharacterRenderer : IDisposable
     public float ZOffset { get; set; }
 
     /// <summary>
+    /// The saddle: attachment 0 of the steed this character is riding, in world space,
+    /// supplied each frame by <see cref="CreatureRenderer.TryDrawSelfMount"/>. Null means on
+    /// foot and the ordinary ground transform applies.
+    ///
+    /// When it is set the seat owns placement outright — position, facing, ZOffset and the
+    /// strafe body yaw all come from the mount, because the rider is parented to it. See
+    /// CreatureRenderer.Mounts.cs for why 1.12 mounts are the whole "vehicle" story.
+    /// </summary>
+    public Matrix4x4? MountSeat { get; set; }
+
+    public bool Mounted => MountSeat.HasValue;
+
+    /// <summary>
     /// How a character that is travelling sideways is made to look right.
     ///
     /// WholeBody turns the entire model to face the direction of travel and
@@ -2892,6 +2905,14 @@ public sealed partial class CharacterRenderer : IDisposable
     {
         rate = 1f;
         if (_animator is null || BindPose || BoneOverflow) return null;
+
+        // Seated, and it outranks everything below: there is no locomotion to choose while
+        // the steed does the travelling, and vanilla dismounts you before a cast or a swing
+        // could ever want the frames. 91 is "Mount" in AnimationData.dbc.
+        if (Mounted)
+            return _animator.Resolve("player", BaseAnimationTrack,
+                CreatureRenderer.RiderAnimationId, true, 0);
+
         if (_combatAction is not null) return _combatAction;
         if (_spellHold is not null) return _spellHold;
 
@@ -3118,6 +3139,12 @@ public sealed partial class CharacterRenderer : IDisposable
         // while the view stays where you are pointed.
         // Split turns the whole model too - the torso is then pulled back part
         // of the way by its own yaw, which is where the 90-against-60 comes from.
+        // Riding: the steed already carries scale, facing and ground placement, and the
+        // seat matrix is expressed in ITS model space — so the rider adds nothing but its
+        // own size. Applying the basis or the heading again here would rotate the body off
+        // the saddle it is parented to.
+        if (MountSeat is { } seat) return Matrix4x4.CreateScale(ModelScale) * seat;
+
         bool bodyTurns = Strafe is StrafeStyle.Split or StrafeStyle.WholeBody;
         float bodyYaw = bodyTurns && !BindPose && !FrozenStandPose ? _moveYaw : 0f;
 
@@ -3149,8 +3176,10 @@ public sealed partial class CharacterRenderer : IDisposable
             // chase would be capped at the wrong angle.
             float maxTwist = MaxTwistDegrees * MathF.PI / 180f;
 
+            // Mounted takes the same exit as bind/frozen: the seated pose is authored whole,
+            // and twisting its hips against a saddle it is parented to only breaks it.
             _animator.LowerBodyYaw =
-                BindPose || FrozenStandPose || Strafe != StrafeStyle.LowerBody
+                BindPose || FrozenStandPose || Mounted || Strafe != StrafeStyle.LowerBody
                     ? 0f
                     : Math.Clamp(_moveYaw, -maxTwist, maxTwist);
 
@@ -3158,7 +3187,7 @@ public sealed partial class CharacterRenderer : IDisposable
             // lag between aim and whole-body heading; its slower release catch-up is handled
             // by StandingBodyStep, while sparse shuffle shoulders inherit Stand in M2Animator.
             _animator.TorsoYaw = CharacterPoseLaw.TorsoCounterYaw(
-                BindPose, FrozenStandPose, Strafe == StrafeStyle.Split,
+                BindPose || Mounted, FrozenStandPose, Strafe == StrafeStyle.Split,
                 state.Moving, ForceAngleDegrees != 0f, TorsoFollow, _moveYaw);
             if (BindPose)
             {

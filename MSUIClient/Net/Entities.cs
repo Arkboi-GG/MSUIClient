@@ -27,6 +27,15 @@ public sealed class WorldEntity
     public bool IsGameObject => Type == ObjectTypeId.GameObject;
 
     public int DisplayId => Fields.DisplayId;
+
+    /// <summary>
+    /// UNIT_FIELD_MOUNTDISPLAYID: the CreatureDisplayInfo id of the steed this unit is
+    /// riding, 0 when on foot. 1.12 has no vehicle system — a "vehicle" (the Mirage
+    /// Raceway rocket cars included) is a mount display like any other, and the rider is
+    /// seated on the mount M2's attachment 0. See CreatureRenderer.Mounts.cs.
+    /// </summary>
+    public int MountDisplayId => (int)Fields.MountDisplayId;
+
     public uint Level => Fields.Level;
     public float HealthFraction => Fields.HealthFraction;
     public float PowerFraction => Fields.PowerFraction;
@@ -108,6 +117,24 @@ public sealed class EntityStore
         if (_entities.TryGetValue(guid, out var entity)) entity.Spline = null;
     }
 
+    /// <summary>
+    /// Predict only the facing edge of a server-driven RTS move. Position remains untouched until
+    /// SMSG_MONSTER_MOVE supplies the authoritative path, but the selected body can square toward
+    /// its destination on the command frame instead of holding its prior cast/combat bearing.
+    /// </summary>
+    public void PredictServerMoveFacing(ulong guid, Vector3 destination)
+    {
+        if (!_entities.TryGetValue(guid, out WorldEntity? entity) || entity.IsDead) return;
+        float dx = destination.X - entity.Position.X;
+        float dy = destination.Y - entity.Position.Y;
+        if (dx * dx + dy * dy > 1e-6f)
+            entity.Orientation = MathF.Atan2(dy, dx);
+
+        // A player body can alternate between client MSG_MOVE_* and server AI splines across
+        // possession/free-view hand-offs. This order puts it back under spline-facing policy.
+        entity.FacingFromSpline = true;
+    }
+
     public void Apply(ObjectUpdate u)
     {
         switch (u.Kind)
@@ -172,6 +199,10 @@ public sealed class EntityStore
             if (mm.FacingAngle is { } fa) e.Orientation = fa;      // path-less re-face
             return;
         }
+        // SMSG_MONSTER_MOVE is a server-owned path even when its subject is a Player bot.
+        // It supersedes the client-facing policy that ApplyRemotePlayerMove installs while a
+        // human drives that same body, so turns follow the new path after a free-view order.
+        e.FacingFromSpline = true;
         e.Spline = new CreatureSpline(mm.Points, mm.DurationMs, mm.Flying, nowMs);
     }
 

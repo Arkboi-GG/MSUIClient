@@ -112,6 +112,8 @@ public sealed class GameSettings
     public ControlSettings Controls { get; set; } = new();
     public StreamingSettings Streaming { get; set; } = new();
     public DevWindowSettings DevWindow { get; set; } = new();
+    public MenuLayoutSettings MenuLayout { get; set; } = new();
+    public MountSettings Mounts { get; set; } = new();
 
     // ── groups ───────────────────────────────────────────────────────────────
 
@@ -195,6 +197,146 @@ public sealed class GameSettings
 
         public bool IsNeutral =>
             Text == 1f && Widget == 1f && Button == 1f && Icon == 1f && Spacing == 1f;
+    }
+
+    /// <summary>
+    /// Player-sized option windows, in logical UI units so changing Interface scale
+    /// keeps the same useful amount of room. Zero means the authored default and is
+    /// also what older settings files deserialize to.
+    /// </summary>
+    public sealed class MenuLayoutSettings
+    {
+        public float VideoWidth { get; set; }
+        public float VideoHeight { get; set; }
+        public float ControlsWidth { get; set; }
+        public float ControlsHeight { get; set; }
+    }
+
+    /// <summary>
+    /// The mount workbench, persisted. Two halves that answer different questions:
+    ///
+    ///   LOOK — where the rider sits and how big everything is. Necessarily PER STEED
+    ///   (`Tunes`), because a saddle offset that is right for a horse is meaningless on a
+    ///   rocket car, and because some models carry a baked origin offset that only a
+    ///   per-display correction can cancel. See SYSTEM_MOUNTS.md §7.
+    ///
+    ///   FEEL — how the mount handles. Global, because "nimble" is a preference about
+    ///   riding, not about one horse: speed, turn rate and jump, each a multiplier on the
+    ///   values the controller already uses, so 1.0 is exactly today's behaviour.
+    ///
+    /// The feel multipliers are CLIENT PREDICTION ONLY. On a live server the authoritative
+    /// speed is still whatever it sent; riding faster than the server believes will fight
+    /// its corrections. Offline (creator sandbox) nothing argues back.
+    /// </summary>
+    public sealed class MountSettings
+    {
+        /// <summary>Dev ride override: the steed the toolkit puts you on with no server involved.</summary>
+        public int RideDisplayId { get; set; } = 2404;   // Riding Horse
+        public bool Riding { get; set; }
+
+        public float SpeedMultiplier { get; set; } = 1f;
+        public float TurnMultiplier { get; set; } = 1f;
+        public float JumpMultiplier { get; set; } = 1f;
+
+        /// <summary>Gait playback rate on top of the stride matching. 1 = authored.</summary>
+        public float AnimationRate { get; set; } = 1f;
+
+        /// <summary>Where spent cart-kit charges come back from.</summary>
+        public MountKitRecharge Recharge { get; set; } = MountKitRecharge.Time;
+
+        /// <summary>
+        /// While mounted, 1..6 fire the cart's kit instead of the action bar — but only for
+        /// slots that actually hold a spell, so an unconfigured cart changes nothing.
+        /// </summary>
+        public bool KitOnNumberKeys { get; set; } = true;
+
+        public List<MountTuneSetting> Tunes { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One steed's look, keyed by CreatureDisplayInfo id. Offsets are in the mount's own
+    /// model space, in yards: +Forward is the way it faces, +Right its right flank, +Up the
+    /// sky. That is the space attachment 0 is authored in, so a nudge here reads the same
+    /// way the artist's saddle position does.
+    /// </summary>
+    public sealed class MountTuneSetting
+    {
+        public int DisplayId { get; set; }
+
+        // where the rider sits, relative to the authored saddle
+        public float SeatForward { get; set; }
+        public float SeatRight { get; set; }
+        public float SeatUp { get; set; }
+        public float RiderYaw { get; set; }     // degrees about the rider's up axis
+        public float RiderPitch { get; set; }   // degrees about its right axis (lean fore/aft)
+        public float RiderRoll { get; set; }    // degrees about its forward axis (lean sideways)
+        public float RiderScale { get; set; } = 1f;
+
+        // where the steed itself sits, relative to the unit's ground position
+        public float MountForward { get; set; }
+        public float MountRight { get; set; }
+        public float MountUp { get; set; }
+        public float MountScale { get; set; } = 1f;
+
+        /// <summary>What this cart can do. Empty means it is only something to sit on.</summary>
+        public List<MountKitSlotSetting> Kit { get; set; } = new();
+
+        public bool IsNeutral =>
+            SeatForward == 0f && SeatRight == 0f && SeatUp == 0f &&
+            RiderYaw == 0f && RiderPitch == 0f && RiderRoll == 0f && RiderScale == 1f &&
+            MountForward == 0f && MountRight == 0f && MountUp == 0f && MountScale == 1f;
+    }
+
+    /// <summary>
+    /// One thing a cart can fire. The SPELL is only the presentation — its authored 1.12
+    /// visual, played through the ordinary spell-effect path — and the EFFECT below is what
+    /// it does. They are deliberately separate: which spell dresses which effect is exactly
+    /// the tuning pass this is built to make cheap.
+    ///
+    /// Charges are the resource. <see cref="MountSettings.Recharge"/> decides where they come
+    /// back from: a timer today, a token picked up on the track once that exists — the seam is
+    /// <c>NoteMountKitToken</c>, which is already called by the toolkit's test button.
+    /// </summary>
+    public sealed class MountKitSlotSetting
+    {
+        public uint SpellId { get; set; }
+        public string Label { get; set; } = "";
+
+        public int MaxCharges { get; set; } = 3;
+        public float RechargeSeconds { get; set; } = 8f;
+        public float CooldownSeconds { get; set; } = 1.5f;
+
+        /// <summary>What firing it does. Nothing here deals damage — that is the design.</summary>
+        public MountKitEffectKind Effect { get; set; } = MountKitEffectKind.Slow;
+
+        /// <summary>Yards: the slow's reach, or the dash's distance.</summary>
+        public float Radius { get; set; } = 12f;
+
+        /// <summary>Multiplier applied to what it catches. 0.5 = half speed.</summary>
+        public float SlowFactor { get; set; } = 0.5f;
+        public float SlowSeconds { get; set; } = 4f;
+    }
+
+    public enum MountKitEffectKind
+    {
+        /// <summary>Visual only — the spell plays and nothing else happens.</summary>
+        None,
+
+        /// <summary>Everything in radius is slowed for a while. The default, and the point.</summary>
+        Slow,
+
+        /// <summary>The cart jumps <c>Radius</c> yards along its facing. Blink, as a cart move.</summary>
+        Dash,
+    }
+
+    /// <summary>Where a spent charge comes back from.</summary>
+    public enum MountKitRecharge
+    {
+        /// <summary>A timer, so the kit is usable before the pickup exists.</summary>
+        Time,
+
+        /// <summary>Only <c>NoteMountKitToken</c> gives charges back — the track-pickup design.</summary>
+        Token,
     }
 
     /// <summary>One worn creator piece, as persisted (display id is the visual truth).</summary>

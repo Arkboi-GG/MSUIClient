@@ -120,6 +120,9 @@ public sealed class WmoRenderer : IDisposable
         public uint Vao, Vbo, Ebo;
         public List<Batch> Batches = [];
         public Vector3 LocalMin, LocalMax;
+        // Authored MOGP bounds. Rendering/culling keeps the bounds measured
+        // from MOVT above; the minimap law explicitly uses these file bounds.
+        public Vector3 AuthoredLocalMin, AuthoredLocalMax;
         public bool IsInterior;
         public bool IsDistanceLod;
 
@@ -128,6 +131,7 @@ public sealed class WmoRenderer : IDisposable
         public int GroupIndex;
         public string GroupName = "";
         public uint GroupFlags;
+        public uint GroupWmoId;
         public int VertexCount;
 
         // The run of MOPR entries that belong to this group (MOGP +0x24/+0x26):
@@ -147,6 +151,12 @@ public sealed class WmoRenderer : IDisposable
         // only a broad phase; using them as the room verdict makes overlapping
         // door/stair cells select whichever box happens to be smallest.
         public Vector3[] CollisionTriangles = [];
+
+        // DETAIL faces which stop the camera but not the walking body: MOPY
+        // DETAIL (0x04) set and NOCAMCOLLIDE (0x02) clear. Kept disjoint from
+        // CollisionTriangles for the archived camera-void fallback only; these
+        // must never enter walking collision.
+        public Vector3[] CameraOnlyTriangles = [];
 
         private GL? _gl;
         public void Attach(GL gl) => _gl = gl;
@@ -179,6 +189,9 @@ public sealed class WmoRenderer : IDisposable
 
         /// <summary>MOHD's portal count, for the cross-check in PLAN_10 §7 step 2.</summary>
         public uint DeclaredPortalCount;
+
+        /// <summary>MOHD +0x20: WMOAreaTable.WMOID.</summary>
+        public uint WmoId;
 
         /// <summary>
         /// The building's embedded doodads — its furniture. Beds, kitchen
@@ -309,6 +322,9 @@ public sealed class WmoRenderer : IDisposable
 
         /// <summary>Which MODS doodad set this placement asked for.</summary>
         public int DoodadSet;
+
+        /// <summary>MODF +0x3C: WMOAreaTable.NameSetID.</summary>
+        public uint NameSetId;
 
         /// <summary>Appear-fade spawn time in seconds; 0 = opaque/no fade.</summary>
         public float AppearStart;
@@ -573,6 +589,42 @@ public sealed class WmoRenderer : IDisposable
         bool IsInterior, float Volume, int PortalCount, bool IsExterior = false);
 
     /// <summary>
+    /// One authored WMO group selected for the interior minimap. Bounds remain
+    /// in WMO-local space so a consumer can project every group through the
+    /// context's one authoritative
+    /// <see cref="InteriorMinimapContext.WorldToLocal"/> transform.
+    /// </summary>
+    public readonly record struct InteriorMinimapGroup(
+        int GroupIndex, string GroupName, uint GroupFlags, uint GroupWmoId,
+        Vector3 LocalMin, Vector3 LocalMax);
+
+    /// <summary>WMOAreaTable join keys from the position-cast zone-text ray.</summary>
+    public readonly record struct AreaMinimapIdentity(
+        uint RootWmoId, uint NameSetId, uint GroupWmoId);
+
+    /// <summary>
+    /// Read-only WMO membership for the PLAYER rather than the render camera.
+    /// The context deliberately carries local coordinates and the exact inverse
+    /// placement transform: a WMO root can be placed more than once, so neither
+    /// its filename nor world coordinates alone define an interior map.
+    /// </summary>
+    public sealed record InteriorMinimapContext(
+        int InstanceId,
+        string InstancePath,
+        int GroupIndex,
+        string GroupName,
+        uint GroupFlags,
+        uint RootWmoId,
+        uint NameSetId,
+        uint GroupWmoId,
+        Vector3 LocalPosition,
+        Vector3 GroupLocalMin,
+        Vector3 GroupLocalMax,
+        Matrix4x4 LocalToWorld,
+        Matrix4x4 WorldToLocal,
+        IReadOnlyList<InteriorMinimapGroup> ReachableGroups);
+
+    /// <summary>
     /// The most specific group containing the camera, or null when outdoors.
     /// Recomputed once per frame; read by the HUD and, later, by traversal.
     /// </summary>
@@ -669,10 +721,248 @@ public sealed class WmoRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Resolve the interior WMO cell beneath an arbitrary world position without
+    /// changing <see cref="CameraGroup"/>, portal-render seeds, or cutaway state.
+    /// This is the minimap/player-position counterpart to
+    /// <see cref="UpdateCameraCell"/>: both use the same retained collision faces,
+    /// portal-boundary tie handling, nearest-floor election, and terrain-wins
+    /// rule, but this query is independent of camera orbit and view frustum.
+    /// </summary>
+    public InteriorMinimapContext? ResolveInteriorMinimapContext(
+        Vector3 world, float radius, float? terrainWorldZ = null)
+    {
+        if (!float.IsFinite(radius) || radius <= 0f) return null;
+
+        Instance? bestInstance = null;
+        GroupMesh? bestGroup = null;
+        Matrix4x4 bestWorldToLocal = default;
+        Vector3 bestLocal = default;
+        float bestDrop = float.MaxValue;
+
+        foreach (var instance in _instances)
+        {
+            if (!Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
+            var local = Vector3.Transform(world, worldToLocal);
+            float? terrainLocalZ = terrainWorldZ is float terrainZ
+                ? Vector3.Transform(new Vector3(world.X, world.Y, terrainZ), worldToLocal).Z
+                : null;
+
+            var seeds = FindCameraSeeds(instance.Model, local, terrainLocalZ,
+                out float drop, out _);
+            if (seeds.Length == 0 || drop >= bestDrop) continue;
+            var group = instance.Model.Groups.FirstOrDefault(g => g.GroupIndex == seeds[0]);
+            if (group is null) continue;
+
+            bestDrop = drop;
+            bestInstance = instance;
+            bestGroup = group;
+            bestWorldToLocal = worldToLocal;
+            bestLocal = local;
+        }
+
+        if (bestInstance is null || bestGroup is null) return null;
+
+        var groups = SelectInteriorMinimapGroups(bestInstance, bestGroup.GroupIndex, world, radius);
+
+        return new InteriorMinimapContext(
+            bestInstance.Id,
+            bestInstance.Path,
+            bestGroup.GroupIndex,
+            bestGroup.GroupName,
+            bestGroup.GroupFlags,
+            bestInstance.Model.WmoId,
+            bestInstance.NameSetId,
+            bestGroup.GroupWmoId,
+            bestLocal,
+            bestGroup.AuthoredLocalMin,
+            bestGroup.AuthoredLocalMax,
+            bestInstance.Transform,
+            bestWorldToLocal,
+            groups);
+    }
+
+    /// <summary>
+    /// Resolve the archived CurrentAreaInterior claim without changing render,
+    /// portal, or cutaway state. Unlike the display context above, this casts
+    /// from feet + 0.1 yd through walking faces only: no portal crossing and no
+    /// reachable-group traversal. The nearest face across all placements wins;
+    /// strictly nearer terrain and an EXTERIOR (0x08) winning group mean outdoors.
+    /// </summary>
+    public AreaMinimapIdentity? ResolveAreaMinimapIdentity(
+        Vector3 feetWorld, float? terrainWorldZ = null)
+    {
+        if (!float.IsFinite(feetWorld.X) || !float.IsFinite(feetWorld.Y) ||
+            !float.IsFinite(feetWorld.Z)) return null;
+
+        Vector3 probeWorld = feetWorld + new Vector3(0f, 0f, 0.1f);
+        Instance? bestInstance = null;
+        GroupMesh? bestGroup = null;
+        float bestDrop = float.MaxValue;
+
+        foreach (var instance in _instances)
+        {
+            if (instance.Model.WmoId == 0 ||
+                !Matrix4x4.Invert(instance.Transform, out var worldToLocal)) continue;
+            Vector3 probeLocal = Vector3.Transform(probeWorld, worldToLocal);
+            float? terrainLocalZ = terrainWorldZ is float terrainZ
+                ? Vector3.Transform(
+                    new Vector3(probeWorld.X, probeWorld.Y, terrainZ), worldToLocal).Z
+                : null;
+            GroupMesh? group = FindAreaFace(
+                instance.Model, probeLocal, terrainLocalZ, out float drop);
+            if (group is null || drop >= bestDrop) continue;
+            bestDrop = drop;
+            bestInstance = instance;
+            bestGroup = group;
+        }
+
+        if (bestInstance is null || bestGroup is null ||
+            (bestGroup.GroupFlags & 0x08u) != 0) return null;
+        return new AreaMinimapIdentity(
+            bestInstance.Model.WmoId, bestInstance.NameSetId, bestGroup.GroupWmoId);
+    }
+
+    /// <summary>
+    /// Archived interior-minimap selection law. Traversal starts at exactly the
+    /// player's cell. A group must overlap the player-centred query in world XY
+    /// both to emit and to recurse; EXTERIOR is a hard stop. A doorway can be
+    /// followed only when its real transformed polygon intersects all six query
+    /// half-spaces. Thus a connected city never expands into an unbounded map.
+    /// </summary>
+    private static List<InteriorMinimapGroup> SelectInteriorMinimapGroups(
+        Instance instance, int seedGroupIndex, Vector3 playerWorld, float radius)
+    {
+        var model = instance.Model;
+        var byFile = new Dictionary<int, GroupMesh>(model.Groups.Count);
+        foreach (var group in model.Groups) byFile[group.GroupIndex] = group;
+
+        var result = new List<InteriorMinimapGroup>();
+        var visited = new HashSet<int>();
+        var stack = new Stack<int>();
+        stack.Push(seedGroupIndex);
+
+        float xyRadius = 2f * radius;
+        var queryMin = new Vector3(
+            playerWorld.X - xyRadius,
+            playerWorld.Y - xyRadius,
+            playerWorld.Z - 1.5f * radius);
+        var queryMax = new Vector3(
+            playerWorld.X + xyRadius,
+            playerWorld.Y + xyRadius,
+            playerWorld.Z + radius);
+
+        while (stack.Count > 0)
+        {
+            int groupIndex = stack.Pop();
+            if (!visited.Add(groupIndex) || !byFile.TryGetValue(groupIndex, out var group)) continue;
+
+            // 0x08 EXTERIOR stops recursion. A 0x80 no-emit group may still
+            // connect rooms, but is not itself returned below.
+            if ((group.GroupFlags & 0x08u) != 0) continue;
+
+            var (worldMin, worldMax) = TransformedBounds(
+                group.AuthoredLocalMin, group.AuthoredLocalMax, instance.Transform);
+            if (worldMax.X < queryMin.X || worldMin.X > queryMax.X ||
+                worldMax.Y < queryMin.Y || worldMin.Y > queryMax.Y)
+                continue;
+
+            if ((group.GroupFlags & (0x08u | 0x80u)) == 0)
+            {
+                result.Add(new InteriorMinimapGroup(
+                    group.GroupIndex, group.GroupName, group.GroupFlags, group.GroupWmoId,
+                    group.AuthoredLocalMin, group.AuthoredLocalMax));
+            }
+
+            int start = Math.Max(0, group.PortalStart);
+            int end = Math.Min(group.PortalStart + group.PortalCount, model.PortalRefs.Count);
+            for (int i = start; i < end; i++)
+            {
+                var reference = model.PortalRefs[i];
+                int neighbour = reference.GroupIndex;
+                if (neighbour == ushort.MaxValue || visited.Contains(neighbour) ||
+                    reference.PortalIndex >= model.Portals.Count) continue;
+                if (!PortalIntersectsQuery(model, model.Portals[reference.PortalIndex],
+                        instance.Transform, queryMin, queryMax)) continue;
+                stack.Push(neighbour);
+            }
+        }
+
+        result.Sort(static (left, right) => left.GroupIndex.CompareTo(right.GroupIndex));
+        return result;
+    }
+
+    /// <summary>
+    /// Conservative polygon/AABB plane test: reject only when every transformed
+    /// portal vertex lies outside the same one of the query's six planes.
+    /// </summary>
+    private static bool PortalIntersectsQuery(
+        Model model, WmoPortal portal, Matrix4x4 localToWorld,
+        Vector3 queryMin, Vector3 queryMax)
+    {
+        int start = portal.StartVertex;
+        int count = portal.VertexCount;
+        if (count < 3 || start < 0 || start + count > model.PortalVertices.Count) return false;
+
+        bool allLeft = true, allRight = true;
+        bool allBack = true, allFront = true;
+        bool allBelow = true, allAbove = true;
+        for (int i = 0; i < count; i++)
+        {
+            var raw = model.PortalVertices[start + i];
+            var world = Vector3.Transform(new Vector3(raw.x, raw.y, raw.z), localToWorld);
+            allLeft &= world.X < queryMin.X;
+            allRight &= world.X > queryMax.X;
+            allBack &= world.Y < queryMin.Y;
+            allFront &= world.Y > queryMax.Y;
+            allBelow &= world.Z < queryMin.Z;
+            allAbove &= world.Z > queryMax.Z;
+        }
+        return !(allLeft || allRight || allBack || allFront || allBelow || allAbove);
+    }
+
     private const float CameraGroupMaxDrop = 1760f;
+    private const float AreaGroupMaxDrop = 1000f;
     private const float PortalNearParallel = 1.0e-4f;
     private const float PortalPlaneSnap = 0.1f;
     private const float PortalNearestTieEps = 1.0e-4f;
+
+    private static GroupMesh? FindAreaFace(
+        Model model, Vector3 probe, float? terrainZ, out float drop)
+    {
+        float bestZ = float.NegativeInfinity;
+        GroupMesh? best = null;
+        foreach (var group in model.Groups)
+        {
+            // The archived down-ray is column-local. Reject groups whose
+            // authored bounds cannot contain the probe before touching their
+            // collision faces; city roots can otherwise turn this 10 Hz area
+            // query into a full-WMO triangle scan.
+            if (group.IsDistanceLod ||
+                probe.X < group.LocalMin.X || probe.X > group.LocalMax.X ||
+                probe.Y < group.LocalMin.Y || probe.Y > group.LocalMax.Y ||
+                group.LocalMin.Z > probe.Z)
+                continue;
+            var tris = group.CollisionTriangles;
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+            {
+                if (!TriangleZAt(tris[i], tris[i + 1], tris[i + 2],
+                        probe.X, probe.Y, out float z) || z > probe.Z || z <= bestZ)
+                    continue;
+                bestZ = z;
+                best = group;
+            }
+        }
+
+        drop = probe.Z - bestZ;
+        if (best is null || drop > AreaGroupMaxDrop ||
+            terrainZ is float terrain && terrain <= probe.Z && terrain > bestZ)
+        {
+            drop = float.MaxValue;
+            return null;
+        }
+        return best;
+    }
 
     private static int[] FindCameraSeeds(Model model, Vector3 eye, float? terrainZ,
         out float drop, out int candidates)
@@ -740,7 +1030,47 @@ public sealed class WmoRenderer : IDisposable
             }
         }
 
-        if (best is null || eye.Z - bestZ > CameraGroupMaxDrop || (best.GroupFlags & 0x08u) != 0)
+        if (best is null)
+        {
+            // Archived decision 0692: when both the faithful walking-face and
+            // portal legs miss, retry over only the faces the camera collides
+            // with but walking drops. Any terrain surface on the down segment
+            // preserves the ordinary outside verdict (doorsteps/open ground).
+            // Terrain above the eye is not on that segment and does not gate
+            // the fallback, which is the Deadmines DETAIL-floor case.
+            if (terrainZ is float fallbackTerrain && fallbackTerrain <= eye.Z)
+                return [];
+
+            float fallbackZ = float.NegativeInfinity;
+            GroupMesh? fallback = null;
+            foreach (var group in model.Groups)
+            {
+                if (group.IsDistanceLod ||
+                    eye.X < group.LocalMin.X || eye.X > group.LocalMax.X ||
+                    eye.Y < group.LocalMin.Y || eye.Y > group.LocalMax.Y ||
+                    group.LocalMin.Z > eye.Z) continue;
+
+                var tris = group.CameraOnlyTriangles;
+                for (int i = 0; i + 2 < tris.Length; i += 3)
+                {
+                    if (!TriangleZAt(tris[i], tris[i + 1], tris[i + 2],
+                            eye.X, eye.Y, out float z)) continue;
+                    if (z <= eye.Z && z > fallbackZ)
+                    {
+                        fallbackZ = z;
+                        fallback = group;
+                    }
+                }
+            }
+
+            if (fallback is null || eye.Z - fallbackZ > CameraGroupMaxDrop ||
+                (fallback.GroupFlags & 0x08u) != 0)
+                return [];
+            drop = eye.Z - fallbackZ;
+            return [fallback.GroupIndex];
+        }
+
+        if (eye.Z - bestZ > CameraGroupMaxDrop || (best.GroupFlags & 0x08u) != 0)
             return [];
         if (terrainZ is float tz && tz <= eye.Z && tz > bestZ) return [];
 
@@ -1414,6 +1744,7 @@ public sealed class WmoRenderer : IDisposable
                 placementToWorld),
             Path = placement.ModelPath,
             DoodadSet = placement.DoodadSet,
+            NameSetId = placement.NameSetId,
             AppearStart = ResolveAppearStart(key),
         });
 
@@ -1726,15 +2057,19 @@ public sealed class WmoRenderer : IDisposable
     }
 
     private static (Vector3 min, Vector3 max) TransformedBounds(GroupMesh group, Matrix4x4 m)
+        => TransformedBounds(group.LocalMin, group.LocalMax, m);
+
+    private static (Vector3 min, Vector3 max) TransformedBounds(
+        Vector3 localMin, Vector3 localMax, Matrix4x4 m)
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
         for (int c = 0; c < 8; c++)
         {
             var corner = new Vector3(
-                (c & 1) == 0 ? group.LocalMin.X : group.LocalMax.X,
-                (c & 2) == 0 ? group.LocalMin.Y : group.LocalMax.Y,
-                (c & 4) == 0 ? group.LocalMin.Z : group.LocalMax.Z);
+                (c & 1) == 0 ? localMin.X : localMax.X,
+                (c & 2) == 0 ? localMin.Y : localMax.Y,
+                (c & 4) == 0 ? localMin.Z : localMax.Z);
             var p = Vector3.Transform(corner, m);
             min = Vector3.Min(min, p);
             max = Vector3.Max(max, p);
@@ -2170,6 +2505,7 @@ public sealed class WmoRenderer : IDisposable
         job.Model.Portals = ready.Root.Portals;
         job.Model.PortalRefs = ready.Root.PortalRefs;
         job.Model.DeclaredPortalCount = ready.Root.NPortals;
+        job.Model.WmoId = ready.Root.WmoId;
 
         if (job.Upload is null)
         {
@@ -2246,6 +2582,9 @@ public sealed class WmoRenderer : IDisposable
             var groupCollision = new List<Vector3>();
             CollectCollision(group, groupCollision, ref job.Skipped);
             mesh.CollisionTriangles = [.. groupCollision];
+            var cameraOnlyCollision = new List<Vector3>();
+            CollectCameraOnlyCollision(group, cameraOnlyCollision);
+            mesh.CameraOnlyTriangles = [.. cameraOnlyCollision];
             job.Collision.AddRange(groupCollision);
             return false;
         }
@@ -2385,6 +2724,37 @@ public sealed class WmoRenderer : IDisposable
     }
 
     /// <summary>
+    /// Retain the exact camera-minus-walking face set for the current-room
+    /// down-ray's guarded fallback: DETAIL set, NOCAMCOLLIDE clear. Unlike the
+    /// walking gather, a missing MOPY entry cannot prove membership in this
+    /// complement and is therefore skipped.
+    /// </summary>
+    private static void CollectCameraOnlyCollision(WmoGroupData group, List<Vector3> into)
+    {
+        int triangles = group.Indices.Count / 3;
+        for (int t = 0; t < triangles; t++)
+        {
+            if (t >= group.TriMaterials.Count) continue;
+            var (flags, _) = group.TriMaterials[t];
+            if ((flags & 0x04) == 0 || (flags & 0x02) != 0) continue;
+
+            int i0 = group.Indices[t * 3];
+            int i1 = group.Indices[t * 3 + 1];
+            int i2 = group.Indices[t * 3 + 2];
+            if (i0 >= group.Vertices.Count || i1 >= group.Vertices.Count ||
+                i2 >= group.Vertices.Count)
+                continue;
+
+            var a = group.Vertices[i0];
+            var b = group.Vertices[i1];
+            var c = group.Vertices[i2];
+            into.Add(new Vector3(a.x, a.y, a.z));
+            into.Add(new Vector3(b.x, b.y, b.z));
+            into.Add(new Vector3(c.x, c.y, c.z));
+        }
+    }
+
+    /// <summary>
     /// Feed every placed building's collidable triangles into a collision
     /// world, using the SAME transform the renderer draws with.
     /// </summary>
@@ -2505,11 +2875,14 @@ public sealed class WmoRenderer : IDisposable
             Ebo = ebo,
             LocalMin = min,
             LocalMax = max,
+            AuthoredLocalMin = new Vector3(group.BbMinX, group.BbMinY, group.BbMinZ),
+            AuthoredLocalMax = new Vector3(group.BbMaxX, group.BbMaxY, group.BbMaxZ),
             IsInterior = group.IsInterior,
             IsDistanceLod = isDistanceLod,
             GroupIndex = groupIndex,
             GroupName = group.GroupName,
             GroupFlags = group.GroupFlags,
+            GroupWmoId = group.GroupWmoId,
             PortalStart = group.PortalStart,
             PortalCount = group.PortalCount,
             VertexCount = group.Vertices.Count,

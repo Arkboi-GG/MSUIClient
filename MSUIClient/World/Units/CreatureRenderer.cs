@@ -204,6 +204,19 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public void CancelSpellVisual(ulong guid) => _spellHolds.Remove(guid);
 
+    /// <summary>
+    /// A direct RTS move is an action boundary: the ordered body must leave any packet-driven
+    /// cast/swing one-shot immediately instead of finishing several authored seconds while its
+    /// server spline is already carrying it away. Translation still begins only when the
+    /// authoritative spline arrives; this method owns presentation state alone.
+    /// </summary>
+    public void InterruptActionForMovement(ulong guid)
+    {
+        _spellHolds.Remove(guid);
+        _combatActions.Remove(guid);
+        _animTime[guid] = 0f;
+    }
+
     private sealed class LoadedModel
     {
         public uint Vao, Vbo, Ebo;
@@ -349,20 +362,7 @@ public sealed partial class CreatureRenderer : IDisposable
         Matrix4x4 viewProj = camera.RelativeViewProjection;
         float heading0 = HeadingOffsetDegrees * MathF.PI / 180f;
 
-        _gl.Enable(EnableCap.DepthTest);
-        _gl.Enable(EnableCap.Blend);
-        _shader.Use();
-        _shader.Set("uViewProj", viewProj);
-        _shader.Set("uSunDir", SunDirection);
-        _shader.Set("uSunColor", SunColor);
-        _shader.Set("uSunIntensity", SunIntensity);
-        _shader.Set("uAmbientColor", AmbientColor);
-        _shader.Set("uAmbientIntensity", AmbientIntensity);
-        _shader.Set("uFogColor", FogColor);
-        _shader.Set("uFogStart", FogStart);
-        _shader.Set("uFogEnd", FogEnd);
-        _shader.Set("uTex", 0);
-        ApplyAttachmentAtmosphere();
+        BeginUnitShader(camera);
         _seen.Clear();
         _spellPoses.Clear();
 
@@ -440,16 +440,31 @@ public sealed partial class CreatureRenderer : IDisposable
             // squares native sub-1 scales and makes wolves/critters tiny.
             float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
-            Matrix4x4 worldModel = Matrix4x4.CreateScale(scale)
-                * Matrix4x4.CreateRotationY(heading)
-                * Basis
-                * Matrix4x4.CreateTranslation(e.Position);
+            bool highlighted = e.Guid == HoveredGuid || e.Guid == SelectedGuid ||
+                GroupSelectedGuids.Contains(e.Guid);
+
+            // The steed draws FIRST, because the rider's instance transform is its saddle.
+            // Until the mount model is resident this is false and the rider draws on the
+            // ground as it always did — a mount pops in, it never blocks its rider.
+            MountDraw mount = default;
+            bool mounted = false;
+            if (e.MountDisplayId > 0)
+                mounted = TryDrawMount(camera, e.Guid, e.MountDisplayId, e.Position, e.Orientation,
+                    e.Spline?.AverageSpeed ?? 0f,
+                    e.Speeds is { Length: > 0 } speeds ? speeds[0] : 0f,
+                    dt, highlighted, out mount);
+            else ForgetMount(e.Guid);
+
+            Matrix4x4 worldModel = mounted
+                ? Matrix4x4.CreateScale(MathF.Max(0.01f, e.Scale)) * mount.Seat
+                : Matrix4x4.CreateScale(scale)
+                    * Matrix4x4.CreateRotationY(heading)
+                    * Basis
+                    * Matrix4x4.CreateTranslation(e.Position);
             Matrix4x4 m = worldModel;
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
-            _shader.Set("uHighlight",
-                e.Guid == HoveredGuid || e.Guid == SelectedGuid || GroupSelectedGuids.Contains(e.Guid)
-                    ? 64f / 255f : 0f);
+            _shader.Set("uHighlight", highlighted ? 64f / 255f : 0f);
 
             int boneCount = 0;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
@@ -483,6 +498,14 @@ public sealed partial class CreatureRenderer : IDisposable
                     model.Animator.Resolve(unit, SpellHoldAnimationTrack, heldAnimation, true) is { } holdClip)
                 {
                     clip = holdClip;
+                    rate = 1f;
+                    at += dt;
+                }
+                else if (mounted)
+                {
+                    // Seated. No locomotion cycle — the legs (or wheels) are the steed's
+                    // job now, and 91 is the one pose vanilla plays on every mount.
+                    clip = model.Animator.Resolve(unit, BaseAnimationTrack, RiderAnimationId, true, 0);
                     rate = 1f;
                     at += dt;
                 }
@@ -538,8 +561,9 @@ public sealed partial class CreatureRenderer : IDisposable
             }
 
             if (CastsGroundShadow(e))
-                _shadowCasters.Add(new UnitShadowCaster(e.Position,
-                    GroundShadowRadius(model.HorizontalRadius, scale)));
+                _shadowCasters.Add(new UnitShadowCaster(e.Position, mounted
+                    ? mount.GroundRadius
+                    : GroundShadowRadius(model.HorizontalRadius, scale)));
 
             DrawUnitAttachments(camera, e, model, info, m,
                 boneCount > 0 ? _skin : _bindSkin);
@@ -552,6 +576,7 @@ public sealed partial class CreatureRenderer : IDisposable
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
 
+        PublishMountCount();
         PruneAnimState();
     }
 
@@ -691,6 +716,7 @@ public sealed partial class CreatureRenderer : IDisposable
     public void NoteKnownNotDrawn(EntityStore entities)
     {
         _shadowCasters.Clear();
+        PublishMountCount();
         if (_lifecycle is null) return;
         foreach (WorldEntity entity in entities.Units)
             if (entity.IsCreature)
@@ -844,6 +870,9 @@ public sealed partial class CreatureRenderer : IDisposable
 
     public float SelectionRadius(WorldEntity entity)
     {
+        // Riding: the ring goes around what is standing on the ground, not around the
+        // rider's own waist, or a horse ends up wearing a bracelet.
+        if (TryGetMountGroundRadius(entity.Guid, out float mountRadius)) return mountRadius;
         if (TryGetModel(entity, out LoadedModel? model) && model is not null)
             return MathF.Max(0.35f, model.HorizontalRadius * UnitRenderScale(entity.Scale, ScaleMultiplier));
         return 0.7f * UnitRenderScale(entity.Scale, ScaleMultiplier);
@@ -855,6 +884,12 @@ public sealed partial class CreatureRenderer : IDisposable
         if (!TryGetModel(entity, out LoadedModel? model) || model is null) return false;
         float scale = UnitRenderScale(entity.Scale, ScaleMultiplier);
         height = MathF.Max(0.3f, model.MaxHeight * scale);
+
+        // A rider's head is a saddle above its own feet, and it wears the steed's scale
+        // through the seat. Measure from there or the name plants itself in the horse.
+        if (_mountsDrawn.TryGetValue(entity.Guid, out MountDraw mount))
+            height = MathF.Max(height,
+                mount.SeatHeight + model.MaxHeight * MathF.Max(0.01f, entity.Scale) * mount.Scale);
         return true;
     }
 
@@ -1039,6 +1074,14 @@ public sealed partial class CreatureRenderer : IDisposable
             _observedDead.Remove(k);
             _deathTime.Remove(k);
         }
+
+        // A steed whose rider stopped drawing (left the world, walked out of range)
+        // must not keep supplying a saddle to the nameplate and selection-ring
+        // queries, which run outside the loop and would place them at a stale spot.
+        _stale.Clear();
+        foreach (var pair in _mountsDrawn)
+            if (_globalTime - pair.Value.LastSeenAt >= 1f) _stale.Add(pair.Key);
+        foreach (ulong guid in _stale) ForgetMount(guid);
 
         // Visibility can fluctuate at the frustum edge and streamed units can
         // briefly leave the entity set. Keep lightweight mount sets warm long

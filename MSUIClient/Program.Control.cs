@@ -1109,11 +1109,31 @@ public sealed partial class GameLoop
             else
             {
                 if (subjects.Count == 0) return;   // plain move needs a highlighted set
+                BeginRtsMovePresentation(subjects, point);
                 _net?.SuiOrder(0, subjects, 0, point.X, point.Y, point.Z);
                 _rtsMoveMarkers.Add((point, NowSeconds(), RtsFriendlyTint));
                 ClearRtsWaypointChain();
                 AddChatMessage($"{OrderSubjectLabel(subjects)}: move to ({point.X:F0}, {point.Y:F0}).");
             }
+        }
+    }
+
+    /// <summary>
+    /// Apply the immediate, presentation-only half of a direct movement order. The server still
+    /// owns pathfinding and every position update; locally we only cancel stale action poses,
+    /// restart locomotion phase, and face each subject toward the clicked destination. Queued
+    /// waypoints deliberately do not call this: a future leg must not turn a body off its current
+    /// path before the server starts that leg.
+    /// </summary>
+    private void BeginRtsMovePresentation(IReadOnlyList<ulong> subjects, Vector3 destination)
+    {
+        IEnumerable<ulong> ordered = subjects.Count == 0 ? FreeCamSelectableGuids() : subjects;
+        var seen = new HashSet<ulong>();
+        foreach (ulong guid in ordered)
+        {
+            if (!seen.Add(guid)) continue;
+            _entities.PredictServerMoveFacing(guid, destination);
+            _creatures?.InterruptActionForMovement(guid);
         }
     }
 

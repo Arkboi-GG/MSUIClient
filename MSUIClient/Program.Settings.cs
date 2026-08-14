@@ -21,8 +21,9 @@ namespace MSUIClient;
 ///
 ///   GameMenuFrame  195 x 246, buttons 144 x 21, first button 37 below the top,
 ///                  1px gaps, and a 16px gap before Continue.
-///   OptionsFrame   450 x 575. Renderer-specific controls scroll inside that
-///                  contract instead of changing the player's frame geometry.
+///   OptionsFrame   450 x 575 on first open. Renderer-specific controls scroll
+///                  inside it; the player may enlarge/shrink each options page
+///                  and that useful size is remembered in settings.json.
 ///
 /// THIS IS THE FIRST THING ON THE NON-DEVTOOLS SIDE OF THE SEAM
 ///   FOUNDATION_PLAN section 12 says developer tooling ships off. DrawSettingsModal
@@ -80,6 +81,10 @@ public sealed partial class GameLoop
     private string _presetNameInput = "";
     private int _selectedPreset;
     private string _settingsStatus = "";
+    private MenuPage _measuredMenuPage = (MenuPage)(-1);
+    private Vector2 _measuredMenuSize;
+    private Vector2 _measuredMenuDisplay;
+    private float _measuredMenuScale;
 
     /// <summary>Last frame's measured height per group box, so the backdrop can be drawn first.</summary>
     private readonly Dictionary<string, float> _boxHeights = new();
@@ -305,6 +310,7 @@ public sealed partial class GameLoop
 
         if (_settingsPopupRequested)
         {
+            _measuredMenuPage = (MenuPage)(-1);
             ImGui.OpenPopup(MenuPopupId);
             _settingsPopupRequested = false;
         }
@@ -315,20 +321,40 @@ public sealed partial class GameLoop
         var io = ImGui.GetIO();
         var centre = new Vector2(io.DisplaySize.X * 0.5f, io.DisplaySize.Y * 0.5f);
         var size = PageSize(io.DisplaySize);
+        bool optionsPage = _menuPage != MenuPage.GameMenu;
+        bool optionsEnvironmentChanged = optionsPage && _measuredMenuPage == _menuPage &&
+            GameMenuUiLaw.OptionsEnvironmentChanged(
+                _measuredMenuDisplay, io.DisplaySize, _measuredMenuScale, S);
+        ImGuiCond optionsPlacement = optionsEnvironmentChanged
+            ? ImGuiCond.Always
+            : ImGuiCond.Appearing;
 
-        ImGui.SetNextWindowPos(centre, ImGuiCond.Always, new Vector2(0.5f, 0.5f));
-        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.SetNextWindowPos(centre,
+            optionsPage ? optionsPlacement : ImGuiCond.Always,
+            new Vector2(0.5f, 0.5f));
+        ImGui.SetNextWindowSize(size, optionsPage ? optionsPlacement : ImGuiCond.Always);
+        if (optionsPage)
+        {
+            var maximum = new Vector2(
+                MathF.Max(1f, io.DisplaySize.X * GameMenuUiLaw.OptionsViewportWidth),
+                MathF.Max(1f, io.DisplaySize.Y * GameMenuUiLaw.OptionsViewportHeight));
+            var minimum = Vector2.Min(
+                new Vector2(GameMenuUiLaw.OptionsMinWidth,
+                    GameMenuUiLaw.OptionsMinHeight) * S,
+                maximum);
+            ImGui.SetNextWindowSizeConstraints(minimum, maximum);
+        }
 
         _skin?.PushStyle();
 
-        const ImGuiWindowFlags flags =
+        ImGuiWindowFlags flags =
             ImGuiWindowFlags.NoTitleBar |
-            ImGuiWindowFlags.NoResize |
             ImGuiWindowFlags.NoMove |
             ImGuiWindowFlags.NoCollapse |
             ImGuiWindowFlags.NoScrollbar |
             ImGuiWindowFlags.NoScrollWithMouse |
             ImGuiWindowFlags.NoSavedSettings;
+        if (!optionsPage) flags |= ImGuiWindowFlags.NoResize;
 
         // p_open is here only so ImGui's own Escape handling reaches us. It is
         // read as "the user pressed Escape", not as "close everything" - Video
@@ -367,7 +393,10 @@ public sealed partial class GameLoop
             }
 
             var min = ImGui.GetWindowPos();
-            var max = min + ImGui.GetWindowSize();
+            size = ImGui.GetWindowSize();
+            var max = min + size;
+            if (optionsPage)
+                RememberPageSize(size, io.DisplaySize, optionsEnvironmentChanged);
             var dl = ImGui.GetWindowDrawList();
             bool parityProof = _uiParityArmed &&
                 (_uiParityPanel == "game-menu" || _uiParityPanel == "options");
@@ -540,7 +569,8 @@ public sealed partial class GameLoop
     /// <summary>
     /// GameMenuFrame is 195x246 in vanilla with eight buttons. Ours is derived
     /// from the same constants so it stays right when a button is added.
-    /// OptionsFrame is 450x575 and content scrolls inside it.
+    /// OptionsFrame starts at 450x575; Video and Interface Options remember the
+    /// player's independently resized dimensions while their bodies keep scrolling.
     /// </summary>
     private Vector2 PageSize(Vector2 display)
     {
@@ -550,11 +580,46 @@ public sealed partial class GameLoop
             return new Vector2(GameMenuUiLaw.FrameWidth, GameMenuUiLaw.FrameHeight) * S;
         }
 
-        // FrameXML's OptionsFrame is the contract. Extra renderer controls scroll
-        // inside the vanilla body; they do not change the player's frame geometry.
-        float w = MathF.Min(450f * S, display.X * 0.94f);
-        float ht = MathF.Min(575f * S, display.Y * 0.90f);
-        return new Vector2(w, ht);
+        // FrameXML's OptionsFrame supplies the first-open size. From then on each
+        // options page owns its remembered size, still clamped to this viewport.
+        var layout = Settings.MenuLayout ??= new GameSettings.MenuLayoutSettings();
+        var logical = _menuPage == MenuPage.Video
+            ? new Vector2(layout.VideoWidth, layout.VideoHeight)
+            : new Vector2(layout.ControlsWidth, layout.ControlsHeight);
+        return GameMenuUiLaw.ResolveOptionsSize(logical, S, display);
+    }
+
+    private void RememberPageSize(
+        Vector2 physicalSize, Vector2 display, bool environmentReflowed)
+    {
+        // Establish an appearance baseline without rewriting settings. Thereafter only
+        // a real live-size change (resize grip or viewport constraint) updates persistence;
+        // an Interface-scale edit by itself does not silently reinterpret this window.
+        if (_measuredMenuPage != _menuPage || environmentReflowed)
+        {
+            _measuredMenuPage = _menuPage;
+            _measuredMenuSize = physicalSize;
+            _measuredMenuDisplay = display;
+            _measuredMenuScale = S;
+            return;
+        }
+        _measuredMenuDisplay = display;
+        _measuredMenuScale = S;
+        if (Vector2.DistanceSquared(_measuredMenuSize, physicalSize) < .25f) return;
+        _measuredMenuSize = physicalSize;
+
+        Vector2 logical = GameMenuUiLaw.ToLogicalOptionsSize(physicalSize, S);
+        var layout = Settings.MenuLayout ??= new GameSettings.MenuLayoutSettings();
+        if (_menuPage == MenuPage.Video)
+        {
+            layout.VideoWidth = logical.X;
+            layout.VideoHeight = logical.Y;
+        }
+        else if (_menuPage == MenuPage.Controls)
+        {
+            layout.ControlsWidth = logical.X;
+            layout.ControlsHeight = logical.Y;
+        }
     }
 
     // ── the Game Menu ────────────────────────────────────────────────────────
@@ -648,9 +713,25 @@ public sealed partial class GameLoop
         Row("GameMenuButtonUIOptions", "Interface Options", GameMenuUiLaw.ButtonTop(2), "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
             true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Controls); });
         Row("GameMenuButtonKeybindings", "Key Bindings", GameMenuUiLaw.ButtonTop(3), "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
-            true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenKeybindings(); });
+            true, () =>
+            {
+                PlayUiSound("igMainMenuOption");
+                if (!_settingsCancelling) CommitSettings();
+                _settingsCancelling = false;
+                _settingsOpen = false;
+                ImGui.CloseCurrentPopup();
+                OpenKeybindings();
+            });
         Row("GameMenuButtonMacros", "Macros", GameMenuUiLaw.ButtonTop(4), "TOP", "GameMenuButtonKeybindings", "BOTTOM", "-1",
-            true, () => { PlayUiSound("igMainMenuOption"); _settingsOpen=false;ImGui.CloseCurrentPopup();OpenMacros(); });
+            true, () =>
+            {
+                PlayUiSound("igMainMenuOption");
+                if (!_settingsCancelling) CommitSettings();
+                _settingsCancelling = false;
+                _settingsOpen = false;
+                ImGui.CloseCurrentPopup();
+                OpenMacros();
+            });
         Row("GameMenuButtonLogout", "Logout", GameMenuUiLaw.ButtonTop(5), "TOP", "GameMenuButtonMacros", "BOTTOM", "-1",
             _net is { IsInWorld: true } && !LogoutUiActive, () => RequestLogout(quitting: false));
 
@@ -662,7 +743,8 @@ public sealed partial class GameLoop
         Row("GameMenuButtonContinue", "Return to Game", GameMenuUiLaw.ButtonTop(7), "TOP", "GameMenuButtonQuit", "BOTTOM", "-16", true, () =>
         {
             PlayUiSound("igMainMenuContinue");
-            CommitSettings();
+            if (!_settingsCancelling) CommitSettings();
+            _settingsCancelling = false;
             _settingsOpen = false;
             ImGui.CloseCurrentPopup();
         });
@@ -726,8 +808,7 @@ public sealed partial class GameLoop
     {
         var s = Settings;
 
-        float footer = (WowSkin.ButtonArt.Y * 1.6f + 40f) * S;
-        float bodyHeight = MathF.Max(ImGui.GetContentRegionAvail().Y - footer, 100f);
+        float bodyHeight = PanelBodyHeight(presets: true);
 
         if (ImGui.BeginChild("##video-body", new Vector2(0f, bodyHeight)))
         {
@@ -1519,7 +1600,9 @@ public sealed partial class GameLoop
         }
         ImGui.EndChild();
 
-        DrawPanelFooter(size, presets: true);
+        if (ImGui.BeginChild("##video-footer", Vector2.Zero))
+            DrawPanelFooter(size, presets: true);
+        ImGui.EndChild();
     }
 
     // ── the other pages ──────────────────────────────────────────────────────
@@ -1527,8 +1610,7 @@ public sealed partial class GameLoop
     private void DrawControlsPage(Vector2 size)
     {
         var s = Settings;
-        float footer = (WowSkin.ButtonArt.Y * 1.6f + 40f) * S;
-        float bodyHeight = MathF.Max(ImGui.GetContentRegionAvail().Y - footer, 100f);
+        float bodyHeight = PanelBodyHeight(presets: false);
 
         if (ImGui.BeginChild("##controls-body", new Vector2(0f, bodyHeight)))
         {
@@ -1608,14 +1690,15 @@ public sealed partial class GameLoop
         }
         ImGui.EndChild();
 
-        DrawPanelFooter(size, presets: false);
+        if (ImGui.BeginChild("##controls-footer", Vector2.Zero))
+            DrawPanelFooter(size, presets: false);
+        ImGui.EndChild();
     }
 
     private void DrawStreamingPage(Vector2 size)
     {
         var s = Settings;
-        float footer = (WowSkin.ButtonArt.Y * 1.6f + 40f) * S;
-        float bodyHeight = MathF.Max(ImGui.GetContentRegionAvail().Y - footer, 100f);
+        float bodyHeight = PanelBodyHeight(presets: false);
 
         if (ImGui.BeginChild("##stream-body", new Vector2(0f, bodyHeight)))
         {
@@ -1652,21 +1735,82 @@ public sealed partial class GameLoop
         }
         ImGui.EndChild();
 
-        DrawPanelFooter(size, presets: false);
+        if (ImGui.BeginChild("##stream-footer", Vector2.Zero))
+            DrawPanelFooter(size, presets: false);
+        ImGui.EndChild();
     }
 
     // ── footer ───────────────────────────────────────────────────────────────
 
+    private float PanelBodyHeight(bool presets)
+    {
+        float available = MathF.Max(ImGui.GetContentRegionAvail().Y, 1f);
+        float footer = MathF.Min(PanelFooterReserve(presets), MathF.Max(available - 1f, 1f));
+        return MathF.Max(available - footer, 1f);
+    }
+
+    private float PanelFooterReserve(bool presets)
+    {
+        float available = MathF.Max(ImGui.GetContentRegionAvail().X, 1f);
+        float spacingX = ImGui.GetStyle().ItemSpacing.X;
+        var button = new Vector2(WowSkin.ButtonArt.X * 1.35f,
+            WowSkin.ButtonArt.Y * 1.15f) * S;
+
+        int PackedRows(params float[] widths)
+        {
+            int rows = 1;
+            float used = 0f;
+            foreach (float rawWidth in widths)
+            {
+                float width = MathF.Min(rawWidth, available);
+                if (used <= 0f) used = width;
+                else if (used + spacingX + width <= available) used += spacingX + width;
+                else { rows++; used = width; }
+            }
+            return rows;
+        }
+
+        int rows = PackedRows(button.X, button.X, button.X, button.X);
+        if (presets)
+        {
+            rows += SettingsFile is { Presets.Count: > 0 }
+                ? PackedRows(180f * S, button.X, 170f * S, button.X, button.X)
+                : PackedRows(180f * S, button.X);
+        }
+        if (!string.IsNullOrEmpty(_settingsStatus)) rows++;
+
+        float rowHeight = MathF.Max(button.Y, ImGui.GetFrameHeight());
+        return rows * rowHeight + MathF.Max(rows - 1, 0) * ImGui.GetStyle().ItemSpacing.Y + 4f * S;
+    }
+
     private void DrawPanelFooter(Vector2 size, bool presets)
     {
-        var button = new Vector2(WowSkin.ButtonArt.X * 1.35f, WowSkin.ButtonArt.Y * 1.15f) * S;
+        float available = MathF.Max(ImGui.GetContentRegionAvail().X, 1f);
+        var button = new Vector2(
+            MathF.Min(WowSkin.ButtonArt.X * 1.35f * S, available),
+            WowSkin.ButtonArt.Y * 1.15f * S);
+        float lineUsed = 0f;
+
+        void Place(float rawWidth)
+        {
+            float width = MathF.Min(rawWidth, available);
+            float spacing = ImGui.GetStyle().ItemSpacing.X;
+            if (lineUsed > 0f && lineUsed + spacing + width <= available)
+            {
+                ImGui.SameLine();
+                lineUsed += spacing + width;
+            }
+            else lineUsed = width;
+        }
 
         if (presets)
         {
-            ImGui.SetNextItemWidth(180f * S);
+            float inputWidth = MathF.Min(180f * S, available);
+            Place(inputWidth);
+            ImGui.SetNextItemWidth(inputWidth);
             ImGui.InputText("##presetName", ref _presetNameInput, 48u);
-            ImGui.SameLine();
 
+            Place(button.X);
             if (Button("Save preset", button) && SettingsFile is not null &&
                 !string.IsNullOrWhiteSpace(_presetNameInput))
             {
@@ -1682,22 +1826,27 @@ public sealed partial class GameLoop
                 for (int i = 0; i < names.Length; i++) names[i] = SettingsFile.Presets[i].Name;
                 _selectedPreset = Math.Clamp(_selectedPreset, 0, names.Length - 1);
 
-                ImGui.SameLine();
-                ImGui.SetNextItemWidth(170f * S);
+                float comboWidth = MathF.Min(170f * S, available);
+                Place(comboWidth);
+                ImGui.SetNextItemWidth(comboWidth);
                 ImGui.Combo("##presetPick", ref _selectedPreset, names, names.Length);
 
-                ImGui.SameLine();
+                Place(button.X);
                 if (Button("Load", button))
                 {
                     var preset = SettingsFile.Presets[_selectedPreset];
                     var loaded = preset.Settings.Clone();
+                    // Layout is a global usability preference, not part of a
+                    // renderer preset. Do not replace it invisibly on preset load.
+                    loaded.MenuLayout = Settings.MenuLayout ??
+                        new GameSettings.MenuLayoutSettings();
                     loaded.ResolveComposites();
                     SettingsFile.Replace(loaded);
                     ApplySettings(loaded);
                     _settingsStatus = $"loaded preset '{preset.Name}'";
                 }
 
-                ImGui.SameLine();
+                Place(button.X);
                 if (Button("Delete", button))
                 {
                     string gone = SettingsFile.Presets[_selectedPreset].Name;
@@ -1708,13 +1857,15 @@ public sealed partial class GameLoop
             }
         }
 
+        lineUsed = 0f;
+        Place(button.X);
         if (Button("Defaults", button))
         {
             ResetVisiblePageToDefaults();
             _settingsStatus = "page reset to shipped defaults";
         }
 
-        ImGui.SameLine();
+        Place(button.X);
         if (Button("Adopt live", button))
         {
             CaptureSettings(Settings);
@@ -1727,10 +1878,10 @@ public sealed partial class GameLoop
                 "dial it in on the HUD, adopt, Okay. It is what replaces hand-copying a\n" +
                 "slider position back into a field initialiser.");
 
-        ImGui.SameLine();
+        Place(button.X);
         if (Button("Cancel", button)) CancelSettings();
 
-        ImGui.SameLine();
+        Place(button.X);
         if (Button("Okay (Esc)", button))
         {
             CommitSettings();

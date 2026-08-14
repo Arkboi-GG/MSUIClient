@@ -4,6 +4,7 @@ using ImGuiNET;
 using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
+using MSUIClient.World.Wmo;
 
 namespace MSUIClient;
 
@@ -11,10 +12,28 @@ public sealed partial class GameLoop
 {
     private Dictionary<string, string>? _minimapTileMap;
     private int _minimapZoom = 2;
+    private int _minimapInsideZoom = 2;
     private bool _minimapVisible = true;
     private uint _minimapAreaId;
     private uint _minimapReportedZoneId;
     private string _minimapAreaMap = "";
+    private WmoAreaCatalog? _wmoAreas;
+    private readonly Dictionary<(uint Wmo, uint NameSet, uint Group), uint>
+        _minimapWmoAreaCache = [];
+    private bool _wmoAreasLoaded;
+    private WmoRenderer? _minimapInteriorRenderer;
+    private int _minimapInteriorWmoVersion = -1;
+    private WmoRenderer.InteriorMinimapContext? _minimapInteriorContext;
+    private WmoRenderer.AreaMinimapIdentity? _minimapAreaInterior;
+    private float? _minimapInteriorTerrainZ;
+    private float _minimapInteriorRadius;
+    private double _minimapInteriorNextResolveAt;
+    private readonly Dictionary<string, Task<GameplayArt.PreparedTexture?>>
+        _minimapPreparedTextureTasks = new(StringComparer.OrdinalIgnoreCase);
+    private (WmoRenderer? Renderer, int Version, int Instance, int Group,
+        int Zoom, int CellX, int CellY)? _minimapActiveWarmKey;
+    private bool _minimapActiveWarmReady;
+    private string _minimapInteriorSignature = "";
     private string _minimapResourceSignature = "";
     private MinimapResourceTooltipRuntime? _minimapResourceTooltip;
 
@@ -69,23 +88,79 @@ public sealed partial class GameLoop
         // Local movement is client-authoritative in 1.12. The controller is the
         // continuously updated truth; the object-store entity is only the last
         // server snapshot and can remain unchanged for seconds.
-        Vector3 playerPosition = _controller?.Position ?? player.Position;
-        float playerOrientation = _controller?.Yaw ?? player.Orientation;
+        // Free view turns the controller into a detached camera and drives no
+        // unit. The minimap must remain attached to the controlled character;
+        // in ordinary/possessed play the controller is the locally-authoritative
+        // mover and therefore remains the right source.
+        Vector3 playerPosition = _freeView
+            ? player.Position
+            : _controller?.Position ?? player.Position;
+        float playerOrientation = _freeView
+            ? player.Orientation
+            : _controller?.Yaw ?? player.Orientation;
         MinimapProjection projection = MinimapProjection.FromWorld(playerPosition);
-        DrawMovingMinimap(dl, mapMin, mapMax, projection, circular: !squareMap);
-        UpdateMinimapArea(projection);
+        // Interior membership belongs to the player, not the orbit camera. The
+        // +1.7 yd probe begins above the walking floor while still staying below
+        // any outdoor terrain shell over underground cities such as Ironforge.
+        Vector3 interiorProbe = playerPosition + new Vector3(0f, 0f, 1.7f);
+        float? terrainZ = _terrain?.SampleHeight(interiorProbe.X, interiorProbe.Y);
+        float interiorRadius = WmoMinimapProjection.ZoomRadiusYards[
+            Math.Clamp(_minimapInsideZoom, 0, WmoMinimapProjection.ZoomRadiusYards.Length - 1)];
+        WmoRenderer.InteriorMinimapContext? interior = ResolveMinimapInterior(
+            playerPosition, interiorProbe, interiorRadius, terrainZ);
+        bool insideWmo = interior is not null;
+        if (interior is not null)
+        {
+            var warmKey = (
+                _wmo,
+                _wmo?.LiquidVersion ?? -1,
+                interior.InstanceId,
+                interior.GroupIndex,
+                _minimapInsideZoom,
+                (int)MathF.Floor(playerPosition.X / 8f),
+                (int)MathF.Floor(playerPosition.Y / 8f));
+            if (_minimapActiveWarmKey != warmKey)
+            {
+                _minimapActiveWarmKey = warmKey;
+                _minimapActiveWarmReady = false;
+            }
+            if (!_minimapActiveWarmReady)
+                _minimapActiveWarmReady = AdvanceMinimapTexturePreparation(
+                    interior, playerPosition, interiorRadius);
+            DrawInteriorMinimap(dl, mapMin, mapMax, playerPosition, interior,
+                circular: !squareMap);
+        }
+        else
+        {
+            _minimapActiveWarmKey = null;
+            _minimapActiveWarmReady = false;
+            DrawMovingMinimap(dl, mapMin, mapMax, projection, circular: !squareMap);
+        }
+        // Area identity is a separate feet-level faces-only claim. A doorway
+        // may seed the display flood without changing the zone-text room.
+        UpdateMinimapArea(projection, _minimapAreaInterior);
 
         if (ImGui.IsMouseHoveringRect(mapMin, mapMax, false))
         {
             float wheel = ImGui.GetIO().MouseWheel;
-            if (wheel > 0) _minimapZoom = Math.Max(0, _minimapZoom - 1);
-            else if (wheel < 0) _minimapZoom = Math.Min(5, _minimapZoom + 1);
+            if (wheel > 0)
+            {
+                if (insideWmo) _minimapInsideZoom = Math.Max(0, _minimapInsideZoom - 1);
+                else _minimapZoom = Math.Max(0, _minimapZoom - 1);
+            }
+            else if (wheel < 0)
+            {
+                if (insideWmo) _minimapInsideZoom = Math.Min(5, _minimapInsideZoom + 1);
+                else _minimapZoom = Math.Min(5, _minimapZoom + 1);
+            }
         }
 
-        DrawMinimapPartyDots(dl, player, playerPosition, mapMin, mapMax, s);
+        float? interiorBlipRadius = insideWmo ? interiorRadius : null;
+        DrawMinimapPartyDots(dl, player, playerPosition, mapMin, mapMax, s, interiorBlipRadius);
         DrawMinimapPlayerArrow(dl, playerOrientation, (mapMin + mapMax) * .5f, s);
         MinimapResourceTooltipCandidate? resourceTooltip =
-            DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s);
+            DrawMinimapResourceDots(dl, player, playerPosition, mapMin, mapMax, s,
+                interiorBlipRadius);
         UpdateAndQueueMinimapResourceTooltip(resourceTooltip);
         if (_uiParityArmed && _uiParityPanel == "minimap")
             CollectUiParity("Minimap", "Minimap", mapMin, new Vector2(140) * s,
@@ -112,9 +187,17 @@ public sealed partial class GameLoop
         Vector2 zoomIn = squareMap ? new Vector2(120, 196) : new Vector2(157, 113);
         Vector2 zoomOut = squareMap ? new Vector2(150, 196) : new Vector2(131, 141);
         DrawMinimapButton(dl, root + zoomIn, @"Interface\Minimap\UI-Minimap-ZoomInButton-Up",
-            () => _minimapZoom = Math.Max(0, _minimapZoom - 1));
+            () =>
+            {
+                if (insideWmo) _minimapInsideZoom = Math.Max(0, _minimapInsideZoom - 1);
+                else _minimapZoom = Math.Max(0, _minimapZoom - 1);
+            });
         DrawMinimapButton(dl, root + zoomOut, @"Interface\Minimap\UI-Minimap-ZoomOutButton-Up",
-            () => _minimapZoom = Math.Min(5, _minimapZoom + 1));
+            () =>
+            {
+                if (insideWmo) _minimapInsideZoom = Math.Min(5, _minimapInsideZoom + 1);
+                else _minimapZoom = Math.Min(5, _minimapZoom + 1);
+            });
         if (!squareMap && _uiParityArmed && _uiParityPanel == "minimap")
         {
             CollectUiParity("MinimapZoomIn", "Button", (root + new Vector2(157, 113)) * s,
@@ -261,10 +344,11 @@ public sealed partial class GameLoop
     }
 
     private void DrawMinimapPartyDots(ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
-        Vector2 mapMin, Vector2 mapMax, float s)
+        Vector2 mapMin, Vector2 mapMax, float s, float? radiusOverride = null)
     {
-        float halfTile = 0.10f + _minimapZoom * 0.025f;
-        float pixelsPerYard = (mapMax.X - mapMin.X) / (2f * halfTile * 533.33333f);
+        float radiusYards = radiusOverride ??
+            ((0.10f + _minimapZoom * 0.025f) * MinimapProjection.TileWorldSize);
+        float pixelsPerYard = (mapMax.X - mapMin.X) / (2f * radiusYards);
         Vector2 center = (mapMin + mapMax) * .5f;
         foreach (PartyMember member in _partyMembers)
         {
@@ -295,7 +379,7 @@ public sealed partial class GameLoop
     /// </summary>
     private MinimapResourceTooltipCandidate? DrawMinimapResourceDots(
         ImDrawListPtr dl, WorldEntity player, Vector3 playerPosition,
-        Vector2 mapMin, Vector2 mapMax, float s)
+        Vector2 mapMin, Vector2 mapMax, float s, float? radiusOverride = null)
     {
         uint mask = player.Fields.PlayerTrackResources;
         EnsureLockCatalog();
@@ -304,8 +388,8 @@ public sealed partial class GameLoop
             ReportMinimapResourceSet(mask, []);
             return null;
         }
-        float halfTile = 0.10f + _minimapZoom * 0.025f;
-        float radiusYards = halfTile * 533.33333f;
+        float radiusYards = radiusOverride ??
+            ((0.10f + _minimapZoom * 0.025f) * MinimapProjection.TileWorldSize);
         float pixelsPerYard = (mapMax.X - mapMin.X) / (radiusYards * 2f);
         Vector2 center = (mapMin + mapMax) * .5f;
         uint icons = _gameplayArt?.Handle(@"Interface\Minimap\ObjectIcons") ?? 0;
@@ -492,6 +576,200 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
+    /// Draw the current WMO's authored interior tiles. These replace, rather
+    /// than overlay, the outdoor ADT plane. Tiles are baked in model space, so
+    /// each local corner is transformed through the one placed WMO instance
+    /// before north-up projection; this also handles rotated inns/buildings.
+    /// </summary>
+    private void DrawInteriorMinimap(
+        ImDrawListPtr dl, Vector2 mapMin, Vector2 mapMax, Vector3 playerWorld,
+        WmoRenderer.InteriorMinimapContext context, bool circular)
+    {
+        EnsureMinimapTileMap();
+        if (_minimapTileMap is null || _gameplayArt is null ||
+            WmoMinimapProjection.Stem(context.InstancePath) is not string stem)
+            return;
+
+        float radius = WmoMinimapProjection.ZoomRadiusYards[
+            Math.Clamp(_minimapInsideZoom, 0, WmoMinimapProjection.ZoomRadiusYards.Length - 1)];
+        Vector2 center = (mapMin + mapMax) * .5f;
+        float pixelsPerYard = (mapMax.X - mapMin.X) / (2f * radius);
+        float circleRadius = circular ? (mapMax.X - mapMin.X) * .5f : 0f;
+
+        // Current floor last. Other reached floors are sorted low-to-high so
+        // the current room wins any overlap exactly as the client does.
+        var ordered = context.ReachableGroups
+            .OrderBy(group => group.GroupIndex == context.GroupIndex
+                ? float.PositiveInfinity
+                : (group.LocalMin.Z + group.LocalMax.Z) * .5f - context.LocalPosition.Z)
+            .ToArray();
+
+        var tiles = new List<(
+            uint Texture,
+            Vector2 P00,
+            Vector2 P10,
+            Vector2 P11,
+            Vector2 P01)>();
+
+        foreach (var group in ordered)
+        {
+            var (columns, spanX) = WmoMinimapProjection.AxisGrid(group.LocalMax.X - group.LocalMin.X);
+            var (rows, spanY) = WmoMinimapProjection.AxisGrid(group.LocalMax.Y - group.LocalMin.Y);
+            float z = (group.LocalMin.Z + group.LocalMax.Z) * .5f;
+            for (int column = 0; column < columns; column++)
+            for (int row = 0; row < rows; row++)
+            {
+                string logical = WmoMinimapProjection.LogicalTile(
+                    stem, group.GroupIndex, column, row);
+                if (!_minimapTileMap.TryGetValue(logical, out string? hashed)) continue;
+
+                float x0 = group.LocalMin.X + column * spanX;
+                float x1 = x0 + spanX;
+                float y0 = group.LocalMin.Y + row * spanY;
+                float y1 = y0 + spanY;
+                Vector2 p00 = WmoMinimapProjection.ToScreen(
+                    Vector3.Transform(new Vector3(x0, y0, z), context.LocalToWorld),
+                    playerWorld, center, pixelsPerYard);
+                Vector2 p10 = WmoMinimapProjection.ToScreen(
+                    Vector3.Transform(new Vector3(x1, y0, z), context.LocalToWorld),
+                    playerWorld, center, pixelsPerYard);
+                Vector2 p11 = WmoMinimapProjection.ToScreen(
+                    Vector3.Transform(new Vector3(x1, y1, z), context.LocalToWorld),
+                    playerWorld, center, pixelsPerYard);
+                Vector2 p01 = WmoMinimapProjection.ToScreen(
+                    Vector3.Transform(new Vector3(x0, y1, z), context.LocalToWorld),
+                    playerWorld, center, pixelsPerYard);
+
+                float extent = MathF.Max(spanX, spanY) * pixelsPerYard;
+                Vector2 tileCenter = (p00 + p10 + p11 + p01) * .25f;
+                if (Vector2.Distance(tileCenter, center) > (mapMax.X - mapMin.X) * .5f + extent)
+                    continue;
+
+                // The bounded preparation path decodes only nearby tiles and
+                // publishes them incrementally. Cull again here so drawing a
+                // large connected city stays proportional to this zoom window.
+                string artPath = @"textures\Minimap\" + hashed;
+                uint texture;
+                if (_assetWorkers is null)
+                    texture = _gameplayArt.Handle(artPath);
+                else if (!_gameplayArt.TryHandle(artPath, out texture))
+                    continue;
+                if (texture == 0) continue;
+
+                tiles.Add((texture, p00, p10, p11, p01));
+            }
+        }
+
+        bool anyTile = tiles.Count > 0;
+        // Interior and outdoor map families are mutually exclusive. Even a
+        // connector room with no authored image clears to black; revealing the
+        // underlying ADT here is the original Ironforge mountain-map bug.
+        dl.PushClipRect(mapMin, mapMax, true);
+        if (circular)
+            dl.AddCircleFilled(center, circleRadius, 0xff000000, 64);
+        else
+            dl.AddRectFilled(mapMin, mapMax, 0xff000000);
+
+        if (anyTile)
+        {
+            foreach (var tile in tiles)
+            {
+                if (circular)
+                    AddImageQuadCircleClipped(dl, tile.Texture,
+                        tile.P00, tile.P10, tile.P11, tile.P01, center, circleRadius);
+                else
+                    dl.AddImageQuad((nint)tile.Texture,
+                        tile.P00, tile.P10, tile.P11, tile.P01,
+                        Vector2.Zero, Vector2.UnitX, Vector2.One, Vector2.UnitY,
+                        0xffffffff);
+            }
+        }
+        dl.PopClipRect();
+
+        string signature = anyTile
+            ? $"{context.InstanceId}:{context.GroupIndex}:{stem}:{ordered.Length}"
+            : $"missing:{context.InstanceId}:{context.GroupIndex}:{stem}";
+        if (signature != _minimapInteriorSignature)
+        {
+            _minimapInteriorSignature = signature;
+            Console.WriteLine(anyTile
+                ? $"[minimap] interior {Path.GetFileName(context.InstancePath)} " +
+                  $"group={context.GroupIndex} reached={ordered.Length}"
+                : $"[minimap] no authored interior tile for {Path.GetFileName(context.InstancePath)} " +
+                  $"group={context.GroupIndex}; keeping interior map black");
+        }
+    }
+
+    /// <summary>
+    /// Arbitrary rotated textured quad clipped to the minimap disc. The outdoor
+    /// helper can derive UV from an axis-aligned rect; WMO tiles rotate with
+    /// their placement, so this variant carries UV through the polygon clip.
+    /// </summary>
+    private static void AddImageQuadCircleClipped(
+        ImDrawListPtr dl, uint texture,
+        Vector2 p00, Vector2 p10, Vector2 p11, Vector2 p01,
+        Vector2 centre, float radius, int segments = 48)
+    {
+        if (texture == 0 || radius <= 0f) return;
+        int capacity = segments + 8;
+        Span<(Vector2 P, Vector2 Uv)> polygon = stackalloc (Vector2, Vector2)[capacity];
+        Span<(Vector2 P, Vector2 Uv)> clipped = stackalloc (Vector2, Vector2)[capacity];
+        polygon[0] = (p00, Vector2.Zero);
+        polygon[1] = (p10, Vector2.UnitX);
+        polygon[2] = (p11, Vector2.One);
+        polygon[3] = (p01, Vector2.UnitY);
+        int count = 4;
+
+        for (int edge = 0; edge < segments && count >= 3; edge++)
+        {
+            (float sin, float cos) = MathF.SinCos(edge * MathF.Tau / segments);
+            var normal = new Vector2(cos, sin);
+            int written = 0;
+            for (int i = 0; i < count; i++)
+            {
+                var current = polygon[i];
+                var previous = polygon[(i + count - 1) % count];
+                float currentDistance = Vector2.Dot(current.P - centre, normal) - radius;
+                float previousDistance = Vector2.Dot(previous.P - centre, normal) - radius;
+                if (currentDistance <= 0f)
+                {
+                    if (previousDistance > 0f)
+                        clipped[written++] = Intersect(
+                            previous, current, previousDistance, currentDistance);
+                    clipped[written++] = current;
+                }
+                else if (previousDistance <= 0f)
+                    clipped[written++] = Intersect(
+                        previous, current, previousDistance, currentDistance);
+            }
+            count = written;
+            clipped[..count].CopyTo(polygon);
+        }
+        if (count < 3) return;
+
+        uint baseIndex = dl._VtxCurrentIdx;
+        dl.PushTextureID((nint)texture);
+        dl.PrimReserve((count - 2) * 3, count);
+        for (int i = 0; i < count; i++)
+            dl.PrimWriteVtx(polygon[i].P, polygon[i].Uv, 0xffffffff);
+        for (int i = 2; i < count; i++)
+        {
+            dl.PrimWriteIdx((ushort)baseIndex);
+            dl.PrimWriteIdx((ushort)(baseIndex + i - 1));
+            dl.PrimWriteIdx((ushort)(baseIndex + i));
+        }
+        dl.PopTextureID();
+
+        static (Vector2 P, Vector2 Uv) Intersect(
+            (Vector2 P, Vector2 Uv) from, (Vector2 P, Vector2 Uv) to,
+            float fromDistance, float toDistance)
+        {
+            float t = fromDistance / (fromDistance - toDistance);
+            return (Vector2.Lerp(from.P, to.P, t), Vector2.Lerp(from.Uv, to.Uv, t));
+        }
+    }
+
+    /// <summary>
     /// Draw an axis-aligned textured rect clipped to a CIRCLE.
     ///
     /// ImGui has no circular clip — clip rects are rectangles — and this backend cannot borrow
@@ -571,7 +849,8 @@ public sealed partial class GameLoop
         }
     }
 
-    private void UpdateMinimapArea(MinimapProjection projection)
+    private void UpdateMinimapArea(
+        MinimapProjection projection, WmoRenderer.AreaMinimapIdentity? interior = null)
     {
         EnsureAreaTableForMinimap();
         string mapName = _adts?.MapName ?? _config.Start.MapName;
@@ -582,7 +861,22 @@ public sealed partial class GameLoop
             _minimapReportedZoneId = 0;
         }
         uint areaId = 0;
-        if (_adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
+        if (interior is { } areaInterior)
+        {
+            EnsureWmoAreaTableForMinimap();
+            var wmoAreaKey = (
+                areaInterior.RootWmoId, areaInterior.NameSetId, areaInterior.GroupWmoId);
+            if (!_minimapWmoAreaCache.TryGetValue(wmoAreaKey, out areaId))
+            {
+                areaId = _wmoAreas?.Resolve(
+                    wmoAreaKey.RootWmoId,
+                    wmoAreaKey.NameSetId,
+                    wmoAreaKey.GroupWmoId)?.AreaTableId ?? 0;
+                _minimapWmoAreaCache[wmoAreaKey] = areaId;
+            }
+        }
+        if (areaId == 0 &&
+            _adts?.TryPeek(projection.TileColumn, projection.TileRow, out var adt) == true)
             areaId = projection.AreaId(adt);
         if (areaId == 0) return;
         _minimapAreaId = areaId;
@@ -594,6 +888,8 @@ public sealed partial class GameLoop
         EmitInterface("minimap", "area", "UPDATED", _net?.PlayerGuid ?? 0,
             $"map={mapName};tile={projection.TileColumn}|{projection.TileRow};" +
             $"chunk={projection.ChunkX}|{projection.ChunkY};area={areaId};" +
+            (interior is not { } logInterior ? "" :
+                $"wmo={logInterior.RootWmoId}/{logInterior.NameSetId}/{logInterior.GroupWmoId};") +
             $"subZone={_areas?.AreaName(areaId)};zone={zoneId}");
         Console.WriteLine($"[minimap] area={areaId} '{_areas?.AreaName(areaId)}' zone={zoneId}");
     }
@@ -608,6 +904,161 @@ public sealed partial class GameLoop
             if (bytes is not null) _areas = AreaTableCatalog.Parse(bytes);
         }
         catch (Exception e) { Console.WriteLine($"[minimap] AreaTable load failed: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// WMO room containment is collision-backed and substantially more expensive
+    /// than ordinary HUD projection. Resolve it at 10 Hz (and immediately after
+    /// a renderer swap or zoom change), while continuing to
+    /// project the cached room tiles around the player's exact per-frame pose.
+    /// </summary>
+    private WmoRenderer.InteriorMinimapContext? ResolveMinimapInterior(
+        Vector3 feet, Vector3 probe, float radius, float? terrainZ)
+    {
+        double now = MovementInfo.ClientUptimeMs() / 1000.0;
+        bool rendererChanged = !ReferenceEquals(_minimapInteriorRenderer, _wmo);
+        int rendererVersion = _wmo?.LiquidVersion ?? -1;
+        bool placementsChanged = rendererVersion != _minimapInteriorWmoVersion;
+        bool terrainChanged = terrainZ.HasValue != _minimapInteriorTerrainZ.HasValue ||
+            (terrainZ is float currentTerrain && _minimapInteriorTerrainZ is float cachedTerrain &&
+             MathF.Abs(currentTerrain - cachedTerrain) > 0.5f);
+        if (rendererChanged || placementsChanged || terrainChanged ||
+            MathF.Abs(radius - _minimapInteriorRadius) > 0.01f ||
+            now >= _minimapInteriorNextResolveAt)
+        {
+            _minimapInteriorRenderer = _wmo;
+            _minimapInteriorWmoVersion = rendererVersion;
+            _minimapInteriorTerrainZ = terrainZ;
+            _minimapInteriorRadius = radius;
+            _minimapInteriorContext = _wmo?.ResolveInteriorMinimapContext(
+                probe, radius, terrainZ);
+            _minimapAreaInterior = _wmo?.ResolveAreaMinimapIdentity(feet, terrainZ);
+            _minimapInteriorNextResolveAt = now + 0.10;
+        }
+        return _minimapInteriorContext;
+    }
+
+    private IReadOnlyList<string> MinimapInteriorArtPaths(
+        WmoRenderer.InteriorMinimapContext context, Vector3 playerWorld, float radius)
+    {
+        EnsureMinimapTileMap();
+        if (_minimapTileMap is null ||
+            WmoMinimapProjection.Stem(context.InstancePath) is not string stem)
+            return [];
+
+        var paths = new List<string>();
+        foreach (var group in context.ReachableGroups)
+        {
+            var (columns, spanX) = WmoMinimapProjection.AxisGrid(
+                group.LocalMax.X - group.LocalMin.X);
+            var (rows, spanY) = WmoMinimapProjection.AxisGrid(
+                group.LocalMax.Y - group.LocalMin.Y);
+            float z = (group.LocalMin.Z + group.LocalMax.Z) * .5f;
+            for (int column = 0; column < columns; column++)
+            for (int row = 0; row < rows; row++)
+            {
+                Vector3 localCenter = new(
+                    group.LocalMin.X + (column + .5f) * spanX,
+                    group.LocalMin.Y + (row + .5f) * spanY,
+                    z);
+                Vector3 worldCenter = Vector3.Transform(localCenter, context.LocalToWorld);
+                if (Vector2.Distance(
+                        new Vector2(worldCenter.X, worldCenter.Y),
+                        new Vector2(playerWorld.X, playerWorld.Y)) >
+                    radius + MathF.Max(spanX, spanY))
+                    continue;
+                string logical = WmoMinimapProjection.LogicalTile(
+                    stem, group.GroupIndex, column, row);
+                if (_minimapTileMap.TryGetValue(logical, out string? hashed))
+                    paths.Add(@"textures\Minimap\" + hashed);
+            }
+        }
+        return paths;
+    }
+
+    private bool AdvanceMinimapTexturePreparation(
+        WmoRenderer.InteriorMinimapContext context, Vector3 playerWorld, float radius)
+    {
+        if (_gameplayArt is null || _assetWorkers is null) return true;
+        bool ready = true;
+        bool adoptedThisFrame = false;
+        foreach (string path in MinimapInteriorArtPaths(context, playerWorld, radius))
+        {
+            if (_gameplayArt.IsResolved(path)) continue;
+            if (!_minimapPreparedTextureTasks.TryGetValue(path, out var task))
+            {
+                task = _assetWorkers.Run(() => _gameplayArt.Prepare(path));
+                _minimapPreparedTextureTasks.Add(path, task);
+                ready = false;
+                continue;
+            }
+            if (!task.IsCompleted)
+            {
+                ready = false;
+                continue;
+            }
+            if (task.IsFaulted || task.IsCanceled)
+            {
+                _ = task.Exception;
+                _gameplayArt.MarkMissing(path);
+                _minimapPreparedTextureTasks.Remove(path);
+                continue;
+            }
+            if (task.Result is GameplayArt.PreparedTexture prepared)
+            {
+                if (adoptedThisFrame)
+                {
+                    ready = false;
+                    continue;
+                }
+                try
+                {
+                    _gameplayArt.Adopt(prepared);
+                }
+                catch (Exception ex)
+                {
+                    // A UI texture upload must not take down the render loop.
+                    // Cache the path as absent and keep the authored interior
+                    // black, which is the same safe fallback as a missing BLP.
+                    _gameplayArt.MarkMissing(path);
+                    Console.WriteLine(
+                        $"[minimap] texture adoption failed for {path}: {ex.Message}");
+                }
+                _minimapPreparedTextureTasks.Remove(path);
+                adoptedThisFrame = true;
+            }
+            else
+            {
+                _gameplayArt.MarkMissing(path);
+                _minimapPreparedTextureTasks.Remove(path);
+            }
+        }
+        return ready;
+    }
+
+    private void DrainMinimapTexturePreparation()
+    {
+        try
+        {
+            Task.WhenAll(_minimapPreparedTextureTasks.Values).GetAwaiter().GetResult();
+        }
+        catch { /* best-effort UI warmup must never obstruct shutdown */ }
+        _minimapPreparedTextureTasks.Clear();
+    }
+
+    private void EnsureWmoAreaTableForMinimap()
+    {
+        if (_wmoAreasLoaded) return;
+        _wmoAreasLoaded = true;
+        try
+        {
+            byte[]? bytes = _mpq?.ReadFile(WmoAreaCatalog.MpqPath);
+            if (bytes is not null) _wmoAreas = WmoAreaCatalog.Parse(bytes);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[minimap] WMOAreaTable load failed: {e.Message}");
+        }
     }
 
     private void EnsureMinimapTileMap()

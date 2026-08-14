@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using Silk.NET.OpenGL;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World;
@@ -84,6 +85,9 @@ public sealed partial class GameLoop
     private bool _realPortalCapabilityProbePending;
     private bool _realPortalProtocolAvailable;
     private double _realPortalCapabilityReplyDeadline;
+    private (ulong Guid, uint Spawn, uint Revision, ulong Ticket)?
+        _realPortalMinimapWarmIdentity;
+    private WmoRenderer.InteriorMinimapContext? _realPortalMinimapWarmContext;
 
     private enum RealPortalHandoffPhase
     {
@@ -445,13 +449,18 @@ public sealed partial class GameLoop
 
         if (_realPortalScene.IsActive)
         {
-            if (!(_realPortalScene.VisualReady && _realPortalScene.ArrivalSupport) &&
+            bool candidateLocallyReady =
+                _realPortalScene.VisualReady && _realPortalScene.ArrivalSupport;
+            bool minimapWarmReady = candidateLocallyReady && target is not null &&
+                AdvanceRealPortalMinimapWarm(target);
+            if ((!candidateLocallyReady || !minimapWarmReady) &&
                 _realPortalSceneStartedAt > 0 &&
                 now - _realPortalSceneStartedAt >= RealPortalCandidateWatchdogSeconds &&
                 target is not null)
             {
                 ReportRealPortalLoadFailure(target,
-                    $"candidate did not become ready within {RealPortalCandidateWatchdogSeconds:F0}s", now);
+                    $"candidate did not become fully ready within " +
+                    $"{RealPortalCandidateWatchdogSeconds:F0}s", now);
                 RetireRealPortalScene();
                 return;
             }
@@ -509,10 +518,33 @@ public sealed partial class GameLoop
         if (_realPortalSceneGuid == target.Guid &&
             _realPortalScene?.VisualReady == true && _realPortalScene.ArrivalSupport &&
             !target.PreparePending &&
-            now - target.DiscoveredAt >= RealPortalPreAnimationSeconds && !target.ReadySent)
+            now - target.DiscoveredAt >= RealPortalPreAnimationSeconds && !target.ReadySent &&
+            AdvanceRealPortalMinimapWarm(target))
         {
             SendRealPortalReady(target, PortalLoadResult.Ready, now);
         }
+    }
+
+    private bool AdvanceRealPortalMinimapWarm(RealPortalVisual target)
+    {
+        if (_realPortalScene is null || target.Descriptor is not { } descriptor)
+            return true;
+        var identity = descriptor.Identity;
+        if (_realPortalMinimapWarmIdentity != identity)
+        {
+            _realPortalMinimapWarmIdentity = identity;
+            _realPortalMinimapWarmContext = null;
+        }
+
+        // READY must remain valid if the player changes the indoor zoom before
+        // crossing. Prepare the widest authored view once; every smaller zoom
+        // is then a strict subset and needs no additional texture work.
+        float radius = WmoMinimapProjection.ZoomRadiusYards[0];
+        _realPortalMinimapWarmContext ??=
+            _realPortalScene.ResolveArrivalInteriorMinimap(radius);
+        return _realPortalMinimapWarmContext is not { } context ||
+            AdvanceMinimapTexturePreparation(
+                context, descriptor.PreviewPosition, radius);
     }
 
     private void PublishRealPortalApertures(float dt, double now)
@@ -763,7 +795,8 @@ public sealed partial class GameLoop
             _realPortalHandoffDescriptor is not { } expected ||
             _realPortalScene is null || _terrain is null || _wmo is null ||
             _liquid is null || _adts is null || _controller is null ||
-            !ClientGeometryCollision)
+            !ClientGeometryCollision ||
+            !PreparedRealPortalMinimapReadyAt(authoritativePosition))
             return false;
 
         EnsureInstanceData();
@@ -931,6 +964,33 @@ public sealed partial class GameLoop
                 $"{ex.Message}; using guarded world loader");
             return false;
         }
+    }
+
+    /// <summary>
+    /// The core may adjust its final landing pose within the handoff tolerance.
+    /// Re-resolve that exact point in the still-isolated destination and promote
+    /// only when every authored tile it can reveal is already adopted. A rare
+    /// boundary mismatch therefore falls back to the safe world-load path
+    /// instead of turning a seamless crossing into a first-frame UI hitch.
+    /// </summary>
+    private bool PreparedRealPortalMinimapReadyAt(in Vector3 authoritativePosition)
+    {
+        if (_realPortalScene is null || _gameplayArt is null) return true;
+        float radius = WmoMinimapProjection.ZoomRadiusYards[0];
+        var context = _realPortalScene.ResolvePreparedInteriorMinimap(
+            authoritativePosition, radius);
+        if (context is null) return true;
+
+        foreach (string path in MinimapInteriorArtPaths(
+                     context, authoritativePosition, radius))
+        {
+            if (_gameplayArt.IsResolved(path)) continue;
+            Console.WriteLine(
+                "[real-portals] prepared-world promotion declined: authoritative " +
+                $"landing exposes an unprepared interior minimap tile ({path})");
+            return false;
+        }
+        return true;
     }
 
     private static Task? CombineRealPortalRetirementDrains(params Task?[] candidates)
@@ -1304,6 +1364,11 @@ public sealed partial class GameLoop
         _realPortalSceneDescriptor = null;
         _realPortalAtmosphere = null;
         _realPortalSceneStartedAt = 0;
+        // The context retains the candidate renderer's placed WMO model. Drop
+        // it as soon as that candidate retires; decoded minimap textures remain
+        // process-owned by GameplayArt and are intentionally reusable.
+        _realPortalMinimapWarmIdentity = null;
+        _realPortalMinimapWarmContext = null;
     }
 
     private void ResetRealPortals(bool resetCapability = true)
@@ -1323,6 +1388,8 @@ public sealed partial class GameLoop
         _realPortalSceneDescriptor = null;
         _realPortalAtmosphere = null;
         _realPortalSceneStartedAt = 0;
+        _realPortalMinimapWarmIdentity = null;
+        _realPortalMinimapWarmContext = null;
         _realPortalScene?.Dispose();
         _realPortalScene = null;
         _realPortalHandoffSnapshot?.Dispose();

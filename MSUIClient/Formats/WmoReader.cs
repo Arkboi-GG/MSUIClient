@@ -147,6 +147,10 @@ public class WmoReader
                     root.NGroups = BitConverter.ToUInt32(data, chunkData + 4);
                     root.NPortals = BitConverter.ToUInt32(data, chunkData + 8);
                     root.NLights = BitConverter.ToUInt32(data, chunkData + 12);
+                    // +0x20: WMOAreaTable.WMOID. This is an authored identity,
+                    // not the root file name; one model can have many placed
+                    // name sets and every group carries its own third join key.
+                    root.WmoId = BitConverter.ToUInt32(data, chunkData + 0x20);
                     // +0x1C ambColor, CArgb stored BGRA on disk. On vanilla's
                     // CLASSIC render path this value is already baked into the
                     // interior MOCV bytes, so the renderer must NOT add it back
@@ -429,6 +433,8 @@ public class WmoReader
                 group.TransBatchCount = BitConverter.ToUInt16(data, chunkData + 0x28);
                 group.IntBatchCount = BitConverter.ToUInt16(data, chunkData + 0x2A);
                 group.ExtBatchCount = BitConverter.ToUInt16(data, chunkData + 0x2C);
+                // MOGP +0x38 uniqueID: WMOAreaTable.WMOGroupID.
+                group.GroupWmoId = BitConverter.ToUInt32(data, chunkData + 0x38);
 
                 // Subchunks start at MOGP data + 68 (0x44)
                 int subPos = chunkData + 68;
@@ -761,6 +767,8 @@ public class WmoRootData
     public uint NGroups { get; set; }
     public uint NPortals { get; set; }
     public uint NLights { get; set; }
+    /// <summary>MOHD +0x20: WMOAreaTable.WMOID.</summary>
+    public uint WmoId { get; set; }
     /// <summary>
     /// MOHD +0x3C. 0x1 = do_not_attenuate_vertices_based_on_distance_to_portal,
     /// 0x2 = use_unified_render_path, 0x4 = use_liquid_type_dbc_id,
@@ -912,6 +920,8 @@ public class WmoGroupData
 {
     public string GroupName { get; set; } = "";
     public uint GroupFlags { get; set; }
+    /// <summary>MOGP +0x38 uniqueID: WMOAreaTable.WMOGroupID.</summary>
+    public uint GroupWmoId { get; set; }
     public float BbMinX { get; set; }
     public float BbMinY { get; set; }
     public float BbMinZ { get; set; }

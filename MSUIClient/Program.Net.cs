@@ -127,6 +127,7 @@ public sealed partial class GameLoop
                 _creatures = new CreatureRenderer(
                     gl, _mpq, _config, _creatureLifecycle, _assetWorkers, _uploads);
                 _creatures.AnimationResolved = CaptureAnimationChoice;
+                _creatures.TuningFor = MountTuningFor;
             }
         }
         catch (Exception ce) { Console.WriteLine($"[creature] init failed: {ce.Message}"); }
@@ -1720,7 +1721,12 @@ public sealed partial class GameLoop
         if (st == NetState.InWorld)
         {
             DrawCombatHud();
-            if (_config.DevTools && !_uiParityArmed && !PlayerPanelOpen) DrawInWorldPanel();
+            if (_config.DevTools && !_uiParityArmed && !PlayerPanelOpen)
+            {
+                DrawInWorldPanel();
+                DrawMountToolkit();
+                DrawMountKitBar();
+            }
             return;
         }
 
@@ -2692,6 +2698,10 @@ public sealed partial class GameLoop
                                   (_character is null
                                       ? ""
                                       : $"  self {_character.CombatActionsTriggered} ({_character.CurrentAnimation})"));
+            ImGui.TextUnformatted($"mounts drawn: {_creatures.MountsDrawnLastFrame}" +
+                                  (SelfMountDisplayId() is var mountDisplay && mountDisplay > 0
+                                      ? $"  (you: display {mountDisplay})" : ""));
+            if (ImGui.Checkbox("Mount toolkit", ref _mountToolkitOpen)) { }
             bool animC = _creatures.Animate;
             if (ImGui.Checkbox("Animate creatures", ref animC)) _creatures.Animate = animC;
             float adist = _creatures.AnimateDistance;

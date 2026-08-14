@@ -269,6 +269,7 @@ public sealed class WdtFile
             BbMaxY = BitConverter.ToSingle(data, pos + 48),
             BbMaxZ = BitConverter.ToSingle(data, pos + 52),
             DoodadSet = BitConverter.ToUInt16(data, pos + 58),
+            NameSetId = BitConverter.ToUInt16(data, pos + 60),
         };
     }
 

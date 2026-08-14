@@ -1457,7 +1457,7 @@ public sealed class DoodadRenderer : IDisposable
             return null;
         }
 
-        var model = BuildModel(m2);
+        var model = BuildModel(m2, modelPath);
         if (model is not null) model.SourcePath = modelPath;
         _models[cacheKey] = model;
 
@@ -1563,7 +1563,7 @@ public sealed class DoodadRenderer : IDisposable
         foreach (var (path, texture) in uploaded.Textures)
             if (!_textures.ContainsKey(path)) _textures[path] = texture;
 
-        var model = BuildModel(ready.Parsed, uploaded);
+        var model = BuildModel(ready.Parsed, job.Path, uploaded);
         if (model is not null) model.SourcePath = job.Path;
         _models[job.CacheKey] = model;
         if (model is not null) _newlyReadyModels.Enqueue(job.Path);
@@ -1600,11 +1600,22 @@ public sealed class DoodadRenderer : IDisposable
         return uploaded;
     }
 
-    private unsafe Model? BuildModel(M2Model m2, UploadedModel? uploaded = null)
+    private unsafe Model? BuildModel(M2Model m2, string sourcePath,
+        UploadedModel? uploaded = null)
     {
         var vertices = BuildVertexArray(m2, out var min, out var max);
 
         var indices = m2.Indices.ToArray();
+        if (DoodadBillboardFallbackLaw.SuppressUnsupportedMesh(sourcePath, m2))
+        {
+            // AshenvaleWisps' five green triangles are billboard cards, not
+            // ordinary static mesh. This renderer shares one VBO across every
+            // placement and therefore cannot give them the required
+            // camera/placement-specific pose. Keep the Model and its real flare
+            // emitter, but do not submit the unposed bind cards.
+            indices = [];
+            min = max = Vector3.Zero;
+        }
         bool hasGeometry = m2.Vertices.Count > 0 && indices.Length >= 3;
         if (!hasGeometry)
         {

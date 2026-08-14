@@ -193,6 +193,13 @@ public sealed partial class GameLoop
     private CreatorCreatureTable.Creature? _creatorSelectedCreature;
     private float _creatorSpawnScale = 1f;
     private int _creatorDummyDisplayId = 1141;   // manual display-id spawn
+
+    /// <summary>
+    /// The steed every new spawn is seated on — UNIT_FIELD_MOUNTDISPLAYID with no server to
+    /// set it. 10318 is the Mirage Raceway goblin rocket car, which is a mount like every
+    /// other 1.12 "vehicle". Riding one yourself is the mount toolkit's job, not this dial's.
+    /// </summary>
+    private int _creatorMountDisplayId = 10318;
     private ulong _creatorNextSpawnGuid = CreatorDummyGuid;
     private readonly List<(ulong Guid, string Name, uint DisplayId)> _creatorSpawns = new();
 
@@ -328,6 +335,19 @@ public sealed partial class GameLoop
         if (CreatorButton("Spawn id", 90f * cs) && _creatorDummyDisplayId > 0)
             SpawnCreatorCreature($"Display {_creatorDummyDisplayId}", (uint)_creatorDummyDisplayId, 0f);
         ImGui.TextDisabled("Spawns use the Scale dial from the browser above.");
+
+        ImGui.Spacing();
+        ImGui.SetNextItemWidth(120f * cs);
+        ImGui.InputInt("Mount display", ref _creatorMountDisplayId);
+        ImGui.TextDisabled("Non-zero seats every NEW spawn on that steed. " +
+                           "10318 goblin rocket car, 2490 gnome, 2404 riding horse.");
+        if (CreatorButton("Mount toolkit", 140f * cs))
+        {
+            _mountToolkitOpen = true;
+            if (_creatorMountDisplayId > 0) Settings.Mounts.RideDisplayId = _creatorMountDisplayId;
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled("ride anything, move the seat, dial the handling");
     }
 
     /// <summary>Place a creature in front of the player, on the ground, fanned out
@@ -346,11 +366,14 @@ public sealed partial class GameLoop
 
         float scale = (dbScale <= 0f ? 1f : dbScale) * _creatorSpawnScale;
         ulong guid = _creatorNextSpawnGuid++;
+        ObjectFields fields = ObjectFields.ForSyntheticUnit((int)displayId, scale);
+        if (_creatorMountDisplayId > 0)
+            fields.SetU32(ObjectFields.UNIT_MOUNTDISPLAYID, (uint)_creatorMountDisplayId);
         _entities.AddSynthetic(new WorldEntity
         {
             Guid = guid,
             Type = ObjectTypeId.Unit,
-            Fields = ObjectFields.ForSyntheticUnit((int)displayId, scale),
+            Fields = fields,
             Position = spot,
             Orientation = angle + MathF.PI,   // face the player
         });

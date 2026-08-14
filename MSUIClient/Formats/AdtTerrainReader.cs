@@ -1329,6 +1329,7 @@ public static class AdtTerrainReader
             float bbMaxZ = BitConverter.ToSingle(data, pos + 52);
             // ushort flags = BitConverter.ToUInt16(data, pos + 56);
             ushort doodadSet = BitConverter.ToUInt16(data, pos + 58);
+            ushort nameSet = BitConverter.ToUInt16(data, pos + 60);
 
             uint mwmoOffset;
             if (mwidOffsets != null && nameId < mwidOffsets.Length)
@@ -1355,7 +1356,8 @@ public static class AdtTerrainReader
                 BbMaxX = bbMaxX,
                 BbMaxY = bbMaxY,
                 BbMaxZ = bbMaxZ,
-                DoodadSet = doodadSet
+                DoodadSet = doodadSet,
+                NameSetId = nameSet
             });
         }
 
@@ -2135,6 +2137,12 @@ public static class AdtTerrainReader
         /// Some WMOs ship multiple sets (e.g. day/night, intact/destroyed).
         /// </summary>
         public ushort DoodadSet { get; set; }
+
+        /// <summary>
+        /// MODF +0x3C: WMOAreaTable.NameSetID. The same root model may be
+        /// reused for differently named/audio-classified placements.
+        /// </summary>
+        public ushort NameSetId { get; set; }
     }
 
     /// <summary>Composite splat map result with texture assignments.</summary>

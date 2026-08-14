@@ -6,6 +6,9 @@ namespace MSUIClient.Engine.UI;
 /// <summary>Lazy MPQ-backed cache for authored FrameXML art and DBC-resolved icons.</summary>
 public sealed class GameplayArt : IDisposable
 {
+    public readonly record struct PreparedTexture(
+        string Path, byte[] Pixels, int Width, int Height);
+
     private readonly GL _gl;
     private readonly MpqMount _mpq;
     private readonly Dictionary<string, Texture?> _textures = new(StringComparer.OrdinalIgnoreCase);
@@ -34,6 +37,55 @@ public sealed class GameplayArt : IDisposable
     }
 
     public uint Handle(string path) => Get(path)?.Handle ?? 0;
+
+    /// <summary>Return only an already-resolved UI texture; never reads MPQ data.</summary>
+    public bool TryHandle(string path, out uint handle)
+    {
+        handle = 0;
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        if (!_textures.TryGetValue(path, out Texture? texture)) return false;
+        handle = texture?.Handle ?? 0;
+        return true;
+    }
+
+    /// <summary>CPU-only MPQ read/BLP decode; safe on the bounded asset pool.</summary>
+    public PreparedTexture? Prepare(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        byte[]? bytes = _mpq.ReadFile(path);
+        if (bytes is null) return null;
+        byte[] pixels = BlpDecoder.GetPixels(bytes, 0, out int width, out int height);
+        return new PreparedTexture(path, pixels, width, height);
+    }
+
+    /// <summary>Publish one CPU-prepared texture on the owning GL thread.</summary>
+    public uint Adopt(PreparedTexture prepared)
+    {
+        if (_textures.TryGetValue(prepared.Path, out Texture? cached))
+            return cached?.Handle ?? 0;
+        Texture texture = Texture.From2D(
+            _gl, prepared.Pixels, prepared.Width, prepared.Height,
+            mipmaps: false, repeat: false);
+        _textures[prepared.Path] = texture;
+        return texture.Handle;
+    }
+
+    /// <summary>True after a path has either loaded or been cached as absent.</summary>
+    public bool IsResolved(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        return _textures.ContainsKey(path);
+    }
+
+    public void MarkMissing(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (!path.EndsWith(".blp", StringComparison.OrdinalIgnoreCase)) path += ".blp";
+        _textures.TryAdd(path, null);
+    }
 
     /// <summary>
     /// Painterly-styled copy of a piece of art, for painterly mode.

@@ -47,6 +47,11 @@ public sealed partial class GameLoop
             _enchantCatalog = EnchantCatalog.Load(_mpq);
             _spellVisualCatalog = SpellVisualCatalog.Load(_mpq);
             _gameplayArt = new GameplayArt(gl, _mpq);
+            // These immutable catalogs are needed by the first WMO-interior
+            // minimap frame. Pay their MPQ read/parse cost here behind startup
+            // UI rather than on the seamless frame after a portal promotion.
+            EnsureWmoAreaTableForMinimap();
+            EnsureMinimapTileMap();
             Console.WriteLine(_spellCatalog is null
                 ? "[actions] Spell/SpellIcon DBC unavailable"
                 : $"[actions] spell catalog ready ({_spellCatalog.Count} rows)");
@@ -62,8 +67,14 @@ public sealed partial class GameLoop
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
             bool down = BindingDown(ActionBinding(i));
-            if (down && !_actionKeyWasDown[i] && !typing && _net is { IsInWorld: true })
-                UseAction(ActionWireSlot(i));
+            if (down && !_actionKeyWasDown[i] && !typing)
+            {
+                // Riding a cart that HAS this slot: the key belongs to the cart. Anything the
+                // cart does not carry falls straight through to the ordinary bar, so an
+                // unconfigured mount changes nothing about how the client plays.
+                if (!TryMountKitNumberKey(i + 1) && _net is { IsInWorld: true })
+                    UseAction(ActionWireSlot(i));
+            }
             _actionKeyWasDown[i] = down;
         }
         for (int barIndex = 0; barIndex < 2; barIndex++)
@@ -1855,6 +1866,7 @@ public sealed partial class GameLoop
 
     private void DisposeGameplayUi()
     {
+        DrainMinimapTexturePreparation();
         _gameplayArt?.Dispose();
         _gameplayArt = null;
     }

@@ -114,6 +114,17 @@ public sealed class CharacterController
     public float Yaw;
 
     /// <summary>
+    /// Scales every ground speed the options carry — run, walk and backpedal alike, so their
+    /// relationship is preserved. 1 is the configured speed and is the only value the server
+    /// agrees with: this is client PREDICTION, so anything else will be argued with by
+    /// position corrections on a live realm. Set by the mount toolkit while riding.
+    /// </summary>
+    public float SpeedMultiplier { get; set; } = 1f;
+
+    /// <summary>Scales launch velocity, same prediction caveat as <see cref="SpeedMultiplier"/>.</summary>
+    public float JumpMultiplier { get; set; } = 1f;
+
+    /// <summary>
     /// How close to the ground counts as standing on it. Small, because it only
     /// has to absorb one frame of gravity plus float error.
     ///
@@ -136,6 +147,20 @@ public sealed class CharacterController
     /// below a mountain is not immediately lifted onto the mountain surface.
     /// </summary>
     private bool _landingAfterDiscontinuousMove;
+
+    /// <summary>
+    /// True while the character is known to be beneath the outdoor ADT height
+    /// field and standing/falling in WMO collision instead.
+    ///
+    /// This is continuity, not a permanent indoor flag.  A WMO floor can vanish
+    /// under one footprint probe while jumping across a narrow prop, stair lip,
+    /// bridge edge, or collision seam.  Without remembering the already-proven
+    /// relationship for that short gap, the overhead terrain shell becomes the
+    /// only height candidate and the ordinary landing test teleports the player
+    /// upward onto the mountain.  The state clears naturally as soon as the
+    /// character reaches the outdoor side of the terrain surface.
+    /// </summary>
+    private bool _underTerrainShell;
 
     public bool Flying
     {
@@ -281,6 +306,7 @@ public sealed class CharacterController
         FallTimeMs = 0;
         _warnedNoGround = false;
         _landingAfterDiscontinuousMove = true;
+        _underTerrainShell = false;
     }
 
     /// <summary>How far the last depenetration pass had to push, in yards.</summary>
@@ -366,9 +392,10 @@ public sealed class CharacterController
         // Vanilla has a distinct MOVE_RUN_BACK speed. The old controller used
         // 7 yd/s in every direction, making backpedalling as fast as running
         // forward even though the server and original client use 4.5 yd/s.
-        float speed = input.Walking
+        float speed = (input.Walking
             ? _opts.WalkSpeed
-            : input.Forward < -0.01f ? _opts.BackwardSpeed : _opts.RunSpeed;
+            : input.Forward < -0.01f ? _opts.BackwardSpeed : _opts.RunSpeed)
+            * MathF.Max(0.05f, SpeedMultiplier);
 
         var wish = forward * input.Forward + right * input.Strafe;
         var move = Vector3.Zero;
@@ -384,7 +411,7 @@ public sealed class CharacterController
 
         if (jumped)
         {
-            Velocity.Z = _opts.JumpVelocity;
+            Velocity.Z = _opts.JumpVelocity * MathF.Max(0.05f, JumpMultiplier);
             Grounded = false;
         }
 
@@ -583,25 +610,40 @@ public sealed class CharacterController
     /// </summary>
     private void ResolveGround(bool allowGroundAdhesion, float downwardTravel)
     {
-        float? groundZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
+        float? sampledTerrainZ = _terrain.SampleHeight(Position.X, Position.Y, out bool inHole);
+
+        bool terrainIsOverhead = sampledTerrainZ is float sampledSurface &&
+                                 sampledSurface - Position.Z > UndergroundSlack;
+
+        // A teleport/fly exit below ADT proves that the ADT is a shell, not a
+        // floor.  Once WMO precedence proves the same thing during continuous
+        // movement, retain that fact across short gaps in collision support.
+        // Reaching the terrain surface (or moving above it) is the unambiguous
+        // exit and clears the state without a map/area heuristic.
+        if (_landingAfterDiscontinuousMove && terrainIsOverhead)
+            _underTerrainShell = true;
+        else if (_underTerrainShell && sampledTerrainZ is not null && !terrainIsOverhead)
+            _underTerrainShell = false;
+
+        bool ignoreTerrainShell = _underTerrainShell && terrainIsOverhead;
+        float? groundZ = ignoreTerrainShell ? null : sampledTerrainZ;
 
         // A server teleport and the F-key fly rig both supply an intentional Z.
         // If that Z is well below the outdoor height field, the terrain sample
-        // is overhead (a mountain/tunnel roof), not a floor. This exception is
-        // deliberately limited to discontinuous placement: ordinary walking
-        // keeps the existing terrain authority and its uphill penetration slack.
+        // is overhead (a mountain/tunnel roof), not a floor. A discontinuous
+        // placement establishes that relationship immediately; continuous
+        // tunnel entry establishes it below when WMO collision wins the
+        // closer-surface test.
         bool terrainOverheadDuringLanding = _landingAfterDiscontinuousMove &&
-            groundZ is float overheadDuringLanding &&
-            overheadDuringLanding - Position.Z > UndergroundSlack;
+                                             ignoreTerrainShell;
         bool deepCollisionLandingProbe = _landingAfterDiscontinuousMove &&
             (terrainOverheadDuringLanding || groundZ is null);
 
         InTerrainHole = inHole;
-        TerrainGroundZ = groundZ;
+        TerrainGroundZ = sampledTerrainZ;
         CollisionGroundZ = null;
-        if (terrainOverheadDuringLanding)
+        if (ignoreTerrainShell)
         {
-            groundZ = null;
             GroundSource = "terrain-overhead";
         }
         else GroundSource = groundZ is null ? (inHole ? "hole" : "none") : "terrain";
@@ -664,8 +706,13 @@ public sealed class CharacterController
             ProbeCollision(SupportProbeDirections[0]);
 
             float nearbyDistance = MathF.Max(0.05f, _opts.GroundSnapDistance);
+            // "Nearby" is a distance band, not a one-sided ceiling.  With the
+            // old <= test, terrain ninety yards ABOVE the feet counted as near
+            // (a large negative delta), suppressed the footprint probes, and
+            // left a narrow WMO prop supported by only the centre ray.  The
+            // next frame could then hand grounding to that overhead terrain.
             bool terrainNearby = groundZ is float terrainZ &&
-                                 Position.Z - terrainZ <= nearbyDistance;
+                                 MathF.Abs(Position.Z - terrainZ) <= nearbyDistance;
             bool collisionNearby = bestTriangle >= 0 &&
                                    Position.Z - bestSurfaceZ <= nearbyDistance;
 
@@ -700,13 +747,22 @@ public sealed class CharacterController
                     GroundTriangle = bestTriangle;
                     GroundProbeOffset = bestOffset;
                 }
+
+                // Continuous tunnel entry establishes the same fact as an
+                // interior teleport: this collision floor is below an outdoor
+                // terrain shell.  Remember it before a jump or seam can make a
+                // later footprint probe miss collision for a frame.
+                if (GroundSource == "collision" &&
+                    sampledTerrainZ is float terrainShell &&
+                    terrainShell - Position.Z > UndergroundSlack)
+                    _underTerrainShell = true;
             }
         }
 
         GroundZ = groundZ;
 
         if (groundZ is null &&
-            (inHole || terrainOverheadDuringLanding || TerrainAbsentByDesign))
+            (inHole || ignoreTerrainShell || TerrainAbsentByDesign))
         {
             // None of these cases is missing data: a hole is authored geometry,
             // a global-WMO map has no terrain by design, and the discarded

@@ -1457,6 +1457,12 @@ public sealed partial class GameLoop : IDisposable
         // Scripted creator-mode texture-swap reproduction (MSUI_CREATOR_PROBE).
         UpdateCreatorProbe();
 
+        // Scripted offline mount check (MSUI_MOUNT_PROBE).
+        UpdateMountProbe();
+
+        // Cart-kit charges, cooldowns and the slows they applied.
+        UpdateMountKit(NowSeconds());
+
         long updateStarted = Stopwatch.GetTimestamp();
         _loadNetPumpMilliseconds = 0;
         _loadStepMilliseconds = 0;
@@ -1757,7 +1763,7 @@ public sealed partial class GameLoop : IDisposable
         // Mouse steering is deliberately NOT rate-limited: it is a direct
         // pointing device and the client does not throttle it either.
         bool translating = MathF.Abs(forward) > 0.01f || MathF.Abs(strafe) > 0.01f;
-        float turnRate = _turnSpeed * (translating ? TurnRateMoving : 1f);
+        float turnRate = _turnSpeed * (translating ? TurnRateMoving : 1f) * MountTurnMultiplier();
 
         if (turn != 0f) _window.Camera.Rotate(turn * turnRate * dt, 0f);
 
@@ -1785,6 +1791,8 @@ public sealed partial class GameLoop : IDisposable
         };
 
         UpdateCastMovementInput(translating || input.Jump);
+
+        ApplyMountHandling();
 
         bool movementWasGrounded = _controller.Grounded;
         float movementPreviousFallMs = _controller.FallTimeMs;
@@ -2302,6 +2310,10 @@ public sealed partial class GameLoop : IDisposable
 
         long characterStarted = Stopwatch.GetTimestamp();
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Character);
+        // Before the body, because the steed's saddle IS the body's transform. Deliberately
+        // not behind the first-person body hide below: ride into the camera and the mount
+        // stays on screen, it is the body underneath you that goes.
+        DrawSelfMount(WarmStage(3));
         // Not in the free view: there the rig is a camera, not a body, and the driven unit
         // draws from the entity stream where it actually stands (RenderSelfGuid goes 0).
         // Suppressed HERE rather than by clearing _character.Enabled, because Enabled also
@@ -2523,6 +2535,39 @@ public sealed partial class GameLoop : IDisposable
         }
     }
 
+    /// <summary>
+    /// The steed under the local player. Drawn from the character pass, not the streamed unit
+    /// loop, because the body it carries stands on the client-predicted position rather than
+    /// the entity stream's. Called every frame: a display id of 0 is how the renderer learns
+    /// the player dismounted. See CreatureRenderer.Mounts.cs.
+    /// </summary>
+    private void DrawSelfMount(bool warm)
+    {
+        if (_character is null) return;
+        _character.MountSeat = null;
+
+        CreatureRenderer? creatures = _creatures;
+        CharacterController? controller = _controller;
+        if (creatures is null || controller is null || _freeView || !warm) return;
+
+        ulong guid = RenderSelfGuid;
+        int display = SelfMountDisplayId();
+
+        float walkSpeed = 0f;
+        if (guid != 0 && _entities.TryGet(guid, out WorldEntity self) &&
+            self.Speeds is { Length: > 0 } speeds)
+            walkSpeed = speeds[0];
+
+        // The offline sandbox has no session guid until a character is in world, while the
+        // body on screen is real and rideable — so its own local id keys the animation clock.
+        if (guid == 0 && display > 0) guid = CreatorLocalGuid;
+        if (guid == 0) return;
+
+        if (creatures.TryDrawSelfMount(_window.Camera, guid, display, controller.Position,
+                controller.Yaw, controller.PlanarSpeed, walkSpeed, out Matrix4x4 seat))
+            _character.MountSeat = seat;
+    }
+
     private void DrawUnitShadows()
     {
         if (_unitShadows is null) return;
@@ -2537,6 +2582,10 @@ public sealed partial class GameLoop : IDisposable
                 float scale = CreatureRenderer.UnitRenderScale(self.Scale);
                 radius = MathF.Max(0.35f, (self.IsCreature ? 0.7f : radius) * scale);
             }
+            // Riding: the shadow belongs to what is actually touching the ground.
+            if (_creatures is not null &&
+                _creatures.TryGetMountGroundRadius(RenderSelfGuid, out float mountRadius))
+                radius = mountRadius;
             local = new UnitShadowCaster(controller.Position, radius);
         }
 

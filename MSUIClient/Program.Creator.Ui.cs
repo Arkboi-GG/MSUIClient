@@ -170,6 +170,8 @@ public sealed partial class GameLoop
             case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
         }
         DrawPoppedCreatorSections();
+        DrawMountToolkit();
+        DrawMountKitBar();
         if (_creatorSearchOpen) DrawCreatorItemSearch();
         DrawCreatorTextureSwapPicker();
         DrawCreatorAudioFilePicker();

@@ -221,6 +221,34 @@ public sealed class PortalDestinationScene : IDisposable
     public bool IsActive => Descriptor is not null && !Retiring;
 
     /// <summary>
+    /// Player-cell WMO context at the authoritative arrival pose. Consumers use
+    /// this to prepare destination-only UI assets while the portal is still in
+    /// its pre-animation, before this renderer bundle becomes the active world.
+    /// </summary>
+    public WmoRenderer.InteriorMinimapContext? ResolveArrivalInteriorMinimap(float radius)
+    {
+        if (!VisualGeometryReady || Descriptor is not { } descriptor) return null;
+        return ResolvePreparedInteriorMinimap(descriptor.PreviewPosition, radius);
+    }
+
+    /// <summary>
+    /// Resolve minimap membership at a concrete feet position in this prepared
+    /// world. Promotion uses the server's eventual authoritative position here,
+    /// so the descriptor's small handoff tolerance cannot cross an unprepared
+    /// room or exterior boundary.
+    /// </summary>
+    public WmoRenderer.InteriorMinimapContext? ResolvePreparedInteriorMinimap(
+        in Vector3 feet, float radius)
+    {
+        EnsureOwnerThread();
+        ThrowIfDisposed();
+        if (!VisualGeometryReady) return null;
+        Vector3 probe = feet + new Vector3(0f, 0f, 1.7f);
+        return _wmo.ResolveInteriorMinimapContext(
+            probe, radius, _terrain.SampleHeight(probe.X, probe.Y));
+    }
+
+    /// <summary>
     /// Keep the preview target at the source viewport's aspect without paying
     /// full-window pixel cost. Allocation is deferred until the next render.
     /// </summary>
