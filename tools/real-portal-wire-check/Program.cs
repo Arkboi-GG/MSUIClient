@@ -52,6 +52,70 @@ static bool ReadControlAckCapabilities(byte[] body, out uint capabilities)
     return SuiCapabilityWire.TryRead(r, out capabilities);
 }
 
+static PortalPrewarmHint[] ValidPrewarmCatalog()
+{
+    var catalog = new PortalPrewarmHint[PortalPrewarmLaw.CatalogCount];
+    int index = 0;
+    foreach (PortalPrewarmMapping mapping in PortalPrewarmLaw.Mappings)
+    {
+        catalog[index] = new PortalPrewarmHint(
+            mapping.SummonSpellId,
+            mapping.PortalEntry,
+            mapping.TeleportSpellId,
+            PreviewMapId: (uint)(index % 2),
+            PreviewPosition: new Vector3(index + 0.25f, -index - 0.5f, index + 10.75f),
+            PreviewOrientation: index * 0.25f);
+        index++;
+    }
+
+    return catalog;
+}
+
+static byte[] ControlAckWithPrewarmCatalog(
+    PortalPrewarmHint[] catalog,
+    byte version = SuiCapabilityWire.PrewarmCatalogVersion,
+    byte? advertisedRowCount = null,
+    ushort rowLength = SuiCapabilityWire.PrewarmCatalogRowLength)
+{
+    var w = new PacketWriter(
+        25 + SuiCapabilityWire.TrailerLength +
+        SuiCapabilityWire.PrewarmCatalogHeaderLength +
+        catalog.Length * SuiCapabilityWire.PrewarmCatalogRowLength);
+    w.WriteU64(0);
+    w.WriteU8(1);
+    for (int i = 0; i < 4; i++) w.WriteF32(0f);
+    w.WriteU32(SuiCapabilityWire.Magic);
+    w.WriteU32(
+        SuiCapabilityWire.RealPortalsV1 |
+        SuiCapabilityWire.PortalPrewarmCatalogV1);
+    w.WriteU8(version);
+    w.WriteU8(advertisedRowCount ?? checked((byte)catalog.Length));
+    w.WriteU16(rowLength);
+    foreach (PortalPrewarmHint hint in catalog)
+    {
+        w.WriteU32(hint.SummonSpellId);
+        w.WriteU32(hint.PortalEntry);
+        w.WriteU32(hint.TeleportSpellId);
+        w.WriteU32(hint.PreviewMapId);
+        w.WriteVector3(hint.PreviewPosition);
+        w.WriteF32(hint.PreviewOrientation);
+    }
+
+    return w.ToArray();
+}
+
+static bool ReadControlAckPrewarmCatalog(
+    byte[] body,
+    out uint capabilities,
+    out PortalPrewarmHint[] catalog)
+{
+    var r = new PacketReader(body);
+    r.ReadU64();
+    r.ReadU8();
+    for (int i = 0; i < 4; i++) r.ReadF32();
+    return SuiCapabilityWire.TryRead(r, out capabilities, out catalog);
+}
+
 Check(!ReadControlAckCapabilities(ControlAckWithTrailer(trailerBytes: 0), out _),
     "legacy 25-byte control ACK invented a capability trailer");
 Check(ReadControlAckCapabilities(ControlAckWithTrailer(), out uint capabilityMask) &&
@@ -61,6 +125,79 @@ Check(!ReadControlAckCapabilities(ControlAckWithTrailer(magic: 0xDEADBEEF), out 
     "bad capability magic was accepted");
 Check(!ReadControlAckCapabilities(ControlAckWithTrailer(trailerBytes: 4), out _),
     "partial capability trailer was accepted");
+
+ReadOnlySpan<PortalPrewarmMapping> stockMappings = PortalPrewarmLaw.Mappings;
+Check(stockMappings.Length == 6 &&
+      stockMappings[0] == new PortalPrewarmMapping(10059, 176296, 17334) &&
+      stockMappings[1] == new PortalPrewarmMapping(11416, 176497, 17607) &&
+      stockMappings[2] == new PortalPrewarmMapping(11417, 176499, 17609) &&
+      stockMappings[3] == new PortalPrewarmMapping(11418, 176501, 17611) &&
+      stockMappings[4] == new PortalPrewarmMapping(11419, 176498, 17608) &&
+      stockMappings[5] == new PortalPrewarmMapping(11420, 176500, 17610),
+    "stock Mage portal prewarm mapping drifted");
+
+var summonedPortalFields = new ObjectFields().AsCreated();
+summonedPortalFields.SetGuid(ObjectFields.GAMEOBJECT_CREATED_BY, 0xF130000000123456UL);
+Check(ObjectFields.GAMEOBJECT_CREATED_BY == 6 &&
+      summonedPortalFields.GameObjectCreatedBy == 0xF130000000123456UL,
+    "summoned portal creator GUID field drifted");
+
+PortalPrewarmHint[] validPrewarmCatalog = ValidPrewarmCatalog();
+Check(PortalPrewarmLaw.IsCompleteCatalog(validPrewarmCatalog),
+    "valid six-row portal prewarm catalog was rejected by the mapping law");
+Check(PortalPrewarmLaw.TryFind(
+        validPrewarmCatalog, 11419, out PortalPrewarmHint darnassusHint) &&
+      darnassusHint.PortalEntry == 176498 &&
+      darnassusHint.TeleportSpellId == 17608,
+    "summon spell did not resolve its validated prewarm catalog row");
+byte[] catalogAck = ControlAckWithPrewarmCatalog(validPrewarmCatalog);
+Check(ReadControlAckPrewarmCatalog(
+        catalogAck, out uint catalogCapabilities, out PortalPrewarmHint[] parsedCatalog) &&
+      (catalogCapabilities & SuiCapabilityWire.PortalPrewarmCatalogV1) != 0 &&
+      parsedCatalog.SequenceEqual(validPrewarmCatalog),
+    "capability-gated portal prewarm catalog did not round-trip");
+
+var oldReader = new PacketReader(catalogAck);
+oldReader.Skip(25);
+Check(SuiCapabilityWire.TryRead(oldReader, out uint oldReaderCapabilities) &&
+      (oldReaderCapabilities & SuiCapabilityWire.PortalPrewarmCatalogV1) != 0 &&
+      oldReader.Remaining == SuiCapabilityWire.PrewarmCatalogHeaderLength +
+          PortalPrewarmLaw.CatalogCount * SuiCapabilityWire.PrewarmCatalogRowLength,
+    "historical capability reader consumed the appended prewarm catalog");
+Check(ReadControlAckPrewarmCatalog(
+        ControlAckWithTrailer(), out _, out PortalPrewarmHint[] absentCatalog) &&
+      absentCatalog.Length == 0,
+    "missing prewarm capability bit invented a catalog");
+Check(!ReadControlAckPrewarmCatalog(catalogAck[..^1], out _, out _),
+    "truncated portal prewarm catalog was accepted");
+Check(!ReadControlAckPrewarmCatalog(
+        ControlAckWithPrewarmCatalog(
+            validPrewarmCatalog,
+            version: (byte)(SuiCapabilityWire.PrewarmCatalogVersion + 1)),
+        out _, out _),
+    "unknown portal prewarm catalog version was accepted");
+Check(!ReadControlAckPrewarmCatalog(
+        ControlAckWithPrewarmCatalog(validPrewarmCatalog, rowLength: 28),
+        out _, out _),
+    "wrong portal prewarm row size was accepted");
+
+PortalPrewarmHint[] duplicateCatalog = (PortalPrewarmHint[])validPrewarmCatalog.Clone();
+duplicateCatalog[^1] = duplicateCatalog[0];
+Check(!PortalPrewarmLaw.TryFind(duplicateCatalog, 10059, out _),
+    "a row was selected from an incomplete portal prewarm catalog");
+Check(!ReadControlAckPrewarmCatalog(
+        ControlAckWithPrewarmCatalog(duplicateCatalog), out _, out _),
+    "duplicate/partial portal prewarm catalog was accepted");
+PortalPrewarmHint[] wrongMappingCatalog = (PortalPrewarmHint[])validPrewarmCatalog.Clone();
+wrongMappingCatalog[0] = wrongMappingCatalog[0] with { PortalEntry = 176497 };
+Check(!ReadControlAckPrewarmCatalog(
+        ControlAckWithPrewarmCatalog(wrongMappingCatalog), out _, out _),
+    "cross-wired summon/object portal mapping was accepted");
+PortalPrewarmHint[] nonFiniteCatalog = (PortalPrewarmHint[])validPrewarmCatalog.Clone();
+nonFiniteCatalog[0] = nonFiniteCatalog[0] with { PreviewOrientation = float.NaN };
+Check(!ReadControlAckPrewarmCatalog(
+        ControlAckWithPrewarmCatalog(nonFiniteCatalog), out _, out _),
+    "non-finite portal prewarm destination was accepted");
 
 var prepare = PortalWire.Prepare(0x10203040, 0xF130000012345678);
 byte[] prepareBody = PortalWire.BuildPrepare(prepare);
@@ -194,6 +331,32 @@ var sceneDescriptor = new PortalDescriptor
     PreviewOrientation = descriptor.PreviewOrientation,
 };
 Check(sceneDescriptor.IsValid, "scene descriptor rejected a valid wire descriptor");
+Check(PortalPrewarmLaw.TryFromAuthoritative(
+        sceneDescriptor, out PortalPrewarmHint authoritativeHint) &&
+      PortalPrewarmLaw.MatchesAuthoritativeDestination(
+        authoritativeHint, sceneDescriptor),
+    "authoritative stock portal did not resolve/bind to its exact prewarm hint");
+PortalDescriptor renewedAuthority = sceneDescriptor with
+{
+    RequestId = sceneDescriptor.RequestId + 1,
+    PortalGuid = sceneDescriptor.PortalGuid + 1,
+    SpawnGeneration = sceneDescriptor.SpawnGeneration + 1,
+    DescriptorRevision = sceneDescriptor.DescriptorRevision + 1,
+    Ticket = sceneDescriptor.Ticket + 1,
+};
+Check(PortalPrewarmLaw.MatchesAuthoritativeDestination(
+        authoritativeHint, renewedAuthority),
+    "new authoritative correlation identity prevented exact destination reuse");
+Check(!PortalPrewarmLaw.MatchesAuthoritativeDestination(
+        authoritativeHint,
+        sceneDescriptor with
+        {
+            PreviewPosition = sceneDescriptor.PreviewPosition + new Vector3(0.01f, 0f, 0f),
+        }),
+    "non-exact authoritative destination reused provisionally warmed assets");
+Check(!PortalPrewarmLaw.MatchesAuthoritativeDestination(
+        authoritativeHint with { SummonSpellId = 11416 }, sceneDescriptor),
+    "invalid summon/object/use prewarm identity bound to an authoritative portal");
 Check(MathF.Abs(sceneDescriptor.DestinationFrame.Center.Z -
                 (descriptor.PreviewPosition.Z + descriptor.HalfHeight + 0.1f)) < 0.0001f,
     "stock feet destination was not lifted to doorway centre");
@@ -395,5 +558,33 @@ Check(!PortalVisualRelevanceLaw.MissingEntityGraceExpired(10.49, 10.0),
     "a transient entity-store gap immediately removed a nearby portal");
 Check(PortalVisualRelevanceLaw.MissingEntityGraceExpired(10.50, 10.0),
     "a missing portal survived beyond its entity-store grace period");
+
+Check(PortalWarmRelevanceLaw.EnterRadius == 150f &&
+      PortalWarmRelevanceLaw.ExitRadius == 180f,
+    "portal warm relevance radii drifted");
+Check(PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(150f, 0f, 0f), currentlyTracked: false),
+    "portal at the inclusive warm-entry boundary was rejected");
+Check(!PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(150.1f, 0f, 0f), currentlyTracked: false),
+    "untracked portal beyond the warm-entry boundary was admitted");
+Check(!PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(170f, 0f, 0f), currentlyTracked: false),
+    "untracked portal was admitted through the warm hysteresis band");
+Check(PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(170f, 0f, 0f), currentlyTracked: true),
+    "tracked portal was dropped inside the warm hysteresis band");
+Check(PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(180f, 0f, 0f), currentlyTracked: true),
+    "portal at the inclusive warm-exit boundary was dropped");
+Check(!PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(180.1f, 0f, 0f), currentlyTracked: true),
+    "tracked portal survived beyond the warm-exit boundary");
+Check(!PortalWarmRelevanceLaw.IsRelevant(
+        new Vector3(float.PositiveInfinity, 0f, 0f), portalObserver,
+        currentlyTracked: true) &&
+      !PortalWarmRelevanceLaw.IsRelevant(
+        portalObserver, new Vector3(float.NaN, 0f, 0f), currentlyTracked: true),
+    "non-finite warm relevance coordinates were accepted");
 
 Console.WriteLine("real-portal-wire-check: PASS");

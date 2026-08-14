@@ -25,6 +25,7 @@ public sealed partial class GameLoop
     private void ApplySpellStart(SpellStartPacket packet)
     {
         MarkAnimationSequenceStage(packet.SpellId, "PRECAST");
+        BeginRealPortalCastPrewarm(packet);
         if (_net is not null && packet.Caster == ControlledGuid)
             EmitSpellServerResult(packet.SpellId, "SMSG_SPELL_START");
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
@@ -53,6 +54,7 @@ public sealed partial class GameLoop
     private void ApplySpellGo(SpellGoPacket packet)
     {
         MarkAnimationSequenceStage(packet.SpellId, "CAST");
+        ObserveRealPortalCastGo(packet);
         double now = NowSeconds();
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
         uint visual = EffectiveSpellVisual(info, packet.Caster);
@@ -203,6 +205,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellFailure(ulong caster, uint spellId, string text)
     {
+        FailRealPortalCastPrewarm(caster, spellId);
         if (_net is not null && caster == ControlledGuid)
         {
             if (_pendingCastSpell == spellId) _pendingCastSpell = 0;

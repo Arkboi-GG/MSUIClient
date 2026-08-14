@@ -205,8 +205,9 @@ public sealed class PortalDestinationScene : IDisposable
         }
     }
 
+    public PortalPrewarmHint? PrewarmHint { get; private set; }
     public PortalDescriptor? Descriptor { get; private set; }
-    public bool VisualGeometryReady => Descriptor is not null && _geometryReady && !Retiring;
+    public bool VisualGeometryReady => PrewarmHint is not null && _geometryReady && !Retiring;
     public bool HasCompleteFrame => Descriptor is not null && _target.HasCompleteFrame && !Retiring;
     public bool VisualReady => VisualGeometryReady && HasCompleteFrame;
     public bool ArrivalSupport => VisualGeometryReady && _arrivalSupport;
@@ -218,17 +219,17 @@ public sealed class PortalDestinationScene : IDisposable
     public string? Failure { get; private set; }
     public bool Retiring => _phase == Phase.Retiring;
     public bool RetirementComplete => _phase == Phase.Idle;
-    public bool IsActive => Descriptor is not null && !Retiring;
+    public bool IsActive => PrewarmHint is not null && !Retiring;
 
     /// <summary>
-    /// Player-cell WMO context at the authoritative arrival pose. Consumers use
-    /// this to prepare destination-only UI assets while the portal is still in
-    /// its pre-animation, before this renderer bundle becomes the active world.
+    /// Player-cell WMO context at the server-authored candidate arrival pose.
+    /// Consumers use this to prepare destination-only UI assets before this
+    /// renderer bundle becomes the active world.
     /// </summary>
     public WmoRenderer.InteriorMinimapContext? ResolveArrivalInteriorMinimap(float radius)
     {
-        if (!VisualGeometryReady || Descriptor is not { } descriptor) return null;
-        return ResolvePreparedInteriorMinimap(descriptor.PreviewPosition, radius);
+        if (!VisualGeometryReady || PrewarmHint is not { } hint) return null;
+        return ResolvePreparedInteriorMinimap(hint.PreviewPosition, radius);
     }
 
     /// <summary>
@@ -269,9 +270,30 @@ public sealed class PortalDestinationScene : IDisposable
     {
         EnsureOwnerThread();
         ThrowIfDisposed();
-        if (!descriptor.IsValid || Descriptor is not { } current ||
+        if (!PortalPrewarmLaw.TryFromAuthoritative(descriptor, out PortalPrewarmHint hint) ||
+            Descriptor is not { } current ||
             _phase is Phase.Idle or Phase.Retiring or Phase.Disposed ||
             !SameDestination(current, descriptor))
+            return false;
+
+        PrewarmHint = hint;
+        Descriptor = descriptor;
+        return true;
+    }
+
+    /// <summary>
+    /// Adopt a later authoritative descriptor without restarting an already
+    /// warming destination. Source aperture and correlation data may be new,
+    /// but every server-authored destination hint field must match exactly.
+    /// A mismatch leaves the provisional scene non-authoritative.
+    /// </summary>
+    public bool TryBindAuthoritative(PortalDescriptor descriptor)
+    {
+        EnsureOwnerThread();
+        ThrowIfDisposed();
+        if (Descriptor is not null || PrewarmHint is not { } hint ||
+            _phase is Phase.Idle or Phase.Retiring or Phase.Failed or Phase.Disposed ||
+            !PortalPrewarmLaw.MatchesAuthoritativeDestination(hint, descriptor))
             return false;
 
         Descriptor = descriptor;
@@ -341,23 +363,54 @@ public sealed class PortalDestinationScene : IDisposable
     }
 
     /// <summary>
-    /// Start one candidate. The slot must be idle; Retire/Step drains all old
-    /// async producers before a new map can reuse the same tile/model keys.
+    /// Start one authoritative candidate. The slot must be idle; Retire/Step
+    /// drains all old async producers before a new map can reuse the same
+    /// tile/model keys.
     /// </summary>
     public void Begin(PortalDescriptor descriptor, string mapName, WdtFile? wdt = null)
     {
         EnsureOwnerThread();
         ThrowIfDisposed();
+        if (!PortalPrewarmLaw.TryFromAuthoritative(descriptor, out PortalPrewarmHint hint))
+            throw new ArgumentException(
+                "Portal descriptor is incomplete, non-finite, or not a stock portal mapping",
+                nameof(descriptor));
+
+        BeginCore(hint, descriptor, mapName, wdt);
+    }
+
+    /// <summary>
+    /// Warm destination assets from a server catalog before a portal object has
+    /// an authoritative identity. Descriptor remains null until an exact
+    /// <see cref="TryBindAuthoritative"/> succeeds.
+    /// </summary>
+    public void BeginPrewarm(PortalPrewarmHint hint, string mapName, WdtFile? wdt = null)
+    {
+        EnsureOwnerThread();
+        ThrowIfDisposed();
+        if (!hint.IsValid)
+            throw new ArgumentException(
+                "Portal prewarm hint is incomplete, non-finite, or not a stock portal mapping",
+                nameof(hint));
+
+        BeginCore(hint, descriptor: null, mapName, wdt);
+    }
+
+    private void BeginCore(
+        PortalPrewarmHint hint,
+        PortalDescriptor? descriptor,
+        string mapName,
+        WdtFile? wdt)
+    {
         if (_phase != Phase.Idle)
             throw new InvalidOperationException("Portal destination slot is not idle");
-        if (!descriptor.IsValid)
-            throw new ArgumentException("Portal descriptor is incomplete or non-finite", nameof(descriptor));
         if (string.IsNullOrWhiteSpace(mapName))
             throw new ArgumentException("A destination map directory is required", nameof(mapName));
 
         try
         {
             _generation++;
+            PrewarmHint = hint;
             Descriptor = descriptor;
             Failure = null;
             _mapName = mapName;
@@ -365,7 +418,7 @@ public sealed class PortalDestinationScene : IDisposable
                 ?? throw new InvalidOperationException($"Could not read destination WDT '{mapName}'");
             _adts = new AdtCache(_config.ClientDataPath, mapName);
             _ringCenter = TerrainRenderer.TileAt(
-                descriptor.PreviewPosition.X, descriptor.PreviewPosition.Y);
+                hint.PreviewPosition.X, hint.PreviewPosition.Y);
             _ring = _wdt.UsesGlobalWmo
                 ? []
                 : TerrainRenderer.TileRing(_ringCenter.col, _ringCenter.row, _tileRadius);
@@ -422,7 +475,7 @@ public sealed class PortalDestinationScene : IDisposable
             {
                 _terrain.QueuePreload(_ring, _adts, _ringCenter);
                 _wmo.QueuePreloadForTiles(_ring, _adts,
-                    new Vector2(descriptor.PreviewPosition.X, descriptor.PreviewPosition.Y));
+                    new Vector2(hint.PreviewPosition.X, hint.PreviewPosition.Y));
             }
 
             _phase = Phase.WarmGeometry;
@@ -525,7 +578,9 @@ public sealed class PortalDestinationScene : IDisposable
         if (!_wdt.UsesGlobalWmo)
         {
             _doodads.QueuePreloadForTiles(_ring, _adts,
-                new Vector2(Descriptor!.Value.PreviewPosition.X, Descriptor.Value.PreviewPosition.Y),
+                new Vector2(
+                    PrewarmHint!.Value.PreviewPosition.X,
+                    PrewarmHint.Value.PreviewPosition.Y),
                 _config.Render.DoodadDistance);
         }
         _doodads.QueuePreloadModels(_wmo.EnumerateDoodads().Select(d => d.ModelPath));
@@ -537,7 +592,7 @@ public sealed class PortalDestinationScene : IDisposable
         if (_doodads is null || _adts is null || _wdt is null)
             throw new InvalidOperationException("Candidate doodad placement is missing state");
 
-        var preview = Descriptor!.Value.PreviewPosition;
+        var preview = PrewarmHint!.Value.PreviewPosition;
         if (!_wdt.UsesGlobalWmo)
         {
             _doodads.LoadForTiles(_ring, _adts, new Vector2(preview.X, preview.Y),
@@ -769,6 +824,7 @@ public sealed class PortalDestinationScene : IDisposable
         _generation++;
         _geometryReady = false;
         _arrivalSupport = false;
+        PrewarmHint = null;
         Descriptor = null;
         _target.Invalidate();
         // Cancel deferred ADT discovery immediately. Completed/queued WMO
@@ -832,7 +888,7 @@ public sealed class PortalDestinationScene : IDisposable
         _wmo.SnapshotCollision(batches);
         _doodads?.SnapshotCollision(batches);
         int generation = _generation;
-        Vector3 arrival = Descriptor!.Value.PreviewPosition;
+        Vector3 arrival = PrewarmHint!.Value.PreviewPosition;
         _collisionTask = _workers.RunCritical(() => BuildCollision(generation, batches, arrival));
     }
 
@@ -868,11 +924,11 @@ public sealed class PortalDestinationScene : IDisposable
         catch when (_phase == Phase.Retiring) { return; }
         if (build.Generation != _generation) return;
         _collision = build.World;
-        bool terrainSupport = Descriptor is { } descriptor &&
+        bool terrainSupport = PrewarmHint is { } hint &&
             PortalArrivalLaw.HasNearbySupport(
-                descriptor.PreviewPosition,
+                hint.PreviewPosition,
                 _terrain.SampleHeight(
-                    descriptor.PreviewPosition.X, descriptor.PreviewPosition.Y));
+                    hint.PreviewPosition.X, hint.PreviewPosition.Y));
         _arrivalSupport = build.ArrivalSupport || terrainSupport;
     }
 
@@ -1033,6 +1089,7 @@ public sealed class PortalDestinationScene : IDisposable
         _target.Dispose();
         _adts?.Clear();
         _adts = null;
+        PrewarmHint = null;
         Descriptor = null;
         _disposed = true;
         _phase = Phase.Disposed;

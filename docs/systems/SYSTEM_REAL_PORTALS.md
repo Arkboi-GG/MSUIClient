@@ -1,7 +1,8 @@
 # REAL_PORTALS environmental-window vertical slice
 
-**Implemented:** 2026-08-13.  
-**Design authority:** `docs/plans/REAL_PORTALS.md`.  
+**Implemented:** 2026-08-13; cast-start and 150-yard warm extension 2026-08-14.
+**Current authority:** this document; `docs/plans/REAL_PORTALS.md` retains the
+design history.
 **Current boundary:** a server-described, per-session, live environmental view
 through summoned Mage portals. Travel still commits through the stock,
 server-authoritative `GameObject::Use` path.
@@ -11,8 +12,11 @@ server-authoritative `GameObject::Use` path.
 The six stock city portals are recognized locally by exact GameObject entry and
 validated for protocol use as type-22 templates with these `data0` use-spell
 pairs: `176296/17334`, `176497/17607`, `176498/17608`, `176499/17609`,
-`176500/17610`, and `176501/17611`. As soon as one streams in, the client registers a
-GUID-owned procedural aperture independently of the cosmetic M2. It is a
+`176500/17610`, and `176501/17611`. An existing portal enters the warm set at
+150 yards and remains tracked through 180 yards. Independently, it enters the
+visible aperture set at 90 yards and remains visible through 120 yards. Inside
+that presentation range the client registers a GUID-owned procedural aperture
+independently of the cosmetic M2. It is a
 six-yard-wide by eight-yard-high oval disc with a subdued violet preload seal.
 Broken gold and pale-gold lanes spiral inward across the full opening, echoing
 the authored InstancePortal motion without nesting the narrow legacy M2 inside
@@ -23,11 +27,21 @@ For these six recognized entries, the narrow particle-only `InstancePortal.m2` i
 instead of being stacked inside the larger disc; the authoritative GameObject
 entity, tooltip, full-aperture pick target, and stock use path remain intact.
 
-Within 45 yards, the client requests an authoritative descriptor for the
+Within 150 yards, the client requests an authoritative descriptor for the
 nearest eligible portal. One isolated destination renderer streams the configured
 inner residency ring of terrain, WMOs, embedded/outdoor doodads, liquids, collision, and
 destination lighting. It renders to a double-buffered RGBA8/depth target. A GL
 fence publishes only a complete frame.
+
+The controlled player's own accepted `SMSG_SPELL_START` may begin that same
+destination warm before the summoned GameObject exists. The server supplies a
+complete six-row portal capability catalog; a matching summon spell calls
+`PortalDestinationScene.BeginPrewarm` with its server-authored destination. This
+is speculative asset work only. The spawned object must later match both the
+catalog portal entry and exact `GAMEOBJECT_CREATED_BY == casterGuid`, receive the
+ordinary authoritative descriptor, and match every destination-affecting catalog
+field before the warm can be adopted. No preview frame is rendered or exposed,
+and no READY is sent, while `Descriptor` is null.
 
 The seal cross-fades to that frame over 0.2 seconds only after all of these are
 true:
@@ -97,10 +111,44 @@ omit the newer key therefore pick up REAL_PORTALS after rebuilding. Set it to
 issues a zero-guid request through the older, backwards-compatible
 `CMSG_SUI_CONTROL_REQUEST`. A current SuperUI core appends an
 eight-byte `SUI1` capability trailer to its ordinary control ACK and advertises
-portal-v1 in bit 0. An older core returns its normal denial without that trailer;
-the client suppresses the probe denial and keeps the large aperture sealed.
+portal-v1 in bit 0. Bit 1 says a version-1 portal prewarm catalog immediately
+follows the historical trailer. An older core returns its normal denial without
+that trailer; the client suppresses the probe denial and keeps the large aperture sealed.
 This avoids sending opcode 844 to an older core whose opcode bounds check would
 close the connection.
+
+The cast-start catalog extension is:
+
+```text
+u8  version = 1
+u8  rowCount = 6
+u16 rowLength = 32
+
+repeat 6:
+  u32 summonSpellId
+  u32 portalEntry
+  u32 teleportSpellId
+  u32 previewMapId
+  f32 previewX
+  f32 previewY
+  f32 previewZ
+  f32 previewOrientation
+```
+
+It must contain each stock identity exactly once (row order is irrelevant):
+
+| City | Summon spell | Portal entry | Use/teleport spell |
+|---|---:|---:|---:|
+| Stormwind | 10059 | 176296 | 17334 |
+| Ironforge | 11416 | 176497 | 17607 |
+| Orgrimmar | 11417 | 176499 | 17609 |
+| Undercity | 11418 | 176501 | 17611 |
+| Darnassus | 11419 | 176498 | 17608 |
+| Thunder Bluff | 11420 | 176500 | 17610 |
+
+Duplicate, partial, wrongly paired, truncated, wrong-version, wrong-row-size, or
+non-finite catalogs disable cast-start prewarm. The independently advertised
+portal-v1 bit still enables the ordinary spawned-object descriptor path.
 
 | Opcode | Value | Direction | Size |
 |---|---:|---|---:|
@@ -109,7 +157,8 @@ close the connection.
 | `CMSG_SUI_PORTAL_READY` | 846 | client to server | 28 |
 | `SMSG_SUI_PORTAL_STATE` | 847 | server to client | 32 |
 
-All layouts are version 1, exact-length, little-endian, and reject unknown enum
+The four portal-opcode bodies above are version 1, exact-length, little-endian,
+and reject unknown enum
 or flag values, non-finite geometry, nonzero reserved/request-flag fields, leases on
 non-READY states, and invalid correlation keys. The successful descriptor owns
 source geometry, destination
@@ -117,7 +166,7 @@ hint, generation, revision, ticket, and remaining lifetime. READY is a
 quality-of-experience lease; it does not consume a charge, authorize a
 teleport, or bypass `GameObject::Use`.
 
-The server revalidates the live object, 45-yard preparation range, interaction flags,
+The server revalidates the live object, 150-yard preparation range, interaction flags,
 `PlayerCanUse`, party ownership, exact entry/spell pair, and current
 `SpellTargetPosition` before accepting READY. Denial leaves the ordinary
 `CMSG_GAMEOBJ_USE` path unchanged.
@@ -127,11 +176,13 @@ availability and of the legacy "Portal surface film" tuning switch. A missing
 capability advertisement, preview allocation/shader failure, or stale server
 therefore leaves a two-sided sealed 6x8 doorway instead of reverting to only
 the narrow, one-sided M2 effect.
-Presentation is also independently range-bounded: new apertures enter within 90
-yards, tracked ones leave beyond 120 yards, and a missing entity receives only a
-half-second reconciliation grace. This matters for same-map teleports, where a
-delayed source-object out-of-range update must not resurrect the old doorway
-after renderer promotion.
+Warm ownership and presentation are independently range-bounded. Existing
+portals enter warm relevance at or inside 150 yards and leave only beyond 180;
+new apertures enter at or inside 90 yards and tracked apertures leave only beyond
+120. A missing entity receives only a half-second reconciliation grace. This
+matters for same-map teleports, where a delayed source-object out-of-range update
+must not resurrect the old doorway after renderer promotion. Boundary tests use
+inclusive entry/exit comparisons and reject non-finite positions.
 
 ## Scene ownership and rendering
 
@@ -140,6 +191,13 @@ collision, camera, atmosphere inputs, and render target. It borrows the shared
 asset worker pool, upload context, sky renderer, and visibility overrides. This
 duplicates destination GPU assets and is intentionally a memory-heavy spike;
 the final design moves immutable resources into `SharedWorldAssets`.
+
+`BeginPrewarm` may populate those private destination assets from the negotiated
+cast catalog, but it intentionally leaves `Descriptor` null. The later spawned
+object is correlated only by exact catalog entry plus `GAMEOBJECT_CREATED_BY`;
+its descriptor can bind the provisional scene only when entry/use spell/map/
+position/orientation all match. Complete-frame publication, texture exposure,
+READY, crossing, and promotion remain descriptor-bound.
 
 Candidate construction, shader loading, liquid texture creation, main-context
 VAO adoption, rendering, target allocation, and disposal stay on the window GL
@@ -160,6 +218,10 @@ authoritative active-world room seed; using it for those switches made small
 source-angle changes remove complete destination groups or replace detail with
 low-poly exterior silhouettes. Frustum and distance culling remain enabled, and
 promotion restores the active world's normal WMO culling and occlusion tuning.
+The 2026-08-14 warm extension did not change destination-slot count, render-target
+resolution, pass order, culling/LOD policy, resident asset set, worker scheduling,
+or any preview-quality setting. It changes when the existing one-slot residency
+begins, then reuses that work after exact authoritative correlation.
 The source frame draws opaque geometry, the procedural aperture, then source
 water, preserving normal foreground occlusion. Legacy instance entrances retain
 their ordinary M2 particles and inferred circular film; only recognized summoned
@@ -205,6 +267,17 @@ pre-animation, per-player preparation, live far-side view, full-aperture click,
 and automatic walk-through behavior, while the actual teleport remains the
 safe stock server-authoritative path.
 
+## Cast-prewarm cancellation law
+
+`SMSG_SPELL_DELAYED` extends the provisional deadline before GO, and matching
+`SMSG_SPELL_GO` starts a bounded spawn-correlation grace period. The provisional
+warm is cancelled and, when it owns the unbound scene, retired on a matching cast
+failure, a different/superseding cast, catalog withdrawal or capability reset,
+spawn-correlation timeout, destination warm start/load failure, bound-object
+disappearance, descriptor denial/invalid identity/destination mismatch, or world
+reset. Cancellation never tears down an already descriptor-bound authoritative
+scene merely because its old cast record ended.
+
 ## Verification
 
 ```powershell
@@ -213,8 +286,9 @@ dotnet run --project tools\real-portal-wire-check\real-portal-wire-check.csproj 
 git diff --check
 ```
 
-The wire check round-trips all four packets and rejects short/long bodies,
-reserved-field violations, unknown enums, non-finite geometry, and empty
-required correlation fields. A live visual pass still requires the matching
-SuperUI core plus MPQ data and must be checked in-game from multiple camera
-angles and through a lease renewal.
+The wire check round-trips all four packets, validates the six-row catalog and
+the separate 150/180 warm versus 90/120 visual laws, and rejects short/long
+bodies, reserved-field violations, unknown enums, non-finite geometry, malformed
+catalogs, and empty required correlation fields. A live visual pass still
+requires the matching SuperUI core plus MPQ data and must be checked in-game from
+multiple camera angles and through a lease renewal.

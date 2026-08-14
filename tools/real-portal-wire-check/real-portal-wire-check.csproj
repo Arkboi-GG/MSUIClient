@@ -9,9 +9,11 @@
     <!-- Link the production codecs directly so this clinical check remains
          runnable while unrelated renderer work temporarily breaks the app. -->
     <Compile Include="..\..\MSUIClient\Net\ByteBuffer.cs" Link="Net\ByteBuffer.cs" />
+    <Compile Include="..\..\MSUIClient\Net\ObjectFields.cs" Link="Net\ObjectFields.cs" />
     <Compile Include="..\..\MSUIClient\Net\Opcodes.cs" Link="Net\Opcodes.cs" />
     <Compile Include="..\..\MSUIClient\Net\PortalWire.cs" Link="Net\PortalWire.cs" />
     <Compile Include="..\..\MSUIClient\World\Portals\PortalDescriptor.cs" Link="World\Portals\PortalDescriptor.cs" />
+    <Compile Include="..\..\MSUIClient\World\Portals\PortalPrewarmHint.cs" Link="World\Portals\PortalPrewarmHint.cs" />
     <Compile Include="..\..\MSUIClient\World\Portals\PortalPreviewCameraLaw.cs" Link="World\Portals\PortalPreviewCameraLaw.cs" />
     <Compile Include="..\..\MSUIClient\World\WorldClipPlane.cs" Link="World\WorldClipPlane.cs" />
     <Compile Include="..\..\MSUIClient\World\Portals\PortalExitClipLaw.cs" Link="World\Portals\PortalExitClipLaw.cs" />
@@ -19,5 +21,6 @@
     <Compile Include="..\..\MSUIClient\World\Portals\PortalArrivalLaw.cs" Link="World\Portals\PortalArrivalLaw.cs" />
     <Compile Include="..\..\MSUIClient\World\Portals\PortalHandoffLaw.cs" Link="World\Portals\PortalHandoffLaw.cs" />
     <Compile Include="..\..\MSUIClient\World\Portals\PortalVisualRelevanceLaw.cs" Link="World\Portals\PortalVisualRelevanceLaw.cs" />
+    <Compile Include="..\..\MSUIClient\World\Portals\PortalWarmRelevanceLaw.cs" Link="World\Portals\PortalWarmRelevanceLaw.cs" />
   </ItemGroup>
 </Project>

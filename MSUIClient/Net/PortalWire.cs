@@ -1,4 +1,5 @@
 using System.Numerics;
+using MSUIClient.World.Portals;
 
 namespace MSUIClient.Net;
 
@@ -99,7 +100,12 @@ public static class SuiCapabilityWire
 {
     public const uint Magic = 0x3149_5553; // "SUI1" on the little-endian wire
     public const uint RealPortalsV1 = 1u << 0;
+    public const uint PortalPrewarmCatalogV1 = 1u << 1;
     public const int TrailerLength = 8;
+
+    public const byte PrewarmCatalogVersion = 1;
+    public const int PrewarmCatalogHeaderLength = 4;
+    public const ushort PrewarmCatalogRowLength = 32;
 
     public static bool TryRead(PacketReader reader, out uint capabilities)
     {
@@ -111,6 +117,59 @@ public static class SuiCapabilityWire
         if (magic != Magic) return false;
 
         capabilities = advertised;
+        return true;
+    }
+
+    /// <summary>
+    /// Read the historical capability trailer and, only when its dedicated bit
+    /// is advertised, the immediately following portal-prewarm catalog:
+    /// u8 version, u8 row count, u16 row length, then fixed-size rows containing
+    /// summon/entry/use/map, XYZ and orientation. A v1 catalog is all-or-nothing
+    /// and must contain each stock Mage portal exactly once.
+    /// </summary>
+    public static bool TryRead(
+        PacketReader reader,
+        out uint capabilities,
+        out PortalPrewarmHint[] portalPrewarmCatalog)
+    {
+        capabilities = 0;
+        portalPrewarmCatalog = [];
+        if (!TryRead(reader, out uint advertised)) return false;
+        // Preserve independently negotiated blocks even when the optional
+        // catalog extension is malformed. Callers may keep portal-v1 enabled
+        // while disabling only cast-start prewarm.
+        capabilities = advertised;
+
+        if ((advertised & PortalPrewarmCatalogV1) == 0)
+        {
+            return true;
+        }
+
+        if (reader.Remaining < PrewarmCatalogHeaderLength) return false;
+        byte version = reader.ReadU8();
+        byte rowCount = reader.ReadU8();
+        ushort rowLength = reader.ReadU16();
+        if (version != PrewarmCatalogVersion ||
+            rowCount != PortalPrewarmLaw.CatalogCount ||
+            rowLength != PrewarmCatalogRowLength ||
+            reader.Remaining < rowCount * rowLength)
+            return false;
+
+        var catalog = new PortalPrewarmHint[rowCount];
+        for (int i = 0; i < catalog.Length; i++)
+        {
+            catalog[i] = new PortalPrewarmHint(
+                reader.ReadU32(),
+                reader.ReadU32(),
+                reader.ReadU32(),
+                reader.ReadU32(),
+                reader.ReadVector3(),
+                reader.ReadF32());
+        }
+
+        if (!PortalPrewarmLaw.IsCompleteCatalog(catalog)) return false;
+
+        portalPrewarmCatalog = catalog;
         return true;
     }
 }

@@ -250,6 +250,21 @@ establish descriptor/health baselines before presentation becomes eligible; also
 combat animation state at world-load start/end. Do not infer a real hit from the initial descriptor
 population, and do not solve this by merely delaying the visible animation.
 
+**SUI capability trailer and portal cast catalog (2026-08-14):** the fixed
+`SMSG_SUI_CONTROL_ACK` prefix may be followed by the historical eight-byte
+little-endian trailer `u32 "SUI1" magic, u32 capabilityMask`. Bit 0 advertises
+REAL_PORTALS v1. Bit 1 says an all-or-nothing cast-prewarm catalog follows:
+`u8 version=1, u8 rowCount=6, u16 rowLength=32`, then six rows of
+`u32 summonSpellId, portalEntry, teleportSpellId, previewMapId`, destination
+`f32 x/y/z`, and `f32 orientation`. The six rows must be finite, unique, complete,
+and use the exact stock summon/entry/use identities; the server authors the map
+and destination pose. A malformed bit-1 extension disables only cast-start
+prewarm while preserving independently negotiated bit-0 portal behavior. The
+catalog never authorizes render, READY, use, or teleport: an own-player
+`SMSG_SPELL_START` can only warm assets, and the later object must bind by exact
+`GAMEOBJECT_CREATED_BY` plus portal entry before its authoritative descriptor can
+adopt that warm.
+
 **Config (`ClientConfig.Net.cs` → `client-config.json`):** `Server.Enabled` (master
 opt-in), `Server.AutoConnect`, `Server.RealPortals` (true; matching SuperUI core
 only), `Server.Account`, `Server.Password`, `Server.Realm`, `Server.Character`
@@ -274,11 +289,13 @@ Netstack (`Net/`):
 - `LocalMovementSender.cs` — local flags → transition/facing/heartbeat send law.
 - `CombatPackets.cs` / `CombatState.cs` — typed combat wire + engagement/event seam.
 - `CombatFeedbackLaw.cs` — pure ownership, number/word and crit law for outgoing world text.
+- `PortalWire.cs` — REAL_PORTALS packets plus the `SUI1` capability trailer and
+  strict six-row cast-prewarm catalog codec.
 - `Formats/FactionTemplate.cs` — faction-template catalog + directional reaction comparator.
 - `tools/combat-wire-check` — focused checks for representative combat packets, movement
   jump-tail round trips, faction reaction precedence, and camera-ray alignment.
 - `UpdateObject.cs` / `ObjectFields.cs` / `GuidInfo.cs` — UPDATE_OBJECT decode, sparse
-  UpdateFields, GUID high-part decode.
+  UpdateFields (including exact `GAMEOBJECT_CREATED_BY` GUID), GUID high-part decode.
 - `Entities.cs` — `WorldEntity` + `EntityStore` (the client world model).
 
 Client glue + render:
@@ -288,6 +305,9 @@ Client glue + render:
   attackability, and the first target frame.
 - `Program.CombatAnimations.cs` — routes each melee swing packet to attacker and victim one-shots.
 - `Program.CombatFeedback.cs` — floating world text, player health/power frame, and hit flashes.
+- `Program.RealPortals.cs` / `World/Portals/PortalPrewarmHint.cs` — capability
+  consumption, spell START/GO/delay/failure lifetime, stock catalog validation,
+  and exact spawned-object correlation.
 - `Engine/GlueScene.cs` — the UI_MainMenu login gate.
 - `World/Units/CreatureRenderer.cs` — the creature/NPC renderer (this doc's §7).
 - `ClientConfig.Net.cs` — the `Server` config block.

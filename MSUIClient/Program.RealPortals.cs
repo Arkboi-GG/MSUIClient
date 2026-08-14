@@ -23,7 +23,8 @@ namespace MSUIClient;
 /// </summary>
 public sealed partial class GameLoop
 {
-    private const float RealPortalPreloadRadius = 45f;
+    private const float RealPortalPreloadRadius = PortalWarmRelevanceLaw.EnterRadius;
+    private const float RealPortalPreloadExitRadius = PortalWarmRelevanceLaw.ExitRadius;
     private const float RealPortalHalfWidth = 3f;
     private const float RealPortalHalfHeight = 4f;
     private const float RealPortalBottomClearance = 0.10f;
@@ -37,6 +38,7 @@ public sealed partial class GameLoop
     private const double RealPortalLoadFailureRetrySeconds = 15.0;
     private const double RealPortalCrossingLatchSeconds = 2.0;
     private const double RealPortalHandoffArmSeconds = 10.0;
+    private const double RealPortalCastSpawnGraceSeconds = 10.0;
 
     private sealed class RealPortalVisual
     {
@@ -47,6 +49,7 @@ public sealed partial class GameLoop
         public double DiscoveredAt;
         public int SeenScan;
         public double LastEntitySeenAt;
+        public bool WarmRelevant;
         public bool PresentationRelevant;
         public bool TemplateEligible;
         public bool TemplateRejectionLogged;
@@ -70,6 +73,16 @@ public sealed partial class GameLoop
         public bool UnreadyCrossingLogged;
     }
 
+    private sealed class RealPortalCastPrewarm
+    {
+        public required ulong CasterGuid;
+        public required PortalPrewarmHint Hint;
+        public required HashSet<ulong> ExistingPortalGuids;
+        public double ExpiresAt;
+        public bool SpellGoObserved;
+        public ulong PortalGuid;
+    }
+
     private readonly Dictionary<ulong, RealPortalVisual> _realPortals = [];
     private readonly List<ulong> _realPortalRemoveScratch = [];
     private PortalDestinationScene? _realPortalScene;
@@ -84,6 +97,8 @@ public sealed partial class GameLoop
     private bool _realPortalCapabilityProbeSent;
     private bool _realPortalCapabilityProbePending;
     private bool _realPortalProtocolAvailable;
+    private PortalPrewarmHint[] _realPortalPrewarmCatalog = [];
+    private RealPortalCastPrewarm? _realPortalCastPrewarm;
     private double _realPortalCapabilityReplyDeadline;
     private (ulong Guid, uint Spawn, uint Revision, ulong Ticket)?
         _realPortalMinimapWarmIdentity;
@@ -190,6 +205,7 @@ public sealed partial class GameLoop
         if (RealPortalPreviewEnabled)
         {
             SyncRealPortalTargetSize();
+            AdvanceRealPortalCastPrewarm(now);
             RealPortalVisual? prepareTarget = SelectRealPortalPrepareTarget();
             if (prepareTarget is not null)
                 AdvanceRealPortalHandshake(prepareTarget, now);
@@ -221,18 +237,24 @@ public sealed partial class GameLoop
 
             bool tracked = _realPortals.TryGetValue(
                 entity.Guid, out RealPortalVisual? portal);
-            if (!PortalVisualRelevanceLaw.IsRelevant(
-                    player, entity.Position, currentlyTracked: tracked))
+            bool wasPresentationRelevant = tracked && portal!.PresentationRelevant;
+            bool warmRelevant = PortalWarmRelevanceLaw.IsRelevant(
+                player, entity.Position,
+                currentlyTracked: tracked && portal!.WarmRelevant);
+            if (!warmRelevant)
             {
                 // Same-map movement teleports do not clear the entity store.
                 // If the server's source-object OutOfRange update is delayed or
-                // omitted, this explicit visual would otherwise be republished
-                // forever at arbitrary distance after ResetRealPortals cleared it.
+                // omitted, this warm candidate would otherwise survive forever
+                // at arbitrary distance after ResetRealPortals cleared it.
                 if (tracked)
                 {
                     portal!.SeenScan = scan;
                     portal.LastEntitySeenAt = now;
+                    portal.WarmRelevant = false;
                     portal.PresentationRelevant = false;
+                    if (wasPresentationRelevant)
+                        _particles?.RemoveMagePortalAperture(entity.Guid);
                 }
                 continue;
             }
@@ -254,22 +276,24 @@ public sealed partial class GameLoop
                     Yaw = entity.GameObjectFacing,
                     DiscoveredAt = now,
                     LastEntitySeenAt = now,
-                    PresentationRelevant = true,
+                    WarmRelevant = true,
                 };
                 _realPortals.Add(entity.Guid, portal);
                 Console.WriteLine(
-                    $"[real-portals] procedural 6x8 aperture 0x{entity.Guid:X}, " +
-                    $"entry {entity.Entry}, reported type {entity.GameObjectType}");
+                    $"[real-portals] tracking warm candidate 0x{entity.Guid:X}, " +
+                    $"entry {entity.Entry}, distance {MathF.Sqrt(Vector3.DistanceSquared(player, entity.Position)):F1} yd");
             }
             else if (portal!.Entry != entity.Entry)
             {
                 InvalidateRealPortal(portal, retireScene: true);
                 portal.Entry = entity.Entry;
                 portal.DiscoveredAt = now;
+                portal.TemplateRejectionLogged = false;
             }
 
             portal.GroundPosition = entity.Position;
             portal.Yaw = entity.GameObjectFacing;
+            portal.WarmRelevant = true;
             portal.TemplateEligible = templateEligible;
             if (templateKnown && !templateEligible && !portal.TemplateRejectionLogged)
             {
@@ -282,19 +306,44 @@ public sealed partial class GameLoop
             portal.DistanceSquared = Vector3.DistanceSquared(player, entity.Position);
             portal.SeenScan = scan;
             portal.LastEntitySeenAt = now;
-            portal.PresentationRelevant = true;
+            bool presentationRelevant = PortalVisualRelevanceLaw.IsRelevant(
+                player, entity.Position, wasPresentationRelevant);
+            if (!wasPresentationRelevant && presentationRelevant)
+            {
+                portal.DiscoveredAt = now;
+                Console.WriteLine(
+                    $"[real-portals] procedural 6x8 aperture 0x{entity.Guid:X}, " +
+                    $"entry {entity.Entry}, reported type {entity.GameObjectType}");
+            }
+            else if (wasPresentationRelevant && !presentationRelevant)
+            {
+                _particles?.RemoveMagePortalAperture(entity.Guid);
+            }
+            portal.PresentationRelevant = presentationRelevant;
+
+            if (_realPortalCastPrewarm is { PortalGuid: 0, SpellGoObserved: true } cast &&
+                entity.Entry == cast.Hint.PortalEntry &&
+                entity.Fields.GameObjectCreatedBy == cast.CasterGuid &&
+                !cast.ExistingPortalGuids.Contains(entity.Guid))
+            {
+                cast.PortalGuid = entity.Guid;
+                Console.WriteLine(
+                    $"[real-portals] cast prewarm bound to spawned object 0x{entity.Guid:X}");
+            }
         }
 
         _realPortalRemoveScratch.Clear();
         foreach ((ulong guid, RealPortalVisual portal) in _realPortals)
         {
-            if (portal.SeenScan == scan && portal.PresentationRelevant) continue;
+            if (portal.SeenScan == scan && portal.WarmRelevant) continue;
             if (portal.SeenScan != scan &&
                 !PortalVisualRelevanceLaw.MissingEntityGraceExpired(
                     now, portal.LastEntitySeenAt))
                 continue;
             _realPortalRemoveScratch.Add(guid);
             if (_realPortalSceneGuid == guid) RetireRealPortalScene();
+            if (_realPortalCastPrewarm?.PortalGuid == guid)
+                CancelRealPortalCastPrewarm("bound portal disappeared", retireScene: true);
             _particles?.RemoveMagePortalAperture(guid);
         }
         foreach (ulong guid in _realPortalRemoveScratch) _realPortals.Remove(guid);
@@ -303,6 +352,14 @@ public sealed partial class GameLoop
     private RealPortalVisual? SelectRealPortalPrepareTarget()
     {
         float radiusSquared = RealPortalPreloadRadius * RealPortalPreloadRadius;
+
+        // The exact creator GUID binds a cast-start warm to its eventual object.
+        // Give that object the next authoritative PREPARE correlation even if an
+        // older portal still owns the reusable scene slot.
+        if (_realPortalCastPrewarm is { PortalGuid: not 0 } cast &&
+            _realPortals.TryGetValue(cast.PortalGuid, out RealPortalVisual? castPortal) &&
+            castPortal.TemplateEligible && castPortal.DistanceSquared <= radiusSquared)
+            return castPortal;
 
         // Keep ownership stable while a useful candidate exists. The server v1
         // correlation record is per session, so spraying PREPARE at every portal
@@ -360,14 +417,32 @@ public sealed partial class GameLoop
     private bool ApplyRealPortalCapabilityAck(ulong guid, PacketReader reader)
     {
         bool isProbeReply = guid == 0 && _config.Server.RealPortals;
-        if (SuiCapabilityWire.TryRead(reader, out uint capabilities))
+        bool trailerValid = SuiCapabilityWire.TryRead(
+            reader, out uint capabilities, out PortalPrewarmHint[] prewarmCatalog);
+        if (trailerValid || capabilities != 0)
         {
             bool available = (capabilities & SuiCapabilityWire.RealPortalsV1) != 0;
-            if (available != _realPortalProtocolAvailable)
+            bool hadProtocol = _realPortalProtocolAvailable;
+            if (available != hadProtocol)
                 Console.WriteLine(available
                     ? "[real-portals] server advertised portal-v1"
                     : "[real-portals] server capability ACK has no portal-v1 bit");
             _realPortalProtocolAvailable = available;
+
+            bool prewarmAvailable = available && trailerValid &&
+                (capabilities & SuiCapabilityWire.PortalPrewarmCatalogV1) != 0 &&
+                prewarmCatalog.Length == PortalPrewarmLaw.CatalogCount;
+            bool hadPrewarm = _realPortalPrewarmCatalog.Length != 0;
+            _realPortalPrewarmCatalog = prewarmAvailable ? prewarmCatalog : [];
+            if (prewarmAvailable != hadPrewarm)
+                Console.WriteLine(prewarmAvailable
+                    ? "[real-portals] server supplied six cast-start prewarm destinations"
+                    : "[real-portals] cast-start prewarm catalog unavailable");
+            if (!prewarmAvailable && _realPortalCastPrewarm is not null)
+                CancelRealPortalCastPrewarm(
+                    "server withdrew cast-start prewarm catalog", retireScene: true);
+            if (hadProtocol && !available)
+                ResetRealPortals(resetCapability: false);
         }
 
         if (!isProbeReply) return false;
@@ -384,6 +459,146 @@ public sealed partial class GameLoop
         _realPortalCapabilityProbePending = false;
         _realPortalProtocolAvailable = false;
         _realPortalCapabilityReplyDeadline = 0;
+        _realPortalPrewarmCatalog = [];
+        CancelRealPortalCastPrewarm("capability reset", retireScene: true);
+    }
+
+    private void BeginRealPortalCastPrewarm(SpellStartPacket packet)
+    {
+        if (_realPortalCastPrewarm is { } existing &&
+            existing.CasterGuid == packet.Caster &&
+            existing.Hint.SummonSpellId != packet.SpellId)
+            CancelRealPortalCastPrewarm(
+                "caster began a different spell", retireScene: true);
+
+        if (!RealPortalPreviewEnabled || packet.Caster != ControlledGuid ||
+            !PortalPrewarmLaw.TryFind(
+                _realPortalPrewarmCatalog, packet.SpellId, out PortalPrewarmHint hint))
+            return;
+
+        CancelRealPortalCastPrewarm("superseded by a new portal cast", retireScene: true);
+        double now = RealPortalNow();
+        _realPortalCastPrewarm = new RealPortalCastPrewarm
+        {
+            CasterGuid = packet.Caster,
+            Hint = hint,
+            ExistingPortalGuids = _entities.Entities.Values
+                .Where(entity => entity.IsGameObject &&
+                    entity.Entry == hint.PortalEntry)
+                .Select(entity => entity.Guid)
+                .ToHashSet(),
+            ExpiresAt = now + packet.CastTimeMs / 1000.0 + RealPortalCastSpawnGraceSeconds,
+        };
+
+        // One destination slot exists. An accepted local portal cast is the
+        // highest-priority warm request; retire a different old candidate and
+        // begin as soon as its asynchronous producers drain.
+        if (_realPortalScene?.IsActive == true &&
+            (_realPortalScene.Descriptor is not null ||
+             _realPortalScene.PrewarmHint != hint))
+            RetireRealPortalScene();
+
+        Console.WriteLine(
+            $"[real-portals] cast-start prewarm spell {packet.SpellId} -> " +
+            $"map {hint.PreviewMapId}");
+    }
+
+    private void ObserveRealPortalCastGo(SpellGoPacket packet)
+    {
+        if (_realPortalCastPrewarm is not { } cast ||
+            cast.CasterGuid != packet.Caster || cast.Hint.SummonSpellId != packet.SpellId)
+            return;
+
+        cast.SpellGoObserved = true;
+        cast.ExpiresAt = RealPortalNow() + RealPortalCastSpawnGraceSeconds;
+    }
+
+    private void DelayRealPortalCastPrewarm(ulong caster, uint delayMs)
+    {
+        if (_realPortalCastPrewarm is { } cast && cast.CasterGuid == caster &&
+            !cast.SpellGoObserved)
+            cast.ExpiresAt += delayMs / 1000.0;
+    }
+
+    private void FailRealPortalCastPrewarm(ulong caster, uint spellId)
+    {
+        if (_realPortalCastPrewarm is { } cast && cast.CasterGuid == caster &&
+            cast.Hint.SummonSpellId == spellId)
+            CancelRealPortalCastPrewarm("portal cast failed", retireScene: true);
+    }
+
+    private void FailRealPortalCastPrewarmResult(uint spellId)
+    {
+        // SMSG_CAST_RESULT has no caster GUID. It is the result of this
+        // session's submitted cast, which can belong to a possessed bot rather
+        // than PlayerGuid, so correlate it by the one active portal spell.
+        if (_realPortalCastPrewarm is { } cast &&
+            cast.Hint.SummonSpellId == spellId)
+            CancelRealPortalCastPrewarm("portal cast was rejected", retireScene: true);
+    }
+
+    private void CancelRealPortalCastPrewarm(string reason, bool retireScene)
+    {
+        if (_realPortalCastPrewarm is not { } cast) return;
+        bool ownsProvisionalScene = _realPortalScene?.Descriptor is null &&
+            (_realPortalScene?.PrewarmHint == cast.Hint ||
+             (_realPortalSceneGuid == 0 && _realPortalSceneStartedAt > 0));
+        _realPortalCastPrewarm = null;
+        if (retireScene && ownsProvisionalScene) RetireRealPortalScene();
+        Console.WriteLine($"[real-portals] cancelled cast-start prewarm: {reason}");
+    }
+
+    private void AdvanceRealPortalCastPrewarm(double now)
+    {
+        if (_realPortalCastPrewarm is not { } cast || _realPortalScene is null) return;
+        if (now >= cast.ExpiresAt)
+        {
+            CancelRealPortalCastPrewarm("spawn correlation timed out", retireScene: true);
+            return;
+        }
+
+        if (_realPortalScene.Failure is not null &&
+            _realPortalScene.Descriptor is null &&
+            _realPortalSceneGuid == 0 && _realPortalSceneStartedAt > 0)
+        {
+            CancelRealPortalCastPrewarm(
+                $"destination warm failed: {_realPortalScene.Failure}", retireScene: true);
+            return;
+        }
+
+        if (_realPortalScene.IsActive)
+        {
+            if (_realPortalScene.Descriptor is null &&
+                _realPortalScene.PrewarmHint == cast.Hint)
+                return;
+            RetireRealPortalScene();
+            return;
+        }
+        if (_realPortalScene.Retiring || !_realPortalScene.RetirementComplete) return;
+
+        try
+        {
+            EnsureInstanceData();
+            MapRow? map = _maps?.Get((int)cast.Hint.PreviewMapId);
+            WdtFile? wdt = _mapWdts?.GetValueOrDefault((int)cast.Hint.PreviewMapId);
+            if (map is null || wdt is null)
+                throw new InvalidOperationException(
+                    $"destination map {cast.Hint.PreviewMapId} has no loadable Map.dbc/WDT identity");
+
+            _realPortalAtmosphere = NewRealPortalAtmosphere();
+            _realPortalScene.BeginPrewarm(cast.Hint, map.Directory, wdt);
+            _realPortalSceneGuid = 0;
+            _realPortalSceneDescriptor = null;
+            _realPortalSceneStartedAt = now;
+            Console.WriteLine(
+                $"[real-portals] warming map {cast.Hint.PreviewMapId} during cast " +
+                $"{cast.Hint.SummonSpellId}");
+        }
+        catch (Exception ex)
+        {
+            CancelRealPortalCastPrewarm(
+                $"destination warm could not start: {ex.Message}", retireScene: true);
+        }
     }
 
     private void AdvanceRealPortalHandshake(RealPortalVisual portal, double now)
@@ -428,10 +643,26 @@ public sealed partial class GameLoop
 
     private RealPortalVisual? SelectRealPortalSceneTarget()
     {
-        float radiusSquared = RealPortalPreloadRadius * RealPortalPreloadRadius;
+        float enterRadiusSquared = RealPortalPreloadRadius * RealPortalPreloadRadius;
+        float exitRadiusSquared = RealPortalPreloadExitRadius * RealPortalPreloadExitRadius;
+
+        if (_realPortalCastPrewarm is { PortalGuid: not 0 } cast &&
+            _realPortals.TryGetValue(cast.PortalGuid, out RealPortalVisual? castPortal) &&
+            castPortal.Descriptor is not null && !castPortal.LoadFailed &&
+            castPortal.DistanceSquared <= exitRadiusSquared)
+            return castPortal;
+
+        // Retain the loaded candidate through a wider exit radius so threshold
+        // jitter does not tear down a useful warm while the player backs away.
+        if (_realPortalSceneGuid != 0 &&
+            _realPortals.TryGetValue(_realPortalSceneGuid, out RealPortalVisual? active) &&
+            active.Descriptor is not null && !active.LoadFailed &&
+            active.DistanceSquared <= exitRadiusSquared)
+            return active;
+
         return _realPortals.Values
             .Where(p => p.Descriptor is not null && !p.LoadFailed &&
-                        p.DistanceSquared <= radiusSquared)
+                        p.DistanceSquared <= enterRadiusSquared)
             .OrderBy(p => p.DistanceSquared)
             .FirstOrDefault();
     }
@@ -445,6 +676,34 @@ public sealed partial class GameLoop
         {
             ReportRealPortalLoadFailure(failed, _realPortalScene.Failure, now);
             RetireRealPortalScene();
+        }
+
+        if (_realPortalScene.IsActive && _realPortalScene.Descriptor is null)
+        {
+            if (_realPortalCastPrewarm is not { } cast ||
+                _realPortalScene.PrewarmHint != cast.Hint)
+            {
+                RetireRealPortalScene();
+                return;
+            }
+
+            if (cast.PortalGuid == 0 || target?.Guid != cast.PortalGuid ||
+                target.Descriptor is not { } spawnedDescriptor)
+                return;
+
+            if (!_realPortalScene.TryBindAuthoritative(spawnedDescriptor))
+            {
+                CancelRealPortalCastPrewarm(
+                    "spawned descriptor did not match the server cast hint",
+                    retireScene: true);
+                return;
+            }
+
+            _realPortalSceneGuid = target.Guid;
+            _realPortalSceneDescriptor = spawnedDescriptor;
+            _realPortalCastPrewarm = null;
+            Console.WriteLine(
+                $"[real-portals] reused cast-start warm for 0x{target.Guid:X}");
         }
 
         if (_realPortalScene.IsActive)
@@ -515,7 +774,8 @@ public sealed partial class GameLoop
 
     private void AdvanceRealPortalReadiness(RealPortalVisual target, double now)
     {
-        if (_realPortalSceneGuid == target.Guid &&
+        if (target.DistanceSquared <= RealPortalPreloadRadius * RealPortalPreloadRadius &&
+            _realPortalSceneGuid == target.Guid &&
             _realPortalScene?.VisualReady == true && _realPortalScene.ArrivalSupport &&
             !target.PreparePending &&
             now - target.DiscoveredAt >= RealPortalPreAnimationSeconds && !target.ReadySent &&
@@ -551,6 +811,7 @@ public sealed partial class GameLoop
     {
         foreach (RealPortalVisual portal in _realPortals.Values)
         {
+            if (!portal.PresentationRelevant) continue;
             ScenePortalDescriptor? descriptor = portal.Descriptor;
             Vector3 center = descriptor?.SourceCenter ??
                 portal.GroundPosition + Vector3.UnitZ *
@@ -602,6 +863,7 @@ public sealed partial class GameLoop
         double now = RealPortalNow();
         foreach (RealPortalVisual portal in _realPortals.Values.OrderBy(p => p.DistanceSquared))
         {
+            if (!portal.PresentationRelevant) continue;
             PortalFrame frame = RealPortalSourceFrame(portal);
             if (!frame.TryNormalize(out PortalFrame normalized)) continue;
 
@@ -672,6 +934,7 @@ public sealed partial class GameLoop
         float nearest = limit;
         foreach (RealPortalVisual portal in _realPortals.Values)
         {
+            if (!portal.PresentationRelevant) continue;
             if (!PortalCrossingLaw.TryRayHit(
                     origin, direction, RealPortalSourceFrame(portal),
                     portal.Descriptor?.HalfWidth ?? RealPortalHalfWidth,
@@ -1150,6 +1413,9 @@ public sealed partial class GameLoop
             // A renewal denial is fresh server evidence that this session can no
             // longer prepare the object. Seal immediately; the stock click path
             // remains available and authoritative.
+            if (_realPortalCastPrewarm?.PortalGuid == packet.PortalGuid)
+                CancelRealPortalCastPrewarm(
+                    $"spawned portal descriptor returned {packet.Result}", retireScene: true);
             InvalidateRealPortal(portal, retireScene: true);
             Console.WriteLine(
                 $"[real-portals] descriptor {packet.Result} for 0x{packet.PortalGuid:X}");
@@ -1160,6 +1426,9 @@ public sealed partial class GameLoop
             !IsStockPortalUsePair(packet.PortalEntry, packet.TeleportSpellId))
         {
             portal.NextPrepareAt = now + 60.0;
+            if (_realPortalCastPrewarm?.PortalGuid == packet.PortalGuid)
+                CancelRealPortalCastPrewarm(
+                    "spawned portal descriptor identity mismatched", retireScene: true);
             InvalidateRealPortal(portal, retireScene: true);
             Console.WriteLine(
                 $"[real-portals] rejected mismatched descriptor for 0x{packet.PortalGuid:X}");
@@ -1191,6 +1460,9 @@ public sealed partial class GameLoop
         if (!sceneDescriptor.IsValid)
         {
             portal.NextPrepareAt = now + RealPortalRetrySeconds;
+            if (_realPortalCastPrewarm?.PortalGuid == packet.PortalGuid)
+                CancelRealPortalCastPrewarm(
+                    "spawned portal descriptor was invalid", retireScene: true);
             InvalidateRealPortal(portal, retireScene: true);
             Console.WriteLine($"[real-portals] rejected invalid descriptor for 0x{packet.PortalGuid:X}");
             return;
@@ -1276,7 +1548,7 @@ public sealed partial class GameLoop
 
     private void ExpireRealPortalState(double now)
     {
-        float radiusSquared = RealPortalPreloadRadius * RealPortalPreloadRadius;
+        float radiusSquared = RealPortalPreloadExitRadius * RealPortalPreloadExitRadius;
         foreach (RealPortalVisual portal in _realPortals.Values)
         {
             if (portal.Descriptor is not null && now >= portal.DescriptorExpiresAt)
@@ -1373,6 +1645,7 @@ public sealed partial class GameLoop
 
     private void ResetRealPortals(bool resetCapability = true)
     {
+        CancelRealPortalCastPrewarm("world reset", retireScene: false);
         _particles?.ClearMagePortalApertures();
         _realPortals.Clear();
         _realPortalRemoveScratch.Clear();
@@ -1382,6 +1655,8 @@ public sealed partial class GameLoop
 
     private void DisposeRealPortals()
     {
+        _realPortalCastPrewarm = null;
+        _realPortalPrewarmCatalog = [];
         _particles?.ClearMagePortalApertures();
         _realPortals.Clear();
         _realPortalSceneGuid = 0;

@@ -2,8 +2,12 @@
 
 **Status:** first environmental-window vertical slice built 2026-08-13;
 client-detected crossing, prepared-scene promotion, and destination exit
-clipping are built. Server-verified movement crossing and remote actors remain
-pending. See `docs/systems/SYSTEM_REAL_PORTALS.md`.
+clipping are built. On 2026-08-14, existing-portal warm relevance moved to
+150-yard entry/180-yard exit while aperture presentation remained 90/120, and
+accepted own-player portal START gained server-catalog prewarm. Exact
+`GAMEOBJECT_CREATED_BY` binding and the later authoritative descriptor still gate
+render/READY. Server-verified movement crossing and remote actors remain pending.
+See `docs/systems/SYSTEM_REAL_PORTALS.md`.
 
 **Written:** 2026-08-12.  
 **Scope:** summoned Mage portal GameObjects in the standalone MSUI client and the
@@ -11,8 +15,11 @@ custom VMaNGOS/SuperUI core.
 **Evidence boundary:** the client and the checked-in `.reference-vmangos-core`
 were read directly. The live customized SuperUI core was reconciled on
 2026-08-13: opcodes 844-847 and the four fixed packet layouts are now shared by
-both implementations. The core currently provides descriptor/readiness leases;
-the verified movement-crossing hook described below is not built yet.
+both implementations. The 2026-08-14 client also consumes the control-ACK's
+bit-1 six-row cast-prewarm catalog. The core provides descriptor/readiness
+leases; the verified movement-crossing hook described below is not built yet.
+That extension changed when the existing one-slot load starts, not render
+resolution, quality, culling, scheduling, or residency policy.
 
 ---
 
@@ -50,8 +57,9 @@ The target is not “make the portal model bigger.” It is a temporary dual-wor
 client:
 
 1. The source world remains active and playable.
-2. Approaching a Mage portal begins a **per-player**, cancellable preload of a
-   lightweight destination scene.
+2. Approaching an existing Mage portal begins a **per-player**, cancellable
+   preload at 150 yards (retained through 180); an accepted own-player portal
+   START may begin the same warm before its GameObject exists.
 3. That scene is rendered through a tall, wide, nearly zero-depth aperture with
    correct parallax.
 4. A paper-thin local membrane prevents this player crossing until the preview,
@@ -660,6 +668,11 @@ Absent
   -> Active
 ```
 
+The shipped cast-start warm is a provisional asset state before `Discovered`,
+not a readiness state. It joins this chain only after exact spawned-object
+correlation and an authoritative descriptor; it cannot produce `VisualReady` on
+its own.
+
 Terminal/recovery branches:
 
 ```text
@@ -722,6 +735,16 @@ On GameObject create/update:
 2. Identify type 22 and ask the server whether the entry is REAL_PORTALS-enabled.
 3. Create/update `PortalVisualInstance` by GUID.
 4. Remove it on destroy, out-of-range, despawn, or map boundary.
+
+The shipped client separates warm and visible relevance: a GameObject enters the
+warm/descriptor lane at 150 yards and remains there through 180, while its
+procedural aperture enters at 90 and remains through 120. In addition, an
+accepted own-player `SMSG_SPELL_START` for one of the server catalog's six summon
+spells may begin a provisional destination warm before discovery. The later
+GameObject binds that cast only when its portal entry matches and
+`GAMEOBJECT_CREATED_BY` equals the caster GUID; normal PREPARE/DESCRIPTOR then
+must match the catalog destination exactly before the warm can render or report
+READY.
 
 The client may use type 22 plus the template spell for early cosmetic prediction,
 but the server descriptor is the production classification. Not every spellcaster
@@ -1038,7 +1061,7 @@ real_portal_template
   half_width
   half_height
   plane_epsilon
-  preload_radius
+  preload_radius          // version-1 shipped preparation radius: 150 yards
   flags
 ```
 
@@ -1090,7 +1113,9 @@ On client READY, validate in this order:
 4. GO is REAL_PORTALS-enabled type 22.
 5. spawn generation, descriptor revision, and ticket match.
 6. GO is spawned, visible/in phase, and interactable.
-7. Player is within the configured preload radius.
+7. Player is within the version-1 150-yard preparation radius. Client-side warm
+   retention may continue through 180 yards, but does not expand server READY
+   admission.
 8. teleport spell and server target metadata still resolve.
 9. shared type-22 eligibility passes without side effects.
 10. lifetime/charges/cooldown permit a future use.
@@ -1177,21 +1202,17 @@ the client must detect this and fall back.
 
 ### 12.1 Opcode authority first
 
-The client currently defines custom SUI opcodes `0x033C` through `0x0349` in
-`MSUIClient/Net/Opcodes.cs`. The checked-in reference core does not contain that
-custom protocol, and stock VMaNGOS treats opcodes outside `NUM_MSG_TYPES` as
-malformed.
+The live SuperUI core and client share the shipped REAL_PORTALS block 844-847
+(`0x034C`-`0x034F`) and the four exact packet layouts below. Support is discovered
+through the existing zero-guid `CMSG_SUI_CONTROL_REQUEST`; the client sends no
+portal opcode until the ordinary control ACK carries the self-identifying `SUI1`
+trailer with capability bit 0.
 
-Therefore:
-
-1. Read the live SuperUI core’s `SUI_WIRE_PROTOCOL.md` and opcode table.
-2. Confirm its capability negotiation and `IsSuiCapable` behavior.
-3. Reserve symbols there before editing either side.
-4. If the current range is exactly the client range, the provisional next block
-   is `0x034A` onward; these numbers are **not authoritative until that audit**.
-5. Never probe an unmodified server with an unknown out-of-range opcode. When
-   REAL_PORTALS support is not negotiated/configured, use ordinary clickable
-   portals.
+The checked-in reference core does not contain this custom protocol, and stock
+VMaNGOS treats unknown out-of-range opcodes as malformed. Future wire additions
+must still be reserved in the live core first. When REAL_PORTALS support is not
+negotiated/configured, use ordinary clickable portals and never probe with a
+portal opcode.
 
 Custom SMSGs are only sent to a session which first identified itself as SUI
 capable. Stock clients never see this protocol.
@@ -1210,8 +1231,45 @@ SMSG_SUI_PORTAL_STATE
 No custom teleport/commit message is required in the chosen design; verified
 normal movement is the crossing signal.
 
-All packets are versioned, exact-length, and little-endian through the existing
-packet writer/reader conventions.
+The four portal-opcode bodies are versioned, exact-length, and little-endian
+through the existing packet writer/reader conventions. The separately negotiated
+control-ACK suffix is length-checked by its own versioned extension blocks.
+
+#### Capability trailer and cast-start catalog
+
+The fixed `SMSG_SUI_CONTROL_ACK` prefix may have this historical suffix:
+
+```text
+u32 magic = "SUI1"
+u32 capabilityMask        // bit 0 = REAL_PORTALS v1
+```
+
+Capability bit 1 means this catalog follows immediately:
+
+```text
+u8  version = 1
+u8  rowCount = 6
+u16 rowLength = 32
+
+repeat 6:
+  u32 summonSpellId
+  u32 portalEntry
+  u32 teleportSpellId
+  u32 previewMapId
+  f32 previewX
+  f32 previewY
+  f32 previewZ
+  f32 previewOrientation
+```
+
+The catalog is all-or-nothing and must contain the six stock identity triplets
+`10059/176296/17334`, `11416/176497/17607`, `11417/176499/17609`,
+`11418/176501/17611`, `11419/176498/17608`, and
+`11420/176500/17610` exactly once. Row order is irrelevant; duplicate, partial,
+wrongly paired, non-finite, or malformed catalogs disable cast-start prewarm.
+Capability bit 0 remains independently usable. Catalog destination data may warm
+assets on own-player START, but exact creator/entry correlation and the later
+descriptor are required before render/READY.
 
 #### `CMSG_SUI_PORTAL_PREPARE`
 

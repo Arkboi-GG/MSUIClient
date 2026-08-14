@@ -19,6 +19,7 @@ public sealed partial class GameLoop
 
     private void ApplySpellCastFailureResult(uint spellId, byte reason)
     {
+        FailRealPortalCastPrewarmResult(spellId);
         string name = SpellCastResultNames.Name(reason);
         EmitSpellServerResult(spellId, name);
         string power = _spellCatalog?.TryGet(spellId, out SpellInfo spell) == true

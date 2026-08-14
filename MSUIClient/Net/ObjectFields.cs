@@ -21,6 +21,12 @@ public sealed class ObjectFields
     public const ushort OBJECT_ENTRY = 3;            // creature/gameobject template entry
     public const ushort OBJECT_SCALE_X = 4;          // f32
 
+    // GameObject update fields begin at the same build-5875 index as the Unit
+    // family. This public creator GUID is written by VMaNGOS SetOwnerGuid for
+    // summoned objects and lets portal cast prewarm bind to the caster's exact
+    // spawned GameObject instead of guessing by entry or proximity.
+    public const ushort GAMEOBJECT_CREATED_BY = 6;   // guid
+
     public const ushort UNIT_FIELD_CHARM = 6;        // guid of controlled/charmed unit
     public const ushort UNIT_FIELD_SUMMON = 8;       // guid of owned summon/pet
     public const ushort UNIT_FIELD_CHARMEDBY = 10;   // guid of controlling unit
@@ -220,6 +226,8 @@ public sealed class ObjectFields
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
     public uint GameObjectType => GetU32(GAMEOBJECT_TYPE_ID) ?? 0;
+    public ulong? GameObjectCreatedBy =>
+        GetGuid(GAMEOBJECT_CREATED_BY) is { } g && g != 0 ? g : null;
     /// <summary>GAMEOBJECT_ROTATION as a quaternion. All-zero when the server
     /// left the fields unset — the renderer then falls back to the movement
     /// block's Orientation (see <see cref="WorldEntity.GameObjectFacing"/>).</summary>

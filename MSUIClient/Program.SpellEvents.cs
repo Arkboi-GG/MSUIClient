@@ -49,8 +49,10 @@ public sealed partial class GameLoop
                         EmitSpellServerResult(e.SpellId, "SMSG_SPELL_FAILED_OTHER");
                     ApplySpellFailure(e.Caster, e.SpellId, "INTERRUPTED");
                     break;
-                case SpellDelayedEvent e when e.Caster == _net?.PlayerGuid:
-                    DelayCastBar(e.DelayMs);
+                case SpellDelayedEvent e:
+                    DelayRealPortalCastPrewarm(e.Caster, e.DelayMs);
+                    if (e.Caster == _net?.PlayerGuid)
+                        DelayCastBar(e.DelayMs);
                     break;
                 case SpellChannelStartEvent e:
                     EmitSpellServerResult(e.SpellId, "MSG_CHANNEL_START");

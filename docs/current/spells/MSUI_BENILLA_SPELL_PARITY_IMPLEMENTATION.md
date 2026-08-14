@@ -199,10 +199,16 @@ At START the router:
 - spawns every resolved effect slot as persistent hold FX;
 - begins the authored player/creature body hold;
 - snaps ranged sheath state;
-- starts a normal cast bar only for timed, non-ranged player casts.
+- starts a normal cast bar only for timed, non-ranged player casts;
+- offers the accepted START to the REAL_PORTALS cast-prewarm side consumer.
 
 Implementation: `MSUIClient/Program.Casting.cs:26-51`. This follows A §4.1/§4.2, §11.4, §12.7, and
 §16.4.
+
+The portal consumer accepts only the controlled player's six stock summon spell
+IDs from the server-authored capability catalog. START may call
+`PortalDestinationScene.BeginPrewarm`, but this does not alter spell presentation
+or authorize a portal frame, READY, use, or teleport.
 
 ### 6.2 GO / CAST
 
@@ -215,9 +221,15 @@ At GO the router:
 - releases the body animation and completes the matching cast bar;
 - clears matching pending/next-swing state;
 - starts independent spell/category cooldowns for the local player;
-- preserves hit and miss target order for the arrival path.
+- preserves hit and miss target order for the arrival path;
+- marks a matching provisional portal warm as released and starts its bounded
+  spawned-object correlation grace period.
 
 Implementation: `MSUIClient/Program.Casting.cs:53-90`. This follows A §4.1/§4.2, §16.7, and §19.3.
+
+`SMSG_SPELL_DELAYED` extends the matching portal prewarm deadline only before GO.
+The later portal GameObject still must bind by its exact creator GUID and expected
+entry, then receive a matching authoritative descriptor before render/READY.
 
 ### 6.3 IMPACT and STATE
 
@@ -242,7 +254,10 @@ non-combat visuals from making the target flinch.
 A failure clears only matching local pending/queued state, cancels that caster's body hold, stops its
 tracked sound, and reaps its persistent hold FX without playing the release kit. Remote
 `SMSG_SPELL_FAILED_OTHER` uses the same visual cleanup. See
-`MSUIClient/Program.Casting.cs:187-200` and `MSUIClient/Program.SpellEvents.cs:44-51`.
+`MSUIClient/Program.Casting.cs:206-219` and `MSUIClient/Program.SpellEvents.cs:44-51`.
+
+A matching own-player portal failure also cancels and retires its still-provisional
+destination warm. Remote failure cleanup does not start or adopt a portal warm.
 
 This is A §4.1 FAIL and §16.2.
 
@@ -510,7 +525,7 @@ for that unit. See `MSUIClient/World/Spells/SpellSoundSystem.cs:13-170`.
 - PUSHED KIT: play the raw kit's sound.
 - MISSILE: start an independent loop on actual launch; stop on arrival/destruction.
 
-Triggers are in `MSUIClient/Program.Casting.cs:26-38,53-64,110-119,132-170,187-200,332-381,536-574`.
+Triggers are in `MSUIClient/Program.Casting.cs:26-38,53-64,110-119,132-170,206-219,332-381,536-574`.
 Ownership initialization and shutdown are `MSUIClient/Program.Net.cs:46,123` and
 `MSUIClient/Program.cs:3239-3244`.
 
