@@ -22,9 +22,10 @@ redesign owner decisions listed there. The vmangos box is `wowvmangos@192.168.0.
   patrol routes + provenance, via CSV fallback) live-verified by scripted runs; P3
   (editing → change-set files) build-verified only — **the click flow below is exactly
   what needs human testing.**
-- `NpcDevController.cs` (JSON snapshot endpoint) has been copied to this PC for deploy
-  into the MangosSuperUI checkout → publish → box (recipe in NPC_DEV_WINDOW.md §12;
-  ⚠ restarting mangossuperui also restarts the bot brain). Until deployed the client
+- `NpcDevController.cs` (JSON snapshot endpoint) has been copied to this PC for the
+  owner to deploy into the MangosSuperUI checkout → publish → box. Codex may build
+  the publish artifact but must not install, deploy, or restart it; restarting
+  mangossuperui also restarts the bot brain. Until the owner deploys it, the client
   falls back to CSV exports automatically — everything still works.
 - P4 (MangosSuperUI upload/verify/apply pages) is NOT built; the change-set JSON files
   are the end of the line for now. That is expected, not a bug.
@@ -123,8 +124,8 @@ happens later in MangosSuperUI (P4, not built yet).
 
 ---
 
-**Agent, after printing the above:** offer to (a) deploy the NpcDevController into this
-PC's MangosSuperUI checkout + publish to the box (recipe §12 — confirm with the owner
-before the restart, it bounces the bot brain), and (b) triage whatever the test turns
-up. Client-side fixes need no server pairing. Keep NPC_DEV_WINDOW.md current as things
-change — it is the canonical doc.
+**Agent, after printing the above:** offer to (a) prepare and build the
+NpcDevController publish artifact, stopping before installation, deployment, or any
+runtime action so the owner can handle those steps, and (b) triage whatever the test
+turns up. Client-side fixes need no server pairing. Keep NPC_DEV_WINDOW.md current as
+things change — it is the canonical doc.

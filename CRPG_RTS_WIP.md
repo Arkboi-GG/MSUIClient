@@ -49,7 +49,8 @@ Open items going into the next session:
 `CMSG_SUI_RTS_ACTION`/`SMSG_SUI_RTS_ACTION_RESULT`), `NUM_MSG_TYPES` → 842, and the
 zone-intel zone row grew 8→9 bytes (+controller, 0 until R3). The pending server
 binary now carries: commander map (836/837) + worldstate scaffold + R1. Client is
-built to match. Nothing installed yet — owner's `make install` + screen restart.
+built to match. Nothing installed yet — owner-only deployment and service restart
+remain pending; agents stop after the build.
 
 The full phased plan (R1–R5) is approved and recorded (plan file + this doc's
 Parts 3–5). R1 delivers: `SuiRts` module (`src/game/SuperUiBots/SuiRts.{h,cpp}`) —
@@ -102,7 +103,8 @@ match work will be its first customers. To hand-flip a test world:
 
 ⚠ **WIRE CHANGE — client and server deploy TOGETHER** (new opcode pair; a new
 client against the live pre-836 binary gets kicked on the first M in free view).
-Server compiled on the box; `make install` + screen restart is the owner's call.
+Server compiled on the box; owner-only deployment and service restart remain
+pending. Agents stop after the build.
 Client compiled clean. Neither has been seen in play yet.
 
 Owner decisions taken this session (interaction model, supersedes "TBD click
@@ -361,9 +363,10 @@ Server access: `ssh -i ~/.ssh/id_ed25519_msui_vmangos_travel_20260731
 wowvmangos@192.168.0.2` — on THIS machine (2026-08-12) the repo
 `MSUIClient/local-credentials/vmangos_ed25519` path does NOT exist and the
 travel key is the working one; on the desktop the repo key may still apply.
-Build: `cd ~/vmangos/build && cmake --build . -j$(nproc)`. Deploy (owner runs it):
-`make install`, then restart the **screen session** — mangosd is NOT under systemd:
-`/usr/bin/SCREEN -DmS mangosd ~/vmangos/run/bin/mangosd`. Server logs:
+Build: `cd ~/vmangos/build && cmake --build . -j$(nproc)`. Codex stops after a
+successful build. Installation, deployment, and all runtime control belong only
+to Nico. `mangosd` is managed by `mangosd.service`, which owns its detached
+screen session; never launch a second screen manually. Server logs:
 `~/vmangos/run/bin/Server.log` (+ Movement.log etc. beside it); grep `[SUI]`,
 `[AIBOT-DOCTRINE]`, `[SUI-FOLLOW]`, `[cutaway]` (client console) for this feature.
 
@@ -372,15 +375,16 @@ Build: `cd ~/vmangos/build && cmake --build . -j$(nproc)`. Deploy (owner runs it
 Today's "Ctrl+F logs me out" bug was exactly this: the client sent the new
 `CMSG_SUI_CAM` (835/0x343) to a server built before that opcode existed → the
 unknown-opcode path **kicks the session**. If you add/repurpose opcodes, the
-server one-liner above must run before the client is tested.
+owner must install and restart the matching server before the client is tested.
 
 **Still true as of 2026-08-10 22:0x** — verified on the box: `mangosd` has been
 running since **09:37**, but `6ed7716a6` (CMSG_SUI_CAM) landed at **19:32** and
 `build/src/mangosd/mangosd` (20:23, matching HEAD `33e15c1f6`) was never
 installed. The live binary's `NUM_MSG_TYPES` is 835, so opcode 835 trips
 `IsDefinitelyBogusOpcode` and the socket closes — the free view sends its first
-cam heartbeat within a frame of entering, hence "Ctrl+F boots me". **`make
-install` + restart is the entire fix; nothing is wrong in the client here.**
+cam heartbeat within a frame of entering, hence "Ctrl+F boots me". **The
+owner-only install and service restart are the entire fix; nothing is wrong in
+the client here. Agents stop after the build.**
 
 ## SUI order codes (CMSG_SUI_ORDER)
 

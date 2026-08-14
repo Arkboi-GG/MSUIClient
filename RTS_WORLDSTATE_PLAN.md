@@ -299,16 +299,18 @@ All in Program.CommanderMap.cs (+ the 4 wire-plumbing files); no new windows.
 Interleaved by play-test value: **R1 server â†’ R5.1 editor (tests R1) â†’ owner
 play-test â†’ R2 (server+wire+client together) â†’ play-test â†’ R5.2 swap + R5.3
 factions â†’ R3 (server+data+client) â†’ play-test â†’ R5.4 brain orders â†’ R4 â†’ final
-loop test.** Each server phase: build on the box; owner runs `make install` +
-screen restart; wire-touching phases deploy client and server together. The
+loop test.** Each server phase: agents stop after the build; Nico alone installs,
+deploys, and controls the systemd-managed runtime. Wire-touching phases deploy
+client and server together. The
 R5/R1 shared KV key list lives in `docs/SUI_WIRE_PROTOCOL.md`'s new ruleset
 appendix (single source both sides read). After each phase: update
 `CRPG_RTS_WIP.md` (session record + verification outcomes) and project memory.
 
 ## Verification (cross-phase)
 
-Each phase ends with: server build on the box, owner-run `make install` + screen
-restart (paired client deploy when the phase touches wire), then the phase's in-play
+Each phase ends with: server build on the box, followed by Nico's owner-only
+installation and service restart (paired client deploy when the phase touches wire),
+then the phase's in-play
 checklist run in a live session; `.sui worldstate rts` (or the DB row) flips the
 test world; `.sui worldstate vanilla` must render every phase mechanic inert
 (regression gate before each deploy).

@@ -380,8 +380,8 @@ fetched (`sourceSnapshotUtc` anchors staleness) — P4's verify diffs current DB
   `sql\vmangos_admin_schema.sql` AND `Services\DbInitializationService.cs` bootstrap;
   `scheduled_actions` is the shape template.
 - After apply, changes are in the DB but the running mangosd holds cached
-  spawns/paths — a `.reload` or restart (owner's call) makes them live; the Verify page
-  should say so.
+  spawns/paths. The Verify page should say that Nico must make them live; agents must
+  not issue a `.reload`, restart, or any other runtime-control command.
 
 ---
 
@@ -389,16 +389,12 @@ fetched (`sourceSnapshotUtc` anchors staleness) — P4's verify diffs current DB
 
 - **Client**: no pairing needed with anything — ship whenever. (This feature adds no SUI
   opcodes; the CRPG hard rule doesn't apply here.)
-- **MangosSuperUI** (`mangossuperui.service` on 192.168.0.2, app at `/opt/mangossuperui`,
-  deployed via `~/deploy.sh` which copies from `/tmp/mangossuperui-deploy/` and restarts):
-
-```bash
-cd /c/Users/nico/source/repos/MangosSuperUI && dotnet publish MangosSuperUI/MangosSuperUI.csproj -c Release -o publish && scp -i ~/.ssh/id_ed25519_msui_vmangos_travel_20260731 -r publish/. wowvmangos@192.168.0.2:/tmp/mangossuperui-deploy/ && ssh -i ~/.ssh/id_ed25519_msui_vmangos_travel_20260731 wowvmangos@192.168.0.2 '~/deploy.sh'
-```
-
-  ⚠ Restarting mangossuperui **restarts the bot brain in the same process** (fleet bots
-  reconnect) — time it accordingly. Until deployed, the client silently uses the CSV
-  fallback; after deploy, the source line in the window flips to "snapshot".
+- **MangosSuperUI** (`mangossuperui.service` on 192.168.0.2, app at
+  `/opt/mangossuperui`): agents may prepare and build the publish artifact, then must
+  stop. Nico alone installs/deploys it or controls the service. Restarting
+  mangossuperui also restarts the bot brain in the same process (fleet bots
+  reconnect). Until Nico deploys it, the client silently uses the CSV fallback;
+  afterward, the source line in the window flips to "snapshot".
 
 ---
 

@@ -200,8 +200,11 @@ level unchanged. Restore the observed values after every capture. SPEC-21 P2
 observed and restored console/file levels `2/2` and combat filter `off`.
 
 The deployed world process is
-`/home/wowvmangos/vmangos/run/bin/mangosd`, working in the same directory and
-running as detached screen session `mangosd`. Its config is
+`/home/wowvmangos/vmangos/run/bin/mangosd`, working in the same directory. It is
+owned by `mangosd.service`; that systemd unit launches the detached screen
+session `mangosd`. Never launch another `mangosd` screen manually. Installation,
+deployment, and every start/stop/restart/reload/signal action are Nico-only;
+Codex may inspect read-only state and build, but must stop there. Its config is
 `/home/wowvmangos/vmangos/run/etc/mangosd.conf`; `LogsDir = ""`, so `Server.log`
 and the other configured logs sit beside the binary. The process console is
 `/dev/pts/1`. Bounded console captures use screen's temporary logging, never a
