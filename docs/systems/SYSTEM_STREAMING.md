@@ -13,7 +13,7 @@ measured, not estimated**, and the ones that are still open are marked as open.
 
 Owner files: `Program.cs` (`UpdateWorldResidency`, `PopulateDoodads`,
 `QueueVisibleDoodadDemand`, `BeginCollisionBuild`, the `Update`/`Render` phase
-timers), `Program.Hitch.cs`, `Engine/HitchRecorder.cs`, `Engine/ClientWindow.cs`
+timers), `GameLoop/Dev/GameLoop.Hitch.cs`, `Engine/HitchRecorder.cs`, `Engine/ClientWindow.cs`
 (frame boundary timers), `Engine/AssetWorkerPool.cs`, `Engine/GpuUploadWorker.cs`,
 `Engine/GpuFrameProfiler.cs`, `World/TerrainRenderer.cs` (`QueuePreload`,
 `SetResidency`, `PumpPreloads`), `World/AdtCache.cs`,
@@ -723,7 +723,7 @@ All three are **well under 1 M/ms**. Against §5A.16's two branches:
   theory, and with it the "stop it spinning" fix — adaptive vsync,
   `EXT_swap_control_tear`, our own pacing to pre-empt a spin — is not the answer.
 - **<1 M/ms — the thread was not running.** Blocked in a kernel wait or
-  descheduled. `Program.Hitch.cs`'s own note on this branch: *"A driver vsync
+  descheduled. `GameLoop/Dev/GameLoop.Hitch.cs`'s own note on this branch: *"A driver vsync
   wait looks like this."*
 
 **The control that makes the reading trustworthy.** The same run's foliage

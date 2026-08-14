@@ -8,7 +8,7 @@ rendering fix will run through, so we stop trying reasonable-seeming things at
 random and start closing a loop we can both read.
 
 **Status: BUILT (2026-07-25).** Plans 01–04 and 06 are code; 05's `TuningState`
-exists in `Program.DevTools.cs` but the HUD is not fully reorganized. §11's plan
+exists in `GameLoop/Dev/GameLoop.DevTools.cs` but the HUD is not fully reorganized. §11's plan
 index is the per-step detail. Section 7 is the ordered build sequence it was
 built in; sections 3–6 are the specs those steps implement and remain the
 reference for what each piece is *supposed* to do.
@@ -23,7 +23,7 @@ reference for what each piece is *supposed* to do.
 >
 > *One live violation of §12's seam, recorded here because this is the document
 > that defines it: authored exterior lighting is applied from inside
-> `Program.LightProbe.cs`, which early-returns when DevTools is off. Core's
+> `GameLoop/Dev/GameLoop.LightProbe.cs`, which early-returns when DevTools is off. Core's
 > lighting therefore depends on the dev layer running. Handbook §4 and §7.1 item
 > 4 carry the fix.*
 

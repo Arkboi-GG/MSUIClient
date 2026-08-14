@@ -258,7 +258,7 @@ point 6, R = ModelName2 / point 5) and both are needed. Shields mount on **LeftW
 Humanoid NPCs and beasts move on `SMSG_MONSTER_MOVE` (0xDD) splines: packed 11/11/10-bit
 quarter-yard points decoded in `Net/MonsterMove.cs`, driving each instance's position and
 feeding the animator its gait (idle vs walk vs run) from the spline's speed. `Net/Entities.cs`
-+ `Program.Net.cs` carry the object-update stream that spawns/despawns units and supplies the
++ `GameLoop/Scene/GameLoop.Net.cs` carry the object-update stream that spawns/despawns units and supplies the
 display id the resolver turns into a model. Without this, NPCs stand frozen at spawn — the
 original "no movement on any NPCs" report.
 

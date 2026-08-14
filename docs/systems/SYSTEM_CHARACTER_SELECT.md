@@ -48,7 +48,7 @@ The reference files that mattered this session are indexed at the bottom.
   before (`new GlueScene(gl, mpq, config)` -> UI_MainMenu, fog on) and is meant to be byte-identical.
 - `Engine/GlueBooth.cs` - NEW. The char-select booth: owns the per-race GlueScene + a booth-owned
   CharacterRenderer, does the camera lock + stage placement, and holds `BoothTune` (the dev knobs).
-- `Program.Net.cs` - booth wiring (`_booth`, `InitNet`, `DrawCharacterSelectScene`, dispose on
+- `GameLoop/Scene/GameLoop.Net.cs` - booth wiring (`_booth`, `InitNet`, `DrawCharacterSelectScene`, dispose on
   enter-world), the SKINNED `DrawCharacterSelect` (replaced the debug ImGui window), the
   `DrawBoothTuning` modal, and `RealmDisplayName()`.
 - `Program.cs` - one line: `DrawCharacterSelectScene();` right after `DrawGlueScene();` in Render().
@@ -62,11 +62,11 @@ The reference files that mattered this session are indexed at the bottom.
   `BackdropFillSlice` (the GL-side patch geometry) (2026-07-29).
 - `Engine/ClientWindow.cs` - `OnOverlay` / `OnOverlayTop` hooks: dedicated GL passes composited UNDER
   / OVER the ImGui HUD, for the additive highlight (2026-07-29).
-- `Program.Settings.cs` - constructs `GlueAdditive` (guarded; falls back to the straight-alpha
+- `GameLoop/Panels/GameLoop.Settings.cs` - constructs `GlueAdditive` (guarded; falls back to the straight-alpha
   highlight if the GL setup throws).
 
 Second pass (2026-07-29), on top of the above:
-- `Program.CharCreate.cs` - the whole create-screen chrome + `CreateTune` (its dial bank).
+- `GameLoop/Panels/GameLoop.CharCreate.cs` - the whole create-screen chrome + `CreateTune` (its dial bank).
 - `Net/WorldSession.cs` - `DeleteCharacter` (CMSG_CHAR_DELETE -> SMSG_CHAR_DELETE).
 - `Net/NetworkClient.cs` - `ParkReq.Delete` + `DeleteCharacter` / `TryTakeDeleteResult`, and the
   **login retry fix** (section 10.3).
@@ -126,7 +126,7 @@ Y-up, but CharacterRenderer works in WoW Z-up with its own orbit Camera. The bri
 Depth is SHARED with the scene (no depth clear) - the two-pass render (below) lays down opaque
 depth first, so the character occludes/composites correctly.
 
-## 2. The 2D chrome (phase 3) - Program.Net.cs DrawCharacterSelect
+## 2. The 2D chrome (phase 3) - GameLoop/Scene/GameLoop.Net.cs DrawCharacterSelect
 
 Full-bleed skinned chrome over the booth, same WowSkin approach as the login (logo, tinted
 Glue-Tooltip backdrop, GlueButton, GlueText), scaled to a 1024x768 canvas by s = height/768:
@@ -566,7 +566,7 @@ Three tuning surfaces, three console lines to re-bake from:
 |---|---|---|---|
 | `BoothTune` | `Engine/GlueBooth.cs` | `[booth-tune]` | the 3D booth: character lighting, scale, drag rate, backdrop tint/fill |
 | `GlueTune` | `Engine/UI/WowSkin.cs` | `[glue-tune]` | shared glue chrome + the char-SELECT layout |
-| `CreateTune` | `Program.CharCreate.cs` | `[cc-tune]` | the char-CREATE layout |
+| `CreateTune` | `GameLoop/Panels/GameLoop.CharCreate.cs` | `[cc-tune]` | the char-CREATE layout |
 
 **Signed off by Nico 2026-07-29** (baked as the field defaults AND in each `Reset()`):
 

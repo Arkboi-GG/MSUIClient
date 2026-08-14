@@ -206,7 +206,7 @@ one changes, both must.
   the most likely next real gain for interiors. **Its blocker is now gone
   (2026-07-25):** MFOG needs to know which group the camera is in, and PLAN_10
   D1 built exactly that readout — `WmoRenderer.CameraGroup`, shown in the
-  Portals panel (`Program.Portals.cs`). Note also that exterior fog is no longer
+  Portals panel (`GameLoop/Dev/GameLoop.Portals.cs`). Note also that exterior fog is no longer
   invented; `LightIntBand` band 7 is the authored *outdoor* fog colour
   (SYSTEM_EXTERIOR_LIGHTING.md §2.2), so an interior fog pass now has a
   data-driven neighbour to blend against rather than a hand-tuned one.

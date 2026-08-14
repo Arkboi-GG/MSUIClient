@@ -16,7 +16,7 @@ open are marked as open.
 Owner files: `World/ExteriorLighting.cs` (resolve), `World/WorldAtmosphere.cs`
 (evaluate + apply), `World/DayNightCycle.cs` (`World\dnc.db`, the vanilla
 day/night intensity table), `World/SkyRenderer.cs` + `Shaders/sky.vert|frag`
-(draw), `Program.LightProbe.cs` (the instrument), the four Light tables in
+(draw), `GameLoop/Dev/GameLoop.LightProbe.cs` (the instrument), the four Light tables in
 `Formats/DbcReader.cs`.
 
 ---
@@ -221,7 +221,7 @@ class as rebuilding placements at a tile boundary.
 > inverted:** the rule is *core decides, the dev layer observes*, and here the
 > dev layer decided and core followed.
 >
-> **The fix.** `Program.LightProbe.cs` now has two halves:
+> **The fix.** `GameLoop/Dev/GameLoop.LightProbe.cs` now has two halves:
 >
 > - `UpdateExteriorLighting()` — **core, runs in every build.** Detects the
 >   convention, resolves at the **world clock**, calls `SetAuthored`.
@@ -328,13 +328,13 @@ key no longer exists):
   carries a bit-packed game time (minute:6, hour:5, weekday:3, day:6, month:4,
   year:5 from the LSB) plus a timescale in game-minutes per real second
   (0.01666667 = real time). `World\WorldClock.cs` decodes it in the
-  `Program.Net.cs` drain and advances it locally from the receive stamp; until
+  `GameLoop/Scene/GameLoop.Net.cs` drain and advances it locally from the receive stamp; until
   a server time arrives (offline, creator mode) it follows the machine's wall
   clock rather than freezing at noon.
 - **Fixed** — the pinned-hour slider, the pre-v7 behaviour.
 - **Cycle** — the accelerated debug day/night (`GameHoursPerMinute`).
 
-`UpdateWorldClock` (Program.LightProbe.cs, beside the resolve — it is CORE,
+`UpdateWorldClock` (GameLoop/Dev/GameLoop.LightProbe.cs, beside the resolve — it is CORE,
 same as `UpdateExteriorLighting`) writes `WorldAtmosphere.TimeOfDayHours` once
 per frame, before the Light.dbc resolve consumes it, so **both lighting modes**
 (MSUI raw and Parity's dnc.db curve) light the same instant. The DevTools HUD
@@ -380,7 +380,7 @@ building the probe before touching a colour.
 
 ## 6. The instrument — the light probe
 
-`Program.LightProbe.cs`, HUD panel *"Light probe — what the DBCs say"*. It
+`GameLoop/Dev/GameLoop.LightProbe.cs`, HUD panel *"Light probe — what the DBCs say"*. It
 resolves the chain for the player's position and time and shows, in one place:
 contributing zones with distances and blend weights, all 18 colours with
 swatches, all 6 scalars, and a **`data` vs `applied` block with deltas**.

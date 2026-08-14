@@ -160,7 +160,7 @@ scratch what already existed, twice.
 | `WmoRenderer.cs` | Group draw loop, the 120-yard interior rule, the existing group picker |
 | Handbook §3.26 | MOGP offsets; interior/exterior classification; the temporary 120-yard rule this replaces |
 | Handbook §3.34, §3.35 | The `ALWAYS_DRAW` interior shells that must NOT be treated as portal cells (D5) |
-| `Program.DevTools.cs` `DumpScene` | Where a `portals` block belongs |
+| `GameLoop/Dev/GameLoop.DevTools.cs` `DumpScene` | Where a `portals` block belongs |
 | WoWee `src/rendering/wmo_*` | Check whether it implements traversal; if it does not, this is ours to derive |
 
 ## 6. Tools / instrument

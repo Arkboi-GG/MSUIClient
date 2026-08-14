@@ -34,7 +34,7 @@ FrameXML that ships in the same archive.
 | `Engine/UI/WowSkin.cs` | The art. Loads the BLPs, draws backdrops / buttons / checkboxes / sliders, pushes the ImGui style. Knows nothing about settings. |
 | `Engine/UI/UiFont.cs` | Extracts `FRIZQT__.TTF` from the archives to a temp file before the window exists. |
 | `Engine/GameSettings.cs` | Pure data + `settings.json` + presets + composite curves. No renderer references, no GL, no ImGui. |
-| `Program.Settings.cs` | The frames, and the two-way bridge between `GameSettings` and the live renderers (`ApplySettings` / `CaptureSettings`). |
+| `GameLoop/Panels/GameLoop.Settings.cs` | The frames, and the two-way bridge between `GameSettings` and the live renderers (`ApplySettings` / `CaptureSettings`). |
 
 Plus small hooks: `Program.Main` (font extraction, restart-scoped settings,
 deferred quit), `Engine/ClientWindow.cs` (font path → `ImGuiController`),

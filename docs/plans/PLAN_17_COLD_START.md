@@ -52,31 +52,31 @@ Program.cs:1097   if (_worldLoading) { StepWorldLoad(dt); return; }
 Program.cs:1099   PumpNet(dt);        // unreachable while loading
 ```
 
-`PumpNet` (`Program.Net.cs:215`) is the **only** drain of the packet queue and the only
-handler of `SMSG_UPDATE_OBJECT` / `SMSG_COMPRESSED_UPDATE_OBJECT` (`Program.Net.cs:222-239`).
-While `_worldLoading` is true — set at `Program.Loading.cs:126` by `BeginWorldLoad`, cleared
-only when the fade completes at `Program.Loading.cs:436` — zero packets are applied, so
+`PumpNet` (`GameLoop/Scene/GameLoop.Net.cs:215`) is the **only** drain of the packet queue and the only
+handler of `SMSG_UPDATE_OBJECT` / `SMSG_COMPRESSED_UPDATE_OBJECT` (`GameLoop/Scene/GameLoop.Net.cs:222-239`).
+While `_worldLoading` is true — set at `GameLoop/Scene/GameLoop.Loading.cs:126` by `BeginWorldLoad`, cleared
+only when the fade completes at `GameLoop/Scene/GameLoop.Loading.cs:436` — zero packets are applied, so
 `entities.Units` is empty and `CreatureRenderer.Render` (`CreatureRenderer.cs:258`) iterates
 nothing. Creatures are last **by omission, not by design**: they are not a phase in
-`WorldLoadPhase` (`Program.Loading.cs:78-90`) at all.
+`WorldLoadPhase` (`GameLoop/Scene/GameLoop.Loading.cs:78-90`) at all.
 
 The code's own contract is violated twice over:
-- `Program.Net.cs:150`: *"Called near the top of Update(dt), before the world-load guard."*
+- `GameLoop/Scene/GameLoop.Net.cs:150`: *"Called near the top of Update(dt), before the world-load guard."*
   It is called after.
-- `Program.Loading.cs:98`: *"This curtain deliberately does not set `_worldLoading`: Update
+- `GameLoop/Scene/GameLoop.Loading.cs:98`: *"This curtain deliberately does not set `_worldLoading`: Update
   must keep pumping the socket."* — engineered for `ArmEnterWorldCurtain`, then destroyed by
   `BeginWorldLoad` (`:126`), which is itself invoked *from inside `PumpNet`*
-  (`Program.Net.cs:197`).
+  (`GameLoop/Scene/GameLoop.Net.cs:197`).
 
 Second-order effect — **the reveal hitch**: when the curtain lifts, the first `PumpNet`
-drains 50–60 s of backlog in one unbounded `while` (`Program.Net.cs:215-360`) in one frame,
+drains 50–60 s of backlog in one unbounded `while` (`GameLoop/Scene/GameLoop.Net.cs:215-360`) in one frame,
 then the resulting entity flood hits the synchronous creature loader (H5). Also, no movement
 heartbeats are sent for the entire load (`_movementSender.Update` at `Program.cs:1318` is
 behind the same guard) — the server sees a silent client for a minute.
 
 ### H2 — CONFIRMED, CRITICAL: the 50–60 s is the watchdogs, and a phase-gate bug both corrupts progress and routes work to the worst path.
 
-Each phase gets `LoadPhaseWatchdogSeconds = 30f` (`Program.Loading.cs:76`, applied `:157`).
+Each phase gets `LoadPhaseWatchdogSeconds = 30f` (`GameLoop/Scene/GameLoop.Loading.cs:76`, applied `:157`).
 `WarmBuildings` exits on `_wmo.PendingPreloads == 0` (`:296`); `WarmDoodads` on
 `_doodads.PendingPreloads == 0` (`:350`). **30 + 30 = the reported 50–60 s** when either
 queue can't drain in time (or never registers, next paragraph).
@@ -85,7 +85,7 @@ The gate itself is broken: `WmoRenderer.PendingPreloads` (`WmoRenderer.cs:427`) 
 `_preloadQueue` + the single in-flight job, **not** `_deferredRingTiles` (`:1295`). At
 `BeginWorldLoad` time the ADT cache is empty, every tile defers, and `PendingPreloads` reads
 0 — so `WarmBuildings` can exit at frame 1, `_wmoWarmTotal` computes as `Math.Max(1, 0) == 1`
-(`Program.Loading.cs:144`, pinning the progress bar via `:295`), and `PlaceBuildings` then
+(`GameLoop/Scene/GameLoop.Loading.cs:144`, pinning the progress bar via `:295`), and `PlaceBuildings` then
 resolves every un-warmed building through the fully-blocking `ResolveModel` spin —
 `WmoRenderer.cs:1716-1717`: `job.Worker.GetAwaiter().GetResult()` then
 `while (!StepModelLoad(job, waitForUpload: true)) { }` — root + all groups + all textures +
@@ -96,16 +96,16 @@ kill"; it is still there and the cold path can still reach it.
 
 | Queue | Ordering | Evidence |
 |---|---|---|
-| Terrain preload ring | **None — effectively farthest-corner-first.** `TileRing` builds a `HashSet` from `dc=-radius,dr=-radius` upward (`TerrainRenderer.cs:169-181`); `QueuePreload` bare-`foreach`es it (`:300-314`). The NW corner tile gets a worker slot before the tile under the player's feet. The only distance sort (`SetResidency`, `:240`) is adoption order, after the all-or-nothing gate `PreloadReady(ring)` (`Program.Loading.cs:281`) already waited for everything. | |
+| Terrain preload ring | **None — effectively farthest-corner-first.** `TileRing` builds a `HashSet` from `dc=-radius,dr=-radius` upward (`TerrainRenderer.cs:169-181`); `QueuePreload` bare-`foreach`es it (`:300-314`). The NW corner tile gets a worker slot before the tile under the player's feet. The only distance sort (`SetResidency`, `:240`) is adoption order, after the all-or-nothing gate `PreloadReady(ring)` (`GameLoop/Scene/GameLoop.Loading.cs:281`) already waited for everything. | |
 | WMO buildings | **None — FIFO in raw MODF record order.** `Queue<string>` (`WmoRenderer.cs:383`), enqueued per tile in ADT order (`:1304-1314`). `QueuePreloadForTiles` (`:1278`) has no `streamCentre` parameter at all — unlike the doodad equivalent. | |
 | Doodads, outdoor MDDF | **Sorted — the one place it's right.** `QueuePreloadModels(paths.OrderBy(p => p.DistanceSq)...)` (`DoodadRenderer.cs:741`). | |
-| Doodads, WMO interiors at cold start | **None.** `Program.Loading.cs:328-331` enqueues `_wmo.EnumerateDoodads(...)` with `.Distinct()` but **no `OrderBy`** — the runtime path at `Program.cs:1468-1472` has the sort; the cold-start loader omitted it. The FIFO freezes order at enqueue (`DoodadRenderer.cs:317`, `:754`), so the far side of the zone warms before the room you spawned in. In a WMO-heavy start this is the phase most likely to burn its full 30 s. | |
+| Doodads, WMO interiors at cold start | **None.** `GameLoop/Scene/GameLoop.Loading.cs:328-331` enqueues `_wmo.EnumerateDoodads(...)` with `.Distinct()` but **no `OrderBy`** — the runtime path at `Program.cs:1468-1472` has the sort; the cold-start loader omitted it. The FIFO freezes order at enqueue (`DoodadRenderer.cs:317`, `:754`), so the far side of the zone warms before the room you spawned in. In a WMO-heavy start this is the phase most likely to burn its full 30 s. | |
 | Creature model loads | **None — spawn/insertion order.** `foreach (var e in entities.Units)` (`CreatureRenderer.cs:258`), no sort, no frustum test before spending a load slot. | |
 
 ### H4 — CONFIRMED: the per-frame load budget is dead code; curtain frames are unbounded.
 
-`LoadWarmBudgetMs = 12f` (`Program.Loading.cs:70`) has **zero references** in the tree.
-`DrainWarm` (`Program.Loading.cs:452-456`) is `for (int i = 0; i < 48; i++)` with no clock;
+`LoadWarmBudgetMs = 12f` (`GameLoop/Scene/GameLoop.Loading.cs:70`) has **zero references** in the tree.
+`DrainWarm` (`GameLoop/Scene/GameLoop.Loading.cs:452-456`) is `for (int i = 0; i < 48; i++)` with no clock;
 each doodad call can finalize up to 12 models (`DoodadRenderer.cs:768`, loop `:789-808`), so
 the worst case is ~576 main-thread GL model builds in one frame. The code already knows single
 builds exceed 8 ms (`DoodadRenderer.cs:805`, `WmoRenderer.cs:1360` warnings) and does nothing
@@ -116,7 +116,7 @@ curtain drawn last at `Program.cs:1783`. Pure waste competing with the loader.
 ### H5 — CONFIRMED: creature loading is 100% synchronous on the render thread and shares almost nothing; this is the post-curtain lag-spike engine.
 
 - No worker pool, no upload worker: `_creatures = new CreatureRenderer(gl, _mpq, _config);`
-  (`Program.Net.cs:88`) — compare terrain/WMO/foliage/doodads which all receive `_uploads` +
+  (`GameLoop/Scene/GameLoop.Net.cs:88`) — compare terrain/WMO/foliage/doodads which all receive `_uploads` +
   `_assetWorkers` (`Program.cs:404,428,449,489`).
 - `LoadModel` (`CreatureRenderer.cs:653-770`) runs inside `Render()`: MPQ read (`:658`), full
   M2 parse (`:660`), **eager 28-clip animation bake** (`:665` → `M2Animator.Build`,
@@ -174,14 +174,14 @@ Status of the 2026-07-26 audit items in today's bytes:
 
 ## 5. Resources
 
-- `Program.Loading.cs` (phase machine, 78-456), `Program.cs` Update body (1064-1405), Render
-  body (1617-1796), `Program.Net.cs` pump (215-360) and `BeginWorldLoad` call (197).
+- `GameLoop/Scene/GameLoop.Loading.cs` (phase machine, 78-456), `Program.cs` Update body (1064-1405), Render
+  body (1617-1796), `GameLoop/Scene/GameLoop.Net.cs` pump (215-360) and `BeginWorldLoad` call (197).
 - `WmoRenderer.cs` 383, 427, 1278-1345, 1702-1817, 1910-1952; `DoodadRenderer.cs` 317-325,
   714-808, 1077-1092, 1202-1257; `TerrainRenderer.cs` 169-181, 240-314;
   `CreatureRenderer.cs` 89-115, 258-292, 543-555, 626-770, 827-850; `M2Animator.cs` 297-311,
   488-494 (`FindOrBake` — already exists, use it), 541-630; `AttachedItemRenderer.cs` 168-173,
   262-314; `AdtTerrainReader.cs` 139-235; `MpqMount.cs`, `MpqArchive.cs`, `Texture.cs`,
-  `GpuUploadWorker.cs` 103-114, `HitchRecorder.cs` 113-229, 334-666; `Program.Hitch.cs`
+  `GpuUploadWorker.cs` 103-114, `HitchRecorder.cs` 113-229, 334-666; `GameLoop/Dev/GameLoop.Hitch.cs`
   106-127, 168-244, 255-586.
 - Prior art in-repo: PLAN_07 (instrument discipline, self-test convention), PLAN_08 D1-D3
   (budgeted resumable adoption — **D2 was never built**; `BENILLA_VS_MSUI_PERF §2.2`
@@ -241,12 +241,12 @@ if (_worldLoading) { PumpNet(dt); StepWorldLoad(dt); return; }
 PumpNet(dt);
 ```
 
-and budget the drain loop (`Program.Net.cs:215`) to **N packets or 2 ms per frame,
+and budget the drain loop (`GameLoop/Scene/GameLoop.Net.cs:215`) to **N packets or 2 ms per frame,
 whichever first** (constant, referenced, not a dead field), so neither the curtain frames
 nor the reveal frame eat an unbounded backlog. Keep `_movementSender.Update` running during
 load too (it sits at `Program.cs:1318` behind the same guard) so the server never sees a
 silent client. Guard interactions to check while here: `BeginWorldLoad` is called from
-inside `PumpNet` (`Program.Net.cs:197`) — re-entrancy is now real; make `BeginWorldLoad`
+inside `PumpNet` (`GameLoop/Scene/GameLoop.Net.cs:197`) — re-entrancy is now real; make `BeginWorldLoad`
 idempotent per map and make the pump tolerate `_worldLoading` flipping mid-drain.
 
 *Test:* I2 shows `packetsPumpedDuringLoad > 0` and `unitsKnownAtClear > 0`; time from
@@ -258,7 +258,7 @@ and no single frame > 40 ms attributable to the drain (the 2 ms budget is the mo
 
 - `WmoRenderer.PendingPreloads` must count `_deferredRingTiles` (`WmoRenderer.cs:427` +
   `:1295`), so `WarmBuildings` cannot exit before the queue has even formed.
-- Recompute `_wmoWarmTotal` after deferred tiles drain (`Program.Loading.cs:141-144`), or
+- Recompute `_wmoWarmTotal` after deferred tiles drain (`GameLoop/Scene/GameLoop.Loading.cs:141-144`), or
   compute it from the post-drain queue depth, so the bar moves.
 - The blocking `ResolveModel` spin (`WmoRenderer.cs:1716-1717`) must be unreachable from the
   load path: `PlaceBuildings` places what is warm and leaves the rest queued to stream in
@@ -277,12 +277,12 @@ real work. The progress bar visibly advances through WarmBuildings (was pinned a
 
 - Implement `DrainWarm` against a wall clock: loop `warmOne()` until
   `LoadWarmBudgetMs` (12 ms) elapses, not 48 blind iterations
-  (`Program.Loading.cs:452-456`). The constant finally gets its first reference.
+  (`GameLoop/Scene/GameLoop.Loading.cs:452-456`). The constant finally gets its first reference.
 - While `_worldLoading` and curtain alpha is fully opaque, skip the world pass
   (`Program.cs:1651-1656` and siblings — terrain/WMO/doodads/foliage/particles/glow) and
   give the reclaimed frame time to `DrainWarm`; resume the world pass when the fade begins.
 - Fix the low-cost allocation on the Terrain gate while in the file:
-  `_terrain.PreloadReady(new[] { t })` per tile per frame (`Program.Loading.cs:277-278`) —
+  `_terrain.PreloadReady(new[] { t })` per tile per frame (`GameLoop/Scene/GameLoop.Loading.cs:277-278`) —
   add a single-tile overload.
 
 *Test:* during the curtain, hitch recorder shows max frame ≤ 40 ms (was unbounded); I2's
@@ -299,12 +299,12 @@ world-pass frame after skip must precede alpha < 1).
   (`WmoRenderer.cs:1278`) mirroring the doodad API, and enqueue MODF entries sorted by
   `DistanceSq(placementOrigin, centre)`.
 - Cold-start interior doodads: add the missing
-  `.OrderBy(d => Vector2.DistanceSquared(...))` at `Program.Loading.cs:328-331`, copied from
+  `.OrderBy(d => Vector2.DistanceSquared(...))` at `GameLoop/Scene/GameLoop.Loading.cs:328-331`, copied from
   the runtime path at `Program.cs:1468-1472` (delete one of the two derivations while there —
   `TakeNewDoodadModelPaths` (`WmoRenderer.cs:1383`) is the dead API that was meant to feed
   this; either revive it or remove it).
 - Optional but recommended (Benilla's actual trick): let the Terrain phase clear on
-  *player tile + 8 neighbours ready* instead of the whole ring (`Program.Loading.cs:281`),
+  *player tile + 8 neighbours ready* instead of the whole ring (`GameLoop/Scene/GameLoop.Loading.cs:281`),
   and let the outer ring finish behind WarmBuildings. With sorting in place this is a
   condition change only.
 
@@ -342,7 +342,7 @@ Interlocking sub-steps; land in this order, each independently shippable:
 3. **Off-thread prepare, uploaded via the worker.** Split `LoadModel` into a pool-side
    `Prepare` (MPQ read, M2 parse, geosets, interleave, BLP decode) and a
    `GpuUploadWorker.Enqueue` upload, mirroring `DoodadRenderer.cs:779/:1238`. Give
-   `CreatureRenderer` the pool + uploader at construction (`Program.Net.cs:88`).
+   `CreatureRenderer` the pool + uploader at construction (`GameLoop/Scene/GameLoop.Net.cs:88`).
 4. **Budget + order the queue.** Replace `LoadsPerFrame = 4` (count) with a 2 ms/frame
    finalize budget; sort pending loads by distance-to-camera; skip loads for units beyond
    `AnimateDistance`-class radius or outside the frustum until they qualify. `TryGetModel`
@@ -409,7 +409,7 @@ one pass, sub-steps 1+2 (cache split + lazy bake) are the 80% and touch no threa
 - PLAN_07: I1 extends `FramePhases`/`DominantPhase` — update the recorder's field list in
   that doc; the `FrameSample.FrameMs` doc comment at `HitchRecorder.cs:338` is stale
   ("render-entry to render-entry") and should be corrected in the same commit.
-- `Program.Loading.cs:98`'s comment becomes true again after S1 — reword it to name the new
+- `GameLoop/Scene/GameLoop.Loading.cs:98`'s comment becomes true again after S1 — reword it to name the new
   invariant (pump runs in both curtain states) so the next reader can't re-break it.
 - Dead code to delete or revive, decided here: `TerrainRenderer.LoadAround` (`:184`),
   `WmoRenderer.DrainPreloads` (`:1368`), `DoodadRenderer.DrainPreloads` (`:813`),
@@ -424,7 +424,7 @@ one pass, sub-steps 1+2 (cache split + lazy bake) are the 80% and touch no threa
   historical. `LoadWarmBudgetMs` is referenced by the wall-clock `DrainWarm` loop.
 - PLAN_07's field list now includes creature render/load/count/cache fields and their two dominant
   phase labels. `FrameSample.FrameMs` now says Update-entry to Update-entry.
-- `Program.Loading.cs` now states the invariant directly: the socket pump runs in both curtain
+- `GameLoop/Scene/GameLoop.Loading.cs` now states the invariant directly: the socket pump runs in both curtain
   states, while only `LOGIN_VERIFY_WORLD` starts the guarded world-load cycle.
 - Deleted the zero-reference synchronous `TerrainRenderer.LoadAround`, WMO/Doodad
   `DrainPreloads`, `TakeNewDoodadModelPaths`, and `DoodadCollisionRebuildThreshold`. The live paths

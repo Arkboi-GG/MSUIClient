@@ -37,7 +37,7 @@ pre-existing swap/pacing bug (SYSTEM_STREAMING §5A), **not** this system: WMO r
   - `FrameCullContext` — carries `ReachableGroups` + `CameraInCell` into ClassifyGroup.
   - `GroupWorldTriangles(...)` — geometry for the dev highlight overlay.
   - `UsePortalCulling` (default `true`), `PortalReachedLastFrame` (diagnostic).
-- `Program.Portals.cs` — the dev **Portals** panel: the toggle, the "highlight picked
+- `GameLoop/Dev/GameLoop.Portals.cs` — the dev **Portals** panel: the toggle, the "highlight picked
   group" overlay, the reached-count and camera-cell readouts, portal-polygon draw.
 - `Engine/GameSettings.cs` — `Detail.WmoPortalCulling` (default `true`) + the v1→v2
   migration that flips it on for pre-existing `settings.json`.
@@ -181,7 +181,7 @@ and drops the moment you reach a `0x40` street. Culling **off** keeps the tuned
 
 ---
 
-## The dev instrument (Program.Portals.cs)
+## The dev instrument (GameLoop/Dev/GameLoop.Portals.cs)
 
 - **Portal culling** checkbox — the A/B (writes the live renderer + settings).
   `reached N interior group(s)` shows the flood size this frame.

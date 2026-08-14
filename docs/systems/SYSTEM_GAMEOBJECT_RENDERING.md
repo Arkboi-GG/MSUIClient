@@ -15,10 +15,10 @@ Owner files: `GameObjectDisplayTable` in `Formats/DbcReader.cs`,
 `WorldEntity.GameObjectFacing` in `Net/Entities.cs`, the
 `AddDynamic`/`RemoveDynamic`/`HasDynamic`/`TryPickDynamic` API and
 `HighlightedDynamicKey` in `World/Doodads/DoodadRenderer.cs`, the per-frame
-sync + `PickGameObject` in `Program.GameObjectRender.cs` (called from
+sync + `PickGameObject` in `GameLoop/Scene/GameLoop.GameObjectRender.cs` (called from
 `Program.cs` Update, next to `QueueVisibleDoodadDemand`), the hover/click
-integration in `Program.Targeting.cs`, and the tooltip adapter in
-`Program.GameTooltip.WorldGameObject.cs`.
+integration in `GameLoop/Combat/GameLoop.Targeting.cs`, and the tooltip adapter in
+`GameLoop/Hud/GameLoop.GameTooltip.WorldGameObject.cs`.
 
 ---
 
@@ -50,7 +50,7 @@ it.**
   collision-free draw, appear-fade, and — critically — participate in BOTH the
   opaque pass and the deferred blended pass (M2 blend modes 2–6), instanced or
   not, with no extra draw path.
-- **Lifecycle**: `Program.GameObjectRender.cs` reconciles every frame (the
+- **Lifecycle**: `GameLoop/Scene/GameLoop.GameObjectRender.cs` reconciles every frame (the
   entity store has no spawn hooks; `CreatureRenderer` walks it per frame too).
   Signature per GUID = (displayId, position, yaw, scale); any change re-adds
   the placement, so a `GAMEOBJECT_DISPLAYID` values-delta updates the model.
@@ -76,14 +76,14 @@ idiom it mirrors:
   out guid, out distance)`: nearest ray-vs-AABB over the dynamic placements'
   per-instance world cull bounds (the same bounds the frustum cull reads).
   Deliberately loose the way unit picking's vertical cylinders are; static
-  doodads are never tested. `PickGameObject` in `Program.GameObjectRender.cs`
+  doodads are never tested. `PickGameObject` in `GameLoop/Scene/GameLoop.GameObjectRender.cs`
   wraps it with the `PickUnit` conventions: same camera ray, same 200-yd
   `TargetPickDistance`, same "static world collision strictly nearer blocks the
   hit" rule (a GO's own hull can never block its own pick — the ray enters the
   AABB first). **Units win ties**: `PickUnit` gained an out-distance overload,
   and the GO pick's max distance is the unit hit — a GO hovers only when
   STRICTLY nearer, so the two hovers (`_hoveredGuid` /
-  `_hoveredGameObjectGuid`, `Program.Targeting.cs`) are exclusive by
+  `_hoveredGameObjectGuid`, `GameLoop/Combat/GameLoop.Targeting.cs`) are exclusive by
   construction. A nameplate rect hit reports distance 0 and beats everything.
 - **Highlight** — `DoodadRenderer.HighlightedDynamicKey` (set per frame by
   `UpdateTargeting`, exactly like `CreatureRenderer.HoveredGuid`). The matching
@@ -93,7 +93,7 @@ idiom it mirrors:
   so the instanced path, the non-instanced path (`uHighlight` uniform), and
   BOTH deferred blended flavours inherit it with no separate highlight draw.
   Disabled-attribute default 0 keeps every static doodad unaffected.
-- **Name tooltip** — `Program.GameTooltip.WorldGameObject.cs` is the
+- **Name tooltip** — `GameLoop/Hud/GameLoop.GameTooltip.WorldGameObject.cs` is the
   world-unit adapter's shape applied to the GO hover: it feeds the
   already-present `TryShowWorldGameObjectGameTooltip` responder (which was
   waiting on exactly this picker verdict), publishes the gold name line at the
@@ -105,7 +105,7 @@ idiom it mirrors:
   owner handoff between the two always lands on the newest hover.
 - **Right-click use** — a right world-click whose GO pick is strictly nearer
   than any unit hit routes to the existing `UseGameObject` entry point
-  (`Program.GameObjects.cs`), which already gates range (6 yd), type routing
+  (`GameLoop/Scene/GameLoop.GameObjects.cs`), which already gates range (6 yd), type routing
   (mailbox → mail panel, chest → `CMSG_GAMEOBJ_USE` / open-lock spell) and
   telemetry. Left-click on a GO deliberately stays "empty world" — vanilla
   does not select gameobjects.

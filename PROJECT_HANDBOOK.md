@@ -2,7 +2,13 @@
 
 **A native C# client for World of Warcraft 1.12.1 (build 5875), talking to a private VMaNGOS server.**
 
-Version: Draft 30 — 2026-07-29
+Version: Draft 31 — 2026-08-14
+Supersedes: Draft 30 (source-tree restructure. The ~117 `Program.*.cs` partials of the `GameLoop`
+god-class were moved under `MSUIClient/GameLoop/` and grouped into `Panels/`, `Hud/`, `Combat/`,
+`Scene/`, `CreatorMode/`, `Dev/`, and renamed `GameLoop.*.cs`. Pure `git mv` — no code change, builds
+clean. The organization rules are now engraved in the root **`CODE_STRUCTURE_LAW.md`**; §1 and the
+fresh-assistant callout point to it. `Program.cs` (static `Program` + the `GameLoop` spine) and
+`ClientConfig*.cs` stay at the project root.)
 Supersedes: Draft 29 (live gameplay-UI checkpoint correction. The integrated bottom bar is mostly
 acceptable with compositing polish outstanding; portraits are still broken; world reveal triggers
 a false local wound reaction; spell and backpack behavior remain unverified. Compile/protocol/camera
@@ -75,6 +81,7 @@ Supersedes: `MSUI_CLIENT_DESIGN.md` (browser-era architecture, abandoned — see
 ---
 
 > **If you are a fresh assistant picking this project up cold, read §0, §1, §3, §4 and §10 before touching anything.**
+> **Before you add, move, or rename any `.cs` file, read [`CODE_STRUCTURE_LAW.md`](CODE_STRUCTURE_LAW.md) (repo root).** It engraves where code lives and how it is named — the god-class is `GameLoop` (not `Program`), its partials live under `MSUIClient/GameLoop/<bucket>/`, and subsystems must never reference `GameLoop`. That law is binding; §1 below is the human-readable tour of the same tree.
 > §3 lists facts established empirically that cost real hours. Several are counter-intuitive and several were got wrong once — sometimes twice — before being got right. Re-deriving them will waste a session.
 > §10 lists exactly what to ask Nico for, and why.
 > **§1.2 is the documentation map.** Committed documentation is organized under `docs/current/`, `docs/systems/`, and `docs/plans/`; superseded evidence remains local under the Git-ignored `docs/archive/`. See `docs/README.md`. When you are working on one system, read *this handbook's* cross-cutting ground truth (§3) plus that system's doc — not every document. Loading the whole handbook to change one system is the context waste §1.2 exists to stop.
@@ -482,16 +489,20 @@ MSUIClient/                          <- repo root, open MSUIClient.sln here
 │   ├── Data/                        the WoW 1.12.1 .MPQ archives
 │   └── vmaps/                       optional; collision comes from client geometry
 └── MSUIClient/                      project folder
-    ├── Program.cs                   entry point + partial GameLoop + ImGui HUD
-    ├── Program.DevTools.cs          partial GameLoop: vantages, dump, overrides,
-    │                                TuningState, the water tuning window
-    ├── Program.Hitch.cs             partial GameLoop: the hitch recorder's HUD,
-    │                                ring readout and record writing (PLAN_07)
-    ├── Program.LightProbe.cs        partial GameLoop: "what the DBCs say" panel
-    │                                <- SYSTEM_EXTERIOR_LIGHTING.md §6
-    ├── Program.Portals.cs           partial GameLoop: camera-group readout and
-    │                                portal quad draw (PLAN_10 D1) — TOOLING ONLY
-    ├── ClientConfig.cs
+    ├── Program.cs                   static Program (entry point) + the GameLoop
+    │                                spine: ctor, Update, Render, ImGui HUD
+    ├── ClientConfig.cs / ClientConfig.Net.cs
+    ├── GameLoop/                    the GameLoop god-class, ~117 partials split by
+    │   │                            theme — RULES: CODE_STRUCTURE_LAW.md
+    │   ├── Panels/   (37)           toggled UI windows (Chat, Mail, Inventory…)
+    │   ├── Hud/      (18)           always-on overlays (UnitFrames, ActionBars,
+    │   │                            Nameplates, tooltips, UiPanelOwnership…)
+    │   ├── Combat/    (9)           casting, spell/combat feedback, targeting
+    │   ├── Scene/    (10)           streaming, session, instances, real portals,
+    │   │                            world-space control
+    │   ├── CreatorMode/ (6)         in-client content/spell authoring UI
+    │   └── Dev/      (37)           ALL diagnostics/tooling — observe-only seam
+    │                                (DevTools.*, *Parity, *Probe, Hitch, LiveRun…)
     │
     ├── Engine/
     │   ├── ClientWindow.cs          window, GL, main loop, INPUT (see §3.13)
@@ -559,18 +570,19 @@ Draft 21 and the sharing that used to exist has been deliberately broken; §5.2
 says why, and SYSTEM_DOODAD_LIGHTING.md §5 says why the doodad fork in
 particular must stay a fork.
 
-**Three `Program.*.cs` partials are developer tooling, not core** —
-`Program.DevTools.cs`, `Program.Hitch.cs`, `Program.LightProbe.cs` and
-`Program.Portals.cs` all sit behind the FOUNDATION_PLAN §12 seam: *core decides,
+**Everything under `GameLoop/Dev/` is developer tooling, not core** — e.g.
+`GameLoop.DevTools.cs`, `GameLoop.Hitch.cs`, `GameLoop.LightProbe.cs`,
+`GameLoop.Portals.cs` — all sit behind the FOUNDATION_PLAN §12 seam: *core decides,
 the dev layer observes.* Nothing in them culls, lights or streams anything. If a
 change to one of these files alters what is on screen, the seam has been broken.
+See `CODE_STRUCTURE_LAW.md` §2.2 for what qualifies as `Dev/`.
 
 ### 1.1 Where each file's responsibility ends
 
 | File | Owns | Does NOT own |
 |---|---|---|
-| `Program.cs` | Startup order, game loop, HUD, cross-system diagnostics | Rendering internals, parsing |
-| `Program.DevTools.cs` | Vantage save/load, scene dump, override editing, `TuningState`, tuning windows | Any visibility or lighting *decision* — it reads and reports them |
+| `Program.cs` | The static `Program` entry point **and** the `GameLoop` spine — startup order, the `Update`/`Render` loop, HUD, cross-system diagnostics | Rendering internals, parsing |
+| `GameLoop/Dev/GameLoop.DevTools.cs` | Vantage save/load, scene dump, override editing, `TuningState`, tuning windows | Any visibility or lighting *decision* — it reads and reports them |
 | `Vantage.cs` | Serializing/restoring position, camera, atmosphere and every toggle | Deciding what any toggle means |
 | `VisibilityOverrides.cs` | The curated show/hide DB and its reason code | The heuristics it overrides |
 | `ClientWindow.cs` | GL context, loop, raw input, mouse capture | What gets drawn |

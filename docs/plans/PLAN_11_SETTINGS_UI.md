@@ -289,7 +289,7 @@ Every layer degrades on its own:
   underlying values, so nothing is reachable *only* through a composite.
 - **`settings.json` is corrupt** — `SettingsStore.Load` never throws; it logs and
   starts from defaults, exactly as `VantageStore` does.
-- **The whole modal is a mistake** — it is additive. `Program.Settings.cs`,
+- **The whole modal is a mistake** — it is additive. `GameLoop/Panels/GameLoop.Settings.cs`,
   `Engine/GameSettings.cs` and `Engine/UI/WowSkin.cs` are new files; the changes to
   `Program.cs` are the Escape branch, one call in `Gui()`, one call in `Load()`,
   and the deletion of controls that now live elsewhere.
@@ -297,7 +297,7 @@ Every layer degrades on its own:
 ## 10. Reconciliation
 
 **PLAN_05 / `TuningState`.** PLAN_05's HUD reorganisation is the closest prior
-work and is recorded as "exists in `Program.DevTools.cs` but the HUD is not fully
+work and is recorded as "exists in `GameLoop/Dev/GameLoop.DevTools.cs` but the HUD is not fully
 reorganized". This plan does the reorganisation from the other end: instead of
 restructuring the HUD in place, it *removes* the preference half of it. What is
 left is a much smaller instrument panel, which is what PLAN_05 wanted. **PLAN_05

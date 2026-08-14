@@ -7,7 +7,7 @@ benilla-style rework. It implements the fixes proposed in `BENILLA_VS_MSUI_LOADI
 Files that make up the system:
 
 - `MSUIClient/Program.cs` — `Load()` is now a fast "shell" that builds empty renderers and hands off.
-- `MSUIClient/Program.Loading.cs` — the per-frame world-build phase machine (new partial of `GameLoop`).
+- `MSUIClient/GameLoop/Scene/GameLoop.Loading.cs` — the per-frame world-build phase machine (new partial of `GameLoop`).
 - `MSUIClient/Engine/LoadingScreen.cs` — the loading curtain (new, self-contained GL).
 - `MSUIClient/Formats/MpqMount.cs` — archive reads now run in parallel.
 - `MSUIClient/World/Doodads/DoodadRenderer.cs` — the doodad preloader now decodes many models at once.
@@ -48,7 +48,7 @@ end, draws the curtain over it:
 Silk raises `Update` and `Render` separately every frame, so the window keeps presenting at
 ~60 fps with an animating progress bar the whole time.
 
-## The phase machine (Program.Loading.cs)
+## The phase machine (GameLoop/Scene/GameLoop.Loading.cs)
 
 `StepWorldLoad` advances a small state machine. Each phase does a bounded slice of work, or
 waits on the async streamers, then moves on. Every phase reuses the streaming methods the
@@ -121,10 +121,10 @@ time (~25s), which fixes both the initial load *and* `.tele`.
 - `DoodadDemandRadius` (Program.cs, = draw distance + 100 yd) — how far out the curtain waits
   for doodads. Smaller = shorter hold, fewer props on the reveal.
 - `MaxConcurrentPreloads = 12` (DoodadRenderer.cs) — how many models decode at once.
-- `LoadPhaseWatchdogSeconds = 30f` (Program.Loading.cs) — a phase force-advances after this so
+- `LoadPhaseWatchdogSeconds = 30f` (GameLoop/Scene/GameLoop.Loading.cs) — a phase force-advances after this so
   a hang can never leave the curtain stuck forever.
 - `LoadFadeSeconds = 0.5f` — curtain fade-out length.
-- The `DrainWarm` per-frame pass count (48) in Program.Loading.cs.
+- The `DrainWarm` per-frame pass count (48) in GameLoop/Scene/GameLoop.Loading.cs.
 
 ## Before / after
 

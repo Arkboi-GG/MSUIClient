@@ -131,7 +131,7 @@ interior **where you already stand (pre-portal)**, not the room beyond. Left at 
 **The fix.** A soft point light placed a little way *past* the portal, into the room,
 handed to the world renderers each frame:
 
-- `GameLoop.UpdatePortalFillLight()` (in `Program.Particles.cs`) runs every frame
+- `GameLoop.UpdatePortalFillLight()` (in `GameLoop/Combat/GameLoop.Particles.cs`) runs every frame
   before the WMO pass. It finds the nearest instance portal via
   `ParticleRenderer.TryGetNearestPortal(camera, 150yd, out centre)` (nearest
   model-space **sphere** pool origin). If none is near, it sets
@@ -288,7 +288,7 @@ rest were already the defaults.)
   weighted by `(1 − vLight.a)`; `PortalLight*` properties. Also the WMO-supersedes-
   terrain emitter dedup (`RemoveNearEmitterPlacement`) so the portal is placed once.
 - `Program.cs` — `UpdatePortalFillLight()` call before the WMO pass; `_glow` wiring.
-- `Program.Particles.cs` — `UpdatePortalFillLight()` body + the entire panel.
+- `GameLoop/Combat/GameLoop.Particles.cs` — `UpdatePortalFillLight()` body + the entire panel.
 - `ClientConfig.cs` — `Render.Glow`, `Render.GlowGain`, `Render.ParticleDensity`.
 
 ---

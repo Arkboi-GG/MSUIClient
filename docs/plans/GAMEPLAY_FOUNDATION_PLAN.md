@@ -2,7 +2,7 @@
 
 Status: Draft 1 — 2026-07-30 — planned against SYSTEM_GAMEPLAY_UI.md Draft 6,
 `July-30-20206-9AM-HANDOFF.md`, NEXT_07, PORT_SESSION_2026-07-30, and the existing
-foundation (`FOUNDATION_PLAN.md`, PLAN_01–07, `Program.DevTools.cs`, `EMPIRICAL_CHECKS.md`).
+foundation (`FOUNDATION_PLAN.md`, PLAN_01–07, `GameLoop/Dev/GameLoop.DevTools.cs`, `EMPIRICAL_CHECKS.md`).
 
 ## 0. The thesis: we already solved this problem once
 
@@ -62,7 +62,7 @@ And one new rule this plane needs:
 - **Local vmangos with GM** → the *scenario* machine: spawn any creature, learn any
   spell, teleport, set health/mana. This is how "cycle ALL portraits **in game**"
   becomes one command instead of a world tour.
-- **The MSUI DevTools layer** (`Program.DevTools.cs`, gated by `config.DevTools`) →
+- **The MSUI DevTools layer** (`GameLoop/Dev/GameLoop.DevTools.cs`, gated by `config.DevTools`) →
   where every in-game instrument below lives. Core never references it; that
   separation is kept.
 
@@ -76,7 +76,7 @@ miniature; the ones marked **[SLICE 1]** are specced deepest and are the next bu
 ### I1 — Verdict enums + the `[verdict]` channel  **[SLICE 1]**
 
 **Problem.** Portraits have a real verdict line; nothing else does. Action-button
-state is computed and drawn but never explained (`Program.ActionBars.cs` now has the
+state is computed and drawn but never explained (`GameLoop/Hud/GameLoop.ActionBars.cs` now has the
 tri-state usable/range/flash pass — invisible at runtime). Animation selection is the
 worst: the post-cast freeze was a *silent* Stand substitution inside the animator; it
 took a Benilla source dive to even name the failure mode.
@@ -87,13 +87,13 @@ the reporting channel:
 - `PortraitVerdict` — formalize what the log line already encodes:
   `Ready | BlankOffFrustum | BlankAuthoredEmpty | NoPieces | TinySubject | Degenerate`
   plus the inputs (camera source, subject px, rgb/alpha range, framing numbers).
-  Lives beside `BakeDirtyPortraits` (`Program.Portraits.cs`); the existing console
+  Lives beside `BakeDirtyPortraits` (`GameLoop/Hud/GameLoop.Portraits.cs`); the existing console
   line and diagnostics PNG become renderers of this struct.
 - `ActionButtonVerdict` — per slot: `{ Usable | NotEnoughPower | Unusable }` ×
   `{ InRange | OutOfRange | NoRangeCheck }` × flash/checked/pushed/carried, **with the
   inputs that produced it**: spell/item id, computed cost, current power, base mana,
   range index, min/max after reach math, distance to target. The predicates in
-  `Program.ActionBars.cs` are refactored to return this struct; drawing switches on
+  `GameLoop/Hud/GameLoop.ActionBars.cs` are refactored to return this struct; drawing switches on
   it (the PLAN_03 `ClassifyGroup` move, exactly).
 - `AnimChoice` — every time the animator resolves a clip request:
   `{ Exact | FallbackChain(path) | BakedOnDemand | MissingClip | Substituted(from→to) }`
@@ -110,7 +110,7 @@ console line **and** a rolling in-memory ring (last ~200 verdicts) that the F10 
 channel.
 
 **Files.** `Engine/Verdicts.cs` *(new: structs + ring)*; edits in
-`Program.Portraits.cs`, `Program.ActionBars.cs`, the animator, `Program.Casting.cs`.
+`GameLoop/Hud/GameLoop.Portraits.cs`, `GameLoop/Hud/GameLoop.ActionBars.cs`, the animator, `GameLoop/Combat/GameLoop.Casting.cs`.
 
 **Test protocol.** Drain mana → slot verdict flips to `NotEnoughPower` with the cost >
 power numbers visible in the line. Cast with a hostile selected → `SelfFallback`.
@@ -156,8 +156,8 @@ single-specimen. It must be seconds-long and any-specimen.
   This is the escape hatch that guarantees no single model can hard-block: any
   stubborn specimen gets a hand-tuned entry instead of another constants hunt.
 
-**Files.** `Program.DevTools.Portraits.cs` *(new)*; `Engine/PortraitOverrides.cs`
-*(new: store + lookup)*; small hooks in `Program.Portraits.cs` (parameterize the
+**Files.** `GameLoop/Dev/GameLoop.DevTools.Portraits.cs` *(new)*; `Engine/PortraitOverrides.cs`
+*(new: store + lookup)*; small hooks in `GameLoop/Hud/GameLoop.Portraits.cs` (parameterize the
 framing function; consult overrides); expose `BindPoseHeight` and a
 clip-volume-count helper.
 
@@ -365,9 +365,9 @@ I7b replay: after I4          I10 checks doc: starts at I1, grows every step
   replay is the only genuinely large item here and nothing gates on it.
 
 Everything above is additive DevTools-layer work in the established
-`Program.DevTools.*` pattern — no renderer or protocol changes, shippable dormant,
+`GameLoop/Dev/*` pattern — no renderer or protocol changes, shippable dormant,
 low regression risk. The single riskiest edit is the I1 refactor of
-`Program.ActionBars.cs` predicates into verdict-returning functions; its fallback is
+`GameLoop/Hud/GameLoop.ActionBars.cs` predicates into verdict-returning functions; its fallback is
 PLAN_03 §9's: ship the verdicts as a read-only replay first, unify next pass.
 
 ## 4. How this changes the collaboration

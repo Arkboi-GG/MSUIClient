@@ -91,7 +91,7 @@ and does not own or log in any character. The app shows the roster and calls
 
 ---
 
-## 3. The login screen — placeholder (`Program.Net.cs` `DrawLoginScreen`)
+## 3. The login screen — placeholder (`GameLoop/Scene/GameLoop.Net.cs` `DrawLoginScreen`)
 
 **Known bad, per the maintainer:** wrong formatting, wrong colors, no animation, not
 the real text/layout. It is an **ImGui window** (account + password fields, a Log In
@@ -120,7 +120,7 @@ top. So it reads as a static, cool-toned gate instead of the warm animated hero 
 
 ---
 
-## 5. Character select — placeholder (`Program.Net.cs` `DrawCharacterSelect`)
+## 5. Character select — placeholder (`GameLoop/Scene/GameLoop.Net.cs` `DrawCharacterSelect`)
 
 **Known bad, per the maintainer: "just a small box with names."** Correct. It is an
 ImGui list of the roster (name, level, race, class, dead flag) with an Enter World
@@ -299,19 +299,19 @@ Netstack (`Net/`):
 - `Entities.cs` — `WorldEntity` + `EntityStore` (the client world model).
 
 Client glue + render:
-- `Program.Net.cs` — game-loop integration: `InitNet`, `PumpNet`, the login / connecting
+- `GameLoop/Scene/GameLoop.Net.cs` — game-loop integration: `InitNet`, `PumpNet`, the login / connecting
   / character-select / in-world ImGui screens, `DrawGlueScene`, `DrawCreatures`.
-- `Program.Targeting.cs` — occluded unit picking, selection/attack commands, faction
+- `GameLoop/Combat/GameLoop.Targeting.cs` — occluded unit picking, selection/attack commands, faction
   attackability, and the first target frame.
-- `Program.CombatAnimations.cs` — routes each melee swing packet to attacker and victim one-shots.
-- `Program.CombatFeedback.cs` — floating world text, player health/power frame, and hit flashes.
-- `Program.RealPortals.cs` / `World/Portals/PortalPrewarmHint.cs` — capability
+- `GameLoop/Combat/GameLoop.CombatAnimations.cs` — routes each melee swing packet to attacker and victim one-shots.
+- `GameLoop/Combat/GameLoop.CombatFeedback.cs` — floating world text, player health/power frame, and hit flashes.
+- `GameLoop/Scene/GameLoop.RealPortals.cs` / `World/Portals/PortalPrewarmHint.cs` — capability
   consumption, spell START/GO/delay/failure lifetime, stock catalog validation,
   and exact spawned-object correlation.
 - `Engine/GlueScene.cs` — the UI_MainMenu login gate.
 - `World/Units/CreatureRenderer.cs` — the creature/NPC renderer (this doc's §7).
 - `ClientConfig.Net.cs` — the `Server` config block.
-- `Program.Loading.cs` — the Finish-phase spawn teleport (server-Z fix, §8).
+- `GameLoop/Scene/GameLoop.Loading.cs` — the Finish-phase spawn teleport (server-Z fix, §8).
 
 ---
 

@@ -85,7 +85,7 @@ World position: `originX = (32 - row) * 533.33333`, `originY = (32 - col) * 533.
 
 ## 4. Travel
 
-`TravelTo` in `Program.Instances.cs`. **It swaps the world's content; it never
+`TravelTo` in `GameLoop/Scene/GameLoop.Instances.cs`. **It swaps the world's content; it never
 re-runs `Load()`**, which builds the MPQ mount, worker pools, GL renderers,
 shaders and character — almost none of which is per-map.
 

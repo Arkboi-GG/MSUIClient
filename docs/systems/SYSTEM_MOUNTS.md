@@ -160,7 +160,7 @@ fix is a per-display offset table with these two entries in it, and it should sa
 
 ---
 
-## 8. The toolkit (`Program.Mount.Toolkit.cs`)
+## 8. The toolkit (`GameLoop/Scene/GameLoop.Mount.Toolkit.cs`)
 
 A DevTools window, open from the creator sandbox (**Target → Advanced → Mount toolkit**) or
 in-world (**Server panel → Mount toolkit**). Everything it changes is persisted under
@@ -189,7 +189,7 @@ server still believes its own speed and will correct you. The panel says so on s
 
 ---
 
-## 9. The cart kit (`Program.Mount.Kit.cs`)
+## 9. The cart kit (`GameLoop/Scene/GameLoop.Mount.Kit.cs`)
 
 What the thing you are riding can *do*. Up to six slots per cart, persisted with that cart's
 tuning, and every one of them is two independent fields:

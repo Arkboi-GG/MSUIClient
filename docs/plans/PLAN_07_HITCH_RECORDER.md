@@ -6,7 +6,7 @@ instrument the streaming work has been missing since Draft 14. It exists to turn
 phase.
 
 Grounded in the real source: `Engine/ClientWindow.cs:140–153, 428–465`,
-`Program.cs:109–117, 855–1019, 1207–1281, 1380–1440`, `Program.DevTools.cs:103,
+`Program.cs:109–117, 855–1019, 1207–1281, 1380–1440`, `GameLoop/Dev/GameLoop.DevTools.cs:103,
 196`, `Engine/Vantage.cs`, `Engine/GpuFrameProfiler.cs`.
 
 > **Build-order note.** This is a tooling step and it blocks the rest of the
@@ -106,7 +106,7 @@ instrument.**
 
 **D6 — Auto-save a vantage at every hitch.** This is what converts "certain
 coords" into something reproducible. On trigger, capture the current state via
-the existing `CaptureVantage()` (Plan 01, `Program.DevTools.cs:103`) and append
+the existing `CaptureVantage()` (Plan 01, `GameLoop/Dev/GameLoop.DevTools.cs:103`) and append
 it to `vantages.json` as `hitch-<tile>-<n>`. Nico can then reload the exact spot
 and walk into it again on demand, and every later A/B has a fixed viewpoint. The
 whole foundation layer was built for this and has never been used in anger.
@@ -128,8 +128,8 @@ scratch what already existed, twice.
 
 | Resource | Why |
 |---|---|
-| `Program.DevTools.cs:196` `DumpScene()` | The hitch record should reuse the dump's blocks, not invent a second format. Ideally the hitch file *is* a scene dump plus a `hitch` section |
-| `Program.DevTools.cs:103` `ApplyVantage` / `CaptureVantage` | D6 auto-vantage; do not re-derive the capture list |
+| `GameLoop/Dev/GameLoop.DevTools.cs:196` `DumpScene()` | The hitch record should reuse the dump's blocks, not invent a second format. Ideally the hitch file *is* a scene dump plus a `hitch` section |
+| `GameLoop/Dev/GameLoop.DevTools.cs:103` `ApplyVantage` / `CaptureVantage` | D6 auto-vantage; do not re-derive the capture list |
 | `Engine/Vantage.cs` | The serialization already handles every toggle |
 | `Engine/GpuFrameProfiler.cs` | Delayed GPU per-pass ms. **Results arrive late by design** — the record must timestamp them by the frame they belong to, not the frame they were read on, or the GPU column will be attributed to the wrong frame |
 | Handbook §3.27 | The three streaming states. Do not read old `[stream-budget]` spam as current behaviour |

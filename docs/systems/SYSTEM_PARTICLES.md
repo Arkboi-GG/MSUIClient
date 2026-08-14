@@ -12,7 +12,7 @@ Owner files: `Formats/M2Reader.cs` (`M2ParticleEmitter`, `ParseParticleEmitters`
 `ReadEmitterBoneSpin`, `SampleRamp`, `SampleBoneRotation`),
 `World/Particles/ParticleRenderer.cs`, `Shaders/particle.vert|frag`,
 `World/Doodads/DoodadRenderer.cs` (`Model.Emitters`, `EmitterInstances`),
-and the Particles panel in `Program.Particles.cs`.
+and the Particles panel in `GameLoop/Combat/GameLoop.Particles.cs`.
 
 > **NAMING TRAP.** The dungeon doorway effect this doc's §5 is about is an
 > **instance portal**. `SYSTEM_INSTANCES.md` covers the travel it triggers;
@@ -416,7 +416,7 @@ rectangle — spawning on the ring is the untested cheap experiment.
 
 ## 7. Instruments
 
-- **Particles panel** (`Program.Particles.cs`) — a `LIVE:` count of particles and
+- **Particles panel** (`GameLoop/Combat/GameLoop.Particles.cs`) — a `LIVE:` count of particles and
   pools, every tunable above, per-emitter readouts of the parsed fields, the
   computed arm-sweep arc, and `Dump to console`.
 - **Startup lines.** `[particles] texture not found:` means a BLP path from the

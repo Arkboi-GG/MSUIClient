@@ -28,7 +28,7 @@ Owner files: `World/LiquidRenderer.cs`, `Shaders/water.vert`, `Shaders/water.fra
 `World/Wmo/WmoRenderer.cs` (`EnumerateLiquid`, `WmoLiquidSurface`),
 `Shaders/underwater.vert`, `Shaders/underwater.frag`, the MCLQ parse in
 `Formats/AdtTerrainReader.cs`, and the render/atmosphere/HUD wiring plus the
-`WaterTuningWindow` in `Program.cs` / `Program.DevTools.cs`.
+`WaterTuningWindow` in `Program.cs` / `GameLoop/Dev/GameLoop.DevTools.cs`.
 
 ---
 
@@ -208,7 +208,7 @@ water matches the world's light and fog.
 ## 4. Tuning — the live Water Tuning HUD
 
 **Every look/feel constant is a live uniform, driven by a dedicated ImGui window
-(`Program.WaterTuningWindow`, DevTools only) — a second window next to the main
+(`GameLoop.WaterTuningWindow`, DevTools only) — a second window next to the main
 one.** Move a slider, see it immediately; nothing needs a rebuild to tune. Groups:
 
 - **Texture & animation** — texture scale (world UV tiling), animation FPS, frame

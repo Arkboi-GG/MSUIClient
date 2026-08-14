@@ -1,8 +1,8 @@
 # MSUI documentation
 
-The repository root intentionally keeps only `PROJECT_HANDBOOK.md` and
-`SETUP.md`. Detailed project knowledge lives here so it remains available
-without crowding the root.
+The repository root intentionally keeps only `PROJECT_HANDBOOK.md`,
+`CODE_STRUCTURE_LAW.md`, and `SETUP.md`. Detailed project knowledge lives here so
+it remains available without crowding the root.
 
 ## Where to look
 
@@ -29,6 +29,12 @@ Start with `../PROJECT_HANDBOOK.md`, then read the relevant document under
 `systems/` or `current/`. Treat plans and `current/research/` as derivation
 records; where a system document explicitly supersedes a plan, the system
 document is current.
+
+**Before adding, moving, or renaming any source file, read
+`../CODE_STRUCTURE_LAW.md`** — it is the binding authority on *where code lives and
+how it is named* (the `GameLoop` god-class and its `GameLoop/<bucket>/` layout, the
+subsystem folders, the one-direction layering rule). System docs remain the
+authority on how a system *behaves*.
 
 Nothing under this directory is generated build output. Do not bulk-delete it
 as a file-count cleanup.

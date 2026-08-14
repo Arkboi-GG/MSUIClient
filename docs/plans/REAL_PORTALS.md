@@ -36,7 +36,7 @@ It is not any of these existing systems:
   here, but it currently decorates static dungeon entrances. See
   `docs/systems/SYSTEM_INSTANCE_PORTALS.md`.
 - **Area-trigger travel** — static `AreaTrigger.dbc` volumes and
-  `CMSG_AREATRIGGER`, owned by `Program.Instances.cs`. Mage portals are summoned
+  `CMSG_AREATRIGGER`, owned by `GameLoop/Scene/GameLoop.Instances.cs`. Mage portals are summoned
   GameObjects and cannot be represented by static DBC trigger IDs.
 - **WMO portal culling** — MOPT/MOPR polygons used to decide which building
   groups are visible. See `docs/systems/SYSTEM_WMO_PORTALS.md`.
@@ -180,8 +180,8 @@ the correct claim is:
 The client already decodes GameObject query responses into a template containing
 `Type`, `DisplayId`, and 24 integer data fields:
 
-- `MSUIClient/Program.GameObjects.cs:14-24`
-- `MSUIClient/Program.GameObjects.cs:50-72`
+- `MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs:14-24`
+- `MSUIClient/GameLoop/Scene/GameLoop.GameObjects.cs:50-72`
 
 VMaNGOS defines type 22 as:
 
@@ -342,7 +342,7 @@ sees `SMSG_NEW_WORLD`:
 The game-thread packet drain separately treats `SMSG_NEW_WORLD` as an ordered
 boundary:
 
-- `MSUIClient/Program.Net.cs:460-469`
+- `MSUIClient/GameLoop/Scene/GameLoop.Net.cs:460-469`
 
 The immediate ACK allows the server to begin destination-map object delivery
 before the render/game thread has adopted the destination. REAL_PORTALS requires
@@ -361,16 +361,16 @@ This correction is required even before a prepared scene is introduced.
 `BeginWorldLoad` and `StepWorldLoad` are a good bounded algorithm, but all state
 belongs to the singleton `GameLoop` and the active renderer instances:
 
-- `MSUIClient/Program.Loading.cs:108-120`
-- `MSUIClient/Program.Loading.cs:164-254`
-- `MSUIClient/Program.Loading.cs:376-760`
+- `MSUIClient/GameLoop/Scene/GameLoop.Loading.cs:108-120`
+- `MSUIClient/GameLoop/Scene/GameLoop.Loading.cs:164-254`
+- `MSUIClient/GameLoop/Scene/GameLoop.Loading.cs:376-760`
 
 It reads `_config.Start`, `_residentCentre`, and active terrain/WMO/doodad/liquid
 fields. Map travel calls `TearDownWorldContent`, which destroys placements,
 terrain, liquid, collision, and particle state:
 
-- `MSUIClient/Program.Instances.cs:602-629`
-- `MSUIClient/Program.Net.cs:266-359`
+- `MSUIClient/GameLoop/Scene/GameLoop.Instances.cs:602-629`
+- `MSUIClient/GameLoop/Scene/GameLoop.Net.cs:266-359`
 
 `AdtCache`, `TerrainRenderer`, and `LiquidRenderer` key content only by tile
 coordinates; the same `(col,row)` means different bytes on different maps:
@@ -1396,22 +1396,22 @@ Remove `session.WorldportAck()` from the socket-thread `SMSG_NEW_WORLD` case in
 The network reader may update diagnostic status, but it must not acknowledge a
 world the game thread has not adopted.
 
-Retain the ordered game-thread boundary in `Program.Net.cs:460-469`; do not parse
+Retain the ordered game-thread boundary in `GameLoop/Scene/GameLoop.Net.cs:460-469`; do not parse
 destination object updates past it in the same drain.
 
 ### 13.2 Do not mutate world state inside `PumpNet`
 
 The beginning of `PumpNet` currently clears stores, tears down content, repoints
 the ADT cache, changes `_config.Start`, and teleports the controller
-(`Program.Net.cs:266-359`). Replace that with classification and scheduling.
+(`GameLoop/Scene/GameLoop.Net.cs:266-359`). Replace that with classification and scheduling.
 
 Map/scene adoption belongs in an outside-pump transition. The existing
-`PumpWorldEntryTransition` seam at `Program.Net.cs:1145-1195` can be generalized
+`PumpWorldEntryTransition` seam at `GameLoop/Scene/GameLoop.Net.cs:1145-1195` can be generalized
 for this ownership transfer.
 
 ### 13.3 `SMSG_TRANSFER_PENDING`
 
-At `Program.Net.cs:423-435`:
+At `GameLoop/Scene/GameLoop.Net.cs:423-435`:
 
 - matching `ReadyConfirmed` portal and predicted destination → park movement,
   retain the live portal veil, suppress the opaque curtain;
@@ -1443,7 +1443,7 @@ ordinary loader. Do not promote a mismatched candidate.
 
 ### 13.5 Same-map `MSG_MOVE_TELEPORT_ACK`
 
-At `Program.Net.cs:561-592`, for a matching portal transition:
+At `GameLoop/Scene/GameLoop.Net.cs:561-592`, for a matching portal transition:
 
 1. verify candidate/destination;
 2. promote its local residency first;
@@ -2012,7 +2012,7 @@ MSUIClient/World/Portals/PortalVisualRegistry.cs
 MSUIClient/World/Portals/PortalRenderTarget.cs
 MSUIClient/World/Portals/PortalViewManager.cs
 MSUIClient/Net/PortalWire.cs
-MSUIClient/Program.RealPortals.cs
+MSUIClient/GameLoop/Scene/GameLoop.RealPortals.cs
 MSUIClient/Shaders/portal_composite.vert
 MSUIClient/Shaders/portal_composite.frag
 ```
@@ -2021,10 +2021,10 @@ Expected modifications:
 
 | File/system | Change |
 |---|---|
-| `Program.GameObjects.cs` | expose type-22 spell metadata; maintain GUID portal discovery/lifetime |
+| `GameLoop/Scene/GameLoop.GameObjects.cs` | expose type-22 spell metadata; maintain GUID portal discovery/lifetime |
 | `Program.cs` | movement-filter seam; destination pass; active scene access |
-| `Program.Loading.cs` | extract explicit reentrant `WorldLoadJob` |
-| `Program.Net.cs` | transition correlation, promotion, same-map/far ACK ownership |
+| `GameLoop/Scene/GameLoop.Loading.cs` | extract explicit reentrant `WorldLoadJob` |
+| `GameLoop/Scene/GameLoop.Net.cs` | transition correlation, promotion, same-map/far ACK ownership |
 | `Net/NetworkClient.cs` | remove socket-thread worldport ACK |
 | `Net/WorldSession.cs` | portal packets and explicit game-thread ACK use |
 | `Net/Opcodes.cs` | audited SUI portal opcode symbols |
@@ -2071,7 +2071,7 @@ surface discovery with explicit dynamic portal instances and a destination
 texture. Once built and validated, extract a dedicated `SYSTEM_REAL_PORTALS.md`;
 do not overload the instance-portal system doc.
 
-### `SYSTEM_INSTANCES.md` / `Program.Instances.cs`
+### `SYSTEM_INSTANCES.md` / `GameLoop/Scene/GameLoop.Instances.cs`
 
 Static area-trigger dungeon travel remains separate. It benefits from the
 scene/ACK refactor and may later preload an instance entrance, but it does not

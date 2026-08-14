@@ -129,7 +129,7 @@ is what they multiply: a datum instead of a guess.
 | `World/ExteriorLighting.cs:221-247` | `Sample.Colors[]` — bands are already blended across contributing zones |
 | `World/WorldAtmosphere.cs` `SetAuthored` | The transport, and the `HasAuthored` / `UseAuthoredData` gate to extend |
 | `Shaders/water.frag` | `uTexTint` (the modulation point), `tdepthFade`, and the six invented constants in the fallback |
-| `Program.LightProbe.cs:~305` | The probe rows that already print all four bands and both alpha pairs |
+| `GameLoop/Dev/GameLoop.LightProbe.cs:~305` | The probe rows that already print all four bands and both alpha pairs |
 | `SYSTEM_WATER.md` §5 | The measured values and the standing warning: *push those sliders no further until they have been checked against the data* |
 | `SYSTEM_EXTERIOR_LIGHTING.md` §2.3, §7 | How the bands resolve; the standing "water colours" gap |
 | `PLAN_09` D9 | Where this was deliberately scoped out, and why |

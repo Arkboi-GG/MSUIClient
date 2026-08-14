@@ -10,7 +10,7 @@ Scope: the complete 1.12 login screen. Two layers, plus a live tuning modal:
    buttons, the Remember checkbox, the cosmetic main-menu buttons, and the
    version/copyright text. Drawn as ImGui draw-lists skinned with Blizzard's own art
    (from interface.MPQ) with layout numbers transcribed from `AccountLogin.xml`.
-   `Engine/UI/WowSkin.cs` + `Program.Net.cs`. NOT FrameXML - it is data-driven skin,
+   `Engine/UI/WowSkin.cs` + `GameLoop/Scene/GameLoop.Net.cs`. NOT FrameXML - it is data-driven skin,
    not a FrameXML interpreter.
 
 benilla is the byte-faithful ground truth throughout:
@@ -38,7 +38,7 @@ against real 1.12 screenshots and the actual extracted textures (see mpqpeek bel
 - `Engine/UI/WowSkin.cs` - the 2D skin. `DrawBackdrop` (nine-slice, now tint-aware),
   `GlueButton`, `CheckBox`, `GlueImage`, `Has`, the glue texture set + UVs, and the
   static `GlueTune` knob block at the bottom of the file.
-- `Program.Net.cs` (partial `GameLoop`) - `NetHud` (state router), `DrawLoginScreen`
+- `GameLoop/Scene/GameLoop.Net.cs` (partial `GameLoop`) - `NetHud` (state router), `DrawLoginScreen`
   (the whole login layout), `LoginField` (one edit box), `GlueText` (a shadowed glue
   label), `GlueMenuButton` (cosmetic buttons), and `DrawGlueTuning` (the modal).
 - `Engine/ClientWindow.cs` - builds the ImGui font atlas. FRIZQT is now rasterised
@@ -181,7 +181,7 @@ own ParticleRenderer instance, these never touch in-world/creature particles.
 ## `GlueTune` - the live tuning modal
 
 `WowSkin.GlueTune` is a static block of mutable knobs read every frame by the glue
-widgets and layout. `Program.Net.cs DrawGlueTuning` renders a skinned ImGui window of
+widgets and layout. `GameLoop/Scene/GameLoop.Net.cs DrawGlueTuning` renders a skinned ImGui window of
 sliders bound to them; it is toggled by a small "tune" text at the login's top-right
 and rendered from `NetHud` right after the login screen. `Log values` prints a
 copy-pasteable `[glue-tune] ...` line to the console; `Reset` restores defaults.

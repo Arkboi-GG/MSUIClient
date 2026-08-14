@@ -144,14 +144,14 @@ wanted. Keep reaction-aware overhead names; do not reintroduce selected-target p
 
 ## Primary files
 
-- `Program.GameplayLayout.cs`, `Program.ActionBars.cs`, `Program.Casting.cs`, `Program.Sheath.cs`,
-  `Program.Spellbook.cs`
-- `Program.Loot.cs`, `Net/LootState.cs` (solo corpse looting)
+- `GameLoop/Hud/GameLoop.GameplayLayout.cs`, `GameLoop/Hud/GameLoop.ActionBars.cs`, `GameLoop/Combat/GameLoop.Casting.cs`, `GameLoop/Combat/GameLoop.Sheath.cs`,
+  `GameLoop/Panels/GameLoop.Spellbook.cs`
+- `GameLoop/Panels/GameLoop.Loot.cs`, `Net/LootState.cs` (solo corpse looting)
 - `Formats/SpellCatalog.cs`, `Formats/SpellVisualCatalog.cs`, `Net/SpellPackets.cs`
 - `World/Units/SpellEffectSource.cs`, `World/Units/SpellEffectMeshRenderer.cs`
-- `Program.Inventory.cs`, `Net/Items.cs`, `Formats/DbcReader.cs`
-- `Program.CharacterPage.cs`, `Formats/SkillLineCatalog.cs`
-- `Program.Portraits.cs`, `Engine/PortraitRenderTarget.cs`, `Engine/UI/GameplayArt.cs`
+- `GameLoop/Panels/GameLoop.Inventory.cs`, `Net/Items.cs`, `Formats/DbcReader.cs`
+- `GameLoop/Panels/GameLoop.CharacterPage.cs`, `Formats/SkillLineCatalog.cs`
+- `GameLoop/Hud/GameLoop.Portraits.cs`, `Engine/PortraitRenderTarget.cs`, `Engine/UI/GameplayArt.cs`
 - `Net/ObjectFields.cs`, `Net/Opcodes.cs`, `Net/WorldSession.cs`, `Net/NetworkClient.cs`
 
 ## Deliberate remaining work
