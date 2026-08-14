@@ -1,6 +1,9 @@
-﻿> Approved implementation plan, 2026-08-12. Status: R1 (foundation & ruleset) BUILT
-> on both sides, deploy pending. Companion docs: CRPG_RTS_WIP.md (session records,
-> owner decisions), box docs/SUI_WIRE_PROTOCOL.md (wire + ruleset key appendix).
+﻿> Approved implementation plan, 2026-08-12. Status updated 2026-08-14: R1 code is
+> landed on both sides and present in the owner-started server. The current boot is
+> verified vanilla/inert; an isolated RTS-save activation and R1 gameplay validation
+> are still pending. R2-R5 are plans, not delivered features. Companion docs:
+> CRPG_RTS_WIP.md (session records, owner decisions), box
+> docs/SUI_WIRE_PROTOCOL.md (wire + ruleset key appendix).
 
 # RTS Worldstate â€” Phased Implementation Plan (tier-2 match layer)
 
@@ -22,6 +25,26 @@ a code implementation of everything discussed. Decisions binding this plan:
   keep their slot.
 - Phased delivery, play-testing between phases (owner choice).
 
+### Authoritative database ownership
+
+The active schema boundary is fixed by the landed server source:
+
+- **VMaNGOS `CharacterDatabase`** owns the true-RTS save header, rules, and match
+  state. This deployment's active configured schema is `characters`; it is not
+  `vmangos_admin`. `superui_worldstate` holds `mode` plus scalar settings;
+  `superui_rules_zone`, `superui_rules_hub`, `superui_rules_hero`, and
+  `superui_rules_dungeon` hold list-shaped configuration; `superui_faction`,
+  `superui_heroes`, `superui_zone_control`, and `superui_dungeon_control` hold
+  runtime match state. These rows travel with the characters/worldstate save.
+- **VMaNGOS `WorldDatabase`** owns shared authored world content needed by later
+  phases, such as banner templates/spawns, game events, spell rows, and loot data.
+  Those are prerequisites, not the active match save's authoritative counters or
+  controller state.
+- **`vmangos_admin`** is MangosSuperUI's administrative database. Future R5 web
+  metadata such as editor presets and audit records may live there, but the web
+  app must edit the RTS rows through its Characters connection. It must never
+  become a second authoritative copy of the live rules or match state.
+
 Recon verdicts this plan builds on: `OPvPCapturePoint`/`ZoneScript` chassis (unused,
 purpose-built, already wired into SMSG_INIT_WORLD_STATES); GOOBER banner GOs (not
 FLAGSTAND â€” BG-only); `sGameEventMgr` event pairs for guard swaps; virgin
@@ -34,21 +57,24 @@ mangosd.conf).
 
 ## Phase overview
 
-| Phase | Where | Delivers | Playable check |
+| Phase | Where | Delivers | Current status / playable check |
 |---|---|---|---|
-| R1 | server | ruleset loader, rate overrides, per-faction bot caps, `.sui ruleset` | 30x XP visible; caps hold |
-| R2 | server+wire+client | faction Honor pool, hero declare/upgrade/revive (fixed slot scalar), scale+damage | declare a hero, watch it grow |
-| R3 | server+data+client | hub capture, zone control, guard swap, graveyards, supply calc, zone-derived hero cap | capture a pilot hub, see map flip |
-| R4 | server+data | dungeon objectives: entry gates, clear detection, faction buffs, 10x boss loot | clear Deadmines, hold the buff |
-| R5 | web app+brain | ruleset editor, worldstate swap orchestration, RTS planner + capture orders, faction fleet UI | swap into an RTS save, order a capture |
+| R1 | server+wire+client | ruleset loader, rate overrides, per-faction bot caps, state snapshot/header | **Deployed foundation; current boot vanilla/inert.** Owner-run RTS-save checks pending: show the XP override and prove fresh admissions respect both faction caps. |
+| R2 | server+wire+client | faction Honor pool, hero declare/upgrade/revive (fixed slot scalar), scale+damage | **Not built.** Declare a hero and watch it grow. |
+| R3 | server+data+client | hub capture, zone control, guard swap, graveyards, supply calc, zone-derived hero cap | **Not built.** Capture a pilot hub and see the map flip. |
+| R4 | server+data | dungeon objectives: entry gates, clear detection, faction buffs, 10x boss loot | **Not built.** Clear Deadmines and hold the buff. |
+| R5 | web app+brain | ruleset editor, worldstate swap orchestration, RTS planner + capture orders, faction fleet UI | **Not built.** Swap into an RTS save and order a capture. |
+| Unphased | server+data+client | capital rules, four non-respawning faction commanders, victory/defeat state | **Design gap.** The stated win condition is not yet assigned to R1-R5. |
 
 ## Server module layout & laws (all phases)
 
-New files in `src/game/SuperUiBots/`: `SuiRts.h/.cpp` (singleton: ruleset boot-load,
-KV accessors, module-enabled flags, per-faction atomics for honor/resources,
-main-thread `Tick`, write-behind persistence, wire assembly, GM cores),
-`SuiHonor.cpp`, `SuiHero.cpp`, `SuiTerritory.cpp/.h`, `SuiDungeon.cpp`, plus
-`src/game/Server/Packets/SuiRts.h` (SuiControl.h conventions).
+R1 landed `src/game/SuperUiBots/SuiRts.h/.cpp` (singleton: ruleset boot-load,
+KV accessors, module-enabled flags, the persisted faction Honor-pool scaffold,
+main-thread `Tick`, write-behind persistence, wire assembly, GM cores) plus
+`src/game/Server/Packets/SuiRts.h` (SuiControl.h conventions). Later phases add
+`SuiHonor.cpp`, `SuiHero.cpp`, `SuiTerritory.cpp/.h`, and `SuiDungeon.cpp`; none of
+those later-phase modules exists yet. R1 has no Honor-accrual caller; resource,
+hero, and dungeon fields in the state packet remain zero/empty placeholders.
 
 **Two-gate pattern on every tier-2 hook**: `if (!SuiPossess::RtsWorldState()) return;`
 then `if (!SuiRts::X::Enabled()) return;` (Enabled = module config present at boot).
@@ -67,9 +93,10 @@ World.cpp:1852 to just before `sZoneScriptMgr.InitZoneScripts()` (:1818); add
 `SuiRts::LoadRuleset()` right after it (order: LoadConfigSettings :1311 â†’ ... â†’
 worldstate+ruleset â†’ InitZoneScripts :1818 â†’ sPlayerBotMgr.Load :1850 sees caps).
 
-**Persistence convention**: all tables = idempotent core DDL at boot in
-LoadRuleset(), characters DB, vanilla DBs boot clean. Config tables (rows ship in
-the RTS save): `superui_rules_zone` (zone_id, ore, skins, herbs),
+**Persistence convention**: all RTS tables use `CharacterDatabase`; none uses
+`vmangos_admin`. Core-owned idempotent DDL runs at boot and a vanilla characters DB
+boots clean. `superui_worldstate` is the save header/scalar configuration. Config
+tables whose rows ship in the RTS save: `superui_rules_zone` (zone_id, ore, skins, herbs),
 `superui_rules_hub` (hub_id, zone_id, name, banner_go_guid, event_alliance,
 event_horde, capture_ms, initial_controller), `superui_rules_hero` (hero_level 1-5,
 declare_cost, revive_fee, spell_id), `superui_rules_dungeon` (map_id,
@@ -79,6 +106,13 @@ dead, declared_at), `superui_zone_control` (zone_id, controller),
 `superui_dungeon_control` (map_id, controller). Resources are DERIVED (sum of
 allotments over controlled zones), never persisted; contest timers/live runs never
 persisted.
+
+Table existence alone never enables the match: DDL and the two faction seed rows
+also exist under vanilla. In RTS mode the current loader sets the honor bit when any
+`honor.weight.*` scalar exists, heroes when `superui_rules_hero` has a row,
+territory when `superui_rules_hub` has a row, and dungeons when
+`superui_rules_dungeon` has a row. These are presence gates, not proof that the
+later-phase mechanic is implemented or valid.
 
 **Wire (allocated once in R1)**: `CMSG_SUI_RTS_STATE`=838, `SMSG_SUI_RTS_STATE`=839,
 `CMSG_SUI_RTS_ACTION`=840 (u8 action 1=declare 2=upgrade 3=revive, u64 subject),
@@ -97,16 +131,58 @@ bumps 8â†’9 (+u8 controller, 0x80=contested) in R1 with controller always 0
    `rate.drop_item_referenced`, `rate.drop_money`, ...) call `sWorld.setConfig`
    (public, World.h:790; XP/drop/money read live â€” verified). Creature HP/damage
    rates are spawn-time â†’ conf only, documented.
-3. Per-faction bot caps: gate in `PlayerBotMgr::AddBot` (PlayerBotMgr.cpp:411),
-   per-team counters (decrement in bot remove path). KV `bots.cap.alliance/horde`
+3. Per-faction bot caps: admission gate in `PlayerBotMgr::AddBot`; the landed R1
+   code scans non-offline manager entries by team for each fresh add. It does not
+   evict already-online bots after a rules reload. KV `bots.cap.alliance/horde`
    (absent = uncapped).
 4. Full wire allocation (above); 839 works both modes (vanilla: mode=0 + empty
    blocks); 840 answers UNSUPPORTED until R2.
 5. GM: `.sui rts status`, `.sui rts reload` (suiCommandTable, Chat.cpp:95).
+   Reload is a development diagnostic, not the production save-transition path:
+   it does not reread the persisted `mode`, and removing a rate key or flipping the
+   in-memory mode to vanilla does not restore the original config rate. A clean
+   owner-operated boot remains authoritative.
 
-Verify: vanilla DB boots inert (log line, status, mode=0 packet); `mode=rts` +
-`rate.xp_kill=35` â†’ 35x XP on a kill; `bots.cap.horde=10` holds; client gets
-well-formed 839.
+### Owner-operated R1 validation checkpoint
+
+R1 is deployed but is not yet validated in RTS mode. This checkpoint deliberately
+uses the smallest possible disposable characters save; R5.1 is a future convenience,
+not a prerequisite. Codex may prepare the checklist, inspect source and redacted
+evidence read-only, and walk Nico through the run. Nico alone creates/restores the
+save, writes its database rows, and controls installation, deployment, or runtime.
+
+1. Record the server and client commits/binary identities, date, selected test
+   faction(s), normal-mob baseline, and the known-good vanilla save to restore.
+2. Owner boots the known-good vanilla save first. Expected evidence: the worldstate
+   and RTS logs say vanilla/inert, `.sui rts status` reports no active modules, the
+   839 state packet reports mode 0, and the commander map has no `RTS MATCH` tag.
+3. Owner makes an isolated test copy of the characters save. Its minimal RTS data is
+   exact lowercase `mode=rts`, one conspicuous but sane positive `rate.xp_kill`, and
+   at least one explicit `bots.cap.alliance` or `bots.cap.horde` value for the first
+   attempt. Both cap keys must eventually be exercised before the cap feature is
+   signed off. Leave every `honor.weight.*` key absent and all four `superui_rules_*`
+   tables empty so unfinished R2-R4 module bits remain zero. Omit `state.flush_ms`.
+4. After the owner's clean boot of that save, confirm the RTS boot/status output
+   reports exactly the chosen rate and cap with module flags zero. The commander map
+   must show `RTS MATCH · Honor 0`; the 839 packet must remain well formed. If a
+   diagnostic exercises an 840 action request, UNSUPPORTED is the expected R1
+   result; no R2 action UI is required for this checkpoint.
+5. Kill a normal, non-elite mob under controlled conditions and compare awarded XP
+   with the recorded baseline. Elite kills are not the first proof because they
+   combine the kill and elite multipliers.
+6. From a fresh bot-manager state, admit bots of each selected faction up to its cap.
+   The next add must be refused with the `[SUI-RTS] bot cap` diagnostic. Also inspect
+   manager/status output after refusal and repeat the rejected add once: the refused
+   provisional entry must not remain counted or poison later admission. Exercising
+   only one faction is a useful first attempt, but not full two-key cap validation.
+7. Owner restores the known-good vanilla save and performs a clean boot. Reconfirm
+   the inert logs/header and baseline XP. Runtime `.sui worldstate` or `.sui rts
+   reload` is useful for diagnosis only; it is not proof of activation or rollback
+   because mode is not reread and removed rate keys do not restore config values.
+8. Preserve a redacted evidence bundle: identities, selected rows/keys, boot/status
+   lines, client header, XP before/after, cap/refusal result, rollback proof, and any
+   deviation. Mark R1 validated only when every item above passes, including both
+   faction-cap mappings; otherwise record the run accurately as a partial R1 attempt.
 
 ## R2 â€” Honor pool & heroes (fixed slots)
 
@@ -211,19 +287,25 @@ survive.
 
 ## R5 â€” MangosSuperUI: ruleset editor, worldstate swap, faction fleet, RTS orders
 
-Build order R5.1â†’R5.4; R5.1 can land right after server R1 (it's how R1 gets tested).
+Build order R5.1â†’R5.4. R5.1 can follow the owner-operated R1 checkpoint to make
+later save authoring less manual; it is not required to validate the landed R1.
 
 **R5.1 Ruleset editor.** New `BotLogic/Core/Rts/RtsRulesetRegistry.cs` (compiled-in
 key defs: type/default/min/max/description/ConsumedByPhase â€” kept in lockstep with
 core's DDL seed list; unregistered DB keys shown read-only) +
-`RtsTableRegistry.cs` (whitelisted column descriptors for superui_zone_allotments /
-superui_hubs / superui_dungeon_objectives / superui_honor_weights â€” the
-SQL-injection guard AND the generic grid renderer; dungeon table includes
-`drop_roll_count`) + `Services/WorldstateRulesetService.cs` (Dapper over
-Characters(); Exists probe â†’ "core hasn't booted RTS yet" banner; REPLACE INTO
-writes; cached Get for brain reads). New `Controllers/RtsRulesetController.cs` +
+`RtsTableRegistry.cs` (whitelisted column descriptors for `superui_rules_zone`,
+`superui_rules_hub`, `superui_rules_hero`, and `superui_rules_dungeon` â€” the
+SQL-injection guard AND the generic grid renderer; dungeon rows use `loot_items`).
+Honor weights remain scalar `honor.weight.*` rows in `superui_worldstate`, not a
+fifth rules table. `Services/WorldstateRulesetService.cs` uses the Characters
+connection; its existence probe produces a "core hasn't booted RTS yet" banner,
+writes are whitelist-bound, and reads may be cached for the brain. New
+`Controllers/RtsRulesetController.cs` +
 `Views/RtsRuleset/Index.cshtml` (ChatSettings-shaped endpoints; phase chips;
-preset save/apply via new web-owned `rts_preset` table in BotBrainDbInit;
+preset save/apply via a new web-owned `rts_preset` metadata table in
+`vmangos_admin`/BotBrainDbInit, with apply explicitly writing the selected
+characters save through the Characters connection rather than creating a second
+authoritative rules copy;
 `AppliedState` pending-restart indicator â€” banner: edits are LIVE-DB, read at next
 boot; stowed saves are edited by loading them first). Extract InstancesController's
 INSTANCES list to shared `Models/InstanceCatalog.cs` for the dungeon picker.
@@ -242,8 +324,8 @@ confirm. Check free disk in pre-flight.
 
 **R5.3 Faction population.** Surface `BotIdentity.Faction`/`bot_registry.faction`
 (persisted, never consumed today): LiveFleet/FleetDiagnostics payloads + filters,
-`GET /Bots/FactionCounts` (registered/live/cap from ruleset key
-`rts.population.max_per_faction`), map dot colors, spawn UI faction toggle with
+`GET /Bots/FactionCounts` (registered/live/cap from ruleset keys
+`bots.cap.alliance` and `bots.cap.horde`), map dot colors, spawn UI faction toggle with
 count-vs-cap bar (client warns; server-side cap is authoritative).
 
 **R5.4 Brain RTS v1 â€” manual orders only.** New `BotLogic/Core/Rts/RtsOrder.cs`
@@ -270,47 +352,52 @@ append-only enums.
 Wire (matches the server allocation): client enum gains `CMSG_SUI_RTS_STATE`
 0x0346, `SMSG_SUI_RTS_STATE` 0x0347, `CMSG_SUI_RTS_ACTION` 0x0348,
 `SMSG_SUI_RTS_ACTION_RESULT` 0x0349 (= server 838â€“841; deploy-together rule per
-phase that touches wire). The proven 5-step plumbing checklist applies (Opcodes.cs
-â†’ WorldSession sender â†’ NetworkClient facade â†’ PumpNet case â†’ Apply handler in
-Program.CommanderMap.cs).
+phase that touches wire). The proven 5-step plumbing checklist applies
+(`MSUIClient/Net/Opcodes.cs` â†’ WorldSession sender â†’ NetworkClient facade â†’ the
+pump case in `MSUIClient/GameLoop/Scene/GameLoop.Net.cs` â†’ apply handler in
+`MSUIClient/GameLoop/Scene/GameLoop.CommanderMap.cs`).
 
 - **R1 client**: send CMSG_SUI_RTS_STATE on the commander map's existing 5 s
   cadence (piggyback the zone-intel throttle); parse SMSG_SUI_RTS_STATE
-  stride-blocks into `_rtsState` (mode, moduleFlags, per-faction rows); header
-  shows mode + honor pool when RTS. Zone-intel parser reads the 9-byte zone row
-  (controller byte, always 0 until R3).
+  stride-blocks into `_rtsMode`, `_rtsModules`, `_rtsFactions`, `_rtsHeroes`, and
+  `_rtsDungeons`; the header shows mode + honor pool when RTS. Zone-intel parser
+  reads the 9-byte zone row (controller byte, always 0 until R3).
 - **R2 client**: side-panel "HEROES" section (roster rows from the hero block:
   name via guid resolution, HL, dead flag) with Declare/Upgrade/Revive buttons on
   selected/party units â†’ CMSG_SUI_RTS_ACTION; results (841) surface in the
   commander notice line. Hero scale renders free for streamed units
   (OBJECT_SCALE_X); fix the known possessed-body gap: feed
   `CharacterRenderer.ModelScale` from entity Scale in `ApplyControlledCharacter`
-  (Program.Net.cs:1212-1267) + per-frame refresh.
+  (`MSUIClient/GameLoop/Scene/GameLoop.Net.cs`) + per-frame refresh.
 - **R3 client**: zone rect tint by controller (blue/red wash, contested pulse via
   the 0x80 bit), pill shows control; side panel gains the ore/skins/herbs supply
   row and controlled-zone counts from the faction rows.
 - **R4 client**: side-panel "OBJECTIVES" rows from the dungeon block (dungeon name
   via map id, controller, live-run flags).
 
-All in Program.CommanderMap.cs (+ the 4 wire-plumbing files); no new windows.
+All client presentation remains in
+`MSUIClient/GameLoop/Scene/GameLoop.CommanderMap.cs` plus the wire-plumbing files;
+no new windows.
 
 ## Execution order & bookkeeping
 
-Interleaved by play-test value: **R1 server â†’ R5.1 editor (tests R1) â†’ owner
-play-test â†’ R2 (server+wire+client together) â†’ play-test â†’ R5.2 swap + R5.3
-factions â†’ R3 (server+data+client) â†’ play-test â†’ R5.4 brain orders â†’ R4 â†’ final
-loop test.** Each server phase: agents stop after the build; Nico alone installs,
-deploys, and controls the systemd-managed runtime. Wire-touching phases deploy
-client and server together. The
+Interleaved by play-test value: **owner-guided R1 validation â†’ R5.1 editor â†’ R2
+(server+wire+client together) â†’ owner play-test â†’ R5.2 swap + R5.3 factions â†’ R3
+(server+data+client) â†’ owner play-test â†’ R5.4 brain orders â†’ R4 â†’ final loop
+test.** Each server phase: agents stop after the build; Nico alone writes/restores
+worldstate saves, installs, deploys, and controls the runtime. Wire-touching phases
+are handed to Nico as a paired client/server deployment. The
 R5/R1 shared KV key list lives in `docs/SUI_WIRE_PROTOCOL.md`'s new ruleset
 appendix (single source both sides read). After each phase: update
 `CRPG_RTS_WIP.md` (session record + verification outcomes) and project memory.
 
 ## Verification (cross-phase)
 
-Each phase ends with: server build on the box, followed by Nico's owner-only
-installation and service restart (paired client deploy when the phase touches wire),
-then the phase's in-play
-checklist run in a live session; `.sui worldstate rts` (or the DB row) flips the
-test world; `.sui worldstate vanilla` must render every phase mechanic inert
-(regression gate before each deploy).
+Each phase ends with a compile/build result and an owner handoff. Nico alone installs
+or deploys artifacts, writes/restores/swaps the characters/worldstate save, and
+starts, stops, or restarts the runtime. The authoritative validation path is the
+owner loading the intended save and performing a clean boot, then running the
+phase's in-play checklist; wire phases use the matching client/server pair.
+`.sui worldstate` and `.sui rts reload` may assist diagnosis but never replace the
+clean-boot activation and rollback evidence. The vanilla regression gate must show
+every tier-2 mechanic inert before a phase is marked validated.

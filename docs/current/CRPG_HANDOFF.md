@@ -1,13 +1,15 @@
 # CRPG/RTS Mode v1.0 — Agent Handoff
 
-> **SUPERSEDED (2026-08-10): read [`CRPG_RTS_WIP.md`](../../CRPG_RTS_WIP.md) at the repo
-> root first.** This file describes the v1.0 milestone plan; the repo paths below are
-> stale (the SuperUI-Core clone and the brain worktree no longer exist locally — server
-> source lives on the vmangos box at `~/vmangos`, branch `development`), the server HAS
-> been compiled and deployed since, and a large round-2 feature set (free-view RTS
-> orders, streaming eye, chain links, layered bot bars, real party portraits) sits on
-> top of what is documented here. The WIP doc carries the current truth, the owner's
-> binding design decisions, and the open items.
+> **SUPERSEDED (2026-08-10) — TIER-1 MILESTONE ONLY.** This file describes the
+> v1.0 possession/free-view milestone and is not authoritative for Tier-2 RTS match
+> mechanics or status. Read [`CRPG_RTS_WIP.md`](../../CRPG_RTS_WIP.md) for the current
+> Tier-1 session record, binding owner decisions and open items, and
+> [`RTS_WORLDSTATE_PLAN.md`](../../RTS_WORLDSTATE_PLAN.md) for the current Tier-2
+> architecture and phase boundary. The repo paths below are stale (the SuperUI-Core
+> clone and brain worktree no longer exist locally; server source lives on the vmangos
+> box at `~/vmangos`, branch `development`), and a large later Tier-1 feature set
+> (free-view RTS orders, streaming eye, chain links, layered bot bars and real party
+> portraits) sits on top of what is documented here.
 
 ## What this feature is
 

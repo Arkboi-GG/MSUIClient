@@ -1,11 +1,19 @@
-# CRPG/RTS Mode — WIP (updated 2026-08-12)
+# CRPG/RTS Mode — WIP (updated 2026-08-14)
 
-> **STATUS: CORE LOOP OWNER-VERIFIED IN PLAY (2026-08-11).** Possession +
+> **CURRENT TIER-2 STATUS (2026-08-14): R1 FOUNDATION DEPLOYED; CURRENT BOOT
+> VANILLA/INERT; OWNER VALIDATION PENDING.** The R1-capable server is running and
+> the matching client code is landed, but the active save is vanilla and no
+> isolated RTS-save gameplay validation has been completed. R2 Honor/heroes, R3
+> territory, R4 dungeons, and R5 web/swap/brain work are not built. Capital rules,
+> the four non-respawning faction commanders, and victory/defeat handling remain
+> an unphased design gap. This block supersedes deployment/status wording in the
+> dated chronological records below; those records are retained as history.
+>
+> **TIER-1 STATUS: CORE LOOP OWNER-VERIFIED IN PLAY (2026-08-11).** Possession +
 > movement, party follow, bot bags + character sheet, free-view collision camera
 > all confirmed working in play after Rounds 11–16 (summary below; sections are
-> newest-first). Client is at HEAD; the server binary on the box matches the
-> build tree and was restarted with everything in it. Owner decisions in here
-> are binding — do not redesign them.
+> newest-first). This Tier-1 result is not Tier-2 R1 validation. Owner decisions
+> in here are binding — do not redesign them.
 
 ## 2026-08-11 session summary (read this first)
 
@@ -43,36 +51,45 @@ Open items going into the next session:
    flows a server spline on the own character (charge-type effects) can still
    wedge the movement-blocking flag (round 11's clears cover only SUI paths).
 
-## 2026-08-12 — RTS phase R1 BUILT (foundation & ruleset; both sides compile)
+## 2026-08-12 — RTS phase R1 build record (status superseded above)
+
+This section records the build checkpoint as it stood on 2026-08-12. Its pending-
+deployment language is historical; the current status at the top of this file is
+authoritative.
 
 ⚠ **WIRE CHANGE — deploy together.** New opcodes 838–841 (`CMSG/SMSG_SUI_RTS_STATE`,
 `CMSG_SUI_RTS_ACTION`/`SMSG_SUI_RTS_ACTION_RESULT`), `NUM_MSG_TYPES` → 842, and the
-zone-intel zone row grew 8→9 bytes (+controller, 0 until R3). The pending server
-binary now carries: commander map (836/837) + worldstate scaffold + R1. Client is
-built to match. Nothing installed yet — owner-only deployment and service restart
-remain pending; agents stop after the build.
+zone-intel zone row grew 8→9 bytes (+controller, 0 until R3). At this checkpoint,
+the pending server binary carried commander map (836/837) + worldstate scaffold +
+R1, and the client built to match. Neither had been installed yet. R1 has since
+been deployed, while owner-operated RTS-save validation remains pending.
 
 The full phased plan (R1–R5) is approved and recorded (plan file + this doc's
 Parts 3–5). R1 delivers: `SuiRts` module (`src/game/SuperUiBots/SuiRts.{h,cpp}`) —
-boot-time ruleset from `characters.superui_worldstate` KV + `superui_rules_*`
-tables (all DDL idempotent, vanilla DBs boot clean), rate overrides via
+boot-time ruleset through VMaNGOS `CharacterDatabase` (this deployment's active
+configured schema is `characters`): `superui_worldstate` KV plus the
+`superui_rules_*` and `superui_*` state tables. DDL is idempotent and may exist
+under vanilla; the mode gate, not table absence, keeps Tier-2 inert. Rate overrides use
 `sWorld.setConfig` (XP/drop/money read live), per-faction bot caps enforced in
-`PlayerBotMgr::AddBot`, faction honor-pool state (atomics + 30 s write-behind +
-shutdown flush), the RTS state/action wire (stride-versioned blocks; action
-answers "unsupported" until R2), `.sui rts status|reload`, and the boot-order fix
+`PlayerBotMgr::AddBot`, a faction Honor-pool persistence scaffold (atomics + 30 s
+write-behind + shutdown flush, but no R1 accrual caller), the RTS state/action wire
+(stride-versioned blocks; actions answer "unsupported" until R2), `.sui rts
+status|reload`, and the boot-order fix
 (worldstate+ruleset load moved BEFORE InitZoneScripts). Client: parses RTS state,
 piggybacks the request on the commander-map 5 s cadence, shows "RTS MATCH · Honor
 N" in the header, reads the zone-row controller byte. Key list + wire spec:
 `docs/SUI_WIRE_PROTOCOL.md` on the box (new ruleset appendix — the single source
-the R5.1 web registry must mirror).
+the R5.1 web registry must mirror). `.sui rts reload` is a development diagnostic,
+not the production save-transition path or proof of boot persistence.
 
-R1 verification (owner, after joint deploy): (1) vanilla boot → log
-"[SUI-RTS] vanilla worldstate: all tier-2 modules inert", `.sui rts status` all
-off, commander map header shows no RTS tag; (2) seed
-`REPLACE INTO characters.superui_worldstate VALUES ('mode','rts'),('rate.xp_kill','35');`
-+ restart → kill a mob, XP ~35x, log shows the override; (3) add
-`('bots.cap.horde','10')` → horde fleet stops at 10; (4) `.sui worldstate vanilla`
-+ `.sui rts reload` flips it all inert live.
+**R1 owner validation: NOT RUN.** The authoritative, isolated owner-operated
+checklist is in `RTS_WORLDSTATE_PLAN.md`. In summary, it records a vanilla/inert
+boot baseline, an isolated RTS-save boot with a known XP rate and per-faction bot
+cap, the matching 839 state packet and (if diagnostically exercised) R1's expected
+840 `UNSUPPORTED` result, and a return to the vanilla/inert save. Nico alone
+performs save/database changes, deployment, and runtime control. Codex may walk
+through the checklist, inspect source/schema/config/logs read-only, and perform a
+requested build; it must not mutate a database or control the runtime.
 
 ## 2026-08-12 — TWO-TIER RULE (owner, binding) + worldstate scaffold
 
@@ -85,27 +102,29 @@ The mode splits in two, and the boundary is binding:
 - **Tier 2 — match mechanics** (XP scaling, hub captures, hero units,
   non-respawning faction commanders, win conditions): fundamentally CHANGE the
   game. One core, no second binary — but tier-2 code must be **inert unless
-  the loaded save says otherwise**. The owner's flow: shut down core, the
-  MangosSuperUI web app stows the vanilla world and loads the RTS worldstate
-  (DB snapshot + config); the rules travel WITH the save.
+  the loaded save says otherwise**. The intended R5 owner flow will stow the
+  vanilla save and load an RTS worldstate through MangosSuperUI; R5 is not built.
+  The rules and match state travel WITH the `CharacterDatabase` save.
 
-Scaffold (built on the box, in the same pending binary): characters-DB table
-`superui_worldstate` (created idempotently at boot; the ROW `mode='rts'` only
-ships inside an RTS save — the swap machinery owns writing it) →
-`SuiPossess::LoadWorldState()` at boot (logs `[SUI] worldstate: ...`) →
+Scaffold (deployed): `superui_worldstate` through `CharacterDatabase` (this
+deployment's active configured schema is `characters`; the row `mode='rts'`
+belongs only in an RTS save) → `SuiPossess::LoadWorldState()` at boot (logs
+`[SUI] worldstate: ...`) →
 `SuiPossess::RtsWorldState()` predicate. `.sui worldstate [rts|vanilla]` = GM
 inspection + runtime-only test override. **BINDING RULE: no tier-2 mechanic
-ships without a `RtsWorldState()` gate.** Nothing consumes it yet — heroes/
-match work will be its first customers. To hand-flip a test world:
-`REPLACE INTO characters.superui_worldstate VALUES ('mode','rts');` + restart.
+ships without a `RtsWorldState()` gate.** R1 consumes the boot mode for rate
+overrides, per-faction bot caps, and the RTS state header/wire; R2–R5 consumers are
+not built. Runtime overrides and `.sui rts reload` are diagnostics only. Production
+activation and validation use the owner-operated boot path documented in
+`RTS_WORLDSTATE_PLAN.md`.
 
 ## 2026-08-12 — Commander map v1 BUILT (Part 1 of the future design below)
 
 ⚠ **WIRE CHANGE — client and server deploy TOGETHER** (new opcode pair; a new
 client against the live pre-836 binary gets kicked on the first M in free view).
-Server compiled on the box; owner-only deployment and service restart remain
-pending. Agents stop after the build.
-Client compiled clean. Neither has been seen in play yet.
+At this historical checkpoint the server and client compiled clean but had not yet
+been deployed or seen in play. The current R1 deployment status is recorded at the
+top of this file; live Tier-2 validation remains pending.
 
 Owner decisions taken this session (interaction model, supersedes "TBD click
 actions" for v1): continent view hover = intel; **clicking a zone ZOOMS into a
@@ -125,7 +144,7 @@ carry an explicit row stride so future servers can grow rows without a version
 bump. Full spec: `docs/SUI_WIRE_PROTOCOL.md` on the box (also gained the
 missing CMSG_SUI_CAM section).
 
-Client: new `Program.CommanderMap.cs` (state, census cache, fly-to +
+Client: new `MSUIClient/GameLoop/Scene/GameLoop.CommanderMap.cs` (state, census cache, fly-to +
 terrain-settle latch, all drawing); M routing branches on `_freeView` in
 `UpdateWorldMapInput`; draw seam above the world map's in `DrawCombatHud`; Esc
 rides the existing WorldMap escape layer; free-view edge pan / wheel-fly /
@@ -214,40 +233,63 @@ Core direction:
   are TBD. Illustrative direction: a Hero Level 5 mage's Frost Nova could have
   **2x radius with a guaranteed freeze**.
 
-TBD: hero-slot cap `N`, final rank terminology, hero eligibility/promotion,
-supported classes, the curated XP-target list, XP values and faction-war share,
-how shared overworld XP is assigned among heroes, persistence/death/replacement
-rules, and the exact hero-spell package and tuning for each class.
+Accepted hero law: R2 uses `hero.slots_fixed` as its declaration cap; R3 derives
+capacity from `territory.zones_per_hero_slot`. Falling below cap never demotes an
+existing hero. A dead hero remains in the roster and occupies its slot; revival
+costs faction Honor. Still open: exact cap/ratio and fees, final rank terminology,
+eligibility/promotion, supported classes, curated XP targets and values, shared-XP
+assignment, and the exact hero-spell package and tuning for each class.
 
 ### Part 3 — the RTS ruleset is DATA, tunable from SuperUI (owner: CRITICAL; 2026-08-12)
 
 Engineering shape for every tier-2 mechanic — this is what "semi-modular" means:
 
-1. **Scalar knobs** live as key/value rows in `characters.superui_worldstate`
-   (already scaffolded): `mode`, `xp_mult`, `hero_cap`, `bot_cap_per_faction`,
-   `resource_rate`, `ruleset_version`, … Core reads ONCE at boot into a
-   validated immutable `RtsRuleset` (bad/missing → logged default, never a
-   crash). The MangosSuperUI web app gets a ruleset editor page that edits
-   these rows on the stowed RTS save.
-2. **List-shaped config** gets sibling `superui_*` tables in the characters DB
-   (`superui_dungeon_objectives`, `superui_hero_spells`, later
-   `superui_resources_*`): same save, same swap, same editor.
-3. **MODULE RULE**: each mechanic = config table(s) + loader + core hooks
+1. **Database ownership is explicit.** VMaNGOS `CharacterDatabase` owns the RTS
+   header, rules, and match state; this deployment's active schema is
+   `characters`, never `vmangos_admin`. `WorldDatabase` owns shared authored
+   content referenced by the rules (banner templates/spawns, events, spells,
+   creatures, and loot). Future MangosSuperUI presets and audit records may live
+   in `vmangos_admin`, but applying one writes the authoritative rows through the
+   app's Characters connection. The core never reads an admin-DB copy of a rule.
+2. **Scalar knobs** are key/value rows in `superui_worldstate`. Landed R1 keys
+   include `mode`, `state.flush_ms`, `bots.cap.alliance`, `bots.cap.horde`,
+   `rate.xp_kill`, `rate.xp_kill_elite`, `rate.xp_quest`, `rate.drop_money`, and
+   `rate.drop_item_poor`, `rate.drop_item_normal`, `rate.drop_item_uncommon`,
+   `rate.drop_item_rare`, `rate.drop_item_epic`, `rate.drop_item_legendary`,
+   `rate.drop_item_artifact`, and `rate.drop_item_referenced`.
+   Accepted later-phase names include `honor.weight.*`, `hero.slots_fixed`, and
+   `territory.zones_per_hero_slot`; their consumers are not built. Core reads the
+   authoritative rules at boot into in-memory state. Current scalar parsing has
+   only minimal numeric validation, so the R1 checkpoint deliberately uses a small,
+   known-safe key set and sane values.
+3. **List-shaped config** uses the landed CharacterDatabase schema:
+   `superui_rules_zone(zone_id, ore, skins, herbs)`,
+   `superui_rules_hub(hub_id, zone_id, name, banner_go_guid, event_alliance,
+   event_horde, capture_ms, initial_controller)`,
+   `superui_rules_hero(hero_level, declare_cost, revive_fee, spell_id)`, and
+   `superui_rules_dungeon(map_id, final_boss_entry, buff_spell_id, loot_items)`.
+   Runtime match state uses `superui_faction(team, honor_pool)`,
+   `superui_heroes(guid, team, hero_level, dead, declared_at)`,
+   `superui_zone_control(zone_id, controller)`, and
+   `superui_dungeon_control(map_id, controller)`.
+4. **MODULE RULE**: each mechanic = config table(s) + loader + core hooks
    gated on `RtsWorldState()` AND config presence. No rows = that module is
    inert even in RTS mode. A match can run any subset of the mechanics.
-4. **Bend existing knobs before writing code**: at boot an RTS worldstate
+5. **Bend existing knobs before writing code**: at boot an RTS worldstate
    overrides the stock `Rate.XP.*` / `Rate.Drop.*` world rates from the
-   ruleset (`sWorld.setRate`), so scalar multipliers reuse all existing rate
+   ruleset (`sWorld.setConfig`), so scalar multipliers reuse all existing rate
    plumbing. New code only where semantics are new (e.g. guaranteed
    multi-roll boss loot is a loot-fill hook, not a rate).
 
-Owner examples mapped: 30x XP = one row + rate override. "Each Deadmines boss
+Owner examples mapped: accelerated XP uses the relevant `rate.xp_*` rows rather
+than a generic XP scalar. "Each Deadmines boss
 drops ~10x guaranteed items from the pool" = loot-fill hook rolling the
 EXISTING reference loot pool N times with guarantee semantics for creatures
-matching a loot-rule row ("lootified"). Hero/bot caps = scalar rows read by
-the hero module and PlayerBotMgr. Resource collection = reserved as its own
-module, NOT designed yet (owner will lay it out; "breaks down into its own
-entire thing").
+matching a `superui_rules_dungeon` row. Bot caps use `bots.cap.alliance/horde`;
+hero capacity uses `hero.slots_fixed` until territory replaces it with
+`territory.zones_per_hero_slot`. Zone allotments are accepted standing supply,
+derived from `superui_rules_zone` and never banked; their gameplay sinks remain
+open design work.
 
 ### Part 4 — dungeons as strategic objectives (owner direction, 2026-08-12)
 
@@ -260,7 +302,8 @@ entire thing").
   — and is **locked out of entering while it controls** ("you can only be
   inside if you don't actively control the dungeon"). Enforcement point: the
   instance-entry / AreaTrigger check — one clean choke point.
-- **One live run at a time** per dungeon.
+- **One live run per faction at a time** per dungeon; at a neutral start both
+  factions may race in parallel.
 - Mechanics sketch: clear detection = final-boss kill (config row per dungeon:
   boss entry + buff spell id + loot rule) at the same `Unit::Kill` seam the
   hero XP uses; buff = aura on every faction member, applied on login + on
@@ -272,9 +315,10 @@ entire thing").
   out of ENTERING entirely. Edge to design later: control flips while the
   losing faction has a group mid-run — their run presumably continues (they
   can immediately re-take), but define it explicitly before building.
-- **Ruleset tunability (owner decision 2026-08-12): BOOT-TIME ONLY.** The
-  ruleset is read once when the worldstate loads; changing knobs = edit the
-  save in SuperUI + restart. No hot-reload paths to keep consistent.
+- **Ruleset tunability (owner decision 2026-08-12): BOOT-TIME AUTHORITATIVE.**
+  Production changes travel with the owner-selected CharacterDatabase save and
+  take effect on its clean boot. `.sui rts reload` exists only as a development
+  diagnostic; it is not a supported production apply path or validation substitute.
 - TBD: exact per-dungeon buffs, whether outside control confers anything
   beyond the lockout (guards, visibility).
 
@@ -310,13 +354,15 @@ Three axes, deliberately different KINDS of things:
   own faction flags + guards; hub becomes occupying faction's territory.
   Applies to non-capital hubs; capitals are their own category with their own
   rules (they house the win-condition commanders).
-- Suggested unification (engineering input, not yet owner-confirmed): zone
-  control DERIVES from hub control — one mechanic, one source of truth;
-  hub-less zones are neutral ground.
-- Upkeep (input): possibly no separate upkeep economy at all — falling below
-  a slot threshold IS the pressure; needs a hero demotion rule.
-- All values are ruleset data per Part 3 (`superui_zone_allotments`,
-  `superui_honor_weights`, scalar caps/ratios/multipliers).
+- **Accepted:** configured hub capture is the source of zone control; hub-less
+  zones remain neutral. Territory supplies and hero capacity derive from that
+  single controller state.
+- **Accepted:** no hero demotion when territory shrinks. Falling below the slot
+  threshold blocks new declarations but leaves fielded heroes intact.
+- All values are CharacterDatabase ruleset data per Part 3:
+  `superui_rules_zone`, `superui_rules_hub`, `superui_rules_hero`,
+  `superui_rules_dungeon`, and scalar keys such as `honor.weight.*`,
+  `hero.slots_fixed`, and `territory.zones_per_hero_slot`.
 
 **Decided 2026-08-12 (owner):**
 - **Allotments = STANDING SUPPLY**: held zones set the faction's live
@@ -325,9 +371,8 @@ Three axes, deliberately different KINDS of things:
 - **Bot death = TIMED RESPAWN, the vanilla way**: bots die and respawn like
   any player (corpse/spirit-healer flow), with the AI piloting that flow
   correctly; scale/modify the existing mechanic rather than inventing
-  attrition. Engineering note: if Honor rides the real vanilla honor system
-  (`Player::RewardHonor`), vanilla's built-in diminishing returns for
-  repeat-killing the same target is the anti-farming guard — free.
+  attrition. The planned faction Honor pool is separate weighted accrual at the
+  `Unit::Kill` seam; vanilla honor remains only where human involvement requires it.
 
 - **Hero cap = AoE housing semantics (owner, 2026-08-12)**: territory OPENS
   cap, never kills what exists. Dropping below the threshold leaves fielded
@@ -342,20 +387,19 @@ Three axes, deliberately different KINDS of things:
    map onto existing professions — skins→leatherworking, ores→smithing,
    herbs→alchemy; standing supply gates the faction's crafting/consumable
    throughput.)
-2. Zone-control definition confirmation (hub-derived?) + capital city rules.
-3. Respawn tuning: timer scaling, where bots respawn when their home hub is
-   captured (graveyard control as a territory asset — AV-style — is the
-   vanilla-native candidate), and whether death carries any cost at all
-   (durability is the vanilla-native candidate).
-4. Hero death rules (what removes a hero — killed in battle? permanently?),
-   now the load-bearing question since cap pressure lands on replacement.
-5. Exact Honor weights, allotment tables, slot ratio — balance data, later.
+2. Capital-city rules, the four faction commanders, and victory/defeat behavior;
+   these are not assigned to R1–R5 and are not built.
+3. Respawn balance: timer scaling and whether death adds a durability or other
+   cost. R3 already accepts nearest controlled-zone graveyard with vanilla fallback.
+4. Exact Honor weights, hero declare/revive costs, allotments, and slot ratio —
+   balance data, later. Hero death itself is accepted: dead state persists, the
+   slot remains occupied, and revival costs faction Honor.
 
 ## The three codebases (all three matter — none is optional)
 
 | Piece | Where | Role |
 |---|---|---|
-| Client | this repo (`MSUIClient/Program.Control.cs`, `Program.BotBars.cs`, `Program.PartyFrames.cs`, `Program.Portraits.cs`) | all UI/UX, SUI wire opcodes 0x33C–0x343 |
+| Client | this repo (`MSUIClient/GameLoop/Scene/GameLoop.Control.cs`, `MSUIClient/GameLoop/Hud/GameLoop.BotBars.cs`, `MSUIClient/GameLoop/Hud/GameLoop.PartyFrames.cs`, `MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs`) | all UI/UX, SUI wire opcodes 0x33C–0x349 |
 | Server C++ | `wowvmangos@192.168.0.2:~/vmangos`, branch `development` (no feature branches — owner rule: work directly on it) | possession, orders, follow/formation, streaming eye |
 | Brain C# | `repos/MangosSuperUI` (deployed at `/opt/mangossuperui` on the box) | fleet goals; STANDS DOWN whenever `pparty=1` |
 
@@ -444,7 +488,7 @@ so the **unattended own character obeys orders too**.
   dashed route, cam heartbeat (>5 yd or 2 s → `SuiCam`).
 - Click-toon-to-possess from free view (`RequestPossess` accepts FreeCam origin;
   denial/watchdog fall back INTO the free view).
-- **Layered bot bars** (`Program.BotBars.cs` + `botbars.json` repo root): generated
+- **Layered bot bars** (`MSUIClient/GameLoop/Hud/GameLoop.BotBars.cs` + `botbars.json` repo root): generated
   baseline (active spells, best rank, wire slots 0-11 then 48-59) ← ClassSlots ←
   BotSlots (explicit 0 masks). Banner toggle picks save layer while possessing.
   `BotSpells`/`BotClasses` cache feeds free-view inspection; `BarsGuid`/`BarsReadOnly`
@@ -455,7 +499,7 @@ so the **unattended own character obeys orders too**.
 - **Chain links UI**: permanent bead-chain down the party frames
   (`DrawPartyChainLinks`), broken stub when unlinked; drag portrait onto another/
   player frame = link, drag away >60 px into the open = unlink; `BotLinks` map.
-- **Real party portraits** (`UpdatePartyPortraits`, Program.Portraits.cs): per-member
+- **Real party portraits** (`UpdatePartyPortraits`, `MSUIClient/GameLoop/Hud/GameLoop.Portraits.cs`): per-member
   bake, appearance-hash invalidation, one bake/frame; TemporaryPortrait art is now only
   the out-of-range fallback. **Reworked after the first look (uncommitted):** the bake
   now goes through `TryBakeCreaturePortrait` — the same booth as the target frame
@@ -481,7 +525,7 @@ so the **unattended own character obeys orders too**.
 3. **Free view survives possession** — see the owner decision above. Touches
    `RenderSelfGuid`, `BarsGuid`, both ACK branches, `ToggleFreeView` (now lands on the
    commanded toon with no server round trip), `SwitchControlTo`, the click router in
-   `Program.Targeting.cs`, the nameplate anchor, and the RTS overlays; all keyed on
+   `MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs`, the nameplate anchor, and the RTS overlays; all keyed on
    `_freeView` instead of `ControlState.FreeCam`. `UpdateFreeCamSelection` re-asserts
    `Flying`/`_character.Enabled` every frame because `ApplyControlledCharacter`
    re-enables the first-person body on every possess. New `ResetSuiControl()` drops both
@@ -638,7 +682,7 @@ at extreme speed; the ORBITING camera around the rig has its own collision
    checkbox (Controls → "Cut buildings away in the free view",
    `Settings.Controls.FreeViewCutaway`), and in code three marked blocks
    (property + seed resolution + flood override in WmoRenderer,
-   `FreeViewCutawaySubject()` in Program.Control.cs, one feed line in
+   `FreeViewCutawaySubject()` in `MSUIClient/GameLoop/Scene/GameLoop.Control.cs`, one feed line in
    Program.cs before UpdateCameraCell).
    Watch-fors on first live test: WMO-owned doodads (furniture) may still draw
    inside hidden groups; multi-storey buildings show every floor portal-reachable
@@ -800,7 +844,7 @@ after `_controller.Update`. Hand-off-only was treating a symptom: the driven uni
 client-authoritative, so its entity is the one thing the server never updates for us, and it
 stays frozen at the pickup spot for the whole time you drive. Everything reading the ENTITY
 rather than the controller renders it there — the visible one is `DrawSelectionRing`
-(`Program.Targeting.cs`, `target.Position`), which leaves the blue player selection circle
+(`MSUIClient/GameLoop/Combat/GameLoop.Targeting.cs`, `target.Position`), which leaves the blue player selection circle
 sitting on the ground behind you as you run off. The teleport-on-hand-off was the same bug
 caught at one instant; this is the general form.
 

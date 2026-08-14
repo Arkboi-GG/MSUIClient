@@ -97,9 +97,26 @@ Nico runs a private VMaNGOS server (WoW 1.12.1 vanilla) plus **MangosSuperUI**, 
 1. A long-standing wish to see WoW 1.12 rendered in a painterly, hand-painted art style. Owning the renderer makes that a shader variant instead of a fight with a platform.
 2. A working multiplayer client for his own realm — quest, kill, dungeon, raid, craft — where his AiBot fleet, real 1.12 clients, and this client all coexist.
 
-**Core design stance.** The client reads WoW's own files directly (MPQ → BLP/ADT/M2/WMO/DBC) and will speak the genuine 1.12.1 network protocol. No asset server, no bake step, no format conversion, no coordinate conversion. The server is unmodified.
+**Core design stance.** The client reads WoW's own files directly (MPQ → BLP/ADT/M2/WMO/DBC) and speaks the genuine 1.12.1 network protocol. No asset server, no bake step, no format conversion, no coordinate conversion. Stock 1.12.1 remains the compatibility baseline; Nico's VMaNGOS fork adds custom SuperUI extensions behind an explicit client-capability gate, so stock clients never receive custom packets.
 
-### Current state (2026-07-25)
+### Tier-2 RTS status (2026-08-14)
+
+Tier 1 (possession, free view, orders and the commander map) remains valid in the
+ordinary world. The Tier-2 R1 foundation is deployed, including the gated
+worldstate/ruleset foundation and matching client wire, but the current server
+boot is vanilla and every Tier-2 module is inert. Nico's live RTS-worldstate
+validation is still pending. R2-R5 and a match win state are not built.
+
+**Database ownership:** `CharacterDatabase` owns save-bound RTS mode, rules and
+state (the active schema on this deployment is `characters`); `WorldDatabase` owns
+authored content shared by all saves; `vmangos_admin` is reserved for possible
+future admin metadata and must not own runtime rules or worldstate.
+
+### Historical renderer snapshot (2026-07-25)
+
+This section is the renderer stop point recorded on that date, not the current
+status of the whole client. Use the documentation map in §1.2 for current system
+status.
 
 Elwynn Forest renders and is walkable, entirely from the client's own MPQs, with no server and **no vmaps**. On top of Draft 3's world, there is now a **character**:
 
@@ -635,6 +652,8 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 
 | Doc | Covers | Status |
 |---|---|---|
+| [`RTS_WORLDSTATE_PLAN.md`](RTS_WORLDSTATE_PLAN.md) | Authoritative Tier-2 RTS architecture, phase boundaries, ruleset laws, wire allocation and verification plan | R1 foundation deployed; current boot vanilla/inert and owner validation pending. R2-R5 and a match win state are not built |
+| [`CRPG_RTS_WIP.md`](CRPG_RTS_WIP.md) | Current CRPG/Tier-1 session record, binding owner decisions and RTS implementation handoff | Living record; read with `RTS_WORLDSTATE_PLAN.md` before changing either RTS tier |
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
 | `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 6)** — 2026-08-12. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid — **BUILT 2026-08-12 as a draw-only pass** (submersion for WMO liquid deliberately not wired); its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |
 | `SYSTEM_WMO_INTERIOR_LIGHTING.md` | Interior walls/floors/ceilings: MOCV, `FixVertexColors`, the `x2` scale, the interior gate | **Written — signed off, do not re-open casually** |
@@ -986,15 +1005,13 @@ World renderers now subtract `camera.Position` before the GPU transform, use
 Retesting the same tree and wooden arch confirmed this fixed the reported
 world-geometry popping.
 
-### 3.22 Network protocol (Phase 2 — not started)
+### 3.22 Network protocol — current authority
 
-Opcodes (1.12.1 build 5875): `SMSG_UPDATE_OBJECT=169`, `SMSG_COMPRESSED_UPDATE_OBJECT=502`, `CMSG_AUTH_SESSION=493`, `SMSG_AUTH_CHALLENGE=492`, `CMSG_PLAYER_LOGIN=61`, `SMSG_LOGIN_VERIFY_WORLD=566`, `MSG_MOVE_HEARTBEAT=238`, `CMSG_CHAR_ENUM=55`. 825 opcodes, `NUM_MSG_TYPES=828`.
-
-UpdateFields: use `UpdateFields_1_12_1.cpp` (flat table, 324 rows), **not** the `.h`. PLAYER=1282 slots, UNIT=188.
-
-Vanilla is **client-authoritative for movement**, which is why `CharacterController` is the real simulation and not a prediction.
-
-**Appearance arrives as four bytes** on the character record: skin, face, hairStyle, hairColor — the exact CharSections lookup keys in §3.16.
+Networking is live and has moved far beyond the old phase note that used to be
+here. [`SYSTEM_NETWORKING.md`](docs/systems/SYSTEM_NETWORKING.md) is the current
+authority for login, the build-5875 wire, entity streaming, movement and the
+capability-gated custom SuperUI protocol. Read it with the relevant feature doc;
+do not maintain a second opcode or packet census in this handbook.
 
 ### 3.23 Server environment
 
@@ -1816,7 +1833,12 @@ Written down because the same three moves have solved almost every hard bug in t
 
 ---
 
-## 7. Phase plan
+## 7. Historical phase plan (archived 2026-07-25)
+
+> This table and the former "immediate next steps" below are retained as the
+> original renderer/client roadmap, not as current project status or instructions.
+> Networking, combat, quests and instances have since landed. Use the system
+> documentation map in §1.2 and the current worktree for present truth.
 
 | Phase | Content | State |
 |---|---|---|
@@ -1830,13 +1852,16 @@ Written down because the same three moves have solved almost every hard bug in t
 | P6 | Raids | not started |
 | P7 | Painted art pass | parallel from P4 |
 
-### 7.1 Immediate next steps
+### 7.1 Historical next-step record
+
+The assumptions in this old checklist—including its expected dirty file and
+pre-reorganization paths—are stale. Do not execute it as a current runbook.
 
 **Housekeeping, before anything else**
 
 1. **Start safely.** Read the stop-point block in §0, inspect `git status` and
-   the existing diff, then build. The only uncommitted file should be
-   `PLAN_10_WMO_PORTALS.md`.
+   the existing diff, then build. ~~At that stop point, the expected uncommitted
+   file was `PLAN_10_WMO_PORTALS.md`.~~ That worktree assumption is obsolete.
 2. ~~Commit the lighting + foliage set.~~ **Done** — `b0837a9` and later.
 3. ~~Fix `FOUNDATION_PLAN.md`'s status line.~~ **Done** in the Draft 24 doc sync.
 4. ~~**Fix the DevTools lighting gate.**~~ **Done, 2026-07-25.** The resolve is
@@ -2097,7 +2122,11 @@ Almost every hard bug here was resolved by a number in the log — the collision
 - **Complete files, not diffs.** Deliver whole replacement files and say plainly where each one goes.
 - **CRLF** for `.cs`, `.vert`, `.frag`, `.json`, `.ps1`; **LF** for markdown.
 - **Pure ASCII, no BOM** in shaders and PowerShell (§8.5).
-- **Never question deployment steps.**
+- **Owner-only live operations.** Nico alone installs or deploys server artifacts,
+  mutates/restores/swaps live databases or worldstate saves, and controls live
+  runtime state (services, processes and `screen`/`tmux` sessions). Agents may
+  build when asked and inspect read-only, but stop before installation,
+  deployment, live data mutation or runtime control.
 - **Empirical over documented.** If a doc and the bytes disagree, the bytes win.
 - **Land an answer.** Exploration-only replies waste his time; every response should produce something he can build, run or read.
 - **One system, one doc (§1.2).** A system's detail goes in its own `SYSTEM_<NAME>.md`, not into this handbook. Keep the handbook a lean index of cross-cutting truth. When you work on a system, read its doc plus §3 — not the whole handbook — and if you touch a system whose doc is still a "planned extraction", split it out then.
