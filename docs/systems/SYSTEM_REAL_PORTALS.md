@@ -90,9 +90,12 @@ city destination), not a restriction to one geometric face of the source disc.
 
 ## Authority and wire contract
 
-`server.realPortals` enables the local procedural presentation. Before sending
-any portal opcode, the client issues a zero-guid request through the older,
-backwards-compatible `CMSG_SUI_CONTROL_REQUEST`. A current core appends an
+`server.realPortals` defaults to `true` and, together with `server.enabled`,
+enables the local procedural presentation. Existing per-machine configs that
+omit the newer key therefore pick up REAL_PORTALS after rebuilding. Set it to
+`false` for a stock VMaNGOS core. Before sending any portal opcode, the client
+issues a zero-guid request through the older, backwards-compatible
+`CMSG_SUI_CONTROL_REQUEST`. A current SuperUI core appends an
 eight-byte `SUI1` capability trailer to its ordinary control ACK and advertises
 portal-v1 in bit 0. An older core returns its normal denial without that trailer;
 the client suppresses the probe denial and keeps the large aperture sealed.

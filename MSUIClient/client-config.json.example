@@ -8,6 +8,7 @@
   "server": {
     "enabled": true,
     "autoConnect": false,
+    "realPortals": true,
     "account": "",
     "password": "",
     "realm": null,

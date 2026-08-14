@@ -251,8 +251,9 @@ combat animation state at world-load start/end. Do not infer a real hit from the
 population, and do not solve this by merely delaying the visible animation.
 
 **Config (`ClientConfig.Net.cs` → `client-config.json`):** `Server.Enabled` (master
-opt-in), `Server.AutoConnect`, `Server.Account`, `Server.Password`, `Server.Realm`,
-`Server.Character` (dev fast-path; skips select), `Server.WorldPortFallback` (8085),
+opt-in), `Server.AutoConnect`, `Server.RealPortals` (true; matching SuperUI core
+only), `Server.Account`, `Server.Password`, `Server.Realm`, `Server.Character`
+(dev fast-path; skips select), `Server.WorldPortFallback` (8085),
 `Server.WorldUsesRealmdHost` (true), `Server.TimeoutMs`. Realmd host/port are the
 existing top-level `RealmdHost` / `RealmdPort`.
 

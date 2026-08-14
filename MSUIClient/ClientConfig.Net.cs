@@ -21,10 +21,12 @@ public sealed partial class ClientConfig
 
         /// <summary>
         /// Enable the versioned REAL_PORTALS extension used by the matching
-        /// SuperUI core. Disable this when connecting this client to a stock
-        /// server: stock opcode tables do not know the portal prepare packets.
+        /// SuperUI core. This custom-core client defaults it on so an existing
+        /// per-machine config automatically gains the feature after an update.
+        /// Set false when connecting to a stock server: stock opcode tables do
+        /// not know the SuperUI capability probe or portal prepare packets.
         /// </summary>
-        public bool RealPortals { get; set; } = false;
+        public bool RealPortals { get; set; } = true;
 
         /// <summary>Account name (case-insensitive; sent uppercased, like the retail login box).</summary>
         public string Account { get; set; } = "";

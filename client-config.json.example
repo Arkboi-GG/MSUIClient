@@ -5,6 +5,19 @@
   "realmdHost": "192.168.0.2",
   "realmdPort": 3724,
 
+  "server": {
+    "enabled": false,
+    "autoConnect": true,
+    "realPortals": true,
+    "account": "",
+    "password": "",
+    "realm": null,
+    "character": null,
+    "worldPortFallback": 8085,
+    "worldUsesRealmdHost": true,
+    "timeoutMs": 10000
+  },
+
   "window": {
     "width": 1600,
     "height": 900,

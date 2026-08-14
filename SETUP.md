@@ -72,12 +72,19 @@ correct — don't "fix" it.
 ## Configuration
 
 ```
-copy client-config.json.example client-config.json
+copy MSUIClient\client-config.json.example MSUIClient\client-config.json
 ```
 
 Then set `clientDataPath` to this machine's WoW 1.12.1 `Data` folder — the one
 with the `.MPQ` archives. The client reads them directly; there is no asset
 server.
+
+`client-config.json` is gitignored and remains local to each PC. Live play uses
+`server.enabled`; `server.realPortals` now defaults to `true` for the matching
+SuperUI core. Set `server.realPortals` to `false` before connecting to a stock
+VMaNGOS core, whose opcode table does not include the SuperUI capability probe.
+At startup, `[config] file ...` reports the exact config selected; a copy beside
+the executable takes precedence over the project copy.
 
 `vmapPath` is optional. Point it at a copy of the server's
 `run/data/vmaps` folder (~580 MB) for building, tree and fence collision.
