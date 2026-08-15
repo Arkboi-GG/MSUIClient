@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Numerics;
 using MSUIClient.Formats;
+using MSUIClient.Net;
 
 static void Check(bool condition, string message)
 {
@@ -26,6 +27,9 @@ Check(fixtureChunks[2].Index == 3 && fixtureChunks[2].OffsetY == 286 &&
     "bottom partial chunk geometry changed");
 Check(fixtureChunks[3].TexturePath == @"Interface\WorldMap\Elwynn\TEST4.blp",
     "overlay texture naming/order changed");
+Check(!fixture.IsExplored(_ => false) && fixture.IsExplored(areaId => areaId == 3) &&
+      !fixture.IsExplored(areaId => areaId == 2) && !fixture.IsExplored(areaId => areaId == 99),
+    "four-area exploration visibility law changed");
 
 string dataPath = args.Length > 0
     ? Path.GetFullPath(args[0])
@@ -38,6 +42,9 @@ WorldMapAreaCatalog areas = WorldMapAreaCatalog.Load(mpq)
     ?? throw new InvalidOperationException("WorldMapArea.dbc did not load");
 WorldMapOverlayCatalog overlays = WorldMapOverlayCatalog.Load(mpq)
     ?? throw new InvalidOperationException("WorldMapOverlay.dbc was not the vanilla 17-field schema");
+AreaTableCatalog areaTable = AreaTableCatalog.Parse(mpq.ReadFile(AreaTableCatalog.MpqPath)
+    ?? throw new InvalidOperationException("AreaTable.dbc missing"))
+    ?? throw new InvalidOperationException("AreaTable.dbc did not parse");
 
 Check(overlays.All.Count == 526, $"expected 526 vanilla overlays, got {overlays.All.Count}");
 Check(overlays.ForMapArea(13).Count == 0 && overlays.ForMapArea(14).Count == 0,
@@ -70,6 +77,22 @@ Check(areas.TryGetArea(12, out WorldMapAreaInfo elwynn) && elwynn.Id == 30,
     "Elwynn WorldMapArea row changed");
 Check(overlays.ForMapArea(elwynn.Id).Count == 12,
     $"expected 12 Elwynn reveal rows, got {overlays.ForMapArea(elwynn.Id).Count}");
+Check(areaTable.ExplorationFlag(elwynn.AreaId) is uint elwynnExploreFlag &&
+      elwynnExploreFlag < 64u * 32u,
+    "Elwynn AreaTable exploration flag escaped the player field array");
+Check(ObjectFields.PLAYER_EXPLORED_ZONES_1 == 1111 &&
+      ObjectFields.PLAYER_EXPLORED_ZONES_SIZE == 64,
+    "exploration build-5875 field range drifted");
+var exploredFields = new ObjectFields();
+exploredFields.SetU32(ObjectFields.PLAYER_EXPLORED_ZONES_1, 1u | (1u << 31));
+exploredFields.SetU32((ushort)(ObjectFields.PLAYER_EXPLORED_ZONES_1 + 1), 1u | (1u << 7));
+exploredFields.SetU32((ushort)(ObjectFields.PLAYER_EXPLORED_ZONES_1 + 63), 1u << 31);
+Check(exploredFields.PlayerHasExplored(0) && exploredFields.PlayerHasExplored(31) &&
+      exploredFields.PlayerHasExplored(32) && exploredFields.PlayerHasExplored(39) &&
+      exploredFields.PlayerHasExplored(2047) && !exploredFields.PlayerHasExplored(1) &&
+      !exploredFields.PlayerHasExplored(33) && !exploredFields.PlayerHasExplored(2046) &&
+      !exploredFields.PlayerHasExplored(2048),
+    "AreaTable exploration-bit addressing drifted");
 
 IReadOnlyList<WorldMapOverlayChunk> elwynnChunks =
     overlays.BuildFullRevealChunks(elwynn.Id, elwynn.Directory);
@@ -139,6 +162,23 @@ for (int cell = 0; cell < WorldMapZoneMap.CellCount; cell++)
     }
 }
 Check(sawOneHopRollup, "Azeroth ZMP never exercised the one-hop AreaTable remap");
+
+string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+    "..", "..", "..", "..", ".."));
+string mmoRenderer = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+    "GameLoop.WorldMap.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+Check(mmoRenderer.Contains("_worldMapHits?.TryResolveArea", StringComparison.Ordinal) &&
+      mmoRenderer.Contains("AdditiveHandle(highlight.TexturePath)", StringComparison.Ordinal),
+    "ordinary MMO map stopped using stock ZMP ownership or shaped highlight art");
+Check(mmoRenderer.Contains("overlay.IsExplored", StringComparison.Ordinal) &&
+      !mmoRenderer.Contains("BuildFullRevealChunks", StringComparison.Ordinal),
+    "ordinary MMO map stopped applying character-specific exploration fog");
+Check(mmoRenderer.Contains("DrawMinimapPlayerArrow", StringComparison.Ordinal) &&
+      mmoRenderer.Contains("fitScale", StringComparison.Ordinal),
+    "ordinary MMO map lost its facing marker or dedicated fullscreen fit");
+Check(mmoRenderer.Contains("haveMapArea", StringComparison.Ordinal) &&
+      !mmoRenderer.Contains("area.Directory.Length", StringComparison.Ordinal),
+    "ordinary MMO map can dereference a missing instance/continent row");
 
 Console.WriteLine($"PASS overlays={overlays.All.Count} chunks={allChunks} " +
                   $"replacementSized={replacementSizedChunks} " +

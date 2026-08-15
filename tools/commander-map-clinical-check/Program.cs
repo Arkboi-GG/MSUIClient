@@ -52,23 +52,23 @@ Check(!CommanderMapUiLaw.Contains(origin, frame, origin + new Vector2(500f, 700f
     "bottom atlas padding remained clickable");
 
 // Dual-continent overview layout: both maps exist in every responsive mode,
-// with deterministic EK-left/top and Kalimdor-right/bottom ordering.
+// with deterministic Kalimdor-left/top and EK-right/bottom ordering.
 CommanderMapUiLaw.DualViewportLayout wide = CommanderMapUiLaw.LayoutDualViewports(
     new Vector2(12f, 30f), new Vector2(1200f, 600f), gap: 20f,
     minimumSideBySideWidth: 420f);
 Check(!wide.Stacked, "wide overview unexpectedly stacked its continents");
-Near(wide.EasternKingdoms.Size.X, 590f, "wide EK cell width drifted");
-Near(wide.Kalimdor.Min.X, 622f, "wide Kalimdor cell origin drifted");
-Check(wide.EasternKingdoms.Max.X < wide.Kalimdor.Min.X,
+Near(wide.Kalimdor.Size.X, 590f, "wide Kalimdor cell width drifted");
+Near(wide.EasternKingdoms.Min.X, 622f, "wide EK cell origin drifted");
+Check(wide.Kalimdor.Max.X < wide.EasternKingdoms.Min.X,
     "wide continent cells overlap");
 
 CommanderMapUiLaw.DualViewportLayout narrow = CommanderMapUiLaw.LayoutDualViewports(
     new Vector2(7f, 11f), new Vector2(800f, 1000f), gap: 20f,
     minimumSideBySideWidth: 420f);
 Check(narrow.Stacked, "narrow overview did not stack its continents");
-Near(narrow.EasternKingdoms.Size.Y, 490f, "stacked EK cell height drifted");
-Near(narrow.Kalimdor.Min.Y, 521f, "stacked Kalimdor cell origin drifted");
-Check(narrow.EasternKingdoms.Max.Y < narrow.Kalimdor.Min.Y,
+Near(narrow.Kalimdor.Size.Y, 490f, "stacked Kalimdor cell height drifted");
+Near(narrow.EasternKingdoms.Min.Y, 521f, "stacked EK cell origin drifted");
+Check(narrow.Kalimdor.Max.Y < narrow.EasternKingdoms.Min.Y,
     "stacked continent cells overlap");
 
 var landCrop = new CommanderMapUiLaw.NormalizedRect(
@@ -194,6 +194,39 @@ Check(honorSeparator >= 0 && honorSeparator == honorStatus.LastIndexOf('\u00B7')
 Check(CommanderMapUiLaw.CampaignStatus(mode: 0, modules: 0, honor: 0).Length == 0,
     "vanilla mode emitted an RTS campaign status");
 
+Check(CommanderMapUiLaw.ShowHeroes(mode: 1, modules: CommanderMapUiLaw.HeroesModule) &&
+      !CommanderMapUiLaw.ShowHeroes(mode: 1, modules: CommanderMapUiLaw.HonorModule) &&
+      !CommanderMapUiLaw.ShowHeroes(mode: 0, modules: CommanderMapUiLaw.HeroesModule),
+    "hero panel module/mode gate drifted");
+Check(CommanderMapUiLaw.FactionControlModule == 0x10 &&
+      CommanderMapUiLaw.ShowFactionControl(1, CommanderMapUiLaw.FactionControlModule) &&
+      !CommanderMapUiLaw.ShowFactionControl(1, CommanderMapUiLaw.HeroesModule) &&
+      !CommanderMapUiLaw.ShowFactionControl(0, CommanderMapUiLaw.FactionControlModule),
+    "faction-control module bit/mode gate drifted");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: true, heroLevel: 0, dead: false) ==
+      CommanderMapUiLaw.HeroAction.Declare,
+    "undeclared faction-bot candidate did not offer Declare");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: true, heroLevel: 2, dead: false) ==
+      CommanderMapUiLaw.HeroAction.Upgrade,
+    "living sub-cap hero did not offer Upgrade");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: true, heroLevel: 5, dead: true) ==
+      CommanderMapUiLaw.HeroAction.Revive,
+    "dead hero did not offer Revive");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: true, heroLevel: 5, dead: false) ==
+      CommanderMapUiLaw.HeroAction.None,
+    "maximum-rank living hero offered another upgrade");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: false, eligibleBot: true, heroLevel: 0, dead: false) ==
+      CommanderMapUiLaw.HeroAction.None &&
+      CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: false, heroLevel: 2, dead: false) ==
+      CommanderMapUiLaw.HeroAction.None,
+    "enemy/non-bot hero action escaped the client affordance gate");
+
 Check(CommanderMapUiLaw.ShowPresence(selectedMap: 0, areaMap: 0, bots: 0, players: 1),
     "selected-continent player presence was hidden");
 Check(!CommanderMapUiLaw.ShowPresence(selectedMap: 0, areaMap: 1, bots: 4, players: 3),
@@ -210,7 +243,7 @@ Check(renderer.Contains("CommanderMapUiLaw.TileBounds", StringComparison.Ordinal
 Check(!renderer.Contains("mapW / 4f", StringComparison.Ordinal) &&
       !renderer.Contains("mapH / 3f", StringComparison.Ordinal),
     "Commander renderer reintroduced squeezed atlas cells");
-Check(renderer.Contains("_commanderMapHits?.TryResolveArea", StringComparison.Ordinal),
+Check(renderer.Contains("_worldMapHits?.TryResolveArea", StringComparison.Ordinal),
     "Commander overview stopped using exact ZMP area ownership");
 Check(renderer.Contains("AdditiveHandle(highlight.TexturePath)", StringComparison.Ordinal),
     "Commander hover stopped using the stock additive zone highlight");
@@ -223,5 +256,70 @@ Check(renderer.Contains("stageMax - bodyMin, gap, 420f);", StringComparison.Ordi
 Check(!renderer.Contains("DrawCommanderMapFrameLegacy", StringComparison.Ordinal) &&
       !renderer.Contains("_commanderZoneRects", StringComparison.Ordinal),
     "Commander rollback-only renderer state returned");
+Check(renderer.Contains("DrawCommanderHeroesPanel", StringComparison.Ordinal) &&
+      renderer.Contains("TrySendCommanderHeroAction(action, guid)", StringComparison.Ordinal) &&
+      renderer.Contains("_rtsPendingAction", StringComparison.Ordinal),
+    "R2 hero roster/action/pending production wiring is missing");
+Check(renderer.Contains("RtsStateSnapshot next = RtsWire.ParseState(body);", StringComparison.Ordinal) &&
+      renderer.Contains("ResetCommanderState()", StringComparison.Ordinal),
+    "R2 atomic snapshot or session-reset production wiring is missing");
+Check(renderer.Contains("RtsForceRosterPage page = RtsWire.ParseForceRoster(body);",
+          StringComparison.Ordinal) &&
+      renderer.Contains("_rtsForceStaging", StringComparison.Ordinal) &&
+      renderer.Contains("BeginRtsForceTakeControl(unit)", StringComparison.Ordinal) &&
+      !renderer.Contains("FreeCamSelectableGuids", StringComparison.Ordinal),
+    "RTS faction-force roster regressed into the CRPG party candidate path");
+Check(renderer.Contains("bool selected = guid == _rtsSelectedForceGuid;", StringComparison.Ordinal) &&
+      !renderer.Contains("bool selected = _freecamSelection.Contains(guid);", StringComparison.Ordinal),
+    "RTS hero highlight regressed into the CRPG party marquee selection");
+Check(renderer.Contains("unit.ControlEligibleNow", StringComparison.Ordinal) &&
+      renderer.Contains("DIFFERENT INSTANCE", StringComparison.Ordinal) &&
+      renderer.Contains("_rtsForceRequestZone != forceZone", StringComparison.Ordinal) &&
+      renderer.Contains("ShowFactionControl(_rtsMode, _rtsModules)", StringComparison.Ordinal),
+    "RTS force eligibility/instance label or zone-switch cancellation is missing");
+Check(!renderer.Contains("force roster total changed inside one page chain", StringComparison.Ordinal) &&
+      !renderer.Contains("_rtsForceStaging.Count == page.Total", StringComparison.Ordinal),
+    "live force-roster pages were incorrectly treated as a retained server snapshot");
+
+string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+    "GameLoop.Control.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string net = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
+    "GameLoop.Net.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string logout = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+    "GameLoop.Logout.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string targeting = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
+    "GameLoop.Targeting.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+Check(control.Contains("RefreshControlledCharacterScale();", StringComparison.Ordinal) &&
+      net.Contains("_character.ModelScale = scale;", StringComparison.Ordinal) &&
+      net.Contains("controlled.Scale", StringComparison.Ordinal),
+    "controlled/local hero body stopped following OBJECT_SCALE_X");
+Check(net.Contains("ResetCommanderState();", StringComparison.Ordinal) &&
+      logout.Contains("ResetCommanderState();", StringComparison.Ordinal),
+    "RTS/Commander state is not reset on disconnect and clean logout");
+Check(control.Contains("result == 7 && guid != 0 && guid == _rtsForceTakeControlGuid",
+          StringComparison.Ordinal) &&
+      control.Contains("_rtsForceTakeControlPhase != RtsForceTakeControlPhase.AwaitingStream",
+          StringComparison.Ordinal) &&
+      control.Contains("_entities.TryGet(_rtsForceTakeControlGuid", StringComparison.Ordinal),
+    "RTS relocating ACK stopped waiting for the exact streamed force entity");
+Check(control.Contains("bool rtsForceTakeControl = _rtsForceTakeControlGuid == guid;",
+          StringComparison.Ordinal) &&
+      control.Contains("if (rtsForceTakeControl)\n            {", StringComparison.Ordinal) &&
+      control.Contains("SetFreeView(false);\n                ClearRtsForceTakeControl();",
+          StringComparison.Ordinal) &&
+      control.Contains("Commanding {ResolveUnitName(guid)}", StringComparison.Ordinal),
+    "RTS Take Control no longer lands while ordinary sky-party possession remains remote");
+Check(!control.Contains("if (!_freeView && _controlState == ControlState.OwnChar) return;",
+          StringComparison.Ordinal) &&
+      logout.Contains("ResetSuiControl();", StringComparison.Ordinal),
+    "SUI control roster can survive an OwnChar/clean-logout session boundary");
+Check(targeting.Contains("_playerNames.Clear();", StringComparison.Ordinal) &&
+      targeting.Contains("_queriedPlayerNames.Clear();", StringComparison.Ordinal) &&
+      targeting.Contains("_chatNameQueried.Clear();", StringComparison.Ordinal) &&
+      net.Contains("ResetPlayerIdentitySession();", StringComparison.Ordinal) &&
+      logout.Contains("ResetPlayerIdentitySession();", StringComparison.Ordinal),
+    "player identity caches can survive an MMO/RTS database swap");
+
+checks += RtsWireClinicalChecks.Run(root);
 
 Console.WriteLine($"commander-map clinical check PASS ({checks} assertions)");

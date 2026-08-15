@@ -270,6 +270,9 @@ public sealed class NetworkClient : IDisposable
     public bool SuiRtsState() => InWorld(s => s.SuiRtsState());
     public bool SuiRtsAction(byte action, ulong subjectGuid) =>
         InWorld(s => s.SuiRtsAction(action, subjectGuid));
+    public bool SuiForceRoster(uint requestId, uint zoneId, uint afterGuidLow,
+        byte limit = RtsWire.MaximumForcePageSize) =>
+        InWorld(s => s.SuiForceRoster(requestId, zoneId, afterGuidLow, limit));
     public bool SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>
         InWorld(s => s.SuiPortalPrepare(requestId, portalGuid, requestFlags));
     public bool SuiPortalPrepare(PortalPreparePacket packet) =>

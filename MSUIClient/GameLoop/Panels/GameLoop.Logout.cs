@@ -134,6 +134,9 @@ public sealed partial class GameLoop
         ResetPlayerAuras();
         ResetTargeting();
         ResetParty();
+        ResetSuiControl();
+        ResetCommanderState();
+        ResetPlayerIdentitySession();
         ResetCombatFeedback();
         ResetLoot();
         ResetGameObjects();

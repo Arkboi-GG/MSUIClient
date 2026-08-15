@@ -265,6 +265,21 @@ catalog never authorizes render, READY, use, or teleport: an own-player
 `GAMEOBJECT_CREATED_BY` plus portal entry before its authoritative descriptor can
 adopt that warm.
 
+**RTS R2 state, action and faction-force wire (2026-08-14):** opcodes 838-841
+remain the stride-versioned RTS state/action pair. R2 activates their Honor and
+hero blocks only when the server's immutable boot module mask says so. The
+reserved 842/843 pair is now `CMSG/SMSG_SUI_FORCE_ROSTER`: a 14-byte request
+pages active same-faction AiBots by zone and exclusive GUID-low cursor; the reply
+has a 16-byte generation/page header and at most 200 fixed 32-byte rows carrying
+full GUID, map/zone/xyz, race/class/level and server-derived eligibility flags.
+The server scans live authoritative players per page, so the advisory total may
+change during one traversal. The client stages correlated pages and publishes
+only a complete generation. Faction Control is module bit `0x10`; without it no
+roster scan or faction possession bypass occurs. Existing control ACK results 7
+and 8 mean outdoor relocation-in-progress and denied foreign-instance transfer.
+The byte tables, trust boundaries and paired repository ledger are canonical in
+[`SYSTEM_RTS_R2.md`](SYSTEM_RTS_R2.md), not duplicated here.
+
 **Config (`ClientConfig.Net.cs` → `client-config.json`):** `Server.Enabled` (master
 opt-in), `Server.AutoConnect`, `Server.RealPortals` (true; matching SuperUI core
 only), `Server.Account`, `Server.Password`, `Server.Realm`, `Server.Character`
@@ -291,6 +306,8 @@ Netstack (`Net/`):
 - `CombatFeedbackLaw.cs` — pure ownership, number/word and crit law for outgoing world text.
 - `PortalWire.cs` — REAL_PORTALS packets plus the `SUI1` capability trailer and
   strict six-row cast-prewarm catalog codec.
+- `RtsWire.cs` -- strict atomic RTS state/action and paged faction-force codecs
+  for opcodes 838-843; malformed bodies fail before publication.
 - `Formats/FactionTemplate.cs` — faction-template catalog + directional reaction comparator.
 - `tools/combat-wire-check` — focused checks for representative combat packets, movement
   jump-tail round trips, faction reaction precedence, and camera-ray alignment.

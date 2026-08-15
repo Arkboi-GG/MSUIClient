@@ -7,10 +7,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\MSUIClient\Formats\DbcReader.cs" Link="Formats\DbcReader.cs" />
+    <Compile Include="..\..\MSUIClient\Formats\AreaTable.cs" Link="Formats\AreaTable.cs" />
     <Compile Include="..\..\MSUIClient\Formats\BlpDecoder.cs" Link="Formats\BlpDecoder.cs" />
     <Compile Include="..\..\MSUIClient\Formats\MpqMount.cs" Link="Formats\MpqMount.cs" />
     <Compile Include="..\..\MSUIClient\Formats\Mpq\*.cs" Link="Formats\Mpq\%(Filename)%(Extension)" />
     <Compile Include="..\..\MSUIClient\Formats\WorldMapAreaCatalog.cs" Link="Formats\WorldMapAreaCatalog.cs" />
     <Compile Include="..\..\MSUIClient\Formats\WorldMapOverlayCatalog.cs" Link="Formats\WorldMapOverlayCatalog.cs" />
+    <Compile Include="..\..\MSUIClient\Net\ByteBuffer.cs" Link="Net\ByteBuffer.cs" />
+    <Compile Include="..\..\MSUIClient\Net\ObjectFields.cs" Link="Net\ObjectFields.cs" />
   </ItemGroup>
 </Project>

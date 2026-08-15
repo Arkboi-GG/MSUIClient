@@ -102,10 +102,15 @@ Nico runs a private VMaNGOS server (WoW 1.12.1 vanilla) plus **MangosSuperUI**, 
 ### Tier-2 RTS status (2026-08-14)
 
 Tier 1 (possession, free view, orders and the commander map) remains valid in the
-ordinary world. The Tier-2 R1 foundation is deployed, including the gated
-worldstate/ruleset foundation and matching client wire, but the current server
-boot is vanilla and every Tier-2 module is inert. Nico's live RTS-worldstate
-validation is still pending. R2-R5 and a match win state are not built.
+ordinary world. Nico has created and loaded the first clean RTS World State:
+R1 mode/wire, configured progression scaling, clean character creation and the
+Commander campaign header were observed; both faction bot-admission caps still
+need an explicit owner check, so R1 validation is partial rather than complete.
+R2 Honor, bot Heroes and boot-gated faction-wide direct control are now
+source-integrated and build-verified across MSUIClient, MangosSuperUI and the
+authoritative VMaNGOS Release/scripts build. Nothing was installed or restarted;
+owner-operated deployment and the live play-test are the current handoff
+boundary. R3, R4, strategic brain work and the match win state are not built.
 
 **Database ownership:** `CharacterDatabase` owns save-bound RTS mode, rules and
 state (the active schema on this deployment is `characters`); `WorldDatabase` owns
@@ -652,7 +657,8 @@ same "where each responsibility ends" discipline §1.1 applies to code.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [`RTS_WORLDSTATE_PLAN.md`](RTS_WORLDSTATE_PLAN.md) | Authoritative Tier-2 RTS architecture, phase boundaries, ruleset laws, wire allocation and verification plan | R1 foundation deployed; current boot vanilla/inert and owner validation pending. R2-R5 and a match win state are not built |
+| [`RTS_WORLDSTATE_PLAN.md`](RTS_WORLDSTATE_PLAN.md) | Authoritative Tier-2 RTS architecture, phase boundaries, ruleset laws, wire allocation and verification plan | R1 owner validation is partial; R2 source/build is complete and awaits owner deployment/live validation; R3-R4 and the win state remain plans |
+| [`docs/systems/SYSTEM_RTS_R2.md`](docs/systems/SYSTEM_RTS_R2.md) | Canonical exhaustive record for R2 Honor, bot Heroes, faction-force discovery/direct control, exact three-repository diffs, wire, boot isolation and owner validation | All three source/build tracks pass; no install/runtime/DB action was taken, and owner live validation remains separate |
 | [`CRPG_RTS_WIP.md`](CRPG_RTS_WIP.md) | Current CRPG/Tier-1 session record, binding owner decisions and RTS implementation handoff | Living record; read with `RTS_WORLDSTATE_PLAN.md` before changing either RTS tier |
 | `PROJECT_HANDBOOK.md` (this) | Cross-cutting ground truth, repo layout, startup order, history, working agreements, this map | Living index |
 | `SYSTEM_WATER.md` | **All** liquid: open-world MCLQ lakes/rivers/ocean/slime/magma **and WMO MLIQ canals, fountains, indoor pools**, the client's own animated liquid BLPs, per-type routing, underwater overlay | **Written (Draft 6)** — 2026-08-12. Draft 1's procedural Gerstner surface was **reversed**; read the doc before assuming waves. §7 is WMO liquid — **BUILT 2026-08-12 as a draw-only pass** (submersion for WMO liquid deliberately not wired); its §7.3 is the MLIQ-vs-MCLQ type trap that ships broken while looking fine in Stormwind |

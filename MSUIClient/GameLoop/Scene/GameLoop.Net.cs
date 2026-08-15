@@ -263,6 +263,8 @@ public sealed partial class GameLoop
             // No socket means no possession and no free view: the server's forced-release
             // ACK can never arrive to end them, so the client has to drop both itself.
             ResetSuiControl();
+            ResetCommanderState();
+            ResetPlayerIdentitySession();
             UpdatePartyInviteLifecycle();
             return;
         }
@@ -879,6 +881,9 @@ public sealed partial class GameLoop
                         break;
                     case Op.SMSG_SUI_RTS_ACTION_RESULT:
                         ApplySuiRtsActionResult(body);
+                        break;
+                    case Op.SMSG_SUI_FORCE_ROSTER:
+                        ApplySuiForceRoster(body);
                         break;
                     case Op.SMSG_SUI_PORTAL_DESCRIPTOR:
                         {
@@ -1563,6 +1568,7 @@ public sealed partial class GameLoop
         if (_character is null) return;
         ulong guid = ControlledGuid;
         _controlledBodyPending = false;
+        RefreshControlledCharacterScale();
         if (guid == LocalPlayerGuid)
         {
             ApplyServerCharacter(rebuild: false);
@@ -1613,6 +1619,22 @@ public sealed partial class GameLoop
         _character.Enabled = true;
         _playerPortraitDirty = true;
         _paperDollDirty = true;
+    }
+
+    /// <summary>
+    /// The streamed renderer already consumes OBJECT_SCALE_X directly. The
+    /// first-person CharacterRenderer replaces that streamed body while landed,
+    /// so it must mirror the same field for the own character and possessed bots.
+    /// This runs every frame because a hero upgrade changes the field in place.
+    /// </summary>
+    private void RefreshControlledCharacterScale()
+    {
+        if (_character is null) return;
+        float scale = 1f;
+        if (_entities.TryGet(ControlledGuid, out WorldEntity controlled) && controlled.IsPlayer &&
+            float.IsFinite(controlled.Scale))
+            scale = MathF.Max(0.01f, controlled.Scale);
+        _character.ModelScale = scale;
     }
 
     /// <summary>ChrRaces id -> character model folder name (Undead's folder is "Scourge").</summary>

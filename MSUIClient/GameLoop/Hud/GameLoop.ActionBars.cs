@@ -1392,7 +1392,7 @@ public sealed partial class GameLoop
                         if (_socialOpen) _socialOpen = false; else OpenSocial();
                         break;
                     case 5:
-                        _worldMapOpen = !_worldMapOpen;
+                        ToggleWorldMap();
                         break;
                     case 6:
                         ToggleSettingsFromMicroButton();

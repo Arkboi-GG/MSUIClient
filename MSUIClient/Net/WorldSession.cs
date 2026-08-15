@@ -324,11 +324,24 @@ public sealed class WorldSession : IDisposable
     /// <summary>RTS action: 1 hero declare / 2 upgrade / 3 revive (answered by SMSG_SUI_RTS_ACTION_RESULT).</summary>
     public void SuiRtsAction(byte action, ulong subjectGuid)
     {
-        var w = new PacketWriter(9);
-        w.WriteU8(action);
-        w.WriteU64(subjectGuid);
-        SendPacket((ushort)Op.CMSG_SUI_RTS_ACTION, w.ToArray());
+        SendPacket((ushort)Op.CMSG_SUI_RTS_ACTION,
+            BuildSuiRtsActionBody(action, subjectGuid));
     }
+
+    public static byte[] BuildSuiRtsActionBody(byte action, ulong subjectGuid) =>
+        RtsWire.BuildActionBody(action, subjectGuid);
+
+    /// <summary>Request one correlated, GUID-cursored page of same-faction RTS AiBots.</summary>
+    public void SuiForceRoster(uint requestId, uint zoneId, uint afterGuidLow,
+        byte limit = RtsWire.MaximumForcePageSize)
+    {
+        SendPacket((ushort)Op.CMSG_SUI_FORCE_ROSTER,
+            BuildSuiForceRosterBody(requestId, zoneId, afterGuidLow, limit));
+    }
+
+    public static byte[] BuildSuiForceRosterBody(uint requestId, uint zoneId,
+        uint afterGuidLow, byte limit = RtsWire.MaximumForcePageSize) =>
+        RtsWire.BuildForceRosterRequestBody(requestId, zoneId, afterGuidLow, limit);
 
     /// <summary>Request a correlated REAL_PORTALS descriptor for a nearby portal GO.</summary>
     public void SuiPortalPrepare(uint requestId, ulong portalGuid, ushort requestFlags = 0) =>

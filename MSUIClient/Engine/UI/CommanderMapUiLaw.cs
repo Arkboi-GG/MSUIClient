@@ -17,6 +17,17 @@ public static class CommanderMapUiLaw
     public const float OverlayChunkSize = 256f;
 
     public const byte HonorModule = 1 << 0;
+    public const byte HeroesModule = 1 << 1;
+    public const byte FactionControlModule = 1 << 4;
+    public const byte MaximumHeroLevel = 5;
+
+    public enum HeroAction : byte
+    {
+        None = 0,
+        Declare = 1,
+        Upgrade = 2,
+        Revive = 3,
+    }
 
     /// <summary>A screen-space rectangle with a positive size.</summary>
     public readonly record struct ScreenRect(Vector2 Min, Vector2 Size)
@@ -35,7 +46,7 @@ public static class CommanderMapUiLaw
     }
 
     /// <summary>
-    /// The two overview cells. Eastern Kingdoms is left/top and Kalimdor is
+    /// The two overview cells. Kalimdor is left/top and Eastern Kingdoms is
     /// right/bottom. Both cells are present in every responsive mode.
     /// </summary>
     public readonly record struct DualViewportLayout(
@@ -117,8 +128,8 @@ public static class CommanderMapUiLaw
         {
             Vector2 cell = new(sideWidth, size.Y);
             return new DualViewportLayout(
-                new ScreenRect(min, cell),
                 new ScreenRect(min + new Vector2(sideWidth + gap, 0f), cell),
+                new ScreenRect(min, cell),
                 false);
         }
 
@@ -127,8 +138,8 @@ public static class CommanderMapUiLaw
             throw new ArgumentOutOfRangeException(nameof(size), "The available height cannot hold two viewports.");
         Vector2 stackedCell = new(size.X, stackedHeight);
         return new DualViewportLayout(
-            new ScreenRect(min, stackedCell),
             new ScreenRect(min + new Vector2(0f, stackedHeight + gap), stackedCell),
+            new ScreenRect(min, stackedCell),
             true);
     }
 
@@ -280,6 +291,28 @@ public static class CommanderMapUiLaw
 
     public static bool ShowHonor(byte mode, byte modules) =>
         mode == 1 && (modules & HonorModule) != 0;
+
+    public static bool ShowHeroes(byte mode, byte modules) =>
+        mode == 1 && (modules & HeroesModule) != 0;
+
+    public static bool ShowFactionControl(byte mode, byte modules) =>
+        mode == 1 && (modules & FactionControlModule) != 0;
+
+    /// <summary>
+    /// Client-side affordance only; the server remains authoritative for faction,
+    /// slot, Honor, world-presence, and cost checks. Hero level zero means the
+    /// candidate has not been declared.
+    /// </summary>
+    public static HeroAction HeroActionFor(
+        byte mode, byte modules, bool ownFaction, bool eligibleBot,
+        byte heroLevel, bool dead)
+    {
+        if (!ShowHeroes(mode, modules) || !ownFaction || !eligibleBot)
+            return HeroAction.None;
+        if (heroLevel == 0) return HeroAction.Declare;
+        if (dead) return HeroAction.Revive;
+        return heroLevel < MaximumHeroLevel ? HeroAction.Upgrade : HeroAction.None;
+    }
 
     public static string CampaignStatus(byte mode, byte modules, long honor) =>
         mode != 1 ? string.Empty : ShowHonor(mode, modules)

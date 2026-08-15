@@ -7,9 +7,9 @@ using MSUIClient.Net;
 namespace MSUIClient;
 
 // ── RTS commander map (M while the free view is up) ─────────────────────────
-// A purpose-built strategic surface, deliberately NOT the vanilla parchment
-// world map: continent view with hoverable zones showing the live bots/players
-// census (SMSG_SUI_ZONE_INTEL), drill-in zone view showing the owner's own
+// A purpose-built strategic surface that reuses the vanilla parchment art and
+// exact zone silhouettes: dual-continent hover shows the live bots/players
+// census (SMSG_SUI_ZONE_INTEL), while drill-in shows the owner's own
 // units, and click-to-fly for both units and open ground. Owner direction
 // 2026-08-12 (CRPG_RTS_WIP.md "Future design" Part 1).
 public sealed partial class GameLoop
@@ -22,16 +22,25 @@ public sealed partial class GameLoop
     }
 
     // ── tier-2 RTS worldstate (SMSG_SUI_RTS_STATE; all zeros in vanilla) ─────
-    private readonly record struct RtsFaction(long HonorPool, int Ore, int Skins, int Herbs,
-        ushort ControlledZones, ushort HeroesFielded, ushort HeroSlotCap);
-    private readonly record struct RtsHero(ulong Guid, byte Team, byte HeroLevel, bool Dead);
-    private readonly record struct RtsDungeon(uint MapId, byte Controller, byte LiveRunFlags);
-
     private byte _rtsMode;                           // 0 vanilla, 1 RTS match
     private byte _rtsModules;                        // bit0 honor, 1 heroes, 2 territory, 3 dungeons
-    private readonly RtsFaction[] _rtsFactions = new RtsFaction[2];
-    private readonly List<RtsHero> _rtsHeroes = [];
-    private readonly List<RtsDungeon> _rtsDungeons = [];
+    private readonly RtsFactionWire[] _rtsFactions = new RtsFactionWire[2];
+    private readonly List<RtsHeroWire> _rtsHeroes = [];
+    private readonly List<RtsDungeonWire> _rtsDungeons = [];
+    // The faction force is deliberately not the CRPG party/control roster. It is
+    // a zone-scoped RTS census used for map markers and hero management only.
+    private readonly Dictionary<ulong, RtsForceUnitWire> _rtsForces = [];
+    private readonly Dictionary<ulong, RtsForceUnitWire> _rtsForceStaging = [];
+    private uint _rtsForceRequestSeed;
+    private uint _rtsForceRequestId;
+    private uint _rtsForceRequestZone;
+    private uint _rtsForceRequestAfter;
+    private bool _rtsForceLoading;
+    private double _rtsForceRequestAt;
+    private uint _rtsForcePublishedZone;
+    private ushort _rtsForcePublishedTotal;
+    private double _rtsForceAt;
+    private ulong _rtsSelectedForceGuid;
     private readonly Dictionary<uint, byte> _zoneControl = [];   // zoneId -> controller (0x80 = contested)
 
     /// <summary>0 = alliance, 1 = horde (the session character's side).</summary>
@@ -45,14 +54,19 @@ public sealed partial class GameLoop
     private double _zoneIntelSentAt;                 // request throttle; 0 forces an immediate send
     private (float X, float Y, float Alt)? _commanderFlySettle;  // ground snap pending terrain streaming
     private double _commanderFlySettleAt;
-    private WorldMapOverlayCatalog? _commanderMapOverlays;
-    private WorldMapHighlightCatalog? _commanderMapHighlights;
-    private WorldMapZoneHitCatalog? _commanderMapHits;
-    private bool _commanderMapOverlaysLoaded;
+    private WorldMapOverlayCatalog? _worldMapOverlays;
+    private WorldMapHighlightCatalog? _worldMapHighlights;
+    private WorldMapZoneHitCatalog? _worldMapHits;
+    private bool _worldMapSupportingDataLoaded;
     private string? _commanderNotice;                // one-line transient message in the footer
     private double _commanderNoticeAt;
+    private byte _rtsPendingAction;
+    private ulong _rtsPendingSubject;
+    private double _rtsPendingActionAt;
 
     private const double CommanderIntelRefreshSeconds = 5.0;
+    private const double RtsForceRequestTimeoutSeconds = 8.0;
+    private const double RtsActionTimeoutSeconds = 5.0;
     private const float CommanderFlyAltitude = 60f;  // ground click: commander vantage
     private const float CommanderUnitAltitude = 25f; // unit click: close enough to read the fight
 
@@ -66,12 +80,49 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
+    /// Session boundary reset. Map transfers retain the same match snapshot, but
+    /// logout/disconnect must never let one world's RTS controls leak into the next.
+    /// </summary>
+    private void ResetCommanderState()
+    {
+        _commanderMapOpen = false;
+        _commanderMapZone = 0;
+        _zoneIntel.Clear();
+        _zoneControl.Clear();
+        _commanderUnits.Clear();
+        _zoneIntelAt = 0;
+        _zoneIntelSentAt = 0;
+        _commanderFlySettle = null;
+        _commanderFlySettleAt = 0;
+        _rtsMode = 0;
+        _rtsModules = 0;
+        Array.Clear(_rtsFactions);
+        _rtsHeroes.Clear();
+        _rtsDungeons.Clear();
+        ResetRtsForceRoster();
+        _rtsPendingAction = 0;
+        _rtsPendingSubject = 0;
+        _rtsPendingActionAt = 0;
+        _commanderNotice = null;
+        _commanderNoticeAt = 0;
+    }
+
+    /// <summary>
     /// Per-frame commander-map work, called unconditionally from the frame loop:
     /// the census request cadence (map open only) and the fly-to ground-snap
     /// latch, which must keep running after the map closes on a unit click.
     /// </summary>
     private void UpdateCommanderMap()
     {
+        double now = NowSeconds();
+        if (_rtsPendingAction != 0 && now - _rtsPendingActionAt > RtsActionTimeoutSeconds)
+        {
+            _rtsPendingAction = 0;
+            _rtsPendingSubject = 0;
+            _rtsPendingActionAt = 0;
+            CommanderShowNotice("No answer from the server (RTS hero action).");
+        }
+
         if (!_freeView)
         {
             _commanderFlySettle = null;              // never teleport a controller that drives a real body
@@ -93,12 +144,125 @@ public sealed partial class GameLoop
 
         if (_commanderMapOpen && _net is { IsInWorld: true })
         {
-            double now = NowSeconds();
             if (now - _zoneIntelSentAt > CommanderIntelRefreshSeconds && _net.SuiZoneIntel())
             {
                 _zoneIntelSentAt = now;
                 _net.SuiRtsState();   // same cadence: mode, honor pools, heroes, objectives
             }
+
+            uint forceZone = _commanderMapZone;
+            if (CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules) && forceZone != 0)
+            {
+                // A page chain belongs to exactly one drilled zone. If the commander
+                // changes zones, abandon the hidden staging set immediately; the new
+                // request id makes any late page from the old zone harmless.
+                if (_rtsForceLoading && _rtsForceRequestZone != forceZone)
+                {
+                    _rtsForceLoading = false;
+                    _rtsForceStaging.Clear();
+                }
+                if (_rtsForceLoading && now - _rtsForceRequestAt > RtsForceRequestTimeoutSeconds)
+                {
+                    _rtsForceLoading = false;
+                    _rtsForceStaging.Clear();
+                    CommanderShowNotice("Faction force roster timed out.");
+                }
+                if (!_rtsForceLoading &&
+                    (_rtsForcePublishedZone != forceZone || now - _rtsForceAt > CommanderIntelRefreshSeconds))
+                    BeginRtsForceRosterLoad(forceZone);
+            }
+        }
+    }
+
+    private void ResetRtsForceRoster()
+    {
+        _rtsForces.Clear();
+        _rtsForceStaging.Clear();
+        _rtsForceRequestId = 0;
+        _rtsForceRequestZone = 0;
+        _rtsForceRequestAfter = 0;
+        _rtsForceLoading = false;
+        _rtsForceRequestAt = 0;
+        _rtsForcePublishedZone = 0;
+        _rtsForcePublishedTotal = 0;
+        _rtsForceAt = 0;
+        _rtsSelectedForceGuid = 0;
+    }
+
+    private uint NextRtsForceRequestId()
+    {
+        do { _rtsForceRequestSeed++; } while (_rtsForceRequestSeed == 0);
+        return _rtsForceRequestSeed;
+    }
+
+    private void BeginRtsForceRosterLoad(uint zoneId)
+    {
+        if (zoneId == 0 || !CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules) ||
+            _net is not { IsInWorld: true }) return;
+        uint requestId = NextRtsForceRequestId();
+        _rtsForceRequestId = requestId;
+        _rtsForceRequestZone = zoneId;
+        _rtsForceRequestAfter = 0;
+        _rtsForceStaging.Clear();
+        _rtsForceLoading = true;
+        _rtsForceRequestAt = NowSeconds();
+        if (!_net.SuiForceRoster(requestId, zoneId, 0))
+        {
+            _rtsForceLoading = false;
+            _rtsForceStaging.Clear();
+        }
+    }
+
+    /// <summary>
+    /// One strict page of the faction-force roster. Pages accumulate out of view;
+    /// the selected zone is replaced only after the server publishes its end cursor.
+    /// </summary>
+    private void ApplySuiForceRoster(byte[] body)
+    {
+        try
+        {
+            RtsForceRosterPage page = RtsWire.ParseForceRoster(body);
+            if (!CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules))
+                return;
+            if (!_rtsForceLoading || page.RequestId != _rtsForceRequestId ||
+                page.ZoneId != _rtsForceRequestZone)
+                return; // stale response from a zone the commander already left
+
+            foreach (RtsForceUnitWire unit in page.Units)
+            {
+                uint guidLow = unchecked((uint)unit.Guid);
+                if (guidLow <= _rtsForceRequestAfter || !_rtsForceStaging.TryAdd(unit.Guid, unit))
+                    throw new InvalidDataException("force roster page repeated or reversed a GUID");
+            }
+
+            if (page.NextGuidLow != 0)
+            {
+                _rtsForceRequestAfter = page.NextGuidLow;
+                _rtsForceRequestAt = NowSeconds();
+                if (_net?.SuiForceRoster(page.RequestId, page.ZoneId, page.NextGuidLow) != true)
+                {
+                    _rtsForceLoading = false;
+                    _rtsForceStaging.Clear();
+                }
+                return;
+            }
+
+            _rtsForces.Clear();
+            foreach ((ulong guid, RtsForceUnitWire unit) in _rtsForceStaging)
+                _rtsForces.Add(guid, unit);
+            _rtsForceStaging.Clear();
+            _rtsForcePublishedZone = page.ZoneId;
+            _rtsForcePublishedTotal = page.Total;
+            _rtsForceAt = NowSeconds();
+            _rtsForceLoading = false;
+            if (_rtsSelectedForceGuid != 0 && !_rtsForces.ContainsKey(_rtsSelectedForceGuid))
+                _rtsSelectedForceGuid = 0;
+        }
+        catch (Exception e)
+        {
+            _rtsForceLoading = false;
+            _rtsForceStaging.Clear();
+            Console.WriteLine($"[commander] SMSG_SUI_FORCE_ROSTER parse failed: {e.Message}");
         }
     }
 
@@ -162,47 +326,22 @@ public sealed partial class GameLoop
     {
         try
         {
-            var r = new PacketReader(body);
-            _rtsMode = r.ReadU8();
-            _rtsModules = r.ReadU8();
-            byte factionStride = r.ReadU8();
-            for (int t = 0; t < 2; t++)
-            {
-                long pool = (long)r.ReadU64();
-                int ore = r.ReadI32();
-                int skins = r.ReadI32();
-                int herbs = r.ReadI32();
-                ushort zones = r.ReadU16();
-                ushort fielded = r.ReadU16();
-                ushort cap = r.ReadU16();
-                if (factionStride > 26) r.Skip(factionStride - 26);
-                _rtsFactions[t] = new RtsFaction(pool, ore, skins, herbs, zones, fielded, cap);
-            }
-            byte heroCount = r.ReadU8();
-            byte heroStride = r.ReadU8();
+            // Parse the entire packet before publishing any field. A malformed
+            // future row cannot mix a new mode/pool with the previous roster.
+            RtsStateSnapshot next = RtsWire.ParseState(body);
+            _rtsMode = next.Mode;
+            _rtsModules = next.Modules;
+            Array.Copy(next.Factions, _rtsFactions, _rtsFactions.Length);
             _rtsHeroes.Clear();
-            for (int i = 0; i < heroCount; i++)
-            {
-                ulong guid = r.ReadU64();
-                byte team = r.ReadU8();
-                byte level = r.ReadU8();
-                byte dead = r.ReadU8();
-                r.Skip(1);                                        // pad
-                if (heroStride > 12) r.Skip(heroStride - 12);
-                _rtsHeroes.Add(new RtsHero(guid, team, level, dead != 0));
-            }
-            byte dungeonCount = r.ReadU8();
-            byte dungeonStride = r.ReadU8();
+            _rtsHeroes.AddRange(next.Heroes);
             _rtsDungeons.Clear();
-            for (int i = 0; i < dungeonCount; i++)
-            {
-                uint mapId = r.ReadU32();
-                byte controller = r.ReadU8();
-                byte runFlags = r.ReadU8();
-                r.Skip(1);                                        // pad
-                if (dungeonStride > 7) r.Skip(dungeonStride - 7);
-                _rtsDungeons.Add(new RtsDungeon(mapId, controller, runFlags));
-            }
+            _rtsDungeons.AddRange(next.Dungeons);
+
+            if (!CommanderMapUiLaw.ShowFactionControl(next.Mode, next.Modules))
+                ResetRtsForceRoster();
+
+            // Names stay lazy. A state push may arrive with Commander closed and
+            // must not fan out vanilla name queries for every declared hero.
         }
         catch (Exception e)
         {
@@ -215,11 +354,16 @@ public sealed partial class GameLoop
     {
         try
         {
-            var r = new PacketReader(body);
-            byte action = r.ReadU8();
-            byte result = r.ReadU8();
-            r.ReadU64();                                          // subject guid
-            long poolAfter = (long)r.ReadU64();
+            RtsActionResultWire response = RtsWire.ParseActionResult(body);
+            byte action = response.Action;
+            byte result = response.Result;
+            long poolAfter = response.PoolAfter;
+            if (_rtsPendingAction == action && _rtsPendingSubject == response.SubjectGuid)
+            {
+                _rtsPendingAction = 0;
+                _rtsPendingSubject = 0;
+                _rtsPendingActionAt = 0;
+            }
             string what = action switch { 1 => "Declare hero", 2 => "Upgrade hero", 3 => "Revive hero", _ => $"Action {action}" };
             string verdict = result switch
             {
@@ -232,6 +376,8 @@ public sealed partial class GameLoop
             string honor = CommanderMapUiLaw.ShowHonor(_rtsMode, _rtsModules)
                 ? $"  (Honor {poolAfter:n0})" : string.Empty;
             CommanderShowNotice($"{what}: {verdict}{honor}");
+            _net?.SuiRtsState(); // authoritative pool/roster refresh without waiting for the 5 s census tick
+            _rtsForceAt = 0;     // hero/dead flags on the selected-zone force rows also changed
         }
         catch (Exception e)
         {
@@ -269,6 +415,28 @@ public sealed partial class GameLoop
         _commanderNoticeAt = NowSeconds();
     }
 
+    private void TrySendCommanderHeroAction(
+        CommanderMapUiLaw.HeroAction action, ulong subjectGuid)
+    {
+        if (action == CommanderMapUiLaw.HeroAction.None || subjectGuid == 0 || _net is null)
+            return;
+        if (_rtsPendingAction != 0)
+        {
+            CommanderShowNotice("An RTS hero action is already waiting for the server.");
+            return;
+        }
+        if (!_net.SuiRtsAction((byte)action, subjectGuid))
+        {
+            CommanderShowNotice("RTS hero action could not be sent.");
+            return;
+        }
+
+        _rtsPendingAction = (byte)action;
+        _rtsPendingSubject = subjectGuid;
+        _rtsPendingActionAt = NowSeconds();
+        CommanderShowNotice($"{action} hero: waiting for the server...");
+    }
+
     // ── drawing ──────────────────────────────────────────────────────────────
 
     private readonly record struct CommanderZoneRect(
@@ -283,7 +451,7 @@ public sealed partial class GameLoop
     {
         if (!_commanderMapOpen || _gameplayArt is null || _net is null) return;
         EnsureWorldMapAreas();
-        EnsureCommanderMapOverlays();
+        EnsureWorldMapSupportingData();
         EnsureAreaTableForMinimap();
         if (_worldMapAreas is null) { _commanderMapOpen = false; return; }
 
@@ -355,11 +523,24 @@ public sealed partial class GameLoop
 
         Vector2 bodyMin = new(margin, headerMax.Y + gap);
         Vector2 bodyMax = new(disp.X - margin, disp.Y - margin - footerH);
-        uint playerMap = _net.Player?.Map ?? 0;
+        bool showHeroes = CommanderMapUiLaw.ShowHeroes(_rtsMode, _rtsModules);
+        Vector2 strategicBodyMax = bodyMax;
+        Vector2 heroesMin = default;
+        if (showHeroes)
+        {
+            float bodyWidth = bodyMax.X - bodyMin.X;
+            float railWidth = MathF.Min(bodyWidth * 0.34f,
+                Math.Clamp(bodyWidth * 0.24f, 230f * s, 340f * s));
+            strategicBodyMax.X -= railWidth + gap;
+            heroesMin = new Vector2(strategicBodyMax.X + gap, bodyMin.Y);
+        }
+        uint playerMap = checked((uint)Math.Max(0, _config.Start.Map));
         if (!drilled)
-            DrawCommanderWorldOverview(dl, bodyMin, bodyMax, gap, s, playerMap, stale);
+            DrawCommanderWorldOverview(dl, bodyMin, strategicBodyMax, gap, s, playerMap, stale);
         else
-            DrawCommanderDrill(dl, drilledZone, bodyMin, bodyMax, gap, s, playerMap);
+            DrawCommanderDrill(dl, drilledZone, bodyMin, strategicBodyMax, gap, s, playerMap);
+        if (showHeroes)
+            DrawCommanderHeroesPanel(dl, heroesMin, bodyMax, s);
 
         bool noticeActive = _commanderNotice is not null && now - _commanderNoticeAt < 4.0;
         string hint = noticeActive ? _commanderNotice! : drilled
@@ -381,30 +562,194 @@ public sealed partial class GameLoop
         PopCreatorStyle();
     }
 
-    private void EnsureCommanderMapOverlays()
+    private void EnsureWorldMapSupportingData()
     {
-        if (_commanderMapOverlaysLoaded) return;
-        _commanderMapOverlaysLoaded = true;
+        if (_worldMapSupportingDataLoaded) return;
+        _worldMapSupportingDataLoaded = true;
         try
         {
             if (_mpq is not null)
             {
-                _commanderMapOverlays = WorldMapOverlayCatalog.Load(_mpq);
+                _worldMapOverlays = WorldMapOverlayCatalog.Load(_mpq);
                 if (_worldMapAreas is not null)
                 {
-                    _commanderMapHighlights = WorldMapHighlightCatalog.Build(_worldMapAreas);
-                    _commanderMapHits = WorldMapZoneHitCatalog.Load(_mpq, _worldMapAreas);
+                    _worldMapHighlights = WorldMapHighlightCatalog.Build(_worldMapAreas);
+                    _worldMapHits = WorldMapZoneHitCatalog.Load(_mpq, _worldMapAreas);
                 }
             }
         }
         catch (Exception e)
         {
-            Console.WriteLine($"[commander] WorldMapOverlay load failed: {e.Message}");
+            Console.WriteLine($"[world-map] supporting data load failed: {e.Message}");
         }
     }
 
     private string CommanderZoneName(WorldMapAreaInfo zone) =>
         _areas?.ZoneName(zone.AreaId) is { Length: > 0 } name ? name : zone.Directory;
+
+    private void DrawCommanderHeroesPanel(ImDrawListPtr dl, Vector2 min, Vector2 max, float s)
+    {
+        dl.AddRectFilled(min, max, 0xF01B1815, 5f * s);
+        dl.AddRect(min, max, 0x60FFFFFF, 5f * s, ImDrawFlags.None, 1f * s);
+        dl.PushClipRect(min, max, true);
+
+        RtsFactionWire faction = _rtsFactions[OwnTeamIndex];
+        float x = min.X + 12f * s;
+        float right = max.X - 12f * s;
+        float y = min.Y + 10f * s;
+        dl.AddText(ImGui.GetFont(), 15f * s, new Vector2(x, y), VanillaGold, "HEROES");
+        DrawCommanderRightAlignedText(dl, right, y,
+            $"{faction.HeroesFielded}/{faction.HeroSlotCap} FIELD", 11f * s, 0xFF9A948Du);
+        y += 24f * s;
+        if (CommanderMapUiLaw.ShowHonor(_rtsMode, _rtsModules))
+        {
+            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF60C0E0,
+                $"Faction Honor  {faction.HonorPool:n0}");
+            y += 22f * s;
+        }
+
+        var roster = _rtsHeroes
+            .Where(hero => hero.Team == OwnTeamIndex)
+            .OrderBy(hero => hero.Dead)
+            .ThenByDescending(hero => hero.HeroLevel)
+            .ThenBy(hero => CommanderUnitName(hero.Guid), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+            "SELECTED FACTION BOT");
+        y += 18f * s;
+        if (_rtsSelectedForceGuid != 0 &&
+            _rtsForces.TryGetValue(_rtsSelectedForceGuid, out RtsForceUnitWire selected))
+        {
+            string selectedName = CommanderForceName(selected.Guid, request: true);
+            RtsHeroWire? selectedHero = null;
+            foreach (RtsHeroWire hero in roster)
+                if (hero.Guid == selected.Guid) { selectedHero = hero; break; }
+            byte heroLevel = selectedHero?.HeroLevel ?? 0;
+            bool heroDead = selectedHero?.Dead ?? selected.HeroDead;
+            bool heroStatePending = selected.DeclaredHero && selectedHero is null;
+            bool actionEligible = !heroStatePending && (selected.Alive || heroDead);
+            CommanderMapUiLaw.HeroAction action = CommanderMapUiLaw.HeroActionFor(
+                _rtsMode, _rtsModules, ownFaction: true, eligibleBot: actionEligible,
+                heroLevel, heroDead);
+            string status = heroStatePending ? "HERO SYNC" : heroLevel > 0
+                ? $"HL {heroLevel}" + (heroDead ? " DEAD" : "")
+                : $"L{selected.Level} {ClassIdName(selected.Class)}".TrimEnd();
+            DrawCommanderHeroRow(dl, selected.Guid, selectedName, status, action,
+                x, right, y, s);
+            y += 28f * s;
+            DrawCommanderTakeControlButton(dl, selected, x, right, y, s);
+            y += 30f * s;
+        }
+        else
+        {
+            string prompt = !CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules)
+                ? "Faction-force control is disabled."
+                : _commanderMapZone == 0
+                ? "Inspect a zone, then select a bot."
+                : _rtsForceLoading ? "Loading this zone's faction force..."
+                : "Select a faction bot on the map.";
+            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                CommanderFitText(prompt, right - x, 11f * s));
+            y += 27f * s;
+        }
+
+        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A, "DECLARED HEROES");
+        y += 18f * s;
+        const int maximumRosterRows = 6;
+        int rosterVisible = Math.Min(maximumRosterRows, roster.Count);
+        if (rosterVisible == 0)
+        {
+            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                "No heroes declared.");
+            y += 24f * s;
+        }
+        else
+        {
+            for (int i = 0; i < rosterVisible && y + 26f * s < max.Y; i++)
+            {
+                RtsHeroWire hero = roster[i];
+                // A hero row exists only after the server's bot-only declaration
+                // gate. Party membership and the local entity stream are irrelevant.
+                CommanderMapUiLaw.HeroAction action = CommanderMapUiLaw.HeroActionFor(
+                    _rtsMode, _rtsModules, ownFaction: true, eligibleBot: true,
+                    hero.HeroLevel, hero.Dead);
+                DrawCommanderHeroRow(dl, hero.Guid, CommanderForceName(hero.Guid, request: true),
+                    hero.Dead ? $"HL {hero.HeroLevel}  DEAD" : $"HL {hero.HeroLevel}",
+                    action, x, right, y, s);
+                y += 28f * s;
+            }
+            if (roster.Count > rosterVisible && y + 14f * s < max.Y)
+            {
+                dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+                    $"+{roster.Count - rosterVisible} more heroes");
+                y += 18f * s;
+            }
+        }
+
+        dl.PopClipRect();
+    }
+
+    private void DrawCommanderTakeControlButton(ImDrawListPtr dl, RtsForceUnitWire unit,
+        float x, float right, float y, float s)
+    {
+        bool differentInstance = unit.InstanceableMap && !unit.SameMapAndInstance;
+        bool pending = _rtsForceTakeControlGuid != 0;
+        bool enabled = unit.Alive && !unit.Busy && unit.ControlEligibleNow &&
+            !differentInstance && !pending;
+        string label = !unit.Alive ? "DEAD" : unit.Busy ? "IN USE" :
+            differentInstance ? "DIFFERENT INSTANCE" :
+            !unit.ControlEligibleNow ? "UNAVAILABLE" :
+            pending && _rtsForceTakeControlGuid == unit.Guid ? "LOCATING..." :
+            pending ? "CONTROL PENDING" : "TAKE CONTROL";
+
+        Vector2 min = new(x, y);
+        Vector2 size = new(right - x, 22f * s);
+        ImGui.SetCursorScreenPos(min);
+        bool clicked = ImGui.InvisibleButton($"##rts-take-control-{unit.Guid}", size);
+        bool hover = ImGui.IsItemHovered() && enabled;
+        uint fill = enabled ? (hover ? 0xE0445360u : 0xD034404Au) : 0xA0202020u;
+        dl.AddRectFilled(min, min + size, fill, 3f * s);
+        dl.AddRect(min, min + size, enabled ? 0xB060C0E0u : 0x30707070u, 3f * s);
+        DrawCenteredText(dl, min + size * 0.5f, label, 9f * s,
+            enabled ? 0xFFF0ECE4u : 0xFF707070u);
+        if (clicked && enabled) BeginRtsForceTakeControl(unit);
+    }
+
+    private void DrawCommanderHeroRow(ImDrawListPtr dl, ulong guid, string name, string status,
+        CommanderMapUiLaw.HeroAction action, float x, float right, float y, float s)
+    {
+        // Hero management is driven by the faction-force census, not the unrelated
+        // CRPG party marquee. Never make party selection the RTS action subject.
+        bool selected = guid == _rtsSelectedForceGuid;
+        Vector2 rowMin = new(x - 4f * s, y - 3f * s);
+        Vector2 rowMax = new(right + 4f * s, y + 22f * s);
+        if (selected) dl.AddRectFilled(rowMin, rowMax, 0x243EA6E6, 3f * s);
+
+        float buttonWidth = 70f * s;
+        float buttonLeft = right - buttonWidth;
+        dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y),
+            selected ? 0xFFFFFFFFu : 0xFFE6E6E6u,
+            CommanderFitText(name, buttonLeft - x - 54f * s, 12f * s));
+        DrawCommanderRightAlignedText(dl, buttonLeft - 7f * s, y + 1f * s,
+            status, 9f * s, status.Contains("DEAD", StringComparison.Ordinal) ? 0xFF6E7FE6u : 0xFF9A948Du);
+
+        if (action == CommanderMapUiLaw.HeroAction.None) return;
+        bool pending = _rtsPendingAction != 0;
+        Vector2 buttonMin = new(buttonLeft, y - 2f * s);
+        Vector2 buttonSize = new(buttonWidth, 20f * s);
+        ImGui.SetCursorScreenPos(buttonMin);
+        bool clicked = ImGui.InvisibleButton($"##rts-hero-{guid}-{(byte)action}", buttonSize);
+        bool hover = ImGui.IsItemHovered() && !pending;
+        uint fill = pending ? 0xA0202020u : hover ? 0xE0404A52u : 0xC030363Cu;
+        dl.AddRectFilled(buttonMin, buttonMin + buttonSize, fill, 3f * s);
+        dl.AddRect(buttonMin, buttonMin + buttonSize,
+            pending ? 0x30707070u : 0xA060C0E0u, 3f * s);
+        string label = pending && _rtsPendingSubject == guid ? "WAIT" : action.ToString().ToUpperInvariant();
+        DrawCenteredText(dl, buttonMin + buttonSize * 0.5f, label, 9f * s,
+            pending ? 0xFF707070u : 0xFFF0ECE4u);
+        if (clicked && !pending) TrySendCommanderHeroAction(action, guid);
+    }
 
     private void DrawCommanderWorldOverview(ImDrawListPtr dl, Vector2 bodyMin, Vector2 bodyMax,
         float gap, float s, uint playerMap, bool stale)
@@ -576,7 +921,7 @@ public sealed partial class GameLoop
         CommanderMapUiLaw.NormalizedRect crop = CommanderCrop(map);
         if (!CommanderMapUiLaw.Contains(viewport, screen)) return null;
         Vector2 normalized = CommanderMapUiLaw.UnprojectCrop(viewport, crop, screen);
-        if (_commanderMapHits?.TryResolveArea(map.MapId, map.Continent,
+        if (_worldMapHits?.TryResolveArea(map.MapId, map.Continent,
                 normalized, out uint areaId) != true)
             return null;
         foreach (CommanderZoneRect zone in map.Zones)
@@ -587,7 +932,7 @@ public sealed partial class GameLoop
     private void DrawCommanderZoneHighlight(ImDrawListPtr dl, in CommanderOverviewMap map,
         in CommanderZoneRect zone, float s, bool drawLabel)
     {
-        if (_commanderMapHighlights?.TryGetArea(
+        if (_worldMapHighlights?.TryGetArea(
                 zone.Zone.AreaId, out WorldMapHighlightInfo highlight) != true)
             return;
         CommanderMapUiLaw.ScreenRect viewport = CommanderViewport(map);
@@ -605,7 +950,7 @@ public sealed partial class GameLoop
                 Vector2.Zero, new Vector2(highlight.UMax, highlight.VMax),
                 0xFFFFFFFF);
         if (drawLabel)
-            DrawCommanderOutlinedCenteredText(dl, (min + max) * 0.5f,
+            DrawWorldMapOutlinedCenteredText(dl, (min + max) * 0.5f,
                 CommanderZoneName(zone.Zone), 14f * s, VanillaGold);
         dl.PopClipRect();
     }
@@ -652,12 +997,11 @@ public sealed partial class GameLoop
         dl.AddRectFilled(min, max, 0xF01B1815, 5f * s);
         dl.AddRect(min, max, 0x50FFFFFF, 5f * s);
         float half = (max.X - min.X - gap) * 0.5f;
-        uint hover = 0;
-        hover = DrawCommanderPresenceColumn(dl, 0, ek.Name,
-            new Vector2(min.X, min.Y), new Vector2(min.X + half, max.Y), s, stale);
         uint kalHover = DrawCommanderPresenceColumn(dl, 1, kal.Name,
+            new Vector2(min.X, min.Y), new Vector2(min.X + half, max.Y), s, stale);
+        uint ekHover = DrawCommanderPresenceColumn(dl, 0, ek.Name,
             new Vector2(min.X + half + gap, min.Y), max, s, stale);
-        return kalHover != 0 ? kalHover : hover;
+        return ekHover != 0 ? ekHover : kalHover;
     }
 
     private uint DrawCommanderPresenceColumn(ImDrawListPtr dl, uint mapId, string continentName,
@@ -730,7 +1074,7 @@ public sealed partial class GameLoop
         DrawCommanderIntelPanel(dl, (int)zone.MapId, true, zone, panelMin, panelMax, s, stale: false);
     }
 
-    private static void DrawCommanderOutlinedCenteredText(ImDrawListPtr dl, Vector2 centre,
+    private static void DrawWorldMapOutlinedCenteredText(ImDrawListPtr dl, Vector2 centre,
         string text, float size, uint color)
     {
         Vector2 measured = ImGui.CalcTextSize(text) * (size / MathF.Max(1f, ImGui.GetFontSize()));
@@ -760,9 +1104,12 @@ public sealed partial class GameLoop
         bool mapHovered = ImGui.IsItemHovered();
         Vector2 mouse = ImGui.GetMousePos();
 
+        bool forceZoneReady = CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules) &&
+            _rtsForcePublishedZone == zone.AreaId;
         CommanderUnit? hoveredUnit = null;
         foreach (CommanderUnit unit in _commanderUnits)
         {
+            if (forceZoneReady && _rtsForces.ContainsKey(unit.Guid)) continue;
             if (!CommanderUnitInZone(unit, zone, out Vector2 f)) continue;
             Vector2 p = CommanderMapUiLaw.Project(mapMin, mapSize, f);
             bool hover = mapHovered && (mouse - p).Length() < 12f * s;
@@ -770,7 +1117,32 @@ public sealed partial class GameLoop
             DrawCommanderUnitMarker(dl, unit, p, s, hover);
         }
 
-        if (hoveredUnit is CommanderUnit hu)
+        RtsForceUnitWire? hoveredForce = null;
+        if (forceZoneReady)
+        {
+            foreach (RtsForceUnitWire unit in _rtsForces.Values)
+            {
+                if (!CommanderForceInZone(unit, zone, out Vector2 f)) continue;
+                Vector2 p = CommanderMapUiLaw.Project(mapMin, mapSize, f);
+                bool hover = mapHovered && (mouse - p).Length() < 12f * s;
+                if (hover) hoveredForce = unit;
+                DrawCommanderForceMarker(dl, unit, p, s, hover,
+                    unit.Guid == _rtsSelectedForceGuid);
+            }
+        }
+
+        if (hoveredForce is RtsForceUnitWire force)
+        {
+            string name = CommanderForceName(force.Guid, request: true);
+            string detail = $"Level {force.Level} {ClassIdName(force.Class)}".TrimEnd();
+            if (!force.Alive) detail += "  -  dead";
+            else if (force.Busy) detail += "  -  currently controlled";
+            DrawCommanderFlyout(dl, mouse + new Vector2(18f, 10f) * s, s,
+                name, detail, "Click to select this faction bot");
+            if (ImGui.IsItemClicked())
+                _rtsSelectedForceGuid = force.Guid;
+        }
+        else if (hoveredUnit is CommanderUnit hu)
         {
             string name = CommanderUnitName(hu.Guid);
             DrawCommanderFlyout(dl, mouse + new Vector2(18f, 10f) * s, s,
@@ -812,6 +1184,16 @@ public sealed partial class GameLoop
     private static bool CommanderUnitInZone(CommanderUnit unit, WorldMapAreaInfo zone, out Vector2 fraction)
     {
         fraction = new Vector2(zone.X(unit.Pos.Y), zone.Y(unit.Pos.X));
+        if (unit.MapId != zone.MapId) return false;
+        bool inside = fraction.X is > 0.001f and < 0.999f &&
+                      fraction.Y is > 0.001f and < 0.999f;
+        return unit.ZoneId == zone.AreaId || inside;
+    }
+
+    private static bool CommanderForceInZone(RtsForceUnitWire unit, WorldMapAreaInfo zone,
+        out Vector2 fraction)
+    {
+        fraction = new Vector2(zone.X(unit.Position.Y), zone.Y(unit.Position.X));
         if (unit.MapId != zone.MapId) return false;
         bool inside = fraction.X is > 0.001f and < 0.999f &&
                       fraction.Y is > 0.001f and < 0.999f;
@@ -888,6 +1270,12 @@ public sealed partial class GameLoop
         }
         else
         {
+            if (CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules))
+            {
+                DrawCommanderForceIntelPanel(dl, drilledZone, panelMin, panelMax, s);
+                return;
+            }
+
             var units = new List<CommanderUnit>();
             foreach (CommanderUnit unit in _commanderUnits)
                 if (CommanderUnitInZone(unit, drilledZone, out _)) units.Add(unit);
@@ -923,7 +1311,7 @@ public sealed partial class GameLoop
                     CommanderFitText(name + (unit.Alive ? "" : " (dead)"), actualMax.X - x - 30f * s, 13f * s));
                 if (ImGui.IsItemClicked())
                 {
-                    if (unit.MapId != (_net?.Player?.Map ?? 0))
+                    if (unit.MapId != checked((uint)Math.Max(0, _config.Start.Map)))
                         CommanderShowNotice("Camera travel is limited to your current continent.");
                     else
                     {
@@ -939,6 +1327,70 @@ public sealed partial class GameLoop
                 dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
                     $"+{units.Count - visible} more units");
         }
+    }
+
+    private void DrawCommanderForceIntelPanel(ImDrawListPtr dl, WorldMapAreaInfo zone,
+        Vector2 panelMin, Vector2 panelMax, float s)
+    {
+        float line = 20f * s;
+        float x = panelMin.X + 12f * s;
+        float y = panelMin.Y + 10f * s;
+        bool ready = _rtsForcePublishedZone == zone.AreaId;
+        List<RtsForceUnitWire> units = ready
+            ? _rtsForces.Values.OrderBy(unit => unchecked((uint)unit.Guid)).ToList()
+            : [];
+        const int maximumRows = 16;
+        int visible = Math.Min(maximumRows, units.Count);
+        bool overflow = units.Count > visible;
+        float desiredHeight = (62f + Math.Max(1, visible) * 20f + (overflow ? 20f : 0f)) * s;
+        Vector2 actualMax = new(panelMax.X,
+            MathF.Min(panelMax.Y, panelMin.Y + MathF.Max(112f * s, desiredHeight)));
+        dl.AddRectFilled(panelMin, actualMax, 0xF0201C18, 4f * s);
+        dl.AddRect(panelMin, actualMax, 0x40FFFFFF, 4f * s);
+
+        dl.AddText(ImGui.GetFont(), 14f * s, new Vector2(x, y), VanillaGold, "FACTION FORCE");
+        y += line * 1.15f;
+        string zoneName = _areas?.ZoneName(zone.AreaId) is { Length: > 0 } resolved
+            ? resolved : zone.Directory;
+        string count = ready ? $"  {_rtsForces.Count}/{_rtsForcePublishedTotal}" :
+            _rtsForceLoading ? "  LOADING" : string.Empty;
+        dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+            CommanderFitText(zoneName.ToUpperInvariant() + count,
+                actualMax.X - x - 12f * s, 10f * s));
+        y += line * 0.9f;
+
+        for (int i = 0; i < visible; i++)
+        {
+            RtsForceUnitWire unit = units[i];
+            bool selected = unit.Guid == _rtsSelectedForceGuid;
+            string name = CommanderForceName(unit.Guid, request: true);
+            uint color = unit.Alive ? CommanderClassColor(ClassIdName(unit.Class)) : 0xFF707070;
+            ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
+            ImGui.InvisibleButton($"##cmd-force-{unit.Guid}",
+                new Vector2(actualMax.X - x - 8f * s, line));
+            bool hover = ImGui.IsItemHovered();
+            if (hover || selected)
+                dl.AddRectFilled(new Vector2(x - 4f * s, y - 2f * s),
+                    new Vector2(actualMax.X - 8f * s, y - 2f * s + line),
+                    selected ? 0x303EA6E6u : 0x18FFFFFFu, 2f * s);
+            dl.AddCircleFilled(new Vector2(x + 5f * s, y + 7f * s), 4f * s, color);
+            string suffix = !unit.Alive ? " (dead)" : unit.Busy ? " (in use)" : string.Empty;
+            dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x + 14f * s, y),
+                unit.Alive ? (hover || selected ? 0xFFFFFFFFu : 0xFFE6E6E6u) : 0xFF8A8A8Au,
+                CommanderFitText(name + suffix, actualMax.X - x - 30f * s, 13f * s));
+            if (ImGui.IsItemClicked()) _rtsSelectedForceGuid = unit.Guid;
+            y += line;
+        }
+
+        if (!ready)
+            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A,
+                _rtsForceLoading ? "Loading faction bots..." : "Faction roster unavailable.");
+        else if (units.Count == 0)
+            dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF8A8A8A,
+                "No faction bots are in this zone.");
+        else if (overflow)
+            dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), 0xFF8A8A8A,
+                $"+{units.Count - visible} more bots on the map");
     }
 
     private static void DrawCommanderRightAlignedText(ImDrawListPtr dl, float right, float y,
@@ -1016,11 +1468,11 @@ public sealed partial class GameLoop
     private void DrawCommanderNoFogOverlays(ImDrawListPtr dl, WorldMapAreaInfo zone,
         Vector2 mapMin, float mapW, float mapH)
     {
-        if (_commanderMapOverlays is null) return;
+        if (_worldMapOverlays is null) return;
         float scale = mapW / CommanderMapUiLaw.AuthoredWidth;
         dl.PushClipRect(mapMin, mapMin + new Vector2(mapW, mapH), true);
         foreach (WorldMapOverlayChunk chunk in
-                 _commanderMapOverlays.BuildFullRevealChunks(zone.Id, zone.Directory))
+                 _worldMapOverlays.BuildFullRevealChunks(zone.Id, zone.Directory))
         {
             uint texture = _gameplayArt!.Handle(chunk.TexturePath);
             if (texture == 0) continue;
@@ -1107,6 +1559,29 @@ public sealed partial class GameLoop
         dl.AddText(ImGui.GetFont(), size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
     }
 
+    private void DrawCommanderForceMarker(ImDrawListPtr dl, RtsForceUnitWire unit,
+        Vector2 p, float s, bool hover, bool selected)
+    {
+        float r = (hover || selected ? 9f : 7f) * s;
+        uint color = unit.Alive ? CommanderClassColor(ClassIdName(unit.Class)) : 0xFF606060;
+        dl.AddCircleFilled(p, r, color);
+        dl.AddCircle(p, r, selected ? VanillaGold : 0xFF101010, 0,
+            (selected ? 3f : 2f) * s);
+        if (unit.DeclaredHero)
+            DrawCommanderDiamond(dl, p + new Vector2(0, -r - 6f * s), 4f * s,
+                unit.HeroDead ? 0xFF707070u : VanillaGold);
+
+        // Names are deliberately lazy: a 200-row page creates markers without
+        // issuing 200 vanilla name queries. Only a selected row gets a map label.
+        if (!selected) return;
+        string name = CommanderForceName(unit.Guid, request: true);
+        float size = 12f * s;
+        Vector2 measured = ImGui.CalcTextSize(name) * (size / MathF.Max(1f, ImGui.GetFontSize()));
+        Vector2 at = p + new Vector2(-measured.X * 0.5f, r + 3f * s);
+        dl.AddText(ImGui.GetFont(), size, at + new Vector2(1f, 1f) * s, 0xE0000000, name);
+        dl.AddText(ImGui.GetFont(), size, at, unit.Alive ? 0xFFF0F0F0u : 0xFFA0A0A0u, name);
+    }
+
     private static void DrawCommanderFlyout(ImDrawListPtr dl, Vector2 at, float s, params string[] lines)
     {
         float title = 14f * s, body = 13f * s, gap = 4f * s;
@@ -1155,7 +1630,15 @@ public sealed partial class GameLoop
         if (guid == _net?.PlayerGuid) return _net.PlayerName is { Length: > 0 } own ? own : "You";
         foreach (PartyMember m in _partyMembers)
             if (m.Guid == guid) return m.Name;
+        if (_playerNames.TryGetValue(guid, out string? name) && name.Length > 0) return name;
         return "Unit";
+    }
+
+    private string CommanderForceName(ulong guid, bool request)
+    {
+        if (_playerNames.TryGetValue(guid, out string? name) && name.Length > 0) return name;
+        if (request && _queriedPlayerNames.Add(guid)) _net?.NameQuery(guid);
+        return $"Bot {unchecked((uint)guid)}";
     }
 
     private static uint CommanderClassColor(string className) => className switch

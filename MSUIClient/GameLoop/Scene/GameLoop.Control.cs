@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using ImGuiNET;
 using MSUIClient.Engine;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World.Units;
@@ -33,8 +34,21 @@ public sealed partial class GameLoop
         FreeCam,
     }
 
+    private enum RtsForceTakeControlPhase : byte
+    {
+        None,
+        AwaitingStream,
+        AwaitingRelocationAck,
+        AwaitingFinalAck,
+    }
+
     private ControlState _controlState = ControlState.OwnChar;
     private ulong _controlTargetGuid;
+    private ulong _rtsForceTakeControlGuid;
+    private uint _rtsForceTakeControlMap;
+    private RtsForceTakeControlPhase _rtsForceTakeControlPhase;
+    private double _rtsForceTakeControlAt;
+    private const double RtsForceTakeControlTimeoutSeconds = 120.0;
 
     /// <summary>
     /// The RTS camera is up: detached fly rig, marquee selection, order clicks, ground FX.
@@ -169,7 +183,6 @@ public sealed partial class GameLoop
     /// </summary>
     private void ResetSuiControl()
     {
-        if (!_freeView && _controlState == ControlState.OwnChar) return;
         SetFreeView(false);
         _controlState = ControlState.OwnChar;
         _controlTargetGuid = 0;
@@ -180,6 +193,7 @@ public sealed partial class GameLoop
         _freecamSelection.Clear();
         ClearRtsWaypointChain();
         _suiRoster.Clear();
+        ClearRtsForceTakeControl();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
         _walkToggled = false;
@@ -257,6 +271,16 @@ public sealed partial class GameLoop
 
         if (result == SuiAckOk)
         {
+            bool rtsForceTakeControl = _rtsForceTakeControlGuid == guid;
+            if (rtsForceTakeControl)
+            {
+                // Commander Take Control is an explicit commitment to the body, unlike
+                // ordinary CRPG party possession from the sky. Land only this dedicated
+                // path; Tier-1 party/free-view possession keeps its existing camera law.
+                _commanderMapOpen = false;
+                SetFreeView(false);
+                ClearRtsForceTakeControl();
+            }
             // Whoever we were driving is about to start drawing from the entity stream instead
             // of from the controller — file where they actually stand first.
             SyncDrivenEntityToController();
@@ -270,6 +294,21 @@ public sealed partial class GameLoop
             AddChatMessage(_freeView
                 ? $"Commanding {ResolveUnitName(guid)} — bars and bags are live, camera stays up."
                 : $"You take control of {ResolveUnitName(guid)}.");
+            return;
+        }
+
+        // RTS force control can move the owner's real body to an outdoor bot's
+        // continent. Stock NEW_WORLD owns map adoption; retain the target and
+        // retry 828 only after that exact player entity has streamed back in.
+        if (result == 7 && guid != 0 && guid == _rtsForceTakeControlGuid)
+        {
+            _controlState = _controlPendingReturn;
+            _movementSender.Parked = false;
+            _controlSwitchQueued = 0;
+            _freecamRequested = false;
+            _rtsForceTakeControlPhase = RtsForceTakeControlPhase.AwaitingStream;
+            _rtsForceTakeControlAt = NowSeconds();
+            CommanderShowNotice("Moving to that bot's continent; control resumes after streaming.");
             return;
         }
 
@@ -363,6 +402,7 @@ public sealed partial class GameLoop
             return;
         }
         _controlSwitchQueued = 0;
+        if (_rtsForceTakeControlGuid == guid) ClearRtsForceTakeControl();
         ShowUiError(result switch
         {
             2 => "That party member is not a controllable bot.",
@@ -370,6 +410,8 @@ public sealed partial class GameLoop
             4 => "Someone is already controlling that bot.",
             5 => "That bot cannot be controlled right now.",
             6 => "You cannot take control right now.",
+            7 => "That RTS relocation could not be completed.",
+            8 => "That bot is in a different instance.",
             _ => "Cannot take control.",
         });
     }
@@ -676,6 +718,97 @@ public sealed partial class GameLoop
         _net.SuiControlRequest(guid);
     }
 
+    /// <summary>
+    /// RTS-only force control. Same-map targets first move the streaming eye and
+    /// wait for an entity create. Outdoor cross-map targets let the server move
+    /// the owner's body, then follow the same stream-before-retry law after NEW_WORLD.
+    /// </summary>
+    private void BeginRtsForceTakeControl(RtsForceUnitWire unit)
+    {
+        if (!CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules))
+        {
+            CommanderShowNotice("Faction-force control is disabled in this world.");
+            return;
+        }
+        if (_net is not { IsInWorld: true } || !_freeView ||
+            _controlState is not (ControlState.OwnChar or ControlState.FreeCam))
+        {
+            CommanderShowNotice("Take Control requires the free camera with no request pending.");
+            return;
+        }
+        if (!unit.Alive || unit.Busy)
+        {
+            CommanderShowNotice(!unit.Alive ? "That bot is dead." : "That bot is already controlled.");
+            return;
+        }
+        if (unit.InstanceableMap && !unit.SameMapAndInstance)
+        {
+            CommanderShowNotice("That bot is in a different instance.");
+            return;
+        }
+        if (!unit.ControlEligibleNow)
+        {
+            CommanderShowNotice("That bot cannot be controlled right now.");
+            return;
+        }
+
+        _rtsForceTakeControlGuid = unit.Guid;
+        _rtsForceTakeControlMap = unit.MapId;
+        _rtsForceTakeControlAt = NowSeconds();
+        _commanderMapOpen = false;
+
+        uint currentMap = checked((uint)Math.Max(0, _config.Start.Map));
+        if (unit.MapId == currentMap)
+        {
+            _rtsForceTakeControlPhase = RtsForceTakeControlPhase.AwaitingStream;
+            CommanderFlyTo(unit.Position.X, unit.Position.Y, CommanderUnitAltitude);
+            CommanderShowNotice("Locating faction bot; control begins when its body streams in.");
+            return;
+        }
+
+        _rtsForceTakeControlPhase = RtsForceTakeControlPhase.AwaitingRelocationAck;
+        RequestPossess(unit.Guid);
+        if (_controlState != ControlState.PossessPending)
+        {
+            ClearRtsForceTakeControl();
+            CommanderShowNotice("Take Control could not start.");
+        }
+    }
+
+    private void ClearRtsForceTakeControl()
+    {
+        _rtsForceTakeControlGuid = 0;
+        _rtsForceTakeControlMap = 0;
+        _rtsForceTakeControlPhase = RtsForceTakeControlPhase.None;
+        _rtsForceTakeControlAt = 0;
+    }
+
+    private void UpdateRtsForceTakeControl()
+    {
+        if (_rtsForceTakeControlGuid == 0) return;
+        if (NowSeconds() - _rtsForceTakeControlAt > RtsForceTakeControlTimeoutSeconds)
+        {
+            ClearRtsForceTakeControl();
+            CommanderShowNotice("Take Control timed out while locating that bot.");
+            return;
+        }
+        if (_rtsForceTakeControlPhase != RtsForceTakeControlPhase.AwaitingStream ||
+            _net is not { IsInWorld: true } ||
+            checked((uint)Math.Max(0, _config.Start.Map)) != _rtsForceTakeControlMap ||
+            !_entities.TryGet(_rtsForceTakeControlGuid, out WorldEntity target) || !target.IsPlayer)
+            return;
+
+        ulong guid = _rtsForceTakeControlGuid;
+        _rtsForceTakeControlPhase = RtsForceTakeControlPhase.AwaitingFinalAck;
+        _rtsForceTakeControlAt = NowSeconds();
+        RequestPossess(guid);
+        if (_controlState != ControlState.PossessPending)
+        {
+            ClearRtsForceTakeControl();
+            CommanderShowNotice("Take Control could not be requested after streaming.");
+        }
+    }
+
     /// <summary>Give control back (cycle to self). The bot's AI resumes server-side.</summary>
     internal void RequestControlRelease(bool toFreecam)
     {
@@ -754,6 +887,9 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateControlInput(bool typing)
     {
+        RefreshControlledCharacterScale();
+        UpdateRtsForceTakeControl();
+
         // Pending-state watchdog: never strand the movement stream parked.
         if (_controlState is ControlState.PossessPending or ControlState.ReleasePending &&
             NowSeconds() - _controlPendingSince > ControlAckTimeoutSeconds)
@@ -762,6 +898,7 @@ public sealed partial class GameLoop
             _movementSender.Parked = false;
             _controlSwitchQueued = 0;
             _freecamRequested = false;
+            ClearRtsForceTakeControl();
             ShowUiError("No answer from the server (SUI control).");
         }
 

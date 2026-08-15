@@ -70,6 +70,18 @@ public sealed class WorldMapOverlayInfo
     public bool CoversArea(uint areaId) => areaId != 0 &&
         (AreaId0 == areaId || AreaId1 == areaId || AreaId2 == areaId || AreaId3 == areaId);
 
+    /// <summary>
+    /// Vanilla reveals the row when any one of its authored AreaTable ids has
+    /// been explored by the character. Zero ids are padding and are ignored.
+    /// </summary>
+    public bool IsExplored(Func<uint, bool> areaIsExplored)
+    {
+        ArgumentNullException.ThrowIfNull(areaIsExplored);
+        foreach (uint areaId in AreaIds)
+            if (areaIsExplored(areaId)) return true;
+        return false;
+    }
+
     /// <summary>The authored sub-zone label/hit rectangle in the 1002x668 map space.</summary>
     public bool HitRectContains(float x, float y) =>
         x >= HitRectLeft && x <= HitRectRight && y >= HitRectTop && y <= HitRectBottom;

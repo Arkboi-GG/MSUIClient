@@ -1,13 +1,18 @@
 # CRPG/RTS Mode — WIP (updated 2026-08-14)
 
-> **CURRENT TIER-2 STATUS (2026-08-14): R1 FOUNDATION DEPLOYED; CURRENT BOOT
-> VANILLA/INERT; OWNER VALIDATION PENDING.** The R1-capable server is running and
-> the matching client code is landed, but the active save is vanilla and no
-> isolated RTS-save gameplay validation has been completed. R2 Honor/heroes, R3
-> territory, R4 dungeons, and R5 web/swap/brain work are not built. Capital rules,
-> the four non-respawning faction commanders, and victory/defeat handling remain
-> an unphased design gap. This block supersedes deployment/status wording in the
-> dated chronological records below; those records are retained as history.
+> **CURRENT TIER-2 STATUS (2026-08-14): R1 PARTIALLY OWNER-VALIDATED; R2
+> SOURCE/BUILD COMPLETE, OWNER HANDOFF.** Nico created and loaded a clean RTS World State. RTS
+> mode/wire, configured scaling, clean character creation and the Commander
+> campaign surface were observed; both faction bot-cap admission/refusal cases
+> still need explicit proof before R1 is fully signed off. R2 Honor, bot Heroes
+> and faction-wide singular direct control are implemented/build-verified across
+> the client, MangosSuperUI World State profile and authoritative VMaNGOS
+> Release/scripts build. No install/restart/live DB action occurred; owner
+> deployment and live gameplay remain separate pending gates. World
+> State create/resume is built and was used; the generic rules editor, faction
+> fleet/strategic brain, R3 territory, R4 dungeons, capital commanders and victory
+> state remain unbuilt. `docs/systems/SYSTEM_RTS_R2.md` is the exact R2 authority.
+> This block supersedes status wording in the dated records retained below.
 >
 > **TIER-1 STATUS: CORE LOOP OWNER-VERIFIED IN PLAY (2026-08-11).** Possession +
 > movement, party follow, bot bags + character sheet, free-view collision camera
@@ -106,6 +111,14 @@ The mode splits in two, and the boundary is binding:
   the loaded save says otherwise**. The intended R5 owner flow will stow the
   vanilla save and load an RTS worldstate through MangosSuperUI; R5 is not built.
   The rules and match state travel WITH the `CharacterDatabase` save.
+
+**R2 correction to the historical scaffold paragraph below:** the R2-capable
+source makes worldstate and rules an immutable boot latch. Runtime
+`.sui worldstate rts|vanilla` and `.sui rts reload` requests are refused; they
+cannot activate or reconfigure a running process. R2 Honor, bot Heroes and
+faction control now consume explicit boot module rows. Production changes only
+through Nico's owner-operated World State load/start path. The older runtime
+override and "R2 not built" sentences below are retained only as chronology.
 
 Scaffold (deployed): `superui_worldstate` through `CharacterDatabase` (this
 deployment's active configured schema is `characters`; the row `mode='rts'`

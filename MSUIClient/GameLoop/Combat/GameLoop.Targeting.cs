@@ -44,6 +44,18 @@ public sealed partial class GameLoop
         _window.ClearWorldClicks();
     }
 
+    /// <summary>
+    /// Player GUID lows belong to the mounted characters database, not the client
+    /// process. An MMO/RTS world swap can reuse one for a different name, so only
+    /// an authenticated session boundary may retain none of these identities.
+    /// </summary>
+    private void ResetPlayerIdentitySession()
+    {
+        _playerNames.Clear();
+        _queriedPlayerNames.Clear();
+        _chatNameQueried.Clear();
+    }
+
     private bool TryBeginCreatureQuery(uint entry) =>
         entry != 0 && !_creatureQueryRecords.ContainsKey(entry) &&
         _queriedCreatureNames.Add(entry);

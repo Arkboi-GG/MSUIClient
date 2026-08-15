@@ -18,9 +18,10 @@ public sealed partial class GameLoop
         new(x * scale, y * scale);
 
     private bool BeginVanillaWindow(string id, Vector2 logicalOrigin, Vector2 logicalSize,
-        out ImDrawListPtr draw, out Vector2 origin, out float scale)
+        out ImDrawListPtr draw, out Vector2 origin, out float scale,
+        float? scaleOverride = null)
     {
-        scale = GameplayUiScale();
+        scale = scaleOverride ?? GameplayUiScale();
         origin = logicalOrigin * scale;
         ImGui.SetNextWindowPos(origin, ImGuiCond.Always);
         ImGui.SetNextWindowSize(logicalSize * scale, ImGuiCond.Always);

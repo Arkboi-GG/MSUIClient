@@ -4,14 +4,15 @@ namespace MSUIClient.Formats;
 // character-select roster to label each character's row with its zone ("Stormwind City").
 //
 // Layout VERIFIED against 1.12.1 build 5875 (benilla-formats/src/area_table.rs): 25 u32-wide
-// columns; ID = col 0, parent ZoneID = col 2 (0 = this row IS a top-level zone), and the localized
-// AreaName (enUS) = col 11. Only id / parent / name are read here.
+// columns; ID = col 0, parent ZoneID = col 2 (0 = this row IS a top-level zone), exploration
+// flag = col 3, and the localized AreaName (enUS) = col 11.
 public sealed class AreaTableCatalog
 {
     public const string MpqPath = @"DBFilesClient\AreaTable.dbc";
 
-    // id -> (parent area id, own display name). Parent 0 = top-level zone.
-    private readonly Dictionary<uint, (uint Parent, string Name)> _rows = new();
+    // id -> (parent area id, own display name, PLAYER_EXPLORED_ZONES bit index).
+    // Parent 0 = top-level zone.
+    private readonly Dictionary<uint, (uint Parent, string Name, uint ExploreFlag)> _rows = new();
     public int Count => _rows.Count;
 
     public static AreaTableCatalog? Parse(byte[] data)
@@ -23,8 +24,9 @@ public sealed class AreaTableCatalog
         {
             uint id = dbc.GetUInt(r, 0);
             uint parent = dbc.GetUInt(r, 2);
+            uint exploreFlag = dbc.GetUInt(r, 3);
             string name = dbc.GetString(r, 11);
-            t._rows[id] = (parent, name);
+            t._rows[id] = (parent, name, exploreFlag);
         }
         Console.WriteLine($"[dbc] AreaTable: {t.Count} area(s)");
         return t;
@@ -50,6 +52,13 @@ public sealed class AreaTableCatalog
     /// <summary>The authored sub-zone name without collapsing it to its parent.</summary>
     public string AreaName(uint areaId) =>
         _rows.TryGetValue(areaId, out var row) ? row.Name : "";
+
+    /// <summary>
+    /// Bit index in the owning player's 64-word PLAYER_EXPLORED_ZONES array.
+    /// Returns null for an unknown row; zero is a valid authored flag.
+    /// </summary>
+    public uint? ExplorationFlag(uint areaId) =>
+        _rows.TryGetValue(areaId, out var row) ? row.ExploreFlag : null;
 
     /// <summary>
     /// Top-level zone containing an area. CMSG_ZONEUPDATE carries this value;

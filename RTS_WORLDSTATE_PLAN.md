@@ -1,9 +1,14 @@
-﻿> Approved implementation plan, 2026-08-12. Status updated 2026-08-14: R1 code is
-> landed on both sides and present in the owner-started server. The current boot is
-> verified vanilla/inert; an isolated RTS-save activation and R1 gameplay validation
-> are still pending. R2-R5 are plans, not delivered features. Companion docs:
-> CRPG_RTS_WIP.md (session records, owner decisions), box
-> docs/SUI_WIRE_PROTOCOL.md (wire + ruleset key appendix).
+﻿> Approved implementation plan, 2026-08-12. Status updated 2026-08-14: Nico has
+> created and booted a clean R1 RTS World State. Mode/wire, configured scaling,
+> clean character creation and the Commander campaign surface were observed;
+> both faction admission caps remain unproved, so R1 is partially rather than
+> fully validated. R2 Honor, bot Heroes and faction-force direct control are now
+> implemented/build-verified across the client, World State application and the
+> authoritative VMaNGOS Release/scripts build. Owner deployment and the live
+> play-test remain pending. R3,
+> R4, the strategic brain and the win state remain plans. Companion docs:
+> `CRPG_RTS_WIP.md`, `docs/systems/SYSTEM_RTS_R2.md`, and the server checkout's
+> `docs/SUI_WIRE_PROTOCOL.md`.
 
 # RTS Worldstate â€” Phased Implementation Plan (tier-2 match layer)
 
@@ -59,11 +64,11 @@ mangosd.conf).
 
 | Phase | Where | Delivers | Current status / playable check |
 |---|---|---|---|
-| R1 | server+wire+client | ruleset loader, rate overrides, per-faction bot caps, state snapshot/header | **Deployed foundation; current boot vanilla/inert.** Owner-run RTS-save checks pending: show the XP override and prove fresh admissions respect both faction caps. |
-| R2 | server+wire+client | faction Honor pool, hero declare/upgrade/revive (fixed slot scalar), scale+damage | **Not built.** Declare a hero and watch it grow. |
+| R1 | server+wire+client+World State app | ruleset loader, rate overrides, per-faction bot caps, state snapshot/header, clean RTS-save creation/resume | **Partially owner-validated.** Clean RTS boot/config scaling/character creation/Commander state were seen; fresh admissions must still prove both faction cap mappings. |
+| R2 | server+wire+client+World State app | faction Honor pool, bot-only hero declare/upgrade/revive, native aura scale+damage, paged faction force and singular direct control | **Source/build complete; owner handoff.** Client, web profile and authoritative VMaNGOS Release/scripts builds/checks pass. No install/restart/live DB action occurred; owner deployment and live validation remain. Exact authority: `docs/systems/SYSTEM_RTS_R2.md`. |
 | R3 | server+data+client | hub capture, zone control, guard swap, graveyards, supply calc, zone-derived hero cap | **Not built.** Capture a pilot hub and see the map flip. |
 | R4 | server+data | dungeon objectives: entry gates, clear detection, faction buffs, 10x boss loot | **Not built.** Clear Deadmines and hold the buff. |
-| R5 | web app+brain | ruleset editor, worldstate swap orchestration, RTS planner + capture orders, faction fleet UI | **Not built.** Swap into an RTS save and order a capture. |
+| R5 | web app+brain | generic ruleset editor, worldstate lifecycle, RTS planner + capture orders, faction fleet UI | **Partially superseded/delivered.** Safe parked-world create/resume and structured R1/R2 launch profiles exist and were used for the first RTS save. Generic rule tables, strategic planner/fleet UI and capture orders remain unbuilt. |
 | Unphased | server+data+client | capital rules, four non-respawning faction commanders, victory/defeat state | **Design gap.** The stated win condition is not yet assigned to R1-R5. |
 
 ## Server module layout & laws (all phases)
@@ -137,19 +142,22 @@ bumps 8â†’9 (+u8 controller, 0x80=contested) in R1 with controller always 0
    (absent = uncapped).
 4. Full wire allocation (above); 839 works both modes (vanilla: mode=0 + empty
    blocks); 840 answers UNSUPPORTED until R2.
-5. GM: `.sui rts status`, `.sui rts reload` (suiCommandTable, Chat.cpp:95).
-   Reload is a development diagnostic, not the production save-transition path:
-   it does not reread the persisted `mode`, and removing a rate key or flipping the
-   in-memory mode to vanilla does not restore the original config rate. A clean
-   owner-operated boot remains authoritative.
+5. GM: `.sui rts status` reports the immutable boot latch and loaded modules.
+   The R2-capable source refuses runtime `.sui rts reload` and
+   `.sui worldstate rts|vanilla`; a clean owner-operated World State boot is the
+   only activation path.
 
 ### Owner-operated R1 validation checkpoint
 
-R1 is deployed but is not yet validated in RTS mode. This checkpoint deliberately
-uses the smallest possible disposable characters save; R5.1 is a future convenience,
-not a prerequisite. Codex may prepare the checklist, inspect source and redacted
-evidence read-only, and walk Nico through the run. Nico alone creates/restores the
-save, writes its database rows, and controls installation, deployment, or runtime.
+The first owner run is complete enough to record as **partial R1 validation**:
+MangosSuperUI created a clean RTS World State, Nico loaded/started it, the client
+received RTS mode, configured progression scaling was visible, a clean character
+was created, and Commander showed the campaign state. The run did not yet record
+both faction bot-cap admission/refusal cases (or a complete evidence bundle), so
+R1 is not fully signed off. The checklist below remains the completion standard.
+Codex may prepare it, inspect source and redacted evidence read-only, and walk
+Nico through it. Nico alone creates/restores the save and controls installation,
+deployment and runtime.
 
 1. Record the server and client commits/binary identities, date, selected test
    faction(s), normal-mob baseline, and the known-good vanilla save to restore.
@@ -186,6 +194,24 @@ save, writes its database rows, and controls installation, deployment, or runtim
    faction-cap mappings; otherwise record the run accurately as a partial R1 attempt.
 
 ## R2 â€” Honor pool & heroes (fixed slots)
+
+**Implemented source contract (2026-08-14):** R2 now uses explicit boot keys
+`honor.enabled`, `hero.enabled`, and `control.faction_bots`; five save-bound
+hero-rule rows with total scale/damage percentages; native passive aura spells
+51001-51005; a bot-only persistent hero roster; validate-then-spend actions; and
+a server-filtered paged faction-force catalogue. It also adds a separate
+RTS-only authorization branch into the existing possession path so any active,
+eligible same-faction AiBot can receive full MMO direct control without joining
+the party. Outdoor distant/cross-map targets use an explicit owner-body
+relocation and retry; foreign instances are denied. MMO possession remains
+party-only. The exact implementation, file ledger, wire, stock-hook inventory
+and verification boundary are canonical in `docs/systems/SYSTEM_RTS_R2.md`.
+
+The numbered design below is retained as the phase rationale. Where shorthand
+there conflicts with the canonical R2 record, the implemented record wins:
+opposing-faction NPC classification is exact (neutral wildlife gives zero),
+heroes are AiBots rather than arbitrary Players, slots are clamped 1-127, and
+the old runtime reload/toggle language is superseded by the immutable boot law.
 
 1. `SuiHonor.cpp`: ONE choke point in `Unit::Kill` (Unit.cpp:957, map thread) â€”
    two boolean loads before any work; classify victim (enemy player/bot/NPC/elite),
@@ -287,6 +313,17 @@ items from its real pool; B clears â†’ buff swaps; restart â†’ control
 survive.
 
 ## R5 â€” MangosSuperUI: ruleset editor, worldstate swap, faction fleet, RTS orders
+
+**Status correction (2026-08-14):** the implementation no longer follows the
+original controller/class sketch below. MangosSuperUI now has a World State
+registry, full parked-world suspend/resume flow, clean RTS campaign creation,
+captured per-world launch configuration, and structured `rts-r1-v1` /
+`rts-r2-v1` profiles. Nico used that surface to create/load the first clean RTS
+world. The generic zone/hub/dungeon table editor, faction fleet browser,
+strategic command center, capture planner and autonomous director remain
+unbuilt. The concrete R2 World State diff is recorded in
+`docs/systems/SYSTEM_RTS_R2.md`; the historical design below remains useful only
+for the undelivered generic surfaces.
 
 Build order R5.1â†’R5.4. R5.1 can follow the owner-operated R1 checkpoint to make
 later save authoring less manual; it is not required to validate the landed R1.

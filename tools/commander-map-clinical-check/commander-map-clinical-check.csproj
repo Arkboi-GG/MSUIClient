@@ -7,5 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\MSUIClient\Engine\UI\CommanderMapUiLaw.cs" Link="Engine\UI\CommanderMapUiLaw.cs" />
+    <Compile Include="..\..\MSUIClient\Net\ByteBuffer.cs" Link="Net\ByteBuffer.cs" />
+    <Compile Include="..\..\MSUIClient\Net\Opcodes.cs" Link="Net\Opcodes.cs" />
+    <Compile Include="..\..\MSUIClient\Net\RtsWire.cs" Link="Net\RtsWire.cs" />
   </ItemGroup>
 </Project>

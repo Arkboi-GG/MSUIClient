@@ -107,6 +107,8 @@ public sealed class ObjectFields
     // MiscValue is a LockType.dbc id (Herbalism=2, Mining=3).
     public const ushort PLAYER_TRACK_CREATURES = 1104;
     public const ushort PLAYER_TRACK_RESOURCES = 1105;
+    public const ushort PLAYER_EXPLORED_ZONES_1 = 1111; // 64 u32 words, AreaTable.ExploreFlag indexed
+    public const int PLAYER_EXPLORED_ZONES_SIZE = 64;
     public const ushort PLAYER_REST_STATE_EXPERIENCE = 1175;
     public const ushort PLAYER_COINAGE = 1176;
     public const ushort PLAYER_POSSTAT0 = 1177;
@@ -222,6 +224,13 @@ public sealed class ObjectFields
     public uint? Entry => GetU32(OBJECT_ENTRY);
     public uint PlayerTrackCreatures => GetU32(PLAYER_TRACK_CREATURES) ?? 0;
     public uint PlayerTrackResources => GetU32(PLAYER_TRACK_RESOURCES) ?? 0;
+    public bool PlayerHasExplored(uint exploreFlag)
+    {
+        uint word = exploreFlag / 32;
+        if (word >= PLAYER_EXPLORED_ZONES_SIZE) return false;
+        uint bits = GetU32((ushort)(PLAYER_EXPLORED_ZONES_1 + word)) ?? 0;
+        return (bits & (1u << (int)(exploreFlag % 32))) != 0;
+    }
     public float Scale => GetF32(OBJECT_SCALE_X) ?? 1f;
     public int DisplayId => GetI32(UNIT_DISPLAYID) ?? 0;
     public uint GameObjectDisplayId => GetU32(GAMEOBJECT_DISPLAYID) ?? 0;
