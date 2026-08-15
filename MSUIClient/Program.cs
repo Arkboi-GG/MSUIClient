@@ -444,6 +444,8 @@ public sealed partial class GameLoop : IDisposable
     private bool _coupleFarPlaneToFog = true;
     private float _gameHoursPerMinute = 1f;
     private SkyRenderer? _sky;
+    private SkyboxRenderer? _skybox;                 // PLAN_18 Phase 2 - the zone skybox model
+    private uint _activeSkyboxId;                    // resolved from the dominant LightParams each frame
     private double _worldRenderMilliseconds;
     private double _foliageRenderMilliseconds;
 
@@ -726,6 +728,9 @@ public sealed partial class GameLoop : IDisposable
         _sky = new SkyRenderer(gl);
         _sky.LoadShaders(shaderDir);
 
+        _skybox = new SkyboxRenderer(gl, _config);
+        _skybox.LoadShaders(shaderDir);
+
         _foliage = new FoliageRenderer(gl, _config, _uploads, _assetWorkers);
         _foliage.LoadShaders(shaderDir);
         _foliage.LoadDbcs();
@@ -880,11 +885,20 @@ public sealed partial class GameLoop : IDisposable
         {
             _collisionDebug = new CollisionDebugRenderer(gl);
             _collisionDebug.LoadShaders(shaderDir);
+            // A SECOND instance for the creator X-ray's vmap view, so the
+            // server mesh and the Ctrl+C movement-collision view never fight
+            // over one GPU buffer.
+            _xrayDebug = new CollisionDebugRenderer(gl);
+            _xrayDebug.LoadShaders(shaderDir);
+            _xrayNavDebug = new CollisionDebugRenderer(gl);
+            _xrayNavDebug.LoadShaders(shaderDir);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[collision] debug renderer FAILED - {ex.Message}");
             _collisionDebug = null;
+            _xrayDebug = null;
+            _xrayNavDebug = null;
         }
 
         // The settings modal's skin needs GL and the MPQ mount, so it is built
@@ -1456,12 +1470,17 @@ public sealed partial class GameLoop : IDisposable
 
         // Scripted creator-mode texture-swap reproduction (MSUI_CREATOR_PROBE).
         UpdateCreatorProbe();
+        UpdateXrayProbe();
 
         // Scripted offline mount check (MSUI_MOUNT_PROBE).
         UpdateMountProbe();
 
         // Cart-kit charges, cooldowns and the slows they applied.
         UpdateMountKit(NowSeconds());
+
+        // Zone music + ambience. Before the loading-state early returns, so
+        // leaving the world resets the transport instead of stranding a bed.
+        UpdateWorldSoundscape();
 
         long updateStarted = Stopwatch.GetTimestamp();
         _loadNetPumpMilliseconds = 0;
@@ -2250,6 +2269,10 @@ public sealed partial class GameLoop : IDisposable
         bool WarmStage(int stage) => !stagedLoadWarmup || _loadFadeWarmStage == stage;
 
         ApplyAtmosphere();
+        // Creator X-ray owns the layer switches while active: renderer enables,
+        // the black background (overriding the SkyColor just set above), and
+        // acceptance of a finished off-thread vmap build.
+        if (_xrayActive) ApplyXrayLayers();
         // A prepared portal owns a fully isolated destination scene. Render it
         // before the source world so the pass can restore GL/atmosphere state,
         // then composite its completed texture later through the aperture.
@@ -2265,9 +2288,21 @@ public sealed partial class GameLoop : IDisposable
         // replacement is proven, or the far clip becomes a visible edge).
         if (WarmStage(0)) _sky?.Render(_window.Camera, _atmosphere);
 
+        // The zone skybox model (PLAN_18 Phase 2): over the gradient/clouds, before
+        // the world. The active model follows the dominant LightParams' skybox id
+        // (resolved in UpdateExteriorLighting), or a dev override; SetModel no-ops
+        // when the path is unchanged.
+        if (WarmStage(0) && _skybox is not null && _mpq is not null)
+        {
+            _skybox.SetModel(_mpq, _skybox.ForceModelPath ?? _exteriorLight.SkyboxPath(_activeSkyboxId));
+            _skybox.Render(_window.Camera);
+        }
+
         _gpuProfiler?.Begin(GpuFrameProfiler.Pass.Terrain);
+        BeginXrayTerrainWireframe();
         if (WarmStage(0)) _terrain?.Render(_window.Camera);
         else _terrain?.NoteNotRendered();
+        EndXrayTerrainWireframe();
         _gpuProfiler?.End(GpuFrameProfiler.Pass.Terrain);
 
         UpdatePortalFillLight();
@@ -2481,6 +2516,7 @@ public sealed partial class GameLoop : IDisposable
             _collision?.Offset ?? Vector3.Zero);
 
         HighlightPhysicsTriangles();
+        RenderXray();
         DrawPortalDebug();
 
         if (_showPlayerMarker && _collisionDebug is not null && _controller is not null)
@@ -3731,6 +3767,8 @@ public sealed partial class GameLoop : IDisposable
         _skin = null;
         _character?.Dispose();
         _collisionDebug?.Dispose();
+        _xrayDebug?.Dispose();
+        _xrayNavDebug?.Dispose();
         DisposeRealPortals();
         _doodads?.Dispose();
         _liquid?.Dispose();
@@ -3739,6 +3777,7 @@ public sealed partial class GameLoop : IDisposable
         _terrain?.Dispose();
         DisposeLoadingArt();
         _sky?.Dispose();
+        _skybox?.Dispose();
         _glow?.Dispose();
         _painterly?.Dispose();
         _glueAdd?.Dispose();

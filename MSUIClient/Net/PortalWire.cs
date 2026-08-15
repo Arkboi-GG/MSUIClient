@@ -101,6 +101,7 @@ public static class SuiCapabilityWire
     public const uint Magic = 0x3149_5553; // "SUI1" on the little-endian wire
     public const uint RealPortalsV1 = 1u << 0;
     public const uint PortalPrewarmCatalogV1 = 1u << 1;
+    public const uint FactionControlGroupsV1 = 1u << 2;
     public const int TrailerLength = 8;
 
     public const byte PrewarmCatalogVersion = 1;

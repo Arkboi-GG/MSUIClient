@@ -67,7 +67,8 @@ public sealed partial class GameLoop
         for (int i = 0; i < _actionKeyWasDown.Length; i++)
         {
             bool down = BindingDown(ActionBinding(i));
-            if (down && !_actionKeyWasDown[i] && !typing)
+            if (down && !_actionKeyWasDown[i] && !typing &&
+                !RtsControlGroupClaimsBinding(ActionBinding(i)))
             {
                 // Riding a cart that HAS this slot: the key belongs to the cart. Anything the
                 // cart does not carry falls straight through to the ordinary bar, so an
@@ -87,7 +88,8 @@ public sealed partial class GameLoop
                 bool down = BindingDown(MultiActionBinding(bar, i));
                 MultiActionKeyTransition transition = MultiActionBarUiLaw.AdvanceKey(
                     _multiActionKeyArmed[stateIndex], _multiActionKeyWasDown[stateIndex], down,
-                    typing, _net is { IsInWorld: true });
+                    typing || RtsControlGroupClaimsBinding(MultiActionBinding(bar, i)),
+                    _net is { IsInWorld: true });
                 _multiActionKeyArmed[stateIndex] = transition.Armed;
                 if (transition.Fire)
                     UseAction(MultiActionBarUiLaw.WireSlot(bar, i));

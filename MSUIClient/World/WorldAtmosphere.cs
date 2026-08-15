@@ -78,12 +78,22 @@ public sealed class WorldAtmosphere
     /// additionally scales the diffuse by the vanilla client's own day/night
     /// intensity curve (World\dnc.db, see ParityDaylightIntensity).
     /// </summary>
-    public LightingMode Mode { get; set; } = LightingMode.Msui;
+    public LightingMode Mode { get; set; } = LightingMode.Parity112;
 
     /// <summary>
     /// hours -> intensity, wired by GameLoop from <see cref="DayNightCycle"/>
-    /// when dnc.db loaded. Only Parity112 consumes it; null (no data) means no
-    /// curve, which is exactly Msui's behaviour.
+    /// (max of the dnc.db day/night curves) when dnc.db loaded. Only Parity112
+    /// consumes it; null (no data) means no curve, which is Msui's behaviour.
+    ///
+    /// OWNER-SETTLED 2026-08-15: this intensity-only law - band 0 applied RAW
+    /// (its authored cyan-blue night value IS the moonlight colour) with the
+    /// never-setting sun - is the version Nico judged SPOT ON against the real
+    /// client. The dnc COLOUR-ramp theory that briefly replaced it (diffuse and
+    /// then ambient multiplied by the Day/Night/Ambient RGB columns) made
+    /// moonlight pure-blue and night near-black, and is retired. The colour
+    /// ramps almost certainly drive only the fixed-function TWO-light setup's
+    /// second light in the real exe; with our single light, raw band colours x
+    /// this curve is the match the owner's eyes confirmed.
     /// </summary>
     public Func<float, float>? ParityDaylightIntensity { get; set; }
 
@@ -206,6 +216,43 @@ public sealed class WorldAtmosphere
         _hasAuthoredWater = true;
     }
 
+    // ── Authored cloud palette (PLAN_18) ────────────────────────────────────
+    //
+    // The three IntBand cloud rows the CloudField kernel colours the coverage
+    // tile with (sun-glow 10, slope 11, base 12) plus the FloatBand density C
+    // (band 3). Like the water colours they ride SetAuthored's gate: one switch
+    // decides whether the client believes the data, and the clouds must not
+    // disagree with the sky about the time of day.
+    //
+    // Density is the only value that can empty or fill the sky, and BOTH ends are
+    // legal - C=0 is a clear sky, C=1 an overcast one - so it is taken as given
+    // (clamped to [0,1]); an unauthored band reads 0, which is a clear sky, the
+    // right default for a zone with no cloud data.
+    private Vector3 _authoredCloudSunGlow, _authoredCloudSlope, _authoredCloudBase;
+    private float _authoredCloudDensity;
+    private bool _hasAuthoredClouds;
+
+    /// <summary>True once resolved cloud bands have been handed over.</summary>
+    public bool HasAuthoredClouds => _hasAuthoredClouds;
+
+    /// <summary>Should the sky pass draw the authored cloud layer?</summary>
+    public bool AuthoredCloudsReady => Authored && _hasAuthoredClouds;
+
+    public Vector3 CloudSunGlow => _authoredCloudSunGlow;
+    public Vector3 CloudSlope => _authoredCloudSlope;
+    public Vector3 CloudBase => _authoredCloudBase;
+    public float CloudDensity => _authoredCloudDensity;
+
+    /// <summary>Hand over the resolved cloud palette + density for this place and time.</summary>
+    public void SetAuthoredClouds(Vector3 sunGlow, Vector3 slope, Vector3 baseColor, float density)
+    {
+        _authoredCloudSunGlow = sunGlow;
+        _authoredCloudSlope = slope;
+        _authoredCloudBase = baseColor;
+        _authoredCloudDensity = Math.Clamp(density, 0f, 1f);
+        _hasAuthoredClouds = true;
+    }
+
     // The five sky bands the SkyRenderer draws. Fall back to the flat
     // fog-coloured sky when there is no data, which is exactly the old
     // behaviour - so a missing DBC degrades to what shipped before, not to
@@ -251,13 +298,14 @@ public sealed class WorldAtmosphere
             // invented ones (PLAN_09 §10). At 1.0 the data is used exactly,
             // which is what makes the probe's data-vs-applied deltas read zero.
             //
-            // MODE SEAM (2026-08-12). Msui applies band 0 raw - the pre-v6 look,
-            // preserved bit for bit. Parity112 multiplies in the vanilla
-            // client's own day/night intensity curve from World\dnc.db (0.8
-            // through daytime, 1.0 deep night), because that is what the real
-            // client does with band 0 - it is why the band's noon value can be
-            // pure orange 0xFF8800 and still render as plausible daylight.
-            // Nothing else attenuates the authored colours in either mode.
+            // MODE SEAM (owner-settled 2026-08-15). Msui applies band 0 raw -
+            // the pre-v6 look, preserved bit for bit. Parity112 = the SPOT-ON
+            // law: authored colours RAW (band 0's cyan-blue night value is the
+            // moonlight), the WoW.exe never-setting sun direction, and the
+            // dnc.db intensity curve (0.8 day, 1.0 deep night) as the one
+            // scalar. Two later "more faithful" revisions multiplied the dnc
+            // COLOUR ramps into diffuse and ambient; both read wrong against
+            // the real client and were reverted on the owner's call.
             float modeScale = Mode == LightingMode.Parity112
                 ? ParityDaylightIntensity?.Invoke(TimeOfDayHours) ?? 1f
                 : 1f;
@@ -312,13 +360,62 @@ public sealed class WorldAtmosphere
     public void SetNight() => TimeOfDayHours = 0f;
 
     /// <summary>
-    /// The per-mode seam for the sun's day arc. Both modes share the invented
-    /// arc today: vanilla's REAL arc exists (World\dnc.db DayX/Y/Z - X pinned
-    /// at 0.7, Y/Z rotating hourly) but its mapping into our world space is
-    /// unverified, so wiring it here per-mode is future work, not a default.
+    /// The per-mode seam for the sun's day arc. Msui keeps the invented
+    /// sunrise-to-sunset arc. Parity112 uses the REAL 1.12 law, transcribed
+    /// from WoW.exe via the benilla reference (lighting/daynight.rs
+    /// DayNight::SetDirection, verified 2026-08-14): the lighting sun NEVER
+    /// SETS. Azimuth is a constant 225 degrees all day; only the elevation
+    /// wobbles, +37 deg at noon AND midnight, +20 deg at 06:00/18:00. At
+    /// midnight the directional light is still up there and its colour is
+    /// simply band 0's night value - the blue moonlight that paints the
+    /// vanilla night. Our old arc sent the sun below the horizon at night,
+    /// which zeroed N.L on every upward face and reduced night to
+    /// ambient-only: dark, but a dimmed day instead of a moonlit one.
     /// </summary>
     private static Vector3 SunDirectionFor(LightingMode mode, float hours)
-        => SunDirectionAt(hours);
+        => mode == LightingMode.Parity112 ? VanillaSunDirectionAt(hours) : SunDirectionAt(hours);
+
+    // WoW.exe's polar-angle table (radians from +Z, benilla PHI_TABLE): day
+    // fraction -> polar angle, linear between entries, wrapping midnight.
+    // 2.2165682 rad = 127 deg polar = 37 deg above the horizon (the travel
+    // direction points DOWN; the table is for the travel vector's polar angle).
+    private static readonly (float DayFrac, float Phi)[] VanillaSunPhi =
+    [
+        (0.00f, 2.2165682f),   // midnight
+        (0.25f, 1.9198623f),   // 06:00
+        (0.50f, 2.2165682f),   // noon
+        (0.75f, 1.9198623f),   // 18:00
+        (1.00f, 2.2165682f),   // wrap
+    ];
+
+    /// <summary>Constant lighting azimuth, WoW.exe: 225 degrees.</summary>
+    private const float VanillaSunTheta = 3.926991f;
+
+    /// <summary>
+    /// The 1.12 lighting-sun direction as a TO-SUN vector (shaders dot the
+    /// surface normal against it). WoW.exe builds the travel direction
+    /// (sin phi cos theta, sin phi sin theta, cos phi); this returns its
+    /// negation in the same world frame.
+    /// </summary>
+    private static Vector3 VanillaSunDirectionAt(float hours)
+    {
+        float dayFrac = WrapHours(hours) / 24f;
+        float phi = VanillaSunPhi[^1].Phi;
+        for (int i = 0; i + 1 < VanillaSunPhi.Length; i++)
+        {
+            if (dayFrac > VanillaSunPhi[i + 1].DayFrac) continue;
+            float span = VanillaSunPhi[i + 1].DayFrac - VanillaSunPhi[i].DayFrac;
+            float t = span <= 0f ? 0f : (dayFrac - VanillaSunPhi[i].DayFrac) / span;
+            phi = VanillaSunPhi[i].Phi + (VanillaSunPhi[i + 1].Phi - VanillaSunPhi[i].Phi) * t;
+            break;
+        }
+
+        float sinPhi = MathF.Sin(phi);
+        return Vector3.Normalize(new Vector3(
+            -sinPhi * MathF.Cos(VanillaSunTheta),
+            -sinPhi * MathF.Sin(VanillaSunTheta),
+            -MathF.Cos(phi)));
+    }
 
     /// <summary>
     /// Six is sunrise, twelve solar noon, eighteen sunset. Shared by both paths

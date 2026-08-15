@@ -1,5 +1,24 @@
 # RTS R2 Honor, Heroes, and Faction Control
 
+> **Current-tree correction (2026-08-15):** the database/profile lifecycle in
+> this historical implementation record is superseded by
+> `SYSTEM_DATABASE_OVERLAY.md`. R1 has been removed from MangosSuperUI; new RTS
+> creation is R2-only and creates the complete RTS overlay in its parked
+> artifacts; resume performs no RTS schema upgrade; and SuperUI-Core performs no
+> RTS DDL at boot. The frozen 27-file R2 Core bundle was recovered and integrated
+> into the authoritative Linux checkout on 2026-08-15, with the newer nine-table
+> fail-closed overlay check retained and current client/web contract drift
+> corrected. The integrated Core, client, and web source all build, as recorded
+> in `SYSTEM_RTS_R2_CORE_INTEGRATION.md`. R2 is the sole supported RTS creation
+> profile; remaining R1 mentions describe removed behavior or its rejection test.
+
+> **Later Tier-1 extension (2026-08-15):** MMO Free View now supports
+> capability-gated same-faction selection, explicit mass orders, session-only
+> Shift-number control groups, patrol, and real party/raid auto-formation. See
+> `SYSTEM_CRPG_CONTROL_GROUPS.md`. The party-only and "mass orders unbuilt"
+> statements below describe the original R2 checkpoint and are superseded only
+> for this later control-group surface.
+
 **Document type:** canonical implementation record and operating contract.
 
 **Repositories covered:**
@@ -29,7 +48,7 @@ used as a substitute for the exact implementation and isolation laws here.
 
 ## 1. Executive summary
 
-R2 adds the first true match-economy loop on top of the R1 boot-loaded RTS
+R2 provides the first true match-economy loop on top of the boot-loaded RTS
 worldstate foundation:
 
 1. combat against the opposing faction awards a shared faction Honor pool;
@@ -68,10 +87,10 @@ R2 does not replace Tier 1. It adds a true-RTS-only faction force catalogue and
 an additional authorization path for direct control. The legacy party path is
 preserved for ordinary worlds.
 
-### 2.2 R1: worldstate foundation
+### 2.2 Boot-loaded RTS foundation
 
-R1 owns the boot mode, scalar configuration, rate overrides, faction bot
-admission caps, state request/reply allocation, and empty persistence scaffolds.
+The foundation owns the boot mode, scalar configuration, rate overrides, faction
+bot admission caps, state request/reply allocation, and persistence scaffolds.
 R2 consumes that foundation. R2 must not manufacture an RTS save at server boot;
 MangosSuperUI prepares the selected save before the owner starts the server.
 
@@ -123,8 +142,9 @@ their configuration at the same boot:
 - heroes require a valid hero-rule set;
 - faction force control requires its explicit configuration flag.
 
-Absent or invalid module configuration leaves only that module inert. This is
-important for loading an R1-only RTS save with an R2-capable binary.
+Absent or invalid module configuration leaves only that module inert. This makes
+an incomplete or corrupted R2 overlay fail closed instead of partially enabling
+gameplay.
 
 ### 3.4 Disabled helpers are identity functions
 
@@ -389,7 +409,7 @@ its worktree blob and `HEAD` blob both hash to
 `f9a08bce25ab943b8d26308d9a0d3e90a08422da`; `git diff`, `--numstat`,
 `--name-only`, and `--raw` all contain no content change for it.
 
-The existing R1 lifecycle calls in `World.cpp` are also not R2 edits. They
+The existing RTS-foundation lifecycle calls in `World.cpp` are also not R2 edits. They
 already call `SuiPossess::LoadWorldState()` followed by
 `SuiRts::LoadRuleset()` during boot, `SuiRts::Tick(diff)` in the joined
 world-update window, and `SuiRts::Shutdown()` before session teardown. R2 fills
@@ -423,7 +443,7 @@ boot performs the following one-way sequence:
    RTS or from one R2 configuration to another.
 
 This is the core isolation guarantee: in an MMO boot, the only new work is the
-single mode-row read through the pre-existing R1 boot seam. The kill, Honor,
+nine-table presence check through the pre-existing RTS boot seam. The kill, Honor,
 hero, faction-roster, cross-map possession, automatic-resurrection and periodic
 flush branches all return before changing state.
 
@@ -432,15 +452,15 @@ flush branches all return before changing state.
 | File | Exact R2 symbols and behavior | Disabled behavior, thread and persistence law | Review evidence |
 |---|---|---|---|
 | `src/game/SuperUiBots/SuiRts.h` | Declares the boot-latched module facade, typed scalar accessors, atomic Honor pool API, faction bot-cap accessor, minimal kill/world-entry dispatchers, 839 state handler and 840 action handler. Adds `FactionControlEnabled`, `TrySpendHonor`, and `RefundHonor`; removes the runtime `Reload` API. | Every public module accessor includes the immutable RTS mode gate. Callers do not receive a permissive raw flag that can outlive the mode latch. | Header/source pairing and every call site were reviewed; no runtime reload declaration remains. |
-| `src/game/SuperUiBots/SuiRts.cpp` | Replaces R1 table creation/row-count inference with read-only boot configuration. Explicitly latches Honor, Heroes, Territory, Dungeons and Faction Control; applies managed stock rates; caches bot caps; loads pools; normalizes a negative preserved pool to zero/dirty; dispatches the single kill and world-entry seams; performs atomic CAS spend and checked saturating add/refund; drains hero deaths and dirty pool writes; emits complete 839 faction/hero state; routes 840 actions to `SuiHero`; and exposes diagnostic `status`, `heroes`, and positive Honor-add commands. | MMO returns before module-table reads. `AddHonor` rejects disabled/nonpositive awards. Spend/refund require active Honor+Heroes. Add/refund saturate at `INT64_MAX`, log the attempted overflow, and never publish a wrapped negative pool; refund still reports the unchanged pool when disabled/invalid. Map-thread awards touch atomics only. The existing main-thread tick writes dirty pools synchronously with `UPDATE`, not schema creation or row replacement; shutdown invokes the same synchronous flush. This prevents an older queued write from overtaking the final clean-shutdown value. Reload is refused. A disabled action returns result 4 through `SuiHero`. | Full semantic diff reviewed, including overflow/negative-state and shutdown-order hardening; `git diff --check` passes; the authoritative Release/scripts build passes as recorded in section 15. |
+| `src/game/SuperUiBots/SuiRts.cpp` | Replaces legacy Core table creation/row-count inference with read-only boot configuration. Explicitly latches Honor, Heroes, Territory, Dungeons and Faction Control; applies managed stock rates; caches bot caps; loads pools; normalizes a negative preserved pool to zero/dirty; dispatches the single kill and world-entry seams; performs atomic CAS spend and checked saturating add/refund; drains hero deaths and dirty pool writes; emits complete 839 faction/hero state; routes 840 actions to `SuiHero`; and exposes diagnostic `status`, `heroes`, and positive Honor-add commands. | MMO returns before module-table reads. `AddHonor` rejects disabled/nonpositive awards. Spend/refund require active Honor+Heroes. Add/refund saturate at `INT64_MAX`, log the attempted overflow, and never publish a wrapped negative pool; refund still reports the unchanged pool when disabled/invalid. Map-thread awards touch atomics only. The existing main-thread tick writes dirty pools synchronously with `UPDATE`, not schema creation or row replacement; shutdown invokes the same synchronous flush. This prevents an older queued write from overtaking the final clean-shutdown value. Reload is refused. A disabled action returns result 4 through `SuiHero`. | Full semantic diff reviewed, including overflow/negative-state and shutdown-order hardening; `git diff --check` passes; the authoritative Release/scripts build passes as recorded in section 15. |
 | `src/game/SuperUiBots/SuiHonor.h` | Declares only boot scalar loading, the single kill-classification entry point, and the narrowly defined bot-versus-bot vanilla-HK suppression predicate. | No generic Player/Unit override is exposed. | All three symbols have one bounded purpose and reviewed callers. |
 | `src/game/SuperUiBots/SuiHonor.cpp` | Caches nonnegative player, bot, faction-NPC and elite weights plus the suppression switch in atomics. Resolves the killing player from the killer or its owner, requires hostility, awards only for an opposing-faction player/bot or an unowned creature whose faction template belongs **exclusively** to the opposing player faction, and delegates positive awards to the atomic faction pool. `SuppressVanillaHonor` is true only when both recipient and victim are bots. | First gates are RTS mode and Honor. Same-faction kills, suicides, duels, neutral/ordinary hostile wildlife, mixed/neutral faction masks, pets, guardians and summons award zero. Human HK history is never suppressed. The kill hook is map-thread safe: cached atomics plus `SuiRts::AddHonor`; it performs no DB write. | Classification, ownership, faction-mask and suppression paths reviewed against `Unit::Kill` and `Player::RewardHonorOnDeath`. |
 | `src/game/SuperUiBots/SuiHero.h` | Defines the persisted hero snapshot, ruleset lifecycle, death/world-entry hooks, the resurrection-hold predicate, per-team fielded/slot reporting, snapshot export, and action IDs 1 declare, 2 upgrade, 3 paid revive with 841 result codes 0-4. | The public hold predicate is false unless RTS+Heroes and a persisted/pending/reviving bot hero match. | Interface and all consumers reviewed. |
 | `src/game/SuperUiBots/SuiHero.cpp` | Loads exactly levels 1-5 and validates spell IDs 51001-51005, 100-200 percent configured effects, exact passive/no-cancel/permanent/native spell shape, caster `MOD_SCALE`, and all-school `MOD_DAMAGE_PERCENT_DONE`. Loads valid persisted heroes, clamps the **per-faction** slot cap to 1-127, applies one native aura and removes stale R2 rank auras, queues bot-hero deaths, writes `dead=1` on the main tick, and implements bot-only declare/upgrade/revive. On bot world entry it reconciles both possible persisted/physical mismatches: a persisted live row paired with a physically dead bot is synchronously marked dead before AiBotAI can free-revive it; a persisted `dead=1` row paired with a physically alive bot is returned through the ordinary self-kill path, which awards no Honor and adds no duplicate pending death. It then refreshes or removes the rank aura. Actions validate the human actor and same-faction in-world `AiBotAI`, validate state/cost under the module mutex, spend through atomic CAS, then revalidate and refund on races/failure. Paid revive requires a normal faction graveyard before spending, teleports the corpse there, restores full resources, stops combat, creates bones, clears persisted death, and reapplies the same rank aura. | `Active()` requires RTS+Heroes. Declaration/action identity requires both a bot session and attached `AiBotAI`; the resurrection hold uses persisted bot-session identity because login corpse recovery can precede AI attachment. World-entry reconciliation is active only for an attached AiBot and only for a persisted/physical mismatch. Humans, nonheroes and ordinary bots retain stock death/resurrection. Death hooks enqueue only; main-thread draining and every declare/upgrade/revive persistence statement execute synchronously. Using one write ordering prevents a queued action/death write from landing after the shutdown drain and resurrecting stale state on the next boot. The cap of 127 per side guarantees the combined 839 hero roster is at most 254 rows and fits its global `u8` count. | Full source reviewed for validate-before-spend, saturating refund integration, synchronous write ordering, revalidation/refund, bidirectional dead-state reconciliation, death queue, aura lifecycle, DB statements and all early exits; the authoritative Release/scripts build passes. |
 | `src/game/SuperUiBots/SuiFactionControl.h` | Defines the only same-faction party-bypass predicate, the outdoor relocation result enum, and the paged force-roster handler. | `CanControl` is false unless boot-latched Faction Control is active. | Header/source and `SuiPossess` integration reviewed. |
-| `src/game/SuperUiBots/SuiFactionControl.cpp` | Authorizes only a real in-world human actor and an in-world same-team bot session with attached `AiBotAI`. Opcode 842 produces a GUID-low-sorted live scan, optional exact-zone filter, exclusive cursor, maximum 200 rows, fixed 32-byte stride, total/count/next cursor, full GUID/map/zone/position/race/class/level, and alive/busy/eligible/same-map/hero/dead/instance flags. It resolves hero flags from a complete `SuiHero` snapshot and deliberately omits names so the client uses stock name queries. Relocation removes any free-view eye, uses ordinary `Player::TeleportTo` to the bot's exact outdoor position, restores the eye if teleport submission fails, and never enters an instanceable map or nonzero destination instance. | MMO or disabled Faction Control returns a syntactically complete empty page. Reserved request flags or request ID zero return an empty terminal page **without scanning**. `ROW_ELIGIBLE` additionally requires the commander to be alive, self-mover, not already controlling, and not taxi/transport/teleporting; the bot must be alive, unpossessed and likewise not taxi/transport/teleporting, then be either same-map+same-instance+visible or at a non-instance destination. The player registry is scanned under its read guard; pagination is explicitly live, not a frozen snapshot. | Request validation, requester/target eligibility parity, row stride/flags, cursor math, 200-row clamp, read guard and relocation exits reviewed against the paired client codec and protocol document. |
-| `src/game/SuperUiBots/SuiPossess.h` **(mixed R1/Tier-1 file)** | Adds ACK 7 `ACK_RELOCATING`, denial 8 `DENY_CROSS_INSTANCE`, and free-camera prepare/restore helpers used only by faction relocation. Removes the runtime worldstate-override declaration. | The existing party possession API and all release reasons remain intact. | Enum values match client/wire review; no existing values were renumbered. |
-| `src/game/SuperUiBots/SuiPossess.cpp` **(mixed R1/Tier-1 file)** | Makes the mode read boot-only/read-only; permits an existing same-group target **or** the `SuiFactionControl::CanControl` bypass; relocates an authorized non-visible faction target when its destination is outdoor/non-instance (including a distant target on the same outdoor map); returns 7 so the client waits for normal streaming and retries; returns 8 for any instance target that is not already same-map, same-instance and visible; removes free view only after ordinary denial gates pass; and parks a nonparty commander's unattended body idle/out of combat instead of attaching the party-follow unattended AI. | With Faction Control false, authorization remains same-group only and a non-visible target is denied exactly through the legacy path. All existing requester, bot identity, busy, death, taxi, transport, teleport and mover gates still run. A rejected same-map request no longer destroys an existing free view. Party possession still attaches the original unattended-owner AI; only the new faction/nonparty grant parks the owner. | Complete diff reviewed through `TryBegin`, `HandleRequest`, relocation helpers, owner parking and `.sui worldstate`. |
+| `src/game/SuperUiBots/SuiFactionControl.cpp` | Authorizes only a real in-world human actor and an in-world same-team bot session with attached `AiBotAI`. Opcode 842 produces a GUID-low-sorted live scan, optional exact-zone filter, exclusive cursor, maximum 200 rows, fixed 32-byte stride, total/count/next cursor, full GUID/map/zone/position/race/class/level, and alive/busy/eligible/same-map/hero/dead/instance flags. It resolves hero flags from a complete `SuiHero` snapshot and deliberately omits names so the client uses stock name queries. Relocation removes any free-view eye, uses ordinary `Player::TeleportTo` to the bot's exact outdoor position, restores the eye if teleport submission fails, and never enters an instanceable map or nonzero destination instance. | MMO or disabled Faction Control returns a syntactically complete empty page. Wrong-size bodies and request ID zero are dropped without scanning; reserved flags with a usable request ID return an empty terminal page. `ROW_ELIGIBLE` additionally requires the commander to be alive, self-mover, not already controlling, and not taxi/transport/teleporting; the bot must be alive, unpossessed and likewise not taxi/transport/teleporting, then be either same-map+same-instance+visible or at a non-instance destination. The player registry is scanned under its read guard; pagination is explicitly live, not a frozen snapshot. | Request validation, requester/target eligibility parity, row stride/flags, cursor math, 200-row clamp, read guard and relocation exits reviewed against the paired client codec and protocol document. |
+| `src/game/SuperUiBots/SuiPossess.h` **(mixed RTS-foundation/Tier-1 file)** | Adds ACK 7 `ACK_RELOCATING`, denial 8 `DENY_CROSS_INSTANCE`, and free-camera prepare/restore helpers used only by faction relocation. Removes the runtime worldstate-override declaration. | The existing party possession API and all release reasons remain intact. | Enum values match client/wire review; no existing values were renumbered. |
+| `src/game/SuperUiBots/SuiPossess.cpp` **(mixed RTS-foundation/Tier-1 file)** | Makes the mode read boot-only/read-only; permits an existing same-group target **or** the `SuiFactionControl::CanControl` bypass; relocates an authorized non-visible faction target when its destination is outdoor/non-instance (including a distant target on the same outdoor map); returns 7 so the client waits for normal streaming and retries; returns 8 for any instance target that is not already same-map, same-instance and visible; removes free view only after ordinary denial gates pass; and parks a nonparty commander's unattended body idle/out of combat instead of attaching the party-follow unattended AI. | With Faction Control false, authorization remains same-group only and a non-visible target is denied exactly through the legacy path. All existing requester, bot identity, busy, death, taxi, transport, teleport and mover gates still run. A rejected same-map request no longer destroys an existing free view. Party possession still attaches the original unattended-owner AI; only the new faction/nonparty grant parks the owner. | Complete diff reviewed through `TryBegin`, `HandleRequest`, relocation helpers, owner parking and `.sui worldstate`. |
 
 ### 8.3 Wire, registration, build-list and protocol-document ledger
 
@@ -503,24 +523,21 @@ result is claimed here.
 
 | File | R2 responsibility | Safety boundary |
 |---|---|---|
-| `MangosSuperUI/Models/WorldConfigurationModels.cs` | Adds the `rts-r2-v1` profile, makes it the new-create UI default, retains `rts-r1-v1`, defines Honor/hero fields and five target-level rows, validates all bounds, and emits the managed scalar/rule set. | The model-level fallback stays R1 so pre-profile manifests do not silently gain mechanics. Hero slots are 1-127 so both faction rosters fit the existing global `u8` hero count. |
-| `MangosSuperUI/Controllers/WorldsController.cs` | Returns both profile descriptors/defaults from `CreateOptions` and accepts the selected launch configuration for create/resume. | Accepts structured allowlisted fields, not SQL, table names or arbitrary configuration keys. |
-| `MangosSuperUI/Services/RtsWorldCreationService.cs` | Builds a clean R1 or R2 genesis: current CharacterDatabase schema, managed scalar rows, compatible hero-rule columns, zero faction pools, zero hero/territory/dungeon state, zero characters/bots, preserved accounts and selected world/core/admin data. | Creation produces a parked artifact only. It does not boot the server or populate a roster. |
-| `MangosSuperUI/Services/RtsHeroSpellWorldStore.cs` **(new)** | Transforms only the staged `world_mangos.sql.gz` artifact: captures any pre-existing build-5875 rows 51001-51005 once, installs the five native R2 passive aura rows for R2, and restores the captured originals for R1. | It never edits a live WorldDatabase. Only five reserved IDs are managed; 51006+ and every unrelated world row are untouched. |
+| `MangosSuperUI/Models/WorldConfigurationModels.cs` | Defines `rts-r2-v1` as the sole RTS profile, defines Honor/hero fields and five target-level rows, validates all bounds, emits the managed scalar/rule set, and rejects removed profile IDs. | Hero slots are 1-127 so both faction rosters fit the existing global `u8` hero count. Unsupported or legacy profile IDs fail validation. |
+| `MangosSuperUI/Controllers/WorldsController.cs` | Returns the R2 descriptor/defaults from `CreateOptions` and accepts the structured launch configuration for create/resume. | Accepts structured allowlisted fields, not SQL, table names or arbitrary configuration keys. |
+| `MangosSuperUI/Services/RtsWorldCreationService.cs` | Builds a clean R2 genesis: current CharacterDatabase schema, managed scalar rows, five hero rules, zero faction pools, zero hero/territory/dungeon state, zero characters/bots, preserved accounts and selected world/core/admin data. | Creation produces a parked artifact only. It does not boot the server or populate a roster. |
+| `MangosSuperUI/Services/RtsHeroSpellWorldStore.cs` **(new)** | Transforms only the staged `world_mangos.sql.gz` artifact: creation adds the two preservation tables, captures any pre-existing build-5875 rows 51001-51005 once, and installs the five native R2 passive aura rows; resume refreshes only those five rows without DDL. | It never edits a live WorldDatabase. Only five reserved IDs are managed; 51006+ and every unrelated world row are untouched. |
 | `MangosSuperUI/Services/WorldStateService.cs` | Forces an RTS profile resume through a full snapshot restore, stages the profile-specific world artifact, applies managed CharacterDB configuration in one stopped-world transaction, preserves runtime `superui_faction`/`superui_heroes` on resume, validates the final rules/spells, and records profile metadata. | R2 configuration is immutable for the next boot. It does not hot-edit a running match. MMO resume follows the ordinary captured artifacts and receives no RTS postlude. |
-| `MangosSuperUI/Views/Worlds/Index.cshtml` | Adds R1/R2 selectors and explicit create/review descriptions for preserved/reset data and reserved spell rows. | The final operation remains an owner-clicked parked create or owner-clicked prepare/resume; no automatic server lifecycle action was added. |
+| `MangosSuperUI/Views/Worlds/Index.cshtml` | Exposes the sole R2 selector and explicit create/review descriptions for preserved/reset data and reserved spell rows. | The final operation remains an owner-clicked parked create or owner-clicked prepare/resume; no automatic server lifecycle action was added. |
 | `MangosSuperUI/wwwroot/js/worlds.js` | Renders server-owned profiles and editable R2 Honor, suppression, control, slots and five hero rows on both create and resume; validates them; previews exact effects and warnings. | The browser mirrors bounds for feedback, but the server repeats all validation. It never constructs SQL. |
-| `tools/worldstate-clinical-check/Program.cs` | Exercises clean R2 seed, R1 inert seed, managed keys, schema compatibility, spell artifact install/rollback, preservation/reset laws, 1-127 slot bounds and invalid rule rejection. | File-only checks prove deterministic artifacts, not a live MariaDB import or gameplay result. |
+| `tools/worldstate-clinical-check/Program.cs` | Exercises clean R2 seed, rejection of removed R1, managed keys, schema compatibility, creation/resume spell handling, preservation/reset laws, 1-127 slot bounds and invalid rule rejection. | File-only checks prove deterministic artifacts, not a live MariaDB import or gameplay result. |
 
 ### 9.2 Profile identities and defaults
 
-`rts-r1-v1` remains the foundation-only profile. It removes the R2 boot gates
-and managed Honor/hero rule rows from the prepared save while leaving parked
-runtime pool/hero rows intact for a later R2 resume. It restores the original
-51001-51005 world rows captured before R2 first owned those IDs.
-
-`rts-r2-v1` is the new UI default for a newly created RTS campaign. Its initial
-values are:
+`rts-r2-v1` is the sole supported RTS profile and therefore the UI default for a
+newly created RTS campaign. `rts-r1-v1` is rejected; there is no compatibility
+branch that creates or resumes a foundation-only RTS world. The R2 initial values
+are:
 
 | Field | Initial value |
 |---|---:|
@@ -606,14 +623,14 @@ until code actually maintains it.
 
 ## 11. Wire allocation and compatibility
 
-R1 allocated opcodes 838 through 841:
+The RTS state/action channel uses opcodes 838 through 841:
 
 - 838 `CMSG_SUI_RTS_STATE`;
 - 839 `SMSG_SUI_RTS_STATE`;
 - 840 `CMSG_SUI_RTS_ACTION`;
 - 841 `SMSG_SUI_RTS_ACTION_RESULT`.
 
-R2 uses the already-reserved pair:
+R2 faction control uses the reserved pair:
 
 - 842 `CMSG_SUI_FORCE_ROSTER`;
 - 843 `SMSG_SUI_FORCE_ROSTER`.
@@ -699,8 +716,8 @@ Compatibility requirements that do not change:
 - future row-tail skipping only when a declared stride permits it;
 - malformed packets publish no partial snapshot.
 
-Stock clients never send these opcodes. An R1-only client/server remains safe
-through module flags and reserved allocation.
+Stock clients never send these opcodes. Clients without R2 support ignore the
+extension allocation and module flags.
 
 ---
 
@@ -778,7 +795,7 @@ This checklist is a release gate, not aspirational prose.
 - hero action eligibility/result correlation;
 - validate-before-mutate spending;
 - session/world reset;
-- R1/R2 profile SQL and artifact generation;
+- sole-R2 profile SQL and artifact generation;
 - MMO profile preservation.
 
 ### 15.2 Builds
@@ -791,7 +808,7 @@ Build evidence is repository-specific:
 | Commander/R2 clinical | `dotnet run --project tools/commander-map-clinical-check/commander-map-clinical-check.csproj --no-restore` | PASS, 130 assertions. |
 | World-map overlay regression | `dotnet run --project tools/world-map-overlay-clinical-check/world-map-overlay-clinical-check.csproj --no-restore` | PASS, all 526 overlay rows and 812 referenced chunks. This protects adjacent earlier map work, not R2 gameplay. |
 | MangosSuperUI | `dotnet build MangosSuperUI.sln --no-restore` | PASS, 0 errors and 54 pre-existing warnings. |
-| World State clinical | `dotnet run --project tools/worldstate-clinical-check/worldstate-clinical-check.csproj --no-restore` | PASS, including R1/R2 artifacts, spell rollback and 1-127 slot bounds. |
+| World State clinical | `dotnet run --project tools/worldstate-clinical-check/worldstate-clinical-check.csproj --no-restore` | PASS, including sole-R2 enforcement, creation/resume spell handling and 1-127 slot bounds. |
 | VMaNGOS / SuperUI-Core | `cmake --build /home/wowvmangos/vmangos/build --parallel 16` in the authoritative `development` checkout | PASS, Release configuration with scripts enabled; completed through `[100%] Built target mangosd`. All 27 reviewed semantic files matched the source-review hashes and remote `git diff --check` passed first. This was build-only: no `make install`, deploy, database operation, or process restart followed. |
 
 `git diff --check` passed for the frozen MSUIClient, MangosSuperUI and normalized
@@ -891,7 +908,7 @@ included because it is the normative peer of the source-level packet contract.
 |---|---:|---|---|---|
 | MSUIClient | 13 | Strict 839/841/843 decoding, 840/842 construction, Commander Honor/hero/force presentation, action correlation, and explicit direct-control relocation/retry orchestration. | Kill classification, Honor balances, hero truth, faction eligibility, teleport permission, possession grant, persistence. | Client build PASS; Commander/R2 clinical PASS, 130 assertions; diff check PASS. No live result is inferred. |
 | VMaNGOS / SuperUI-Core | 27 | Boot-latched module truth, kill awards, atomic/persisted pools, bot-only hero lifecycle, native effects, resurrection hold, faction roster, outdoor transfer authorization, and final possession authority. | World-profile schema creation, offline snapshot preparation, UI presentation, automatic army creation. | Complete source/static review and diff check PASS; all 27 authoritative-checkout hashes match; Release/scripts build PASS through `[100%] Built target mangosd`. No install or live result is inferred. |
-| MangosSuperUI | 8 | R1/R2 profile selection, validation, clean genesis, stopped-world configuration preparation, five reserved spell-row artifact transforms, and metadata. | Running match authority, live gameplay writes, service lifecycle, automatic deployment. | Solution build PASS, 0 errors/54 pre-existing warnings; World State clinical PASS; diff check PASS. |
+| MangosSuperUI | 8 | Sole-R2 profile selection, validation, clean genesis, stopped-world configuration preparation, five reserved spell-row artifact transforms, and metadata. | Running match authority, live gameplay writes, service lifecycle, automatic deployment. | Solution build PASS, 0 errors/54 pre-existing warnings; World State clinical PASS; diff check PASS. |
 
 The 13/27/8 counts exclude unrelated earlier map work, generated build output,
 line-ending-only status and descriptive handbooks. In particular,
@@ -925,8 +942,8 @@ line-ending-only status and descriptive handbooks. In particular,
 | `src/game/Server/Protocol/Opcodes_1_12_1.h` | Assigns 842 request and 843 reply. | Protocol registry; portal allocation is not renumbered. | Numeric cross-check passes. |
 | `src/game/Server/Protocol/Opcodes.cpp` | Registers 842 logged-in on `PACKET_PROCESS_WORLD`; marks 843 server-only. | Extension dispatch only; no stock handler changes. | Registration/type pairing reviewed. |
 | `src/game/Server/WorldSession.h` | Declares `HandleSuiForceRosterOpcode`. | Narrow session API addition. | Declaration/definition pair reviewed. |
-| `src/game/SuperUiBots/SuiRts.h` **(mixed R1)** | Declares immutable module accessors, Honor atomic API, kill/world-entry dispatch, state/action handlers; removes reload. | Extension facade. Every module accessor is RTS-gated; no generic gameplay API is widened. | All declarations/callers reviewed. |
-| `src/game/SuperUiBots/SuiRts.cpp` **(mixed R1)** | Removes core DDL/seed/row-count inference; latches explicit configuration once; normalizes negative loaded Honor to zero/dirty; applies checked `INT64_MAX`-saturating add/refund and CAS spend; loads/flushes pools; clamps flush interval; applies rates; dispatches Honor/Hero; emits populated 839; executes 840 via `SuiHero`; adds diagnostics while refusing hot reload. | Extension implementation. MMO returns before module-table reads; disabled award/action/tick paths do not mutate state; overflow cannot wrap the wire/persisted pool negative; only the existing tick/shutdown seams persist dirty state. | Full diff/static review, overflow/negative normalization review and diff check pass; Release/scripts build PASS. |
+| `src/game/SuperUiBots/SuiRts.h` **(mixed RTS foundation)** | Declares immutable module accessors, Honor atomic API, kill/world-entry dispatch, state/action handlers; removes reload. | Extension facade. Every module accessor is RTS-gated; no generic gameplay API is widened. | All declarations/callers reviewed. |
+| `src/game/SuperUiBots/SuiRts.cpp` **(mixed RTS foundation)** | Removes core DDL/seed/row-count inference; latches explicit configuration once; normalizes negative loaded Honor to zero/dirty; applies checked `INT64_MAX`-saturating add/refund and CAS spend; loads/flushes pools; clamps flush interval; applies rates; dispatches Honor/Hero; emits populated 839; executes 840 via `SuiHero`; adds diagnostics while refusing hot reload. | Extension implementation. MMO returns before module-table reads; disabled award/action/tick paths do not mutate state; overflow cannot wrap the wire/persisted pool negative; only the existing tick/shutdown seams persist dirty state. | Full diff/static review, overflow/negative normalization review and diff check pass; Release/scripts build PASS. |
 | `src/game/SuperUiBots/SuiHonor.h` **(new)** | Declares ruleset load, authoritative kill classification and narrow vanilla-HK suppression. | Extension-only and inert without active Honor. | Interface/callers reviewed. |
 | `src/game/SuperUiBots/SuiHonor.cpp` **(new)** | Implements nonnegative atomic weights, actual killer/owner credit, opposing-player/bot and exclusive opposing-faction NPC classification, elite weighting, positive atomic pool award, and bot-recipient/bot-victim stock-HK suppression. | Map-thread extension. Same faction, neutral wildlife, mixed masks, pets/summons and humans in suppression all fall through to zero/stock. No hook-side DB write. | Classification branches reviewed against stock seams. |
 | `src/game/SuperUiBots/SuiHero.h` **(new)** | Declares snapshots, load/tick/shutdown, death/world-entry hooks, resurrection hold, slot/fielded data and action result contract. | Extension-only; hold is false outside active persisted bot heroes. | Header/consumers reviewed. |
@@ -951,14 +968,14 @@ line-ending-only status and descriptive handbooks. In particular,
 
 | File | Symbols/routes and reason for R2 delta | Path class and stopped/offline boundary | Verification |
 |---|---|---|---|
-| `MangosSuperUI/Models/WorldConfigurationModels.cs` | Defines `rts-r2-v1`, retains `rts-r1-v1`, makes R2 the new-create UI default, models Honor/control/slot/five-level fields, validates bounds and emits only managed keys/rules. | World-profile model. Legacy manifest fallback remains R1; invalid values never reach artifact preparation. Slots are 1-127. | Solution build; clinical boundary tests. |
-| `MangosSuperUI/Controllers/WorldsController.cs` | Returns R1/R2 descriptors/defaults from `CreateOptions` and binds the selected structured launch configuration for create/resume. | HTTP/controller path. Accepts allowlisted model fields, never raw SQL/table/key input. | Build and clinical route/model coverage. |
-| `MangosSuperUI/Services/RtsWorldCreationService.cs` | Creates clean R1/R2 parked genesis from current schema and selected artifacts; emits managed scalars/rules, zero pools/state, zero characters/bots while preserving accounts/name-list/world/core/admin selections. | Offline artifact service. Produces a parked artifact only; no service start, deploy or automatic roster population. | World State clinical R1/R2 seed assertions. |
-| `MangosSuperUI/Services/RtsHeroSpellWorldStore.cs` **(new)** | Captures pre-existing build-5875 world spell rows 51001-51005 once, installs exact R2 native aura rows in the staged compressed world artifact, and restores captured originals for R1. | Staged-artifact transformer. Never connects to or mutates live WorldDatabase; owns only five reserved IDs. | Clinical install/rollback/idempotence checks. |
+| `MangosSuperUI/Models/WorldConfigurationModels.cs` | Defines `rts-r2-v1` as the sole RTS profile, models Honor/control/slot/five-level fields, validates bounds, emits only managed keys/rules, and rejects removed profile IDs. | World-profile model. Invalid or legacy IDs never reach artifact preparation. Slots are 1-127. | Solution build; clinical boundary tests. |
+| `MangosSuperUI/Controllers/WorldsController.cs` | Returns the sole R2 descriptor/defaults from `CreateOptions` and binds the selected structured launch configuration for create/resume. | HTTP/controller path. Accepts allowlisted model fields, never raw SQL/table/key input. | Build and clinical route/model coverage. |
+| `MangosSuperUI/Services/RtsWorldCreationService.cs` | Creates a clean R2 parked genesis from current schema and selected artifacts; emits managed scalars/rules, zero pools/state, zero characters/bots while preserving accounts/name-list/world/core/admin selections. | Offline artifact service. Produces a parked artifact only; no service start, deploy or automatic roster population. | World State clinical R2 seed assertions. |
+| `MangosSuperUI/Services/RtsHeroSpellWorldStore.cs` **(new)** | On creation, adds the preservation tables, captures pre-existing build-5875 world spell rows 51001-51005 once and installs the exact R2 native aura rows; on resume, refreshes only those five rows without DDL. | Staged-artifact transformer. Never connects to or mutates live WorldDatabase; owns only five reserved IDs. | Clinical creation/resume/idempotence checks. |
 | `MangosSuperUI/Services/WorldStateService.cs` | Forces RTS resume through full snapshot restore preparation, stages profile-specific world artifact, applies managed CharacterDB configuration transactionally while stopped, preserves faction/hero runtime rows, validates final rules/spells and records profile metadata. | Offline World State orchestration. It prepares only; no agent/service lifecycle authority and no MMO postlude. | Build plus preservation/reset/artifact clinical checks. |
-| `MangosSuperUI/Views/Worlds/Index.cshtml` | Adds R1/R2 selectors, editable configuration surfaces, review descriptions and explicit preserved/reset/spell ownership text. | Server-rendered UI only. Final operation remains owner initiated. | Razor compilation in solution build. |
+| `MangosSuperUI/Views/Worlds/Index.cshtml` | Exposes the sole R2 selector, editable configuration surfaces, review descriptions and explicit preserved/reset/spell ownership text. | Server-rendered UI only. Final operation remains owner initiated. | Razor compilation in solution build. |
 | `MangosSuperUI/wwwroot/js/worlds.js` | Renders server-owned profiles and R2 fields for create/resume, mirrors validation, and previews exact managed effects/warnings. | Browser feedback only. It emits structured fields and never constructs SQL; server validation is repeated authoritatively. | Build/static diff plus World State clinical source/bound assertions. |
-| `tools/worldstate-clinical-check/Program.cs` | Tests clean R2 and inert R1 seeds, schema compatibility, managed-key ownership, spell install/rollback, preservation/reset, invalid rows and 1-127 bounds. | Test-only, file/artifact level. It does not claim a live MariaDB import or gameplay result. | PASS after final 127-bound correction. |
+| `tools/worldstate-clinical-check/Program.cs` | Tests clean R2 creation, removed-R1 rejection, schema compatibility, managed-key ownership, creation/resume spell handling, preservation/reset, invalid rows and 1-127 bounds. | Test-only, file/artifact level. It does not claim a live MariaDB import or gameplay result. | PASS after final 127-bound correction. |
 
 ### 17.5 Intentionally unchanged or excluded targets
 
@@ -967,7 +984,7 @@ line-ending-only status and descriptive handbooks. In particular,
 | MSUIClient `AreaTable.cs`, `WorldMapOverlayCatalog.cs`, `GameLoop.WorldMap.cs`, ordinary exploration fields, atlas assets and vanilla action-bar/UI adjustments | These are the earlier Commander and normal-MMO 1.12 map/presentation correction. They are regression-tested adjacent work, not Honor/Hero/Faction Control. |
 | MSUIClient movement, combat, spell, inventory and action-store implementations | R2 reaches the existing MMO direct-control stack after possession; it does not fork or weaken it. |
 | VMaNGOS `src/shared/Progression.h` | Worktree and `HEAD` content hashes are identical; status is line-ending metadata only. |
-| VMaNGOS `World.cpp` lifecycle calls | R1 already owned the boot/tick/shutdown seams. R2 fills `SuiRts` behind them but does not change `World.cpp`. |
+| VMaNGOS `World.cpp` lifecycle calls | The existing RTS foundation already owned the boot/tick/shutdown seams. R2 fills `SuiRts` behind them but does not change `World.cpp`. |
 | VMaNGOS `Unit::DealDamage`, generic scale/model setters and `Player::ResurrectPlayer` | Native validated auras implement power; narrow automatic-resurrection callers implement the death hold. Broad primitives remain stock. |
 | VMaNGOS group/order/roster creation and name generation | Faction eligibility is not group membership, does not create bots, and does not widen mass orders. Existing name-list reuse remains untouched. |
 | MangosSuperUI live DB/service/deploy paths | Profile work is stopped-world artifact/configuration preparation. Nico alone installs, deploys, swaps World States and controls processes. |

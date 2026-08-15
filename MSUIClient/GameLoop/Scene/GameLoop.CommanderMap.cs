@@ -27,8 +27,10 @@ public sealed partial class GameLoop
     private readonly RtsFactionWire[] _rtsFactions = new RtsFactionWire[2];
     private readonly List<RtsHeroWire> _rtsHeroes = [];
     private readonly List<RtsDungeonWire> _rtsDungeons = [];
-    // The faction force is deliberately not the CRPG party/control roster. It is
-    // a zone-scoped RTS census used for map markers and hero management only.
+    // The faction force remains separate from the real WoW party roster. It is a
+    // zone-scoped, server-filtered census used by Commander and, when capability
+    // gated, as the Free View faction-selection affordance. It never makes a bot
+    // a real party member or grants authority by itself.
     private readonly Dictionary<ulong, RtsForceUnitWire> _rtsForces = [];
     private readonly Dictionary<ulong, RtsForceUnitWire> _rtsForceStaging = [];
     private uint _rtsForceRequestSeed;
@@ -197,7 +199,7 @@ public sealed partial class GameLoop
 
     private void BeginRtsForceRosterLoad(uint zoneId)
     {
-        if (zoneId == 0 || !CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules) ||
+        if (zoneId == 0 || !CanUseFactionForceRoster() ||
             _net is not { IsInWorld: true }) return;
         uint requestId = NextRtsForceRequestId();
         _rtsForceRequestId = requestId;
@@ -222,7 +224,7 @@ public sealed partial class GameLoop
         try
         {
             RtsForceRosterPage page = RtsWire.ParseForceRoster(body);
-            if (!CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules))
+            if (!CanUseFactionForceRoster())
                 return;
             if (!_rtsForceLoading || page.RequestId != _rtsForceRequestId ||
                 page.ZoneId != _rtsForceRequestZone)
@@ -337,7 +339,7 @@ public sealed partial class GameLoop
             _rtsDungeons.Clear();
             _rtsDungeons.AddRange(next.Dungeons);
 
-            if (!CommanderMapUiLaw.ShowFactionControl(next.Mode, next.Modules))
+            if (!CanUseFactionForceRoster())
                 ResetRtsForceRoster();
 
             // Names stay lazy. A state push may arrive with Commander closed and

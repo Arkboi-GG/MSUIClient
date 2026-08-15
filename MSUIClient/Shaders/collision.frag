@@ -21,6 +21,7 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 uniform float uSourceFilter;  // -1 draws all
 uniform int   uHighlight;     // 1 = yellow physics surface, 2 = cyan player marker, 3 = red aggro beam
+uniform int   uPalette;       // 0 = slope green/red, 1 = navmesh blue
 
 out vec4 FragColor;
 
@@ -50,6 +51,12 @@ void main()
     vec3 standable = vec3(0.30, 0.95, 0.40);
 
     vec3 color = vNormalZ > uSlopeLimit ? standable : wall;
+
+    // Navmesh palette: walkable by construction, so slope colouring says
+    // nothing - shade blue by normal Z instead so the fill keeps its shape.
+    if (uPalette == 1)
+        color = mix(vec3(0.10, 0.22, 0.55), vec3(0.35, 0.62, 1.0),
+                    clamp(vNormalZ, 0.0, 1.0));
 
     // Dim with distance rather than blending, so no sorted pass is needed.
     float dist = distance(uCameraPos, vWorldPos);

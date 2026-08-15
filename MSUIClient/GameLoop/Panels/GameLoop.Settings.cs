@@ -45,7 +45,7 @@ public sealed partial class GameLoop
     private const string MenuPopupId = "##msui-game-menu";
 
     /// <summary>Which frame the menu is showing. 0 is the Game Menu itself.</summary>
-    private enum MenuPage { GameMenu = 0, Video, Controls }
+    private enum MenuPage { GameMenu = 0, Video, Controls, Sound }
 
     /// <summary>
     /// Handed over by Program.Main, which loads it BEFORE the window exists
@@ -216,7 +216,7 @@ public sealed partial class GameLoop
         _auctionOpen || _mailOpen || _gossipMenu is not null || _gossipText is not null ||
         QuestNpcPanelNow() != QuestNpcPanel.None ||
         _vendor is not null || _trainer is not null || _gameObjectGuid != 0 || _worldMapOpen ||
-        _commanderMapOpen ||
+        _commanderMapOpen || _rtsControlGroupCommandOpen ||
         _macroOpen || _helpOpen || _socialOpen || _guildOpen || _professionOpen || _bankOpen ||
         _tabardOpen || _taxiOpen && !_taxiLocked || _talentOpen || _questLogOpen ||
         _spellbookOpen || _characterOpen || _backpackOpen || _keyringOpen ||
@@ -224,6 +224,7 @@ public sealed partial class GameLoop
 
     private bool TryClosePlayerPanelOnEscape()
     {
+        if (_rtsControlGroupCommandOpen) { _rtsControlGroupCommandOpen = false; return true; }
         if (_bindingCapture is not null) { _bindingCapture = null; return true; }
         if (_keybindingsOpen)
         {
@@ -502,6 +503,7 @@ public sealed partial class GameLoop
                 case MenuPage.GameMenu: DrawGameMenu(size); break;
                 case MenuPage.Video: DrawVideoOptions(size); break;
                 case MenuPage.Controls: DrawControlsPage(size); break;
+                case MenuPage.Sound: DrawSoundOptions(size); break;
             }
             MarkUiParityFrameComplete();
 
@@ -563,6 +565,7 @@ public sealed partial class GameLoop
     {
         MenuPage.Video => "Video Options",
         MenuPage.Controls => "Interface Options",
+        MenuPage.Sound => "Sound Options",
         _ => "Main Menu",
     };
 
@@ -707,9 +710,7 @@ public sealed partial class GameLoop
         Row("GameMenuButtonOptions", "Video Options", GameMenuUiLaw.ButtonTop(0), "CENTER", "", "TOP", "-37",
             true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Video); });
         Row("GameMenuButtonSoundOptions", "Sound Options", GameMenuUiLaw.ButtonTop(1), "TOP", "GameMenuButtonOptions", "BOTTOM", "-1",
-            false, () => { },
-            "There is no sound subsystem yet - this button exists so the menu does\n" +
-            "not change shape when there is.");
+            true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Sound); });
         Row("GameMenuButtonUIOptions", "Interface Options", GameMenuUiLaw.ButtonTop(2), "TOP", "GameMenuButtonSoundOptions", "BOTTOM", "-1",
             true, () => { PlayUiSound("igMainMenuOption"); Go(MenuPage.Controls); });
         Row("GameMenuButtonKeybindings", "Key Bindings", GameMenuUiLaw.ButtonTop(3), "TOP", "GameMenuButtonUIOptions", "BOTTOM", "-1",
@@ -803,6 +804,49 @@ public sealed partial class GameLoop
     }
 
     // ── Video Options ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The Sound Options page. Sliders mirror the 1.12 CVars (MasterVolume,
+    /// SoundVolume, MusicVolume, AmbienceVolume) with the registrar defaults;
+    /// every change applies live through ApplySettings, so the world audibly
+    /// follows the drag.
+    /// </summary>
+    private void DrawSoundOptions(Vector2 size)
+    {
+        var s = Settings;
+        float bodyHeight = PanelBodyHeight(presets: false);
+
+        if (ImGui.BeginChild("##sound-body", new Vector2(0f, bodyHeight)))
+        {
+            BeginBox("soundtoggles", "Sound");
+            {
+                Check("Enable All Sound", () => s.Audio.EnableAll, v => s.Audio.EnableAll = v,
+                    "The master switch, like 1.12's Enable All Sound - off silences\n" +
+                    "music, ambience and effects together.");
+                Check("Enable Music", () => s.Audio.EnableMusic, v => s.Audio.EnableMusic = v);
+                Check("Enable Ambience", () => s.Audio.EnableAmbience, v => s.Audio.EnableAmbience = v);
+            }
+            EndBox();
+
+            BeginBox("soundvolumes", "Volume");
+            {
+                Slider("mastervol", "Master Volume", () => s.Audio.MasterVolume,
+                    v => s.Audio.MasterVolume = v, 0f, 1f, "{0:P0}");
+                Slider("fxvol", "Sound Effects Volume", () => s.Audio.EffectsVolume,
+                    v => s.Audio.EffectsVolume = v, 0f, 1f, "{0:P0}");
+                Slider("musicvol", "Music Volume", () => s.Audio.MusicVolume,
+                    v => s.Audio.MusicVolume = v, 0f, 1f, "{0:P0}",
+                    "1.12's default is 40% - vanilla never ran music at full volume.");
+                Slider("ambvol", "Ambience Volume", () => s.Audio.AmbienceVolume,
+                    v => s.Audio.AmbienceVolume = v, 0f, 1f, "{0:P0}",
+                    "Zone beds - birds, wind, water. 1.12's default is 60%.");
+            }
+            EndBox();
+        }
+        ImGui.EndChild();
+
+        DrawPanelFooter(size, presets: false);
+    }
 
     private void DrawVideoOptions(Vector2 size)
     {
@@ -1955,6 +1999,9 @@ public sealed partial class GameLoop
             case MenuPage.Controls:
                 s.Controls = d.Controls;
                 break;
+            case MenuPage.Sound:
+                s.Audio = d.Audio;
+                break;
         }
 
         s.ActivePreset = "Custom";
@@ -2086,6 +2133,7 @@ public sealed partial class GameLoop
     /// </summary>
     private void ApplySettings(GameSettings s)
     {
+        ApplyAudioSettings(s);
         _window.VSync = s.Display.VSync;
         _window.Fullscreen = s.Display.Fullscreen;
         _window.MultisamplingEnabled = s.Display.MultisamplingEnabled;

@@ -1,4 +1,14 @@
-# CRPG/RTS Mode — WIP (updated 2026-08-14)
+# CRPG/RTS Mode — WIP (updated 2026-08-15)
+
+> **2026-08-15 MMO FACTION CONTROL-GROUP UPDATE:** source now includes
+> capability-gated same-faction Free View control/orders, ten session-only
+> `Shift+1` through `Shift+0` groups, sticky Free View cards, a command palette,
+> per-bot patrol closure, and explicit real party/raid auto-formation (5 per
+> party, raids above 5, 40 per raid). The paired authority and verification
+> contract is `docs/systems/SYSTEM_CRPG_CONTROL_GROUPS.md`. Dynamic combat rules
+> and enemy encounter intelligence remain design-only in
+> `docs/plans/DYNAMIC_COMBAT_RULES_AND_ENCOUNTER_INTELLIGENCE.md`. No server
+> deployment, live DB/World State mutation, or runtime action occurred.
 
 > **CURRENT TIER-2 STATUS (2026-08-14): R1 PARTIALLY OWNER-VALIDATED; R2
 > SOURCE/BUILD COMPLETE, OWNER HANDOFF.** Nico created and loaded a clean RTS World State. RTS
@@ -459,9 +469,14 @@ the client here. Agents stop after the build.**
 | 4 | patrol | converts chain to a loop (arrival re-queues popped point) |
 | 5 | follow | injects `SET_ESCORT` (legacy; superseded by links for the portrait UX) |
 | 6 | link/unlink | `x >= 0.5` links; unlink → `m_suiUnlinked`, `DoPartyFollow` early-returns |
+| 7 | auto-group | nonempty explicit same-faction bot list → one party up to 5, otherwise raid chunks of 40 |
 
-Subjects list empty = whole party. `orderBot` gate is "AI-attached && !possessed"
-so the **unattended own character obeys orders too**.
+Current law: an empty subjects list retains the real-party/own-character
+meaning. A nonempty explicit list may additionally address server-validated
+same-faction AiBots while the requester has a live Free View eye; follow/link
+remain real-group-only. A possessed bot is orderable only by its own possessor
+from Free View, and the **unattended own character obeys orders too**. See the
+later canonical contract in `docs/systems/SYSTEM_CRPG_CONTROL_GROUPS.md`.
 
 ## Owner decisions (binding)
 

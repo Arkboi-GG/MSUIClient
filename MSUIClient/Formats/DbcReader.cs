@@ -717,6 +717,48 @@ public sealed class LightParamsTable
 }
 
 /// <summary>
+/// LightSkybox.dbc (PLAN_18 Phase 2) - maps a LightParams.lightSkyboxID to the sky
+/// MODEL to draw for that lighting state. 2 fields in 1.12: id, filename (an M2/MDX
+/// under Environments\Stars\). Byte-checked against the client: 6 records
+/// (StratholmeSkybox, PortalWorldLegionSky, DeathClouds, Stars, CavernsOfTimeSky,
+/// DireMaulSkyBox), and only LightParams 1-5 reference one (all DeathClouds, the
+/// ghost world); the instanced-zone skies come via the WMO MOSB path instead.
+/// </summary>
+public sealed class LightSkyboxTable
+{
+    public const string MpqPath = @"DBFilesClient\LightSkybox.dbc";
+
+    private readonly Dictionary<uint, string> _byId = [];
+    public int Count => _byId.Count;
+
+    /// <summary>The model path for a skybox id, or null (id 0 or absent).</summary>
+    public string? Path(uint id) => id != 0 && _byId.TryGetValue(id, out var p) ? p : null;
+
+    public static LightSkyboxTable? Parse(byte[] data)
+    {
+        var dbc = DbcFile.Parse(data);
+        if (dbc is null) return null;
+        if (dbc.FieldCount < 2)
+        {
+            Console.WriteLine($"[dbc] LightSkybox: {dbc.FieldCount} field(s) - expected >= 2. NOT LOADED.");
+            return null;
+        }
+
+        var table = new LightSkyboxTable();
+        for (int r = 0; r < dbc.RecordCount; r++)
+        {
+            uint id = dbc.GetUInt(r, 0);
+            if (id == 0) continue;
+            string path = dbc.GetString(r, 1);
+            if (!string.IsNullOrWhiteSpace(path)) table._byId[id] = path;
+        }
+
+        Console.WriteLine($"[dbc] LightSkybox: {dbc.RecordCount} record(s), {table._byId.Count} usable");
+        return table;
+    }
+}
+
+/// <summary>
 /// One SCALAR band: up to 16 (time, value) keys forming a curve over the day.
 ///
 /// Times arrive as half-minutes 0..2880 and are stored here as HOURS, so
@@ -894,6 +936,15 @@ public sealed class LightIntBandTable
     public const int RiverCloseBand = 15;
     public const int RiverFarBand   = 16;
 
+    // The cloud palette (PLAN_18). benilla's byte-exact cloud kernel reads these
+    // three: sub-10 is the sun-GLOW palette, sub-11 the gradient SLOPE, sub-12 the
+    // gradient BASE (benilla-app/src/lighting/mod.rs cloud_colors[0..2]). Note the
+    // DbcReader band NAMES ("cloud emissive"/"cloud L1/L2 ambient") predate that
+    // finding; the roles above are the ones WoW.exe's 0x6cfb00 colour pass uses.
+    public const int CloudSunGlowBand = 10;
+    public const int CloudSlopeBand   = 11;
+    public const int CloudBaseBand    = 12;
+
     // Colour channel order is the one thing here the schema pages do not agree
     // on, and it cannot be settled by reading. It IS settled by looking: the sky
     // top at noon must be strongly BLUE. If it comes out red-dominant this flag
@@ -1013,6 +1064,8 @@ public sealed class LightFloatBandTable
     /// <summary>Band 0 is a distance and is stored x36, like Light.dbc's radii.</summary>
     public const int FogEndBand = 0;
     public const int FogStartMultiplierBand = 1;
+    /// <summary>Cloud coverage density C (PLAN_18) - the cloud kernel's threshold input.</summary>
+    public const int CloudDensityBand = 3;
     private const float DbcDistanceScale = 36f;
 
     private readonly Dictionary<uint, LightBand> _byId = [];

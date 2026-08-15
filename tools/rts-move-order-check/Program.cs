@@ -76,7 +76,7 @@ Near((float)(State("_animTime")[ordered.Guid] ?? -1f), 0f, 0f,
 // Source-level routing law: only a replacement move gets the command-frame prediction. A queued
 // future leg must keep the body's current facing until its authoritative spline begins.
 string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
-string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "Program.Control.cs"))
+string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene", "GameLoop.Control.cs"))
     .Replace("\r\n", "\n", StringComparison.Ordinal);
 int queuedCase = control.IndexOf("if (queue)", StringComparison.Ordinal);
 int plainCase = control.IndexOf("else\n            {", queuedCase, StringComparison.Ordinal);

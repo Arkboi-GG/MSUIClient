@@ -10,9 +10,12 @@ public sealed class AreaTableCatalog
 {
     public const string MpqPath = @"DBFilesClient\AreaTable.dbc";
 
-    // id -> (parent area id, own display name, PLAYER_EXPLORED_ZONES bit index).
-    // Parent 0 = top-level zone.
-    private readonly Dictionary<uint, (uint Parent, string Name, uint ExploreFlag)> _rows = new();
+    // id -> (parent area id, own display name, PLAYER_EXPLORED_ZONES bit index,
+    // and the three audio FKs: SoundAmbience row, ZoneMusic row, ZoneIntroMusicTable row).
+    // Parent 0 = top-level zone. Audio columns 7/8/9 verified against
+    // benilla-formats/src/area_sound.rs (1081 x 25 x 100 B).
+    private readonly Dictionary<uint, (uint Parent, string Name, uint ExploreFlag,
+        uint AmbienceId, uint ZoneMusicId, uint IntroSoundId)> _rows = new();
     public int Count => _rows.Count;
 
     public static AreaTableCatalog? Parse(byte[] data)
@@ -25,11 +28,36 @@ public sealed class AreaTableCatalog
             uint id = dbc.GetUInt(r, 0);
             uint parent = dbc.GetUInt(r, 2);
             uint exploreFlag = dbc.GetUInt(r, 3);
+            uint ambience = dbc.GetUInt(r, 7);
+            uint zoneMusic = dbc.GetUInt(r, 8);
+            uint introSound = dbc.GetUInt(r, 9);
             string name = dbc.GetString(r, 11);
-            t._rows[id] = (parent, name, exploreFlag);
+            t._rows[id] = (parent, name, exploreFlag, ambience, zoneMusic, introSound);
         }
         Console.WriteLine($"[dbc] AreaTable: {t.Count} area(s)");
         return t;
+    }
+
+    /// <summary>
+    /// The audio FKs that apply at an area, walking ParentAreaID up to 8 levels
+    /// and taking the first nonzero value PER FIELD independently - so a subzone
+    /// with no music of its own inherits the zone's while keeping its own
+    /// ambience. Mirrors benilla's AreaSoundCatalog::resolve.
+    /// </summary>
+    public (uint AmbienceId, uint ZoneMusicId, uint IntroSoundId) ResolveAudio(uint areaId)
+    {
+        uint ambience = 0, music = 0, intro = 0;
+        uint id = areaId;
+        for (int i = 0; i < 8 && id != 0; i++)
+        {
+            if (!_rows.TryGetValue(id, out var row)) break;
+            if (ambience == 0) ambience = row.AmbienceId;
+            if (music == 0) music = row.ZoneMusicId;
+            if (intro == 0) intro = row.IntroSoundId;
+            if (ambience != 0 && music != 0 && intro != 0) break;
+            id = row.Parent;
+        }
+        return (ambience, music, intro);
     }
 
     /// <summary>

@@ -114,6 +114,7 @@ public sealed class GameSettings
     public DevWindowSettings DevWindow { get; set; } = new();
     public MenuLayoutSettings MenuLayout { get; set; } = new();
     public MountSettings Mounts { get; set; } = new();
+    public AudioSettings Audio { get; set; } = new();
 
     // ── groups ───────────────────────────────────────────────────────────────
 
@@ -415,6 +416,23 @@ public sealed class GameSettings
         public float FarPlane { get; set; } = 2000f;
     }
 
+    /// <summary>
+    /// The master mix (Sound Options page). Defaults are the 1.12 registrar
+    /// defaults - a fresh vanilla install runs music at 0.4 and ambience at
+    /// 0.6, NOT uniform full volume. 1.12 has no SFX-only enable; EnableAll is
+    /// the master switch, exactly like the reference CVar MasterSoundEffects.
+    /// </summary>
+    public sealed class AudioSettings
+    {
+        public bool EnableAll { get; set; } = true;
+        public bool EnableMusic { get; set; } = true;
+        public bool EnableAmbience { get; set; } = true;
+        public float MasterVolume { get; set; } = 1f;
+        public float EffectsVolume { get; set; } = 1f;
+        public float MusicVolume { get; set; } = 0.4f;
+        public float AmbienceVolume { get; set; } = 0.6f;
+    }
+
     /// <summary>Doodads and buildings. Two composites, both with the same custom rule as ViewSettings.</summary>
     public sealed class DetailSettings
     {
@@ -655,7 +673,10 @@ public sealed class GameSettings
         /// bool UseAuthoredData at settings v6 (that key in an old file is
         /// simply ignored on load; migration pins pre-v6 files to Msui).
         /// </summary>
-        public LightingMode Mode { get; set; } = LightingMode.Msui;
+        // Parity112 by owner decision 2026-08-14 (after the night-lighting
+        // pass landed the dnc.db colour ramps): the vanilla-faithful look is
+        // the default; Msui remains selectable as the pre-v6 hand-tuned look.
+        public LightingMode Mode { get; set; } = LightingMode.Parity112;
 
         public float SunStrength { get; set; } = 1f;
         public float AmbientStrength { get; set; } = 1f;

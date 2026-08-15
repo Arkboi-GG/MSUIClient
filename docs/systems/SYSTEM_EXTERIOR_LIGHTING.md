@@ -397,11 +397,19 @@ can be pasted into a plan instead of screenshotted.
 
 ## 7. Not done — the honest ceiling
 
-- **Skybox models.** `LightParams.lightSkyboxID` -> `LightSkybox.dbc` is read and
-  reported by the probe, applied nowhere. Zones with authored skyboxes
-  (Blackrock and friends) will not look right until it is.
-- **Clouds.** Bands 9-12 plus float band 3 (cloud density) are resolved and
-  unused. There is no cloud layer at all.
+- ~~**Skybox models.**~~ **Wired 2026-08-15 by PLAN_18 (Phase 2).** `LightParams.lightSkyboxID`
+  -> `LightSkybox.dbc` (`LightSkyboxTable`) -> a camera-centred M2 `World/SkyboxRenderer.cs`,
+  drawn over the gradient/clouds before the world. FINDING: only LightParams 1-5 carry a
+  skybox (all DeathClouds, the ghost world); the dramatic instance skies (Blackrock,
+  Stratholme, DireMaul, Caverns of Time) come via WMO **MOSB**, not Light.dbc - that is
+  Phase 2b (reuse the same renderer, drive it from the interior WMO root's MOSB).
+- ~~**Clouds.**~~ **Wired 2026-08-15 by PLAN_18 (Phase 1).** The procedural cloud
+  field (`World/CloudField.cs`, a byte-faithful port of WoW.exe's cloud kernel via
+  benilla) renders over the screen-space sky, coloured by IntBand **10/11/12**
+  (sun-glow / gradient slope / gradient base - the ROLES, not DbcReader's names) and
+  covered by FloatBand **3** (density). Toggle + density override on the light-probe
+  panel. Band 9 (celestial glow-through) is still unused. Owner A/B pending; skybox
+  clouds are Phase 2.
 - **Weather.** Only `ParamsClear` is ever read. `ParamsStorm`, `ParamsClearWat`,
   `ParamsStormWat` and `ParamsDeath` are parsed and ignored — underwater lighting
   in particular is a visible gap.

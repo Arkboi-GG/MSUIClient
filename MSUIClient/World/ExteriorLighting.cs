@@ -27,6 +27,7 @@ public sealed class ExteriorLighting
     private LightParamsTable? _params;
     private LightIntBandTable? _intBands;
     private LightFloatBandTable? _floatBands;
+    private LightSkyboxTable? _skyboxes;   // PLAN_18 Phase 2 (optional)
 
     public bool Ready => _lights is not null && _params is not null &&
                          _intBands is not null && _floatBands is not null;
@@ -52,6 +53,11 @@ public sealed class ExteriorLighting
         _params = LightParamsTable.Parse(lparams);
         _intBands = LightIntBandTable.Parse(ints);
         _floatBands = LightFloatBandTable.Parse(floats);
+
+        // Optional (PLAN_18 Phase 2): the zone-skybox model table. A missing/failed
+        // LightSkybox.dbc just means no skybox is ever resolved; the sky still works.
+        var skyboxes = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, LightSkyboxTable.MpqPath);
+        _skyboxes = skyboxes is not null ? LightSkyboxTable.Parse(skyboxes) : null;
 
         if (!Ready)
         {
@@ -235,6 +241,15 @@ public sealed class ExteriorLighting
         public Vector3 FogColor => Colors[7];
         public Vector3 SunColor => Colors[8];
 
+        // The cloud palette (PLAN_18), consumed by the CloudField kernel. Roles per
+        // benilla's byte-exact colour pass: sub-10 sun-glow, 11 slope, 12 base.
+        public Vector3 CloudSunGlow => Colors[LightIntBandTable.CloudSunGlowBand];
+        public Vector3 CloudSlope => Colors[LightIntBandTable.CloudSlopeBand];
+        public Vector3 CloudBase => Colors[LightIntBandTable.CloudBaseBand];
+
+        /// <summary>Cloud coverage density C in [0,1] - the kernel's threshold input.</summary>
+        public float CloudDensity => Floats[LightFloatBandTable.CloudDensityBand];
+
         /// <summary>Yards. LightFloatBand band 0, already un-scaled from x36.</summary>
         public float FogEnd => Floats[LightFloatBandTable.FogEndBand];
 
@@ -348,6 +363,9 @@ public sealed class ExteriorLighting
         => _floatBands?.Band(paramsId, band) is not null;
 
     public LightParamsRow? Params(uint id) => _params?.Get(id);
+
+    /// <summary>The skybox MODEL path for a LightParams.lightSkyboxID, or null (PLAN_18 Phase 2).</summary>
+    public string? SkyboxPath(uint skyboxId) => _skyboxes?.Path(skyboxId);
 
     /// <summary>
     /// The nearest zones on a map REGARDLESS of whether they reach the point.

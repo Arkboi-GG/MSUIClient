@@ -273,9 +273,16 @@ public sealed class WorldSession : IDisposable
         SendPacket((ushort)Op.CMSG_SUI_CONTROL_RELEASE, w.ToArray());
     }
 
-    /// <summary>RTS order for party bots. type 0 move / 1 attack / 2 stop; empty subjects = all.</summary>
+    /// <summary>
+    /// RTS order. Empty subjects retains the legacy "whole real party" meaning;
+    /// callers for temporary groups must always send a nonempty explicit list.
+    /// </summary>
     public void SuiOrder(byte orderType, IReadOnlyList<ulong> subjects, ulong targetGuid, float x, float y, float z)
     {
+        ArgumentNullException.ThrowIfNull(subjects);
+        if (subjects.Count > byte.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(subjects),
+                $"SUI order supports at most {byte.MaxValue} explicit subjects.");
         var w = new PacketWriter(2 + subjects.Count * 8 + 8 + 12);
         w.WriteU8(orderType);
         w.WriteU8((byte)subjects.Count);

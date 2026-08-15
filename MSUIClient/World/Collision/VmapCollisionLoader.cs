@@ -240,6 +240,14 @@ public sealed class VmapCollisionLoader
     /// </summary>
     private static IEnumerable<string> Candidates(string name)
     {
+        // 0. The extractor's ".mdx" -> ".m2" rewrite happens in place, keeping
+        //    the string length - so vmtile spawns arrive as "Torch.m2\0" (a
+        //    padding NUL, printed as a blank) while the file on disk is
+        //    "Torch.m2.vmo". Every candidate below works from the trimmed
+        //    name; without this, torches, flagpoles and weapon racks with
+        //    REAL .vmo geometry silently lose their collision.
+        name = name.Trim().Trim('\0', ' ');
+
         // 1. The documented convention: "Elwynntreecanopy01.m2" -> "...m2.vmo"
         yield return name + ".vmo";
 

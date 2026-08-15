@@ -58,6 +58,9 @@ public sealed class CollisionDebugRenderer : IDisposable
     /// </summary>
     public int SourceFilter { get; set; } = -1;
 
+    /// <summary>Fragment palette: 0 slope green/red, 1 navmesh blue.</summary>
+    public int Palette { get; set; }
+
     public int TriangleCount => _vertexCount / 3;
 
     /// <summary>Discard an upload whose collision world is no longer resident.</summary>
@@ -121,6 +124,7 @@ public sealed class CollisionDebugRenderer : IDisposable
         _shader.Set("uSourceFilter", (float)SourceFilter);
         _shader.Set("uOffset", offset);
         _shader.Set("uHighlight", 0);
+        _shader.Set("uPalette", Palette);
 
         // Collision meshes are not consistently wound, so back-face culling
         // would hide roughly half of them at random.
@@ -200,6 +204,7 @@ public sealed class CollisionDebugRenderer : IDisposable
         _shader.Set("uSourceFilter", -1f);
         _shader.Set("uOffset", Vector3.Zero);
         _shader.Set("uHighlight", mode);
+        _shader.Set("uPalette", 0);
 
         _gl.Disable(EnableCap.CullFace);
         _gl.Disable(EnableCap.DepthTest);

@@ -53,7 +53,7 @@ public sealed partial class GameLoop
     /// <summary>
     /// The RTS camera is up: detached fly rig, marquee selection, order clicks, ground FX.
     ///
-    /// DELIBERATELY INDEPENDENT of <see cref="_controlState"/>. Clicking a party toon from
+    /// DELIBERATELY INDEPENDENT of <see cref="_controlState"/>. Clicking an eligible toon from
     /// the sky takes control of it — its bars, bags and spells become the live HUD — but the
     /// camera STAYS in the sky, because possession is a control decision and the free view is
     /// a camera decision. Ctrl+F is the only thing that puts the camera down. (Before this,
@@ -194,6 +194,7 @@ public sealed partial class GameLoop
         ClearRtsWaypointChain();
         _suiRoster.Clear();
         ClearRtsForceTakeControl();
+        ResetRtsControlGroups();
         PurgeSuiSnapshot();
         _movementSender.Parked = false;
         _walkToggled = false;
@@ -215,7 +216,7 @@ public sealed partial class GameLoop
     private bool _controlledBodyPending;     // possessed body rebuild waiting on entity stream-in
     private bool _controlCycleWasDown;
 
-    // ── Free-view marquee selection (party only, v1) ──────────────────────────────────────────
+    // ── Free-view marquee selection (party + advertised faction bots) ───────────────────────────
     private Vector2? _freecamDragOrigin;         // left button went down here, over the world
     private bool _freecamDragActive;             // travel exceeded the click threshold
     private bool _freecamMarqueeConsumedClick;   // swallow the release's queued world click
@@ -332,7 +333,7 @@ public sealed partial class GameLoop
             if (_controller is not null) _controller.Flying = true;
             EnterPlayerAuraWorld(LocalPlayerGuid);
             PurgeSuiSnapshot();
-            AddChatMessage("Free view: drag-select the party, click a toon to command it, " +
+            AddChatMessage("Free view: drag-select eligible faction bots, click one to command it, " +
                 "RightClick to move/attack, Shift+RightClick chains waypoints, Ctrl+F returns.");
             return;
         }
@@ -405,8 +406,8 @@ public sealed partial class GameLoop
         if (_rtsForceTakeControlGuid == guid) ClearRtsForceTakeControl();
         ShowUiError(result switch
         {
-            2 => "That party member is not a controllable bot.",
-            3 => "Not in your group.",
+            2 => "That character is not a controllable bot.",
+            3 => "That bot is not in your group or authorized faction force.",
             4 => "Someone is already controlling that bot.",
             5 => "That bot cannot be controlled right now.",
             6 => "You cannot take control right now.",
@@ -699,8 +700,9 @@ public sealed partial class GameLoop
     }
 
     /// <summary>
-    /// Ask the server for control of a party bot (portrait Alt+click / cycle key / a
-    /// free-view click on a party toon — CRPG mode: click a character, you drive it).
+    /// Ask the server for control of a bot (portrait Alt+click / cycle key / a
+    /// Free View click on a server-advertised same-faction bot — click a character,
+    /// you drive it).
     /// </summary>
     internal void RequestPossess(ulong guid)
     {
@@ -889,6 +891,7 @@ public sealed partial class GameLoop
     {
         RefreshControlledCharacterScale();
         UpdateRtsForceTakeControl();
+        UpdateRtsControlGroups(typing);
 
         // Pending-state watchdog: never strand the movement stream parked.
         if (_controlState is ControlState.PossessPending or ControlState.ReleasePending &&
@@ -1134,13 +1137,30 @@ public sealed partial class GameLoop
             _controller.FlyMove(Vector3.Normalize(pan) * speed * dt);
     }
 
-    /// <summary>Party members (own character + group) — the v1 selectable set.</summary>
+    /// <summary>
+    /// Own/party characters plus genuine same-faction bots advertised by the
+    /// server. The force roster is an affordance only; the server revalidates
+    /// possession and every explicit order.
+    /// </summary>
     private IEnumerable<ulong> FreeCamSelectableGuids()
     {
-        yield return LocalPlayerGuid;
+        var seen = new HashSet<ulong>();
+        if (LocalPlayerGuid != 0 && seen.Add(LocalPlayerGuid))
+            yield return LocalPlayerGuid;
         foreach (PartyMember member in _partyMembers)
-            if (member.Guid != LocalPlayerGuid)
+            if (member.Guid != 0 && seen.Add(member.Guid))
                 yield return member.Guid;
+        // A force page marks a possessed unit busy. Keep the body this session
+        // already controls selectable so it can still join marquee orders and
+        // temporary groups while the camera stays detached.
+        if (_controlState == ControlState.Possessing && _controlTargetGuid != 0 &&
+            seen.Add(_controlTargetGuid))
+            yield return _controlTargetGuid;
+        if (CanUseFactionForceRoster())
+            foreach ((ulong guid, RtsForceUnitWire force) in _rtsForces)
+                if (guid != 0 && force.Alive && !force.Busy &&
+                    force.ControlEligibleNow && force.SameMapAndInstance && seen.Add(guid))
+                    yield return guid;
     }
 
     private void CommitMarqueeSelection(Vector2 a, Vector2 b)
@@ -1165,9 +1185,11 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Free-view world click (routed from the targeting click queue). Left selects (a
-    /// party member joins the highlighted set; empty ground clears it). RightClick
+    /// server-advertised controllable character joins the highlighted set; empty ground
+    /// clears it). RightClick
     /// orders the HIGHLIGHTED set: hostile under cursor → attack, ground → move.
-    /// Shift+RightClick keeps ordering the whole party regardless of the selection.
+    /// Shift+RightClick appends a waypoint for that exact selection; an empty explicit
+    /// list retains the legacy whole-real-party meaning.
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click)
     {
@@ -1183,7 +1205,7 @@ public sealed partial class GameLoop
             // "Selected only" overlay scope and consumes the click (ahead of the
             // take-command and marquee-clear behaviour below).
             if (HandleDevFocusClick(pickedUnit)) return;
-            // CRPG rule: clicking a party toon in the free view IS taking command of it —
+            // CRPG rule: clicking an eligible toon in the free view IS taking command of it —
             // its bars, bags and spells become the live HUD, the same as Ctrl+Tab. The
             // CAMERA does not move: you stay in the sky until Ctrl+F says otherwise.
             if (pickedUnit != 0)
@@ -1208,14 +1230,17 @@ public sealed partial class GameLoop
         // Ctrl+Tab), so entering the free view with Ctrl still down turned the very first
         // right-click into a chained waypoint instead of a move. Shift is also what every
         // RTS uses for queue-this-order, so the collision fix is the conventional binding.
-        bool queue = ShiftHeld();
+        bool queue = click.ShiftDown;
         // The commanded toon is ordered like any other member — no filtering. In the free view
         // a possessed bot IS orderable: SuiPossess::orderBot waives its IsPossessed() bail when
         // the possessor holds a freecam eye, because the conflict that bail guards (a server
         // MOVE_TO fighting the client's movement stream) cannot arise when the client's
         // controller is a detached camera and its stream is parked. Commanding a character
         // from the sky gives you the same character you would have driving it directly.
-        List<ulong> subjects = [.. _freecamSelection];
+        List<ulong> subjects = [.. RtsControlGroupLaw.NormalizeMembers(_freecamSelection)];
+        if (_freecamSelection.Count > subjects.Count)
+            ShowUiError($"Orders are limited to {RtsControlGroupLaw.MaximumWireSubjects} " +
+                "explicit bots; this order uses the first entries in the selection.");
 
         ulong picked = PickUnit(click.Position);
         if (picked != 0 && _entities.TryGet(picked, out WorldEntity target) &&
@@ -1232,6 +1257,9 @@ public sealed partial class GameLoop
             if (queue)
             {
                 // Shift+RightClick chains a waypoint (whole party when nothing is highlighted).
+                if (_rtsWaypointChain.Count > 0 &&
+                    !SameRtsMembers(_rtsWaypointSubjects, subjects))
+                    ClearRtsWaypointChain();
                 _net?.SuiOrder(3, subjects, 0, point.X, point.Y, point.Z);
                 // Re-anchor the chain's ownership on every leg: the highlighted set can change
                 // between clicks, and the route belongs to whoever was last told to walk it.
@@ -1278,7 +1306,7 @@ public sealed partial class GameLoop
     {
         0 => "Party",
         1 => ResolveUnitName(subjects[0]),
-        _ => $"Party ({subjects.Count})",
+        _ => $"Selection ({subjects.Count})",
     };
 
     private string ResolveWorldUnitName(ulong guid)
@@ -1457,6 +1485,8 @@ public sealed partial class GameLoop
     /// <summary>Small HUD line while controlling a bot or waiting on the server.</summary>
     private void DrawControlBanner()
     {
+        DrawRtsControlGroups();
+
         // The free view is a camera mode, so it prefixes rather than replaces: you can be
         // in the sky AND commanding a toon, and the banner has to say both.
         string text;
@@ -1468,7 +1498,7 @@ public sealed partial class GameLoop
                     ? $"{ResolveUnitName(BarsGuid)}'s bars (read-only)"
                     : "drag: select · click a toon to command it";
             text = $"Free view — {who} · RightClick: move/attack · " +
-                "Shift+RightClick: chain waypoints · Ctrl+F: land";
+                "Shift+RightClick: chain waypoints · Shift+1-0: groups · Ctrl+F: land";
         }
         else text = _controlState switch
         {

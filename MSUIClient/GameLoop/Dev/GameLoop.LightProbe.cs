@@ -38,6 +38,25 @@ public sealed partial class GameLoop
     private bool _probePinTime;
     private float _probeHours = 12f;
 
+    // Cloud density override (PLAN_18 probe A/B). The value the slider edits; only
+    // pushed to the sky renderer while the override checkbox is ticked.
+    private float _cloudDensityOverride = 0.6f;
+
+    // Skybox force override (PLAN_18 Phase 2 probe A/B). 0 = follow the zone; else
+    // one of the six LightSkybox.dbc models, so a skybox can be seen anywhere.
+    private int _skyboxForceIndex;
+    private static readonly string[] _skyboxForceLabels =
+        ["(follow zone)", "Stratholme", "PortalWorldLegion", "DeathClouds", "Stars", "CavernsOfTime", "DireMaul"];
+    private static readonly string[] _skyboxForcePaths =
+    [
+        @"Environments\Stars\StratholmeSkybox.mdx",
+        @"Environments\Stars\PortalWorldLegionSky.mdx",
+        @"Environments\Stars\DeathClouds.mdx",
+        @"Environments\Stars\Stars.mdx",
+        @"Environments\Stars\CavernsOfTimeSky.mdx",
+        @"Environments\Stars\DireMaulSkyBox.mdx",
+    ];
+
     private static readonly string[] _conventionLabels =
         ExteriorLighting.Conventions.Select(c => c.Name).ToArray();
 
@@ -45,10 +64,11 @@ public sealed partial class GameLoop
     {
         _exteriorLight.Load(_config.ClientDataPath);
 
-        // The vanilla day/night intensity table (World\dnc.db). Only the
-        // 1.12 Parity lighting mode consumes it - WorldAtmosphere ignores the
-        // delegate in Msui mode, and a missing table degrades Parity to
-        // "no curve", which is Msui's behaviour.
+        // The vanilla day/night cycle table (World\dnc.db) - colour ramps,
+        // intensities and light directions. Only the 1.12 Parity lighting mode
+        // consumes it - WorldAtmosphere ignores the delegate in Msui mode, and
+        // a missing table degrades Parity to "no modulation", which is Msui's
+        // behaviour plus the never-setting sun law.
         _dayNightCycle.Load(_config.ClientDataPath);
         if (_dayNightCycle.Ready)
             _atmosphere.ParityDaylightIntensity = _dayNightCycle.SunIntensityAt;
@@ -184,6 +204,13 @@ public sealed partial class GameLoop
                 applied.SkyBand2, applied.SkySmog,
                 applied.FogStart, applied.FogEnd);
 
+            // PLAN_18. The cloud palette + density are bands like any other and are
+            // already blended across every contributing zone by Resolve. The sky
+            // pass owns the CloudField kernel that turns them into the drawn layer.
+            _atmosphere.SetAuthoredClouds(
+                applied.CloudSunGlow, applied.CloudSlope, applied.CloudBase,
+                applied.CloudDensity);
+
             // PLAN_12. The four water COLOURS are bands like any other and are
             // already blended across every contributing zone by Resolve.
             //
@@ -196,6 +223,10 @@ public sealed partial class GameLoop
             var dominant = applied.Contributors.Count > 0
                 ? _exteriorLight.Params(applied.Contributors[^1].ParamsId)
                 : null;
+
+            // PLAN_18 Phase 2: the zone skybox is the dominant params' lightSkyboxID.
+            // The render step resolves it to a model path and draws it.
+            _activeSkyboxId = dominant?.SkyboxId ?? 0;
 
             // FFXGlow's sole authored input is the active LightParams row's glow weight.
             // Keep the configured value only as the no-data fallback.
@@ -367,8 +398,8 @@ public sealed partial class GameLoop
             ApplySettings(Settings);
         }
         ImGui.TextDisabled(Settings.Lighting.Mode == Engine.LightingMode.Parity112
-            ? $"  parity: band 0 x dnc.db intensity " +
-              $"({(_dayNightCycle.Ready ? $"{_dayNightCycle.SunIntensityAt(_atmosphere.TimeOfDayHours):F2} now" : "NOT LOADED - no curve")})"
+            ? $"  parity: raw bands x dnc.db intensity, never-setting sun " +
+              $"({(_dayNightCycle.Ready ? $"{_dayNightCycle.SunIntensityAt(_atmosphere.TimeOfDayHours):F2} now" : "dnc NOT LOADED")})"
             : "  msui: authored colours applied raw (pre-v6 look)");
 
         // Transient dev A/B, deliberately NOT persisted since v6: off routes
@@ -392,6 +423,36 @@ public sealed partial class GameLoop
             if (ImGui.SliderFloat("stop: band 1", ref b1, 0.02f, 0.9f)) _sky.StopBand1 = b1;
             if (ImGui.SliderFloat("stop: band 2", ref b2, 0.001f, 0.5f)) _sky.StopBand2 = b2;
             ImGui.TextDisabled("  band heights are NOT in the data - these are ours");
+
+            // Clouds (PLAN_18). The palette + density are authored; the coverage
+            // noise, the sun glow and the projection are the CloudField kernel's.
+            ImGui.Separator();
+            bool cloudsOn = _sky.CloudsEnabled;
+            if (ImGui.Checkbox("Draw clouds", ref cloudsOn)) _sky.CloudsEnabled = cloudsOn;
+
+            bool overrideDensity = _sky.CloudDensityOverride is not null;
+            if (ImGui.Checkbox("override cloud density", ref overrideDensity))
+                _sky.CloudDensityOverride = overrideDensity ? _cloudDensityOverride : null;
+            if (overrideDensity)
+            {
+                if (ImGui.SliderFloat("cloud density C", ref _cloudDensityOverride, 0f, 1f))
+                    _sky.CloudDensityOverride = _cloudDensityOverride;
+            }
+            ImGui.TextDisabled($"  authored C {_atmosphere.CloudDensity:F3}   " +
+                               $"clouds ready: {(_atmosphere.AuthoredCloudsReady ? "yes" : "no")}");
+        }
+
+        // Skybox model (PLAN_18 Phase 2). Outdoor zones rarely author one - the force
+        // dropdown lets a skybox be inspected anywhere.
+        if (_skybox is not null)
+        {
+            ImGui.Separator();
+            bool skyboxOn = _skybox.Enabled;
+            if (ImGui.Checkbox("Draw skybox model", ref skyboxOn)) _skybox.Enabled = skyboxOn;
+            if (ImGui.Combo("force skybox", ref _skyboxForceIndex, _skyboxForceLabels, _skyboxForceLabels.Length))
+                _skybox.ForceModelPath = _skyboxForceIndex <= 0 ? null : _skyboxForcePaths[_skyboxForceIndex - 1];
+            ImGui.TextDisabled($"  zone skybox id {_activeSkyboxId}   loaded: " +
+                               $"{(_skybox.LoadedPath is { } sp ? Path.GetFileName(sp) : "none")}");
         }
 
         Row("ambient", sample.Ambient, _atmosphere.AmbientColor);

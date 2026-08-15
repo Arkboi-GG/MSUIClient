@@ -1,3 +1,4 @@
+using System.Numerics;
 using MSUIClient.Formats;
 
 namespace MSUIClient.World;
@@ -41,6 +42,20 @@ public sealed class DayNightCycle
     private float[] _hours = [];
     private float[] _dayIntensity = [];
     private float[] _nightIntensity = [];
+
+    // The colour and direction ramps (2026-08-14, the night-parity pass).
+    // These are what actually make vanilla's night: at midnight the day light
+    // is BLACK at intensity 0 and the night light is PURE BLUE (0, 0, 0.5) at
+    // intensity 1 - so "moonlight" is band 0 multiplied down to its blue
+    // component only, and the ambient ramp (0.3, 0.3, 0.6) x 0.8 pulls every
+    // shadowed face to blue-violet. Intensity alone (the pre-pass wiring)
+    // reproduced none of that, which is why night read as a dimmed day.
+    private float[] _dayR = [], _dayG = [], _dayB = [];
+    private float[] _dayX = [], _dayY = [], _dayZ = [];
+    private float[] _nightR = [], _nightG = [], _nightB = [];
+    private float[] _nightX = [], _nightY = [], _nightZ = [];
+    private float[] _ambientIntensity = [];
+    private float[] _ambientR = [], _ambientG = [], _ambientB = [];
 
     public bool Ready { get; private set; }
 
@@ -100,22 +115,98 @@ public sealed class DayNightCycle
         int rowBytes = columnCount * 8;
         int rowCount = Math.Max(0, (stringBlockStart - dataStart) / rowBytes);
 
-        int hourCol = Array.IndexOf(names, "Hour");
-        int dayCol = Array.IndexOf(names, "DayIntensity");
-        int nightCol = Array.IndexOf(names, "NightIntensity");
-        if (hourCol < 0 || dayCol < 0 || nightCol < 0)
-            throw new InvalidDataException(
-                $"expected Hour/DayIntensity/NightIntensity among [{string.Join(",", names)}]");
+        float[] Column(string name)
+        {
+            int col = Array.IndexOf(names, name);
+            if (col < 0)
+                throw new InvalidDataException(
+                    $"expected column {name} among [{string.Join(",", names)}]");
+            var values = new float[rowCount];
+            for (int r = 0; r < rowCount; r++)
+                values[r] = BitConverter.ToSingle(d, dataStart + r * rowBytes + col * 8 + 4);
+            return values;
+        }
 
-        _hours = new float[rowCount];
-        _dayIntensity = new float[rowCount];
-        _nightIntensity = new float[rowCount];
+        _hours = Column("Hour");
+        _dayIntensity = Column("DayIntensity");
+        _nightIntensity = Column("NightIntensity");
+        _dayR = Column("DayR"); _dayG = Column("DayG"); _dayB = Column("DayB");
+        _dayX = Column("DayX"); _dayY = Column("DayY"); _dayZ = Column("DayZ");
+        _nightR = Column("NightR"); _nightG = Column("NightG"); _nightB = Column("NightB");
+        _nightX = Column("NightX"); _nightY = Column("NightY"); _nightZ = Column("NightZ");
+        _ambientIntensity = Column("AmbientIntensity");
+        _ambientR = Column("AmbientR"); _ambientG = Column("AmbientG"); _ambientB = Column("AmbientB");
+    }
+
+    /// <summary>What dnc.db multiplies onto the zone's Light.dbc DIFFUSE at one
+    /// moment (the combined sun+moon scale), plus the dominant light's TO-LIGHT
+    /// direction in world space. AMBIENT IS DELIBERATELY ABSENT: the reference
+    /// client uploads Light.dbc band 1 raw (benilla's recovered 19:45 Stormwind
+    /// trace shows the unscaled band value in the GL ambient constant), and the
+    /// first cut of this pass multiplying the dnc ambient ramp in as well
+    /// crushed night to near-black - the owner's "wtf thats wrong" screenshot,
+    /// 2026-08-15. The ramps run the two directional lights; ambient is the
+    /// zone's own.</summary>
+    public readonly record struct Modulation(Vector3 SunScale, Vector3 SunDirection);
+
+    /// <summary>
+    /// The 1.12 global cycle at an hour. The real client runs the sun and moon
+    /// as two GL lights; we have one directional, so the two diffuse terms are
+    /// SUMMED (the table never has both non-black at once - the day colour
+    /// fades to black by 20:00 and the night blue only appears from 21:00) and
+    /// the direction follows whichever term carries the light.
+    /// </summary>
+    public Modulation ModulationAt(float hours)
+    {
+        var day = new Vector3(Sample(_dayR, hours), Sample(_dayG, hours), Sample(_dayB, hours))
+                  * Sample(_dayIntensity, hours);
+        var night = new Vector3(Sample(_nightR, hours), Sample(_nightG, hours), Sample(_nightB, hours))
+                    * Sample(_nightIntensity, hours);
+
+        // The stored vectors are the light's TRAVEL direction; shaders dot the
+        // normal against TO-LIGHT, so negate. Weight by each term's luminance.
+        var dayDir = new Vector3(Sample(_dayX, hours), Sample(_dayY, hours), Sample(_dayZ, hours));
+        var nightDir = new Vector3(Sample(_nightX, hours), Sample(_nightY, hours), Sample(_nightZ, hours));
+        float dayLum = day.X + day.Y + day.Z;
+        float nightLum = night.X + night.Y + night.Z;
+        float total = dayLum + nightLum;
+        Vector3 travel = total > 1e-4f
+            ? Vector3.Normalize(dayDir * (dayLum / total) + nightDir * (nightLum / total))
+            : Vector3.Normalize(dayDir);
+
+        return new Modulation(day + night, -travel);
+    }
+
+    /// <summary>Print every column of every row - the whole authored table -
+    /// so a lighting investigation reads data instead of guessing curves.</summary>
+    public static void DumpRaw(string clientDataPath)
+    {
+        var d = AdtTerrainReader.ReadFileFromMpqs(clientDataPath, MpqPath);
+        if (d is null) { Console.WriteLine("[dnc] dump: file not found"); return; }
+
+        int columnCount = BitConverter.ToInt32(d, 0);
+        var names = new string[columnCount];
+        int stringBlockStart = d.Length;
+        int off = 8;
+        for (int c = 0; c < columnCount; c++)
+        {
+            int nameOffset = BitConverter.ToInt32(d, off + 4);
+            off += 8;
+            stringBlockStart = Math.Min(stringBlockStart, nameOffset);
+            int end = Array.IndexOf(d, (byte)0, nameOffset);
+            names[c] = System.Text.Encoding.ASCII.GetString(d, nameOffset, end - nameOffset);
+        }
+
+        int rowBytes = columnCount * 8;
+        int rowCount = Math.Max(0, (stringBlockStart - off) / rowBytes);
+        Console.WriteLine($"[dnc] dump: {columnCount} columns x {rowCount} rows");
+        Console.WriteLine("[dnc] columns: " + string.Join(", ", names));
         for (int r = 0; r < rowCount; r++)
         {
-            int rowOff = dataStart + r * rowBytes;
-            _hours[r] = BitConverter.ToSingle(d, rowOff + hourCol * 8 + 4);
-            _dayIntensity[r] = BitConverter.ToSingle(d, rowOff + dayCol * 8 + 4);
-            _nightIntensity[r] = BitConverter.ToSingle(d, rowOff + nightCol * 8 + 4);
+            var cells = new string[columnCount];
+            for (int c = 0; c < columnCount; c++)
+                cells[c] = BitConverter.ToSingle(d, off + r * rowBytes + c * 8 + 4).ToString("F3");
+            Console.WriteLine($"[dnc] row {r,2}: " + string.Join(" ", cells));
         }
     }
 

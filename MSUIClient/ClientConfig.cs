@@ -37,6 +37,13 @@ public sealed partial class ClientConfig
     /// </summary>
     public string? VmapPath { get; set; }
 
+    /// <summary>
+    /// VMaNGOS mmaps directory (.mmtile) — the Recast/Detour navmesh bots path
+    /// on. Optional: only the creator X-ray's navmesh overlay reads it; nothing
+    /// in movement or rendering depends on it.
+    /// </summary>
+    public string? MmapPath { get; set; }
+
     /// <summary>realmd host, for Phase 2. Unused while the client is offline.</summary>
     public string RealmdHost { get; set; } = "192.168.0.2";
     public int RealmdPort { get; set; } = 3724;
@@ -63,6 +70,10 @@ public sealed partial class ClientConfig
     /// <summary>True when VmapPath survived validation and holds real files.</summary>
     [JsonIgnore]
     public bool HasVmaps => !string.IsNullOrWhiteSpace(VmapPath);
+
+    /// <summary>True when MmapPath survived validation and holds real files.</summary>
+    [JsonIgnore]
+    public bool HasMmaps => !string.IsNullOrWhiteSpace(MmapPath);
 
     public sealed class WindowConfig
     {
@@ -538,6 +549,7 @@ public sealed partial class ClientConfig
         Console.WriteLine($"[config] {mpqs.Length} MPQ archive(s) in {ClientDataPath}");
 
         ValidateVmaps();
+        ValidateMmaps();
     }
 
     /// <summary>
@@ -578,5 +590,36 @@ public sealed partial class ClientConfig
 
         if (!Movement.Collision)
             Console.WriteLine("[config] movement.collision is false — vmaps loaded but unused");
+    }
+
+    /// <summary>Mmaps are optional like vmaps: any failure degrades to "the
+    /// x-ray navmesh overlay is unavailable" with a printed reason.</summary>
+    private void ValidateMmaps()
+    {
+        if (string.IsNullOrWhiteSpace(MmapPath))
+        {
+            MmapPath = null;
+            return;
+        }
+
+        MmapPath = ResolvePath(RepoRoot, MmapPath);
+
+        if (!Directory.Exists(MmapPath))
+        {
+            Console.WriteLine($"[config] WARNING MmapPath does not exist: {MmapPath}");
+            Console.WriteLine("[config] copy tiles from the server's run/data/mmaps there");
+            MmapPath = null;
+            return;
+        }
+
+        int tiles = Directory.GetFiles(MmapPath, "*.mmtile").Length;
+        if (tiles == 0)
+        {
+            Console.WriteLine($"[config] WARNING {MmapPath} has no .mmtile files — ignoring");
+            MmapPath = null;
+            return;
+        }
+
+        Console.WriteLine($"[config] mmaps: {tiles} navmesh tile(s)");
     }
 }

@@ -411,14 +411,17 @@ public sealed partial class GameLoop
 
     /// <summary>
     /// Consume an optional extension trailer after the fixed 25-byte
-    /// SMSG_SUI_CONTROL_ACK body. Returns true for the zero-guid capability
-    /// probe so its expected old-server denial is not surfaced as a UI error.
+    /// SMSG_SUI_CONTROL_ACK body. Returns true for a zero-guid capability probe
+    /// so its expected old-server denial is not surfaced as a UI error.
     /// </summary>
     private bool ApplyRealPortalCapabilityAck(ulong guid, PacketReader reader)
     {
-        bool isProbeReply = guid == 0 && _config.Server.RealPortals;
+        bool factionProbeReply = guid == 0 && _factionControlGroupsProbePending;
+        bool isProbeReply = guid == 0 && (_config.Server.RealPortals || factionProbeReply);
         bool trailerValid = SuiCapabilityWire.TryRead(
             reader, out uint capabilities, out PortalPrewarmHint[] prewarmCatalog);
+        if (trailerValid || capabilities != 0 || factionProbeReply)
+            ApplyFactionControlGroupsCapability(capabilities, factionProbeReply);
         if (trailerValid || capabilities != 0)
         {
             bool available = (capabilities & SuiCapabilityWire.RealPortalsV1) != 0;

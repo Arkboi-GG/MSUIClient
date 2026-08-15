@@ -26,7 +26,7 @@ namespace MSUIClient;
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
-    private enum CreatorPanel { None, Character, Gear, Teleport, Target, Spells }
+    private enum CreatorPanel { None, Character, Gear, Teleport, Target, Spells, XRay }
     private CreatorPanel _creatorPanel;
 
     // Character look state (defaults mirror the offline test character).
@@ -159,6 +159,7 @@ public sealed partial class GameLoop
         RegisterCreatorTeleportSections();
         RegisterCreatorTargetSections();
         RegisterCreatorSpellsSections();
+        RegisterCreatorXraySections();
 
         DrawCreatorMenuBar();
         switch (_creatorPanel)
@@ -168,6 +169,7 @@ public sealed partial class GameLoop
             case CreatorPanel.Teleport: DrawCreatorSectionPanel("Teleport", "Teleport", 480f, 560f); break;
             case CreatorPanel.Target: DrawCreatorSectionPanel("Target", "Target", 430f, 560f); break;
             case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
+            case CreatorPanel.XRay: DrawCreatorSectionPanel("XRay", "Collision X-Ray", 460f, 560f); break;
         }
         DrawPoppedCreatorSections();
         DrawMountToolkit();
@@ -341,6 +343,8 @@ public sealed partial class GameLoop
         CreatorBarButton("Target", CreatorPanel.Target, size, captionPx);
         ImGui.SameLine();
         CreatorBarButton("Spells", CreatorPanel.Spells, size, captionPx);
+        ImGui.SameLine();
+        CreatorBarButton("X-Ray", CreatorPanel.XRay, size, captionPx);
 
         // The UI-options toggle: layout/scale dials live in their own panel.
         ImGui.SameLine();
@@ -672,6 +676,9 @@ public sealed partial class GameLoop
         "Teleport" => _travelStatus ?? "",
         "Spells" => _creatorSpell is { } doc ? $"{doc.Info.Id}  {doc.Info.Name}" : "no spell selected",
         "Target" => _creatorSpawns.Count > 0 ? $"{_creatorSpawns.Count} spawned" : "",
+        "XRay" => _xrayActive
+            ? (_xrayWorld is { } w ? $"active, {w.TriangleCount:N0} triangles" : "active, building...")
+            : "off",
         _ => "",
     };
 
@@ -1504,4 +1511,5 @@ public sealed partial class GameLoop
     private partial void RegisterCreatorTeleportSections();
     private partial void RegisterCreatorTargetSections();
     private partial void RegisterCreatorSpellsSections();
+    private partial void RegisterCreatorXraySections();
 }

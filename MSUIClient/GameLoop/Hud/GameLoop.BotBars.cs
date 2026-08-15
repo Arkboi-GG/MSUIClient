@@ -264,7 +264,7 @@ public sealed partial class GameLoop
                 AddChatMessage($"{member.Name}: patrol the current route.");
             }
             if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Loop the waypoint chain (Ctrl+RightClick spots in free view\n" +
+                ImGui.SetTooltip("Loop the waypoint chain (Shift+RightClick spots in free view\n" +
                     "with the bot selected first); its current spot closes the loop.\n" +
                     "Move or Hold cancels the patrol.");
             bool linked = PartyMemberLinked(member.Name);

@@ -83,6 +83,14 @@ public sealed class TerrainRenderer : IDisposable
     public int TrianglesLastFrame { get; private set; }
     public double RenderMilliseconds { get; private set; }
     public void NoteNotRendered() => RenderMilliseconds = 0;
+
+    /// <summary>
+    /// Master draw switch. Streaming, height sampling and collision keep
+    /// working while this is off — only the draw is skipped. Exists for the
+    /// creator X-ray mode, which hides terrain to expose the server's
+    /// collision mesh; nothing persists it, so a fresh boot always draws.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
     public int TotalTriangles => _tiles.Values.Sum(t => t.TriangleCount);
 
     /// <summary>
@@ -602,7 +610,7 @@ public sealed class TerrainRenderer : IDisposable
         long started = Stopwatch.GetTimestamp();
         DrawCallsLastFrame = 0;
         TrianglesLastFrame = 0;
-        if (_shader is null || _tiles.Count == 0)
+        if (!Enabled || _shader is null || _tiles.Count == 0)
         {
             DrawnLastFrame = 0;
             RenderMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
