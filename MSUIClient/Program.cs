@@ -2858,7 +2858,7 @@ public sealed partial class GameLoop : IDisposable
         ImGui.SetNextWindowPos(new Vector2(12, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(430, 0), ImGuiCond.FirstUseEver);
 
-        if (ImGui.Begin("MSUI Client", ImGuiWindowFlags.NoCollapse))
+        if (ImGui.Begin("MSUI Client"))
         {
             ImGui.Text($"{_window.Fps:F0} fps   {_window.FrameMs:F2} ms");
             if (ImGui.Button("Spell FX inspector (F7)")) _spellFxInspectorOpen = true;

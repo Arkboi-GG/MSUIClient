@@ -2689,7 +2689,7 @@ public sealed partial class GameLoop
     {
         if (!_devOverlayVisible) return;   // F1 — same master switch as the dev overlay
         ImGui.SetNextWindowSize(new Vector2(390, 0), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Server", ImGuiWindowFlags.NoCollapse)) { ImGui.End(); return; }
+        if (!ImGui.Begin("Server")) { ImGui.End(); return; }
         ImGui.TextUnformatted($"player: {_net!.PlayerName}   guid 0x{_net.PlayerGuid:X}");
         ImGui.TextUnformatted($"entities: {_entities.Count}  (creatures {_entities.CreatureCount}, players {_entities.PlayerCount})");
         ImGui.TextUnformatted($"packets in: {_netInbound}  (updates last frame {_netUpdatesLastFrame})");

@@ -28,7 +28,7 @@ public sealed partial class GameLoop
         if (!_spellFxInspectorOpen) return;
         ImGui.SetNextWindowPos(new Vector2(455, 12), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(560, 620), ImGuiCond.FirstUseEver);
-        ImGuiWindowFlags flags = ImGuiWindowFlags.NoCollapse;
+        ImGuiWindowFlags flags = ImGuiWindowFlags.None;
         if (_spellFxInspectorLocked) flags |= ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize;
         bool open = _spellFxInspectorOpen;
         if (!ImGui.Begin("Spell FX Inspector", ref open, flags))
