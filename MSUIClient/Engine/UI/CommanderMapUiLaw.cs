@@ -18,6 +18,8 @@ public static class CommanderMapUiLaw
 
     public const byte HonorModule = 1 << 0;
     public const byte HeroesModule = 1 << 1;
+    public const byte TerritoryModule = 1 << 2;
+    public const byte DungeonsModule = 1 << 3;
     public const byte FactionControlModule = 1 << 4;
     public const byte MaximumHeroLevel = 5;
 
@@ -295,6 +297,12 @@ public static class CommanderMapUiLaw
     public static bool ShowHeroes(byte mode, byte modules) =>
         mode == 1 && (modules & HeroesModule) != 0;
 
+    public static bool ShowTerritory(byte mode, byte modules) =>
+        mode == 1 && (modules & TerritoryModule) != 0;
+
+    public static bool ShowDungeons(byte mode, byte modules) =>
+        mode == 1 && (modules & DungeonsModule) != 0;
+
     public static bool ShowFactionControl(byte mode, byte modules) =>
         mode == 1 && (modules & FactionControlModule) != 0;
 
@@ -305,11 +313,11 @@ public static class CommanderMapUiLaw
     /// </summary>
     public static HeroAction HeroActionFor(
         byte mode, byte modules, bool ownFaction, bool eligibleBot,
-        byte heroLevel, bool dead)
+        byte heroLevel, bool dead, bool declarationCapacityAvailable = true)
     {
         if (!ShowHeroes(mode, modules) || !ownFaction || !eligibleBot)
             return HeroAction.None;
-        if (heroLevel == 0) return HeroAction.Declare;
+        if (heroLevel == 0) return declarationCapacityAvailable ? HeroAction.Declare : HeroAction.None;
         if (dead) return HeroAction.Revive;
         return heroLevel < MaximumHeroLevel ? HeroAction.Upgrade : HeroAction.None;
     }
@@ -318,6 +326,12 @@ public static class CommanderMapUiLaw
         mode != 1 ? string.Empty : ShowHonor(mode, modules)
             ? $"RTS CAMPAIGN  \u00B7  Honor {honor:n0}"
             : "RTS CAMPAIGN";
+
+    public static string HeroCapacityStatus(ushort fielded, ushort capacity)
+    {
+        int over = Math.Max(0, fielded - capacity);
+        return over == 0 ? $"{fielded}/{capacity} FIELD" : $"{fielded}/{capacity} FIELD - {over} OVER CAP";
+    }
 
     /// <summary>Legacy selected-continent filter retained for the single-map renderer.</summary>
     public static bool ShowPresence(uint selectedMap, uint areaMap, ushort bots, ushort players) =>

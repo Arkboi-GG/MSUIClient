@@ -1,18 +1,22 @@
 # NPC Dev Window — architecture & handbook (updated 2026-08-11)
 
-> **STATUS: P1 + P2 + P3 SHIPPED** (P1/P2 live-verified — screenshots in
-> `dumps/gameplay-devwindow-*.png`; P3 build-verified + schema-verified, in-world click
-> editing awaits owner eyes-on). P4 (MangosSuperUI upload/verify/apply) is **designed,
-> not built** — §11 is the contract to build against. The `/NpcDev/Snapshot` endpoint is
-> built but **not deployed** (owner deploys from their main PC — §12); the client runs on
-> the CSV fallback until then. Full original plan:
-> `C:\Users\nico\.claude\plans\zany-scribbling-pie.md`.
+> **STATUS: P1–P3 SHIPPED; P4 (P1+P2) DEPLOYED & LIVE-VERIFIED; P5 BUILT.** P1/P2 live-verified
+> (`dumps/gameplay-devwindow-*.png`). **P4** — direct commit through SuperUI (audited) +
+> owner-clicked live reload (`.reload creature_template` for aggro; `.npc reloadspawn <guid>`,
+> the additive vmangos core command, for spawn/path) — is deployed and confirmed live: a spawn
+> move committed, audited (`vmangos_admin.audit_log`), and reloaded on the spot (§11). **P5** —
+> OG baseline (`og_creature*`), a "changed from original" diff, per-spawn/entry
+> reset-to-original, and wash-on-commit — is **BUILT & compile-verified in both repos**; owner
+> deploys SuperUI and captures the baseline via `Baseline/Initialize` (§15). `/NpcDev/Snapshot`
+> is deployed. Full original plan: `C:\Users\nico\.claude\plans\zany-scribbling-pie.md`.
 
 **What it is:** press **Ctrl+N** (live mode or creator mode) for a proper chrome window that
 visualizes NPC **spawns**, **patrol paths** and **aggro radii** while you fly the free view
 (Ctrl+F), shows exactly **which DB table/row/column** every datum lives in, and (P3+) turns
-in-world edits into **change-set files** that MangosSuperUI verifies and applies **with the
-audit trail**. The client never writes the DB and never sends GM commands from this feature.
+in-world edits into a **change-set** that MangosSuperUI verifies, applies and audits when you
+**Commit** — then you **Reload** to make it live and test. The client never writes the DB
+itself (SuperUI does, audited); the live reload is a GM command **you** click, never issued
+autonomously.
 
 ---
 
@@ -20,9 +24,9 @@ audit trail**. The client never writes the DB and never sends GM commands from t
 
 | Decision | Consequence |
 |---|---|
-| DB reads over **HTTP from MangosSuperUI** (`http://192.168.0.2:5000`) | **Zero game-server (vmangos C++) changes.** No new SUI opcodes → no paired client+server deploy hazard for this feature. |
-| Client **never applies edits** | Edits become change packets → one JSON file per session (`dev-changes/`) → uploaded to MangosSuperUI → verify diff → apply through `AuditService`. "Like spell packets." |
-| Auditing lives in **MangosSuperUI** | Apply path MUST go through `AuditService.ExecuteAndLogAsync` (before/after JSON in `vmangos_admin.audit_log`). Never copy `WorldMapController.PlaceObject` — it writes unaudited. |
+| DB reads + commit over **HTTP from MangosSuperUI** (`http://192.168.0.2:5000`) | No new SUI opcodes. The ONE vmangos C++ change is P4 Phase 2's **additive** `.npc reloadspawn` command (owner builds + deploys), for instant spawn/waypoint reload only — reads, commit and aggro reload need zero core changes. |
+| Client **commits through SuperUI**; reload is **owner-clicked** | Edits become change packets → **Commit** POSTs them to `/NpcDev/Apply` (verify → apply → audit); the local `dev-changes/*.json` stays as a record. The live **Reload** is a GM command YOU click (`.reload creature_template` / `.npc reloadspawn <guid>`), never issued autonomously. |
+| Auditing lives in **MangosSuperUI** | `NpcDevApplyService` writes the world DB and records each packet via `AuditService.LogAsync` (before/after JSON in `vmangos_admin.audit_log`), one `AuditBatch` per commit → one node in the Change Graph (domain "npc"). Never copy `WorldMapController.PlaceObject` — it writes unaudited. |
 | Start surface: live mode + free view | Creator mode opens the window too; live-only sections state "requires live server". |
 
 ---
@@ -333,10 +337,12 @@ bookkeeping + edit UI sections), `Formats\DevChangeSet.cs` (pure format layer: P
   with "affects N spawns" warning; **queued value previews live in the drawn discs**
   via `ApplyDevPendingTemplate`).
 - Queued packets stay visible as dim-green previews (`_devPacketPreviews`, runtime-only)
-  until reverted; the "Change set" section lists packets with revert-x / Save now / the
-  file path. The set **saves to disk on every mutation** (add/revert), one file per
-  session: `dev-changes\<yyyyMMdd-HHmmss>-<character>.json`.
-- **No GM commands, no direct writes, ever** — previews are client-side only.
+  until reverted; the "Change set" section lists packets (a **verdict badge** appears per
+  packet after a commit) and the owner flow — **Commit (SuperUI)** → **Reload selected** —
+  alongside revert-x / Save now / the file path. The set **saves to disk on every mutation**
+  (add/revert), one file per session: `dev-changes\<yyyyMMdd-HHmmss>-<character>.json`.
+- Previews are **client-side only** — a queued packet never touches the DB or the live world
+  until you **Commit** (§11); the live world only changes when you then **Reload**.
   Schema v1 (serialization verified against this exact shape):
 
 ```json
@@ -363,38 +369,68 @@ Packet types: `spawn-move | spawn-timer | spawn-field | spawn-add (no guid; appl
 allocates) | spawn-delete | waypoint-path-replace | template-field`. `before` = values as
 fetched (`sourceSnapshotUtc` anchors staleness) — P4's verify diffs current DB against it.
 
-## 11. P4 spec — MangosSuperUI upload / verify / apply (NOT BUILT)
+## 11. P4 — direct commit + owner reload (Phase 1 BUILT · Phase 2 designed)
 
-- `Models\ChangeSetModels.cs` (DTOs + `PacketVerdict { Clean, Stale, Missing, Applied }`),
-  `Services\ChangeSetService.cs`: **verify** = re-read current rows, diff vs `before` →
-  verdict per packet (Stale blocks apply); **apply** = per packet
-  `StateCaptureService` capture → `AuditService.ExecuteAndLogAsync` (one audit row per
-  packet + a parent grouping entry, reversible). Waypoint apply = transactional
-  DELETE + renumbered INSERT. `spawn-delete` must also cascade like
-  `Creature.cpp:2112` (creature_addon, creature_movement, game_event_creature, …).
-- `NpcDevController` gains `GET/POST Upload`, `GET Verify/{id}` (per-packet cards:
-  verdict badge, field diff, top-down SVG before/after path drawing, checkboxes),
-  `POST Apply/{id}`. Views under `Views\NpcDev\`.
-- DDL: `vmangos_admin.npc_change_sets` (id, filename, uploaded_utc, raw_json, status) +
-  `npc_change_packets` (set_id, packet_id, type, verdict, audit_log_id, status) — add to
-  `sql\vmangos_admin_schema.sql` AND `Services\DbInitializationService.cs` bootstrap;
-  `scheduled_actions` is the shape template.
-- After apply, changes are in the DB but the running mangosd holds cached
-  spawns/paths. The Verify page should say that Nico must make them live; agents must
-  not issue a `.reload`, restart, or any other runtime-control command.
+The design changed from "upload a file, review in a web page, apply" to **direct commit from
+the client + owner-clicked live reload**: for spawn/pathing/aggro there is no data phase to
+add in SuperUI (unlike spells), so the client is the reviewer.
+
+**Phase 1 — BUILT (build-verified both repos; owner deploy pending):**
+- **Client** (`GameLoop.DevWindow.Edit.cs`, `Net\DevDataClient.cs`): the Change set section
+  gained **Commit (SuperUI)** → `DevDataClient.BeginApply` POSTs the change-set JSON to
+  `/NpcDev/Apply` on a background Task and publishes an immutable `NpcApplyResult` (per-packet
+  verdicts). A separate **Reload selected** button sends the live GM command per applied
+  packet via `SendGmCommand` (`.reload creature_template` for aggro; `.npc reloadspawn <guid>`
+  for spawn/path). Two buttons, owner-clicked, in that order. The local `dev-changes/*.json`
+  write stays as a record.
+- **SuperUI** (`Controllers\NpcDevController.cs` `POST Apply`, `Services\NpcDevApplyService.cs`,
+  `Models\NpcDevApply.cs`): **verify** = re-read current rows, diff vs `before` (drift →
+  `stale`, blocks that packet); **apply** = raw SQL to the mangos world DB (per-type column
+  whitelist; waypoint = transactional DELETE + renumbered 1-based INSERT); **audit** = one
+  `AuditService.LogAsync` per packet (Category `npc`; Action `npc_move|npc_timer|npc_field|
+  npc_aggro|npc_waypoint`; TargetType the table; before/after JSON) inside one `AuditBatch`
+  per commit. No staging DDL — `audit_log` is the record. Returns per-packet verdicts JSON.
+- **Change Graph**: a `DomainDef("npc", "NPCs & Spawns", …)` in `ChangeGraphService` buckets
+  those rows into one node under Worlds & History → Change Graph (richer visualization to be
+  built out later). Rows carry before/after JSON but `RevertKind=None` for now — revert wiring
+  is future work.
+- Not yet handled by the applier: `spawn-add` / `spawn-delete` (verdict `unsupported`);
+  `spawn-delete` will need the `Creature.cpp` cascade (creature_addon, creature_movement,
+  game_event_creature, …).
+
+**Phase 2 — BUILT (compile-verified on the box; owner commit + deploy + mangosd restart
+pending):** the additive vmangos core command `.npc reloadspawn <guid>` (SEC_DEVELOPER, npc
+group): re-read that one `creature` row + its path from DB into ObjectMgr, `SetHomePosition` +
+`SetDefaultMovementType` + `SetWanderDistance` + reload path + kill/`Respawn()` if alive, **no
+DB write** — modelled on `HandleNpcMoveHelperCommand` but sourced from the committed DB row.
+Touches (in `~/vmangos`, uncommitted): `src/game/Movement/WaypointManager.{h,cpp}` (new
+`ReloadPath(guid)`), `src/game/Chat/Chat.{h,cpp}` (decl + `npcCommandTable` entry),
+`src/game/Commands/CreatureCommands.cpp` (`HandleNpcReloadSpawnCommand`). Until it deploys,
+`.npc reloadspawn` is an unknown-command no-op, so spawn-move / waypoint commits are audited
+but only go live on the creature's next natural respawn; aggro is instant via `.reload
+creature_template`.
+Why a new command is needed: no existing command re-reads one spawn's row live — `.reload
+creature` refreshes the ObjectMgr cache but skips already-spawned creatures, `GetRespawnCoord`
+prefers the cached `m_homePosition`, and `.npc move` snaps to the GM's position and self-writes
+the DB. (Verified in `src/game/{Objects/Creature.cpp,ObjectMgr.cpp,Commands/CreatureCommands.cpp}`.)
 
 ---
 
 ## 12. Deploy notes
 
-- **Client**: no pairing needed with anything — ship whenever. (This feature adds no SUI
-  opcodes; the CRPG hard rule doesn't apply here.)
+- **Client**: no opcode pairing — ship whenever. Commit needs the SuperUI `POST Apply`
+  deploy to succeed; until then Commit fails gracefully (the HTTP error shows in the panel)
+  and the local `dev-changes/*.json` still records the edits.
 - **MangosSuperUI** (`mangossuperui.service` on 192.168.0.2, app at
   `/opt/mangossuperui`): agents may prepare and build the publish artifact, then must
   stop. Nico alone installs/deploys it or controls the service. Restarting
   mangossuperui also restarts the bot brain in the same process (fleet bots
   reconnect). Until Nico deploys it, the client silently uses the CSV fallback;
   afterward, the source line in the window flips to "snapshot".
+- **vmangos core (P4 Phase 2)**: `.npc reloadspawn` is an additive C++ change. Agents may
+  write + build it on the box (`~/vmangos/build`), then stop — Nico deploys the binary and
+  restarts mangosd (a one-time restart lights up instant spawn/waypoint reload; aggro reload
+  already works without it).
 
 ---
 
@@ -454,3 +490,41 @@ fetched (`sourceSnapshotUtc` anchors staleness) — P4's verify diffs current DB
    needed); template rows DO need highest-patch-wins.
 10. **Creator mode**: no reaction data (`_net` null → Neutral), so `HostilesOnly` is
     ignored there; synthetic spawns are excluded from DB joins by the guid high check.
+
+## 15. P5 — OG baseline, wash-on-commit, reset-to-original (BUILT)
+
+Turns "current DB" edits into an original-vs-current model, so a mob can be shown as
+changed-from-vanilla and snapped back. BUILT + compile-verified in both repos.
+
+- **OG baseline** — `BaselineController.SNAPSHOT_TABLES` gained `og_creature`,
+  `og_creature_movement`, `og_creature_template` (captured from `mangos` into `vmangos_admin`
+  by the existing `POST /Baseline/Initialize` — `CREATE TABLE LIKE` + `INSERT SELECT`, recorded
+  in `og_baseline_meta`). This is the true VMaNGOS baseline the tool diffs/resets against. Owner
+  runs Initialize ONCE from a pristine DB (undo stray edits first — the baseline bakes in
+  whatever the tables hold at capture time).
+- **Diff (changed from original?)** — `GET /NpcDev/Diff?guid=&entry=` (`NpcDevBaselineService`)
+  cross-references `vmangos_admin.og_creature*` from the mangos connection and returns
+  `hasBaseline` + `spawnModified` / `pathModified` / `templateModified` / `baselineHasSpawn`. The
+  client fetches it when a creature is inspected and shows a "BASELINE (original)" row in the
+  Selected-NPC section — a "● changed from original" badge (spawn / path / aggro) or "matches
+  original".
+- **Reset to original** — `POST /NpcDev/Reset` (`{guids, entries}`): per guid `REPLACE INTO
+  creature SELECT * FROM og_creature` + transactional path restore from `og_creature_movement`;
+  per entry restore `detection_range` from `og_creature_template`. Audited (category `npc`,
+  action `baseline_reset_creature` / `baseline_reset_creature_template`, before/after) under one
+  `AuditBatch` → same NPC node in the Change Graph. Client buttons: **Reset spawn to original**
+  (per guid) and **Reset aggro to original — all spawns** (per entry, with the affects-all
+  warning). On success the client reloads live, resnapshots, and re-diffs. Reset only writes the
+  DB; the client makes it live, same as commit.
+- **Wash-on-commit** — after a commit lands OK the client drops the applied packets from the
+  change-set (stale/failed stay for retry), captures their reload targets first (so **Reload
+  selected** still works post-wash), and force-resnapshots the world to the new DB baseline. A
+  green `committed ✓ N applied…` line is the confirmation.
+- Files: `GameLoop.DevWindow.Edit.cs` (`WashCommittedPackets`, `DrawDevBaselineControls`),
+  `Net/DevDataClient.cs` (`BeginDiff`/`BeginReset` + `NpcDiff`), `Controllers/NpcDevController.cs`
+  (`Diff`/`Reset`), `Services/NpcDevBaselineService.cs`, `Models/NpcDevApply.cs`.
+- **Not yet:** map-wide "changed from OG" overlay badging (only the inspected creature diffs
+  today); revert of a reset (rows are history-only, `RevertKind=None`).
+- **Deploy (owner):** deploy the SuperUI artifact, then `POST /Baseline/Initialize` once from a
+  pristine DB to capture `og_creature*`. Keep edits paused between the restore and the capture so
+  OG is genuinely clean. Ship the client. No core change in P5.

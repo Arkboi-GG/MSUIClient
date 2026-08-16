@@ -511,27 +511,241 @@ public sealed partial class GameLoop
             [], null, entry, _devFieldDetection);
     }
 
-    /// <summary>The Change set section: file path, per-packet rows with revert, save.</summary>
+    private string _devReloadStatus = "";
+    // Reload targets captured at commit time, so Reload still works after the set "washes".
+    private readonly List<(ulong Guid, bool Template)> _devReloadTargets = [];
+    private DateTime _devLastCommitWashUtc;
+
+    /// <summary>The Change set section: queued packets (+ a verdict badge as they commit), then the
+    /// owner flow — Commit (audited, through SuperUI) → the applied packets WASH back to the DB
+    /// baseline and the world resnapshots → Reload (live, your click) → test. Stale/failed packets
+    /// stay for a retry; Save now keeps the local record.</summary>
     private void DrawDevChangeSetSection()
     {
         if (!ImGui.CollapsingHeader("Change set", ImGuiTreeNodeFlags.DefaultOpen)) return;
-        if (_devChanges is null || _devChanges.Packets.Count == 0)
+
+        NpcApplyResult? applied = DevData.ApplyResult;
+        // Once a commit lands OK, wash: drop the applied packets (keeping their reload targets)
+        // and force a world resnapshot to the new DB baseline. Runs once per commit result.
+        if (applied is { Ok: true } && applied.CompletedUtc > _devLastCommitWashUtc)
+        {
+            _devLastCommitWashUtc = applied.CompletedUtc;
+            WashCommittedPackets(applied);
+        }
+
+        bool hasPackets = _devChanges is { Packets.Count: > 0 };
+        if (!hasPackets && applied is null)
         {
             ImGui.TextDisabled("no queued changes this session");
             return;
         }
-        ImGui.TextDisabled(_devChangeFilePath ?? "(unsaved)");
-        int? remove = null;
-        foreach (DevChangePacket packet in _devChanges.Packets)
+
+        Dictionary<int, NpcApplyPacketVerdict> verdicts = applied is { Ok: true }
+            ? applied.Results.ToDictionary(r => r.Id) : new();
+
+        if (hasPackets)
         {
-            if (ImGui.SmallButton($"x##dev-packet-{packet.Id}")) remove = packet.Id;
-            ImGui.SameLine();
-            ImGui.Text($"#{packet.Id}  {packet.Type}  {DescribeDevTarget(packet)}");
+            ImGui.TextDisabled(_devChangeFilePath ?? "(unsaved)");
+            int? remove = null;
+            foreach (DevChangePacket packet in _devChanges!.Packets)
+            {
+                if (ImGui.SmallButton($"x##dev-packet-{packet.Id}")) remove = packet.Id;
+                ImGui.SameLine();
+                ImGui.Text($"#{packet.Id}  {packet.Type}  {DescribeDevTarget(packet)}");
+                if (verdicts.TryGetValue(packet.Id, out NpcApplyPacketVerdict? vd))
+                {
+                    ImGui.SameLine();
+                    ImGui.TextColored(DevVerdictColor(vd.Verdict), $"[{vd.Verdict}]");
+                    if (vd.Message is { Length: > 0 } msg && ImGui.IsItemHovered()) ImGui.SetTooltip(msg);
+                }
+            }
+            if (remove is { } id) RemoveDevChangePacket(id);
         }
-        if (remove is { } id) RemoveDevChangePacket(id);
-        if (ImGui.Button("Save now")) SaveDevChanges();
-        ImGui.SameLine();
-        ImGui.TextDisabled("upload this file in MangosSuperUI (NpcDev) to verify + apply");
+
+        // Owner flow: Commit → (wash) → Reload → test.
+        bool busy = DevData.Applying;
+        if (hasPackets)
+        {
+            if (busy) ImGui.BeginDisabled();
+            if (ImGui.Button("Commit (SuperUI)"))
+            {
+                _devReloadStatus = "";
+                DevData.BeginApply(Settings.DevWindow.SuiBaseUrl, _devChanges);
+            }
+            if (busy) ImGui.EndDisabled();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"Verify + apply + audit this change-set through MangosSuperUI\n" +
+                    $"({Settings.DevWindow.SuiBaseUrl}/NpcDev/Apply). Applied packets then wash to the DB baseline.");
+            ImGui.SameLine();
+        }
+        if (_devReloadTargets.Count > 0)
+        {
+            if (ImGui.Button("Reload selected")) ReloadAppliedNpcChanges();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Make the just-committed changes LIVE on this client (a GM command YOU send):\n" +
+                    "  aggro       ->  .reload creature_template\n" +
+                    "  spawn/path  ->  .npc reloadspawn <guid>");
+            ImGui.SameLine();
+        }
+        if (hasPackets && ImGui.Button("Save now")) SaveDevChanges();
+
+        if (busy)
+            ImGui.TextDisabled($"committing to {Settings.DevWindow.SuiBaseUrl}…");
+        else if (applied is not null)
+        {
+            if (!applied.Ok)
+                ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), $"commit failed: {applied.Error}");
+            else
+                ImGui.TextColored(new Vector4(0.5f, 1f, 0.6f, 1f),
+                    $"committed ✓  {applied.Applied} applied, {applied.Stale} stale, {applied.Failed} failed" +
+                    (applied.BatchId is { Length: > 0 } b ? $"  (batch {b})" : ""));
+        }
+        if (_devReloadStatus.Length > 0) ImGui.TextDisabled(_devReloadStatus);
+    }
+
+    private static Vector4 DevVerdictColor(string verdict) => verdict switch
+    {
+        "applied" => new Vector4(0.5f, 1f, 0.6f, 1f),
+        "stale" => new Vector4(1f, 0.82f, 0.3f, 1f),
+        _ => new Vector4(1f, 0.5f, 0.45f, 1f),
+    };
+
+    /// <summary>Commit landed: capture the applied packets' reload targets, drop those packets from
+    /// the set (leaving stale/failed for retry), and force a world resnapshot so the spawn rows show
+    /// the committed DB baseline.</summary>
+    private void WashCommittedPackets(NpcApplyResult applied)
+    {
+        _devReloadTargets.Clear();
+        var appliedIds = applied.Results.Where(r => r.Verdict == "applied").Select(r => r.Id).ToHashSet();
+        if (_devChanges is not null)
+        {
+            foreach (DevChangePacket packet in _devChanges.Packets.Where(p => appliedIds.Contains(p.Id)))
+            {
+                (ulong Guid, bool Template) target = packet.Type == "template-field"
+                    ? (0UL, true)
+                    : (DevPacketGuid(packet), false);
+                if ((target.Template || target.Guid != 0) && !_devReloadTargets.Contains(target))
+                    _devReloadTargets.Add(target);
+            }
+            _devChanges.Packets.RemoveAll(p => appliedIds.Contains(p.Id));
+            foreach (int id in appliedIds) _devPacketPreviews.Remove(id);
+            SaveDevChanges();
+        }
+        int map = _config.Start.Map;
+        Vector3 c = _controller?.Position ?? Vector3.Zero;
+        DevData.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, map, c.X, c.Y, forceRefresh: true);
+    }
+
+    /// <summary>Owner-clicked live reload of the just-committed targets: .reload creature_template
+    /// for aggro (once), .npc reloadspawn &lt;guid&gt; for spawn/path. No DB writes.</summary>
+    private void ReloadAppliedNpcChanges()
+    {
+        if (_devReloadTargets.Count == 0) { _devReloadStatus = "nothing applied to reload"; return; }
+        bool reloadedTemplates = false;
+        int sent = 0;
+        foreach ((ulong guid, bool template) in _devReloadTargets)
+        {
+            if (template)
+            {
+                if (!reloadedTemplates && SendGmCommand(".reload creature_template", "npc-reload"))
+                {
+                    reloadedTemplates = true;
+                    sent++;
+                }
+            }
+            else if (SendGmCommand($".npc reloadspawn {guid}", "npc-reload")) sent++;
+        }
+        _devReloadStatus = sent == 0 ? "nothing applied to reload" : $"sent {sent} reload command(s)";
+    }
+
+    /// <summary>The spawn guid a packet targets (creature.guid or creature_movement.id); 0 for
+    /// entry-only targets (shared template path / template-field) that no single guid reloads.</summary>
+    private static ulong DevPacketGuid(DevChangePacket packet)
+    {
+        if (packet.Target.TryGetValue("guid", out object? g) && g is not null) return Convert.ToUInt64(g);
+        if (packet.Target.TryGetValue("id", out object? i) && i is not null) return Convert.ToUInt64(i);
+        return 0;
+    }
+
+    // ── reset to original (OG baseline) ──────────────────────────────────────
+
+    private DateTime _devLastResetUtc;
+    private ulong _devResetReloadGuid;
+    private bool _devResetReloadTemplate;
+
+    private string DevCharacter() => _net?.PlayerName is { Length: > 0 } name ? name : "offline";
+
+    /// <summary>Selected-NPC baseline row: shows whether this spawn / its path / its entry's aggro
+    /// differ from the captured og_creature* baseline, and offers a per-spawn "reset to original"
+    /// (plus a per-entry aggro reset). Reset restores through SuperUI (audited) then reloads live.</summary>
+    private void DrawDevBaselineControls(uint spawnGuid, uint entry)
+    {
+        // Auto-fetch the diff when the inspected spawn changes.
+        NpcDiff? diff = DevData.Diff;
+        if (!DevData.Diffing && (diff is null || diff.Guid != spawnGuid))
+            DevData.BeginDiff(Settings.DevWindow.SuiBaseUrl, spawnGuid, entry);
+
+        // A completed reset: make it live (your click authorized it), resnapshot, re-diff.
+        if (DevData.ResetResult is { Ok: true } reset && reset.CompletedUtc > _devLastResetUtc)
+        {
+            _devLastResetUtc = reset.CompletedUtc;
+            if (_devResetReloadTemplate) SendGmCommand(".reload creature_template", "npc-reset");
+            if (_devResetReloadGuid != 0) SendGmCommand($".npc reloadspawn {_devResetReloadGuid}", "npc-reset");
+            Vector3 c = _controller?.Position ?? Vector3.Zero;
+            DevData.BeginFetchWorld(Settings.DevWindow.SuiBaseUrl, _config.Start.Map, c.X, c.Y, forceRefresh: true);
+            DevData.BeginDiff(Settings.DevWindow.SuiBaseUrl, spawnGuid, entry);
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("BASELINE (original)");
+
+        if (diff is null || diff.Guid != spawnGuid) { ImGui.TextDisabled("checking…"); return; }
+        if (!diff.HasBaseline)
+        {
+            ImGui.TextDisabled("no og_creature baseline captured yet");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Run Baseline/Initialize in MangosSuperUI (creature tables) to capture the original.");
+            return;
+        }
+
+        bool busy = DevData.Resetting;
+        var warn = new Vector4(1f, 0.7f, 0.3f, 1f);
+        var okCol = new Vector4(0.5f, 1f, 0.6f, 1f);
+
+        if (!diff.BaselineHasSpawn)
+            ImGui.TextDisabled("this spawn isn't in the baseline (added after capture)");
+        else if (diff.SpawnModified || diff.PathModified)
+        {
+            ImGui.TextColored(warn, "● spawn changed from original" + (diff.PathModified ? " (incl. path)" : ""));
+            if (busy) ImGui.BeginDisabled();
+            if (ImGui.Button($"Reset spawn to original##ogspawn{spawnGuid}"))
+            {
+                _devResetReloadGuid = spawnGuid;
+                _devResetReloadTemplate = false;
+                DevData.BeginReset(Settings.DevWindow.SuiBaseUrl, DevCharacter(), new[] { spawnGuid }, Array.Empty<uint>());
+            }
+            if (busy) ImGui.EndDisabled();
+        }
+        else
+            ImGui.TextColored(okCol, "spawn matches original");
+
+        if (diff.TemplateModified)
+        {
+            ImGui.TextColored(warn, $"● aggro (entry {entry}) changed from original");
+            if (busy) ImGui.BeginDisabled();
+            if (ImGui.Button($"Reset aggro to original — all spawns##ogtmpl{entry}"))
+            {
+                _devResetReloadGuid = 0;
+                _devResetReloadTemplate = true;
+                DevData.BeginReset(Settings.DevWindow.SuiBaseUrl, DevCharacter(), Array.Empty<uint>(), new[] { entry });
+            }
+            if (busy) ImGui.EndDisabled();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("detection_range is per-ENTRY — this resets aggro for every spawn of the entry.");
+        }
+
+        if (DevData.ResetResult is { Ok: false } rerr)
+            ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), $"reset failed: {rerr.Error}");
     }
 
     private static string DescribeDevTarget(DevChangePacket packet)

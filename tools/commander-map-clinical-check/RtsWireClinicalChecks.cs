@@ -26,6 +26,79 @@ internal static class RtsWireClinicalChecks
         const ulong allianceHero = 0x0000_0000_0102_0304ul;
         const ulong hordeHero = 0x0000_0000_1122_3344ul;
 
+        byte[] BuildZoneIntel(byte zoneStride = 10, byte controller = 0x81,
+            uint firstZone = 12, uint secondZone = 14, byte unitFlags = 3,
+            float unitX = 1f, bool trailing = false)
+        {
+            var w = new PacketWriter();
+            w.WriteU16(2); w.WriteU8(zoneStride);
+            void Zone(uint id, ushort bots, ushort players, byte control, byte tail)
+            {
+                w.WriteU32(id); w.WriteU16(bots); w.WriteU16(players);
+                if (zoneStride >= RtsWire.ZoneIntelTerritoryRowBytes) w.WriteU8(control);
+                int known = zoneStride >= RtsWire.ZoneIntelTerritoryRowBytes
+                    ? RtsWire.ZoneIntelTerritoryRowBytes : RtsWire.ZoneIntelLegacyRowBytes;
+                for (int i = known; i < zoneStride; i++) w.WriteU8(tail);
+            }
+            Zone(firstZone, 4, 2, controller, 0xA1);
+            Zone(secondZone, 0, 0, 2, 0xA2);
+            w.WriteU8(1); w.WriteU8(30);
+            w.WriteU64(allianceHero); w.WriteU32(0); w.WriteU32(firstZone);
+            w.WriteF32(unitX); w.WriteF32(2); w.WriteF32(3); w.WriteU8(unitFlags); w.WriteU8(0xB1);
+            if (trailing) w.WriteU8(0xFF);
+            return w.ToArray();
+        }
+
+        RtsZoneIntelSnapshot intel = RtsWire.ParseZoneIntel(BuildZoneIntel());
+        Check(intel.Zones.Length == 2 && intel.Zones[0].ZoneId == 12 &&
+              intel.Zones[0].Owner == RtsTerritoryOwner.Alliance && intel.Zones[0].Contested &&
+              intel.Zones[1].Bots == 0 && intel.Zones[1].Players == 0 &&
+              intel.Zones[1].Owner == RtsTerritoryOwner.Horde,
+            "typed territory zone/future-stride parsing drift");
+        Check(intel.Units.Length == 1 && intel.Units[0].Guid == allianceHero &&
+              intel.Units[0].Alive && intel.Units[0].IsBot && intel.Units[0].Position.X == 1,
+            "typed zone-intel unit/future-stride parsing drift");
+
+        var legacy = new PacketWriter();
+        legacy.WriteU16(1); legacy.WriteU8(8); legacy.WriteU32(12);
+        legacy.WriteU16(1); legacy.WriteU16(2); legacy.WriteU8(0); legacy.WriteU8(29);
+        RtsZoneIntelSnapshot legacyIntel = RtsWire.ParseZoneIntel(legacy.ToArray());
+        Check(legacyIntel.Zones[0].Owner == RtsTerritoryOwner.Neutral &&
+              !legacyIntel.Zones[0].Contested,
+            "legacy stride-8 zone did not decode as neutral");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(zoneStride: 7)),
+            "undersized zone-intel stride was accepted");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(controller: 0x83)),
+            "invalid territory controller was accepted");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(secondZone: 12)),
+            "duplicate territory zone was accepted");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(unitFlags: 4)),
+            "unknown zone-intel unit flag was accepted");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(unitX: float.NaN)),
+            "non-finite zone-intel unit position was accepted");
+        ExpectInvalid(() => RtsWire.ParseZoneIntel(BuildZoneIntel(trailing: true)),
+            "trailing zone-intel data was accepted");
+
+        Check(RtsWire.TerritoryCaptureWorldStateId == 0x53550001,
+            "territory capture world-state id drift");
+        Check(RtsWire.TryDecodeTerritoryCaptureState(0x002A5DE9,
+                  out RtsTerritoryCaptureState capture) &&
+              capture.Phase == RtsTerritoryCapturePhase.Contested &&
+              capture.Owner == RtsTerritoryOwner.Alliance &&
+              capture.Attacker == RtsTerritoryOwner.Horde &&
+              capture.ProgressPermille == 375 && capture.RemainingSeconds == 42,
+            "territory packed golden vector drift");
+        Check(RtsWire.TryDecodeTerritoryCaptureState(0, out RtsTerritoryCaptureState hidden) &&
+              !hidden.Visible, "zero territory state did not decode as hidden");
+        Check(!RtsWire.TryDecodeTerritoryCaptureState(1, out _),
+            "nonzero hidden territory state was accepted");
+        uint excessiveProgress = (42u << 16) | (1001u << 6) | (2u << 4) | (2u << 2) | 1u;
+        Check(!RtsWire.TryDecodeTerritoryCaptureState(excessiveProgress, out _),
+            "territory progress above 1000 was accepted");
+        uint selfAttack = (20u << 16) | (100u << 6) | (2u << 4) | (1u << 2) | 1u;
+        Check(!RtsWire.TryDecodeTerritoryCaptureState(selfAttack, out _),
+            "incumbent self-attack territory state was accepted");
+
         byte[] BuildState(bool trailing = false, byte mode = 1,
             ulong firstHeroGuid = allianceHero, byte firstHeroTeam = 0,
             byte firstHeroLevel = 2, byte firstHeroDead = 0)

@@ -1,5 +1,21 @@
 # Agent operating rules
 
+## SuperUI-Core is homeserver-only
+
+The authoritative and only development checkout of SuperUI-Core is Nico's
+homeserver checkout at `~/vmangos`.
+
+- Never clone, fork, branch, worktree, edit, build, commit, merge, stash, fetch,
+  pull, or otherwise develop SuperUI-Core on Windows.
+- Never create or use a Windows SuperUI-Core checkout as a substitute for the
+  homeserver checkout, even for parallel agent work.
+- Treat any existing Windows SuperUI-Core directories as legacy cleanup
+  candidates, not working copies. Do not modify or delete them without Nico's
+  explicit approval.
+- If a task requires SuperUI-Core changes and the homeserver checkout is not
+  accessible, stop and ask Nico for the appropriate homeserver workflow. Do not
+  recreate the repository on Windows.
+
 ## Owner-only live runtime control
 
 Nico alone installs or deploys server artifacts, creates/restores/swaps server

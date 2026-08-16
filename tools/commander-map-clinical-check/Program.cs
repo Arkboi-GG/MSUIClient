@@ -198,6 +198,14 @@ Check(CommanderMapUiLaw.ShowHeroes(mode: 1, modules: CommanderMapUiLaw.HeroesMod
       !CommanderMapUiLaw.ShowHeroes(mode: 1, modules: CommanderMapUiLaw.HonorModule) &&
       !CommanderMapUiLaw.ShowHeroes(mode: 0, modules: CommanderMapUiLaw.HeroesModule),
     "hero panel module/mode gate drifted");
+Check(CommanderMapUiLaw.TerritoryModule == 0x04 &&
+      CommanderMapUiLaw.ShowTerritory(1, CommanderMapUiLaw.TerritoryModule) &&
+      !CommanderMapUiLaw.ShowTerritory(1, CommanderMapUiLaw.HeroesModule) &&
+      !CommanderMapUiLaw.ShowTerritory(0, CommanderMapUiLaw.TerritoryModule),
+    "territory module bit/mode gate drifted");
+Check(CommanderMapUiLaw.HeroCapacityStatus(3, 5) == "3/5 FIELD" &&
+      CommanderMapUiLaw.HeroCapacityStatus(5, 3) == "5/3 FIELD - 2 OVER CAP",
+    "territory hero-cap presentation drifted");
 Check(CommanderMapUiLaw.FactionControlModule == 0x10 &&
       CommanderMapUiLaw.ShowFactionControl(1, CommanderMapUiLaw.FactionControlModule) &&
       !CommanderMapUiLaw.ShowFactionControl(1, CommanderMapUiLaw.HeroesModule) &&
@@ -207,6 +215,10 @@ Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
           ownFaction: true, eligibleBot: true, heroLevel: 0, dead: false) ==
       CommanderMapUiLaw.HeroAction.Declare,
     "undeclared faction-bot candidate did not offer Declare");
+Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
+          ownFaction: true, eligibleBot: true, heroLevel: 0, dead: false,
+          declarationCapacityAvailable: false) == CommanderMapUiLaw.HeroAction.None,
+    "over-cap faction offered another Declare");
 Check(CommanderMapUiLaw.HeroActionFor(1, CommanderMapUiLaw.HeroesModule,
           ownFaction: true, eligibleBot: true, heroLevel: 2, dead: false) ==
       CommanderMapUiLaw.HeroAction.Upgrade,
@@ -280,6 +292,14 @@ Check(renderer.Contains("unit.ControlEligibleNow", StringComparison.Ordinal) &&
 Check(!renderer.Contains("force roster total changed inside one page chain", StringComparison.Ordinal) &&
       !renderer.Contains("_rtsForceStaging.Count == page.Total", StringComparison.Ordinal),
     "live force-roster pages were incorrectly treated as a retained server snapshot");
+Check(renderer.Contains("RtsZoneIntelSnapshot next = RtsWire.ParseZoneIntel(body);",
+          StringComparison.Ordinal) &&
+      renderer.Contains("DrawCommanderTerritory", StringComparison.Ordinal),
+    "R3 typed zone snapshot or territory renderer wiring is missing");
+Check(renderer.Contains("STANDING SUPPLY", StringComparison.Ordinal) &&
+      renderer.Contains("HeroCapacityStatus", StringComparison.Ordinal) &&
+      renderer.Contains("declarationCapacityAvailable:", StringComparison.Ordinal),
+    "R3 supply/capacity/over-cap commander wiring is missing");
 
 string control = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Scene",
     "GameLoop.Control.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
@@ -289,6 +309,10 @@ string logout = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "P
     "GameLoop.Logout.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 string targeting = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Combat",
     "GameLoop.Targeting.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string territoryHud = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Hud",
+    "GameLoop.RtsTerritory.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
+string quest = File.ReadAllText(Path.Combine(root, "MSUIClient", "GameLoop", "Panels",
+    "GameLoop.Quest.cs")).Replace("\r\n", "\n", StringComparison.Ordinal);
 Check(control.Contains("RefreshControlledCharacterScale();", StringComparison.Ordinal) &&
       net.Contains("_character.ModelScale = scale;", StringComparison.Ordinal) &&
       net.Contains("controlled.Scale", StringComparison.Ordinal),
@@ -319,6 +343,16 @@ Check(targeting.Contains("_playerNames.Clear();", StringComparison.Ordinal) &&
       net.Contains("ResetPlayerIdentitySession();", StringComparison.Ordinal) &&
       logout.Contains("ResetPlayerIdentitySession();", StringComparison.Ordinal),
     "player identity caches can survive an MMO/RTS database swap");
+Check(territoryHud.Contains("TryDecodeTerritoryCaptureState", StringComparison.Ordinal) &&
+      territoryHud.Contains("Awaiting server", StringComparison.Ordinal) &&
+      territoryHud.Contains("PlayerPanelOpen", StringComparison.Ordinal),
+    "R3 capture HUD validation, no-prediction copy, or normal-HUD gate is missing");
+int rawWorldState = quest.IndexOf("_questWorldStates[id] = value;", StringComparison.Ordinal);
+int semanticWorldState = rawWorldState < 0 ? -1 : quest.IndexOf(
+    "ApplyRtsTerritoryWorldState(id, value);", rawWorldState, StringComparison.Ordinal);
+Check(rawWorldState >= 0 && semanticWorldState > rawWorldState &&
+      net.Contains("ClearRtsTerritoryCapture();", StringComparison.Ordinal),
+    "R3 world state stopped routing raw-first or clearing at the ordered world boundary");
 
 checks += RtsWireClinicalChecks.Run(root);
 

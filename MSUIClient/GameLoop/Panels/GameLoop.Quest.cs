@@ -312,6 +312,7 @@ public sealed partial class GameLoop
         _questLogSnapshot.Clear();
         _questQueries.Clear();
         _questWorldStates.Clear();
+        ClearRtsTerritoryCapture();
         if (clearStatusStore) _questStatuses.Clear();
     }
 
@@ -363,21 +364,27 @@ public sealed partial class GameLoop
     private void ApplyInitialWorldStates(byte[] body)
     {
         var r = new PacketReader(body);
-        r.ReadU32(); // map
-        r.ReadU32(); // zone
+        uint mapId = r.ReadU32();
+        uint zoneId = r.ReadU32();
+        ResetRtsTerritoryCaptureContext(mapId, zoneId);
         ushort count = r.ReadU16();
         if (r.Remaining != count * 8)
             throw new InvalidDataException($"world-state init count {count} has {r.Remaining} bytes");
         var received = new (uint Id, uint Value)[count];
         for (int i = 0; i < count; i++) received[i] = (r.ReadU32(), r.ReadU32());
         QuestWorldStateLaw.ApplyInit(_questWorldStates, received);
+        foreach ((uint id, uint value) in received)
+            ApplyRtsTerritoryWorldState(id, value);
     }
 
     private void ApplyWorldState(byte[] body)
     {
-        var r = new PacketReader(body);
         if (body.Length != 8) throw new InvalidDataException($"world-state update expected 8 bytes, got {body.Length}");
-        _questWorldStates[r.ReadU32()] = r.ReadU32();
+        var r = new PacketReader(body);
+        uint id = r.ReadU32();
+        uint value = r.ReadU32();
+        _questWorldStates[id] = value;
+        ApplyRtsTerritoryWorldState(id, value);
     }
 
     private void ApplyQuestError(Op opcode, byte[] body)

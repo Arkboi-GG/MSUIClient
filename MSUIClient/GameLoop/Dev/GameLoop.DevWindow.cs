@@ -419,6 +419,7 @@ public sealed partial class GameLoop
         if (inWorld && DevPlayerPosition() is { } me)
             ImGui.Text($"distance to my toon: {Vector3.Distance(me, unit.Position):0.#} yd");
 
+        DrawDevBaselineControls(spawnGuid, entry);
         DrawDevEditControls(spawn, entry, tpl);
     }
 

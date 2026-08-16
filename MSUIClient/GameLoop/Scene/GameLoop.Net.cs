@@ -553,6 +553,7 @@ public sealed partial class GameLoop
 
                             if ((Op)opcode == Op.SMSG_NEW_WORLD)
                             {
+                                ClearRtsTerritoryCapture();
                                 if (!_worldLoadStarted)
                                     throw new InvalidDataException(
                                         "NEW_WORLD arrived before initial world adoption");

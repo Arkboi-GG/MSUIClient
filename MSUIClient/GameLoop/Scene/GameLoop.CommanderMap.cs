@@ -14,13 +14,6 @@ namespace MSUIClient;
 // 2026-08-12 (CRPG_RTS_WIP.md "Future design" Part 1).
 public sealed partial class GameLoop
 {
-    private readonly record struct ZoneIntel(ushort Bots, ushort Players);
-    private readonly record struct CommanderUnit(ulong Guid, uint MapId, uint ZoneId, Vector3 Pos, byte Flags)
-    {
-        public bool Alive => (Flags & 1) != 0;
-        public bool IsBot => (Flags & 2) != 0;
-    }
-
     // ── tier-2 RTS worldstate (SMSG_SUI_RTS_STATE; all zeros in vanilla) ─────
     private byte _rtsMode;                           // 0 vanilla, 1 RTS match
     private byte _rtsModules;                        // bit0 honor, 1 heroes, 2 territory, 3 dungeons
@@ -43,15 +36,14 @@ public sealed partial class GameLoop
     private ushort _rtsForcePublishedTotal;
     private double _rtsForceAt;
     private ulong _rtsSelectedForceGuid;
-    private readonly Dictionary<uint, byte> _zoneControl = [];   // zoneId -> controller (0x80 = contested)
 
     /// <summary>0 = alliance, 1 = horde (the session character's side).</summary>
     private int OwnTeamIndex => _net?.Player?.Race is 2 or 5 or 6 or 8 ? 1 : 0;
 
     private bool _commanderMapOpen;
     private uint _commanderMapZone;                  // 0 = both-continent overview, else AreaId of the drilled-in zone
-    private readonly Dictionary<uint, ZoneIntel> _zoneIntel = [];
-    private readonly List<CommanderUnit> _commanderUnits = [];
+    private readonly Dictionary<uint, RtsTerritoryZoneWire> _zoneIntel = [];
+    private readonly List<RtsZoneIntelUnitWire> _commanderUnits = [];
     private double _zoneIntelAt;                     // NowSeconds() of the last SMSG; 0 = never
     private double _zoneIntelSentAt;                 // request throttle; 0 forces an immediate send
     private (float X, float Y, float Alt)? _commanderFlySettle;  // ground snap pending terrain streaming
@@ -90,7 +82,6 @@ public sealed partial class GameLoop
         _commanderMapOpen = false;
         _commanderMapZone = 0;
         _zoneIntel.Clear();
-        _zoneControl.Clear();
         _commanderUnits.Clear();
         _zoneIntelAt = 0;
         _zoneIntelSentAt = 0;
@@ -273,46 +264,14 @@ public sealed partial class GameLoop
     {
         try
         {
-            var r = new PacketReader(body);
-            ushort zoneCount = r.ReadU16();
-            byte zoneRowBytes = r.ReadU8();
-            if (zoneRowBytes < 8) throw new InvalidDataException($"zone row stride {zoneRowBytes} is smaller than 8");
-            var nextIntel = new Dictionary<uint, ZoneIntel>(zoneCount);
-            var nextControl = new Dictionary<uint, byte>(zoneCount);
-            for (int i = 0; i < zoneCount; i++)
-            {
-                uint zone = r.ReadU32();
-                ushort bots = r.ReadU16();
-                ushort players = r.ReadU16();
-                byte controller = 0;
-                if (zoneRowBytes >= 9) controller = r.ReadU8();   // R3 territory; 0x80 = contested
-                if (zoneRowBytes > 9) r.Skip(zoneRowBytes - 9);   // a future server grew the row
-                nextIntel[zone] = new ZoneIntel(bots, players);
-                nextControl[zone] = controller;
-            }
-            byte unitCount = r.ReadU8();
-            byte unitRowBytes = r.ReadU8();
-            if (unitRowBytes < 29) throw new InvalidDataException($"unit row stride {unitRowBytes} is smaller than 29");
-            var nextUnits = new List<CommanderUnit>(unitCount);
-            for (int i = 0; i < unitCount; i++)
-            {
-                ulong guid = r.ReadU64();
-                uint mapId = r.ReadU32();
-                uint zoneId = r.ReadU32();
-                Vector3 pos = r.ReadVector3();
-                byte flags = r.ReadU8();
-                if (unitRowBytes > 29) r.Skip(unitRowBytes - 29);
-                nextUnits.Add(new CommanderUnit(guid, mapId, zoneId, pos, flags));
-            }
+            RtsZoneIntelSnapshot next = RtsWire.ParseZoneIntel(body);
 
             // Publish one complete census. A malformed future packet must not mix
             // partial new zones with units or territory state from the previous one.
             _zoneIntel.Clear();
-            foreach ((uint zone, ZoneIntel intel) in nextIntel) _zoneIntel[zone] = intel;
-            _zoneControl.Clear();
-            foreach ((uint zone, byte controller) in nextControl) _zoneControl[zone] = controller;
+            foreach (RtsTerritoryZoneWire zone in next.Zones) _zoneIntel.Add(zone.ZoneId, zone);
             _commanderUnits.Clear();
-            _commanderUnits.AddRange(nextUnits);
+            _commanderUnits.AddRange(next.Units);
             _zoneIntelAt = NowSeconds();
         }
         catch (Exception e)
@@ -338,6 +297,9 @@ public sealed partial class GameLoop
             _rtsHeroes.AddRange(next.Heroes);
             _rtsDungeons.Clear();
             _rtsDungeons.AddRange(next.Dungeons);
+
+            if (!CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules))
+                ClearRtsTerritoryCapture();
 
             if (!CanUseFactionForceRoster())
                 ResetRtsForceRoster();
@@ -526,9 +488,11 @@ public sealed partial class GameLoop
         Vector2 bodyMin = new(margin, headerMax.Y + gap);
         Vector2 bodyMax = new(disp.X - margin, disp.Y - margin - footerH);
         bool showHeroes = CommanderMapUiLaw.ShowHeroes(_rtsMode, _rtsModules);
+        bool showTerritory = CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules);
+        bool showCampaignRail = showHeroes || showTerritory;
         Vector2 strategicBodyMax = bodyMax;
         Vector2 heroesMin = default;
-        if (showHeroes)
+        if (showCampaignRail)
         {
             float bodyWidth = bodyMax.X - bodyMin.X;
             float railWidth = MathF.Min(bodyWidth * 0.34f,
@@ -541,7 +505,7 @@ public sealed partial class GameLoop
             DrawCommanderWorldOverview(dl, bodyMin, strategicBodyMax, gap, s, playerMap, stale);
         else
             DrawCommanderDrill(dl, drilledZone, bodyMin, strategicBodyMax, gap, s, playerMap);
-        if (showHeroes)
+        if (showCampaignRail)
             DrawCommanderHeroesPanel(dl, heroesMin, bodyMax, s);
 
         bool noticeActive = _commanderNotice is not null && now - _commanderNoticeAt < 4.0;
@@ -599,10 +563,47 @@ public sealed partial class GameLoop
         float x = min.X + 12f * s;
         float right = max.X - 12f * s;
         float y = min.Y + 10f * s;
-        dl.AddText(ImGui.GetFont(), 15f * s, new Vector2(x, y), VanillaGold, "HEROES");
-        DrawCommanderRightAlignedText(dl, right, y,
-            $"{faction.HeroesFielded}/{faction.HeroSlotCap} FIELD", 11f * s, 0xFF9A948Du);
+        dl.AddText(ImGui.GetFont(), 15f * s, new Vector2(x, y), VanillaGold, "CAMPAIGN");
         y += 24f * s;
+
+        if (CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules))
+        {
+            dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x, y), 0xFF8A8A8A,
+                "STANDING SUPPLY");
+            y += 17f * s;
+            for (int team = 0; team < _rtsFactions.Length; team++)
+            {
+                RtsFactionWire row = _rtsFactions[team];
+                bool own = team == OwnTeamIndex;
+                string side = team == 0 ? "ALLIANCE" : "HORDE";
+                uint color = own ? 0xFFF0E6D2u : 0xFF9A948Du;
+                dl.AddText(ImGui.GetFont(), 11f * s, new Vector2(x, y), color,
+                    own ? $"{side} (YOU)" : side);
+                DrawCommanderRightAlignedText(dl, right, y,
+                    $"{row.ControlledZones} ZONES", 10f * s, color);
+                y += 16f * s;
+                dl.AddText(ImGui.GetFont(), 10f * s, new Vector2(x + 8f * s, y), 0xFF9A948Du,
+                    $"Ore {row.Ore:n0}   Skins {row.Skins:n0}   Herbs {row.Herbs:n0}");
+                y += 17f * s;
+                dl.AddText(ImGui.GetFont(), 9f * s, new Vector2(x + 8f * s, y),
+                    row.HeroesFielded > row.HeroSlotCap ? 0xFF6E7FE6u : 0xFF77716Bu,
+                    CommanderMapUiLaw.HeroCapacityStatus(row.HeroesFielded, row.HeroSlotCap));
+                y += 20f * s;
+            }
+            y += 3f * s;
+        }
+
+        if (!CommanderMapUiLaw.ShowHeroes(_rtsMode, _rtsModules))
+        {
+            dl.PopClipRect();
+            return;
+        }
+
+        dl.AddText(ImGui.GetFont(), 13f * s, new Vector2(x, y), VanillaGold, "HEROES");
+        DrawCommanderRightAlignedText(dl, right, y,
+            CommanderMapUiLaw.HeroCapacityStatus(faction.HeroesFielded, faction.HeroSlotCap),
+            10f * s, faction.HeroesFielded > faction.HeroSlotCap ? 0xFF6E7FE6u : 0xFF9A948Du);
+        y += 22f * s;
         if (CommanderMapUiLaw.ShowHonor(_rtsMode, _rtsModules))
         {
             dl.AddText(ImGui.GetFont(), 12f * s, new Vector2(x, y), 0xFF60C0E0,
@@ -633,7 +634,8 @@ public sealed partial class GameLoop
             bool actionEligible = !heroStatePending && (selected.Alive || heroDead);
             CommanderMapUiLaw.HeroAction action = CommanderMapUiLaw.HeroActionFor(
                 _rtsMode, _rtsModules, ownFaction: true, eligibleBot: actionEligible,
-                heroLevel, heroDead);
+                heroLevel, heroDead,
+                declarationCapacityAvailable: faction.HeroesFielded < faction.HeroSlotCap);
             string status = heroStatePending ? "HERO SYNC" : heroLevel > 0
                 ? $"HL {heroLevel}" + (heroDead ? " DEAD" : "")
                 : $"L{selected.Level} {ClassIdName(selected.Class)}".TrimEnd();
@@ -864,6 +866,14 @@ public sealed partial class GameLoop
         dl.AddRectFilled(map.CardMin, map.CardMax, 0xF01B1815, 5f * s);
         DrawCommanderMapTilesCropped(dl, map.Continent.Directory, viewport, crop, 0xFFFFFFFF);
 
+        // Territory is a strategic layer, not an interaction target. Paint it
+        // after parchment and before hover/presence so navigation stays unchanged.
+        if (CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules))
+            foreach (CommanderZoneRect zone in map.Zones)
+                if (_zoneIntel.TryGetValue(zone.Zone.AreaId, out RtsTerritoryZoneWire territory) &&
+                    (territory.Owner != RtsTerritoryOwner.Neutral || territory.Contested))
+                    DrawCommanderTerritory(dl, map, zone, territory, s);
+
         ImGui.SetCursorScreenPos(viewport.Min);
         ImGui.InvisibleButton($"##commander-world-{map.MapId}", viewport.Size);
         CommanderZoneRect? hovered = ImGui.IsItemHovered()
@@ -894,7 +904,7 @@ public sealed partial class GameLoop
         var occupied = new List<(Vector2 Min, Vector2 Max)>();
         foreach (CommanderZoneRect zone in map.Zones)
         {
-            if (!_zoneIntel.TryGetValue(zone.Zone.AreaId, out ZoneIntel intel) ||
+            if (!_zoneIntel.TryGetValue(zone.Zone.AreaId, out RtsTerritoryZoneWire intel) ||
                 intel.Bots + intel.Players == 0) continue;
             Vector2 centre = CommanderMapUiLaw.ProjectCrop(viewport, crop,
                 (zone.Min + zone.Max) * 0.5f);
@@ -957,16 +967,81 @@ public sealed partial class GameLoop
         dl.PopClipRect();
     }
 
+    private void DrawCommanderTerritory(ImDrawListPtr dl, in CommanderOverviewMap map,
+        in CommanderZoneRect zone, in RtsTerritoryZoneWire territory, float s)
+    {
+        CommanderMapUiLaw.ScreenRect viewport = CommanderViewport(map);
+        CommanderMapUiLaw.NormalizedRect crop = CommanderCrop(map);
+        uint ownerColor = territory.Owner switch
+        {
+            RtsTerritoryOwner.Alliance => 0x70E68A46u,
+            RtsTerritoryOwner.Horde => 0x703D48D8u,
+            _ => 0x505F5F5Fu,
+        };
+        float pulse = 0.5f + 0.5f * MathF.Sin((float)NowSeconds() * 4f);
+        uint contestedColor = (uint)(0x48 + (int)(pulse * 0x38)) << 24 | 0x0032AAE6u;
+
+        Vector2 centre = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+            (zone.Min + zone.Max) * 0.5f);
+        bool drewMask = false;
+        if (_worldMapHighlights?.TryGetArea(
+                zone.Zone.AreaId, out WorldMapHighlightInfo highlight) == true)
+        {
+            Vector2 min = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+                new Vector2(highlight.Bounds.Left, highlight.Bounds.Top));
+            Vector2 max = CommanderMapUiLaw.ProjectCrop(viewport, crop,
+                new Vector2(highlight.Bounds.Right, highlight.Bounds.Bottom));
+            uint texture = _gameplayArt!.AdditiveHandle(highlight.TexturePath);
+            if (texture != 0)
+            {
+                dl.PushClipRect(viewport.Min, viewport.Max, true);
+                dl.AddImage((nint)texture, Vector2.Min(min, max), Vector2.Max(min, max),
+                    Vector2.Zero, new Vector2(highlight.UMax, highlight.VMax), ownerColor);
+                if (territory.Contested)
+                    dl.AddRect(Vector2.Min(min, max), Vector2.Max(min, max), contestedColor,
+                        2f * s, ImDrawFlags.None, 2f * s);
+                dl.PopClipRect();
+                drewMask = true;
+            }
+        }
+
+        // The badge is also the required fallback when a stock zone has no
+        // highlight texture; color is never the sole ownership signal.
+        string badge = territory.Contested ? "!" : territory.Owner switch
+        {
+            RtsTerritoryOwner.Alliance => "A",
+            RtsTerritoryOwner.Horde => "H",
+            _ => "N",
+        };
+        float radius = (drewMask ? 8f : 10f) * s;
+        uint badgeColor = territory.Contested ? contestedColor : ownerColor | 0xC0000000u;
+        dl.AddCircleFilled(centre, radius, badgeColor);
+        DrawCenteredText(dl, centre, badge, 10f * s, 0xFFFFFFFFu);
+    }
+
+    private string CommanderTerritoryStatus(in RtsTerritoryZoneWire zone)
+    {
+        if (!CommanderMapUiLaw.ShowTerritory(_rtsMode, _rtsModules)) return string.Empty;
+        string owner = zone.Owner switch
+        {
+            RtsTerritoryOwner.Alliance => "Alliance",
+            RtsTerritoryOwner.Horde => "Horde",
+            _ => "Neutral",
+        };
+        return zone.Contested ? $"  -  {owner} (CONTESTED)" : $"  -  {owner}";
+    }
+
     private string CommanderZoneSummary(WorldMapAreaInfo zone)
     {
-        _zoneIntel.TryGetValue(zone.AreaId, out ZoneIntel intel);
-        return $"{CommanderZoneName(zone)}  -  B{intel.Bots}  -  P{intel.Players}";
+        _zoneIntel.TryGetValue(zone.AreaId, out RtsTerritoryZoneWire intel);
+        string control = CommanderTerritoryStatus(intel);
+        return $"{CommanderZoneName(zone)}  -  B{intel.Bots}  -  P{intel.Players}{control}";
     }
 
     private string CommanderContinentSummary(uint mapId)
     {
         int zones = 0, bots = 0, players = 0;
-        foreach ((uint areaId, ZoneIntel intel) in _zoneIntel)
+        foreach ((uint areaId, RtsTerritoryZoneWire intel) in _zoneIntel)
         {
             if (_worldMapAreas?.TryGetArea(areaId, out WorldMapAreaInfo area) != true ||
                 area.MapId != mapId || intel.Bots + intel.Players == 0) continue;
@@ -978,10 +1053,10 @@ public sealed partial class GameLoop
             $"{zones} populated zones  -  B{bots}  -  P{players}";
     }
 
-    private List<(WorldMapAreaInfo Area, ZoneIntel Intel, string Name)> CommanderPresenceRows(uint mapId)
+    private List<(WorldMapAreaInfo Area, RtsTerritoryZoneWire Intel, string Name)> CommanderPresenceRows(uint mapId)
     {
-        var rows = new List<(WorldMapAreaInfo, ZoneIntel, string)>();
-        foreach ((uint areaId, ZoneIntel intel) in _zoneIntel)
+        var rows = new List<(WorldMapAreaInfo, RtsTerritoryZoneWire, string)>();
+        foreach ((uint areaId, RtsTerritoryZoneWire intel) in _zoneIntel)
         {
             if (_worldMapAreas?.TryGetArea(areaId, out WorldMapAreaInfo area) != true ||
                 !CommanderMapUiLaw.ShowWorldPresence(area.MapId, intel.Bots, intel.Players) ||
@@ -1009,7 +1084,7 @@ public sealed partial class GameLoop
     private uint DrawCommanderPresenceColumn(ImDrawListPtr dl, uint mapId, string continentName,
         Vector2 min, Vector2 max, float s, bool stale)
     {
-        List<(WorldMapAreaInfo Area, ZoneIntel Intel, string Name)> rows = CommanderPresenceRows(mapId);
+        List<(WorldMapAreaInfo Area, RtsTerritoryZoneWire Intel, string Name)> rows = CommanderPresenceRows(mapId);
         int visible = Math.Min(3, rows.Count);
         float x = min.X + 12f * s;
         float y = min.Y + 9f * s;
@@ -1108,8 +1183,8 @@ public sealed partial class GameLoop
 
         bool forceZoneReady = CommanderMapUiLaw.ShowFactionControl(_rtsMode, _rtsModules) &&
             _rtsForcePublishedZone == zone.AreaId;
-        CommanderUnit? hoveredUnit = null;
-        foreach (CommanderUnit unit in _commanderUnits)
+        RtsZoneIntelUnitWire? hoveredUnit = null;
+        foreach (RtsZoneIntelUnitWire unit in _commanderUnits)
         {
             if (forceZoneReady && _rtsForces.ContainsKey(unit.Guid)) continue;
             if (!CommanderUnitInZone(unit, zone, out Vector2 f)) continue;
@@ -1144,7 +1219,7 @@ public sealed partial class GameLoop
             if (ImGui.IsItemClicked())
                 _rtsSelectedForceGuid = force.Guid;
         }
-        else if (hoveredUnit is CommanderUnit hu)
+        else if (hoveredUnit is RtsZoneIntelUnitWire hu)
         {
             string name = CommanderUnitName(hu.Guid);
             DrawCommanderFlyout(dl, mouse + new Vector2(18f, 10f) * s, s,
@@ -1156,7 +1231,7 @@ public sealed partial class GameLoop
                     CommanderShowNotice("Camera travel is limited to your current continent.");
                 else
                 {
-                    CommanderFlyTo(hu.Pos.X, hu.Pos.Y, CommanderUnitAltitude);
+                    CommanderFlyTo(hu.Position.X, hu.Position.Y, CommanderUnitAltitude);
                     _commanderMapOpen = false;      // unit click = the deliberate "enter the world" action
                 }
             }
@@ -1183,9 +1258,9 @@ public sealed partial class GameLoop
         }
     }
 
-    private static bool CommanderUnitInZone(CommanderUnit unit, WorldMapAreaInfo zone, out Vector2 fraction)
+    private static bool CommanderUnitInZone(RtsZoneIntelUnitWire unit, WorldMapAreaInfo zone, out Vector2 fraction)
     {
-        fraction = new Vector2(zone.X(unit.Pos.Y), zone.Y(unit.Pos.X));
+        fraction = new Vector2(zone.X(unit.Position.Y), zone.Y(unit.Position.X));
         if (unit.MapId != zone.MapId) return false;
         bool inside = fraction.X is > 0.001f and < 0.999f &&
                       fraction.Y is > 0.001f and < 0.999f;
@@ -1212,8 +1287,8 @@ public sealed partial class GameLoop
 
         if (!drilled)
         {
-            var rows = new List<(uint ZoneId, ZoneIntel Intel, WorldMapAreaInfo Area, string Name)>();
-            foreach ((uint zoneId, ZoneIntel intel) in _zoneIntel)
+            var rows = new List<(uint ZoneId, RtsTerritoryZoneWire Intel, WorldMapAreaInfo Area, string Name)>();
+            foreach ((uint zoneId, RtsTerritoryZoneWire intel) in _zoneIntel)
             {
                 if (_worldMapAreas?.TryGetArea(zoneId, out WorldMapAreaInfo area) != true ||
                     !CommanderMapUiLaw.ShowPresence((uint)mapId, area.MapId, intel.Bots, intel.Players)) continue;
@@ -1243,7 +1318,7 @@ public sealed partial class GameLoop
             {
                 var row = rows[i];
                 uint zoneId = row.ZoneId;
-                ZoneIntel intel = row.Intel;
+                RtsTerritoryZoneWire intel = row.Intel;
                 string name = row.Name;
                 ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
                 ImGui.InvisibleButton($"##cmd-active-{zoneId}", new Vector2(actualMax.X - x - 8f * s, line));
@@ -1278,8 +1353,8 @@ public sealed partial class GameLoop
                 return;
             }
 
-            var units = new List<CommanderUnit>();
-            foreach (CommanderUnit unit in _commanderUnits)
+            var units = new List<RtsZoneIntelUnitWire>();
+            foreach (RtsZoneIntelUnitWire unit in _commanderUnits)
                 if (CommanderUnitInZone(unit, drilledZone, out _)) units.Add(unit);
             int visible = Math.Min(maxVisibleRows, units.Count);
             bool overflow = units.Count > visible;
@@ -1298,7 +1373,7 @@ public sealed partial class GameLoop
 
             for (int i = 0; i < visible; i++)
             {
-                CommanderUnit unit = units[i];
+                RtsZoneIntelUnitWire unit = units[i];
                 string name = CommanderUnitName(unit.Guid);
                 uint color = unit.Alive ? CommanderClassColor(BotClassName(unit.Guid, name)) : 0xFF707070;
                 ImGui.SetCursorScreenPos(new Vector2(x - 4f * s, y - 2f * s));
@@ -1317,7 +1392,7 @@ public sealed partial class GameLoop
                         CommanderShowNotice("Camera travel is limited to your current continent.");
                     else
                     {
-                        CommanderFlyTo(unit.Pos.X, unit.Pos.Y, CommanderUnitAltitude);
+                        CommanderFlyTo(unit.Position.X, unit.Position.Y, CommanderUnitAltitude);
                         _commanderMapOpen = false;
                     }
                 }
@@ -1487,7 +1562,7 @@ public sealed partial class GameLoop
     }
 
     private static (Vector2 Min, Vector2 Max) DrawCommanderPill(ImDrawListPtr dl,
-        Vector2 centre, ZoneIntel intel, float s, bool stale, Vector2? avoid,
+        Vector2 centre, RtsTerritoryZoneWire intel, float s, bool stale, Vector2? avoid,
         Vector2 frameMin, Vector2 frameMax, IReadOnlyList<(Vector2 Min, Vector2 Max)> occupied)
     {
         string text = $"B{intel.Bots}  ·  P{intel.Players}";
@@ -1544,7 +1619,7 @@ public sealed partial class GameLoop
             centre + new Vector2(0, r), centre + new Vector2(-r, 0), 0xFF202020, 1.5f);
     }
 
-    private void DrawCommanderUnitMarker(ImDrawListPtr dl, CommanderUnit unit, Vector2 p, float s, bool hover)
+    private void DrawCommanderUnitMarker(ImDrawListPtr dl, RtsZoneIntelUnitWire unit, Vector2 p, float s, bool hover)
     {
         string name = CommanderUnitName(unit.Guid);
         float r = (hover ? 9f : 7f) * s;

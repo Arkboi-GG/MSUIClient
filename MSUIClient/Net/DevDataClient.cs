@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using MSUIClient.Formats;
 
 namespace MSUIClient.Net;
 
@@ -28,6 +30,22 @@ public sealed record NpcTemplateInfo(
     uint MovementType,         // template default: 0 idle, 1 random, 2 waypoint
     uint FlagsExtra,           // CREATURE_FLAG_EXTRA_NO_AGGRO = 0x2
     uint StaticFlags);         // SESSILE 0x100, IGNORE_COMBAT 0x2000000
+
+/// <summary>Per-packet verdict the /NpcDev/Apply endpoint returns.</summary>
+public sealed record NpcApplyPacketVerdict(int Id, string Type, string Verdict, string? Message, long? AuditId);
+
+/// <summary>Published result of a background change-set commit (POST /NpcDev/Apply).
+/// Ok=false means the round trip failed (see Error); per-packet outcomes live in Results.</summary>
+public sealed record NpcApplyResult(bool Ok, int Applied, int Stale, int Failed, string? BatchId,
+    IReadOnlyList<NpcApplyPacketVerdict> Results, string? Error, DateTime CompletedUtc);
+
+/// <summary>Whether a spawn (its row/path) and its entry's template differ from the OG baseline.
+/// HasBaseline=false ⇒ the creature baselines haven't been captured yet.</summary>
+public sealed record NpcDiff(bool HasBaseline, uint Guid, uint Entry, bool SpawnModified,
+    bool PathModified, bool TemplateModified, bool BaselineHasSpawn)
+{
+    public bool Modified => SpawnModified || PathModified || TemplateModified;
+}
 
 public sealed class DevDataClient
 {
@@ -471,5 +489,176 @@ public sealed class DevDataClient
         }
         if (field.Length > 0 || row.Count > 0) EndRow();
         return rows;
+    }
+
+    // ── change-set apply (POST /NpcDev/Apply) ────────────────────────────────
+    //
+    // The write side: POST the accumulated change-set to MangosSuperUI's audited
+    // apply endpoint, off the game thread, and publish an immutable result. Making
+    // the committed change LIVE is the client's separate owner-clicked reload (GM
+    // command) — never done here.
+
+    private static readonly JsonSerializerOptions ApplyJson =
+        new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
+
+    private volatile NpcApplyResult? _applyResult;
+    private Task? _applying;
+
+    /// <summary>The latest completed commit result; null until the first commit lands.</summary>
+    public NpcApplyResult? ApplyResult => _applyResult;
+
+    public bool Applying => _applying is { IsCompleted: false };
+
+    /// <summary>POST the change-set to <paramref name="baseUrl"/>/NpcDev/Apply on a background
+    /// Task, publishing an immutable <see cref="NpcApplyResult"/>. No-op while one is in flight.</summary>
+    public void BeginApply(string baseUrl, DevChangeSet set)
+    {
+        if (Applying) return;
+        _applyResult = null;
+        _applying = Task.Run(() => PostApply(baseUrl, set));
+    }
+
+    private async Task PostApply(string baseUrl, DevChangeSet set)
+    {
+        try
+        {
+            string url = $"{baseUrl.TrimEnd('/')}/NpcDev/Apply";
+            string json = JsonSerializer.Serialize(set, ApplyJson);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using HttpResponseMessage resp = await _http.PostAsync(url, content).ConfigureAwait(false);
+            string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _applyResult = new NpcApplyResult(false, 0, 0, 0, null, [],
+                    $"HTTP {(int)resp.StatusCode}: {TrimBody(body)}", DateTime.UtcNow);
+                Console.WriteLine($"[dev-data] apply failed: {_applyResult.Error}");
+                return;
+            }
+            ApplyDto? dto = JsonSerializer.Deserialize<ApplyDto>(body, ApplyJson);
+            var results = (dto?.Results ?? []).Select(r =>
+                new NpcApplyPacketVerdict(r.Id, r.Type ?? "", r.Verdict ?? "", r.Message, r.AuditId)).ToList();
+            _applyResult = new NpcApplyResult(true, dto?.Applied ?? 0, dto?.Stale ?? 0, dto?.Failed ?? 0,
+                dto?.BatchId, results, null, DateTime.UtcNow);
+            Console.WriteLine($"[dev-data] apply: {_applyResult.Applied} applied, " +
+                $"{_applyResult.Stale} stale, {_applyResult.Failed} failed (batch {_applyResult.BatchId})");
+        }
+        catch (Exception ex)
+        {
+            _applyResult = new NpcApplyResult(false, 0, 0, 0, null, [], ex.Message, DateTime.UtcNow);
+            Console.WriteLine($"[dev-data] apply error: {ex.Message}");
+        }
+    }
+
+    private static string TrimBody(string s) => s.Length <= 200 ? s : s[..200] + "…";
+
+    private sealed class ApplyDto
+    {
+        public string? BatchId { get; set; }
+        public int Applied { get; set; }
+        public int Stale { get; set; }
+        public int Failed { get; set; }
+        public List<VerdictDto>? Results { get; set; }
+    }
+
+    private sealed class VerdictDto
+    {
+        public int Id { get; set; }
+        public string? Type { get; set; }
+        public string? Verdict { get; set; }
+        public string? Message { get; set; }
+        public long? AuditId { get; set; }
+    }
+
+    // ── OG baseline: diff (changed-from-original) + reset ────────────────────
+
+    private volatile NpcDiff? _diff;
+    private Task? _diffing;
+
+    /// <summary>Latest OG diff (for the last-requested guid); null until the first lands.</summary>
+    public NpcDiff? Diff => _diff;
+
+    public bool Diffing => _diffing is { IsCompleted: false };
+
+    /// <summary>Fetch whether one spawn (+ its entry's template) differs from the OG baseline.</summary>
+    public void BeginDiff(string baseUrl, uint guid, uint entry)
+    {
+        if (Diffing) return;
+        _diffing = Task.Run(() => FetchDiff(baseUrl, guid, entry));
+    }
+
+    private async Task FetchDiff(string baseUrl, uint guid, uint entry)
+    {
+        try
+        {
+            string url = $"{baseUrl.TrimEnd('/')}/NpcDev/Diff?guid={guid}&entry={entry}";
+            string json = await _http.GetStringAsync(url).ConfigureAwait(false);
+            DiffDto? d = JsonSerializer.Deserialize<DiffDto>(json, ApplyJson);
+            _diff = d is null
+                ? new NpcDiff(false, guid, entry, false, false, false, false)
+                : new NpcDiff(d.HasBaseline, d.Guid == 0 ? guid : d.Guid, d.Entry == 0 ? entry : d.Entry,
+                    d.SpawnModified, d.PathModified, d.TemplateModified, d.BaselineHasSpawn);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[dev-data] diff failed: {ex.Message}");
+            _diff = new NpcDiff(false, guid, entry, false, false, false, false);
+        }
+    }
+
+    private volatile NpcApplyResult? _resetResult;
+    private Task? _resetting;
+
+    /// <summary>Latest reset-to-original result; null until the first reset lands.</summary>
+    public NpcApplyResult? ResetResult => _resetResult;
+
+    public bool Resetting => _resetting is { IsCompleted: false };
+
+    /// <summary>POST a reset-to-original request (restore guids' spawn+path, entries' template
+    /// detection) to /NpcDev/Reset on a background Task; publishes an immutable result.</summary>
+    public void BeginReset(string baseUrl, string character, IReadOnlyList<uint> guids, IReadOnlyList<uint> entries)
+    {
+        if (Resetting) return;
+        _resetResult = null;
+        _resetting = Task.Run(() => PostReset(baseUrl, character, guids, entries));
+    }
+
+    private async Task PostReset(string baseUrl, string character, IReadOnlyList<uint> guids, IReadOnlyList<uint> entries)
+    {
+        try
+        {
+            string url = $"{baseUrl.TrimEnd('/')}/NpcDev/Reset";
+            string json = JsonSerializer.Serialize(new { character, guids, entries }, ApplyJson);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using HttpResponseMessage resp = await _http.PostAsync(url, content).ConfigureAwait(false);
+            string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _resetResult = new NpcApplyResult(false, 0, 0, 0, null, [],
+                    $"HTTP {(int)resp.StatusCode}: {TrimBody(body)}", DateTime.UtcNow);
+                return;
+            }
+            ApplyDto? dto = JsonSerializer.Deserialize<ApplyDto>(body, ApplyJson);
+            var results = (dto?.Results ?? []).Select(r =>
+                new NpcApplyPacketVerdict(r.Id, r.Type ?? "", r.Verdict ?? "", r.Message, r.AuditId)).ToList();
+            _resetResult = new NpcApplyResult(true, dto?.Applied ?? 0, dto?.Stale ?? 0, dto?.Failed ?? 0,
+                dto?.BatchId, results, null, DateTime.UtcNow);
+            Console.WriteLine($"[dev-data] reset: {_resetResult.Applied} applied, {_resetResult.Failed} failed");
+        }
+        catch (Exception ex)
+        {
+            _resetResult = new NpcApplyResult(false, 0, 0, 0, null, [], ex.Message, DateTime.UtcNow);
+            Console.WriteLine($"[dev-data] reset error: {ex.Message}");
+        }
+    }
+
+    private sealed class DiffDto
+    {
+        public bool HasBaseline { get; set; }
+        public uint Guid { get; set; }
+        public uint Entry { get; set; }
+        public bool SpawnModified { get; set; }
+        public bool PathModified { get; set; }
+        public bool TemplateModified { get; set; }
+        public bool BaselineHasSpawn { get; set; }
     }
 }

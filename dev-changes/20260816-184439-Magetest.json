@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "session": {
+    "createdUtc": "2026-08-16T18:44:39.9787641Z",
+    "character": "Magetest",
+    "sourceSnapshotUtc": "2026-08-16T18:43:28.5059922Z",
+    "suiBase": "http://192.168.0.2:5000"
+  },
+  "packets": []
+}

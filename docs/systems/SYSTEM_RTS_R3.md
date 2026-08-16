@@ -3,8 +3,12 @@
 **Date:** 2026-08-15
 
 **Status:** implementation plan; R3 is not implemented end-to-end. Existing
-reserved client/Core fields are scaffolding. This planning work made no
-database, deployment, or runtime change.
+Core/web fields remain scaffolding. **Client Gate 4 was implemented and
+build/clinical-verified on 2026-08-16:** typed atomic zone-intel parsing,
+packed capture-state validation/lifecycle, Commander territory/supply/capacity
+presentation, over-cap Declare affordance, and the local capture strip. The
+client build and 152-assertion Commander clinical check pass. No database,
+deployment, or runtime change occurred; Gates 1B-3 and 5-6 remain pending.
 
 ## Session planning decisions (2026-08-15)
 

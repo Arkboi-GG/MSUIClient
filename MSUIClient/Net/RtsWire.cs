@@ -24,6 +24,57 @@ public readonly record struct RtsDungeonWire(
     byte Controller,
     byte LiveRunFlags);
 
+public enum RtsTerritoryOwner : byte
+{
+    Neutral = 0,
+    Alliance = 1,
+    Horde = 2,
+}
+
+public enum RtsTerritoryCapturePhase : byte
+{
+    Hidden = 0,
+    Stable = 1,
+    Contested = 2,
+    Cooldown = 3,
+}
+
+/// <summary>One typed zone-intel row. Raw server controller codes never escape this boundary.</summary>
+public readonly record struct RtsTerritoryZoneWire(
+    uint ZoneId,
+    ushort Bots,
+    ushort Players,
+    RtsTerritoryOwner Owner,
+    bool Contested);
+
+/// <summary>One self/group unit row carried alongside the global zone census.</summary>
+public readonly record struct RtsZoneIntelUnitWire(
+    ulong Guid,
+    uint MapId,
+    uint ZoneId,
+    Vector3 Position,
+    byte Flags)
+{
+    public bool Alive => (Flags & 0x01) != 0;
+    public bool IsBot => (Flags & 0x02) != 0;
+}
+
+/// <summary>A complete census publication. Parsing either block must succeed before this is visible.</summary>
+public sealed record RtsZoneIntelSnapshot(
+    RtsTerritoryZoneWire[] Zones,
+    RtsZoneIntelUnitWire[] Units);
+
+/// <summary>The validated semantic projection of SUI_TERRITORY_CAPTURE_STATE.</summary>
+public readonly record struct RtsTerritoryCaptureState(
+    RtsTerritoryCapturePhase Phase,
+    RtsTerritoryOwner Owner,
+    RtsTerritoryOwner Attacker,
+    ushort ProgressPermille,
+    ushort RemainingSeconds)
+{
+    public bool Visible => Phase != RtsTerritoryCapturePhase.Hidden;
+}
+
 /// <summary>
 /// One complete, validated RTS snapshot. The two faction rows are always ordered
 /// Alliance (0), Horde (1), matching the server packet contract.
@@ -89,6 +140,7 @@ public sealed record RtsForceRosterPage(
 /// </summary>
 public static class RtsWire
 {
+    public const uint TerritoryCaptureWorldStateId = 0x53550001;
     public const byte FactionRowBytes = 26;
     public const byte HeroRowBytes = 12;
     public const byte DungeonRowBytes = 7;
@@ -97,6 +149,104 @@ public static class RtsWire
     public const byte ForceRowBytes = 32;
     public const byte MaximumForcePageSize = 200;
     public const int ForceRequestBytes = 14;
+
+    public const byte ZoneIntelLegacyRowBytes = 8;
+    public const byte ZoneIntelTerritoryRowBytes = 9;
+    public const byte ZoneIntelUnitRowBytes = 29;
+
+    public static RtsZoneIntelSnapshot ParseZoneIntel(byte[] body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        var r = new PacketReader(body);
+        ushort zoneCount = r.ReadU16();
+        byte zoneStride = r.ReadU8();
+        RequireStride("zone-intel zone", zoneStride, ZoneIntelLegacyRowBytes);
+
+        var zones = new RtsTerritoryZoneWire[zoneCount];
+        var seenZones = new HashSet<uint>();
+        for (int i = 0; i < zones.Length; i++)
+        {
+            uint zoneId = r.ReadU32();
+            ushort bots = r.ReadU16();
+            ushort players = r.ReadU16();
+            byte rawController = zoneStride >= ZoneIntelTerritoryRowBytes ? r.ReadU8() : (byte)0;
+            r.Skip(zoneStride - (zoneStride >= ZoneIntelTerritoryRowBytes
+                ? ZoneIntelTerritoryRowBytes : ZoneIntelLegacyRowBytes));
+
+            if (zoneId == 0)
+                throw new InvalidDataException("zone-intel contains a zero zone id");
+            if (!seenZones.Add(zoneId))
+                throw new InvalidDataException($"zone-intel contains duplicate zone {zoneId}");
+            DecodeController(rawController, out RtsTerritoryOwner owner, out bool contested);
+            zones[i] = new RtsTerritoryZoneWire(zoneId, bots, players, owner, contested);
+        }
+
+        byte unitCount = r.ReadU8();
+        byte unitStride = r.ReadU8();
+        RequireStride("zone-intel unit", unitStride, ZoneIntelUnitRowBytes);
+        var units = new RtsZoneIntelUnitWire[unitCount];
+        var seenUnits = new HashSet<ulong>();
+        for (int i = 0; i < units.Length; i++)
+        {
+            ulong guid = r.ReadU64();
+            uint mapId = r.ReadU32();
+            uint zoneId = r.ReadU32();
+            Vector3 position = r.ReadVector3();
+            byte flags = r.ReadU8();
+            r.Skip(unitStride - ZoneIntelUnitRowBytes);
+
+            if (guid == 0 || !seenUnits.Add(guid))
+                throw new InvalidDataException("zone-intel contains a zero or duplicate unit GUID");
+            if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) ||
+                !float.IsFinite(position.Z))
+                throw new InvalidDataException("zone-intel contains a non-finite unit position");
+            if ((flags & ~0x03) != 0)
+                throw new InvalidDataException($"zone-intel unit has unknown flags 0x{flags:X2}");
+            units[i] = new RtsZoneIntelUnitWire(guid, mapId, zoneId, position, flags);
+        }
+
+        RequireFullyConsumed(r, "SMSG_SUI_ZONE_INTEL");
+        return new RtsZoneIntelSnapshot(zones, units);
+    }
+
+    public static bool TryDecodeTerritoryCaptureState(
+        uint packed, out RtsTerritoryCaptureState state)
+    {
+        var owner = (RtsTerritoryOwner)(packed & 0x03);
+        var attacker = (RtsTerritoryOwner)((packed >> 2) & 0x03);
+        var phase = (RtsTerritoryCapturePhase)((packed >> 4) & 0x03);
+        ushort progress = (ushort)((packed >> 6) & 0x03FF);
+        ushort remaining = (ushort)(packed >> 16);
+
+        bool ownersValid = owner <= RtsTerritoryOwner.Horde &&
+                           attacker <= RtsTerritoryOwner.Horde;
+        bool valid = ownersValid && progress <= 1000 && phase switch
+        {
+            RtsTerritoryCapturePhase.Hidden => packed == 0,
+            RtsTerritoryCapturePhase.Stable =>
+                attacker == RtsTerritoryOwner.Neutral && progress == 0 && remaining == 0,
+            RtsTerritoryCapturePhase.Contested =>
+                attacker is RtsTerritoryOwner.Alliance or RtsTerritoryOwner.Horde &&
+                (owner == RtsTerritoryOwner.Neutral || attacker != owner),
+            RtsTerritoryCapturePhase.Cooldown =>
+                attacker == RtsTerritoryOwner.Neutral && progress == 0,
+            _ => false,
+        };
+
+        state = valid
+            ? new RtsTerritoryCaptureState(phase, owner, attacker, progress, remaining)
+            : default;
+        return valid;
+    }
+
+    private static void DecodeController(
+        byte raw, out RtsTerritoryOwner owner, out bool contested)
+    {
+        if ((raw & 0x7C) != 0 || (raw & 0x03) > 2)
+            throw new InvalidDataException($"zone-intel has invalid controller 0x{raw:X2}");
+        owner = (RtsTerritoryOwner)(raw & 0x03);
+        contested = (raw & 0x80) != 0;
+    }
 
     public static RtsStateSnapshot ParseState(byte[] body)
     {
