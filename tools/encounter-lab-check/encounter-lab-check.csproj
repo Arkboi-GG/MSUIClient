@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Standalone verification for the Encounter Lab's pure subsystem. Links the
+       encounter sources directly (they have no GameLoop, GL or ImGui dependency
+       by design) so the simulator, geometry, probe, translator and file format
+       can be exercised headlessly. EncounterSpellFacts is deliberately NOT
+       linked: it is the only file that reaches into Formats/SpellCatalog, and
+       the tests use a stub implementation of IEncounterSpellFacts instead. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>encounter-lab-check</AssemblyName>
+    <RootNamespace>EncounterLabCheck</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterDefinition.cs" Link="World\Encounters\EncounterDefinition.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterGeometry.cs" Link="World\Encounters\EncounterGeometry.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterSim.cs" Link="World\Encounters\EncounterSim.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterProbe.cs" Link="World\Encounters\EncounterProbe.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterLibrary.cs" Link="World\Encounters\EncounterLibrary.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\EncounterTranslator.cs" Link="World\Encounters\EncounterTranslator.cs" />
+    <Compile Include="..\..\MSUIClient\Net\EncounterWorldData.cs" Link="Net\EncounterWorldData.cs" />
+    <Compile Include="..\..\MSUIClient\Net\EncounterDataClient.cs" Link="Net\EncounterDataClient.cs" />
+  </ItemGroup>
+</Project>

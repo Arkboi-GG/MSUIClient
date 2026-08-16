@@ -112,6 +112,7 @@ public sealed class GameSettings
     public ControlSettings Controls { get; set; } = new();
     public StreamingSettings Streaming { get; set; } = new();
     public DevWindowSettings DevWindow { get; set; } = new();
+    public EncounterLabSettings EncounterLab { get; set; } = new();
     public MenuLayoutSettings MenuLayout { get; set; } = new();
     public MountSettings Mounts { get; set; } = new();
     public AudioSettings Audio { get; set; } = new();
@@ -820,6 +821,51 @@ public sealed class GameSettings
 
         /// <summary>MangosSuperUI base URL for DB reads (and later, change-set upload).</summary>
         public string SuiBaseUrl { get; set; } = "http://192.168.0.2:5000";
+    }
+
+    /// <summary>
+    /// The Encounter Lab (Ctrl+E). Separate from <see cref="DevWindowSettings"/> on
+    /// purpose: the NPC dev window is spatial and static, the Lab is temporal and
+    /// dynamic, and neither should be able to churn the other's saved settings.
+    /// </summary>
+    public sealed class EncounterLabSettings
+    {
+        /// <summary>Draw the footprints of effects landing at the scrubbed instant.</summary>
+        public bool ShowFootprints { get; set; } = true;
+
+        /// <summary>Draw every catalogued footprint the definition owns, ignoring
+        /// timing — the "where could this ever land" view.</summary>
+        public bool ShowStructural { get; set; }
+
+        /// <summary>Draw the boss's authored movement route (flight waypoints).</summary>
+        public bool ShowRoute { get; set; } = true;
+
+        /// <summary>Draw scenario actor markers and the probe capsule.</summary>
+        public bool ShowActors { get; set; } = true;
+
+        /// <summary>Screen-space labels beside footprints and actors.</summary>
+        public bool ShowLabels { get; set; } = true;
+
+        /// <summary>Milliseconds of simulated time per fixed step. The core's own
+        /// creature update lands near 100 ms.</summary>
+        public int StepMs { get; set; } = 100;
+
+        /// <summary>Playback rate multiplier applied to wall-clock time.</summary>
+        public float PlaybackSpeed { get; set; } = 1f;
+
+        /// <summary>Seed naming the fight. Same seed, same rolls, forever.</summary>
+        public int Seed { get; set; } = 2026;
+
+        /// <summary>Fraction of the boss's health the raid removes per second. Purely a
+        /// dial to make health-gated phases reachable — never presented as a damage model.</summary>
+        public float RaidDpsFraction { get; set; } = 0.006f;
+
+        /// <summary>How long a landed footprint stays on screen, in milliseconds.</summary>
+        public int FootprintLingerMs { get; set; } = 1200;
+
+        /// <summary>Record live SPELL_GO / MONSTER_MOVE traffic into a tape while the
+        /// window is open. Off by default — instrumentation must not run unasked.</summary>
+        public bool RecordTape { get; set; }
     }
 
     /// <summary>

@@ -55,6 +55,9 @@ public sealed partial class GameLoop
     {
         MarkAnimationSequenceStage(packet.SpellId, "CAST");
         ObserveRealPortalCastGo(packet);
+        // Encounter Lab tape: passive ground-truth recording. No-op unless the Lab
+        // window is open AND recording is armed (instrumentation-hazard rule).
+        RecordEncounterTapeCast(packet);
         double now = NowSeconds();
         SpellInfo? info = _spellCatalog?.TryGet(packet.SpellId, out SpellInfo found) == true ? found : null;
         uint visual = EffectiveSpellVisual(info, packet.Caster);

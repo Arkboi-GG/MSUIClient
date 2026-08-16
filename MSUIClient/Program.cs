@@ -1645,6 +1645,10 @@ public sealed partial class GameLoop : IDisposable
         UpdatePortraitLabInput(typing);
         UpdateQuestNpcLifecycle();
         UpdateVendorLifecycle();
+        // Encounter Lab playback: the ONLY place wall clock reaches the simulator,
+        // and it only ever decides how many fixed steps to take. No-op while the
+        // window is closed or paused.
+        UpdateEncounterLab(dt);
         ObserveUiPanelOwnership();
 
         // F toggles free-fly. Edge-triggered so holding it doesn't strobe.
@@ -2418,6 +2422,10 @@ public sealed partial class GameLoop : IDisposable
         // machinery and bias as the RTS rings; no-op while the window is closed.
         if (WarmStage(5))
             RenderDevOverlays3D();
+        // Encounter Lab footprints: same decal path, same depth bias, same no-op
+        // rule while the window is closed.
+        if (WarmStage(5))
+            RenderEncounterLab3D();
         if (WarmStage(5) && _spellEffects is not null && _spellRibbons is not null)
             _spellRibbons.Render(_window.Camera, _spellEffects.RibbonInstances(
                 spellNow, SpellEffectUnitPose), _spellFxBillboardJointPoseB);
@@ -2842,6 +2850,11 @@ public sealed partial class GameLoop : IDisposable
         {
             DrawDevWindow();
             DrawDevOverlayLabels();
+            // The Encounter Lab (Ctrl+E) sits beside it for the same reason: it is
+            // mode-neutral, and it is MORE useful in creator mode than live, because
+            // the simulator needs no server at all.
+            DrawEncounterLab();
+            DrawEncounterLabOverlay();
         }
 
         // Creator mode replaces the whole developer instrument stack with its own

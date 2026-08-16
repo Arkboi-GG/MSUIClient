@@ -114,6 +114,10 @@ public sealed partial class GameLoop
             // every world click, ahead of the free-view router - no stray RTS orders
             // while placing path nodes. No-op unless a mode is armed.
             if (HandleDevEditClick(click)) continue;
+            // Encounter Lab: an armed placement (probe body, scenario actor, boss)
+            // owns the click the same way, so dropping a probe never also issues an
+            // order. No-op unless a placement is armed.
+            if (HandleEncounterLabClick(click)) continue;
             // CRPG free view: clicks are selection + RTS orders, never target/attack/loot.
             // Keyed on the CAMERA, not the control state — commanding a toon from the sky
             // is still the sky, and its clicks are still orders.
