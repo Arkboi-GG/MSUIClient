@@ -6,6 +6,48 @@
 reserved client/Core fields are scaffolding. This planning work made no
 database, deployment, or runtime change.
 
+## Session planning decisions (2026-08-15)
+
+Locked with the owner before any R3 code:
+
+1. **Sequence: Gate 1 first.** Freeze the contract and fixtures from source,
+   then build Gate 2 (web creation) and Gate 4 (client) in parallel against the
+   frozen contract, then Gate 3 (Core) on the box, then owner-operated Gate 5/6.
+   Gate 1 splits into a source half and an owner-discovery half (see
+   [Gate 1](#gate-1---freeze-contract-and-data) below).
+2. **R2 to R3 promotion is deferred for the pilot.** `PromoteRtsWorldAsync` and
+   the dedicated legacy R2 parser are **out of scope** for the first R3 build;
+   R3 supports Create-New-from-stock only. R2 is not yet live-validated, so there
+   is no precious R2 campaign to carry forward. The one-way promotion design in
+   [One-way R2 promotion](#one-way-r2-promotion) remains the plan of record for
+   when it is needed; it is simply not built in the pilot.
+3. **Core host is the Linux box at 192.168.0.2, never this PC's WSL clone.** All
+   Gate 3 `SuiTerritory`/stock-seam C++ is authored against `~/vmangos` on
+   192.168.0.2 (branch `development`, worked directly). Build, install, and
+   restart remain owner-operated. The local `Ubuntu-24.04:/home/wowvmangos/vmangos`
+   clone is not the target and must not be treated as authoritative.
+
+## Ownership recap: web creates, Core manages
+
+R3 keeps the established split intact. **The web app manufactures the save; the
+Core runs it.**
+
+- **Creation (MangosSuperUI, server stopped):** all schema DDL, genesis rows
+  (rules, zeroed pools, initial controllers), and authored WorldDatabase content
+  (banner/guards/events). This is the only phase that runs `CREATE TABLE` or
+  inserts static world content.
+- **Resume (MangosSuperUI, server stopped):** no DDL; refresh only managed
+  config/rule rows; preserve runtime state (Honor, heroes, existing
+  controllers).
+- **Runtime (SuperUI-Core, server running):** DML only on state rows the web
+  already created — write `superui_zone_control` on capture, hero rows on
+  declare/death/revive; read rules; activate/deactivate authored guard events.
+  Core never runs DDL and never authors static world content.
+
+`superui_zone_control` is written by both owners but never at the same lifecycle
+level: the web seeds the genesis controller while stopped; Core writes every
+subsequent controller while running; neither touches the schema after creation.
+
 ## Outcome
 
 R3 adds the territory layer on top of the completed R2 foundation:
@@ -885,12 +927,49 @@ change.
 
 ### Gate 1 - freeze contract and data
 
-- Freeze this document, the controller/team mapping, world-state field, pilot
-  IDs, guard catalog, and one-hub-per-zone law.
-- Discover by radius, then freeze exact coordinates, GO display, native guard
-  GUIDs/full source rows, clone rows, graveyard links, and reserved-ID
-  availability against a clean build-5875 source world.
-- Add golden SQL/wire fixtures before behavior code.
+Gate 1 has two halves with different owners. They run in parallel.
+
+#### Half A - source freeze (no live server; agent-drivable now)
+
+Pure code plus test vectors. Each item lands as a named constant/contract plus a
+golden fixture **before** any behavior code, so no downstream repo can drift:
+
+1. Controller/team encoding: the `0/1/2` controller and `0x80` contested bit,
+   plus the single `1/2 -> 0/1` faction-index conversion boundary.
+2. Packed capture-state field `SUI_TERRITORY_CAPTURE_STATE = 0x53550001`: bit
+   layout and validation laws, anchored by golden `0x002A5DE9`.
+3. Zone-intel contract: stride-9 plus controller byte, the sorted
+   census-union-configured-zones rule, legacy stride-8 = neutral, and rejection
+   fixtures (duplicate zone, truncation, invalid controller bits).
+4. 839 faction-row fill: exact semantics for the already-reserved
+   `Ore/Skins/Herbs/ControlledZones/HeroSlotCap` fields with `INT32_MAX` / `u16`
+   saturation.
+5. `rts-r3-v1` profile shape: the three scalar keys, keyed zone/hub balance
+   collections, and validation bounds.
+6. `RtsTerritoryCatalog` **structure**: the type and its ownership-signature
+   concept, with every live-discovered field held behind a placeholder sentinel
+   that **fails validation closed** until Half B fills it. No placeholder value
+   can ship.
+7. Golden SQL/wire fixtures directory as the regression anchor.
+
+#### Half B - owner discovery on 192.168.0.2 (live world required)
+
+For each pilot hub - Sentinel Hill (Westfall), The Crossroads (Barrens), Tarren
+Mill (Hillsbrad) - captured from the running world:
+
+1. Banner spawn: final map/x/y/z/orientation, physically placed and rendered.
+2. Native guards: exact guard `creature` GUIDs to event-gate (discovered by hub
+   radius), each with its full source-row signature.
+3. Clone guards: opposing-faction clone rows with positions matching the natives.
+4. Graveyard links: confirm each zone resolves at least one same-map candidate.
+5. Reserved-ID collision check **in the actual target world**: banner GUIDs
+   9100108 / 9100380 / 9100272, guard GUID range 9200000-9299999, template entry
+   900001, and event IDs 900-905 are free. The prior audit found them free in one
+   world only; a downloaded VMaNGOS world may carry custom rows.
+6. Banner appearance: display 6271 / neutral faction renders acceptably.
+
+Half A produces the frozen contract and the catalog structure; Half B produces
+the exact constants that get wired into the sentinel-guarded catalog fields.
 
 Exit: every ID and row count is deterministic; no placeholder coordinate or
 unverified guard entry remains.
