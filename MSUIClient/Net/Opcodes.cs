@@ -373,6 +373,12 @@ public enum Op : ushort
     SMSG_MESSAGECHAT             = 0x0096,
     SMSG_NOTIFICATION            = 0x01CB,
     SMSG_EMOTE                   = 0x0103,
+    // Not directly confirmed by the wiki's C++ index (Misc.h's TextEmote gave the
+    // struct fields but not the enum value) - standard across every 1.12 server
+    // fork (mangos/cmangos/vmangos/TC-classic), all reverse-engineered against the
+    // same client binary, and it's the one open slot between its two confirmed
+    // neighbours. Empirically verify by sending a text emote in-game.
+    CMSG_TEXT_EMOTE              = 0x0104,
     SMSG_TEXT_EMOTE              = 0x0105,
 
     // --- SuperUI CRPG/RTS control extension (SuperUI-Core fork only; above the
