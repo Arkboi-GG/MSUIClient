@@ -467,6 +467,24 @@ public sealed class WorldSession : IDisposable
         w.WriteCString(text);
         SendPacket((ushort)Op.CMSG_MESSAGECHAT, w.AsSpan());
     }
+
+    /// <summary>
+    /// CMSG_TEXT_EMOTE for a numbered emote (/wave, /dance, ...): u32 textEmoteId
+    /// (EmoteCommandLaw's key - the same index GlobalStrings.lua's EMOTE&lt;N&gt;_*
+    /// globals use), u32 emoteNum (unused here, 0 - the server picks its own
+    /// flavour-text variant), u64 target guid (0 for an untargeted emote). The
+    /// server builds the full chat line itself and relays it back as an ordinary
+    /// SMSG_MESSAGECHAT (CHAT_MSG_TEXT_EMOTE), which the existing chat pipeline
+    /// already displays - no receive-side change needed for the text.
+    /// </summary>
+    public void SendTextEmote(uint textEmoteId, ulong targetGuid)
+    {
+        var w = new PacketWriter(16);
+        w.WriteU32(textEmoteId);
+        w.WriteU32(0);
+        w.WriteU64(targetGuid);
+        SendPacket((ushort)Op.CMSG_TEXT_EMOTE, w.AsSpan());
+    }
     public void SetSheathed(byte state)
     {
         var w = new PacketWriter(4); w.WriteU32(state);

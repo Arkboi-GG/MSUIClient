@@ -1214,6 +1214,9 @@ public sealed partial class GameLoop
                         HandleNotification(body);      // clean system line
                         ObserveGmChatResponse(body);   // devtools GM-mode probe (no display)
                         break;
+                    case Op.SMSG_TEXT_EMOTE:
+                        HandleTextEmoteReceive(body);
+                        break;
                 }
             }
             catch (Exception ex)

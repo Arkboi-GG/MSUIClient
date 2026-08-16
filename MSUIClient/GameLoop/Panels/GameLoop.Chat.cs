@@ -36,8 +36,13 @@ public sealed partial class GameLoop
 
     private void AddChatMessage(string text, ChatFrameLaw.MsgType type)
     {
-        string cleaned = string.Join(' ', text.Replace('|', ' ').Split(' ',
-            StringSplitOptions.RemoveEmptyEntries)).Trim();
+        // A multi-line MOTD (or any server string carrying a raw \r/\n) must not
+        // survive into the stored line: WrapChatLine only wraps by pixel width,
+        // so an embedded newline reaches the renderer unaccounted-for and its
+        // second physical text row spills into the pitch slot reserved for the
+        // chat entry above it - the exact overlap this was added to chase down.
+        string cleaned = string.Join(' ', text.Replace('|', ' ').Replace('\r', ' ')
+            .Replace('\n', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim();
         if (cleaned.Length == 0) return;
         if (_chat.Count == ChatFrameLaw.MaxLines) _chat.RemoveAt(0);
         _chat.Add((cleaned, type));
@@ -103,11 +108,50 @@ public sealed partial class GameLoop
     private void HandleNotification(byte[] body) =>
         AddChatMessage(new PacketReader(body).ReadCString(), ChatFrameLaw.MsgType.System);
 
+    /// <summary>
+    /// SMSG_TEXT_EMOTE (0x0105): u64 sourceGuid, u32 textEmote, u32 emoteNum
+    /// (unused in 1.12 - EmotesTextLaw picks the sentence by viewer perspective
+    /// and gender, not by this counter), u32 namlen, then the target's name
+    /// cstring (namlen==1 is just the lone NUL byte for "no target" - ReadCString
+    /// handles that correctly without needing the length itself).
+    ///
+    /// The server sends raw ids only; VMaNGOS never resolves EmotesText.dbc's
+    /// text array server-side (confirmed against its own EmotesTextEntry struct,
+    /// which only reads Id and the animation id), so building the sentence is
+    /// entirely on us - see EmotesTextLaw's doc comment for the full derivation.
+    /// </summary>
+    private void HandleTextEmoteReceive(byte[] body)
+    {
+        var r = new PacketReader(body);
+        ulong sourceGuid = r.ReadU64();
+        uint textEmote = r.ReadU32();
+        r.ReadU32();                                   // emoteNum - unused, see above
+        r.ReadU32();                                   // namlen - ReadCString doesn't need it
+        string targetName = r.ReadCString();
+
+        bool hasTarget = targetName.Length > 0;
+        bool viewerIsEmoter = sourceGuid == LocalPlayerGuid;
+        bool viewerIsTarget = hasTarget &&
+            string.Equals(targetName, _net?.PlayerName, StringComparison.OrdinalIgnoreCase);
+        bool emoterIsFemale = _entities.TryGet(sourceGuid, out WorldEntity emoter) &&
+            emoter.Fields.Bytes0.Gender == 1;
+        string emoterName = ResolveChatName(sourceGuid);
+
+        string? line = EmotesTextLaw.Resolve((int)textEmote, hasTarget, viewerIsEmoter,
+            viewerIsTarget, emoterIsFemale, emoterName, targetName);
+        if (line is not null) AddChatMessage(line, ChatFrameLaw.MsgType.TextEmote);
+    }
+
     /// <summary>A sender GUID to a name via the shared cache; query once if unknown.</summary>
     private string ResolveChatName(ulong guid)
     {
         if (guid == 0) return "";
         if (_playerNames.TryGetValue(guid, out string? n) && n.Length > 0) return n;
+        // The client already knows its own name from char-select/login (NetworkClient.PlayerName)
+        // - _playerNames only ever gets seeded by a NAME_QUERY round-trip, so without this the
+        // player's own very first chat line always showed the GUID placeholder (same fallback
+        // OwnCharacterPartyRow already uses for the party frame).
+        if (guid == LocalPlayerGuid && _net?.PlayerName is { Length: > 0 } own) return own;
         if (_chatNameQueried.Add(guid)) _net?.NameQuery(guid);
         return $"Player-{guid & 0xffff:X4}";           // placeholder until the response lands
     }
@@ -275,6 +319,7 @@ public sealed partial class GameLoop
 
         float leftPx = (root.X + 4f) * s;
         float bottomLineTop = (root.Y + ChatFrameLaw.FrameHeight) * s - pitch;
+
         for (int i = bottom - 1, row = 0; i >= top; i--, row++)
             GameText.Draw(dl, ChatFrameLaw.ChatFont, lines[i].Text,
                 new Vector2(leftPx, bottomLineTop - row * pitch), s, lines[i].Color);
@@ -301,13 +346,21 @@ public sealed partial class GameLoop
     private void DrawChatScrollButton(ImDrawListPtr dl, Vector2 logicalMin, string direction, Action click)
     {
         float s = GameplayUiScale();
-        string texture = $@"Interface\ChatFrame\UI-ChatIcon-{direction}-Up";
         Vector2 min = logicalMin * s, size = new Vector2(32) * s;
+        bool hovered = ImGui.IsMouseHoveringRect(min, min + size, false);
+        bool pressed = hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left);
+        string texture = $@"Interface\ChatFrame\UI-ChatIcon-{direction}-{(pressed ? "Down" : "Up")}";
         uint handle = _gameplayArt?.Handle(texture) ?? 0;
         // Always visible (the reference keeps the scroll column up regardless of hover).
         if (handle != 0) dl.AddImage((nint)handle, min, min + size);
-        if (ImGui.IsMouseHoveringRect(min, min + size, false) &&
-            ImGui.IsMouseClicked(ImGuiMouseButton.Left)) click();
+        // UI-Common-MouseHilight, ADD-blended - same hover overlay every other icon
+        // button in this codebase uses (DrawChatTabs above, Mail's page buttons, …).
+        if (hovered)
+        {
+            uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Common-MouseHilight") ?? 0;
+            if (hi != 0) dl.AddImage((nint)hi, min, min + size);
+        }
+        if (hovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left)) click();
 
         if (!_uiParityArmed || _uiParityPanel != "chat-frame") return;
         string name = direction switch { "ScrollUp" => "ChatFrame1UpButton",
@@ -378,13 +431,38 @@ public sealed partial class GameLoop
     }
 
     /// <summary>The speech-bubble chat menu button (UI-ChatIcon-Chat-Up), always
-    /// visible. Opening the emote/channel menu on click is wired in a later stage.</summary>
+    /// visible. Opening the actual dropdown on click is still not wired - see the
+    /// TODO below for what's confirmed and what's blocking it.</summary>
     private void DrawChatMenuButton(ImDrawListPtr dl, Vector2 logicalMin)
     {
         float s = GameplayUiScale();
         Vector2 min = logicalMin * s, size = new Vector2(32) * s;
-        uint handle = _gameplayArt?.Handle(ChatFrameLaw.MenuButton) ?? 0;
+        bool hovered = ImGui.IsMouseHoveringRect(min, min + size, false);
+        bool pressed = hovered && ImGui.IsMouseDown(ImGuiMouseButton.Left);
+        string texture = pressed
+            ? @"Interface\ChatFrame\UI-ChatIcon-Chat-Down" : ChatFrameLaw.MenuButton;
+        uint handle = _gameplayArt?.Handle(texture) ?? 0;
         if (handle != 0) dl.AddImage((nint)handle, min, min + size);
+        if (hovered)
+        {
+            uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Common-MouseHilight") ?? 0;
+            if (hi != 0) dl.AddImage((nint)hi, min, min + size);
+        }
+        // TODO: click opens the real ChatMenu frame (FloatingChatFrame.xml:772),
+        // confirmed via FrameXML wiki as 7 entries - ChatMenu_Say/Party/Guild/
+        // Yell/Whisper/Reply/Emote (ChatFrame.lua:2245-2304). Say/Party/Guild/Yell/
+        // Whisper are a clean drop-in (ParseChatCommand + _chatSendType/Header/
+        // Color already cover all five). Emote and Reply are blocked on real gaps
+        // elsewhere in this client, not on this button:
+        //   - Emote: vanilla emotes ride their own wire command (CMSG_TEXT_EMOTE),
+        //     never SMSG_MESSAGECHAT. Nothing in this file sends that packet yet -
+        //     ParseChatCommand's default case would currently mis-send "/e hello"
+        //     as a Say with the literal "/e hello" text.
+        //   - Reply: needs "last whisper target" tracking (real client:
+        //     ChatEdit_GetLastTellTarget/SetLastTellTarget), which doesn't exist
+        //     here at all yet.
+        // Deliberately left unbuilt (2026-08-15, Cam's call) rather than shipping
+        // a 5/7 or grayed-out menu - revisit once emote support lands.
     }
 
     /// <summary>
@@ -490,7 +568,7 @@ public sealed partial class GameLoop
     private void SubmitChat()
     {
         string raw = _chatInput.Trim();
-        if (raw.Length > 0)
+        if (raw.Length > 0 && !TrySubmitTextEmote(raw))
         {
             (ChatFrameLaw.MsgType type, string? target, string message) = ParseChatCommand(raw);
             // The server echoes our own line back as SMSG_MESSAGECHAT, so there is
@@ -498,6 +576,24 @@ public sealed partial class GameLoop
             if (message.Length > 0) _net?.SendChat((uint)type, target, message);
         }
         CloseChatEdit();
+    }
+
+    /// <summary>
+    /// One of the 169 numbered text emotes (/wave, /dance, ...)? Sends
+    /// CMSG_TEXT_EMOTE against the current target (untargeted if none) and
+    /// returns true. Must run before ParseChatCommand: that function's default
+    /// case doesn't know these commands and would otherwise send the literal
+    /// "/wave" text as a Say. Anything with extra words after the command (e.g.
+    /// "/e is thinking") is deliberately NOT matched here - that is CHAT_MSG_EMOTE,
+    /// a different, still-unwired freeform-text system (see the TODO on
+    /// DrawChatMenuButton), not one of these canned ones.
+    /// </summary>
+    private bool TrySubmitTextEmote(string raw)
+    {
+        if (!raw.StartsWith('/') || raw.Contains(' ')) return false;
+        if (EmoteCommandLaw.Resolve(raw.ToLowerInvariant()) is not { } id) return false;
+        _net?.SendTextEmote((uint)id, _selectionGuid);
+        return true;
     }
 
     /// <summary>

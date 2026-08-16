@@ -320,6 +320,14 @@ public sealed class NetworkClient : IDisposable
         if (State != NetState.InWorld || _session is null) return false;
         try { _session.SendChat(type, Player?.FactionLanguage ?? 0, target, text); return true; } catch { return false; }
     }
+
+    /// <summary>Send a numbered text emote (/wave, /dance, ...) by its EmoteCommandLaw
+    /// id. <paramref name="targetGuid"/> is 0 for an untargeted emote.</summary>
+    public bool SendTextEmote(uint textEmoteId, ulong targetGuid)
+    {
+        if (State != NetState.InWorld || _session is null) return false;
+        try { _session.SendTextEmote(textEmoteId, targetGuid); return true; } catch { return false; }
+    }
     public void SetSheathed(byte state) { try { _session?.SetSheathed(state); } catch { } }
     public bool CastSpell(uint spellId, ulong targetGuid)
     {
