@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text.Json;
 using ImGuiNET;
 using MSUIClient.Creator;
 using MSUIClient.Formats;
@@ -19,10 +18,10 @@ namespace MSUIClient;
 // be recolored per image, not just as a whole. The whole-model hue shift
 // remains as a master dial; per-BLP dials override it for their emitters.
 //
-// Export writes the patched M2s at their ORIGINAL paths into a patch MPQ
-// (drop into WoW/Data to see the tune in any client), plus a tuning JSON that
-// MangosSuperUI's ApplySpellTuning pipeline can consume for a proper isolated
-// custom-spell build.
+// The tuned spell's design is captured into the ongoing SESSION json (see
+// GameLoop.Creator.Session.cs): the byte-patched effect M2s, recolored BLPs and
+// custom audio, all base64-embedded, which MangosSuperUI's Spell Completer web
+// app consumes to build the finished custom spell.
 // ─────────────────────────────────────────────────────────────────────────────
 public sealed partial class GameLoop
 {
@@ -78,8 +77,8 @@ public sealed partial class GameLoop
     ];
 
     /// <summary>A creator-owned replacement for one phase's SoundEntries cue.
-    /// Bytes stay in memory for immediate preview and are embedded into both the
-    /// session document and exported patch.</summary>
+    /// Bytes stay in memory for immediate preview and are embedded into the
+    /// session document.</summary>
     private sealed class CreatorAudioTrack
     {
         public required string SourcePath;
@@ -905,7 +904,7 @@ public sealed partial class GameLoop
                 () => DrawCreatorModelEditor(m, CreatorUiScale));
         }
 
-        CreatorSection("Spells", "ws-export", "Export", false, DrawCreatorExportBody);
+        CreatorSection("Spells", "ws-session", "Session", false, DrawCreatorSessionSection);
     }
 
     private void DrawCreatorSpellPickerBody()
@@ -1409,17 +1408,11 @@ public sealed partial class GameLoop
         }
     }
 
-    private void DrawCreatorExportBody()
+    private void DrawCreatorSessionSection()
     {
         var doc = _creatorSpell;
         if (doc is null) { ImGui.TextDisabled("Pick a spell first."); return; }
 
-        if (CreatorButton("Export patch MPQ"))
-            ExportCreatorPatch(doc);
-        ImGui.SameLine();
-        if (CreatorButton("Save tuning JSON"))
-            ExportCreatorTuningJson(doc);
-        ImGui.SameLine();
         if (CreatorButton("Reset all"))
         {
             foreach (var model in doc.Models.Values)
@@ -2199,162 +2192,14 @@ public sealed partial class GameLoop
         Console.WriteLine($"[creator] swap source '{info.Name}': {_texSwapSourceTextures.Count} image(s)");
     }
 
-    // ── export ───────────────────────────────────────────────────────────────
-
-    private string CreatorExportDir()
-    {
-        string dir = Path.Combine(_config.RepoRoot, "creator-exports");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
-
-    /// <summary>Patched M2s (and palette-swapped BLPs) at their original paths in a
-    /// patch MPQ - drop it into the client's Data folder (and delete the WDB cache)
-    /// to see the tune everywhere.</summary>
-    private void ExportCreatorPatch(CreatorSpellDoc doc)
-    {
-        var modified = doc.Models.Values.Where(m => m.Modified).ToList();
-        if (modified.Count == 0 && doc.Audio.Count == 0)
-        { _creatorExportStatus = "Nothing modified - nothing to export."; return; }
-
-        var builder = new MpqBuilderService(new Creator.ILogger<MpqBuilderService>());
-        int models = 0;
-        foreach (var model in modified)
-        {
-            // Byte-patched M2s only; a tint-only model has original bytes.
-            if (!model.Working.AsSpan().SequenceEqual(model.Original))
-            {
-                builder.AddFile(model.Path, model.Working);
-                models++;
-            }
-        }
-
-        // Palette-swapped BLPs, re-encoded at their original paths. NOTE: a BLP
-        // shared by other spells changes everywhere the client uses it.
-        int blps = 0;
-        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var model in modified)
-        {
-            foreach (var (texIndex, tint) in model.TextureTints)
-            {
-                if (!tint.On) continue;
-                string path = EffectiveTexturePath(model, texIndex);
-                if (path.Length == 0 || !written.Add(path)) continue;
-                byte[]? blp = BuildTintedBlp(path, PackArgb(tint.Color) & 0x00FFFFFF);
-                if (blp is null)
-                {
-                    Console.WriteLine($"[creator] tinted BLP encode failed for {path}");
-                    continue;
-                }
-                builder.AddFile(path, blp);
-                blps++;
-            }
-        }
-
-        int audio = 0, audioDbcs = 0;
-        try
-        {
-            (audio, audioDbcs) = AddCreatorAudioToPatch(doc, builder);
-        }
-        catch (Exception ex)
-        {
-            _creatorExportStatus = $"Audio patch build FAILED: {ex.Message}";
-            Console.WriteLine($"[creator] {_creatorExportStatus}");
-            return;
-        }
-
-        if (models == 0 && blps == 0 && audio == 0)
-        {
-            _creatorExportStatus = "Nothing modified - nothing to export.";
-            return;
-        }
-        string output = Path.Combine(CreatorExportDir(), "patch-4.MPQ");
-        _creatorExportStatus = builder.Build(output)
-            ? $"Wrote {models} model(s) + {blps} tinted BLP(s) + {audio} audio file(s)" +
-              (audioDbcs > 0 ? $" + {audioDbcs} audio DBC(s)" : "") + $" to {output}"
-            : "MPQ build FAILED - see the console.";
-        Console.WriteLine($"[creator] {_creatorExportStatus}");
-    }
-
-    /// <summary>
-    /// Add custom phase files plus complete SoundEntries/kit/visual DBC overlays.
-    /// Direct patch export intentionally rewires the selected SOURCE visual, just
-    /// like its M2 tuning overwrites source paths; the session/completer path is
-    /// responsible for cloning these rows for an isolated final spell.
-    /// </summary>
-    private (int AudioFiles, int DbcFiles) AddCreatorAudioToPatch(
-        CreatorSpellDoc doc, MpqBuilderService builder)
-    {
-        if (doc.Audio.Count == 0) return (0, 0);
-        if (_mpq is null) throw new InvalidOperationException("The mounted client archives are unavailable.");
-
-        const string kitPath = @"DBFilesClient\SpellVisualKit.dbc";
-        const string visualPath = @"DBFilesClient\SpellVisual.dbc";
-        byte[] soundBytes = _mpq.ReadFile(SoundEntriesCatalog.MpqPath)
-            ?? throw new InvalidDataException("SoundEntries.dbc is missing.");
-        byte[] kitBytes = _mpq.ReadFile(kitPath)
-            ?? throw new InvalidDataException("SpellVisualKit.dbc is missing.");
-        byte[] visualBytes = _mpq.ReadFile(visualPath)
-            ?? throw new InvalidDataException("SpellVisual.dbc is missing.");
-
-        DbcWriterService sounds = DbcWriterService.ReadDbc(soundBytes, SoundEntriesCatalog.MpqPath);
-        DbcWriterService kits = DbcWriterService.ReadDbc(kitBytes, kitPath);
-        DbcWriterService visuals = DbcWriterService.ReadDbc(visualBytes, visualPath);
-        if (sounds.FieldCount < 29 || kits.FieldCount < 14 || visuals.FieldCount < 11)
-            throw new InvalidDataException("One of the spell-audio DBC schemas is not build 5875 compatible.");
-
-        uint nextSound = sounds.GetMaxId() + 1;
-        var kitOwners = new Dictionary<uint, CreatorAudioCue>();
-        bool touchedKits = false, touchedVisual = false;
-        foreach ((CreatorAudioCue cue, CreatorAudioTrack track) in doc.Audio
-                     .OrderBy(pair => Array.IndexOf(CreatorAudioCueOrder, pair.Key)))
-        {
-            uint soundId = nextSound++;
-            var row = new uint[sounds.RecordSize / 4];
-            row[0] = soundId;
-            row[1] = track.SoundType;
-            row[2] = sounds.AddString($"MSUI_{doc.Info.Id}_{cue}");
-            row[3] = sounds.AddString(Path.GetFileName(track.MpqPath));
-            row[13] = 1; // one weighted variant
-            string? directory = Path.GetDirectoryName(track.MpqPath);
-            row[23] = sounds.AddString(directory ?? "");
-            row[24] = DbcWriterService.FloatToUint(Math.Clamp(track.Volume, 0f, 1f));
-            bool looping = cue == CreatorAudioCue.Missile || track.Looping;
-            row[25] = track.ExtraFlags | (looping ? 0x200u : 0u) |
-                      (track.NoDuplicates ? 0x20u : 0u);
-            row[26] = DbcWriterService.FloatToUint(Math.Max(0f, track.MinDistance));
-            row[27] = DbcWriterService.FloatToUint(Math.Max(0f, track.CutoffDistance));
-            row[28] = track.Eax;
-            sounds.AddRow(row);
-            builder.AddFile(track.MpqPath, track.Bytes);
-
-            if (cue == CreatorAudioCue.Missile)
-            {
-                visuals.PatchRow(doc.Info.VisualId, 10, soundId);
-                touchedVisual = true;
-                continue;
-            }
-
-            uint kitId = CreatorAudioKitId(doc, cue);
-            if (kitId == 0)
-                throw new InvalidDataException($"{CreatorAudioLabel(cue)} has no kit to receive custom audio.");
-            if (kitOwners.TryGetValue(kitId, out CreatorAudioCue owner))
-                throw new InvalidDataException($"{CreatorAudioLabel(owner)} and {CreatorAudioLabel(cue)} " +
-                    $"share kit {kitId}; one kit cannot hold two different sounds.");
-            kitOwners[kitId] = cue;
-            kits.PatchRow(kitId, 13, soundId);
-            touchedKits = true;
-        }
-
-        builder.AddFile(SoundEntriesCatalog.MpqPath, sounds.Write());
-        int dbcs = 1;
-        if (touchedKits) { builder.AddFile(kitPath, kits.Write()); dbcs++; }
-        if (touchedVisual) { builder.AddFile(visualPath, visuals.Write()); dbcs++; }
-        return (doc.Audio.Count, dbcs);
-    }
+    // ── session payload helpers ──────────────────────────────────────────────
+    //
+    // Tinted-BLP encoding and the per-model tuning payload: both feed the SESSION
+    // export in GameLoop.Creator.Session.cs. There is no longer a direct patch-MPQ
+    // or tuning-JSON export; MangosSuperUI's Spell Completer builds the final patch.
 
     /// <summary>Decode a BLP, hue-map its pixels toward targetRgb (0x00RRGGBB), and
-    /// re-encode it as DXT3 BLP for the patch MPQ.</summary>
+    /// re-encode it as DXT3 BLP for the session payload.</summary>
     private byte[]? BuildTintedBlp(string path, uint targetRgb)
     {
         try
@@ -2429,44 +2274,4 @@ public sealed partial class GameLoop
             .Where(t => t.ReferencedByEmitters.Count == 0 && t.Filename.Length > 0)
             .Select(t => new { slotIndex = t.Index, filename = t.Filename }),
     };
-
-    /// <summary>The tuning as JSON: whole-model dials + per-BLP hues + per-emitter
-    /// absolute values, keyed by model path - the document MangosSuperUI's tuning
-    /// pipeline consumes.</summary>
-    private void ExportCreatorTuningJson(CreatorSpellDoc doc)
-    {
-        var payload = new
-        {
-            spellId = doc.Info.Id,
-            spellName = doc.Info.Name,
-            exportedBy = "MSUIClient creator mode",
-            models = doc.Models.Values.Where(m => m.Modified).Select(m => new
-            {
-                path = m.Path,
-                tuning = CreatorModelTuningPayload(m),
-            }),
-            audio = doc.Audio.OrderBy(pair => Array.IndexOf(CreatorAudioCueOrder, pair.Key))
-                .Select(pair => new
-                {
-                    cue = pair.Key.ToString().ToLowerInvariant(),
-                    sourceSoundId = CreatorAuthoredSound(doc, pair.Key),
-                    mpqPath = pair.Value.MpqPath,
-                    sourceFile = Path.GetFileName(pair.Value.SourcePath),
-                    volume = pair.Value.Volume,
-                    looping = pair.Key == CreatorAudioCue.Missile || pair.Value.Looping,
-                    noDuplicates = pair.Value.NoDuplicates,
-                    soundType = pair.Value.SoundType,
-                    extraFlags = pair.Value.ExtraFlags,
-                    eax = pair.Value.Eax,
-                    minDistance = pair.Value.MinDistance,
-                    cutoffDistance = pair.Value.CutoffDistance,
-                    fileBase64 = Convert.ToBase64String(pair.Value.Bytes),
-                }),
-        };
-        string path = Path.Combine(CreatorExportDir(), $"spell-{doc.Info.Id}-tuning.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(payload,
-            new JsonSerializerOptions { WriteIndented = true }));
-        _creatorExportStatus = $"Wrote {path}";
-        Console.WriteLine($"[creator] {_creatorExportStatus}");
-    }
 }

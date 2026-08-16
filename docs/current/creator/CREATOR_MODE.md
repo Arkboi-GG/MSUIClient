@@ -12,7 +12,7 @@ menu (red glue buttons); the choice persists in `settings.json`
 | Launch mode + login front door | `MSUIClient/Program.Creator.cs`, login changes in `Program.Net.cs` (`DrawLoginScreen`, `NetHud`, `InitNet`) |
 | Menu bar + Character/Gear panels + item search | `MSUIClient/Program.Creator.Ui.cs` |
 | Teleport presets + world-map picker + target dummy | `MSUIClient/Program.Creator.World.cs` |
-| Spell workshop (loop + tuning + export) | `MSUIClient/Program.Creator.Spells.cs` |
+| Spell workshop (loop + tuning + session) | `MSUIClient/Program.Creator.Spells.cs` |
 | Ported MangosSuperUI write stack | `MSUIClient/Creator/` (see below) |
 | Tier sets T0–T3 (generated from tier-sets.js) | `MSUIClient/Formats/CreatorTierSets.cs` |
 | Item catalogue loader | `MSUIClient/Formats/CreatorItemTable.cs` + repo-root `creator-items.tsv` |
@@ -47,15 +47,13 @@ phase every period, so a knob change is visible within one cycle. Patches are
 always rebuilt **from the original bytes** (globals → per-emitter absolutes) so
 multipliers never compound.
 
-Export (`creator-exports/`):
-- **patch MPQ** — patched M2s at their original paths (`patch-4.MPQ`; drop into
-  `WoW/Data`, delete the WDB cache).
-- **tuning JSON** — whole-model dials + per-emitter absolute values keyed by
-  model path, for MangosSuperUI's tuning pipeline.
+The tuned design leaves creator mode through the **spell session** alone (below):
+the in-client patch-MPQ and tuning-JSON exports were removed — MangosSuperUI's
+Spell Completer builds the finished patch from the session file.
 
 ### The spell session (the design→data handoff)
 
-The Export section's SESSION area is the real product path: give the tuned
+The **Session** section is the product path: give the tuned
 spell a temp name and **Add to session** — it lands in `spell-session.json` in
 the directory MSUIClient was launched from (`Program.Creator.Session.cs`).
 The file accumulates spells (same temp name = replace) and each entry carries
@@ -86,9 +84,9 @@ visuals exactly as designed. Design phase lives here; data phase lives there.
   future bone/model controls.
 - The always-visible **Audio** section resolves the authored cue for precast,
   cast, missile, impact, state, channel, and area phases. Each available phase
-  can be previewed or replaced with a WAV/MP3. Imported bytes play immediately,
-  travel in the spell session, and direct patch export writes the audio plus
-  `SoundEntries.dbc` and the necessary visual/kit DBC overlays.
+  can be previewed or replaced with a WAV/MP3. Imported bytes play immediately
+  and travel in the spell session; the Spell Completer writes the audio plus the
+  `SoundEntries.dbc` and visual/kit DBC rows for the finished spell.
 - Every texture slot has an **identity color** (golden-angle palette) shown on
   its row and on every emitter drawing with it, so the texture↔emitter wiring
   reads at a glance per phase.
@@ -115,10 +113,10 @@ otherwise kept near-identical so upstream re-syncs stay diffs:
 `M2TextureParser`, `BlpWriterService`, and the managed MPQ stack
 (`MpqArchive`, `MpqCrypto`, `PkwareExplode`, `MpqArchiveWriter`,
 `MpqBuilderService`). `CreatorShims.cs` stands in for ASP.NET's `ILogger<T>`
-and the archive-remount hooks. `DbcWriterService` is now used by custom-audio
-patch export; `SpellVisualCloner` remains the foundation for full custom-spell cloning
-(new DBC rows at the SuperUI ID floors: visuals/kits/effects start at 10000,
-spells 40000–49999).
+and the archive-remount hooks. `DbcWriterService` and `SpellVisualCloner` remain
+the foundation for full custom-spell cloning — the client no longer writes DBCs
+itself; the Spell Completer does the cloning (new DBC rows at the SuperUI ID
+floors: visuals/kits/effects start at 10000, spells 40000–49999).
 
 ## Data regeneration
 
@@ -156,15 +154,12 @@ so no dial combination clips a label.
   consumes the session file); in-client DBC cloning
   (`DbcWriterService`/`SpellVisualCloner` in `Creator/`) remains unwired.
 - Geometry (per-particle) models and tinted BLPs ship at their ORIGINAL paths
-  in the completed patch — a shared image/model changes everywhere it appears
-  (same semantics as the patch-4 export). Per-spell isolation for those two
-  would need geometry-path rewriting inside host M2 bytes.
+  in the completed patch — a shared image/model changes everywhere it appears.
+  Per-spell isolation for those two would need geometry-path rewriting inside
+  host M2 bytes.
 - Authored multi-file weighted sound variants cannot yet be assembled in the
   workshop; the first audio slice imports one custom file per spell phase.
 - Custom audio is carried by session schema v2. The downstream Spell Completer
   must consume each entry's `audio` array before its final unified patch can
-  reproduce those tracks; MSUIClient's direct `patch-4.MPQ` export already does.
+  reproduce those tracks.
 - Animation kits are cloned, never edited (same as SuperUI today).
-- Export writes `creator-exports/patch-4.MPQ` rather than into `GameData/Data`
-  (the client may have a mounted `patch-3.MPQ` open; also avoids colliding with
-  SuperUI's own patch-3 output).
