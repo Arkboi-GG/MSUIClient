@@ -260,20 +260,24 @@ public sealed partial class CreatureRenderer
 
         bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
         _gl.BindVertexArray(model.Vao);
+        _gl.Enable(EnableCap.CullFace);
+        bool cullingOn = true;
         for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
         {
             DrawBatch b = model.Batches[batchIndex];
             if (filter && !appearance.VisibleGeosets!.Contains(b.GeosetId)) continue;
 
+            ApplyBatchCulling(b, ref cullingOn);
             bool additive = b.Blend is 3 or 4;
             bool alphaKey = b.Blend == 1;
             if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
             else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
             else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
+            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
             appearance.Textures[batchIndex]?.Bind(0);
             DrawElements(b.Start, b.Count);
         }
+        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.DepthMask(true);
         _mountsDrawnAccumulator++;
 

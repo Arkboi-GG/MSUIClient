@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 
 namespace MSUIClient.Net;
@@ -37,6 +38,15 @@ public sealed record DevWaypointRow(
 /// <summary>Where a resolved patrol path came from — mirrors vmangos WaypointPathOrigin.</summary>
 public enum DevPathOrigin { None, Guid, Template }
 
+/// <summary>One creature_groups row: MemberGuid follows LeaderGuid at a polar offset
+/// (Dist yd, Angle rad relative to the leader's facing). The leader has a self-row where
+/// MemberGuid == LeaderGuid (Dist 0). Flags = vmangos OptionFlags (0x1 formation-move,
+/// 0x2 aggro-together, …).</summary>
+public sealed record DevGroupMember(uint MemberGuid, uint LeaderGuid, float Dist, float Angle, uint Flags)
+{
+    public bool IsLeaderRow => MemberGuid == LeaderGuid;
+}
+
 public sealed class DevWorldData
 {
     public required int Map { get; init; }
@@ -57,6 +67,25 @@ public sealed class DevWorldData
 
     /// <summary>creature_movement_template: entry → pathId → point-ordered nodes.</summary>
     public required IReadOnlyDictionary<uint, Dictionary<uint, DevWaypointRow[]>> TemplatePaths { get; init; }
+
+    /// <summary>creature_groups by member_guid (formations touching the fetched spawns).</summary>
+    public IReadOnlyDictionary<uint, DevGroupMember> GroupsByMember { get; init; }
+        = new Dictionary<uint, DevGroupMember>();
+
+    /// <summary>This spawn's group row, or null when it isn't in a formation.</summary>
+    public DevGroupMember? GroupOf(uint guid) =>
+        GroupsByMember.TryGetValue(guid, out DevGroupMember? m) ? m : null;
+
+    /// <summary>The leader this spawn follows (itself if it's a leader; 0 if ungrouped).</summary>
+    public uint GroupLeaderOf(uint guid) =>
+        GroupsByMember.TryGetValue(guid, out DevGroupMember? m) ? m.LeaderGuid : 0;
+
+    /// <summary>All rows of a formation (leader self-row + followers), leader first.</summary>
+    public IReadOnlyList<DevGroupMember> GroupRows(uint leaderGuid) =>
+        GroupsByMember.Values.Where(m => m.LeaderGuid == leaderGuid)
+            .OrderBy(m => m.IsLeaderRow ? 0 : 1).ThenBy(m => m.MemberGuid).ToList();
+
+    public bool IsInGroup(uint guid) => GroupsByMember.ContainsKey(guid);
 
     /// <summary>
     /// vmangos WaypointManager::GetDefaultPath resolution order: the per-GUID table wins,

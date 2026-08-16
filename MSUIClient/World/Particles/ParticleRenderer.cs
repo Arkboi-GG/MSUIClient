@@ -665,7 +665,16 @@ public sealed class ParticleRenderer : IDisposable
             if (pool.Scale <= 0f || float.IsNaN(pool.Scale)) pool.Scale = 1f;
             pool.Origin = origin;
             pool.TouchedThisFrame = true;
-            Advance(pool, dt, origin, emit: true);
+
+            // The +0x1dc enable track is distinct from the rate track. Interactive
+            // doodads use it to keep one-shot emitters dormant during Stand: for
+            // example DarkIronNode's fast spray is enabled only at the beginning
+            // of animation 150. Ignoring the gate turns that burst into a permanent
+            // fountain. Reset the fractional carry while gated off, matching the
+            // spell-particle lane, so re-enabling cannot release stale emission.
+            bool emitting = emitter.SampleEnabled(animationTime, animationId);
+            if (!emitting) pool.SpawnAccumulator = 0f;
+            Advance(pool, dt, origin, emit: emitting);
         }
 
         // Pools nobody touched are out of range or gone with their placement.

@@ -397,11 +397,7 @@ public sealed partial class GameLoop
             return;
         }
 
-        if (ImGui.Button("Edit path")) BeginDevWaypointEdit(spawn.Guid, entry);
-        ImGui.SameLine();
-        if (ImGui.Button("Move spawn")) BeginDevSpawnMove(spawn.Guid, entry);
-
-        // Staged per-spawn fields.
+        // Staged per-spawn fields (re-seeded when the inspected spawn changes).
         if (_devFieldSpawnGuid != spawn.Guid)
         {
             _devFieldSpawnGuid = spawn.Guid;
@@ -412,6 +408,10 @@ public sealed partial class GameLoop
             _devFieldDetection = tpl?.DetectionRange ?? 18f;
         }
         float w = CreatorControlWidth;
+
+        // ── SPAWN ──
+        ImGui.TextDisabled("SPAWN");
+        if (ImGui.Button("Move spawn")) BeginDevSpawnMove(spawn.Guid, entry);
         ImGui.SetNextItemWidth(w);
         ImGui.InputInt("respawn min (s)", ref _devFieldSpawnMin);
         ImGui.SetNextItemWidth(w);
@@ -422,13 +422,211 @@ public sealed partial class GameLoop
         ImGui.InputFloat("wander_distance", ref _devFieldWander, 1f, 5f, "%.1f");
         if (ImGui.Button("Queue spawn changes")) QueueDevSpawnFieldPackets(spawn);
 
+        // ── PATH ──
         ImGui.Spacing();
+        ImGui.TextDisabled("PATH");
+        if (ImGui.Button("Edit path")) BeginDevWaypointEdit(spawn.Guid, entry);
+
+        // ── AGGRO ──
+        ImGui.Spacing();
+        ImGui.TextDisabled("AGGRO");
         ImGui.SetNextItemWidth(w);
         ImGui.InputFloat("detection_range", ref _devFieldDetection, 1f, 5f, "%.1f");
         int affected = DevSpawnCountForEntry(entry);
         ImGui.TextColored(new Vector4(1f, 0.65f, 0.3f, 1f),
             $"per-ENTRY: affects {affected} spawn(s) of entry {entry}");
         if (ImGui.Button("Queue detection_range change")) QueueDevDetectionPacket(spawn, entry, tpl);
+
+        // ── GROUP ──
+        DrawDevGroupControls(spawn);
+    }
+
+    // ── group (creature_groups formation) ────────────────────────────────────
+
+    private uint _devGroupFlags = 0x3;   // default: formation move + aggro together
+    private readonly Dictionary<uint, (float Dist, float Angle)> _devGroupEdits = [];
+    private bool _devReloadGroups;
+
+    /// <summary>The GROUP section: relocate (via the leader), reshape member offsets, split a
+    /// member out, dissolve, or create a formation from the Ctrl+select set. All go through the
+    /// change set as group-set / group-delete packets; reload is `.reload creature_groups`
+    /// plus a respawn of the affected spawns.</summary>
+    private void DrawDevGroupControls(DevSpawnRow spawn)
+    {
+        ImGui.Spacing();
+        ImGui.TextDisabled("GROUP (creature_groups formation)");
+        DevWorldData? world = DevData.World;
+        if (world is null) { ImGui.TextDisabled("waiting for world data"); return; }
+        uint guid = spawn.Guid;
+
+        DevGroupMember? mine = world.GroupOf(guid);
+
+        // FOLLOWER: act through its leader.
+        if (mine is { IsLeaderRow: false })
+        {
+            ImGui.Text($"follows leader {mine.LeaderGuid}  (dist {mine.Dist:0.#}, angle {mine.Angle:0.##})");
+            if (ImGui.Button("Split from group"))
+            {
+                var remaining = world.GroupRows(mine.LeaderGuid)
+                    .Where(m => !m.IsLeaderRow && m.MemberGuid != guid)
+                    .Select(m => (m.MemberGuid, m.Dist, m.Angle)).ToList();
+                if (remaining.Count == 0) QueueDevGroupDelete(mine.LeaderGuid);
+                else QueueDevGroupSet(mine.LeaderGuid, remaining, GroupFlagsOf(world, mine.LeaderGuid));
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("inspect the leader to reshape / dissolve");
+            return;
+        }
+
+        var rows = world.GroupRows(guid);
+        var followers = rows.Where(m => !m.IsLeaderRow).ToList();
+
+        // LEADER: reshape / dissolve.
+        if (followers.Count > 0)
+        {
+            ImGui.Text($"leader of {followers.Count} member(s)   flags {rows[0].Flags}");
+            ImGui.TextDisabled("relocate: Move spawn (+ Edit path) on THIS leader — members follow.");
+            foreach (DevGroupMember f in followers)
+            {
+                (float Dist, float Angle) e = _devGroupEdits.TryGetValue(f.MemberGuid, out var ex) ? ex : (f.Dist, f.Angle);
+                ImGui.PushID((int)f.MemberGuid);
+                float dist = e.Dist, angle = e.Angle;
+                ImGui.SetNextItemWidth(90f);
+                bool ch = ImGui.SliderFloat("dist", ref dist, 0.5f, 15f, "%.1f");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(90f);
+                ch |= ImGui.SliderFloat("angle", ref angle, 0f, 6.2832f, "%.2f");
+                ImGui.SameLine();
+                ImGui.TextDisabled($"m{f.MemberGuid}");
+                if (ch) _devGroupEdits[f.MemberGuid] = (dist, angle);
+                ImGui.PopID();
+            }
+            if (ImGui.Button("Queue reshape"))
+            {
+                var members = followers.Select(f =>
+                    (f.MemberGuid,
+                     _devGroupEdits.TryGetValue(f.MemberGuid, out var e2) ? e2.Dist : f.Dist,
+                     _devGroupEdits.TryGetValue(f.MemberGuid, out var e3) ? e3.Angle : f.Angle)).ToList();
+                QueueDevGroupSet(guid, members, rows[0].Flags);
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Dissolve group")) QueueDevGroupDelete(guid);
+            return;
+        }
+
+        // UNGROUPED: create from the Ctrl+select set (this spawn = leader).
+        List<uint> sel = DevGroupSelectionGuids();
+        bool formation = (_devGroupFlags & 0x1) != 0, aggro = (_devGroupFlags & 0x2) != 0;
+        if (ImGui.Checkbox("formation move", ref formation))
+            _devGroupFlags = formation ? _devGroupFlags | 0x1u : _devGroupFlags & ~0x1u;
+        ImGui.SameLine();
+        if (ImGui.Checkbox("aggro together", ref aggro))
+            _devGroupFlags = aggro ? _devGroupFlags | 0x2u : _devGroupFlags & ~0x2u;
+
+        int followerCount = sel.Count(g => g != guid);
+        if (followerCount >= 1)
+        {
+            if (ImGui.Button($"Create formation — leader {guid}, {followerCount} follower(s)"))
+                CreateDevGroupFromSelection(guid, sel, world);
+            ImGui.TextDisabled("this inspected spawn = leader; other Ctrl-selected spawns = followers.");
+        }
+        else
+            ImGui.TextDisabled("not in a formation. Ctrl+LeftClick 1+ more spawns, then create with this one as leader.");
+    }
+
+    /// <summary>Spawn guids (low-24) in the Ctrl+select focus set that have a fetched DB row.</summary>
+    private List<uint> DevGroupSelectionGuids()
+    {
+        var result = new List<uint>();
+        DevWorldData? world = DevData.World;
+        if (world is null) return result;
+        foreach (ulong g in _devFocusGuids)
+            if (GuidInfo.High(g) == GuidInfo.HighUnit)
+            {
+                uint low = (uint)(g & 0xFFFFFF);
+                if (world.SpawnsByGuid.ContainsKey(low) && !result.Contains(low)) result.Add(low);
+            }
+        return result;
+    }
+
+    private void CreateDevGroupFromSelection(uint leaderGuid, List<uint> sel, DevWorldData world)
+    {
+        if (!world.SpawnsByGuid.TryGetValue(leaderGuid, out DevSpawnRow? leader)) return;
+        var members = new List<(uint Guid, float Dist, float Angle)>();
+        foreach (uint g in sel)
+        {
+            if (g == leaderGuid) continue;
+            if (!world.SpawnsByGuid.TryGetValue(g, out DevSpawnRow? f)) continue;
+            float dx = f.Position.X - leader.Position.X;
+            float dy = f.Position.Y - leader.Position.Y;
+            float dist = MathF.Sqrt(dx * dx + dy * dy);
+            float followAngle = DevNormAngle(MathF.Atan2(dy, dx) - leader.Orientation);
+            members.Add((g, dist, followAngle));
+        }
+        if (members.Count == 0) return;
+        QueueDevGroupSet(leaderGuid, members, _devGroupFlags == 0 ? 1u : _devGroupFlags);
+    }
+
+    private static uint GroupFlagsOf(DevWorldData world, uint leaderGuid)
+    {
+        var rows = world.GroupRows(leaderGuid);
+        return rows.Count > 0 ? rows[0].Flags : 1u;
+    }
+
+    private static float DevNormAngle(float a)
+    {
+        const float TwoPi = MathF.PI * 2f;
+        a %= TwoPi;
+        return a < 0 ? a + TwoPi : a;
+    }
+
+    // ── group packet builders ─────────────────────────────────────────────────
+
+    private void QueueDevGroupSet(uint leaderGuid, List<(uint Guid, float Dist, float Angle)> members, uint flags)
+    {
+        var afterMembers = new List<Dictionary<string, object?>>();
+        // Leader self-row (dist 0) must be present.
+        if (members.All(m => m.Guid != leaderGuid))
+            afterMembers.Add(new Dictionary<string, object?> { ["guid"] = leaderGuid, ["dist"] = 0f, ["angle"] = 0f });
+        foreach (var m in members)
+            afterMembers.Add(new Dictionary<string, object?> { ["guid"] = m.Guid, ["dist"] = m.Dist, ["angle"] = m.Angle });
+
+        AddDevChangePacket("group-set",
+            new Dictionary<string, object?> { ["leaderGuid"] = leaderGuid },
+            DevGroupPayload(DevData.World?.GroupRows(leaderGuid)),
+            new Dictionary<string, object?> { ["flags"] = flags, ["members"] = afterMembers });
+    }
+
+    private void QueueDevGroupDelete(uint leaderGuid) =>
+        AddDevChangePacket("group-delete",
+            new Dictionary<string, object?> { ["leaderGuid"] = leaderGuid },
+            DevGroupPayload(DevData.World?.GroupRows(leaderGuid)),
+            new Dictionary<string, object?>());
+
+    private static Dictionary<string, object?> DevGroupPayload(IReadOnlyList<DevGroupMember>? rows)
+    {
+        var members = new List<Dictionary<string, object?>>();
+        uint flags = 0;
+        if (rows is not null)
+            foreach (DevGroupMember r in rows)
+            {
+                members.Add(new Dictionary<string, object?> { ["guid"] = r.MemberGuid, ["dist"] = r.Dist, ["angle"] = r.Angle });
+                flags = r.Flags;
+            }
+        return new Dictionary<string, object?> { ["flags"] = flags, ["members"] = members };
+    }
+
+    /// <summary>Leader + member guids a group packet touches, for the live reload.</summary>
+    private static IEnumerable<ulong> DevGroupPacketGuids(DevChangePacket packet)
+    {
+        if (packet.Target.TryGetValue("leaderGuid", out object? l) && l is not null)
+            yield return Convert.ToUInt64(l);
+        object? membersObj = packet.After.TryGetValue("members", out object? am) && am is not null
+            ? am : packet.Before.GetValueOrDefault("members");
+        if (membersObj is System.Collections.IEnumerable seq)
+            foreach (object? item in seq)
+                if (item is IDictionary<string, object?> md && md.TryGetValue("guid", out object? g) && g is not null)
+                    yield return Convert.ToUInt64(g);
     }
 
     private void DrawDevActiveEditControls()
@@ -616,11 +814,23 @@ public sealed partial class GameLoop
     private void WashCommittedPackets(NpcApplyResult applied)
     {
         _devReloadTargets.Clear();
+        _devReloadGroups = false;
+        _devGroupEdits.Clear();
         var appliedIds = applied.Results.Where(r => r.Verdict == "applied").Select(r => r.Id).ToHashSet();
         if (_devChanges is not null)
         {
             foreach (DevChangePacket packet in _devChanges.Packets.Where(p => appliedIds.Contains(p.Id)))
             {
+                if (packet.Type is "group-set" or "group-delete")
+                {
+                    _devReloadGroups = true;
+                    foreach (ulong g in DevGroupPacketGuids(packet))
+                    {
+                        (ulong Guid, bool Template) gt = (g, false);
+                        if (g != 0 && !_devReloadTargets.Contains(gt)) _devReloadTargets.Add(gt);
+                    }
+                    continue;
+                }
                 (ulong Guid, bool Template) target = packet.Type == "template-field"
                     ? (0UL, true)
                     : (DevPacketGuid(packet), false);
@@ -640,9 +850,10 @@ public sealed partial class GameLoop
     /// for aggro (once), .npc reloadspawn &lt;guid&gt; for spawn/path. No DB writes.</summary>
     private void ReloadAppliedNpcChanges()
     {
-        if (_devReloadTargets.Count == 0) { _devReloadStatus = "nothing applied to reload"; return; }
+        if (_devReloadTargets.Count == 0 && !_devReloadGroups) { _devReloadStatus = "nothing applied to reload"; return; }
         bool reloadedTemplates = false;
         int sent = 0;
+        if (_devReloadGroups && SendGmCommand(".reload creature_groups", "npc-reload")) sent++;
         foreach ((ulong guid, bool template) in _devReloadTargets)
         {
             if (template)

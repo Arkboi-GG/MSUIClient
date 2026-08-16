@@ -90,7 +90,16 @@ public sealed class SpellSoundSystem : IDisposable
         _catalog = SoundEntriesCatalog.Load(mpq);
         _tempRoot = Path.Combine(Path.GetTempPath(), "MSUIClient", "SpellAudio",
             Environment.ProcessId.ToString());
-        _worker = new Thread(WorkerLoop) { IsBackground = true, Name = "spell-audio" };
+        _worker = new Thread(WorkerLoop)
+        {
+            IsBackground = true,
+            Name = "spell-audio",
+            // The worker owns every MCI call and pumps DirectShow's hidden
+            // notification window. Keep that pump responsive while startup's
+            // asset parsers and upload worker are busy, especially after the
+            // process loses Windows' foreground scheduling boost.
+            Priority = ThreadPriority.AboveNormal,
+        };
         // STA, because MCI's MPEGVideo driver (the .mp3 path - all zone music)
         // is DirectShow underneath and needs COM on the calling thread. Without
         // this, "open x.mp3" fails with MCIERR 266 (cannot load driver) while

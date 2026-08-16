@@ -241,9 +241,11 @@ public sealed class DevDataClient
         float PositionX, float PositionY, float PositionZ, float Orientation,
         uint Waittime, float WanderDistance, uint ScriptId, uint PathId);
 
+    private sealed record SnapGroup(uint LeaderGuid, uint MemberGuid, float Dist, float Angle, uint Flags);
+
     private sealed record SnapRoot(DateTime FetchedUtc, int Map,
         List<SnapCreature> Creatures, List<SnapWaypoint> Movement,
-        List<SnapWaypoint> MovementTemplates);
+        List<SnapWaypoint> MovementTemplates, List<SnapGroup>? Groups);
 
     private static readonly System.Text.Json.JsonSerializerOptions SnapJson =
         new() { PropertyNameCaseInsensitive = true };
@@ -267,6 +269,11 @@ public sealed class DevDataClient
                     c.Orientation, c.SpawnTimeSecsMin, c.SpawnTimeSecsMax,
                     c.WanderDistance, c.MovementType, c.SpawnFlags);
 
+            var groups = new Dictionary<uint, DevGroupMember>();
+            if (root.Groups is not null)
+                foreach (SnapGroup g in root.Groups)
+                    groups[g.MemberGuid] = new DevGroupMember(g.MemberGuid, g.LeaderGuid, g.Dist, g.Angle, g.Flags);
+
             _world = new DevWorldData
             {
                 Map = map,
@@ -276,6 +283,7 @@ public sealed class DevDataClient
                 SpawnsByGuid = spawns,
                 GuidPaths = GroupWaypoints(root.Movement, w => w.Id),
                 TemplatePaths = GroupTemplateWaypoints(root.MovementTemplates),
+                GroupsByMember = groups,
             };
             Console.WriteLine($"[dev-data] world snapshot: {spawns.Count} spawns (map {map}, area)");
             return true;

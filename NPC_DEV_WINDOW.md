@@ -1,6 +1,6 @@
 # NPC Dev Window — architecture & handbook (updated 2026-08-11)
 
-> **STATUS: P1–P3 SHIPPED; P4 (P1+P2) DEPLOYED & LIVE-VERIFIED; P5 BUILT.** P1/P2 live-verified
+> **STATUS: P1–P3 SHIPPED; P4 (P1+P2) DEPLOYED & LIVE-VERIFIED; P5 + P6 BUILT.** P1/P2 live-verified
 > (`dumps/gameplay-devwindow-*.png`). **P4** — direct commit through SuperUI (audited) +
 > owner-clicked live reload (`.reload creature_template` for aggro; `.npc reloadspawn <guid>`,
 > the additive vmangos core command, for spawn/path) — is deployed and confirmed live: a spawn
@@ -528,3 +528,41 @@ changed-from-vanilla and snapped back. BUILT + compile-verified in both repos.
 - **Deploy (owner):** deploy the SuperUI artifact, then `POST /Baseline/Initialize` once from a
   pristine DB to capture `og_creature*`. Keep edits paused between the restore and the capture so
   OG is genuinely clean. Ship the client. No core change in P5.
+
+## 16. P6 — creature_groups formations (BUILT)
+
+Makes the tool formation-aware — read *and* author — so a pack that "paths together" (one leader
+with a `creature_movement` path + members that follow at a `creature_groups` offset) is a
+first-class object, not three loose spawns. BUILT + compile-verified in both repos.
+
+- **The data model** — `creature_groups` (PK `member_guid`): `leader_guid, member_guid, dist,
+  angle, flags`. Offset is polar, **relative to the leader's facing** (`ComputeRelativePosition`:
+  `x = cos(followAngle + leaderAngle) * dist`). Only the leader has a path; members follow. On
+  (re)spawn a member is `NearTeleportTo` its formation slot, so a member's own `creature.position`
+  barely matters. Leader death promotes a surviving member (formation kept, but it has no path so
+  the pack stops patrolling until the original leader respawns). Flags: `0x1` FORMATION_MOVE,
+  `0x2` AGGRO_TOGETHER, `0x4` EVADE_TOGETHER, `0x8` RESPAWN_TOGETHER, `0x10/0x20`
+  RESPAWN_ALL_ON_MASTER/ANY_EVADE, `0x40/0x80` INFORM_LEADER/MEMBERS_ON_DIED.
+- **Read** — `NpcDevController.Snapshot` returns `groups` (rows touching any selected/found guid).
+  Client models them: `DevGroupMember` + `DevWorldData.GroupsByMember` / `GroupOf` / `GroupRows`.
+- **The GROUP section** — the Selected-NPC modal was reworked into **SPAWN / PATH / AGGRO / GROUP
+  / BASELINE**. Group ops:
+  - **Relocate** → move the **leader** (Move spawn + Edit path); members follow. No "move all"
+    (the members are offset-defined and would re-snap to formation anyway).
+  - **Reshape** → per-follower `dist` / `angle` sliders → `group-set`.
+  - **Split** → remove a member (→ ungrouped; auto-dissolves on the last follower).
+  - **Dissolve** → `group-delete`.
+  - **Create from selection** → Ctrl+select spawns, inspect the intended leader, "Create
+    formation": computes each follower's `(dist, angle)` from current positions vs the leader's
+    facing, with formation / aggro-together flag checkboxes.
+- **Apply** — `NpcDevApplyService`: `group-set` (transactional DELETE by leader + clear the new
+  members' prior membership + INSERT leader self-row + followers) and `group-delete` (DELETE by
+  leader). Audited (category `npc`, action `npc_group` / `npc_group_delete`) → same NPC
+  Change-Graph node.
+- **Reload** — `.reload creature_groups` (SEC_DEVELOPER, already in the core) + `.npc reloadspawn`
+  on the leader and members. **No core change in P6.**
+- Files: `Controllers/NpcDevController.cs` (Snapshot), `Services/NpcDevApplyService.cs` (group
+  handlers), `Models/NpcDevApply.cs`, `Net/DevWorldData.cs` (`DevGroupMember`), `Net/DevDataClient.cs`
+  (parse), `GameLoop.DevWindow.Edit.cs` (GROUP section + packet builders + reload).
+- **Not yet:** rotating a formation; `og_creature_groups` baseline (reset-group-to-OG); a map-wide
+  formation-line overlay; CSV-fallback group parse (JSON snapshot only — fine, it's deployed).

@@ -235,7 +235,14 @@ public sealed partial class CreatureRenderer : IDisposable
         public readonly List<Texture?> Textures = [];
         public HashSet<int>? VisibleGeosets;
     }
-    private struct DrawBatch { public int Start, Count; public Texture? Tex; public int Blend; public int GeosetId; }
+    private struct DrawBatch
+    {
+        public int Start, Count;
+        public Texture? Tex;
+        public int Blend;
+        public int GeosetId;
+        public bool TwoSided;
+    }
 
     private sealed class PreparedModel
     {
@@ -539,20 +546,24 @@ public sealed partial class CreatureRenderer : IDisposable
 
             bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
             _gl.BindVertexArray(model.Vao);
+            _gl.Enable(EnableCap.CullFace);
+            bool cullingOn = true;
             for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
             {
                 DrawBatch b = model.Batches[batchIndex];
                 if (filter && !appearance.VisibleGeosets!.Contains(b.GeosetId)) continue;
 
+                ApplyBatchCulling(b, ref cullingOn);
                 bool additive = b.Blend is 3 or 4;
                 bool alphaKey = b.Blend == 1;
                 if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
                 else if (b.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
                 else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-                _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
+                _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
                 appearance.Textures[batchIndex]?.Bind(0);
                 DrawElements(b.Start, b.Count);
             }
+            if (!cullingOn) _gl.Enable(EnableCap.CullFace);
             if (e.IsPlayer) PlayersDrawnLastFrame++;
             else
             {
@@ -951,19 +962,23 @@ public sealed partial class CreatureRenderer : IDisposable
 
         bool filter = GeosetFilter && appearance.VisibleGeosets is not null;
         _gl.BindVertexArray(model.Vao);
+        _gl.Enable(EnableCap.CullFace);
+        bool cullingOn = true;
         for (int batchIndex = 0; batchIndex < model.Batches.Count; batchIndex++)
         {
             DrawBatch batch = model.Batches[batchIndex];
             if (filter && !appearance.VisibleGeosets!.Contains(batch.GeosetId)) continue;
+            ApplyBatchCulling(batch, ref cullingOn);
             bool additive = batch.Blend is 3 or 4;
             bool alphaKey = batch.Blend == 1;
             if (additive) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.One); _gl.DepthMask(false); }
             else if (batch.Blend >= 2) { _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha); _gl.DepthMask(false); }
             else { _gl.BlendFunc(BlendingFactor.One, BlendingFactor.Zero); _gl.DepthMask(true); }
-            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0.02f);
+            _shader.Set("uAlphaCut", alphaKey ? 0.5f : 0f);
             appearance.Textures[batchIndex]?.Bind(0);
             DrawElements(batch.Start, batch.Count);
         }
+        if (!cullingOn) _gl.Enable(EnableCap.CullFace);
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         _lifecycle?.NoteFirstDraw(entity.Guid);
@@ -1328,12 +1343,15 @@ public sealed partial class CreatureRenderer : IDisposable
             var submesh = m2.Submeshes[batch.SubmeshIndex];
             int blend = batch.MaterialIndex < m2.RenderFlags.Count
                 ? m2.RenderFlags[batch.MaterialIndex].BlendingMode : 0;
+            bool twoSided = batch.MaterialIndex < m2.RenderFlags.Count &&
+                m2.RenderFlags[batch.MaterialIndex].TwoSided;
             model.Batches.Add(new DrawBatch
             {
                 Start = submesh.IndexStart,
                 Count = submesh.IndexCount,
                 Blend = blend,
                 GeosetId = submesh.Id,
+                TwoSided = twoSided,
             });
         }
         return model;
@@ -1609,8 +1627,19 @@ public sealed partial class CreatureRenderer : IDisposable
                     }
                 }
 
-                int blend = b.MaterialIndex < m2.RenderFlags.Count ? m2.RenderFlags[b.MaterialIndex].BlendingMode : 0;
-                lm.Batches.Add(new DrawBatch { Start = sm.IndexStart, Count = sm.IndexCount, Tex = tex, Blend = blend, GeosetId = sm.Id });
+                int blend = b.MaterialIndex < m2.RenderFlags.Count
+                    ? m2.RenderFlags[b.MaterialIndex].BlendingMode : 0;
+                bool twoSided = b.MaterialIndex < m2.RenderFlags.Count &&
+                    m2.RenderFlags[b.MaterialIndex].TwoSided;
+                lm.Batches.Add(new DrawBatch
+                {
+                    Start = sm.IndexStart,
+                    Count = sm.IndexCount,
+                    Tex = tex,
+                    Blend = blend,
+                    GeosetId = sm.Id,
+                    TwoSided = twoSided,
+                });
             }
 
             if (_diagLogged < 30)
@@ -1997,6 +2026,22 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private unsafe void DrawElements(int start, int count)
         => _gl.DrawElements(PrimitiveType.Triangles, (uint)count, DrawElementsType.UnsignedShort, (void*)(start * sizeof(ushort)));
+
+    /// <summary>Apply the M2 material's two-sided flag without leaking disabled
+    /// face culling into the following batch or renderer.</summary>
+    private void ApplyBatchCulling(in DrawBatch batch, ref bool cullingOn)
+    {
+        if (batch.TwoSided && cullingOn)
+        {
+            _gl.Disable(EnableCap.CullFace);
+            cullingOn = false;
+        }
+        else if (!batch.TwoSided && !cullingOn)
+        {
+            _gl.Enable(EnableCap.CullFace);
+            cullingOn = true;
+        }
+    }
 
     public void Dispose()
     {

@@ -133,6 +133,14 @@ public sealed class ClientWindow : IDisposable
     /// <summary>Raised once after the GL context exists — build GPU resources here.</summary>
     public event Action<GL>? OnLoad;
 
+    /// <summary>
+    /// Whether the native game window currently owns foreground focus. Audio uses
+    /// this to avoid constructing its first Windows MCI/DirectShow graph while
+    /// startup is running in the background; a graph born under that contention
+    /// can remain permanently underrun until the process is restarted.
+    /// </summary>
+    public bool IsFocused { get; private set; } = true;
+
     /// <summary>Raised every frame before rendering. Argument is delta seconds.</summary>
     public event Action<float>? OnUpdate;
 
@@ -441,6 +449,11 @@ public sealed class ClientWindow : IDisposable
         _window.Update += dt => HandleUpdate((float)dt);
         _window.Render += dt => HandleRender((float)dt);
         _window.FramebufferResize += HandleResize;
+        _window.FocusChanged += focused =>
+        {
+            IsFocused = focused;
+            Console.WriteLine($"[window] focus {(focused ? "gained" : "lost")}");
+        };
         _window.Closing += HandleClosing;
 
         Console.WriteLine($"[startup] window created          {startup.Elapsed.TotalSeconds,6:F2}s");

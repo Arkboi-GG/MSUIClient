@@ -18,6 +18,7 @@ public sealed partial class GameLoop
     private double _soundscapeNextResolveAt;
     private uint _soundscapeAreaId;
     private (uint Music, uint Ambience, uint Intro) _soundscapeInterior;
+    private bool _soundscapePlaybackArmed;
 
     /// <summary>Runs every Update, before the loading-state early returns, so
     /// leaving the world (logout, loading curtain) resets the transport instead
@@ -31,7 +32,20 @@ public sealed partial class GameLoop
         if (!inWorld)
         {
             _soundscape?.Reset();
+            _soundscapePlaybackArmed = false;
             return;
+        }
+
+        // Do not let the first MCI/DirectShow voices come into existence while
+        // the client is backgrounded during world startup. On Windows that graph
+        // can be created while the loader owns the available CPU and remain
+        // permanently choppy even after focus returns. Once one focused world
+        // frame arms playback, ordinary background playback remains allowed.
+        if (!_soundscapePlaybackArmed)
+        {
+            if (!_window.IsFocused) return;
+            _soundscapePlaybackArmed = true;
+            Console.WriteLine("[audio] foreground acquired; world playback armed");
         }
 
         if (_soundscape is null)
