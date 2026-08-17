@@ -278,12 +278,17 @@ public sealed class ExteriorLighting
         if (!Ready) return sample;
 
         var zones = _lights!.ForMap(mapId);
-        if (zones.Count == 0) return sample;
 
         // Base: the map-wide default (position 0,0,0 with no radius). A map
-        // without one is legal - then the nearest zone simply starts from black
-        // and the probe shows a single contributor, which is itself the finding.
-        var mapDefault = zones.FirstOrDefault(z => z.IsMapDefault);
+        // without one falls back to the GLOBAL default - light 1, Azeroth's map
+        // default. Without the fallback a map like AhnQirajTemple (531: one zone
+        // light 8000+ yd out of reach, no default) resolved to NOTHING, and since
+        // no-data leaves the atmosphere untouched, the scene kept whichever map's
+        // light was applied last - lit if you teleported in, near-black if you
+        // booted there (2026-08-16, the "dark as fuck after the audio rebuild"
+        // incident - the audio was innocent; the rebuild forced the boot).
+        var mapDefault = zones.FirstOrDefault(z => z.IsMapDefault)
+                         ?? _lights.ForMap(0).FirstOrDefault(z => z.IsMapDefault);
         if (mapDefault is not null)
         {
             ReadInto(sample, mapDefault.ParamsClear, timeHours);

@@ -215,7 +215,19 @@ public sealed record EncounterStep(
     float Value = 0f,
     bool Flag = false,
     string? PhaseKey = null,
-    string? Note = null);
+    string? Note = null,
+    /// <summary>For Summon steps: the summoned creature's display, so adds render
+    /// as models rather than unexplained circles.</summary>
+    uint DisplayId = 0);
+
+/// <summary>An order to a placed body: at TimeMs, start running to Position. The
+/// unit of "tell them where to move" - a raid plan is a set of these per body.</summary>
+public readonly record struct TimedMove(int TimeMs, Vector3 Position);
+
+/// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
+/// model - the owner assigns aggro and swaps it, because "who is she facing"
+/// is an input to the plan being tested, never a thing to guess at.</summary>
+public readonly record struct TimedAggro(int TimeMs, string Key);
 
 /// <summary>
 /// One thing an NPC does. This is the unit the timeline shows, the overlay draws,
@@ -276,7 +288,20 @@ public sealed record EncounterActorSpec(
     float BoundingRadius = 0.5f,
     float CombatReach = 1.5f,
     uint Level = 60,
-    uint MaxHealth = 1000);
+    uint MaxHealth = 1000,
+    /// <summary>CreatureDisplayInfo id for the rendered puppet (0 = marks only).
+    /// From creature_template display_id1 - the sim never reads it; it exists so
+    /// a body can be a MODEL standing in the world, not a labelled circle.</summary>
+    uint DisplayId = 0,
+    float DisplayScale = 1f,
+    /// <summary>Timed movement orders, ascending by time. The body runs to each
+    /// in turn at run speed; the sim replays them identically every run, so a
+    /// repositioning plan is testable against the same seeded fight.</summary>
+    IReadOnlyList<TimedMove>? Moves = null,
+    /// <summary>Damage this body deals to the boss, per second, owner-chosen.
+    /// The sum across bodies is what walks her through the health-gated phase
+    /// transitions - dps is an INPUT to the plan, not a simulated outcome.</summary>
+    float Dps = 0f);
 
 public enum EncounterActorRole
 {

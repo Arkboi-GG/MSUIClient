@@ -1,5 +1,4 @@
 using MSUIClient.Formats;
-using MSUIClient.World.Spells;
 
 namespace MSUIClient.World.Sound;
 
@@ -31,8 +30,8 @@ namespace MSUIClient.World.Sound;
 ///   - Beds are force-looped: the SoundAmbience kits are the loop authority
 ///     even where the SoundEntries flag word omits 0x200.
 ///
-/// Voices run on SpellSoundSystem managed channels: this class owns the whole
-/// gain product (entry volume x category amp x envelope) and pushes it only
+/// Voices run straight on the shared <see cref="AudioMixer"/>: this class owns the
+/// whole gain product (entry volume x category amp x envelope) and pushes it only
 /// when the quantized MCI value actually changes.
 /// </summary>
 public sealed class WorldSoundscape
@@ -42,7 +41,8 @@ public sealed class WorldSoundscape
     private const float FirstTrackDelaySeconds = 6.0f;
     private const uint UnderwaterLoopKit = 4123;
 
-    private readonly SpellSoundSystem _sounds;
+    private readonly AudioMixer _mixer;
+    private readonly SoundKitLibrary _library;
     private readonly ZoneMusicTable? _zoneMusic;
     private readonly SoundAmbienceTable? _soundAmbience;
     private readonly ZoneIntroMusicTable? _introMusic;
@@ -95,9 +95,10 @@ public sealed class WorldSoundscape
 
     public string Status { get; private set; } = "idle";
 
-    public WorldSoundscape(SpellSoundSystem sounds, MpqMount mpq)
+    public WorldSoundscape(AudioMixer mixer, SoundKitLibrary library, MpqMount mpq)
     {
-        _sounds = sounds;
+        _mixer = mixer;
+        _library = library;
         _zoneMusic = ParseTable(mpq, ZoneMusicTable.MpqPath, ZoneMusicTable.Parse);
         _soundAmbience = ParseTable(mpq, SoundAmbienceTable.MpqPath, SoundAmbienceTable.Parse);
         _introMusic = ParseTable(mpq, ZoneIntroMusicTable.MpqPath, ZoneIntroMusicTable.Parse);
@@ -137,8 +138,20 @@ public sealed class WorldSoundscape
 
     private void StopVoice(ref long voice)
     {
-        if (voice != 0) _sounds.Stop(voice);
+        if (voice != 0) _mixer.Stop(voice);
         voice = 0;
+    }
+
+    /// <summary>Start one of this class's own channels: 2D, unowned, and started at
+    /// an explicit gain so a crossfade can begin at silence.</summary>
+    private long PlayKit(uint kit, string category, bool forceLoop, float startGain)
+    {
+        if (!_library.TryGet(kit, out SoundEntry entry) || entry.Variants.Count == 0) return 0;
+        SoundVariant variant = _library.PickVariant(entry);
+        return _mixer.Play(new AudioPlayRequest(
+            variant.Path, category, Math.Clamp(startGain, 0f, 1f), forceLoop || entry.Looping,
+            RequestedCue: kit.ToString(), SoundId: kit,
+            StartWhenSilent: true, Announce: true));
     }
 
     public void Update(double now)
@@ -187,14 +200,14 @@ public sealed class WorldSoundscape
         if (_fadingMusicVoice != 0)
         {
             float t = (float)((now - _musicFadeStartedAt) / MusicFadeOutSeconds);
-            if (t >= 1f || !_sounds.IsLive(_fadingMusicVoice))
+            if (t >= 1f || !_mixer.IsLive(_fadingMusicVoice))
             {
                 StopVoice(ref _fadingMusicVoice);
             }
             else
             {
                 PushGain(_fadingMusicVoice,
-                    _fadingMusicEntryVolume * _sounds.CategoryAmp("music") * (1f - t),
+                    _fadingMusicEntryVolume * _mixer.CategoryAmp("music") * (1f - t),
                     ref _fadeSentVolume);
             }
         }
@@ -203,10 +216,10 @@ public sealed class WorldSoundscape
 
         if (_musicVoice != 0)
         {
-            if (_sounds.IsLive(_musicVoice))
+            if (_mixer.IsLive(_musicVoice))
             {
                 // Keep the playing track's volume live against the sliders.
-                PushGain(_musicVoice, _musicEntryVolume * _sounds.CategoryAmp("music"),
+                PushGain(_musicVoice, _musicEntryVolume * _mixer.CategoryAmp("music"),
                     ref _musicSentVolume);
                 return;
             }
@@ -250,10 +263,10 @@ public sealed class WorldSoundscape
     private void StartMusicKit(uint kit, string why)
     {
         if (kit == 0) return;
-        _musicEntryVolume = _sounds.TryGetEntry(kit, out SoundEntry entry)
+        _musicEntryVolume = _library.TryGet(kit, out SoundEntry entry)
             ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
-        float gain = _musicEntryVolume * _sounds.CategoryAmp("music");
-        _musicVoice = _sounds.PlayManaged(kit, "music", forceLoop: false, gain);
+        float gain = _musicEntryVolume * _mixer.CategoryAmp("music");
+        _musicVoice = PlayKit(kit, "music", forceLoop: false, gain);
         _musicKit = kit;
         _musicSentVolume = (int)Math.Clamp(gain * 1000f, 0, 1000);
         Status = $"music kit {kit} ({why})";
@@ -291,11 +304,11 @@ public sealed class WorldSoundscape
             _ambienceKit = desired;
             if (desired != 0)
             {
-                _ambienceEntryVolume = _sounds.TryGetEntry(desired, out SoundEntry entry)
+                _ambienceEntryVolume = _library.TryGet(desired, out SoundEntry entry)
                     ? Math.Clamp(entry.Volume, 0f, 1f) : 1f;
                 float start = instant
-                    ? _ambienceEntryVolume * _sounds.CategoryAmp("ambience") : 0f;
-                _ambienceVoice = _sounds.PlayManaged(desired, "ambience", forceLoop: true, start);
+                    ? _ambienceEntryVolume * _mixer.CategoryAmp("ambience") : 0f;
+                _ambienceVoice = PlayKit(desired, "ambience", forceLoop: true, start);
                 _ambienceStartedAt = instant ? now - AmbienceFadeSeconds : now;
                 _ambienceSentVolume = -1;
                 Console.WriteLine($"[soundscape] ambience kit {desired}" +
@@ -308,7 +321,7 @@ public sealed class WorldSoundscape
             float t = (float)((now - _ambienceFadeStartedAt) / AmbienceFadeSeconds);
             if (t >= 1f) StopVoice(ref _fadingAmbienceVoice);
             else PushGain(_fadingAmbienceVoice,
-                _fadingAmbienceEntryVolume * _sounds.CategoryAmp("ambience") * (1f - t),
+                _fadingAmbienceEntryVolume * _mixer.CategoryAmp("ambience") * (1f - t),
                 ref _ambienceFadeSentVolume);
         }
 
@@ -316,7 +329,7 @@ public sealed class WorldSoundscape
         {
             float t = Math.Clamp((float)((now - _ambienceStartedAt) / AmbienceFadeSeconds), 0f, 1f);
             PushGain(_ambienceVoice,
-                _ambienceEntryVolume * _sounds.CategoryAmp("ambience") * t,
+                _ambienceEntryVolume * _mixer.CategoryAmp("ambience") * t,
                 ref _ambienceSentVolume);
         }
     }
@@ -340,6 +353,6 @@ public sealed class WorldSoundscape
         int volume = (int)Math.Clamp(gain * 1000f, 0, 1000);
         if (volume == sentVolume) return;
         sentVolume = volume;
-        _sounds.SetVoiceGain(voice, gain);
+        _mixer.SetVoiceGain(voice, gain);
     }
 }

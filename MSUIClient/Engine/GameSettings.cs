@@ -846,6 +846,11 @@ public sealed class GameSettings
         /// <summary>Screen-space labels beside footprints and actors.</summary>
         public bool ShowLabels { get; set; } = true;
 
+        /// <summary>Rendered puppet models for scenario bodies that carry a display
+        /// id - Onyxia as a dragon, dummies as dummies - positions driven from the
+        /// sim at the scrub head. Marks-only when off.</summary>
+        public bool ShowModels { get; set; } = true;
+
         /// <summary>Milliseconds of simulated time per fixed step. The core's own
         /// creature update lands near 100 ms.</summary>
         public int StepMs { get; set; } = 100;
@@ -862,6 +867,10 @@ public sealed class GameSettings
 
         /// <summary>How long a landed footprint stays on screen, in milliseconds.</summary>
         public int FootprintLingerMs { get; set; } = 1200;
+
+        /// <summary>The boss's pull ring in yards - a body crossing it starts the
+        /// fight. Drawn on the ground until the pull happens.</summary>
+        public float PullRangeYards { get; set; } = 30f;
 
         /// <summary>Record live SPELL_GO / MONSTER_MOVE traffic into a tape while the
         /// window is open. Off by default — instrumentation must not run unasked.</summary>

@@ -57,6 +57,9 @@ public enum SimEventKind
     Move,
     Say,
     Death,
+    /// <summary>A placed body was inside a footprint when it landed. There is no
+    /// damage model, so "hit" is the honest unit: who was standing in what, when.</summary>
+    ActorHit,
     /// <summary>A beat the definition explicitly does not model. Shown in the
     /// timeline as a gap marker so the fight reads as incomplete, not as finished.</summary>
     Unmodeled,
@@ -81,7 +84,8 @@ public sealed record SimEvent(
 }
 
 public readonly record struct SimActorState(
-    string Key, Vector3 Position, float Facing, int Health, bool Alive, bool Flying);
+    string Key, Vector3 Position, float Facing, int Health, bool Alive, bool Flying,
+    int HitsTaken = 0);
 
 /// <summary>A complete, restorable instant. Rewind is an index into a list of these.</summary>
 public sealed record SimSnapshot(
@@ -105,6 +109,16 @@ public sealed class EncounterSimOptions
     /// <summary>When set, health is driven by the user instead of the dps dial.</summary>
     public float? PinnedHealthFraction;
     public int MaxDurationMs = 15 * 60 * 1000;
+
+    /// <summary>Owner-assigned aggro timeline, ascending by time. The holder is
+    /// who the boss faces and who "current victim" targeting resolves to. Empty
+    /// falls back to nearest-friendly, the old tank stand-in.</summary>
+    public IReadOnlyList<TimedAggro>? AggroPlan;
+
+    /// <summary>The pull ring, in yards. With raid bodies placed, the boss is
+    /// INERT until one walks inside this - authoring the pull is part of the
+    /// plan. A scenario with no bodies engages at t=0 (the old behaviour).</summary>
+    public float PullRangeYards = 30f;
 }
 
 /// <summary>A live actor inside the simulation. Mutable during a step, snapshotted after.</summary>
@@ -122,14 +136,19 @@ public sealed class SimActor(EncounterActorSpec spec)
     public float MoveSpeed = 7f;          // yd/s; vanilla base run speed
     public bool MoveIsFlight;
 
+    /// <summary>Footprint landings this body has been inside, cumulative. The
+    /// positioning question the whole scenario exists to answer.</summary>
+    public int HitsTaken;
+
     public float HealthFraction => MaxHealth <= 0 ? 0f : Health / (float)MaxHealth;
     public BodyCapsule Body => BodyCapsule.At(Position, Spec.BoundingRadius);
-    public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying);
+    public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying, HitsTaken);
 
     public void Restore(in SimActorState state)
     {
         Position = state.Position; Facing = state.Facing;
         Health = state.Health; Alive = state.Alive; Flying = state.Flying;
+        HitsTaken = state.HitsTaken;
     }
 }
 
@@ -208,6 +227,10 @@ public sealed class EncounterSim
     public void Reset()
     {
         TimeMs = 0; Step = 0; Finished = false;
+        // Aggro at the pull: the latest plan entry stamped at or before zero.
+        // A plan whose first swap is mid-fight starts on the fallback law.
+        _aggroKey = Options.AggroPlan?.Where(a => a.TimeMs <= 0)
+            .Select(a => a.Key).LastOrDefault();
         _rng = new SeededRng(Options.Seed);
         _timeline.Clear(); _allEvents.Clear(); _stepEvents.Clear();
         _pending.Clear(); _firedOnce.Clear(); _abilityTimers.Clear();
@@ -221,15 +244,53 @@ public sealed class EncounterSim
             actor.Alive = true;
             actor.Flying = false;
             actor.MoveTarget = null;
+            actor.HitsTaken = 0;
         }
 
         PhaseKey = _definition.FirstPhase?.Key ?? "default";
         foreach (EncounterAbility ability in _definition.Abilities)
             _abilityTimers[ability.Key] = RollInitial(ability);
 
+        // The pull is authored, not assumed: with bodies in the scenario she
+        // stands idle until one crosses the ring. Without bodies there is nobody
+        // to do the pulling, so the fight starts at once - which is also what
+        // keeps every pre-pull-era check tool meaningful.
+        Engaged = false;
+        EngagedAtMs = -1;
+        if (_actors.Any(a => a.Spec.Role == EncounterActorRole.Friendly))
+            Emit(SimEventKind.Aggro, BossKey,
+                $"awaiting pull - {_definition.Name} engages inside {Options.PullRangeYards:0} yd");
+        else
+            EngageNow();
+        CaptureSnapshot();
+    }
+
+    /// <summary>True from the pull onward. Timers, phases, damage and facing all
+    /// belong to the engaged fight; before it she is scenery with an aggro ring.</summary>
+    public bool Engaged { get; private set; }
+
+    /// <summary>Sim time of the pull, -1 while it has not happened.</summary>
+    public int EngagedAtMs { get; private set; } = -1;
+
+    private void EngageNow()
+    {
+        if (Engaged) return;
+        Engaged = true;
+        EngagedAtMs = TimeMs;
         Emit(SimEventKind.Aggro, BossKey, $"{_definition.Name} engaged");
         EnterPhase(PhaseKey, announce: true);
-        CaptureSnapshot();
+    }
+
+    private void CheckPull(SimActor boss)
+    {
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            if (EncounterGeometryLaw.GroundDistance(boss.Position, actor.Position) >
+                Options.PullRangeYards) continue;
+            EngageNow();
+            return;
+        }
     }
 
     private string BossKey => Boss?.Key ?? _actors.FirstOrDefault()?.Key ?? "boss";
@@ -246,10 +307,21 @@ public sealed class EncounterSim
         _stepEvents.Clear();
 
         SimActor? boss = Boss;
-        if (boss is { Alive: true })
+        if (boss is { Alive: true } && !Engaged)
+        {
+            // Pre-pull: the raid may be walked in; she does nothing until the
+            // ring is crossed. The pull moment is part of the recorded fight.
+            DispatchOrderedMoves(dt);
+            AdvanceMovement(dt);
+            CheckPull(boss);
+        }
+        else if (boss is { Alive: true })
         {
             ApplyHealthModel(boss, dt);
+            DispatchAggroPlan(dt);
+            DispatchOrderedMoves(dt);
             AdvanceMovement(dt);
+            FaceAggroHolder(boss);
 
             // A running choreography owns the actor: the real scripts return early
             // from UpdateAI while m_bTransition is set, so ability timers must not
@@ -287,9 +359,81 @@ public sealed class EncounterSim
             boss.Health = (int)Math.Clamp(pinned * boss.MaxHealth, 0f, boss.MaxHealth);
             return;
         }
-        if (Options.RaidDpsFraction <= 0f) return;
-        float removed = Options.RaidDpsFraction * (dt / 1000f) * boss.MaxHealth;
-        boss.Health = Math.Max(0, boss.Health - (int)MathF.Ceiling(removed));
+
+        // Per-body dps (owner-chosen, on each body) plus the fraction dial. The
+        // sum is what makes the health-gated phases arrive when the raid's
+        // numbers say they should, which is the point of simulating them.
+        float perSecond = Options.RaidDpsFraction * boss.MaxHealth;
+        foreach (SimActor actor in _actors)
+            if (actor.Alive && actor.Spec.Role == EncounterActorRole.Friendly)
+                perSecond += actor.Spec.Dps;
+        if (perSecond <= 0f) return;
+        boss.Health = Math.Max(0, boss.Health - (int)MathF.Ceiling(perSecond * (dt / 1000f)));
+    }
+
+    // ── aggro (owner-assigned, never inferred) ───────────────────────────────
+
+    private string? _aggroKey;
+
+    private void DispatchAggroPlan(int dt)
+    {
+        if (Options.AggroPlan is not { Count: > 0 } plan) return;
+        foreach (TimedAggro entry in plan)
+        {
+            if (entry.TimeMs >= TimeMs - dt && entry.TimeMs < TimeMs &&
+                _byKey.TryGetValue(entry.Key, out SimActor? holder))
+            {
+                _aggroKey = entry.Key;
+                Emit(SimEventKind.Aggro, BossKey,
+                    $"aggro -> {holder.Spec.Name}", targetKey: entry.Key);
+            }
+        }
+    }
+
+    /// <summary>The body the boss is on: the assigned holder, else the nearest
+    /// friendly (the pre-aggro-plan tank stand-in, kept as the fallback).</summary>
+    private SimActor? AggroTarget(SimActor boss) =>
+        _aggroKey is { } key && _byKey.TryGetValue(key, out SimActor? held) && held.Alive
+            ? held : NearestFriendly(boss);
+
+    /// <summary>
+    /// She faces her victim, continuously, while she is grounded and no scripted
+    /// choreography owns her. This is what turns repositioning the aggro holder
+    /// into a live change of every cone on the floor: move the tank, and Flame
+    /// Breath's wedge follows him.
+    /// </summary>
+    private void FaceAggroHolder(SimActor boss)
+    {
+        if (boss.Flying || _sequence is not null) return;
+        if (AggroTarget(boss) is not { } victim) return;
+        Vector3 delta = victim.Position - boss.Position;
+        if (new System.Numerics.Vector2(delta.X, delta.Y).LengthSquared() < 1e-4f) return;
+        boss.Facing = MathF.Atan2(delta.Y, delta.X);
+    }
+
+    /// <summary>
+    /// Hand each body the movement order whose time has just arrived. An order is
+    /// "at T, start running there" - AdvanceMovement below walks it at run speed,
+    /// so a late order visibly costs the travel time, which is the honest physics
+    /// of "can I get out of the breath from this spot".
+    /// </summary>
+    private void DispatchOrderedMoves(int dt)
+    {
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Moves is not { Count: > 0 } moves) continue;
+            foreach (TimedMove move in moves)
+            {
+                // Half-open [step start, step end): an order at exactly t=0 fires
+                // in the first step, and no order can fire twice at a boundary.
+                if (move.TimeMs >= TimeMs - dt && move.TimeMs < TimeMs)
+                {
+                    actor.MoveTarget = move.Position;
+                    Emit(SimEventKind.Move, actor.Key,
+                        $"{actor.Spec.Name} ordered to move", targetKey: actor.Key);
+                }
+            }
+        }
     }
 
     private void AdvanceMovement(int dt)
@@ -300,6 +444,10 @@ public sealed class EncounterSim
             Vector3 delta = target - actor.Position;
             float distance = delta.Length();
             float stepDistance = actor.MoveSpeed * (dt / 1000f);
+            // A running body faces where it runs; the boss's facing stays owned
+            // by her script (turns are choreography, not locomotion).
+            if (actor.Spec.Role == EncounterActorRole.Friendly && distance > 1e-3f)
+                actor.Facing = MathF.Atan2(delta.Y, delta.X);
             if (distance <= stepDistance || distance < 1e-3f)
             {
                 actor.Position = target;
@@ -495,6 +643,19 @@ public sealed class EncounterSim
         Emit(SimEventKind.CastLand, casterKey, $"{ability.Name} lands",
             ability.Fidelity, ability.Key, ability.SpellId, footprint, targetKey,
             Math.Max(ability.Geometry.DurationMs, 800));
+
+        // Who was standing in it. Placed bodies steered the TARGETING above
+        // (nearest = tank stand-in, random picks); without this test they were
+        // never CONSEQUENCES - aimed at like players, hit like ghosts - and the
+        // whole point of arranging a raid is to read what a position costs.
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            if (!EncounterGeometryLaw.Test(footprint, actor.Body).Covered) continue;
+            actor.HitsTaken++;
+            Emit(SimEventKind.ActorHit, actor.Key, $"{actor.Spec.Name} hit by {ability.Name}",
+                ability.Fidelity, ability.Key, ability.SpellId, targetKey: actor.Key);
+        }
     }
 
     private SimActor? SelectTarget(in EncounterTargetSpec spec, SimActor boss)
@@ -509,20 +670,20 @@ public sealed class EncounterSim
                 return boss;
             case EncounterTargetKind.NearestHostile:
             case EncounterTargetKind.CurrentVictim:
-                // No threat table exists here. "Closest friendly" is the stand-in for
-                // the tank, and it is labelled as an approximation everywhere it shows.
-                return NearestFriendly(boss);
+                // The owner-assigned aggro holder; nearest-friendly only as the
+                // fallback when no plan names one.
+                return AggroTarget(boss);
             case EncounterTargetKind.RandomHostile:
                 return friendlies[_rng.Range(0, friendlies.Count - 1)];
             case EncounterTargetKind.RandomHostileNotVictim:
             {
-                SimActor? victim = NearestFriendly(boss);
+                SimActor? victim = AggroTarget(boss);
                 List<SimActor> pool = friendlies.Where(a => a != victim).ToList();
                 if (pool.Count == 0) pool = friendlies;
                 return pool[_rng.Range(0, pool.Count - 1)];
             }
             case EncounterTargetKind.AllHostiles:
-                return NearestFriendly(boss);
+                return AggroTarget(boss);
             default:
                 return null;
         }
@@ -650,7 +811,7 @@ public sealed class EncounterSim
             string key = $"summon:{++_summonSerial}";
             var spec = new EncounterActorSpec(
                 key, $"add {_summonSerial}", step.Entry, EncounterActorRole.Add,
-                step.Point, 0f, 0.5f, 1.5f, 55, 500);
+                step.Point, 0f, 0.5f, 1.5f, 55, 500, DisplayId: step.DisplayId);
             var actor = new SimActor(spec);
             _actors.Add(actor);
             _byKey[key] = actor;

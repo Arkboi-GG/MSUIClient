@@ -38,6 +38,7 @@
 		<!-- Windowing + GL + input. Silk.NET is a binding layer, not an engine —
 		     we own the renderer, which is what the painterly render mode needs
 		     (full control of shaders and the post stack). -->
+		<PackageReference Include="NLayer" Version="2.0.1" />
 		<PackageReference Include="Silk.NET.Windowing" Version="2.21.0" />
 		<PackageReference Include="Silk.NET.OpenGL" Version="2.21.0" />
 		<PackageReference Include="Silk.NET.Input" Version="2.21.0" />

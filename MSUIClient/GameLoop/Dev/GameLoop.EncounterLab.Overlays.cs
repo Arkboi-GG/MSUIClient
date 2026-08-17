@@ -43,7 +43,7 @@ public sealed partial class GameLoop
 
         if (settings.ShowFootprints)
             foreach (SimEvent simEvent in ActiveEncounterFootprints(sim))
-                AddFootprintDiscs(discs, simEvent.Footprint!, FidelityTint(simEvent.Fidelity), 0.5f);
+                AddFootprintDiscs(discs, simEvent.Footprint!, FidelityTint(simEvent.Fidelity), 0.68f);
 
         // Structural view: every catalogued footprint at once, ignoring timing. This
         // is the "where could this EVER land" question, which a seeded run cannot
@@ -58,6 +58,37 @@ public sealed partial class GameLoop
                 Footprint footprint = EncounterGeometryLaw.Resolve(
                     ability, boss.Position, boss.Facing, boss.Position, _encounterFacts);
                 AddFootprintDiscs(discs, footprint, FidelityTint(ability.Fidelity), 0.16f);
+            }
+        }
+
+        // THE PULL RING, until the moment it is crossed: the fight's start line,
+        // drawn where the decision gets made. Gone once she is engaged.
+        if (settings.ShowActors && sim.Boss is { } ringBoss &&
+            (sim.EngagedAtMs < 0 || _encounterViewMs < sim.EngagedAtMs))
+        {
+            float ring = sim.Options.PullRangeYards;
+            discs.Add(new SpellEffectMeshRenderer.GroundDisc(
+                ringBoss.Position, ring * .96f, ring, new Vector3(1f, .45f, .25f), .8f));
+        }
+
+        // Every body as a ground decal at its REAL size - the boss disc is her
+        // melee reach, which is what makes "am I inside the tail cone from here"
+        // readable at a glance instead of a 9-pixel circle floating in space.
+        if (settings.ShowActors)
+        {
+            foreach (SimActor actor in sim.Actors)
+            {
+                if (!actor.Alive) continue;
+                bool isBoss = actor.Spec.Role == EncounterActorRole.Boss;
+                float radius = isBoss
+                    ? MathF.Max(actor.Spec.CombatReach, actor.Spec.BoundingRadius)
+                    : MathF.Max(actor.Spec.BoundingRadius, .9f);
+                discs.Add(new SpellEffectMeshRenderer.GroundDisc(
+                    actor.Position, isBoss ? radius * .85f : 0f, radius,
+                    ActorHitNow(sim, actor.Key) ? new Vector3(1f, .25f, .2f)
+                    : isBoss ? new Vector3(1f, .55f, .3f)
+                    : new Vector3(.45f, .85f, 1f),
+                    isBoss ? .8f : .6f));
             }
         }
 
@@ -98,6 +129,13 @@ public sealed partial class GameLoop
                 break;
         }
     }
+
+    /// <summary>Was this body inside a landing within a few steps of the view? The
+    /// red flash that turns "melee 2 was hit at 34.2s" from a log line into a thing
+    /// seen happening.</summary>
+    private bool ActorHitNow(EncounterSim sim, string actorKey) =>
+        sim.Events.Any(e => e.Kind == SimEventKind.ActorHit && e.TargetKey == actorKey &&
+                            Math.Abs(e.TimeMs - _encounterViewMs) <= sim.Options.StepMs * 4);
 
     private IEnumerable<SimEvent> ActiveEncounterFootprints(EncounterSim sim)
     {
@@ -143,6 +181,76 @@ public sealed partial class GameLoop
         if (settings.ShowRoute) DrawEncounterRoute(draw, display);
         if (settings.ShowActors) DrawEncounterActors(draw, display, sim);
         if (settings.ShowLabels) DrawEncounterLabels(draw, display, sim);
+        DrawEncounterPlacementBanner(draw, display);
+        DrawEncounterLegend(draw, display, sim);
+    }
+
+    /// <summary>An armed placement announces itself in the middle of the screen.
+    /// Silent placement modes read as broken buttons: the owner clicked "move",
+    /// nothing said "now click the ground", and the order never happened.</summary>
+    private void DrawEncounterPlacementBanner(ImDrawListPtr draw, Vector2 display)
+    {
+        if (_encounterPlacing == EncounterPlacement.None) return;
+        string subject = _encounterScenario
+            .FirstOrDefault(a => a.Key == _encounterPlacingActorKey)?.Name ?? "";
+        string text = _encounterPlacing switch
+        {
+            EncounterPlacement.Boss => "CLICK THE GROUND to place the boss · right-click cancels",
+            EncounterPlacement.Actor => $"CLICK THE GROUND to place {subject} · right-click cancels",
+            EncounterPlacement.ActorMove =>
+                $"CLICK THE GROUND: {subject} runs there at {_encounterViewMs / 1000f:0.0}s · right-click cancels",
+            EncounterPlacement.Probe => "CLICK THE GROUND to place the probe · right-click cancels",
+            EncounterPlacement.ProbeWaypoint =>
+                $"CLICK THE GROUND: probe waypoint at {_encounterViewMs / 1000f:0.0}s · right-click cancels",
+            _ => "",
+        };
+        if (text.Length == 0) return;
+        Vector2 size = ImGui.CalcTextSize(text);
+        Vector2 at = new(display.X * .5f - size.X * .5f, display.Y * .18f);
+        draw.AddRectFilled(at - new Vector2(10f, 6f), at + size + new Vector2(10f, 6f),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, .7f)), 6f);
+        draw.AddText(at, ImGui.GetColorU32(new Vector4(1f, .85f, .4f, 1f)), text);
+    }
+
+    /// <summary>What every mark on screen means, on the screen it is on. Nobody
+    /// alt-tabs to a manual to decode an overlay - the first human to see this
+    /// tool called it, correctly, not usable without one of these.</summary>
+    private void DrawEncounterLegend(ImDrawListPtr draw, Vector2 display, EncounterSim sim)
+    {
+        var settings = Settings.EncounterLab;
+        var rows = new List<(Vector4 Colour, string Text)>();
+        if (settings.ShowActors)
+        {
+            if (sim.EngagedAtMs < 0 || _encounterViewMs < sim.EngagedAtMs)
+                rows.Add((new Vector4(1f, .45f, .25f, 1f),
+                    "large ring = her pull range - a body crossing it starts the fight"));
+            rows.Add((new Vector4(1f, .55f, .3f, 1f),
+                $"{sim.Boss?.Spec.Name ?? "boss"} - disc is her melee reach, tick is her facing"));
+            if (sim.Actors.Any(a => a.Spec.Role == EncounterActorRole.Friendly))
+                rows.Add((new Vector4(.5f, .9f, 1f, 1f), "raid bodies (red flash = hit at this instant)"));
+            if (_encounterProbe.Count > 0)
+                rows.Add((new Vector4(.35f, .95f, 1f, 1f), "position probe + its walked path"));
+        }
+        if (settings.ShowRoute)
+            rows.Add((new Vector4(.65f, .8f, 1f, 1f), "dashed = authored route (air points are flight)"));
+        if (settings.ShowFootprints)
+            rows.Add((new Vector4(.85f, .85f, .85f, 1f), "painted ground = ability landings · colour = data fidelity"));
+        if (rows.Count == 0) return;
+
+        float line = ImGui.GetTextLineHeight() + 4f;
+        Vector2 corner = new(16f, display.Y - rows.Count * line - 24f);
+        float width = rows.Max(r => ImGui.CalcTextSize(r.Text).X) + 34f;
+        draw.AddRectFilled(corner - new Vector2(8f, 8f),
+            corner + new Vector2(width, rows.Count * line + 6f),
+            ImGui.GetColorU32(new Vector4(0f, 0f, 0f, .55f)), 6f);
+        for (int i = 0; i < rows.Count; i++)
+        {
+            Vector2 at = corner + new Vector2(0f, i * line);
+            draw.AddCircleFilled(at + new Vector2(6f, line * .45f), 5f,
+                ImGui.GetColorU32(rows[i].Colour));
+            draw.AddText(at + new Vector2(18f, 2f), ImGui.GetColorU32(rows[i].Colour),
+                rows[i].Text);
+        }
     }
 
     private void DrawFootprintScreen(
@@ -258,7 +366,10 @@ public sealed partial class GameLoop
             }
             if (previous is { } from) DrawDashedLine(draw, from, pixel, colour, 6f, 4f);
             draw.AddCircleFilled(pixel, 4f, colour);
-            draw.AddText(pixel + new Vector2(6f, -6f), colour, (++index).ToString());
+            // The first stop names the whole polyline. Unlabelled, these points
+            // hang in the AIR (they are flight waypoints) and read as noise.
+            draw.AddText(pixel + new Vector2(6f, -6f), colour,
+                ++index == 1 ? "1  authored route (phase moves / flight)" : index.ToString());
             previous = pixel;
         }
     }
@@ -279,17 +390,50 @@ public sealed partial class GameLoop
     {
         foreach (SimActor actor in sim.Actors)
         {
-            if (!actor.Alive) continue;
             if (!_window.Camera.TryWorldToScreen(actor.Position, display, out Vector2 pixel)) continue;
 
-            uint colour = actor.Spec.Role switch
+            // A dead body stays on screen as a grey cross where it died - "who
+            // did that arrangement kill" is the question the scenario answers,
+            // and a body that vanishes on death answers it with a shrug.
+            if (!actor.Alive)
             {
-                EncounterActorRole.Boss => ImGui.GetColorU32(new Vector4(1f, .55f, .3f, 1f)),
-                EncounterActorRole.Add => ImGui.GetColorU32(new Vector4(1f, .8f, .35f, .9f)),
-                _ => ImGui.GetColorU32(new Vector4(.5f, .9f, 1f, .95f)),
-            };
+                uint grey = ImGui.GetColorU32(new Vector4(.7f, .7f, .7f, .9f));
+                draw.AddLine(pixel + new Vector2(-5f, -5f), pixel + new Vector2(5f, 5f), grey, 2f);
+                draw.AddLine(pixel + new Vector2(-5f, 5f), pixel + new Vector2(5f, -5f), grey, 2f);
+                draw.AddText(pixel + new Vector2(8f, -8f), grey, $"{actor.Spec.Name} (dead)");
+                continue;
+            }
+
+            bool hitNow = ActorHitNow(sim, actor.Key);
+            uint colour = hitNow
+                ? ImGui.GetColorU32(new Vector4(1f, .3f, .25f, 1f))
+                : actor.Spec.Role switch
+                {
+                    EncounterActorRole.Boss => ImGui.GetColorU32(new Vector4(1f, .55f, .3f, 1f)),
+                    EncounterActorRole.Add => ImGui.GetColorU32(new Vector4(1f, .8f, .35f, .9f)),
+                    _ => ImGui.GetColorU32(new Vector4(.5f, .9f, 1f, .95f)),
+                };
             float size = actor.Spec.Role == EncounterActorRole.Boss ? 9f : 5f;
             draw.AddCircle(pixel, size, colour, 0, 2f);
+
+            // The assigned aggro holder wears the mark: she is facing THIS body,
+            // and every cone on the floor is anchored to that fact.
+            if (actor.Key == AggroHolderKeyAt(_encounterViewMs))
+            {
+                uint aggro = ImGui.GetColorU32(new Vector4(1f, .45f, .35f, 1f));
+                draw.AddCircle(pixel, size + 5f, aggro, 0, 2.5f);
+                draw.AddText(pixel + new Vector2(-24f, size + 8f), aggro, "AGGRO");
+            }
+
+            // Every mark gets its name. The boss also carries her health, and any
+            // body that has been inside a landing carries the count - the scenario
+            // verdict, readable off the world itself.
+            string label = actor.Spec.Role == EncounterActorRole.Boss
+                ? $"{actor.Spec.Name}  {actor.HealthFraction * 100f:0}%"
+                : actor.HitsTaken > 0
+                    ? $"{actor.Spec.Name} · {actor.HitsTaken} hit{(actor.HitsTaken == 1 ? "" : "s")}"
+                    : actor.Spec.Name;
+            draw.AddText(pixel + new Vector2(size + 5f, -size - 3f), colour, label);
 
             // Facing matters for every cone in the game; draw it.
             if (actor.Spec.Role == EncounterActorRole.Boss)
@@ -298,6 +442,26 @@ public sealed partial class GameLoop
                                EncounterGeometryLaw.Forward(actor.Facing) * MathF.Max(actor.Spec.BoundingRadius * 2f, 6f);
                 if (_window.Camera.TryWorldToScreen(nose, display, out Vector2 tip))
                     draw.AddLine(pixel, tip, colour, 2f);
+            }
+        }
+
+        // Each body's ordered plan as a dashed path with the order times - the
+        // raid plan drawn on the floor it will be executed on.
+        uint orderColour = ImGui.GetColorU32(new Vector4(.55f, .95f, .6f, .85f));
+        foreach (SimActor actor in sim.Actors)
+        {
+            if (actor.Spec.Moves is not { Count: > 0 } moves) continue;
+            Vector2? from = _window.Camera.TryWorldToScreen(actor.Spec.Position, display, out Vector2 start)
+                ? start : null;
+            foreach (TimedMove move in moves)
+            {
+                if (!_window.Camera.TryWorldToScreen(move.Position, display, out Vector2 to))
+                { from = null; continue; }
+                if (from is { } a) DrawDashedLine(draw, a, to, orderColour, 5f, 4f);
+                draw.AddCircleFilled(to, 3f, orderColour);
+                draw.AddText(to + new Vector2(5f, 4f), orderColour,
+                    $"{actor.Spec.Name} @ {move.TimeMs / 1000f:0.0}s");
+                from = to;
             }
         }
 

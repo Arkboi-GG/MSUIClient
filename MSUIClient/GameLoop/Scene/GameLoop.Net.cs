@@ -44,6 +44,11 @@ public sealed partial class GameLoop
     private SpellEffectMeshRenderer? _spellEffectMeshes;
     private SpellRibbonRenderer? _spellRibbons;
     private World.Spells.SpellParticleSystem? _spellParticles;
+    // The audio device and the SoundEntries policy over it are SHARED: spell audio
+    // and the world soundscape are two callers of one mixer, not one system with a
+    // hole punched in it for the other.
+    private World.Sound.AudioMixer? _audioMixer;
+    private World.Sound.SoundKitLibrary? _soundKits;
     private World.Spells.SpellSoundSystem? _spellSounds;
     private bool _worldLoadStarted;                   // false until BeginWorldLoad has run (offline or on login)
     private int _worldEntryTransitionStage;           // 1=booth avatar, 2=HUD prime, 3=begin load, 4=adopt; never in network pump
@@ -139,7 +144,20 @@ public sealed partial class GameLoop
         if (_mpq is not null)
         {
             _spellEffects = new SpellEffectSource(_mpq);
-            _spellSounds = new World.Spells.SpellSoundSystem(_mpq);
+            // MSUI_AUDIO_OFF=1 builds no audio at all: no mixer, no worker thread,
+            // no waveOut device, no decode. A BISECT SWITCH, so "the audio rewrite
+            // changed something visual" can be answered by running rather than by
+            // arguing about whether a mechanism exists.
+            if (Environment.GetEnvironmentVariable("MSUI_AUDIO_OFF") == "1")
+            {
+                Console.WriteLine("[audio] MSUI_AUDIO_OFF=1 - audio subsystem not created");
+            }
+            else
+            {
+                _audioMixer = new World.Sound.AudioMixer(_mpq);
+                _soundKits = new World.Sound.SoundKitLibrary(_mpq);
+                _spellSounds = new World.Spells.SpellSoundSystem(_audioMixer, _soundKits);
+            }
             _spellEffects.AnimationSoundEvent = (sound, unit, position) =>
                 PlaySpellSoundAt(unit, sound, position, forceLoop: false, trackHold: false);
             try

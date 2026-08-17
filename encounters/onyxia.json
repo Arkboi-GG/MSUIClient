@@ -19,6 +19,8 @@
       "name": "Onyxia",
       "entry": 10184,
       "role": "Boss",
+      "displayId": 8570,
+      "displayScale": 2.0,
       "position": [-30.0, -215.0, -87.5],
       "facing": 3.14,
       "boundingRadius": 8.0,
@@ -29,6 +31,7 @@
     {
       "key": "tank",
       "name": "tank (probe body)",
+      "displayId": 3167,
       "entry": 0,
       "role": "Friendly",
       "position": [-22.0, -215.0, -87.5],
@@ -40,6 +43,7 @@
     {
       "key": "melee",
       "name": "melee (probe body)",
+      "displayId": 3258,
       "entry": 0,
       "role": "Friendly",
       "position": [-30.0, -222.0, -87.5],
@@ -50,6 +54,7 @@
     {
       "key": "ranged",
       "name": "ranged (probe body)",
+      "displayId": 2968,
       "entry": 0,
       "role": "Friendly",
       "position": [-46.0, -215.0, -86.5],
@@ -351,8 +356,8 @@
       "geometry": { "kind": "None" },
       "fidelity": "Heuristic",
       "steps": [
-        { "kind": "Summon", "entry": 11262, "count": 8, "point": [-30.127, -254.463, -89.44] },
-        { "kind": "Summon", "entry": 11262, "count": 8, "point": [-30.817, -177.106, -89.258] },
+        { "kind": "Summon", "entry": 11262, "displayId": 397, "count": 8, "point": [-30.127, -254.463, -89.44] },
+        { "kind": "Summon", "entry": 11262, "displayId": 397, "count": 8, "point": [-30.817, -177.106, -89.258] },
         { "kind": "Unmodeled", "note": "GAP-6: the real wave is a state machine — two whelps per second from the two egg pits until 16 are out, then subsequent waves are 5 + urand(0,2) after a 30 s gap. Modelled here as one instantaneous batch of 16." }
       ],
       "sources": [{ "kind": "cpp", "location": "boss_onyxia.cpp:PhaseTwo", "detail": "m_bIsSummoningWhelps block" }]
@@ -368,7 +373,7 @@
       "geometry": { "kind": "None" },
       "fidelity": "Heuristic",
       "steps": [
-        { "kind": "Summon", "entry": 11262, "count": 1, "point": [-30.127, -254.463, -89.44] },
+        { "kind": "Summon", "entry": 11262, "displayId": 397, "count": 1, "point": [-30.127, -254.463, -89.44] },
         { "kind": "Unmodeled", "note": "GAP-1 again: the real script picks one of the two egg pits with urand(0,1). No variant selection, so the east pit is hard-coded." }
       ],
       "sources": [{ "kind": "cpp", "location": "boss_onyxia.cpp:PhaseThree", "detail": "m_uiSummonWhelpsTimer" }]

@@ -19,13 +19,33 @@ public sealed partial class GameLoop
     private uint _soundscapeAreaId;
     private (uint Music, uint Ambience, uint Intro) _soundscapeInterior;
     private bool _soundscapePlaybackArmed;
+    private bool _audioSelfTestStarted;
+    private int _soundscapeSettledFrames;
+    private double _soundscapeArmDeadline;
+
+    /// <summary>Consecutive settled frames required before the first voices of a
+    /// world are allowed to exist. Small: this is a "the loader let go" test, not
+    /// a smoothness measurement.</summary>
+    private const int SoundscapeSettledFrames = 8;
+
+    /// <summary>The world must never end up permanently mute because something
+    /// streams forever. Past this, arm regardless and take the risk.</summary>
+    private const double SoundscapeArmTimeoutSeconds = 6.0;
 
     /// <summary>Runs every Update, before the loading-state early returns, so
     /// leaving the world (logout, loading curtain) resets the transport instead
     /// of stranding a looping bed in the glue screen.</summary>
     private void UpdateWorldSoundscape()
     {
-        if (_spellSounds is null) return;
+        // The soundscape is a caller of the shared audio device, not of the spell
+        // system, so these two are what it actually needs.
+        if (_audioMixer is null || _soundKits is null) return;
+
+        // Device housekeeping (retiring finished one-shots) belongs to the device
+        // and runs whatever the world is doing. It used to hang off the spell
+        // system's per-frame tick, which meant a music track could only be noticed
+        // as finished on frames where spell audio happened to be ticked.
+        _audioMixer.PollFinished();
 
         bool inWorld = _terrain is not null && _worldLoadStarted && !_worldLoading &&
                        !GlueFrontDoorActive && _controller is not null;
@@ -33,25 +53,58 @@ public sealed partial class GameLoop
         {
             _soundscape?.Reset();
             _soundscapePlaybackArmed = false;
+            _soundscapeSettledFrames = 0;
+            _soundscapeArmDeadline = 0;
             return;
         }
 
-        // Do not let the first MCI/DirectShow voices come into existence while
-        // the client is backgrounded during world startup. On Windows that graph
-        // can be created while the loader owns the available CPU and remain
-        // permanently choppy even after focus returns. Once one focused world
-        // frame arms playback, ordinary background playback remains allowed.
+        // DO NOT LET THE FIRST MCI/DirectShow VOICES COME INTO EXISTENCE WHILE THE
+        // LOADER STILL OWNS THE MACHINE. On Windows a graph built under that
+        // contention can stay choppy for its whole life, long after the machine is
+        // idle again - the defect does not clear when the cause does, which is what
+        // makes it worth refusing to start rather than trying to recover.
+        //
+        // Focus was the first half of this law and it was not enough: the curtain
+        // lifts while the DBC readers, the font-atlas rebuild and the doodad and
+        // collision streams are all still running, and both voices of a zone were
+        // being opened into exactly that. So the test is now "the loader let go",
+        // measured as a few consecutive frames with nothing left in flight. Once a
+        // world is armed, ordinary background playback stays allowed.
         if (!_soundscapePlaybackArmed)
         {
-            if (!_window.IsFocused) return;
+            if (!_window.IsFocused) { _soundscapeSettledFrames = 0; return; }
+            double armNow = NowSeconds();
+            if (_soundscapeArmDeadline <= 0) _soundscapeArmDeadline = armNow + SoundscapeArmTimeoutSeconds;
+            bool expired = armNow >= _soundscapeArmDeadline;
+            bool loaderBusy = _collisionBuildTask is not null ||
+                              (_doodads?.PendingPreloads ?? 0) > 0 ||
+                              (_wmo?.PendingPreloads ?? 0) > 0;
+            if (loaderBusy) _soundscapeSettledFrames = 0;
+            else _soundscapeSettledFrames++;
+            if (_soundscapeSettledFrames < SoundscapeSettledFrames && !expired) return;
             _soundscapePlaybackArmed = true;
-            Console.WriteLine("[audio] foreground acquired; world playback armed");
+            Console.WriteLine(expired && _soundscapeSettledFrames < SoundscapeSettledFrames
+                ? $"[audio] world playback armed after {SoundscapeArmTimeoutSeconds:F0}s " +
+                  "(streaming never settled - voices may open under load)"
+                : "[audio] world settled; playback armed");
         }
+
+        // MSUI_AUDIO_TONE=1 replaces the world's own audio with the self test, so
+        // the only thing playing is a signal that cannot be starved by this
+        // process. Diagnostic only; nothing reads it unless it is asked for.
+        if (!_audioSelfTestStarted &&
+            Environment.GetEnvironmentVariable("MSUI_AUDIO_TONE") == "1")
+        {
+            _audioSelfTestStarted = true;
+            _audioMixer.PlayTestTone();
+            return;
+        }
+        if (_audioSelfTestStarted) return;
 
         if (_soundscape is null)
         {
             if (_mpq is null) return;
-            _soundscape = new WorldSoundscape(_spellSounds, _mpq);
+            _soundscape = new WorldSoundscape(_audioMixer, _soundKits, _mpq);
         }
 
         double now = NowSeconds();
@@ -105,17 +158,18 @@ public sealed partial class GameLoop
     }
 
     /// <summary>Push the persisted audio settings onto the mix. Called from
-    /// ApplySettings so the Sound Options sliders are live while dragged.</summary>
+    /// ApplySettings so the Sound Options sliders are live while dragged. The
+    /// master mix belongs to the device, so every category reaches every caller.</summary>
     private void ApplyAudioSettings(Engine.GameSettings settings)
     {
-        if (_spellSounds is null) return;
+        if (_audioMixer is null) return;
         var audio = settings.Audio;
-        _spellSounds.SoundEnabled = audio.EnableAll;
-        _spellSounds.MusicEnabled = audio.EnableMusic;
-        _spellSounds.AmbienceEnabled = audio.EnableAmbience;
-        _spellSounds.MasterVolume = Math.Clamp(audio.MasterVolume, 0f, 1f);
-        _spellSounds.EffectsVolume = Math.Clamp(audio.EffectsVolume, 0f, 1f);
-        _spellSounds.MusicVolume = Math.Clamp(audio.MusicVolume, 0f, 1f);
-        _spellSounds.AmbienceVolume = Math.Clamp(audio.AmbienceVolume, 0f, 1f);
+        _audioMixer.SoundEnabled = audio.EnableAll;
+        _audioMixer.MusicEnabled = audio.EnableMusic;
+        _audioMixer.AmbienceEnabled = audio.EnableAmbience;
+        _audioMixer.MasterVolume = Math.Clamp(audio.MasterVolume, 0f, 1f);
+        _audioMixer.EffectsVolume = Math.Clamp(audio.EffectsVolume, 0f, 1f);
+        _audioMixer.MusicVolume = Math.Clamp(audio.MusicVolume, 0f, 1f);
+        _audioMixer.AmbienceVolume = Math.Clamp(audio.AmbienceVolume, 0f, 1f);
     }
 }

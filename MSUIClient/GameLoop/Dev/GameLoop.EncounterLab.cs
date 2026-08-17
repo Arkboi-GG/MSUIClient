@@ -60,7 +60,11 @@ public sealed partial class GameLoop
     private readonly List<EncounterActorSpec> _encounterScenario = [];
     private int _encounterDummySerial;
 
-    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss }
+    /// <summary>The owner's aggro timeline: who she is on, from when. Sorted by
+    /// time; the sim consumes it verbatim and never second-guesses it.</summary>
+    private readonly List<TimedAggro> _encounterAggroPlan = [];
+
+    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss, ActorMove }
 
     private EncounterDataClient EncounterData => _encounterData ??= new EncounterDataClient(_config.RepoRoot);
 
@@ -127,6 +131,10 @@ public sealed partial class GameLoop
             case EncounterPlacement.Boss:
                 MoveScenarioActor(BossActorKey(), point);
                 break;
+
+            case EncounterPlacement.ActorMove when _encounterPlacingActorKey is { } moveKey:
+                AddScenarioMove(moveKey, _encounterViewMs, point);
+                break;
         }
 
         _encounterPlacing = EncounterPlacement.None;
@@ -143,6 +151,10 @@ public sealed partial class GameLoop
     /// </summary>
     private void UpdateEncounterLab(float dt)
     {
+        // Puppets track the sim every frame, playing or not - a scrub moves them
+        // too - and self-clear the moment the window closes or models turn off.
+        SyncEncounterPuppets(dt);
+
         if (!_encounterLabOpen || _encounterSim is not { } sim) return;
         if (!_encounterPlaying || _encounterScrubbing) return;
 
@@ -151,13 +163,14 @@ public sealed partial class GameLoop
         int step = Math.Max(sim.Options.StepMs, 1);
         int guard = 0;
 
+        // The fight is fully simulated at load, so playback is a cursor moving
+        // over the snapshot ring - the same restore a scrub does, at speed.
+        int endMs = sim.Timeline.Count > 0 ? sim.Timeline[^1].TimeMs : 0;
         while (_encounterPlaybackCarryMs >= step && guard++ < 400)
         {
             _encounterPlaybackCarryMs -= step;
-            if (sim.Finished) { _encounterPlaying = false; break; }
-            sim.Advance();
-            _encounterViewMs = sim.TimeMs;
-            _encounterProbeDirty = true;
+            if (_encounterViewMs >= endMs) { _encounterPlaying = false; break; }
+            ScrubTo(_encounterViewMs + step);
         }
     }
 
@@ -228,8 +241,15 @@ public sealed partial class GameLoop
             _encounterProbe.Add(0, _encounterScenario[0].Position + new Vector3(10f, 0f, 0f));
     }
 
+    /// <summary>The pre-simulated fight's verdict, shown in the transport and the
+    /// status line. Written once per rebuild; playback never changes it.</summary>
+    private string _encounterOutcome = "";
+
     private void RebuildEncounterSim()
     {
+        // Wholesale: a rebuilt scenario can change a body's display under an
+        // unchanged key, and a puppet's fields are set once at spawn.
+        ClearEncounterPuppets();
         if (_encounterDefinition is not { } definition) { _encounterSim = null; return; }
         EnsureEncounterFacts();
         var settings = Settings.EncounterLab;
@@ -238,7 +258,26 @@ public sealed partial class GameLoop
             StepMs = Math.Clamp(settings.StepMs, 20, 1000),
             Seed = (uint)Math.Max(settings.Seed, 0),
             RaidDpsFraction = Math.Clamp(settings.RaidDpsFraction, 0f, 0.5f),
+            AggroPlan = _encounterAggroPlan.Count > 0 ? _encounterAggroPlan.ToArray() : null,
+            PullRangeYards = Math.Clamp(settings.PullRangeYards, 5f, 100f),
         }, _encounterFacts);
+
+        // Run the WHOLE fight now, then rewind the view to the start. Before this,
+        // the sim was advanced live by the Play button, so a freshly loaded
+        // encounter showed "0.0s / 0.0s" - a scrub bar over nothing, which read as
+        // broken rather than as "not yet played". A fight is a couple of thousand
+        // snapshot steps; simulating it at load costs a frame and makes the bar,
+        // the timeline and the probe describe the finished fight immediately.
+        _encounterSim.AdvanceTo(_encounterSim.Options.MaxDurationMs);
+        _encounterOutcome = _encounterSim.EngagedAtMs < 0
+            ? "never pulled - order a body into her aggro ring to start the fight"
+            : _encounterSim.Boss is { Alive: false } dead
+                ? $"pulled at {_encounterSim.EngagedAtMs / 1000f:0.0}s, {dead.Spec.Name} dies at " +
+                  $"{_encounterSim.TimeMs / 1000f / 60f:0}:{_encounterSim.TimeMs / 1000 % 60:00}"
+                : _encounterSim.Boss is { } alive
+                    ? $"boss at {alive.HealthFraction * 100f:0}% when the {_encounterSim.Options.MaxDurationMs / 60000} min cap hit - raise dps to reach later phases"
+                    : "no boss in the scenario";
+        _encounterSim.RestoreTo(0);
         _encounterViewMs = 0;
         _encounterPlaybackCarryMs = 0;
         _encounterProbeDirty = true;
@@ -259,13 +298,131 @@ public sealed partial class GameLoop
         _encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)?.Key
         ?? _encounterScenario.FirstOrDefault()?.Key ?? "boss";
 
+    /// <summary>
+    /// Ten bodies in the classic arrangement, relative to where the boss stands and
+    /// faces: a tank on the nose, melee on the flanks (out of the frontal breath and
+    /// the rear tail cone both), ranged in a wide arc further back. Replaces any
+    /// friendly bodies already placed - it is a preset, not an append - and each
+    /// body then really participates: it steers the sim's targeting and is
+    /// hit-tested against every footprint that lands.
+    /// </summary>
+    private void PlaceScenarioRaid()
+    {
+        if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
+            is not { } boss) return;
+        _encounterScenario.RemoveAll(a => a.Role == EncounterActorRole.Friendly);
+
+        // The raid forms up AT THE PLAYER - stand at the top of the cave, click
+        // once, and the raid is authored there, outside her ring, facing her.
+        // The fight then starts the way a fight starts: you order someone in.
+        Vector3 centre = DevPlayerPosition() ?? boss.Position + new Vector3(40f, 0f, 0f);
+        Vector3 toBoss = boss.Position - centre;
+        float advance = MathF.Atan2(toBoss.Y, toBoss.X);
+
+        void Add(string key, string name, float aheadYards, float sideYards, uint health,
+            uint display, float dps)
+        {
+            Vector3 forward = new(MathF.Cos(advance), MathF.Sin(advance), 0f);
+            Vector3 side = new(-forward.Y, forward.X, 0f);
+            Vector3 at = centre + forward * aheadYards + side * sideYards;
+            if (_terrain?.SampleHeight(at.X, at.Y) is float ground) at.Z = ground;
+            _encounterScenario.Add(new EncounterActorSpec(
+                key, name, 0, EncounterActorRole.Friendly, at,
+                Facing: advance, MaxHealth: health, DisplayId: display, Dps: dps));
+        }
+
+        // CHARACTER models, role by role, displays read from creature_template on
+        // the vmangos box (2026-08-17): the tank is a Stormwind City Guard (3167,
+        // plate + shield), melee are armoured soldiers, ranged are robed casters
+        // (Archmage Malin's look, 2968), the healer a priestess (1495). Weapons
+        // come from each look's real creature_equip_template via the puppet layer.
+        Add("raid-tank", "tank", 6f, 0f, 8000, 3167, 400);
+        Add("raid-melee1", "melee 1", 3f, -3f, 5000, 3258, 800);
+        Add("raid-melee2", "melee 2", 3f, 3f, 5000, 3280, 800);
+        Add("raid-melee3", "melee 3", 1f, -6f, 5000, 1515, 800);
+        Add("raid-melee4", "melee 4", 1f, 6f, 5000, 1985, 800);
+        Add("raid-ranged1", "ranged 1", -4f, -4f, 4000, 2968, 700);
+        Add("raid-ranged2", "ranged 2", -4f, 4f, 4000, 3287, 700);
+        Add("raid-ranged3", "ranged 3", -6f, -8f, 4000, 2968, 700);
+        Add("raid-ranged4", "ranged 4", -6f, 8f, 4000, 3344, 700);
+        Add("raid-healer", "healer", -8f, 0f, 4000, 1495, 0);
+
+        // The tank opens with aggro - the one default nobody would choose
+        // otherwise. Every later swap is the owner's.
+        _encounterAggroPlan.Clear();
+        _encounterAggroPlan.Add(new TimedAggro(0, "raid-tank"));
+        RebuildEncounterSim();
+    }
+
+    /// <summary>
+    /// Re-simulate and stay at the instant the owner is looking at. This is what
+    /// makes paused repositioning read as REALTIME: place the aggro holder
+    /// somewhere new while paused, the fight re-runs in a frame, the view lands
+    /// back on the same millisecond - and the boss now faces the new spot, every
+    /// cone on the floor swung with her.
+    /// </summary>
+    private void RebuildEncounterSimKeepingView()
+    {
+        int viewMs = _encounterViewMs;
+        RebuildEncounterSim();
+        if (viewMs > 0) ScrubTo(viewMs);
+    }
+
     private void MoveScenarioActor(string key, Vector3 position)
     {
         for (int i = 0; i < _encounterScenario.Count; i++)
         {
             if (_encounterScenario[i].Key != key) continue;
             _encounterScenario[i] = _encounterScenario[i] with { Position = position };
-            RebuildEncounterSim();
+            RebuildEncounterSimKeepingView();
+            return;
+        }
+    }
+
+    /// <summary>The assigned aggro holder at a moment, for display and overlays.</summary>
+    private string? AggroHolderKeyAt(int timeMs)
+    {
+        string? holder = null;
+        foreach (TimedAggro entry in _encounterAggroPlan)
+            if (entry.TimeMs <= timeMs) holder = entry.Key;
+        return holder;
+    }
+
+    private void AssignAggro(string key, int timeMs)
+    {
+        _encounterAggroPlan.RemoveAll(a => a.TimeMs == timeMs);
+        _encounterAggroPlan.Add(new TimedAggro(Math.Max(timeMs, 0), key));
+        _encounterAggroPlan.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+        RebuildEncounterSimKeepingView();
+    }
+
+    /// <summary>Record "at this time, run there" for a body and replay the fight
+    /// with it. The scrub head IS the time argument: scrub to the breath, click
+    /// where they should be, and the rebuilt fight shows whether they make it.</summary>
+    private void AddScenarioMove(string key, int timeMs, Vector3 position)
+    {
+        for (int i = 0; i < _encounterScenario.Count; i++)
+        {
+            if (_encounterScenario[i].Key != key) continue;
+            var moves = (_encounterScenario[i].Moves ?? []).ToList();
+            moves.Add(new TimedMove(Math.Max(timeMs, 0), position));
+            moves.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+            _encounterScenario[i] = _encounterScenario[i] with { Moves = moves };
+            RebuildEncounterSimKeepingView();
+            return;
+        }
+    }
+
+    private void RemoveScenarioMove(string key, int index)
+    {
+        for (int i = 0; i < _encounterScenario.Count; i++)
+        {
+            if (_encounterScenario[i].Key != key) continue;
+            var moves = (_encounterScenario[i].Moves ?? []).ToList();
+            if (index < 0 || index >= moves.Count) return;
+            moves.RemoveAt(index);
+            _encounterScenario[i] = _encounterScenario[i] with { Moves = moves.Count == 0 ? null : moves };
+            RebuildEncounterSimKeepingView();
             return;
         }
     }
@@ -310,6 +467,7 @@ public sealed partial class GameLoop
         RefreshProbeReport();
         DrawEncounterToolbar();
         BeginCreatorContent();
+        DrawEncounterStatusLine();
         DrawEncounterSubjectSection();
         DrawEncounterOverlaySection();
         DrawEncounterTransportSection();
@@ -354,6 +512,38 @@ public sealed partial class GameLoop
 
     // ── subject ──────────────────────────────────────────────────────────────
 
+    /// <summary>The first line of the window answers "what is this showing me and
+    /// what do I do next" - everything else is detail beneath it.</summary>
+    private void DrawEncounterStatusLine()
+    {
+        if (_encounterSim is not { } sim || _encounterDefinition is not { } definition)
+        {
+            ImGui.TextColored(new Vector4(1f, .85f, .4f, 1f),
+                "pick an encounter below - the fight simulates the moment it loads");
+            return;
+        }
+        int bodies = _encounterScenario.Count(a => a.Role == EncounterActorRole.Friendly);
+        ImGui.TextColored(new Vector4(.55f, 1f, .6f, 1f),
+            $"{definition.Name}: full fight simulated · {_encounterOutcome}");
+        if (bodies == 0)
+        {
+            ImGui.TextDisabled("no raid bodies placed - 'Place raid (10)' in Scenario puts a raid in front of her");
+        }
+        else
+        {
+            float bodyDps = _encounterScenario
+                .Where(a => a.Role == EncounterActorRole.Friendly).Sum(a => a.Dps);
+            float dialDps = Math.Clamp(Settings.EncounterLab.RaidDpsFraction, 0f, 0.5f) *
+                            (sim.Boss?.MaxHealth ?? 0);
+            string? holderKey = AggroHolderKeyAt(_encounterViewMs);
+            string holder = _encounterScenario.FirstOrDefault(a => a.Key == holderKey)?.Name
+                            ?? "nearest body (no plan)";
+            ImGui.TextDisabled($"{bodies} bodies · {bodyDps:0}/s from bodies + {dialDps:0}/s dial · " +
+                               $"aggro: {holder}");
+        }
+        ImGui.Separator();
+    }
+
     private void DrawEncounterSubjectSection()
     {
         if (!ImGui.CollapsingHeader("Encounter", ImGuiTreeNodeFlags.DefaultOpen)) return;
@@ -396,16 +586,23 @@ public sealed partial class GameLoop
         }
 
         ImGui.Text(loaded.Name);
-        ImGui.TextDisabled(_encounterSourceNote);
+        ImGui.TextDisabled($"entry {loaded.PrimaryEntry} · {loaded.Phases.Count} phases · " +
+                           $"{loaded.Abilities.Count} abilities");
         EncounterFidelity worst = loaded.WorstFidelity();
         ImGui.TextColored(FidelityColor(worst),
             $"weakest fact: {EncounterSchema.Describe(worst)}");
-        ImGui.TextDisabled($"coverage: {EncounterSchema.Describe(loaded.Coverage)}");
-        ImGui.TextDisabled($"entry {loaded.PrimaryEntry} · {loaded.Phases.Count} phases · " +
-                           $"{loaded.Abilities.Count} abilities");
-        if (loaded.Provenance.CoreBuildHash is { Length: > 0 } hash)
-            ImGui.TextDisabled($"core: {hash}");
-        if (loaded.Note is { Length: > 0 } note) ImGui.TextWrapped(note);
+
+        // The transcription essay matters when auditing the document, not when
+        // running a fight; folded, it stops being the first screenful a human sees.
+        if (ImGui.TreeNode("provenance & coverage"))
+        {
+            ImGui.TextDisabled(_encounterSourceNote);
+            ImGui.TextDisabled($"coverage: {EncounterSchema.Describe(loaded.Coverage)}");
+            if (loaded.Provenance.CoreBuildHash is { Length: > 0 } hash)
+                ImGui.TextDisabled($"core: {hash}");
+            if (loaded.Note is { Length: > 0 } note) ImGui.TextWrapped(note);
+            ImGui.TreePop();
+        }
     }
 
     // ── overlays ─────────────────────────────────────────────────────────────
@@ -436,6 +633,10 @@ public sealed partial class GameLoop
         bool labels = settings.ShowLabels;
         if (ImGui.Checkbox("labels", ref labels)) { settings.ShowLabels = labels; changed = true; }
 
+        bool models = settings.ShowModels;
+        if (ImGui.Checkbox("models (rendered puppets)", ref models))
+        { settings.ShowModels = models; changed = true; }
+
         int linger = settings.FootprintLingerMs;
         ImGui.SetNextItemWidth(160f * CreatorUiScale);
         if (ImGui.SliderInt("linger ms", ref linger, 200, 6000))
@@ -464,14 +665,18 @@ public sealed partial class GameLoop
         var settings = Settings.EncounterLab;
         float cs = CreatorUiScale;
 
+        int fightEndMs = sim.Timeline.Count > 0 ? sim.Timeline[^1].TimeMs : 0;
         if (ImGui.Button(_encounterPlaying ? "Pause" : "Play", new Vector2(70f * cs, 0f)))
+        {
             _encounterPlaying = !_encounterPlaying;
+            // Play at the end means "run it again", not a dead button.
+            if (_encounterPlaying && _encounterViewMs >= fightEndMs) ScrubTo(0);
+        }
         ImGui.SameLine();
         if (ImGui.Button("Step"))
         {
             _encounterPlaying = false;
-            if (_encounterViewMs < sim.TimeMs) ScrubTo(_encounterViewMs + sim.Options.StepMs);
-            else { sim.Advance(); _encounterViewMs = sim.TimeMs; _encounterProbeDirty = true; }
+            ScrubTo(_encounterViewMs + sim.Options.StepMs);
         }
         ImGui.SameLine();
         if (ImGui.Button("Back"))
@@ -480,11 +685,12 @@ public sealed partial class GameLoop
             ScrubTo(_encounterViewMs - sim.Options.StepMs);
         }
         ImGui.SameLine();
-        if (ImGui.Button("Reset")) { sim.Reset(); _encounterViewMs = 0; _encounterPlaying = false; _encounterProbeDirty = true; }
+        if (ImGui.Button("Reset")) { _encounterPlaying = false; ScrubTo(0); }
 
         // Scrubbing is an index into the snapshot ring, not a re-simulation — the
-        // state is small enough to store every step, so rewind is free.
-        int headMs = Math.Max(sim.TimeMs, 1);
+        // state is small enough to store every step, so rewind is free. The bar
+        // spans the whole pre-simulated fight from the moment a document loads.
+        int headMs = Math.Max(fightEndMs, 1);
         int view = _encounterViewMs;
         ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 90f * cs);
         if (ImGui.SliderInt("##enc-scrub", ref view, 0, headMs, $"{view / 1000f:0.0}s"))
@@ -503,7 +709,12 @@ public sealed partial class GameLoop
             ImGui.SameLine();
             ImGui.TextDisabled($"· boss {boss.HealthFraction * 100f:0}%");
         }
-        if (sim.Finished) ImGui.TextDisabled("(simulation finished)");
+        if (sim.EngagedAtMs < 0)
+            ImGui.TextColored(new Vector4(1f, .75f, .4f, 1f),
+                "not pulled - she waits behind her ring until a body crosses it");
+        else if (_encounterViewMs < sim.EngagedAtMs)
+            ImGui.TextDisabled($"pre-pull · she engages at {sim.EngagedAtMs / 1000f:0.0}s");
+        if (_encounterOutcome.Length > 0) ImGui.TextDisabled(_encounterOutcome);
 
         ImGui.Separator();
         float speed = settings.PlaybackSpeed;
@@ -571,12 +782,15 @@ public sealed partial class GameLoop
 
         if (ImGui.Button("Place boss")) _encounterPlacing = EncounterPlacement.Boss;
         ImGui.SameLine();
+        if (ImGui.Button("Place raid (10)")) PlaceScenarioRaid();
+        ImGui.SameLine();
         if (ImGui.Button("Add dummy"))
         {
             Vector3 near = _encounterScenario.FirstOrDefault()?.Position ?? Vector3.Zero;
             _encounterScenario.Add(new EncounterActorSpec(
                 $"dummy{++_encounterDummySerial}", $"dummy {_encounterDummySerial}", 0,
-                EncounterActorRole.Friendly, near + new Vector3(5f, 5f, 0f)));
+                EncounterActorRole.Friendly, near + new Vector3(5f, 5f, 0f),
+                DisplayId: 3167));
             RebuildEncounterSim();
         }
         ImGui.SameLine();
@@ -584,8 +798,43 @@ public sealed partial class GameLoop
         {
             MoveScenarioActor(BossActorKey(), me);
         }
+        ImGui.TextDisabled("bodies steer her targeting AND take the hits - move one, replay, compare");
+
+        // The pull ring: the fight begins when a body crosses it. Authoring the
+        // pull is the first order of every plan.
+        float pullRange = Settings.EncounterLab.PullRangeYards;
+        ImGui.SetNextItemWidth(140f * CreatorUiScale);
+        if (ImGui.SliderFloat("pull range yd", ref pullRange, 5f, 100f, "%.0f"))
+            Settings.EncounterLab.PullRangeYards = pullRange;
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            SettingsFile?.Save();
+            RebuildEncounterSimKeepingView();
+        }
+
+        // The aggro plan, one line per swap. SHE FACES THE HOLDER, so this list
+        // plus the bodies' positions IS the geometry of the whole fight.
+        if (_encounterAggroPlan.Count > 0)
+        {
+            for (int a = 0; a < _encounterAggroPlan.Count; a++)
+            {
+                TimedAggro entry = _encounterAggroPlan[a];
+                string who = _encounterScenario.FirstOrDefault(s => s.Key == entry.Key)?.Name ?? entry.Key;
+                ImGui.TextColored(new Vector4(1f, .5f, .4f, 1f),
+                    $"aggro: {who} from {entry.TimeMs / 1000f:0.0}s");
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"x##ag{a}"))
+                {
+                    _encounterAggroPlan.RemoveAt(a);
+                    RebuildEncounterSimKeepingView();
+                    break;
+                }
+            }
+        }
+        else ImGui.TextDisabled("no aggro assigned - she turns to the nearest body ('aggro' on a body fixes that)");
 
         ImGui.Separator();
+        string? aggroNowKey = AggroHolderKeyAt(_encounterViewMs);
         for (int i = 0; i < _encounterScenario.Count; i++)
         {
             EncounterActorSpec actor = _encounterScenario[i];
@@ -593,6 +842,11 @@ public sealed partial class GameLoop
             ImGui.Text($"{actor.Name}");
             ImGui.SameLine();
             ImGui.TextDisabled($"({actor.Role})");
+            if (actor.Key == aggroNowKey)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(1f, .5f, .4f, 1f), "AGGRO");
+            }
             ImGui.TextDisabled($"  {actor.Position.X:0.#}, {actor.Position.Y:0.#}, {actor.Position.Z:0.#} " +
                                $"· r{actor.BoundingRadius:0.#}");
             if (ImGui.SmallButton("place"))
@@ -603,12 +857,46 @@ public sealed partial class GameLoop
             if (actor.Role != EncounterActorRole.Boss)
             {
                 ImGui.SameLine();
+                // The order is stamped with the SCRUB TIME: scrub to the moment,
+                // click the ground, and the body runs there at that moment in
+                // every replay. This is the "tell them where to move" verb.
+                if (ImGui.SmallButton($"move @ {_encounterViewMs / 1000f:0.0}s"))
+                {
+                    _encounterPlacing = EncounterPlacement.ActorMove;
+                    _encounterPlacingActorKey = actor.Key;
+                }
+                ImGui.SameLine();
+                if (ImGui.SmallButton($"aggro @ {_encounterViewMs / 1000f:0.0}s"))
+                    AssignAggro(actor.Key, _encounterViewMs);
+                ImGui.SameLine();
                 if (ImGui.SmallButton("remove"))
                 {
                     _encounterScenario.RemoveAt(i);
-                    RebuildEncounterSim();
+                    _encounterAggroPlan.RemoveAll(a => a.Key == actor.Key);
+                    RebuildEncounterSimKeepingView();
                     ImGui.PopID();
                     break;
+                }
+
+                // This body's damage to the boss, per second - an owner-set input.
+                int dps = (int)actor.Dps;
+                ImGui.SetNextItemWidth(90f * CreatorUiScale);
+                if (ImGui.DragInt("dps##bodydps", ref dps, 5, 0, 10000))
+                    _encounterScenario[i] = actor = actor with { Dps = Math.Max(dps, 0) };
+                if (ImGui.IsItemDeactivatedAfterEdit()) RebuildEncounterSimKeepingView();
+                if (actor.Moves is { Count: > 0 } moves)
+                {
+                    for (int m = 0; m < moves.Count; m++)
+                    {
+                        ImGui.TextDisabled($"    run @ {moves[m].TimeMs / 1000f:0.0}s -> " +
+                                           $"{moves[m].Position.X:0.#}, {moves[m].Position.Y:0.#}");
+                        ImGui.SameLine();
+                        if (ImGui.SmallButton($"x##mv{m}"))
+                        {
+                            RemoveScenarioMove(actor.Key, m);
+                            break;
+                        }
+                    }
                 }
             }
             ImGui.PopID();
@@ -647,6 +935,7 @@ public sealed partial class GameLoop
                     SimEventKind.Unmodeled => new Vector4(1f, .45f, .35f, 1f),
                     SimEventKind.PhaseEnter => new Vector4(.6f, .85f, 1f, 1f),
                     SimEventKind.CastLand => FidelityColor(simEvent.Fidelity),
+                    SimEventKind.ActorHit => new Vector4(1f, .35f, .3f, 1f),
                     SimEventKind.Say => new Vector4(.85f, .8f, .55f, 1f),
                     _ => new Vector4(.72f, .72f, .72f, 1f),
                 };

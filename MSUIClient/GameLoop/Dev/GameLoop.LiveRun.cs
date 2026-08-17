@@ -287,7 +287,7 @@ public sealed partial class GameLoop
                     else if (sound.Length is 4 or 5 && sound[1].Equals("assert", StringComparison.OrdinalIgnoreCase) &&
                              int.TryParse(sound[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int expectedSounds))
                     {
-                        IReadOnlyList<SpellSoundSystem.SoundPlayJournalEntry> events =
+                        IReadOnlyList<World.Sound.AudioMixer.SoundPlayJournalEntry> events =
                             _spellSounds?.JournalSnapshot().Where(x => x.Sequence > _liveSoundMarkSequence).ToArray() ?? [];
                         string expectedCue = sound[3];
                         string expectedCategory = sound.Length == 5 ? sound[4] : "ui.inventory";
@@ -1976,7 +1976,7 @@ public sealed partial class GameLoop
         {
             "sequence,time,category,requested_cue,resolved_id,resolved_path,owner,looping,track_hold"
         };
-        foreach (SpellSoundSystem.SoundPlayJournalEntry e in (_spellSounds?.JournalSnapshot() ?? [])
+        foreach (World.Sound.AudioMixer.SoundPlayJournalEntry e in (_spellSounds?.JournalSnapshot() ?? [])
                      .Where(x => x.Sequence > _liveSoundProtocolStartSequence))
             lines.Add(string.Join(',', e.Sequence, e.TimeSeconds.ToString("F3", CultureInfo.InvariantCulture),
                 Csv(e.Category), Csv(e.RequestedCue), e.SoundId, Csv(e.ResolvedPath),

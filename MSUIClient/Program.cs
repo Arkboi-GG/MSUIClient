@@ -1664,6 +1664,18 @@ public sealed partial class GameLoop : IDisposable
             _controller.Flying = !_controller.Flying;
             Console.WriteLine($"[move] {(_controller.Flying ? "flying" : "walking")}");
         }
+        else if (flyKey && !_flyKeyDown)
+        {
+            // A SWALLOWED F LOOKS EXACTLY LIKE A BROKEN ONE, and the three gates
+            // that can eat it are all invisible from inside the world: an ImGui
+            // text field that kept the caret after its panel closed, the game
+            // menu, a keybinding capture. Say which one, once per press, rather
+            // than leaving "F stopped working" to be guessed at.
+            Console.WriteLine("[move] F ignored - " +
+                (flyCtrlHeld ? "Ctrl is held (Ctrl+F is the CRPG free view)"
+                 : $"the keyboard is owned elsewhere (textInput={ImGui.GetIO().WantTextInput} " +
+                   $"settings={_settingsOpen} bindingCapture={_bindingCapture is not null})"));
+        }
         _flyKeyDown = flyKey;
 
         // Ctrl+C keeps the developer collision toggle; plain C belongs to the
@@ -2845,8 +2857,13 @@ public sealed partial class GameLoop : IDisposable
 
         // The NPC dev window is deliberately ABOVE the creator-mode return below:
         // unlike the F1 instrument stack it serves both live and creator mode
-        // (Ctrl+N). Never over the glue front door or the creator launch screens.
-        if (!GlueFrontDoorActive && !CreatorLaunchActive)
+        // (Ctrl+N). Never over the glue front door - which by itself covers the
+        // launch screens in both modes. This gate also carried
+        // !CreatorLaunchActive, misread as "the launch screen is up"; it actually
+        // means "this SESSION was launched as creator" and holds for the whole
+        // sandbox session - so every dev window here was input-toggled but never
+        // drawn in creator mode, ever (found 2026-08-17, Ctrl+E "not registering").
+        if (!GlueFrontDoorActive)
         {
             DrawDevWindow();
             DrawDevOverlayLabels();
@@ -3804,7 +3821,7 @@ public sealed partial class GameLoop : IDisposable
         _spellEffectMeshes?.Dispose();
         _spellRibbons?.Dispose();
         _spellParticles?.Dispose();
-        _spellSounds?.Dispose();
+        _audioMixer?.Dispose();   // the device; SpellSoundSystem is policy over it and owns nothing
         _mpq?.Dispose();
     }
 }

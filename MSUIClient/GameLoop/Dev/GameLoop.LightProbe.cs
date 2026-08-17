@@ -180,6 +180,8 @@ public sealed partial class GameLoop
     ///   probe's own (possibly pinned) sample is taken separately below, and
     ///   only when there is a panel to show it in.
     /// </summary>
+    private string _lastLightState = "";
+
     private void UpdateExteriorLighting()
     {
         if (!_exteriorLight.Ready) return;
@@ -192,6 +194,22 @@ public sealed partial class GameLoop
 
         var applied = _exteriorLight.Resolve(
             (uint)_config.Start.Map, p, _atmosphere.TimeOfDayHours);
+
+        // WHAT THE SCENE IS ACTUALLY LIT BY, printed when it changes. "It went dark
+        // and I changed nothing" is otherwise unanswerable without a build to
+        // compare against: this says whether the hour moved, the mode moved, the
+        // strengths moved, or the authored bands themselves resolved differently.
+        // Rate-limited to a real change, so it is a line at a transition, not spam.
+        string lightState = $"{_atmosphere.TimeOfDayHours:F2}h mode={_atmosphere.Mode} " +
+            $"src={_timeSource}{(_devTimePin ? "+pinned" : "")} " +
+            $"sun={Settings.Lighting.SunStrength:F2} amb={Settings.Lighting.AmbientStrength:F2} " +
+            $"authored={_atmosphere.UseAuthoredData} data={applied is { HasData: true }} " +
+            $"map={_config.Start.Map}";
+        if (lightState != _lastLightState)
+        {
+            _lastLightState = lightState;
+            Console.WriteLine($"[light] {lightState}");
+        }
 
         // WorldAtmosphere.UseAuthoredData is the switch that decides whether the
         // renderer consumes this. That switch is a SETTING, on the Lighting page;

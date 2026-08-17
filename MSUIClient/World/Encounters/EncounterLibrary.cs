@@ -84,6 +84,16 @@ public sealed class ActorDto
     public float CombatReach { get; set; } = 1.5f;
     public uint Level { get; set; } = 60;
     public uint MaxHealth { get; set; } = 1000;
+    public uint DisplayId { get; set; }
+    public float DisplayScale { get; set; } = 1f;
+    public List<MoveDto>? Moves { get; set; }
+    public float Dps { get; set; }
+}
+
+public sealed class MoveDto
+{
+    public int TimeMs { get; set; }
+    public Vector3 Position { get; set; }
 }
 
 public sealed class TriggerDto
@@ -133,6 +143,7 @@ public sealed class StepDto
     public bool Flag { get; set; }
     public string? PhaseKey { get; set; }
     public string? Note { get; set; }
+    public uint DisplayId { get; set; }
 }
 
 public sealed class SourceDto
@@ -285,7 +296,10 @@ public sealed class EncounterLibrary
 
     private static EncounterActorSpec FromDto(ActorDto dto) => new(
         dto.Key, dto.Name, dto.Entry, dto.Role, dto.Position, dto.Facing,
-        dto.BoundingRadius, dto.CombatReach, dto.Level, dto.MaxHealth);
+        dto.BoundingRadius, dto.CombatReach, dto.Level, dto.MaxHealth,
+        dto.DisplayId, dto.DisplayScale,
+        dto.Moves?.Select(m => new TimedMove(m.TimeMs, m.Position)).ToArray(),
+        dto.Dps);
 
     private static EncounterPhase FromDto(PhaseDto dto) => new(
         dto.Key, dto.Name,
@@ -309,7 +323,7 @@ public sealed class EncounterLibrary
 
     private static EncounterStep FromDto(StepDto dto) => new(
         dto.Kind, dto.DurationMs, dto.Point, dto.SpellId, dto.Entry,
-        dto.Count, dto.Value, dto.Flag, dto.PhaseKey, dto.Note);
+        dto.Count, dto.Value, dto.Flag, dto.PhaseKey, dto.Note, dto.DisplayId);
 
     private static EncounterSourceRef FromDto(SourceDto dto) => new(dto.Kind, dto.Location, dto.Detail);
 
@@ -355,6 +369,9 @@ public sealed class EncounterLibrary
             Key = a.Key, Name = a.Name, Entry = a.Entry, Role = a.Role,
             Position = a.Position, Facing = a.Facing, BoundingRadius = a.BoundingRadius,
             CombatReach = a.CombatReach, Level = a.Level, MaxHealth = a.MaxHealth,
+            DisplayId = a.DisplayId, DisplayScale = a.DisplayScale,
+            Moves = a.Moves?.Select(m => new MoveDto { TimeMs = m.TimeMs, Position = m.Position }).ToList(),
+            Dps = a.Dps,
         }).ToList(),
         Phases = definition.Phases.Select(p => new PhaseDto
         {
@@ -385,7 +402,7 @@ public sealed class EncounterLibrary
     {
         Kind = s.Kind, DurationMs = s.DurationMs, Point = s.Point, SpellId = s.SpellId,
         Entry = s.Entry, Count = s.Count, Value = s.Value, Flag = s.Flag,
-        PhaseKey = s.PhaseKey, Note = s.Note,
+        PhaseKey = s.PhaseKey, Note = s.Note, DisplayId = s.DisplayId,
     };
 
     private static SourceDto ToDto(EncounterSourceRef s) =>

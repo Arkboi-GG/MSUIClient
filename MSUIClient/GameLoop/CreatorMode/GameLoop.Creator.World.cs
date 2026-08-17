@@ -75,6 +75,7 @@ public sealed partial class GameLoop
             string g = group;
             CreatorSection("Teleport", $"tp-{g}", g, g == "Capitals", () => DrawCreatorTeleportGroup(g));
         }
+        RegisterCreatorDestinationSections();
         CreatorSection("Teleport", "tp-map", "World Map - click anywhere to go there", false,
             DrawCreatorMapPicker);
     }
@@ -149,9 +150,18 @@ public sealed partial class GameLoop
         // live window width (freely resizable), keeping the authored aspect.
         float mapW = MathF.Max(ImGui.GetContentRegionAvail().X - 4f * cs, 240f * cs);
         float mapH = mapW * (668f / 1002f);
-        float tileW = mapW / 4f, tileH = mapH / 3f;
         Vector2 origin = ImGui.GetCursorScreenPos();
         var dl = ImGui.GetWindowDrawList();
+
+        // THE TILE GRID IS 1024x768; ONLY ITS TOP-LEFT 1002x668 IS THE MAP.
+        // Stretching the grid to fill the widget instead (tileW = mapW/4,
+        // tileH = mapH/3) squeezed the art 2% across and 13% down, so the world
+        // position a click reported drifted further off the further down the map
+        // it was picked - which is what "the coords are off" looked like. Draw at
+        // the true tile size and clip, exactly like the vanilla world map frame
+        // (GameLoop.WorldMap.cs), so the widget rect IS the 1002x668 rect the
+        // WorldMapArea.dbc bounds below describe.
+        float tile = mapW / 1002f * 256f;
         dl.PushClipRect(origin, origin + new Vector2(mapW, mapH), true);
         for (int row = 0; row < 3; row++)
         for (int col = 0; col < 4; col++)
@@ -160,8 +170,8 @@ public sealed partial class GameLoop
             uint texture = _gameplayArt.Handle(
                 $@"Interface\WorldMap\{area.Directory}\{area.Directory}{index}.blp");
             if (texture == 0) continue;
-            Vector2 min = origin + new Vector2(col * tileW, row * tileH);
-            dl.AddImage((nint)texture, min, min + new Vector2(tileW, tileH));
+            Vector2 min = origin + new Vector2(col * tile, row * tile);
+            dl.AddImage((nint)texture, min, min + new Vector2(tile, tile));
         }
         dl.PopClipRect();
 
