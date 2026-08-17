@@ -1,6 +1,6 @@
-# Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17)
+# Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17 · game-faithful pass 2026-08-17)
 
-> **STATUS: BUILT & VERIFIED, HEADLESSLY *AND* IN-CLIENT.**
+> **STATUS (core + raid sim): BUILT & VERIFIED, HEADLESSLY *AND* IN-CLIENT.**
 > `tools/encounter-lab-check`: **106/106** (offline + live world-DB, re-run
 > 2026-08-17 after the raid-sim work). The in-client scripted probe
 > (`MSUI_ENCLAB_PROBE`, §11): **11/11** — raid placement, live world, staging,
@@ -8,6 +8,16 @@
 > screenshots. Owner-verified eyes-on in the lair the same day. No server
 > changes, no deploy, no core work — the Lab reads the world DB through
 > MangosSuperUI's **existing** CSV export and runs entirely client-side.
+>
+> **STATUS (later 2026-08-17 game-faithful pass, §8.1–8.5): BUILT, COMPILES
+> CLEAN (Debug + Release), NOT YET RE-VERIFIED.** Stand-till-pull, clock-holds,
+> SmoothDamp movement, the orientation ring, role colours, boss health bars,
+> attack animations and **real spell visuals** (the boss driven through the live
+> `ApplySpellGo` pipeline), and the pop-out action panel are all in code. The
+> probe's assertions were rewritten to the new behaviour (world *holds* pre-pull
+> instead of running live; boss *stands* instead of roaming) but the probe has
+> **not been re-run** this pass, and owner eyes-on is pending. Per the
+> docs-oversell rule (§11), treat §8.1–8.5 as "written, not yet proven in-client".
 
 **What it is:** press **Ctrl+E** (live mode or creator mode) for a window that
 loads an NPC's combat behaviour as a **declarative encounter definition**, runs it
@@ -18,14 +28,25 @@ trajectory, if you like — and it answers *what can hit this body, when, and wh
 Every fact carries a **fidelity label**, so a shape you cannot trust never looks
 like one you can.
 
-**Since 2026-08-17 it is also a raid sim (§8):** the world runs **live from the
-moment a document loads** — the boss roams her room until pulled — and a
-**ten-body raid with jobs** (2 tank / 2 heal / 3 melee / 3 ranged) is placed at
-your feet, commanded RTS-style from the **Ctrl+F** free view: shift-click queues
-waypoints per body, the dotted plan draws on the floor, **GO** sends everyone at
-once, the fight starts by proximity pull, and any paused instant accepts a
+**Since 2026-08-17 it is also a raid sim (§8):** a **ten-body raid with jobs**
+(2 tank / 2 heal / 3 melee / 3 ranged) is placed at your feet and commanded
+RTS-style from the **Ctrl+F** free view: shift-click queues waypoints per body,
+the dotted plan draws on the floor, **GO** sends everyone at once, and the fight
+**starts by proximity pull** — she stands at spawn until a body crosses her ring,
+and the **fight clock holds at zero until then**. Any paused instant accepts a
 **teleport what-if** that reflows the whole future while leaving every event
 before the edit bit-identical. Nobody dies — bodies count hits, never health.
+
+**And since a later 2026-08-17 pass (§8.1–8.5)** the Lab renders the encounter
+the way the game does: the boss plays each ability's **real spell visual** (cast
+animation, kit FX, flying fireball, impacts) through the live cast pipeline;
+in-reach bodies swing and hit bodies take the real impact reaction; a **health
+bar** rides the boss; movement is smoothed so a chase reads as running, not
+stutter; waypoints carry a **ground orientation ring** you spin; plan lines are
+**role-coloured** (tank gold / healer green / dps cream / boss red); and a pop-out
+**action panel** steps through exactly what the selected body is doing in real
+time. These are the *extras on top of a faithful game sim* — that framing is the
+owner's, and the spec §8.1–8.5 builds to.
 
 ---
 
@@ -354,10 +375,14 @@ same millisecond: history before the edit is bit-identical *by construction*
 (probe-verified: 42 = 42 events before a mid-fight teleport), and the future
 honestly reflows.
 
-**The live room.** Loading a document presses Play. The sim pre-simulates and
-rewinds to t=0 — and a view parked at time zero is a world where nothing can
-ever move; an entire day was lost to a "roaming" boss standing statue-still for
-exactly this reason. Pause and the scrub bar still do what they always did.
+**The live room.** Loading a document presses Play, but **the clock holds until
+the pull** (§8.1). With no body in her ring there is no fight, so playback does
+not advance and she **stands at spawn** — the exact-db truth (movement_type 0).
+Pre-pull is a frozen setup, not a running timer: order a body across her ring and
+the walk-in plays, the pull stamps the clock's zero, and it counts from there.
+(An earlier build auto-ran a pre-pull roam; the owner's rule is that the timer
+must not move before the pull, so the room now holds and the sandbox roam is an
+explicit opt-in — §8.1.) Pause and the scrub bar still do what they always did.
 Documents' Friendly fixture actors are **not** loaded (they stood inside her
 ring and pulled her the instant the world went live); the only raid is the one
 the owner places.
@@ -368,9 +393,10 @@ offline-aware), facing the boss, tank 1 holding aggro, each body's Z from a
 **collision-world raycast** (WMO floors; bare terrain sampling sank half a raid
 through the lair floor). Bodies render as real character models (puppets) with
 per-look weapons; puppet guids are **stable per body key across rebuilds** so a
-selection survives the very edit it just ordered; puppets **ease** toward sim
-positions (~100 ms exponential follow + shortest-arc facing) because snapping to
-100 ms sim steps rendered a 10 Hz slideshow.
+selection survives the very edit it just ordered; puppets follow sim positions
+with a **critically-damped SmoothDamp** (§8.1) — an exponential lerp hid the
+0.25 yd roam steps but not a chase's 0.9 yd/step, which stuttered; SmoothDamp
+carries velocity so a chase reads as running.
 
 **Staged orders — queue, read, GO.** Pre-pull, every non-teleport click on a
 selected body QUEUES. Nothing moves. Set every bot's waypoints, read the dotted
@@ -397,15 +423,163 @@ the sim, never to `SuiOrder`, so server bots are untouched.
 | Plain RClick ground *(engaged only)* | Immediate walk order at the scrub instant — travel paid |
 | **Ctrl+RClick** ground | **Teleport what-if** at the scrub instant — always immediate |
 | **Alt+RClick** | Arrival facing for the last order (staged leg first): "…and then face this way" |
+| **Shift+RClick a waypoint DOT** | **Grab it to orient** (§8.2) — then move the mouse and its ground facing ring spins freely to any angle, click to set. On empty ground Shift+RClick still stages/chains; only a dot hit orients. |
 | Ctrl+F again | Land exactly where you detached |
 
-**Two design rules, learned the expensive way.** *One:* no logic whose job is to
-hold the world in a state the owner never wanted — the roam on/off toggle
-briefly existed, a persisted `false` pinned her motionless through three rounds
-of "it's still broken", and the toggle is gone; sliders shape behaviour, they do
-not disable it. *Two:* claims about GameLoop behaviour are proven by the probe
-(§11), not narrated — the headless suite proves sim math, and every genuinely
-lost hour of 2026-08-17 lived in the gap between the two.
+**Two design rules, learned the expensive way.** *One:* the default is whatever
+the owner asked to SEE, and a knob may not silently override it. This cut both
+ways in one day. First: an early roam on/off toggle whose persisted `false`
+pinned her motionless cost three rounds of "still broken", so for a while roam
+had no switch and was forced on. Then the owner decided the opposite — she must
+**stand** until pulled — so the forced roam became the *bug*, stationary became
+the default, and the sandbox roam a clearly-labelled opt-in checkbox (§8.1). The
+invariant is not "always roam" or "never roam"; it is "the default is what the
+owner wants on screen, changeable but never silently overridden". *Two:* claims
+about GameLoop behaviour are proven by the probe (§11), not narrated — the
+headless suite proves sim math, and every genuinely lost hour of 2026-08-17 lived
+in the gap between the two.
+
+---
+
+## 8.1 The game-faithful pass — movement & timing (2026-08-17, pending eyes-on)
+
+The owner's framing: *"this must SIMULATE the game environment + adds all the
+extras we have on top."* Everything in §8.1–8.5 serves that — a faithful combat
+picture with the analysis overlay riding it, not a schematic with labels.
+
+- **Selected-unit paths persist off-screen.** `Camera.TryWorldToScreen` returned
+  false for any point outside the viewport rect even though the pixel was valid,
+  and every overlay path loop treated false as "cut the line" — so flying the free
+  camera made a unit's dotted plan vanish the instant a waypoint left the frame.
+  New `Camera.TryProjectToScreen(world, size, out pixel, out onScreen)` succeeds
+  for **any point in front of the camera**; `TryWorldToScreen` now delegates to it
+  (`&& onScreen`) so single marks/labels/selection are byte-identical. The overlay
+  path loops use the new call: dashed lines ride through off-screen (a Liang–Barsky
+  `ClipSegmentToRect` bounds the dash walk so an off-screen endpoint can't iterate
+  tens of thousands of pixels), dots/labels/rings draw only where on-screen.
+
+- **The fight clock holds until the pull.** The engine clock legitimately ran from
+  load through the pre-pull roam; the pull only stamped `EngagedAtMs` mid-timeline,
+  so the timer *looked* like it was counting before the fight. Now
+  `UpdateEncounterLab` bails `if (sim.EngagedAtMs < 0) return;` — with no pull
+  scheduled anywhere in the pre-simulated timeline, playback **does not advance**;
+  a scheduled pull (a plan that walks a body across the ring) lets the walk-in
+  play and the clock starts *at* the pull. Display: `EncounterFightClock` reads
+  "pre-pull" until `_encounterViewMs >= EngagedAtMs`, then `(view − EngagedAtMs)`
+  seconds; the top-HUD ▶ shows only while time is actually advancing.
+
+- **She stands until engaged.** `RebuildEncounterSim` had hard-coded
+  `InventPrePullRoam = true`, overriding Onyxia's exact-db `Stationary`. It is now
+  `InventPrePullRoam = settings.SandboxRoam` (new `EncounterLab.SandboxRoam`,
+  **default false**); the old always-on "sandbox roam yd" slider became a
+  "sandbox roam (what-if)" **checkbox** (default off) plus a radius slider shown
+  only when checked. A document-declared `Wander`/`Waypoints` idle still plays its
+  own exact route regardless.
+
+- **Chase no longer stutters.** `ChaseAggroHolder` feeds the puppet 0.9 yd crumbs
+  at the 100 ms sim cadence. The old exponential lerp (τ = 100 ms) decelerated into
+  each crumb then re-launched, pumping the run clip's playback rate at 10 Hz — fine
+  for a 0.25 yd roam, a visible stutter at 0.9 yd/step. Replaced with a
+  critically-damped **SmoothDamp** (`Puppets.cs`, per-actor `_encounterPuppetVel`,
+  `EncounterPuppetSmoothTime = 0.13 s`) that carries velocity between crumbs, so a
+  steadily-advancing chase renders as steady running. The 20 yd scrub-teleport snap
+  is kept (it zeroes the velocity). Trade-off: ~1 yd follow-lag behind the sim dot.
+
+## 8.2 Waypoint orientation — grab, spin, set (2026-08-17)
+
+Each waypoint carries a decoupled arrival facing (`ArrivalFacing` on the staged
+leg and the committed `TimedMove`). The owner sets it in the free view with a
+free, continuous spin — reached after two rejected attempts (a drag-to-aim "Orient
+mode" toggle: *"I don't understand the orientation"*; and Ctrl+Left assign /
+Alt+Left spin: *"ctrl+left doesn't work, it's tied to the left-button go-down"* —
+the marquee/selection path ate the click). Two lessons: **left-button gestures in
+the free view get eaten by marquee/selection**, so dot-picking verbs go on the
+right button; and **right-DRAG is hard-wired to camera mouselook**
+(`ClientWindow.CameraLookRequested` returns `rightDown` unconditionally — a
+documented invariant), so a spin cannot hold the button.
+
+The result (`HandleEncounterWaypointOrient` in `Rts.cs`, run first in the free-view
+RIGHT-click branch): **Shift+Right-click a waypoint dot to GRAB it**, then **move
+the mouse** — the arrow tracks the cursor's ground point live, continuous radians —
+and **click to SET it** (`_encounterOrientSpinning`; `UpdateEncounterOrientSpin`
+runs each frame; any click commits via a top guard in `HandleFreeCamWorldClick`).
+Because the button is not held during the spin, camera mouselook never engages.
+Staged legs update live (cheap); committed moves ride a preview arrow and write +
+rebuild once on commit (no per-frame sim rebuild). The visual is **ground-projected**
+(`DrawWaypointOrientation`): a ring sampled on the terrain plane (2.2 yd) with an
+arrow built from world offsets past it — it lies flat on the floor and scales with
+distance, not a fixed badge on the camera plane. Default grab facing = face the
+boss's spawn. (No clear-facing binding yet.)
+
+## 8.3 Legibility — role colours & health (2026-08-17)
+
+- **Plan lines/dots coloured and weighted by role** (`EncounterRoleStyle(role,
+  job)` in `Overlays.cs`): **tank gold** (thickest, 4.5), **healer green** (3.5),
+  **dps cream** (2.5, ≈ prior weight), **boss red** (3.5), else neutral cyan.
+  Applied to body marks, the dashed staged + committed lines (`DrawDashedLine` /
+  `DrawDashedLineClipped` gained a `thickness` param), waypoint dots, the
+  orientation ring, the boss facing tick and her authored flight route. Teleport
+  what-ifs stay orange; the "just hit" flash moved off red (now bright white-gold)
+  since the boss owns red.
+- **Boss health bar** (was %-text only): a red→amber→gold `ImGui.ProgressBar` in
+  the Transport section, and a filled bar floating above her world marker in
+  `DrawEncounterActors`. Health is what drives her phase gates, so it reads at a
+  glance now.
+
+## 8.4 The real fight — animations & spell visuals (2026-08-17)
+
+This is the load-bearing "simulate the game" piece. The whole **live** spell-cast
+pipeline already runs offline (ticked from `Program.cs` `UpdateSpellPresentation`,
+drawn by the particle / mesh / ribbon renderers each frame; the DBC catalogs load
+at world-init), and Onyxia's abilities carry **real DBC spell ids**
+(`flame_breath` 18435, `cleave` 19983, `wing_buffet` 18500, `knock_away` 19633,
+`tail_sweep` 15847, `fireball` 18392, `deep_breath` 17086, `bellowing_roar`
+18431…). So the Lab reproduces the encounter's actual art rather than placeholders.
+
+`UpdateEncounterCombatAnimations` (called from `UpdateEncounterLab` with the
+`(fromMs, toMs)` span just played) drives, keyed off puppet guids:
+
+- **Boss ability casts** (`PlayEncounterSpellCast` on each `CastStart`): builds a
+  `SpellGoPacket{ Caster = bossPuppetGuid, Hits = [targetGuid] }` and calls
+  **`ApplySpellGo`** — the same handler live combat uses. A puppet guid ≠
+  `ControlledGuid`, so it takes the creature branches: the real **cast animation**
+  (`_creatures.ReleaseSpellVisual`), the **attached kit FX** (`_spellEffects.SpawnKit`
+  — her breath, her roar), and for a **Speed > 0** spell (fireball) a live
+  guid→guid **missile** whose arrival plays the impact. Cones/instants (Speed 0)
+  pass empty `Hits` → caster cast visual only.
+- **Impacts on bodies** (`PlayEncounterSpellImpact` on each `ActorHit`):
+  `ApplySpellImpact(victimGuid, spellId)` — the real impact kit + authored wound
+  reaction, at the sim's land time. Projectiles are skipped here (their impact is
+  played by the missile arrival) to avoid doubling.
+- **Melee** (synthesized — no sim event marks a melee autoattack): tank/melee
+  bodies in reach of a grounded boss swing every ~2 s of sim time
+  (`_encounterSwingAccumMs`, phase-offset per key) via `TriggerCombatSwing`.
+
+Resolvers: `_spellCatalog.TryGet(spellId, out SpellInfo{VisualId, Speed})`, then
+`_spellVisualCatalog` (SpellVisual / Kit / EffectName DBC). The reusable
+lower-level template is `PresentSpellEffect(spellId, stage, onGuid)` in
+`DevTools.SpellAnimation.cs`.
+
+**Not yet done (§12):** ranged/healer bodies do not cast (the sim models their
+damage as a number, not spell events — casts would be synthesized); DynamicObject
+/ area ground-fire visuals (Deep Breath lanes) are not spawned as real particles,
+only the overlay footprints show them (`TryGetAreaVisual` / `SpawnAreaVisual`
+would add them); and there is no precast **hold** — `ApplySpellGo` fires the cast
+animation immediately rather than holding a precast pose for the cast duration
+then releasing (a long cast like Deep Breath's 5 s does not read as a channel).
+
+## 8.5 The action panel — a live step-through (2026-08-17)
+
+A separate pop-out chrome window (`GameLoop.EncounterLab.ActionPanel.cs`,
+`_encounterActionPanelOpen`, drawn from `Program.cs` after the Lab window, opened
+by a **"Pop out ▸ live action panel"** button in the Timeline section). It
+**follows the selected body** (`EncounterFollowedActorKey`: a `_freecamSelection`
+/ `_selectionGuid` guid mapped back to a sim `actor.Key` through `_encounterPuppets`,
+else the boss) and shows what it is stepping through in real time: name + role,
+the clock + phase, a boss health bar, a **NOW** line, and a scrolling list of
+`sim.Events` filtered to `ActorKey == key || TargetKey == key`, ±20 s around the
+scrub head, the current step marked ▶ and future rows carrying a `+Xs` lead time.
+All of it reads the pre-simulated `sim.Events` — no new sim instrumentation.
 
 ---
 
@@ -418,9 +592,9 @@ nothing but the client.
 |---|---|
 | **Encounter** | Pick an authored document, or **Load selected** to derive one live from the world DB for whatever creature you clicked. Shows source, coverage flags, weakest fidelity, core build hash. |
 | **Overlays** | Footprints-at-this-instant · **structural** (everything that could ever land, ignoring timing) · authored route · actors + probe · labels · linger. Includes the fidelity colour key. |
-| **Transport** | **GO (staged count)** when a plan is queued · Play / Pause / Step / Back / Reset, a scrub slider over the whole run, playback speed, **seed**, step size, and the labelled raid-dps dial. |
-| **Scenario** | **Place raid (10)** at the player · place the boss, add dummies, place any actor by clicking the world · pull-ring slider with the exact-db detection_range line · pre-pull line (declared idle vs sandbox roam + radius) · melee-reach dps gate · the **role playbook** table (phase × job → hold / chase boss / to spot) · per-body rows: job, dps, aggro @ scrub, move list with anchor-aware labels. |
-| **Timeline** | A ±12 s window around the scrub head, coloured by fidelity; unmodeled beats show in red. |
+| **Transport** | **GO (staged count)** when a plan is queued · Play / Pause / Step / Back / Reset, a scrub slider reading the **combat clock** (pre-pull until the pull, then counting), a **boss health bar** (§8.3), playback speed, **seed**, step size, and the labelled raid-dps dial. |
+| **Scenario** | **Place raid (10)** at the player · place the boss, add dummies, place any actor by clicking the world · pull-ring slider with the exact-db detection_range line · pre-pull line (declared idle) with a **sandbox-roam opt-in** checkbox (default off — she stands, §8.1) · melee-reach dps gate · the **role playbook** table (phase × job → hold / chase boss / to spot) · per-body rows: job, dps, aggro @ scrub, move list with anchor-aware labels. |
+| **Timeline** | A ±12 s window around the scrub head, coloured by fidelity; unmodeled beats show in red. **Pop out ▸** a live action panel (§8.5) that follows the selected body and steps through its casts / phase turns / hits in real time. |
 | **Position probe** | Place a body, or **Add waypoint** repeatedly to give it a trajectory. Reports hits with times and near-misses with clearance. Warns when "safe" rests on unmodeled mechanics. |
 | **Abilities** | Every ability: trigger, timing band, target rule, resolved shape, chance, phases, notes, and `← source` lines pointing at the exact table/column or `file:symbol`. |
 | **Coverage & holes** | Source flags and every declared hole, verbatim. |
@@ -482,29 +656,38 @@ That pass is what found the apostrophe trap. It proves the cone sign, the
 seconds→ms conversion, the exact lane coordinates, the missing `17096` row, all
 eight lanes resolving, and a real EventAI creature translating and simulating.
 
-**2. In-client scripted probe — 11/11, the REAL client on the REAL code paths:**
+**2. In-client scripted probe — the REAL client on the REAL code paths:**
 
 ```bash
 MSUI_ENCLAB_PROBE=1 dotnet run --project MSUIClient/MSUIClient.csproj -- MSUIClient/client-config.json
 ```
 
 Boots the creator world at the persisted location, loads onyxia, and MEASURES the
-owner's whole flow: document loads · **world runs live with zero clicks** (she
-moves on her own within seconds) · *Place raid (10)* forms 10 jobbed bodies
+owner's whole flow: document loads · *Place raid (10)* forms 10 jobbed bodies
 within ~9 yd of the controller · staged ~75+ yd outside her ring · **on the
 collision floor** (worst Z offset under 1 yd) · never pulled until ordered ·
-roams on the timeline · **shift-click stages (queued, nothing moves)** · **GO
-commits and the body walks** · Ctrl+F raises the free view offline. Dumps
-screenshots to `dumps/gameplay-enclab-probe-*.png` and prints PASS/FAIL per
-claim. The Encounter Lab toolbar shows the binary's **build stamp** — read it
-before debugging any "not working" report; sim math passing headlessly proves
-nothing about GameLoop wiring, and the probe exists because that gap ate a day.
+**shift-click stages (queued, nothing moves)** · **GO commits and the body walks**
+· Ctrl+F raises the free view offline. Dumps screenshots to
+`dumps/gameplay-enclab-probe-*.png` and prints PASS/FAIL per claim. The Encounter
+Lab toolbar shows the binary's **build stamp** — read it before debugging any
+"not working" report; sim math passing headlessly proves nothing about GameLoop
+wiring, and the probe exists because that gap ate a day.
+
+> **⚠ Two assertions were rewritten for the §8.1 behaviour and NOT re-run this
+> pass.** Stage 2 flipped from *"world runs LIVE after load (she moves on her
+> own)"* to **"clock HOLDS before the pull"** (view < 200 ms && `EngagedAtMs` < 0);
+> the roam check flipped from *"Onyxia ROAMS by default"* to **"Onyxia STANDS at
+> spawn pre-pull"** (drift < 1 yd). The probe needs a fresh run to re-earn its
+> tally; until then §8.1–8.5 are compile-verified only.
 
 (Probe-writing note: puppets spawn one frame after a sim rebuild — a probe stage
 that touches fresh puppets needs a settle stage or it races the spawn.)
 
-**3. Owner eyes-on (2026-08-17): done** — raid at the feet on the walkway, live
-roam, staging + GO, all confirmed in-session in the lair.
+**3. Owner eyes-on:** the **core + raid sim (2026-08-17): done** — raid at the
+feet on the walkway, staging + GO, confirmed in-session in the lair. The
+**game-faithful pass (§8.1–8.5): pending** — built and compiling, not yet
+eyeballed; spell visuals only fire during a played, engaged fight (which the
+probe does not reach), so the real proof is a stage-raid-pull-watch pass.
 
 ---
 
@@ -537,9 +720,24 @@ roam, staging + GO, all confirmed in-session in the lair.
    Committed move orders live on the scenario and would round-trip through the
    DTO layer, but nothing currently saves a raid plan back to a `.json`; a
    restart forgets it. First-class "save this plan" is future work.
-10. **The sandbox roam is fiction and labelled as such.** Onyxia's DB truth
-    (guid 47572) is stationary; the exact-db line says so while she roams anyway.
-    A creature with a real `Wander`/`Waypoints` declaration plays the truth.
+10. **The sandbox roam is an opt-in fiction (§8.1).** Onyxia's DB truth (guid
+    47572) is stationary and she now **stands until pulled** by default; the
+    "sandbox roam (what-if)" checkbox re-enables an invented wander within a
+    radius. A creature with a real `Wander`/`Waypoints` declaration plays the
+    truth regardless of the checkbox.
+11. **Ranged/healer bodies do not cast (§8.4).** The sim models raid damage as a
+    number, not per-cast events, so only the boss's real abilities and synthesized
+    tank/melee swings animate. Ranged shots and heals would have to be synthesized.
+12. **Area ground-fire is overlay-only (§8.4).** DynamicObject / persistent-area
+    visuals (Deep Breath's ground lanes) show as footprint decals, not real
+    particle fire; `SpawnAreaVisual` would add the art.
+13. **Boss casts fire immediately, with no precast hold (§8.4).** `ApplySpellGo`
+    plays the cast animation at cast start rather than holding a precast pose for
+    the cast duration then releasing, so a long cast (Deep Breath, 5 s) does not
+    read as a channel.
+14. **SmoothDamp adds ~1 yd of follow-lag (§8.1).** The rendered model trails its
+    sim marker slightly at run speed — the cost of ironing the chase stutter flat;
+    tunable via `EncounterPuppetSmoothTime`.
 
 ---
 
@@ -624,11 +822,12 @@ stage (§11).
 | `MSUIClient/World/Encounters/EncounterSpellFacts.cs` | Spell.dbc + world DB bridge |
 | `MSUIClient/Net/EncounterWorldData.cs` | Row model + immutable snapshot |
 | `MSUIClient/Net/EncounterDataClient.cs` | 5 tables, CSV + 12 h disk cache |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO), sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed (green) and staged (dotted cyan) plans, anchor labels, facing ticks |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, eased motion + facing |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: puppet select/marquee, order routing (stage / immediate / teleport / facing), never touches `SuiOrder` |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed (green) and staged plans, anchor labels; **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: puppet select/marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), never touches `SuiOrder` |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11); two assertions rewritten for §8.1 (clock-holds, stands) and pending a re-run |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Tape.cs` | Recorder + predicted-vs-observed diff |
 | `encounters/onyxia.json` | The authored encounter + spec fuzz — boss at the exact DB spawn (guid 47572), real speeds, `detectionRangeYards`, declared `Stationary` idle with full provenance note |
 | `tools/encounter-lab-check/` | 106 headless assertions, `--live` integration mode |
@@ -637,15 +836,16 @@ stage (§11).
 
 | File · location | Hook |
 |---|---|
-| `Program.cs` BuildGui, beside `DrawDevWindow()` | `DrawEncounterLab(); DrawEncounterLabOverlay();` |
+| `Program.cs` BuildGui, beside `DrawDevWindow()` | `DrawEncounterLab(); DrawEncounterActionPanel(); DrawEncounterLabOverlay();` |
 | `Program.cs` 3-D pass, after `RenderDevOverlays3D()` | `RenderEncounterLab3D();` |
 | `Program.cs` `Update`, before `ObserveUiPanelOwnership()` | `UpdateEncounterLab(dt);` |
-| `GameLoop/Scene/GameLoop.Control.cs` | `UpdateEncounterLabInput(typing);` · free-view hooks: puppet select, shift-click stage, order routing, puppet marquee · **creator-sandbox Ctrl+F** (offline free view, exact pose restore) |
+| `GameLoop/Scene/GameLoop.Control.cs` | `UpdateEncounterLabInput(typing);` · free-view hooks: puppet select, shift-click stage, order routing, puppet marquee, **Shift+Right-click waypoint-orient grab + any-click spin commit** (§8.2) · **creator-sandbox Ctrl+F** (offline free view, exact pose restore) · shared `DrawDashedLine` gained a `thickness` param (§8.3) |
 | `GameLoop/Combat/GameLoop.Targeting.cs` click drain | `if (HandleEncounterLabClick(click)) continue;` |
-| `GameLoop/Combat/GameLoop.Casting.cs` spell-go handler | `RecordEncounterTapeCast(packet);` |
+| `GameLoop/Combat/GameLoop.Casting.cs` spell-go handler | `RecordEncounterTapeCast(packet);` (unchanged). The Lab now also **calls into** this file — `ApplySpellGo` / `ApplySpellImpact` with a puppet-guid caster — to play the real spell visuals (§8.4); no edit needed there (the caster ≠ `ControlledGuid` branches already do the right thing offline). |
+| `Engine/Camera.cs` | New `TryProjectToScreen(world, size, out pixel, out onScreen)` — succeeds for any point in front of the camera; `TryWorldToScreen` delegates (`&& onScreen`). Lets overlay paths persist off-screen (§8.1). |
 | `GameLoop/Dev/GameLoop.DevWindow.Overlays.cs` | `DevPlayerPosition()` is offline-aware (controller / free-view return pose) — every "at the player" affordance depends on it |
 | `Engine/ClientWindow.cs` | `WorldMouseClick` carries Ctrl/Alt; `BuildStamp` (assembly write time, shown in the Lab toolbar) |
-| `Engine/GameSettings.cs` | `EncounterLabSettings` + `GameSettings.EncounterLab` (roam radius, melee-reach gate, pull range — knobs shape, never disable) |
+| `Engine/GameSettings.cs` | `EncounterLabSettings` + `GameSettings.EncounterLab` (melee-reach gate, pull range, roam radius, and the new **`SandboxRoam`** opt-in — default off, §8.1) |
 | `Program.cs` Update | `UpdateEncounterLabProbe();` |
 | `.gitignore` | `/encounter-tapes/` (recordings). `/encounters/` deliberately tracked. |
 
