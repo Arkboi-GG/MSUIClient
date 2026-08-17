@@ -220,9 +220,64 @@ public sealed record EncounterStep(
     /// as models rather than unexplained circles.</summary>
     uint DisplayId = 0);
 
-/// <summary>An order to a placed body: at TimeMs, start running to Position. The
-/// unit of "tell them where to move" - a raid plan is a set of these per body.</summary>
-public readonly record struct TimedMove(int TimeMs, Vector3 Position);
+/// <summary>What a friendly body is FOR. Jobs drive the playbook — what each role
+/// does when a phase turns — and the melee-reach dps gate. Damage itself stays an
+/// owner-set input; a job never invents numbers.</summary>
+public enum RaidJob { None, Tank, Healer, Melee, Ranged }
+
+/// <summary>When a movement order fires.</summary>
+public enum MoveAnchor
+{
+    /// <summary>At an absolute sim time (the original verb).</summary>
+    AtTime,
+    /// <summary>When the body finishes the previous order in its list — the
+    /// shift-click chain: "run A, then B", no times to author.</summary>
+    AfterPrevious,
+    /// <summary>The instant the fight enters <see cref="TimedMove.PhaseKey"/> —
+    /// "when she lifts off, go here".</summary>
+    OnPhaseEnter,
+}
+
+/// <summary>An order to a placed body. The default is the original verb — at TimeMs,
+/// start running to Position — plus three refinements: an anchor (chains and
+/// phase-entry orders), an arrival facing in radians (NaN keeps the facing the run
+/// ended with; how a tank puts its back to the wall), and Teleport, the paused
+/// what-if verb: "if he stood HERE at this exact moment", no travel time.</summary>
+public readonly record struct TimedMove(
+    int TimeMs,
+    Vector3 Position,
+    MoveAnchor Anchor = MoveAnchor.AtTime,
+    string? PhaseKey = null,
+    float ArrivalFacing = float.NaN,
+    bool Teleport = false)
+{
+    public bool HasArrivalFacing => !float.IsNaN(ArrivalFacing);
+}
+
+/// <summary>What one job does when one phase turns: keep the owner's orders (Hold),
+/// keep melee reach on the boss wherever she walks (ChaseBoss), or run to an
+/// authored spot (MoveToSpot). Explicit timed orders always override — issuing one
+/// takes the body off autopilot until the next phase turn re-applies its directive.</summary>
+public enum RaidDirectiveKind { Hold, ChaseBoss, MoveToSpot }
+
+public sealed record RaidPhaseDirective(
+    string PhaseKey, RaidJob Job, RaidDirectiveKind Kind, Vector3 Spot = default);
+
+/// <summary>What a creature does OUT of combat, from its spawn's DB row:
+/// movement_type 0 = Stationary, 1 = Wander (wander_distance yards),
+/// 2 = Waypoints (its creature_movement rows). Authored on the actor so the
+/// pre-pull picture is game truth, not a guess — Onyxia's row (guid 47572)
+/// says Stationary, and the Lab shows exactly that unless the owner explicitly
+/// invents a roam as a what-if.</summary>
+public enum IdleMovementKind { Stationary, Wander, Waypoints }
+
+public readonly record struct IdleWaypoint(Vector3 Position, int WaitMs = 0);
+
+public sealed record IdleMovementSpec(
+    IdleMovementKind Kind,
+    float WanderYards = 0f,
+    IReadOnlyList<IdleWaypoint>? Points = null,
+    string? Note = null);
 
 /// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
 /// model - the owner assigns aggro and swaps it, because "who is she facing"
@@ -301,7 +356,24 @@ public sealed record EncounterActorSpec(
     /// <summary>Damage this body deals to the boss, per second, owner-chosen.
     /// The sum across bodies is what walks her through the health-gated phase
     /// transitions - dps is an INPUT to the plan, not a simulated outcome.</summary>
-    float Dps = 0f);
+    float Dps = 0f,
+    /// <summary>What the body is for. Feeds the playbook and the melee-reach dps
+    /// gate; meaningless on the boss and on adds.</summary>
+    RaidJob Job = RaidJob.None,
+    /// <summary>Out-of-combat movement from the spawn's DB row. Null = the
+    /// document does not say (derived encounters); the Lab may then invent a
+    /// labeled what-if roam. Stationary is an ANSWER, not an absence.</summary>
+    IdleMovementSpec? IdleMovement = null,
+    /// <summary>Run speed in yd/s (creature_template speed_run × the 7 yd/s
+    /// base). 0 = engine default 7. Onyxia: 1.28571 × 7 = 9.0.</summary>
+    float RunSpeedYdPerSec = 0f,
+    /// <summary>Walk speed in yd/s (speed_walk × the 2.5 yd/s base), used for
+    /// idle movement. 0 = engine default 2.5.</summary>
+    float WalkSpeedYdPerSec = 0f,
+    /// <summary>creature_template.detection_range, yards. Display-only honesty
+    /// beside the pull-ring slider (the real core adds a level-delta on top);
+    /// 0 = unknown.</summary>
+    float DetectionRangeYards = 0f);
 
 public enum EncounterActorRole
 {

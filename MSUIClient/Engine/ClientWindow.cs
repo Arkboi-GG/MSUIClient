@@ -13,7 +13,8 @@ namespace MSUIClient.Engine;
 /// not polled later by the game loop, so releasing Shift beside the mouse cannot turn
 /// a Shift+Left editor move into an ordinary click.</summary>
 public readonly record struct WorldMouseClick(
-    MouseButton Button, Vector2 Position, bool ShiftDown = false);
+    MouseButton Button, Vector2 Position, bool ShiftDown = false,
+    bool CtrlDown = false, bool AltDown = false);
 
 /// <summary>
 /// Window, GL context, main loop, input and the debug HUD.
@@ -300,6 +301,8 @@ public sealed class ClientWindow : IDisposable
         public bool Active;
         public bool AcceptDragRelease;
         public bool ShiftDown;
+        public bool CtrlDown;
+        public bool AltDown;
         public Vector2 Position;
         public float Travel;
     }
@@ -423,12 +426,33 @@ public sealed class ClientWindow : IDisposable
     public GpuUploadWorker CreateGpuUploadWorker()
         => new(_window, GraphicsApi);
 
+    /// <summary>When this binary was built, as a short display string ("" if it
+    /// cannot be determined). Shown in the title bar and the Encounter Lab so a
+    /// stale exe can never masquerade as a fresh build again.</summary>
+    public static string BuildStamp { get; } = ComputeBuildStamp();
+
+    private static string ComputeBuildStamp()
+    {
+        try
+        {
+            string? path = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            if (string.IsNullOrEmpty(path)) path = Environment.ProcessPath;
+            return path is { Length: > 0 }
+                ? File.GetLastWriteTime(path).ToString("MMM d HH:mm")
+                : "";
+        }
+        catch { return ""; }
+    }
+
     public void Run()
     {
         var startup = Stopwatch.StartNew();
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(_config.Window.Width, _config.Window.Height),
+            // The title stays clean by owner request; the build stamp lives in
+            // the Encounter Lab toolbar (ClientWindow.BuildStamp), where the
+            // "which binary is this" question actually gets asked.
             Title = _config.Window.Title,
             VSync = _config.Window.VSync,
             Samples = Math.Clamp(_config.Render.MsaaSamples, 0, 16),
@@ -701,6 +725,8 @@ public sealed class ClientWindow : IDisposable
             Active = true,
             AcceptDragRelease = acceptDragRelease,
             ShiftDown = _held.Contains(Key.ShiftLeft) || _held.Contains(Key.ShiftRight),
+            CtrlDown = _held.Contains(Key.ControlLeft) || _held.Contains(Key.ControlRight),
+            AltDown = _held.Contains(Key.AltLeft) || _held.Contains(Key.AltRight),
             Position = position
         };
 
@@ -731,7 +757,12 @@ public sealed class ClientWindow : IDisposable
                 : press.Position;
             bool shiftDown = press.ShiftDown ||
                 _held.Contains(Key.ShiftLeft) || _held.Contains(Key.ShiftRight);
-            _worldClicks.Enqueue(new WorldMouseClick(button, clickPosition, shiftDown));
+            bool ctrlDown = press.CtrlDown ||
+                _held.Contains(Key.ControlLeft) || _held.Contains(Key.ControlRight);
+            bool altDown = press.AltDown ||
+                _held.Contains(Key.AltLeft) || _held.Contains(Key.AltRight);
+            _worldClicks.Enqueue(new WorldMouseClick(button, clickPosition, shiftDown,
+                ctrlDown, altDown));
         }
         press = default;
     }

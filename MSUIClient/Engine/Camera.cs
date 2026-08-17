@@ -315,19 +315,34 @@ public sealed class Camera
         return (Position, Vector3.Normalize(direction));
     }
 
-    /// <summary>Project a WoW-world point to top-left-origin window pixels.</summary>
+    /// <summary>Project a WoW-world point to top-left-origin window pixels. Returns true
+    /// only when the point is in front of the camera AND lands inside the visible viewport
+    /// - the historical "is this drawable HERE" contract, right for a single mark or label.
+    /// Overlay polylines want <see cref="TryProjectToScreen"/> instead so a path does not
+    /// vanish the instant one endpoint scrolls past the window edge.</summary>
     public bool TryWorldToScreen(Vector3 world, Vector2 size, out Vector2 pixel)
+        => TryProjectToScreen(world, size, out pixel, out bool onScreen) && onScreen;
+
+    /// <summary>Project a WoW-world point to top-left-origin window pixels, succeeding for
+    /// EVERY point in front of the camera. The pixel is valid even when it falls outside the
+    /// window - <paramref name="onScreen"/> reports whether it also lands within the viewport
+    /// rect. A connecting line drawn to an off-screen-but-in-front point is clipped by the
+    /// GPU to its visible portion, so a route/plan stays on screen as the camera flies past
+    /// it instead of being culled the moment a waypoint leaves the frame.</summary>
+    public bool TryProjectToScreen(Vector3 world, Vector2 size, out Vector2 pixel, out bool onScreen)
     {
         Vector4 clip = Vector4.Transform(new Vector4(world, 1f), ViewProjection);
-        if (clip.W <= 1e-5f)
+        if (clip.W <= 1e-5f)   // behind the camera: no meaningful pixel exists
         {
             pixel = default;
+            onScreen = false;
             return false;
         }
         float x = clip.X / clip.W;
         float y = clip.Y / clip.W;
         pixel = new Vector2((x + 1f) * 0.5f * size.X, (1f - y) * 0.5f * size.Y);
-        return x is >= -1f and <= 1f && y is >= -1f and <= 1f;
+        onScreen = x is >= -1f and <= 1f && y is >= -1f and <= 1f;
+        return true;
     }
 
     /// <summary>

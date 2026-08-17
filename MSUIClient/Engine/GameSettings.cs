@@ -868,6 +868,20 @@ public sealed class GameSettings
         /// <summary>How long a landed footprint stays on screen, in milliseconds.</summary>
         public int FootprintLingerMs { get; set; } = 1200;
 
+        /// <summary>Opt-in: let the boss wander pre-pull in the sandbox (an invented
+        /// what-if). Default OFF — she stands at spawn until pulled, the exact-db truth.
+        /// A document-declared Wander/Waypoints idle plays its own exact route regardless.</summary>
+        public bool SandboxRoam { get; set; }
+
+        /// <summary>How far from spawn the pre-pull sandbox roam may take her, in yards,
+        /// when <see cref="SandboxRoam"/> is on. A document-declared Wander/Waypoints idle
+        /// plays its own exact route/radius instead.</summary>
+        public float RoamRadiusYards { get; set; } = 22f;
+
+        /// <summary>Tank/melee body dps counts only while the body is in melee reach
+        /// of a grounded boss — an air phase honestly stalls her health gates.</summary>
+        public bool MeleeDpsNeedsReach { get; set; } = true;
+
         /// <summary>The boss's pull ring in yards - a body crossing it starts the
         /// fight. Drawn on the ground until the pull happens.</summary>
         public float PullRangeYards { get; set; } = 30f;

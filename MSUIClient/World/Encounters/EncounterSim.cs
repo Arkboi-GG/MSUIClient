@@ -119,6 +119,28 @@ public sealed class EncounterSimOptions
     /// INERT until one walks inside this - authoring the pull is part of the
     /// plan. A scenario with no bodies engages at t=0 (the old behaviour).</summary>
     public float PullRangeYards = 30f;
+
+    /// <summary>INVENT a pre-pull wander when the document's answer is "she
+    /// stands" (or when it has no answer). An explicit what-if, never game
+    /// truth: the boss actor's IdleMovement declaration — the DB row — always
+    /// plays when it says Wander or Waypoints. Deterministic via its OWN seeded
+    /// stream, so however long the roam runs, the post-pull ability rolls are
+    /// untouched — same seed, same rotation, whenever the raid walks in.</summary>
+    public bool InventPrePullRoam;
+
+    /// <summary>Radius of the INVENTED wander, in yards. A document-declared
+    /// wander uses its own exact wander_distance instead.</summary>
+    public float RoamRadiusYards = 22f;
+
+    /// <summary>Tank/melee body dps counts only while the body is within melee
+    /// reach of a grounded boss. This is what makes an air phase honestly stall
+    /// her health gates instead of melting her from the floor.</summary>
+    public bool MeleeDpsNeedsReach = true;
+
+    /// <summary>Per (phase × job) standing orders, applied when a phase turns.
+    /// The seam answer to "what does melee do when she lifts off" — a table the
+    /// owner edits, never code. Explicit timed orders always override.</summary>
+    public IReadOnlyList<RaidPhaseDirective>? Playbook;
 }
 
 /// <summary>A live actor inside the simulation. Mutable during a step, snapshotted after.</summary>
@@ -133,8 +155,19 @@ public sealed class SimActor(EncounterActorSpec spec)
     public bool Alive = true;
     public bool Flying;
     public Vector3? MoveTarget;
-    public float MoveSpeed = 7f;          // yd/s; vanilla base run speed
+    /// <summary>yd/s. The template's real run speed when the spec carries one
+    /// (speed_run × 7), the vanilla base otherwise. Choreography SetSpeed steps
+    /// overwrite it mid-fight; Reset restores it.</summary>
+    public float MoveSpeed = spec.RunSpeedYdPerSec > 0f ? spec.RunSpeedYdPerSec : 7f;
     public bool MoveIsFlight;
+    /// <summary>Facing to snap to when the current run arrives (an order's
+    /// authored orientation — the tank's back to the wall). Null = keep the
+    /// facing the run ended with.</summary>
+    public float? PendingArrivalFacing;
+    /// <summary>Playbook autopilot: keep melee reach on the boss wherever she
+    /// walks. Set by a ChaseBoss directive; cleared by Hold, by MoveToSpot and
+    /// by any explicit order the owner issues.</summary>
+    public bool AutoChase;
 
     /// <summary>Footprint landings this body has been inside, cumulative. The
     /// positioning question the whole scenario exists to answer.</summary>
@@ -190,6 +223,26 @@ public sealed class EncounterSim
     private ScriptedSequence? _sequence;
     private int _summonSerial;
 
+    // Ordered-move bookkeeping: which entries of each body's move list have fired.
+    // Never snapshotted — the sim runs front-to-back exactly once per build, and
+    // scrubbing is RestoreTo over the finished timeline, so dispatch state has no
+    // second life to survive into.
+    private readonly Dictionary<string, bool[]> _movesFired = new(StringComparer.Ordinal);
+
+    // Pre-pull roam. Its OWN rng stream: however many draws the wander takes
+    // before the pull, the fight stream's state at engage is identical — same
+    // seed, same rotation, regardless of when the raid walks in.
+    private SeededRng _roamRng = new(1);
+    private Vector3? _roamTarget;
+    private int _roamPauseUntilMs;
+    private int _roamWaypointIndex;
+    private Vector3 _bossSpawn;
+    private const float DefaultWalkSpeed = 2.5f;   // yd/s; the 1.0 walk multiplier
+
+    /// <summary>Edge-tracker so the chase emits one Move event per leg, not one
+    /// per 100 ms step.</summary>
+    private bool _bossChasing;
+
     public EncounterSimOptions Options { get; }
     public string PhaseKey { get; private set; }
     public int TimeMs { get; private set; }
@@ -236,6 +289,13 @@ public sealed class EncounterSim
         _pending.Clear(); _firedOnce.Clear(); _abilityTimers.Clear();
         _sequence = null; _summonSerial = 0;
 
+        _movesFired.Clear();
+        _roamRng = new SeededRng(Options.Seed * 2654435761u ^ 0x5EEDF00Du);
+        _roamTarget = null;
+        _roamPauseUntilMs = 2000;   // she stands a beat at spawn, then starts her round
+        _roamWaypointIndex = 0;
+        _bossChasing = false;
+
         foreach (SimActor actor in _actors)
         {
             actor.Position = actor.Spec.Position;
@@ -244,24 +304,28 @@ public sealed class EncounterSim
             actor.Alive = true;
             actor.Flying = false;
             actor.MoveTarget = null;
+            actor.MoveSpeed = actor.Spec.RunSpeedYdPerSec > 0f ? actor.Spec.RunSpeedYdPerSec : 7f;
+            actor.PendingArrivalFacing = null;
+            actor.AutoChase = false;
             actor.HitsTaken = 0;
+            if (actor.Spec.Moves is { Count: > 0 } moves)
+                _movesFired[actor.Key] = new bool[moves.Count];
         }
+        _bossSpawn = Boss?.Spec.Position ?? Vector3.Zero;
 
         PhaseKey = _definition.FirstPhase?.Key ?? "default";
         foreach (EncounterAbility ability in _definition.Abilities)
             _abilityTimers[ability.Key] = RollInitial(ability);
 
-        // The pull is authored, not assumed: with bodies in the scenario she
-        // stands idle until one crosses the ring. Without bodies there is nobody
-        // to do the pulling, so the fight starts at once - which is also what
-        // keeps every pre-pull-era check tool meaningful.
+        // The pull is authored, never assumed: she idles her room until a raid
+        // body crosses the ring. With no bodies placed there is nothing to pull
+        // her and the room stays a living idle scene — the old fight-at-t=0
+        // shortcut for empty scenarios made a fixtureless boss run her whole
+        // script against nobody the instant a document loaded, and died for it.
         Engaged = false;
         EngagedAtMs = -1;
-        if (_actors.Any(a => a.Spec.Role == EncounterActorRole.Friendly))
-            Emit(SimEventKind.Aggro, BossKey,
-                $"awaiting pull - {_definition.Name} engages inside {Options.PullRangeYards:0} yd");
-        else
-            EngageNow();
+        Emit(SimEventKind.Aggro, BossKey,
+            $"awaiting pull - {_definition.Name} engages inside {Options.PullRangeYards:0} yd");
         CaptureSnapshot();
     }
 
@@ -277,6 +341,7 @@ public sealed class EncounterSim
         if (Engaged) return;
         Engaged = true;
         EngagedAtMs = TimeMs;
+        _roamTarget = null;   // the round ends where the fight begins
         Emit(SimEventKind.Aggro, BossKey, $"{_definition.Name} engaged");
         EnterPhase(PhaseKey, announce: true);
     }
@@ -309,10 +374,12 @@ public sealed class EncounterSim
         SimActor? boss = Boss;
         if (boss is { Alive: true } && !Engaged)
         {
-            // Pre-pull: the raid may be walked in; she does nothing until the
-            // ring is crossed. The pull moment is part of the recorded fight.
+            // Pre-pull: the raid may be walked in; she roams her room and does
+            // nothing else until the ring is crossed. The ring rides her LIVE
+            // position, and the pull moment is part of the recorded fight.
             DispatchOrderedMoves(dt);
             AdvanceMovement(dt);
+            RoamPrePull(boss, dt);
             CheckPull(boss);
         }
         else if (boss is { Alive: true })
@@ -321,7 +388,9 @@ public sealed class EncounterSim
             DispatchAggroPlan(dt);
             DispatchOrderedMoves(dt);
             AdvanceMovement(dt);
+            AdvanceAutoChase(boss, dt);
             FaceAggroHolder(boss);
+            ChaseAggroHolder(boss, dt);
 
             // A running choreography owns the actor: the real scripts return early
             // from UpdateAI while m_bTransition is set, so ability timers must not
@@ -365,8 +434,19 @@ public sealed class EncounterSim
         // numbers say they should, which is the point of simulating them.
         float perSecond = Options.RaidDpsFraction * boss.MaxHealth;
         foreach (SimActor actor in _actors)
-            if (actor.Alive && actor.Spec.Role == EncounterActorRole.Friendly)
-                perSecond += actor.Spec.Dps;
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            // Tank/melee damage happens at her feet: flying or out of reach means
+            // that body contributes nothing, which is what makes an air phase
+            // honestly stall the health gates.
+            if (Options.MeleeDpsNeedsReach &&
+                actor.Spec.Job is RaidJob.Tank or RaidJob.Melee &&
+                (boss.Flying ||
+                 EncounterGeometryLaw.GroundDistance(actor.Position, boss.Position) >
+                 MeleeReach(boss, actor) + 3f))
+                continue;
+            perSecond += actor.Spec.Dps;
+        }
         if (perSecond <= 0f) return;
         boss.Health = Math.Max(0, boss.Health - (int)MathF.Ceiling(perSecond * (dt / 1000f)));
     }
@@ -412,29 +492,222 @@ public sealed class EncounterSim
     }
 
     /// <summary>
-    /// Hand each body the movement order whose time has just arrived. An order is
+    /// Hand each body the movement order that has just come due. AtTime orders are
     /// "at T, start running there" - AdvanceMovement below walks it at run speed,
     /// so a late order visibly costs the travel time, which is the honest physics
-    /// of "can I get out of the breath from this spot".
+    /// of "can I get out of the breath from this spot". AfterPrevious orders chain
+    /// on the previous entry's arrival; OnPhaseEnter orders fire from EnterPhase.
     /// </summary>
     private void DispatchOrderedMoves(int dt)
     {
         foreach (SimActor actor in _actors)
         {
-            if (!actor.Alive || actor.Spec.Moves is not { Count: > 0 } moves) continue;
-            foreach (TimedMove move in moves)
+            if (!actor.Alive || actor.Spec.Moves is not { Count: > 0 } moves ||
+                !_movesFired.TryGetValue(actor.Key, out bool[]? fired)) continue;
+            for (int i = 0; i < moves.Count; i++)
             {
-                // Half-open [step start, step end): an order at exactly t=0 fires
-                // in the first step, and no order can fire twice at a boundary.
-                if (move.TimeMs >= TimeMs - dt && move.TimeMs < TimeMs)
+                if (fired[i]) continue;
+                TimedMove move = moves[i];
+                bool due = move.Anchor switch
                 {
-                    actor.MoveTarget = move.Position;
-                    Emit(SimEventKind.Move, actor.Key,
-                        $"{actor.Spec.Name} ordered to move", targetKey: actor.Key);
-                }
+                    // Half-open [step start, step end): an order at exactly t=0
+                    // fires in the first step, and never twice at a boundary.
+                    MoveAnchor.AtTime => move.TimeMs >= TimeMs - dt && move.TimeMs < TimeMs,
+                    // Chained leg: previous entry has fired and the body is idle
+                    // again. A leading chain leg (i == 0) starts at once.
+                    MoveAnchor.AfterPrevious => (i == 0 || fired[i - 1]) &&
+                                                actor.MoveTarget is null,
+                    // Phase-entry orders fire from EnterPhase, not from time.
+                    _ => false,
+                };
+                if (!due) continue;
+                FireMove(actor, fired, i);
             }
         }
     }
+
+    /// <summary>Execute one order. Firing an order retires every unfired chain leg
+    /// before it in the list — a fresh order outranks the stale remainder of an
+    /// older route, which is what lets a mid-fight reposition cancel the plan it
+    /// replaces instead of the plan resuming underneath it.</summary>
+    private void FireMove(SimActor actor, bool[] fired, int index)
+    {
+        TimedMove move = actor.Spec.Moves![index];
+        for (int j = 0; j < index; j++)
+            if (!fired[j] && actor.Spec.Moves![j].Anchor == MoveAnchor.AfterPrevious)
+                fired[j] = true;
+        fired[index] = true;
+
+        if (move.Teleport)
+        {
+            // The paused what-if verb: no travel, no travel time. The body IS
+            // here at this instant; everything downstream reflows around it.
+            actor.Position = move.Position;
+            actor.MoveTarget = null;
+            actor.PendingArrivalFacing = null;
+            if (move.HasArrivalFacing) actor.Facing = move.ArrivalFacing;
+            Emit(SimEventKind.Move, actor.Key,
+                $"{actor.Spec.Name} repositioned (what-if)", targetKey: actor.Key);
+        }
+        else
+        {
+            actor.MoveTarget = move.Position;
+            actor.PendingArrivalFacing = move.HasArrivalFacing ? move.ArrivalFacing : null;
+            Emit(SimEventKind.Move, actor.Key,
+                $"{actor.Spec.Name} ordered to move", targetKey: actor.Key);
+        }
+
+        // An explicit order takes the body off autopilot until the next phase
+        // turn re-applies its directive: the owner's word beats the playbook's.
+        if (actor.Spec.Role == EncounterActorRole.Friendly) actor.AutoChase = false;
+    }
+
+    /// <summary>Fire every OnPhaseEnter order bound to the phase that just began.
+    /// Called from EnterPhase so "when she lifts off, go here" happens on the
+    /// beat, not a step late.</summary>
+    private void FirePhaseMoves(string phaseKey)
+    {
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Moves is not { Count: > 0 } moves ||
+                !_movesFired.TryGetValue(actor.Key, out bool[]? fired)) continue;
+            for (int i = 0; i < moves.Count; i++)
+            {
+                if (fired[i] || moves[i].Anchor != MoveAnchor.OnPhaseEnter) continue;
+                if (!string.Equals(moves[i].PhaseKey, phaseKey, StringComparison.Ordinal))
+                    continue;
+                FireMove(actor, fired, i);
+            }
+        }
+    }
+
+    /// <summary>Post-pull, grounded, unscripted: she walks to melee reach of her
+    /// victim and parks there. This is what lets a tank DRAG her — run to the wall
+    /// with aggro and she follows, and every cone she casts comes with her.</summary>
+    private void ChaseAggroHolder(SimActor boss, int dt)
+    {
+        if (boss.Flying || _sequence is not null || boss.MoveTarget is not null)
+        { _bossChasing = false; return; }
+        if (AggroTarget(boss) is not { } victim) { _bossChasing = false; return; }
+
+        float reach = MeleeReach(boss, victim);
+        float distance = EncounterGeometryLaw.GroundDistance(boss.Position, victim.Position);
+        if (distance <= reach) { _bossChasing = false; return; }
+
+        if (!_bossChasing)
+        {
+            _bossChasing = true;
+            Emit(SimEventKind.Move, boss.Key,
+                $"{boss.Spec.Name} moves to {victim.Spec.Name}", targetKey: victim.Key);
+        }
+        float step = MathF.Min(boss.MoveSpeed * (dt / 1000f), distance - reach);
+        Vector3 delta = victim.Position - boss.Position;
+        boss.Position += delta / MathF.Max(delta.Length(), 1e-4f) * step;
+    }
+
+    /// <summary>Playbook autopilot for friendlies: any body flagged ChaseBoss keeps
+    /// melee reach on a grounded boss, approaching along its own bearing so a pack
+    /// of melee fans around her instead of stacking on one point.</summary>
+    private void AdvanceAutoChase(SimActor boss, int dt)
+    {
+        if (!boss.Alive) return;
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || !actor.AutoChase ||
+                actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            if (actor.MoveTarget is not null) continue;   // an explicit run owns the body
+            if (boss.Flying) continue;                    // nothing to stand next to
+
+            float reach = MeleeReach(boss, actor);
+            Vector3 delta = boss.Position - actor.Position;
+            float distance = EncounterGeometryLaw.GroundDistance(actor.Position, boss.Position);
+            if (distance <= reach)
+            {
+                // In reach: square up on her and swing.
+                if (new System.Numerics.Vector2(delta.X, delta.Y).LengthSquared() > 1e-4f)
+                    actor.Facing = MathF.Atan2(delta.Y, delta.X);
+                continue;
+            }
+            float step = MathF.Min(actor.MoveSpeed * (dt / 1000f), distance - reach);
+            actor.Position += delta / MathF.Max(delta.Length(), 1e-4f) * step;
+            actor.Facing = MathF.Atan2(delta.Y, delta.X);
+        }
+    }
+
+    /// <summary>Where "standing at her feet" begins: her combat reach plus the
+    /// body's radius, floored so a zero-reach template still leaves a gap.</summary>
+    private static float MeleeReach(SimActor boss, SimActor body) =>
+        MathF.Max(boss.Spec.CombatReach, 2f) + body.Spec.BoundingRadius;
+
+    /// <summary>Pre-pull movement. The boss actor's IdleMovement declaration — the
+    /// spawn's DB row — is the authority: Waypoints replays its creature_movement
+    /// path, Wander uses its exact wander_distance, Stationary stands (an ANSWER,
+    /// not an absence — Onyxia's row says exactly this). Only when the document
+    /// says stationary/nothing may the owner invent a wander as a labeled what-if.
+    /// Silent on the timeline — a roam is scenery, and the event list should read
+    /// as "awaiting pull", not as forty walk lines.</summary>
+    private void RoamPrePull(SimActor boss, int dt)
+    {
+        if (boss.MoveTarget is not null) return;
+        IdleMovementSpec? declared = boss.Spec.IdleMovement;
+
+        if (declared is { Kind: IdleMovementKind.Waypoints, Points.Count: > 0 })
+        {
+            WalkIdleWaypoints(boss, declared.Points, dt);
+            return;
+        }
+        float radius =
+            declared is { Kind: IdleMovementKind.Wander, WanderYards: > 0f } wander
+                ? wander.WanderYards
+                : Options.InventPrePullRoam ? Options.RoamRadiusYards : 0f;
+        if (radius <= 0f) return;   // stationary — the DB's answer, or nothing invented
+
+        if (_roamTarget is null)
+        {
+            if (TimeMs < _roamPauseUntilMs) return;
+            float angle = _roamRng.Unit() * MathF.Tau;
+            float distance = radius * (0.35f + 0.65f * _roamRng.Unit());
+            _roamTarget = _bossSpawn +
+                new Vector3(MathF.Cos(angle) * distance, MathF.Sin(angle) * distance, 0f);
+        }
+        if (WalkTowards(boss, _roamTarget.Value, WalkSpeed(boss), dt))
+        {
+            _roamTarget = null;
+            _roamPauseUntilMs = TimeMs + _roamRng.Range(2500, 9000);
+        }
+    }
+
+    /// <summary>Loop the declared patrol: walk each point, honour its wait, wrap.
+    /// The replay a creature_movement dump deserves — exact points, exact pauses.</summary>
+    private void WalkIdleWaypoints(SimActor boss, IReadOnlyList<IdleWaypoint> points, int dt)
+    {
+        if (TimeMs < _roamPauseUntilMs) return;
+        IdleWaypoint waypoint = points[_roamWaypointIndex % points.Count];
+        if (WalkTowards(boss, waypoint.Position, WalkSpeed(boss), dt))
+        {
+            _roamWaypointIndex = (_roamWaypointIndex + 1) % points.Count;
+            _roamPauseUntilMs = TimeMs + Math.Max(waypoint.WaitMs, 0);
+        }
+    }
+
+    /// <summary>One walking step toward a point; true on arrival.</summary>
+    private static bool WalkTowards(SimActor actor, Vector3 target, float speed, int dt)
+    {
+        Vector3 delta = target - actor.Position;
+        float distance = delta.Length();
+        float step = speed * (dt / 1000f);
+        if (distance <= step)
+        {
+            actor.Position = target;
+            return true;
+        }
+        actor.Position += delta / distance * step;
+        actor.Facing = MathF.Atan2(delta.Y, delta.X);
+        return false;
+    }
+
+    private static float WalkSpeed(SimActor actor) =>
+        actor.Spec.WalkSpeedYdPerSec > 0f ? actor.Spec.WalkSpeedYdPerSec : DefaultWalkSpeed;
 
     private void AdvanceMovement(int dt)
     {
@@ -452,6 +725,13 @@ public sealed class EncounterSim
             {
                 actor.Position = target;
                 actor.MoveTarget = null;
+                // The order's authored orientation: arrive, then PIVOT — the
+                // tank puts its back to the wall the instant it stops.
+                if (actor.PendingArrivalFacing is { } arrival)
+                {
+                    actor.Facing = arrival;
+                    actor.PendingArrivalFacing = null;
+                }
                 // The MovementInform seam: arriving is a trigger the definition can
                 // hang a transition or an ability on.
                 FireMovementDone(actor);
@@ -516,6 +796,60 @@ public sealed class EncounterSim
 
         if (phase?.OnEnter is { Count: > 0 } onEnter)
             _sequence = new ScriptedSequence { Steps = onEnter };
+
+        // The raid answers the turn: standing orders per job, then any explicit
+        // "on this phase, go here" orders. Only once the fight is real — the
+        // initial Reset sets PhaseKey directly and never lands here.
+        if (Engaged)
+        {
+            ApplyPlaybook(key);
+            FirePhaseMoves(key);
+        }
+    }
+
+    /// <summary>Apply the (phase × job) standing orders when a phase turns. Spot
+    /// directives fan same-job bodies around the authored point so six dps do not
+    /// stand inside one another.</summary>
+    private void ApplyPlaybook(string phaseKey)
+    {
+        if (Options.Playbook is not { Count: > 0 } playbook) return;
+        Dictionary<RaidJob, int> jobIndex = [];
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            RaidJob job = actor.Spec.Job;
+            int index = jobIndex.GetValueOrDefault(job);
+            jobIndex[job] = index + 1;
+
+            RaidPhaseDirective? directive = null;
+            foreach (RaidPhaseDirective candidate in playbook)
+                if (candidate.Job == job &&
+                    string.Equals(candidate.PhaseKey, phaseKey, StringComparison.Ordinal))
+                { directive = candidate; break; }
+            if (directive is null) continue;
+
+            switch (directive.Kind)
+            {
+                case RaidDirectiveKind.Hold:
+                    actor.AutoChase = false;
+                    break;
+                case RaidDirectiveKind.ChaseBoss:
+                    actor.AutoChase = true;
+                    break;
+                case RaidDirectiveKind.MoveToSpot:
+                    actor.AutoChase = false;
+                    float angle = index * (MathF.Tau / 8f);
+                    Vector3 offset = index == 0
+                        ? Vector3.Zero
+                        : new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0f) * 2.5f;
+                    actor.MoveTarget = directive.Spot + offset;
+                    actor.PendingArrivalFacing = null;
+                    Emit(SimEventKind.Move, actor.Key,
+                        $"{actor.Spec.Name} falls back to the {phaseKey} spot",
+                        targetKey: actor.Key);
+                    break;
+            }
+        }
     }
 
     // ── abilities ────────────────────────────────────────────────────────────

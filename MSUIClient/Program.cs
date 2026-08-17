@@ -1472,6 +1472,9 @@ public sealed partial class GameLoop : IDisposable
         UpdateCreatorProbe();
         UpdateXrayProbe();
 
+        // Scripted Encounter Lab raid proof (MSUI_ENCLAB_PROBE).
+        UpdateEncounterLabProbe();
+
         // Scripted offline mount check (MSUI_MOUNT_PROBE).
         UpdateMountProbe();
 
@@ -2871,6 +2874,7 @@ public sealed partial class GameLoop : IDisposable
             // mode-neutral, and it is MORE useful in creator mode than live, because
             // the simulator needs no server at all.
             DrawEncounterLab();
+            DrawEncounterActionPanel();
             DrawEncounterLabOverlay();
         }
 

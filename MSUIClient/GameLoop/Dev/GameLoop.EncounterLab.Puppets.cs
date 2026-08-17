@@ -24,6 +24,12 @@ public sealed partial class GameLoop
 {
     private readonly Dictionary<string, ulong> _encounterPuppets = [];
     private readonly Dictionary<string, Vector3> _encounterPuppetPrev = [];
+    private readonly Dictionary<string, Vector3> _encounterPuppetVel = [];
+
+    /// <summary>Key → guid, held ACROSS rebuilds. Every scenario edit rebuilds the
+    /// sim and respawns the puppets; without a stable guid per key, the free-view
+    /// selection (a guid list) would go stale on the very edit it just ordered.</summary>
+    private readonly Dictionary<string, ulong> _encounterPuppetGuidReserve = [];
 
     /// <summary>One held item on a puppet: the real UNIT_VIRTUAL_ITEM field
     /// contents, read from each look's creature_equip_template + item_template on
@@ -63,7 +69,8 @@ public sealed partial class GameLoop
 
             if (!_encounterPuppets.TryGetValue(actor.Key, out ulong guid))
             {
-                guid = _creatorNextSpawnGuid++;
+                if (!_encounterPuppetGuidReserve.TryGetValue(actor.Key, out guid))
+                    _encounterPuppetGuidReserve[actor.Key] = guid = _creatorNextSpawnGuid++;
                 ObjectFields fields = ObjectFields.ForSyntheticUnit(
                     (int)actor.Spec.DisplayId, MathF.Max(actor.Spec.DisplayScale, 0.01f));
                 if (PuppetWeapons.TryGetValue(actor.Spec.DisplayId, out PuppetHeldItem[]? held))
@@ -94,22 +101,44 @@ public sealed partial class GameLoop
 
             if (_entities.TryGet(guid, out WorldEntity entity))
             {
-                // Run/walk/fly animation comes from a stub spline: the renderer
-                // reads Spline.AverageSpeed (and Flying) to pick the clip, and in
-                // creator mode nothing else ever samples or clears it - so it is
-                // a pure per-frame "this body is moving this fast" signal. A jump
-                // over 20 yd is a scrub teleport, not motion; no run flicker.
+                // The sim advances in fixed 100 ms steps; snapping the model to each
+                // step rendered a 10 Hz slideshow. An exponential lerp hid the 0.25 yd
+                // roam steps but NOT the 0.9 yd/step run of a chase: it decelerated into
+                // each crumb then re-launched, pumping the run clip's rate at 10 Hz (the
+                // "stutter walk"). A critically-damped follow (SmoothDamp) instead carries
+                // VELOCITY between crumbs, so a steadily-advancing chase reads as steady
+                // running and the reconstructed spline speed stays flat. A jump over 20 yd
+                // is a scrub teleport and snaps; the stub spline stays the renderer's "this
+                // body moves this fast" animation signal.
                 Vector3 previous = _encounterPuppetPrev.GetValueOrDefault(actor.Key, actor.Position);
-                float travelled = Vector3.Distance(previous, actor.Position);
-                entity.Spline = dt > 0f && travelled > 0.005f && travelled < 20f
-                    ? new CreatureSpline([previous, actor.Position],
+                Vector3 target = actor.Position;
+                float jump = Vector3.Distance(previous, target);
+                Vector3 rendered;
+                if (jump >= 20f || dt <= 0f)
+                {
+                    rendered = target;
+                    _encounterPuppetVel[actor.Key] = Vector3.Zero;   // teleport: kill momentum
+                }
+                else
+                {
+                    Vector3 velocity = _encounterPuppetVel.GetValueOrDefault(actor.Key);
+                    rendered = SmoothDamp(previous, target, ref velocity, EncounterPuppetSmoothTime, dt);
+                    _encounterPuppetVel[actor.Key] = velocity;
+                }
+
+                float travelled = Vector3.Distance(previous, rendered);
+                entity.Spline = dt > 0f && travelled > 0.005f && jump < 20f
+                    ? new CreatureSpline([previous, rendered],
                         (uint)MathF.Max(dt * 1000f, 1f), actor.Flying,
                         MovementInfo.ClientUptimeMs())
                     : null;
-                _encounterPuppetPrev[actor.Key] = actor.Position;
+                _encounterPuppetPrev[actor.Key] = rendered;
 
-                entity.Position = actor.Position;
-                entity.Orientation = actor.Facing;
+                entity.Position = rendered;
+                float facingEase = dt > 0f ? 1f - MathF.Exp(-dt * 10f) : 1f;
+                entity.Orientation = jump >= 20f
+                    ? actor.Facing
+                    : SmoothFacing(entity.Orientation, actor.Facing, facingEase);
             }
         }
 
@@ -120,7 +149,43 @@ public sealed partial class GameLoop
             _entities.RemoveSynthetic(_encounterPuppets[key]);
             _encounterPuppets.Remove(key);
             _encounterPuppetPrev.Remove(key);
+            _encounterPuppetVel.Remove(key);
         }
+    }
+
+    /// <summary>Follow time constant for the puppet SmoothDamp. Small enough that the model
+    /// stays under its sim marker, large enough to iron the 10 Hz chase sawtooth flat.</summary>
+    private const float EncounterPuppetSmoothTime = 0.13f;
+
+    /// <summary>Critically-damped follow (Unity's SmoothDamp): eases position AND velocity
+    /// toward a moving target, so a steadily-advancing chase produces steady rendered speed
+    /// instead of the decelerate-then-relaunch pulse a plain lerp gives. Overshoot past the
+    /// (current) target is clamped so a stationary target settles cleanly.</summary>
+    private static Vector3 SmoothDamp(Vector3 current, Vector3 target,
+        ref Vector3 velocity, float smoothTime, float dt)
+    {
+        smoothTime = MathF.Max(smoothTime, 1e-4f);
+        float omega = 2f / smoothTime;
+        float x = omega * dt;
+        float exp = 1f / (1f + x + 0.48f * x * x + 0.235f * x * x * x);
+        Vector3 change = current - target;
+        Vector3 temp = (velocity + omega * change) * dt;
+        velocity = (velocity - omega * temp) * exp;
+        Vector3 output = target + (change + temp) * exp;
+        if (Vector3.Dot(target - current, output - target) > 0f)   // overshot: settle on target
+        {
+            output = target;
+            velocity = (output - target) / dt;
+        }
+        return output;
+    }
+
+    /// <summary>Shortest-arc facing blend, so a roam turn sweeps instead of
+    /// twitching at the sim's step rate.</summary>
+    private static float SmoothFacing(float from, float to, float t)
+    {
+        float delta = MathF.IEEERemainder(to - from, MathF.Tau);
+        return from + delta * t;
     }
 
     private void ClearEncounterPuppets()
@@ -129,5 +194,6 @@ public sealed partial class GameLoop
         foreach (ulong guid in _encounterPuppets.Values) _entities.RemoveSynthetic(guid);
         _encounterPuppets.Clear();
         _encounterPuppetPrev.Clear();
+        _encounterPuppetVel.Clear();
     }
 }

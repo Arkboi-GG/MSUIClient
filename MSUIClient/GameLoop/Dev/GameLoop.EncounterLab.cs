@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Input;
 using MSUIClient.Engine;
+using MSUIClient.Formats;
 using MSUIClient.Net;
 using MSUIClient.World.Encounters;
 
@@ -64,7 +65,74 @@ public sealed partial class GameLoop
     /// time; the sim consumes it verbatim and never second-guesses it.</summary>
     private readonly List<TimedAggro> _encounterAggroPlan = [];
 
-    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss, ActorMove }
+    /// <summary>Standing orders per (phase × job): what melee does when she lifts
+    /// off, where ranged falls back to. Seeded with defaults when a definition
+    /// loads; the owner edits it in the Scenario section.</summary>
+    private readonly List<RaidPhaseDirective> _encounterPlaybook = [];
+
+    /// <summary>Orders QUEUED for GO, per body key — the owner's model: click a
+    /// bot, shift-click its waypoints, repeat for every bot, read the dotted
+    /// plan on the floor, THEN send everyone at once. Nothing here moves a body;
+    /// GO (or Play) commits each list as real timed moves — first leg at the
+    /// current instant, the rest chained on arrival.</summary>
+    private readonly Dictionary<string, List<EncounterStagedLeg>> _encounterStagedOrders =
+        new(StringComparer.Ordinal);
+
+    private readonly record struct EncounterStagedLeg(Vector3 Position, float ArrivalFacing)
+    {
+        public bool HasFacing => !float.IsNaN(ArrivalFacing);
+    }
+
+    /// <summary>Clicks STAGE while the fight at the current view is un-pulled —
+    /// authoring time, nothing runs early. Once she is engaged, clicks land as
+    /// immediate timed moves (the paused mid-fight what-if workflow). Teleports
+    /// are always immediate; that is their whole point.</summary>
+    private bool EncounterStagingActive =>
+        _encounterSim is not { } sim || sim.EngagedAtMs < 0 ||
+        _encounterViewMs < sim.EngagedAtMs;
+
+    private int EncounterStagedCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (List<EncounterStagedLeg> legs in _encounterStagedOrders.Values)
+                count += legs.Count;
+            return count;
+        }
+    }
+
+    private void StageEncounterLeg(string key, Vector3 position)
+    {
+        if (!_encounterStagedOrders.TryGetValue(key, out List<EncounterStagedLeg>? legs))
+            _encounterStagedOrders[key] = legs = [];
+        legs.Add(new EncounterStagedLeg(position, float.NaN));
+    }
+
+    /// <summary>GO: commit the whole staged plan and run it. Every body's first
+    /// leg fires at the current instant — the raid moves as one — and later legs
+    /// chain on arrival, exactly like hand-authored waypoint chains.</summary>
+    private void EncounterGoStagedOrders()
+    {
+        if (_encounterStagedOrders.Count == 0) return;
+        int atMs = Math.Max(_encounterViewMs, 0);
+        foreach ((string key, List<EncounterStagedLeg> legs) in _encounterStagedOrders)
+            for (int i = 0; i < legs.Count; i++)
+                AppendScenarioMove(key, atMs, legs[i].Position,
+                    anchor: i == 0 ? MoveAnchor.AtTime : MoveAnchor.AfterPrevious,
+                    arrivalFacing: legs[i].ArrivalFacing);
+        _encounterStagedOrders.Clear();
+        RebuildEncounterSimKeepingView();
+        _encounterPlaying = true;
+        AddChatMessage("GO — the plan is running.");
+    }
+
+    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss, ActorMove, PlaybookSpot }
+
+    /// <summary>Context for an armed PlaybookSpot placement: which cell of the
+    /// playbook table the next ground click authors.</summary>
+    private string _encounterPlacingPlaybookPhase = "";
+    private RaidJob _encounterPlacingPlaybookJob = RaidJob.None;
 
     private EncounterDataClient EncounterData => _encounterData ??= new EncounterDataClient(_config.RepoRoot);
 
@@ -135,6 +203,11 @@ public sealed partial class GameLoop
             case EncounterPlacement.ActorMove when _encounterPlacingActorKey is { } moveKey:
                 AddScenarioMove(moveKey, _encounterViewMs, point);
                 break;
+
+            case EncounterPlacement.PlaybookSpot:
+                UpsertPlaybookDirective(_encounterPlacingPlaybookPhase,
+                    _encounterPlacingPlaybookJob, RaidDirectiveKind.MoveToSpot, point);
+                break;
         }
 
         _encounterPlacing = EncounterPlacement.None;
@@ -155,8 +228,18 @@ public sealed partial class GameLoop
         // too - and self-clear the moment the window closes or models turn off.
         SyncEncounterPuppets(dt);
 
+        // A live waypoint-orientation spin tracks the cursor every frame.
+        UpdateEncounterOrientSpin();
+
         if (!_encounterLabOpen || _encounterSim is not { } sim) return;
         if (!_encounterPlaying || _encounterScrubbing) return;
+
+        // The clock does not run before the pull. With no body in her ring the whole
+        // timeline is dead pre-pull time, so playback HOLDS at the setup - the timer
+        // stays at zero until a pull exists. Order a body into her ring (a staged plan
+        // that walks in, or a move/teleport across the ring) and the fight begins; the
+        // walk-in of a SCHEDULED pull still plays, and the clock starts at the pull.
+        if (sim.EngagedAtMs < 0) return;
 
         float speed = Math.Clamp(Settings.EncounterLab.PlaybackSpeed, 0.05f, 20f);
         _encounterPlaybackCarryMs += dt * 1000.0 * speed;
@@ -166,12 +249,94 @@ public sealed partial class GameLoop
         // The fight is fully simulated at load, so playback is a cursor moving
         // over the snapshot ring - the same restore a scrub does, at speed.
         int endMs = sim.Timeline.Count > 0 ? sim.Timeline[^1].TimeMs : 0;
+        int viewBefore = _encounterViewMs;
         while (_encounterPlaybackCarryMs >= step && guard++ < 400)
         {
             _encounterPlaybackCarryMs -= step;
             if (_encounterViewMs >= endMs) { _encounterPlaying = false; break; }
             ScrubTo(_encounterViewMs + step);
         }
+
+        // Drive attack animations across the span just played.
+        UpdateEncounterCombatAnimations(sim, viewBefore, _encounterViewMs);
+    }
+
+    private readonly Dictionary<string, int> _encounterSwingAccumMs = new(StringComparer.Ordinal);
+
+    /// <summary>Make the models actually FIGHT the real fight: the boss plays each ability's
+    /// TRUE spell visual (cast animation, attached kit FX, a flying fireball missile, the
+    /// impact on whoever it lands on), bodies take the real impact reaction, and in-reach
+    /// tank/melee bodies swing on a ~2 s cadence (no sim event marks a melee autoattack, so
+    /// those are synthesized). The spell visuals run through the same ApplySpellGo pipeline
+    /// live combat uses - Onyxia's abilities carry real DBC spell ids - so the Lab renders the
+    /// encounter's art, not placeholders. All of it is keyed off puppet guids; the sim never
+    /// sees any of it.</summary>
+    private void UpdateEncounterCombatAnimations(EncounterSim sim, int fromMs, int toMs)
+    {
+        if (_creatures is null || toMs <= fromMs) return;
+
+        // Boss ability casts and their impacts fire on the events that just crossed.
+        string? bossKey = sim.Boss?.Key;
+        foreach (SimEvent e in sim.Events)
+        {
+            if (e.TimeMs <= fromMs || e.TimeMs > toMs) continue;
+            if (e.Kind == SimEventKind.CastStart && e.ActorKey == bossKey)
+                PlayEncounterSpellCast(e);
+            else if (e.Kind == SimEventKind.ActorHit)
+                PlayEncounterSpellImpact(e);
+        }
+
+        // Synthesized melee swings: a body in reach of a grounded boss swings ~every 2 s,
+        // phase-offset per key so the raid does not swing in lockstep.
+        if (sim.Boss is { } boss && !boss.Flying)
+        {
+            int delta = toMs - fromMs;
+            float reach = MathF.Max(boss.Spec.CombatReach, boss.Spec.BoundingRadius) + 5f;
+            foreach (SimActor actor in sim.Actors)
+            {
+                if (!actor.Alive || actor.Spec.Job is not (RaidJob.Tank or RaidJob.Melee)) continue;
+                if (EncounterGeometryLaw.GroundDistance(actor.Position, boss.Position) > reach) continue;
+                if (!_encounterPuppets.TryGetValue(actor.Key, out ulong guid)) continue;
+                int acc = _encounterSwingAccumMs.GetValueOrDefault(actor.Key,
+                    (actor.Key.GetHashCode() & 0x7fffffff) % 2000) + delta;
+                if (acc >= 2000) { acc -= 2000; _creatures.TriggerCombatSwing(guid, offHand: false); }
+                _encounterSwingAccumMs[actor.Key] = acc;
+            }
+        }
+    }
+
+    /// <summary>A boss ability's real cast visual on its puppet: cast animation + attached kit
+    /// FX (her breath, her roar), and for a projectile spell a live missile flying to the
+    /// target puppet whose arrival plays the impact. Cones/instants (Speed 0) play the caster
+    /// visual only; their per-body impacts arrive as ActorHit events. This is the exact
+    /// ApplySpellGo path live combat uses, driven on synthetic guids.</summary>
+    private void PlayEncounterSpellCast(SimEvent e)
+    {
+        if (e.SpellId == 0 || _spellCatalog is null || _spellVisualCatalog is null ||
+            _spellEffects is null) return;
+        if (!_encounterPuppets.TryGetValue(e.ActorKey, out ulong casterGuid)) return;
+
+        bool projectile = _spellCatalog.TryGet(e.SpellId, out SpellInfo info) && info.Speed > 0f;
+        ulong[] hits = [];
+        SpellTargets targets = new(0, casterGuid, null, null, null, null, null);
+        if (projectile && e.TargetKey is { } targetKey &&
+            _encounterPuppets.TryGetValue(targetKey, out ulong targetGuid) && targetGuid != casterGuid)
+        {
+            hits = [targetGuid];
+            targets = new SpellTargets(0x0002, targetGuid, null, null, null, null, null);
+        }
+        ApplySpellGo(new SpellGoPacket(0, casterGuid, e.SpellId, 0, hits, [], targets, null, null));
+    }
+
+    /// <summary>A body's impact visual when a cone/instant lands on it - the real impact kit +
+    /// authored wound reaction. Projectiles are skipped here (their impact is played by the
+    /// missile arrival in the cast), or this would double it.</summary>
+    private void PlayEncounterSpellImpact(SimEvent e)
+    {
+        if (e.SpellId == 0 || _spellEffects is null) return;
+        if (!_encounterPuppets.TryGetValue(e.ActorKey, out ulong victimGuid)) return;
+        if (_spellCatalog?.TryGet(e.SpellId, out SpellInfo info) == true && info.Speed > 0f) return;
+        ApplySpellImpact(victimGuid, e.SpellId);
     }
 
     // ── simulation lifecycle ─────────────────────────────────────────────────
@@ -217,6 +382,7 @@ public sealed partial class GameLoop
         }
         BuildScenarioFromDefinition();
         RebuildEncounterSim();
+        _encounterPlaying = true;
     }
 
     private void LoadEncounterDocument(EncounterDefinition definition)
@@ -226,19 +392,68 @@ public sealed partial class GameLoop
         _encounterSourceNote = $"authored document ({definition.Key}.json)";
         BuildScenarioFromDefinition();
         RebuildEncounterSim();
+        // ALIVE from the first frame. The sim rewinds to t=0 after the
+        // pre-simulation, and a view parked at time zero is a world where
+        // nothing ever moves — the owner watched a "roaming" boss stand
+        // statue-still for exactly this reason. Loading a fight now presses
+        // Play; pause and the scrub bar are still right there.
+        _encounterPlaying = true;
     }
 
     private void BuildScenarioFromDefinition()
     {
         _encounterScenario.Clear();
+        _encounterStagedOrders.Clear();
         if (_encounterDefinition?.Actors is { Count: > 0 } actors)
-            _encounterScenario.AddRange(actors);
+            // The boss (and any authored adds) — NEVER the document's friendly
+            // fixture bodies. Those stood inside her ring, and the moment the
+            // Lab went live-on-load they pulled her into a fight nobody asked
+            // for the instant the document loaded. The only raid that exists is
+            // the one the owner places.
+            _encounterScenario.AddRange(actors.Where(a =>
+                a.Role != EncounterActorRole.Friendly));
         else if (_encounterDefinition is { } definition)
             _encounterScenario.Add(new EncounterActorSpec(
                 "boss", definition.Name, definition.PrimaryEntry, EncounterActorRole.Boss));
 
         if (_encounterProbe.Count == 0 && _encounterScenario.Count > 0)
             _encounterProbe.Add(0, _encounterScenario[0].Position + new Vector3(10f, 0f, 0f));
+
+        SeedDefaultPlaybook();
+    }
+
+    /// <summary>The vanilla instinct as a starting table: melee keep reach while
+    /// she is grounded, everyone else holds the owner's orders. Reseeded whenever
+    /// a definition loads; the owner edits from there.</summary>
+    private void SeedDefaultPlaybook()
+    {
+        _encounterPlaybook.Clear();
+        if (_encounterDefinition is not { } definition) return;
+        foreach (EncounterPhase phase in definition.Phases)
+            if (!phase.CasterFlying)
+                _encounterPlaybook.Add(new RaidPhaseDirective(
+                    phase.Key, RaidJob.Melee, RaidDirectiveKind.ChaseBoss));
+    }
+
+    private RaidPhaseDirective? PlaybookDirectiveFor(string phaseKey, RaidJob job)
+    {
+        foreach (RaidPhaseDirective directive in _encounterPlaybook)
+            if (directive.Job == job && directive.PhaseKey == phaseKey) return directive;
+        return null;
+    }
+
+    private void UpsertPlaybookDirective(string phaseKey, RaidJob job,
+        RaidDirectiveKind kind, Vector3 spot = default)
+    {
+        _encounterPlaybook.RemoveAll(d => d.Job == job && d.PhaseKey == phaseKey);
+        _encounterPlaybook.Add(new RaidPhaseDirective(phaseKey, job, kind, spot));
+        RebuildEncounterSimKeepingView();
+    }
+
+    private void RemovePlaybookDirective(string phaseKey, RaidJob job)
+    {
+        if (_encounterPlaybook.RemoveAll(d => d.Job == job && d.PhaseKey == phaseKey) > 0)
+            RebuildEncounterSimKeepingView();
     }
 
     /// <summary>The pre-simulated fight's verdict, shown in the transport and the
@@ -260,6 +475,14 @@ public sealed partial class GameLoop
             RaidDpsFraction = Math.Clamp(settings.RaidDpsFraction, 0f, 0.5f),
             AggroPlan = _encounterAggroPlan.Count > 0 ? _encounterAggroPlan.ToArray() : null,
             PullRangeYards = Math.Clamp(settings.PullRangeYards, 5f, 100f),
+            // She STANDS at spawn until pulled - the exact-db truth (movement_type 0),
+            // and what the owner wants to see: no wandering before the engage. The invented
+            // sandbox roam is now an explicit opt-in (default off). A document that DECLARES
+            // Wander/Waypoints still moves pre-pull with its own radius/route regardless.
+            InventPrePullRoam = settings.SandboxRoam,
+            RoamRadiusYards = Math.Clamp(settings.RoamRadiusYards, 5f, 60f),
+            MeleeDpsNeedsReach = settings.MeleeDpsNeedsReach,
+            Playbook = _encounterPlaybook.Count > 0 ? _encounterPlaybook.ToArray() : null,
         }, _encounterFacts);
 
         // Run the WHOLE fight now, then rewind the view to the start. Before this,
@@ -298,6 +521,21 @@ public sealed partial class GameLoop
         _encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)?.Key
         ?? _encounterScenario.FirstOrDefault()?.Key ?? "boss";
 
+    /// <summary>Ground height for a placed body: the COLLISION world's floor
+    /// first — Onyxia's Lair is WMO geometry with no meaningful ADT under it,
+    /// and sampling bare terrain sank half a raid through the instance floor.
+    /// Terrain is the outdoor fallback (sanity-banded against the anchor), the
+    /// anchor's own height the last resort.</summary>
+    private float EncounterGroundZ(float x, float y, float nearZ)
+    {
+        if (_collision?.Raycast(new Vector3(x, y, nearZ + 4f),
+                new Vector3(0f, 0f, -1f), 44f) is { } hit)
+            return hit.Point.Z;
+        if (_terrain?.SampleHeight(x, y) is float ground && MathF.Abs(ground - nearZ) < 30f)
+            return ground;
+        return nearZ;
+    }
+
     /// <summary>
     /// Ten bodies in the classic arrangement, relative to where the boss stands and
     /// faces: a tank on the nose, melee on the flanks (out of the frontal breath and
@@ -311,6 +549,7 @@ public sealed partial class GameLoop
         if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
             is not { } boss) return;
         _encounterScenario.RemoveAll(a => a.Role == EncounterActorRole.Friendly);
+        _encounterStagedOrders.Clear();
 
         // The raid forms up AT THE PLAYER - stand at the top of the cave, click
         // once, and the raid is authored there, outside her ring, facing her.
@@ -319,39 +558,41 @@ public sealed partial class GameLoop
         Vector3 toBoss = boss.Position - centre;
         float advance = MathF.Atan2(toBoss.Y, toBoss.X);
 
-        void Add(string key, string name, float aheadYards, float sideYards, uint health,
-            uint display, float dps)
+        void Add(string key, string name, RaidJob job, float aheadYards, float sideYards,
+            uint health, uint display, float dps)
         {
             Vector3 forward = new(MathF.Cos(advance), MathF.Sin(advance), 0f);
             Vector3 side = new(-forward.Y, forward.X, 0f);
             Vector3 at = centre + forward * aheadYards + side * sideYards;
-            if (_terrain?.SampleHeight(at.X, at.Y) is float ground) at.Z = ground;
+            at.Z = EncounterGroundZ(at.X, at.Y, centre.Z);
             _encounterScenario.Add(new EncounterActorSpec(
                 key, name, 0, EncounterActorRole.Friendly, at,
-                Facing: advance, MaxHealth: health, DisplayId: display, Dps: dps));
+                Facing: advance, MaxHealth: health, DisplayId: display, Dps: dps, Job: job));
         }
 
-        // CHARACTER models, role by role, displays read from creature_template on
-        // the vmangos box (2026-08-17): the tank is a Stormwind City Guard (3167,
-        // plate + shield), melee are armoured soldiers, ranged are robed casters
-        // (Archmage Malin's look, 2968), the healer a priestess (1495). Weapons
-        // come from each look's real creature_equip_template via the puppet layer.
-        Add("raid-tank", "tank", 6f, 0f, 8000, 3167, 400);
-        Add("raid-melee1", "melee 1", 3f, -3f, 5000, 3258, 800);
-        Add("raid-melee2", "melee 2", 3f, 3f, 5000, 3280, 800);
-        Add("raid-melee3", "melee 3", 1f, -6f, 5000, 1515, 800);
-        Add("raid-melee4", "melee 4", 1f, 6f, 5000, 1985, 800);
-        Add("raid-ranged1", "ranged 1", -4f, -4f, 4000, 2968, 700);
-        Add("raid-ranged2", "ranged 2", -4f, 4f, 4000, 3287, 700);
-        Add("raid-ranged3", "ranged 3", -6f, -8f, 4000, 2968, 700);
-        Add("raid-ranged4", "ranged 4", -6f, 8f, 4000, 3344, 700);
-        Add("raid-healer", "healer", -8f, 0f, 4000, 1495, 0);
+        // The 2 tank / 2 healer / 6 dps ten-man, in marching order: tanks on the
+        // nose, melee behind them, ranged in an arc, healers at the rear. CHARACTER
+        // models with displays read from creature_template on the vmangos box
+        // (2026-08-17): tanks are guards (plate + shield), melee armoured soldiers,
+        // ranged robed casters, healers a priestess and an acolyte. Weapons come
+        // from each look's real creature_equip_template via the puppet layer.
+        Add("raid-tank1", "tank 1", RaidJob.Tank, 6f, -2f, 8000, 3167, 250);
+        Add("raid-tank2", "tank 2", RaidJob.Tank, 6f, 2f, 8000, 3258, 250);
+        Add("raid-melee1", "melee 1", RaidJob.Melee, 3f, -3f, 5000, 3280, 800);
+        Add("raid-melee2", "melee 2", RaidJob.Melee, 3f, 3f, 5000, 1515, 800);
+        Add("raid-melee3", "melee 3", RaidJob.Melee, 1f, 0f, 5000, 1985, 800);
+        Add("raid-ranged1", "ranged 1", RaidJob.Ranged, -4f, -5f, 4000, 2968, 700);
+        Add("raid-ranged2", "ranged 2", RaidJob.Ranged, -4f, 5f, 4000, 3287, 700);
+        Add("raid-ranged3", "ranged 3", RaidJob.Ranged, -5f, 0f, 4000, 2968, 700);
+        Add("raid-healer1", "healer 1", RaidJob.Healer, -8f, -3f, 4000, 1495, 0);
+        Add("raid-healer2", "healer 2", RaidJob.Healer, -8f, 3f, 4000, 3344, 0);
 
-        // The tank opens with aggro - the one default nobody would choose
+        // Tank 1 opens with aggro - the one default nobody would choose
         // otherwise. Every later swap is the owner's.
         _encounterAggroPlan.Clear();
-        _encounterAggroPlan.Add(new TimedAggro(0, "raid-tank"));
+        _encounterAggroPlan.Add(new TimedAggro(0, "raid-tank1"));
         RebuildEncounterSim();
+        _encounterPlaying = true;   // a freshly staged raid is a live scene, not a paused one
     }
 
     /// <summary>
@@ -398,17 +639,56 @@ public sealed partial class GameLoop
 
     /// <summary>Record "at this time, run there" for a body and replay the fight
     /// with it. The scrub head IS the time argument: scrub to the breath, click
-    /// where they should be, and the rebuilt fight shows whether they make it.</summary>
-    private void AddScenarioMove(string key, int timeMs, Vector3 position)
+    /// where they should be, and the rebuilt fight shows whether they make it.
+    /// Anchors ride along: chain legs, phase-entry orders, teleport what-ifs and
+    /// arrival facings are all the same list entry with different flags.</summary>
+    private void AddScenarioMove(string key, int timeMs, Vector3 position,
+        MoveAnchor anchor = MoveAnchor.AtTime, string? phaseKey = null,
+        float arrivalFacing = float.NaN, bool teleport = false)
+    {
+        if (AppendScenarioMove(key, timeMs, position, anchor, phaseKey, arrivalFacing, teleport))
+            RebuildEncounterSimKeepingView();
+    }
+
+    /// <summary>The append without the rebuild, for callers issuing one order to a
+    /// whole selection — rebuild once at the end, not once per body. The list keeps
+    /// AUTHORED order (not time order): chains and phase orders have no meaningful
+    /// time to sort by, and dispatch reads each entry on its own trigger.</summary>
+    private bool AppendScenarioMove(string key, int timeMs, Vector3 position,
+        MoveAnchor anchor = MoveAnchor.AtTime, string? phaseKey = null,
+        float arrivalFacing = float.NaN, bool teleport = false)
     {
         for (int i = 0; i < _encounterScenario.Count; i++)
         {
             if (_encounterScenario[i].Key != key) continue;
             var moves = (_encounterScenario[i].Moves ?? []).ToList();
-            moves.Add(new TimedMove(Math.Max(timeMs, 0), position));
-            moves.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+            moves.Add(new TimedMove(Math.Max(timeMs, 0), position, anchor, phaseKey,
+                arrivalFacing, teleport));
             _encounterScenario[i] = _encounterScenario[i] with { Moves = moves };
-            RebuildEncounterSimKeepingView();
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Give the LAST order of a body an arrival facing — the Alt-click
+    /// "and then face this way" verb. With no orders yet, the body's spawn facing
+    /// turns instead, so pre-pull staging can be oriented too.</summary>
+    private void FaceScenarioActor(string key, float facing)
+    {
+        for (int i = 0; i < _encounterScenario.Count; i++)
+        {
+            if (_encounterScenario[i].Key != key) continue;
+            EncounterActorSpec actor = _encounterScenario[i];
+            if (actor.Moves is { Count: > 0 } moves)
+            {
+                var updated = moves.ToList();
+                updated[^1] = updated[^1] with { ArrivalFacing = facing };
+                _encounterScenario[i] = actor with { Moves = updated };
+            }
+            else
+            {
+                _encounterScenario[i] = actor with { Facing = facing };
+            }
             return;
         }
     }
@@ -496,6 +776,10 @@ public sealed partial class GameLoop
             : data.Data is { } snapshot
                 ? $"{snapshot.Describe()} ({snapshot.Source})"
                 : "no behaviour data — offline defaults in use";
+        // The binary's build time, in the tool where it matters most: every
+        // "the fix isn't working" conversation starts by reading this line.
+        if (Engine.ClientWindow.BuildStamp is { Length: > 0 } stamp)
+            status = $"build {stamp} · {status}";
         ImGui.TextDisabled(status);
 
         float avail = ImGui.GetContentRegionAvail().X;
@@ -666,11 +950,32 @@ public sealed partial class GameLoop
         float cs = CreatorUiScale;
 
         int fightEndMs = sim.Timeline.Count > 0 ? sim.Timeline[^1].TimeMs : 0;
+        int stagedCount = EncounterStagedCount;
+        if (stagedCount > 0)
+        {
+            // The staged plan's commit button, impossible to miss. Play does the
+            // same thing while a plan is staged — both spellings of "send them".
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.2f, .55f, .25f, 1f));
+            if (ImGui.Button($"GO ({stagedCount})", new Vector2(90f * cs, 0f)))
+                EncounterGoStagedOrders();
+            ImGui.PopStyleColor();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Commit every staged waypoint: the whole raid\n" +
+                                 "moves at once, chains run leg by leg.");
+            ImGui.SameLine();
+        }
         if (ImGui.Button(_encounterPlaying ? "Pause" : "Play", new Vector2(70f * cs, 0f)))
         {
-            _encounterPlaying = !_encounterPlaying;
-            // Play at the end means "run it again", not a dead button.
-            if (_encounterPlaying && _encounterViewMs >= fightEndMs) ScrubTo(0);
+            if (!_encounterPlaying && stagedCount > 0)
+            {
+                EncounterGoStagedOrders();   // Play IS Go while a plan is staged
+            }
+            else
+            {
+                _encounterPlaying = !_encounterPlaying;
+                // Play at the end means "run it again", not a dead button.
+                if (_encounterPlaying && _encounterViewMs >= fightEndMs) ScrubTo(0);
+            }
         }
         ImGui.SameLine();
         if (ImGui.Button("Step"))
@@ -692,8 +997,11 @@ public sealed partial class GameLoop
         // spans the whole pre-simulated fight from the moment a document loads.
         int headMs = Math.Max(fightEndMs, 1);
         int view = _encounterViewMs;
+        // The handle reads the COMBAT clock (pre-pull until she is engaged, then counting
+        // from the pull); the track still spans the whole pre-simulated window so the walk-in
+        // is scrubbable. The tail shows the fight's length once a pull is known.
         ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - 90f * cs);
-        if (ImGui.SliderInt("##enc-scrub", ref view, 0, headMs, $"{view / 1000f:0.0}s"))
+        if (ImGui.SliderInt("##enc-scrub", ref view, 0, headMs, EncounterFightClock(sim)))
         {
             _encounterScrubbing = true;
             _encounterPlaying = false;
@@ -701,13 +1009,24 @@ public sealed partial class GameLoop
         }
         else if (_encounterScrubbing && !ImGui.IsItemActive()) _encounterScrubbing = false;
         ImGui.SameLine();
-        ImGui.TextDisabled($"/ {headMs / 1000f:0.0}s");
+        ImGui.TextDisabled(sim.EngagedAtMs >= 0
+            ? $"/ {(fightEndMs - sim.EngagedAtMs) / 1000f:0.0}s fight"
+            : $"/ {headMs / 1000f:0.0}s");
 
         ImGui.Text($"phase: {sim.Definition.Phase(sim.PhaseKey)?.Name ?? sim.PhaseKey}");
         if (sim.Boss is { } boss)
         {
-            ImGui.SameLine();
-            ImGui.TextDisabled($"· boss {boss.HealthFraction * 100f:0}%");
+            // A real health BAR: the health gates that drive phases are the whole point,
+            // and a dim "100%" buried after the phase text was easy to miss. Red→amber→
+            // green by fraction so a glance reads how close she is to the next gate.
+            float hp = Math.Clamp(boss.HealthFraction, 0f, 1f);
+            Vector4 bar = hp > 0.5f ? new Vector4(.85f, .30f, .28f, 1f)
+                        : hp > 0.2f ? new Vector4(.90f, .55f, .20f, 1f)
+                                    : new Vector4(.95f, .80f, .20f, 1f);
+            ImGui.PushStyleColor(ImGuiCol.PlotHistogram, bar);
+            ImGui.ProgressBar(hp, new Vector2(ImGui.GetContentRegionAvail().X, 16f * CreatorUiScale),
+                $"{boss.Spec.Name}  {hp * 100f:0}%");
+            ImGui.PopStyleColor();
         }
         if (sim.EngagedAtMs < 0)
             ImGui.TextColored(new Vector4(1f, .75f, .4f, 1f),
@@ -765,11 +1084,22 @@ public sealed partial class GameLoop
         _encounterProbeDirty = true;
     }
 
+    /// <summary>The COMBAT clock the user reads: it holds before the pull and counts from
+    /// it. The engine's own clock runs from the moment a document loads so the raid can walk
+    /// in and she can roam - but none of that is "the fight". Until a body crosses her ring
+    /// (<see cref="EncounterSim.EngagedAtMs"/>) this reads "pre-pull" (with the lead-in to
+    /// contact once one is known); at the pull it is 0.0s and counts up from there.</summary>
+    private string EncounterFightClock(EncounterSim sim)
+    {
+        if (sim.EngagedAtMs < 0 || _encounterViewMs < sim.EngagedAtMs) return "pre-pull";
+        return $"{(_encounterViewMs - sim.EngagedAtMs) / 1000f:0.0}s";
+    }
+
     // ── scenario ─────────────────────────────────────────────────────────────
 
     private void DrawEncounterScenarioSection()
     {
-        if (!ImGui.CollapsingHeader("Scenario")) return;
+        if (!ImGui.CollapsingHeader("Scenario", ImGuiTreeNodeFlags.DefaultOpen)) return;
         if (_encounterDefinition is null)
         {
             ImGui.TextDisabled("load an encounter first");
@@ -787,9 +1117,11 @@ public sealed partial class GameLoop
         if (ImGui.Button("Add dummy"))
         {
             Vector3 near = _encounterScenario.FirstOrDefault()?.Position ?? Vector3.Zero;
+            Vector3 at = near + new Vector3(5f, 5f, 0f);
+            at.Z = EncounterGroundZ(at.X, at.Y, near.Z);
             _encounterScenario.Add(new EncounterActorSpec(
                 $"dummy{++_encounterDummySerial}", $"dummy {_encounterDummySerial}", 0,
-                EncounterActorRole.Friendly, near + new Vector3(5f, 5f, 0f),
+                EncounterActorRole.Friendly, at,
                 DisplayId: 3167));
             RebuildEncounterSim();
         }
@@ -811,6 +1143,82 @@ public sealed partial class GameLoop
             SettingsFile?.Save();
             RebuildEncounterSimKeepingView();
         }
+        if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
+                ?.DetectionRangeYards is > 0f and var detection)
+            ImGui.TextDisabled($"exact-db: her detection_range is {detection:0} yd " +
+                               "(the core adds a level delta on top)");
+
+        // Pre-pull movement: the document's DB-sourced answer first, the invented
+        // what-if second and clearly labeled as such. Stationary is an answer.
+        IdleMovementSpec? idle = _encounterScenario
+            .FirstOrDefault(a => a.Role == EncounterActorRole.Boss)?.IdleMovement;
+        if (idle is { } declared)
+        {
+            string truth = declared.Kind switch
+            {
+                IdleMovementKind.Wander => $"wanders {declared.WanderYards:0} yd (exact-db)",
+                IdleMovementKind.Waypoints =>
+                    $"patrols {declared.Points?.Count ?? 0} waypoints (exact-db)",
+                _ => "stands at spawn until pulled (exact-db)",
+            };
+            ImGui.TextColored(FidelityColor(EncounterFidelity.ExactDb), $"pre-pull: {truth}");
+            if (declared.Note is { Length: > 0 } note && ImGui.IsItemHovered())
+                ImGui.SetTooltip(note);
+        }
+        else
+        {
+            ImGui.TextDisabled("pre-pull: the document does not say how she idles");
+        }
+
+        if (idle is null or { Kind: IdleMovementKind.Stationary })
+        {
+            // Opt-in what-if: default off she stands (exact-db). Toggle it and she wanders
+            // the sandbox within the radius — never fights the owner's intent by default.
+            bool roam = Settings.EncounterLab.SandboxRoam;
+            if (ImGui.Checkbox("sandbox roam (what-if)", ref roam))
+            {
+                Settings.EncounterLab.SandboxRoam = roam;
+                SettingsFile?.Save();
+                RebuildEncounterSimKeepingView();
+            }
+            if (roam)
+            {
+                ImGui.SameLine();
+                float roamRadius = Settings.EncounterLab.RoamRadiusYards;
+                ImGui.SetNextItemWidth(110f * CreatorUiScale);
+                if (ImGui.SliderFloat("roam yd", ref roamRadius, 5f, 60f, "%.0f"))
+                    Settings.EncounterLab.RoamRadiusYards = roamRadius;
+                if (ImGui.IsItemDeactivatedAfterEdit())
+                {
+                    SettingsFile?.Save();
+                    RebuildEncounterSimKeepingView();
+                }
+            }
+        }
+
+        bool meleeReach = Settings.EncounterLab.MeleeDpsNeedsReach;
+        if (ImGui.Checkbox("tank/melee dps needs reach", ref meleeReach))
+        {
+            Settings.EncounterLab.MeleeDpsNeedsReach = meleeReach;
+            SettingsFile?.Save();
+            RebuildEncounterSimKeepingView();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Their dps counts only beside a grounded boss,\n" +
+                             "so an air phase honestly stalls her health gates.");
+
+        // The free view is the fast way to author all of this: Ctrl+F, pick the
+        // raid up like any RTS, and every verb lands as a sim order at the scrub
+        // head — the fight replays around it instantly.
+        ImGui.TextColored(new Vector4(.6f, .85f, 1f, 1f),
+            "Ctrl+F to command the raid: click/drag selects bodies · Shift+Click" +
+            " stages waypoints · GO (or Play) runs the plan · Ctrl+RClick" +
+            " teleports (what-if)");
+        ImGui.TextColored(new Vector4(.6f, .85f, 1f, 1f),
+            "Orient a waypoint: Shift+Right-click a dot to grab it, move the mouse to" +
+            " spin the arrow freely, click to set");
+
+        DrawEncounterPlaybook();
 
         // The aggro plan, one line per swap. SHE FACES THE HOLDER, so this list
         // plus the bodies' positions IS the geometry of the whole fight.
@@ -841,7 +1249,9 @@ public sealed partial class GameLoop
             ImGui.PushID(i);
             ImGui.Text($"{actor.Name}");
             ImGui.SameLine();
-            ImGui.TextDisabled($"({actor.Role})");
+            ImGui.TextDisabled(actor.Job == RaidJob.None
+                ? $"({actor.Role})"
+                : $"({actor.Job})");
             if (actor.Key == aggroNowKey)
             {
                 ImGui.SameLine();
@@ -888,8 +1298,7 @@ public sealed partial class GameLoop
                 {
                     for (int m = 0; m < moves.Count; m++)
                     {
-                        ImGui.TextDisabled($"    run @ {moves[m].TimeMs / 1000f:0.0}s -> " +
-                                           $"{moves[m].Position.X:0.#}, {moves[m].Position.Y:0.#}");
+                        ImGui.TextDisabled($"    {DescribeMove(moves[m])}");
                         ImGui.SameLine();
                         if (ImGui.SmallButton($"x##mv{m}"))
                         {
@@ -903,6 +1312,86 @@ public sealed partial class GameLoop
         }
     }
 
+    /// <summary>The (phase × job) standing-orders table. One combo per cell:
+    /// "—" (no change at that turn), Hold, Chase boss, or To spot with a placed
+    /// point. This is where "what does melee do in the air phase" is decided —
+    /// as data the owner edits, never as code.</summary>
+    private void DrawEncounterPlaybook()
+    {
+        if (_encounterDefinition is not { } definition) return;
+        if (!ImGui.TreeNode("role playbook (what each job does when a phase turns)"))
+            return;
+
+        ReadOnlySpan<RaidJob> jobs = [RaidJob.Tank, RaidJob.Healer, RaidJob.Melee, RaidJob.Ranged];
+        string[] kinds = ["—", "hold", "chase boss", "to spot"];
+        float cs = CreatorUiScale;
+
+        foreach (EncounterPhase phase in definition.Phases)
+        {
+            ImGui.Text(phase.Name);
+            if (phase.CasterFlying) { ImGui.SameLine(); ImGui.TextDisabled("(flying)"); }
+            foreach (RaidJob job in jobs)
+            {
+                ImGui.PushID($"{phase.Key}-{job}");
+                RaidPhaseDirective? directive = PlaybookDirectiveFor(phase.Key, job);
+                int current = directive?.Kind switch
+                {
+                    RaidDirectiveKind.Hold => 1,
+                    RaidDirectiveKind.ChaseBoss => 2,
+                    RaidDirectiveKind.MoveToSpot => 3,
+                    _ => 0,
+                };
+                ImGui.TextDisabled($"  {job,-6}");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(110f * cs);
+                if (ImGui.Combo("##kind", ref current, kinds, kinds.Length))
+                {
+                    switch (current)
+                    {
+                        case 0: RemovePlaybookDirective(phase.Key, job); break;
+                        case 1: UpsertPlaybookDirective(phase.Key, job, RaidDirectiveKind.Hold); break;
+                        case 2: UpsertPlaybookDirective(phase.Key, job, RaidDirectiveKind.ChaseBoss); break;
+                        case 3:
+                            // Arm the placement; the directive lands with the click.
+                            _encounterPlacing = EncounterPlacement.PlaybookSpot;
+                            _encounterPlacingPlaybookPhase = phase.Key;
+                            _encounterPlacingPlaybookJob = job;
+                            break;
+                    }
+                }
+                if (directive is { Kind: RaidDirectiveKind.MoveToSpot } spot)
+                {
+                    ImGui.SameLine();
+                    ImGui.TextDisabled($"({spot.Spot.X:0}, {spot.Spot.Y:0})");
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("re-place"))
+                    {
+                        _encounterPlacing = EncounterPlacement.PlaybookSpot;
+                        _encounterPlacingPlaybookPhase = phase.Key;
+                        _encounterPlacingPlaybookJob = job;
+                    }
+                }
+                ImGui.PopID();
+            }
+        }
+        ImGui.TextDisabled("— means no change at that turn; explicit orders always override");
+        ImGui.TreePop();
+    }
+
+    /// <summary>One move entry, described the way it will fire.</summary>
+    private static string DescribeMove(in TimedMove move)
+    {
+        string verb = move.Teleport ? "teleport" : "run";
+        string when = move.Anchor switch
+        {
+            MoveAnchor.AfterPrevious => "then",
+            MoveAnchor.OnPhaseEnter => $"on {move.PhaseKey}:",
+            _ => $"@ {move.TimeMs / 1000f:0.0}s",
+        };
+        string facing = move.HasArrivalFacing ? " ↻" : "";
+        return $"{when} {verb} -> {move.Position.X:0.#}, {move.Position.Y:0.#}{facing}";
+    }
+
     // ── timeline ─────────────────────────────────────────────────────────────
 
     private void DrawEncounterTimelineSection()
@@ -913,6 +1402,13 @@ public sealed partial class GameLoop
             ImGui.TextDisabled("nothing simulated yet");
             return;
         }
+
+        // A pop-out that follows the selected body and steps through its actions live.
+        if (ImGui.SmallButton("Pop out ▸ live action panel")) _encounterActionPanelOpen = true;
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("A separate window that follows the selected body\n" +
+                             "(the boss by default) and shows exactly what it\n" +
+                             "steps through — casts, phase turns, hits — in real time.");
 
         // A window around the scrub head: the whole event list is unreadable, and
         // what matters is what just happened and what is about to.

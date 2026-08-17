@@ -88,12 +88,37 @@ public sealed class ActorDto
     public float DisplayScale { get; set; } = 1f;
     public List<MoveDto>? Moves { get; set; }
     public float Dps { get; set; }
+    public RaidJob Job { get; set; } = RaidJob.None;
+    public IdleMovementDto? IdleMovement { get; set; }
+    public float RunSpeedYdPerSec { get; set; }
+    public float WalkSpeedYdPerSec { get; set; }
+    public float DetectionRangeYards { get; set; }
+}
+
+public sealed class IdleMovementDto
+{
+    public IdleMovementKind Kind { get; set; } = IdleMovementKind.Stationary;
+    public float WanderYards { get; set; }
+    public List<IdleWaypointDto>? Points { get; set; }
+    public string? Note { get; set; }
+}
+
+public sealed class IdleWaypointDto
+{
+    public Vector3 Position { get; set; }
+    public int WaitMs { get; set; }
 }
 
 public sealed class MoveDto
 {
     public int TimeMs { get; set; }
     public Vector3 Position { get; set; }
+    public MoveAnchor Anchor { get; set; } = MoveAnchor.AtTime;
+    public string? PhaseKey { get; set; }
+    /// <summary>Radians; null = keep the facing the run ended with. Nullable because
+    /// JSON has no NaN — the runtime struct uses NaN for the same "unset".</summary>
+    public float? ArrivalFacing { get; set; }
+    public bool Teleport { get; set; }
 }
 
 public sealed class TriggerDto
@@ -298,8 +323,15 @@ public sealed class EncounterLibrary
         dto.Key, dto.Name, dto.Entry, dto.Role, dto.Position, dto.Facing,
         dto.BoundingRadius, dto.CombatReach, dto.Level, dto.MaxHealth,
         dto.DisplayId, dto.DisplayScale,
-        dto.Moves?.Select(m => new TimedMove(m.TimeMs, m.Position)).ToArray(),
-        dto.Dps);
+        dto.Moves?.Select(m => new TimedMove(m.TimeMs, m.Position, m.Anchor, m.PhaseKey,
+            m.ArrivalFacing ?? float.NaN, m.Teleport)).ToArray(),
+        dto.Dps, dto.Job,
+        dto.IdleMovement is { } idle
+            ? new IdleMovementSpec(idle.Kind, idle.WanderYards,
+                idle.Points?.Select(p => new IdleWaypoint(p.Position, p.WaitMs)).ToArray(),
+                idle.Note)
+            : null,
+        dto.RunSpeedYdPerSec, dto.WalkSpeedYdPerSec, dto.DetectionRangeYards);
 
     private static EncounterPhase FromDto(PhaseDto dto) => new(
         dto.Key, dto.Name,
@@ -370,8 +402,26 @@ public sealed class EncounterLibrary
             Position = a.Position, Facing = a.Facing, BoundingRadius = a.BoundingRadius,
             CombatReach = a.CombatReach, Level = a.Level, MaxHealth = a.MaxHealth,
             DisplayId = a.DisplayId, DisplayScale = a.DisplayScale,
-            Moves = a.Moves?.Select(m => new MoveDto { TimeMs = m.TimeMs, Position = m.Position }).ToList(),
+            Moves = a.Moves?.Select(m => new MoveDto
+            {
+                TimeMs = m.TimeMs, Position = m.Position, Anchor = m.Anchor,
+                PhaseKey = m.PhaseKey,
+                ArrivalFacing = m.HasArrivalFacing ? m.ArrivalFacing : null,
+                Teleport = m.Teleport,
+            }).ToList(),
             Dps = a.Dps,
+            Job = a.Job,
+            IdleMovement = a.IdleMovement is { } idle
+                ? new IdleMovementDto
+                {
+                    Kind = idle.Kind, WanderYards = idle.WanderYards, Note = idle.Note,
+                    Points = idle.Points?.Select(p => new IdleWaypointDto
+                    { Position = p.Position, WaitMs = p.WaitMs }).ToList(),
+                }
+                : null,
+            RunSpeedYdPerSec = a.RunSpeedYdPerSec,
+            WalkSpeedYdPerSec = a.WalkSpeedYdPerSec,
+            DetectionRangeYards = a.DetectionRangeYards,
         }).ToList(),
         Phases = definition.Phases.Select(p => new PhaseDto
         {

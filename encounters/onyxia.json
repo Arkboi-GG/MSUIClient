@@ -21,12 +21,19 @@
       "role": "Boss",
       "displayId": 8570,
       "displayScale": 2.0,
-      "position": [-30.0, -215.0, -87.5],
-      "facing": 3.14,
+      "position": [-4.8689, -217.171, -86.7104],
+      "facing": 3.14159,
       "boundingRadius": 8.0,
       "combatReach": 12.0,
       "level": 63,
-      "maxHealth": 1100000
+      "maxHealth": 1100000,
+      "runSpeedYdPerSec": 9.0,
+      "walkSpeedYdPerSec": 2.5,
+      "detectionRangeYards": 20.0,
+      "idleMovement": {
+        "kind": "Stationary",
+        "note": "creature guid 47572 @ map 249 (dumped 2026-08-17): movement_type 0, wander_distance 0; no creature_movement or creature_movement_template rows; boss_onyxia.cpp has no out-of-combat motion. She stands at spawn (-4.87, -217.17, -86.71) facing pi until pulled — the previous position [-30, -215, -87.5] was an approximation. Speeds: creature_template speed_walk 1.0, speed_run 1.28571 (x7 = 9.0 yd/s); detection_range 20."
+      }
     },
     {
       "key": "tank",

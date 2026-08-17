@@ -836,9 +836,45 @@ public sealed partial class GameLoop
     /// the server keeps/attaches the unattended AI (release mode 1); from the free view a
     /// plain release (mode 0) returns to manual control of the own character.
     /// </summary>
+    /// <summary>Where the creator-sandbox character stood when the free view went
+    /// up, so the way down is an exact return — the offline twin of the live
+    /// path's release-ACK teleport home.</summary>
+    private Vector3 _creatorFreeViewReturn;
+    private float _creatorFreeViewReturnYaw;
+    private bool _creatorFreeViewWasFlying;
+
     private void ToggleFreeView()
     {
-        if (_net is not { IsInWorld: true } || _controller is null) return;
+        if (_controller is null) return;
+
+        // Creator sandbox: no server, no control stream to park or release — the
+        // free view is PURELY a camera decision. Seat the rig where the character
+        // stands on the way up; put the character back exactly there on the way
+        // down. Everything else (marquee, edge pan, wheel-fly, encounter-raid
+        // orders) is already client-side and just works.
+        if (_net is not { IsInWorld: true })
+        {
+            if (!CreatorInWorld) return;
+            if (_freeView)
+            {
+                SetFreeView(false);
+                _controller.Flying = _creatorFreeViewWasFlying;
+                _controller.Teleport(_creatorFreeViewReturn.X, _creatorFreeViewReturn.Y,
+                    _creatorFreeViewReturn.Z);
+                _controller.Yaw = _creatorFreeViewReturnYaw;
+            }
+            else
+            {
+                _creatorFreeViewReturn = _controller.Position;
+                _creatorFreeViewReturnYaw = _controller.Yaw;
+                _creatorFreeViewWasFlying = _controller.Flying;
+                SetFreeView(true);
+                // Rise so the first frame already reads as the sky rig.
+                _controller.Teleport(_controller.Position.X, _controller.Position.Y,
+                    _controller.Position.Z + 18f);
+            }
+            return;
+        }
 
         // Already commanding a toon from the sky: Ctrl+F is purely a camera decision, so it
         // just lands on the unit whose bars are already live. No release, no server round
@@ -919,9 +955,12 @@ public sealed partial class GameLoop
             CycleControl(ShiftHeld() ? -1 : +1);
         _controlCycleWasDown = cyclePressed;
 
-        // Ctrl+F: free view toggle (plain F stays the local fly toggle).
+        // Ctrl+F: free view toggle (plain F stays the local fly toggle). Works in
+        // the creator sandbox too — there it is purely a camera decision, and it
+        // is how the Encounter Lab's raid gets commanded.
         bool freecamPressed = ctrl && InputKeyDown(Key.F);
-        if (freecamPressed && !_freecamKeyWasDown && !typing && _net is { IsInWorld: true })
+        if (freecamPressed && !_freecamKeyWasDown && !typing &&
+            (_net is { IsInWorld: true } || CreatorInWorld))
             ToggleFreeView();
         _freecamKeyWasDown = freecamPressed;
 
@@ -1177,7 +1216,11 @@ public sealed partial class GameLoop
             if (screen.X >= min.X && screen.X <= max.X && screen.Y >= min.Y && screen.Y <= max.Y)
                 _freecamSelection.Add(guid);
         }
-        if (_freecamSelection.Count == 1)
+        // Encounter Lab raid puppets marquee like anything else; the order router
+        // sends a puppet-carrying selection to the sim instead of the server.
+        AddEncounterPuppetsToMarquee(min, max, display);
+        if (_freecamSelection.Count == 1 &&
+            EncounterRaidPuppetKey(_freecamSelection[0]) is null)
             EnsureBotBarForViewing(_freecamSelection[0]);
         if (_freecamSelection.Count > 0)
             AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, " +
@@ -1194,6 +1237,10 @@ public sealed partial class GameLoop
     /// </summary>
     private void HandleFreeCamWorldClick(WorldMouseClick click)
     {
+        // A live waypoint-orient spin: the next click of ANY button sets the facing and
+        // ends the session (the grab began on an earlier Shift+Right-click on the dot).
+        if (_encounterOrientSpinning) { EndEncounterOrientSpin(commit: true); return; }
+
         if (click.Button == MouseButton.Left)
         {
             if (_freecamMarqueeConsumedClick)
@@ -1206,6 +1253,14 @@ public sealed partial class GameLoop
             // "Selected only" overlay scope and consumes the click (ahead of the
             // take-command and marquee-clear behaviour below).
             if (HandleDevFocusClick(pickedUnit)) return;
+            // Shift+LeftClick with raid bodies selected stages a waypoint — the
+            // owner's original gesture ("shift click the floor"); right-click
+            // still works. Must run before selection handling, or this click
+            // would CLEAR the very selection it is ordering.
+            if (click.ShiftDown && HandleEncounterRtsOrder(click)) return;
+            // Encounter Lab raid puppet: clicking a sim body SELECTS it for orders,
+            // never takes command — there is no character behind it to command.
+            if (HandleEncounterPuppetSelect(pickedUnit)) return;
             // CRPG rule: clicking an eligible toon in the free view IS taking command of it —
             // its bars, bags and spells become the live HUD, the same as Ctrl+Tab. The
             // CAMERA does not move: you stay in the sky until Ctrl+F says otherwise.
@@ -1226,6 +1281,16 @@ public sealed partial class GameLoop
             return;
         }
         if (click.Button != MouseButton.Right) return;
+
+        // Shift+Right-click ON a waypoint dot orients it (assign if none, else spin 45°) —
+        // right-click because the left button is busy with selection/marquee, which was
+        // eating the click. On empty ground Shift+Right falls through to the order below.
+        if (HandleEncounterWaypointOrient(click)) return;
+
+        // A selection carrying Encounter Lab raid puppets orders the SIM, not the
+        // server — the whole gesture routes there and stops. Sim orders land at
+        // the scrub head and the fight replays around them instantly.
+        if (HandleEncounterRtsOrder(click)) return;
 
         // SHIFT, not Ctrl, queues waypoints: Ctrl is the control-chord modifier (Ctrl+F,
         // Ctrl+Tab), so entering the free view with Ctrl still down turned the very first
@@ -1400,7 +1465,7 @@ public sealed partial class GameLoop
     }
 
     private static void DrawDashedLine(ImDrawListPtr draw, Vector2 from, Vector2 to,
-        uint color, float dash, float gap)
+        uint color, float dash, float gap, float thickness = 2f)
     {
         Vector2 delta = to - from;
         float length = delta.Length();
@@ -1409,7 +1474,7 @@ public sealed partial class GameLoop
         for (float at = 0f; at < length; at += dash + gap)
         {
             float end = MathF.Min(at + dash, length);
-            draw.AddLine(from + dir * at, from + dir * end, color, 2f);
+            draw.AddLine(from + dir * at, from + dir * end, color, thickness);
         }
     }
 

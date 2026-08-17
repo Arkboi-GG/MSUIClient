@@ -47,7 +47,18 @@ public sealed partial class GameLoop
     /// the streamed entity in the free view (the rig is the camera there).</summary>
     private Vector3? DevPlayerPosition()
     {
-        if (_net is null) return null;
+        // Offline creator sandbox: there is no _net and no entity for the own
+        // toon — the controller IS the toon. In the free view the controller is
+        // the SKY RIG, not the toon; the toon stands where Ctrl+F left it.
+        // (Returning null here made every "at the player" affordance — raid
+        // placement, Snap to me, probe At me — silently target the boss-side
+        // fallback instead. The owner caught it: the raid formed 40 yd from
+        // Onyxia, nowhere near them.)
+        if (_net is null)
+        {
+            if (!CreatorInWorld || _controller is null) return null;
+            return _freeView ? _creatorFreeViewReturn : _controller.Position;
+        }
         if (!_freeView && _controller is not null) return _controller.Position;
         return _entities.TryGet(ControlledGuid, out WorldEntity me) ? me.Position
             : _controller?.Position;
