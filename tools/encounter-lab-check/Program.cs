@@ -178,6 +178,46 @@ internal static class Program
         Check("timeline has one snapshot per step plus the initial capture",
             a.Timeline.Count == a.Timeline[^1].Step + 1);
 
+        // Ordered-route render state is part of the snapshot too. The overlay draws only
+        // unfired entries plus ActiveOrderedMoveIndex, so a completed first leg must remain
+        // retired when the user scrubs while the second leg is underway.
+        List<EncounterActorSpec> routeScenario = Scenario();
+        routeScenario[1] = routeScenario[1] with
+        {
+            PlayerRules = new EncounterPlayerRules(AlwaysFaceBoss: true),
+            Moves =
+            [
+                new TimedMove(0, new Vector3(13f, 0f, 0f)),
+                new TimedMove(0, new Vector3(20f, 0f, 0f), MoveAnchor.AfterPrevious),
+            ],
+        };
+        var routed = new EncounterSim(definition, routeScenario,
+            new EncounterSimOptions { Seed = 17, StepMs = 100 });
+        routed.AdvanceTo(5_000);
+        int secondLegIndex = routed.Timeline.ToList().FindIndex(snapshot =>
+            snapshot.Actors.First(state => state.Key == "tank").ActiveOrderedMoveIndex == 1);
+        Check("ordered route reaches its second leg", secondLegIndex >= 0);
+        if (secondLegIndex >= 0)
+        {
+            SimActorState secondLeg = routed.Timeline[secondLegIndex].Actors
+                .First(state => state.Key == "tank");
+            Check("completed route leg is snapshotted as retired",
+                secondLeg.FiredOrderedMoves is [true, true] &&
+                secondLeg.ActiveOrderedMoveIndex == 1);
+            SimActorState bossOnSecondLeg = routed.Timeline[secondLegIndex].Actors
+                .First(state => state.Key == "boss");
+            float faceBoss = EncounterGeometryLaw.Facing(secondLeg.Position, bossOnSecondLeg.Position);
+            float facingError = MathF.Abs(MathF.Atan2(
+                MathF.Sin(secondLeg.Facing - faceBoss), MathF.Cos(secondLeg.Facing - faceBoss)));
+            Check("always-face-boss rule holds while running", facingError < 1e-4f);
+            routed.RestoreTo(secondLegIndex);
+            SimActor restoredTank = routed.Actors.First(actor => actor.Key == "tank");
+            Check("rewind restores ordered-route render state",
+                restoredTank.ActiveOrderedMoveIndex == 1 &&
+                restoredTank.FiredOrderedMoves is [true, true] &&
+                restoredTank.MoveTarget == new Vector3(20f, 0f, 0f));
+        }
+
         // Phase gating: a health-gated transition must actually fire.
         var phased = new EncounterSim(definition, scenario,
             new EncounterSimOptions { Seed = 7, RaidDpsFraction = 0.02f });
@@ -337,6 +377,12 @@ internal static class Program
         {
             var library = new EncounterLibrary(temporary);
             EncounterDefinition original = TwoPhaseTestEncounter();
+            EncounterActorSpec[] actors = original.Actors!.ToArray();
+            actors[1] = actors[1] with
+            {
+                PlayerRules = new EncounterPlayerRules(AlwaysFaceBoss: true),
+            };
+            original = original with { Actors = actors };
             library.Save(original, "roundtrip.json");
             Check("save wrote a document", File.Exists(Path.Combine(temporary, "roundtrip.json")));
 
@@ -355,6 +401,8 @@ internal static class Program
                 round?.Phases[0].Transitions?[0].Steps?.Count == original.Phases[0].Transitions![0].Steps!.Count);
             Check("round trip preserves fidelity labels",
                 round?.WorstFidelity() == original.WorstFidelity());
+            Check("round trip preserves per-player base rules",
+                round?.Actors?[1].PlayerRules?.AlwaysFaceBoss == true);
 
             // A stale schema version must fail loudly, not parse into nonsense.
             File.WriteAllText(Path.Combine(temporary, "stale.json"),
@@ -397,6 +445,19 @@ internal static class Program
         Check("onyxia resolves by member entry (whelp)", library.ForEntry(11262)?.Key == "onyxia");
         Check("onyxia has three phases", onyxia.Phases.Count == 3);
         Check("phase 2 is flagged flying", onyxia.Phase("p2")?.CasterFlying == true);
+        Check("phase 1 ability controls include Cleave but not Fireball",
+            onyxia.AbilitiesIn("p1").Any(a => a.Key == "cleave") &&
+            !onyxia.AbilitiesIn("p1").Any(a => a.Key == "fireball"));
+        Check("phase 2 ability controls include Fireball but not Cleave",
+            onyxia.AbilitiesIn("p2").Any(a => a.Key == "fireball") &&
+            !onyxia.AbilitiesIn("p2").Any(a => a.Key == "cleave"));
+        Check("Heated Ground is only available in the air phase",
+            onyxia.AbilitiesIn("p2").Any(a => a.Key == "unmodeled_heated_ground") &&
+            !onyxia.AbilitiesIn("p1").Any(a => a.Key == "unmodeled_heated_ground") &&
+            !onyxia.AbilitiesIn("p3").Any(a => a.Key == "unmodeled_heated_ground"));
+        Check("phase 3 ability controls include Cleave and Bellowing Roar",
+            onyxia.AbilitiesIn("p3").Any(a => a.Key == "cleave") &&
+            onyxia.AbilitiesIn("p3").Any(a => a.Key == "bellowing_roar"));
         Check("p1 transitions to p2 on a health gate",
             onyxia.Phase("p1")?.Transitions?[0] is
                 { ToPhase: "p2", Trigger.Kind: EncounterTriggerKind.HealthBelow });

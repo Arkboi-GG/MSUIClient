@@ -1,8 +1,8 @@
 # Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17 · game-faithful pass 2026-08-17)
 
 > **STATUS (core + raid sim): BUILT & VERIFIED, HEADLESSLY *AND* IN-CLIENT.**
-> `tools/encounter-lab-check`: **106/106** (offline + live world-DB, re-run
-> 2026-08-17 after the raid-sim work). The in-client scripted probe
+> `tools/encounter-lab-check`: **91/91 offline** (re-run 2026-08-18; live
+> world-DB integration remains opt-in). The in-client scripted probe
 > (`MSUI_ENCLAB_PROBE`, §11): **11/11** — raid placement, live world, staging,
 > GO, roam, Ctrl+F — measured in the real client on the real code paths, with
 > screenshots. Owner-verified eyes-on in the lair the same day. No server
@@ -248,6 +248,11 @@ explicit order takes a body off autopilot until the next phase turn re-applies
 its directive. Pre-pull the boss plays her declared idle movement, or the sandbox
 roam — which draws from its **own seeded stream**, so however long the roam runs,
 the fight's ability rolls at the pull are untouched.
+
+Each Friendly can also carry serialized `EncounterPlayerRules`. The first rule,
+`AlwaysFaceBoss`, is applied after both the player and boss move on every fixed
+step. A tank can therefore run through Onyxia toward the back wall while keeping
+its pose aimed at her live position instead of snapping to its travel direction.
 
 **What the simulator does not have, and says so:** no threat MODEL (aggro is
 owner-assigned; the fallback victim is "closest friendly", and any ability
@@ -581,6 +586,95 @@ the clock + phase, a boss health bar, a **NOW** line, and a scrolling list of
 scrub head, the current step marked ▶ and future rows carrying a `+Xs` lead time.
 All of it reads the pre-simulated `sim.Events` — no new sim instrumentation.
 
+## 8.6 Reading a paused fight — ability visualizer & the orbit sweep (2026-08-18, pending eyes-on)
+
+Refinements for reading a HELD instant, all client-side overlay / what-if work.
+
+- **Cones and lines are real ground decals.** Directional sectors and rectangular lanes
+  now use `SpellEffectMeshRenderer`'s terrain/WMO projector, alongside the existing discs.
+  A white sector/strip mask is clipped onto the exact gathered floor triangles and tinted
+  by fidelity, so Flame Breath, Cleave, Knock Away, and Tail Sweep follow the lair floor
+  instead of appearing as one flat origin-Z sheet with a camera-dependent perspective.
+  The same depth-tested pass lets Onyxia and raid bodies occlude the paint naturally.
+
+- **Dashed plan / route / probe lines no longer vanish on a camera pivot.** A separate,
+  worse case of the same family: `TryProjectToScreen` returns false for any point BEHIND
+  the camera (`clip.W ≤ 0` — no pixel exists), and every dashed-path loop dropped the
+  whole segment on that (`from = null; continue`). A raid ordered in one direction shares
+  its far move-targets, so a small pivot pushed them all behind the camera plane at once
+  and **every plan line disappeared together**. §8.1's screen-space clip cannot help —
+  a behind-camera point has no screen coordinate to clip. New
+  `Camera.TryProjectSegmentToScreen` clips the segment to the camera plane in homogeneous
+  clip space FIRST (the standard near-plane cut), so a leg straddling the plane keeps its
+  visible half; the path loops (committed moves, staged plan, probe trajectory, flight
+  route, chain spine) now thread WORLD points through `DrawDashedWorldLine` instead of
+  screen points.
+
+- **Completed raid-route legs retire on arrival.** `SimActorState` snapshots now carry
+  the fired authored-move mask plus `ActiveOrderedMoveIndex`. The committed route renderer
+  starts at the body's live position and draws only its active leg plus unfired future legs;
+  the instant a body reaches a waypoint, that leg and dot disappear instead of remaining as
+  historical floor noise. Because the state lives in every snapshot, scrubbing backward
+  restores the appropriate leg rather than showing the final route state at every instant.
+
+- **Visualize every current-phase ability from a dedicated pop-out.** The non-blocking
+  **Ability Visualizer** is opened beside the live phase readout, from Timeline, or from
+  the Action Timeline. It recomputes `definition.AbilitiesIn(sim.PhaseKey)` every frame
+  and renders one clean row per available mechanic: ability name on the left and a large,
+  literal **Visualize** button on the right (`Cleave` → `Visualize`). The selected-key set
+  `_encounterVisualizedAbilities` is also filtered by phase at render time, so an old attack
+  cannot linger for one misleading frame after a phase turn. Spatial abilities force-draw
+  their landing zones at full strength, ignoring cast timing and the global overlay toggles;
+  `ResolveVisualizedFootprint` anchors cones to the boss's live holder-facing and aims lines,
+  bolts, and circles at the live aggro holder. Non-spatial abilities are not omitted: authored
+  summon steps paint and label their spawn locations, while a mechanic with no spatial facts
+  gets an explicit boss-anchored "no spatial shape modeled" callout. Clicking **Visualize**
+  again turns that mechanic off, active rows turn green, and **Clear phase** removes the
+  current phase's selections. The summary row is permanently reserved (including `0 visible`)
+  so toggling cannot move the list, and row/button height comes from ImGui's live font metrics.
+  Radius-less targeted cones such as Cleave and Knock Away would otherwise resolve to the
+  geometry law's 0.5 yd data-hole minimum under Onyxia's model; their visual preview alone is
+  extended through the live holder with a readable melee-reach minimum. Simulation geometry
+  remains unchanged.
+
+- **Orbit-sweep a body around her (`Rts.cs`).** Select a raid body, **Shift+Left-click
+  it** to GRAB, then move the mouse and it arcs around the boss at the radius it was on
+  (LOCKED — rotate on the ring, not in/out), sweeping through the visualized footprints with
+  a live **clear / IN <ability>** readout (`EncounterGeometryLaw.Test` against the swept
+  body). **Left-click sets** it as a teleport what-if at the scrub instant (one rebuild,
+  the Ctrl+RClick verb — the fight reflows, history before it bit-identical);
+  **right-click cancels**. No per-frame rebuild: the model is overridden live in
+  `SyncEncounterPuppets` (snap, zero velocity) and the commit is the single rebuild — the
+  same no-rebuild-while-dragging lesson the orient spin learned (§8.2). Shift+Left-click
+  on empty GROUND still stages a waypoint; the grab fires only on a hit body. Playback
+  pauses on grab so the sweep is a stable paused read. **When the dragged body is the
+  aggro holder, the boss TRACKS it live** — `EffectiveBossFacing` snaps her facing to the
+  swept position (facing is instantaneous in the fight), so her model turns to follow it
+  and every visualized cone sweeps along; her position does not chase (that takes sim time —
+  the commit's what-if reflows it). Dragging a non-holder body leaves her cones fixed and
+  sweeps that body through them, which is the other half of the read.
+
+## 8.7 Player Setup — per-body base rules (2026-08-18)
+
+A plain click on a raid puppet in **Ctrl+F** still selects it for orders and now
+also opens a modal **Player Setup** window. The same modal is reachable from the
+body's **rules** button in Scenario. Its first live rule is **Always face boss**:
+when enabled, that body faces the boss on every simulation step, including while
+crossing through her or running to a waypoint. It intentionally overrides travel
+direction and an authored arrival facing for as long as the rule is active.
+
+The rule lives on the actor as a nested, JSON-round-trippable
+`EncounterPlayerRules` object, not as temporary UI state. The modal already
+reserves a clearly disabled **Rotation** section for **Load from SuperUI** and
+**Build custom spell queue**. Neither rotation path is implemented or inferred
+yet; the disabled controls establish where the next layer belongs without
+pretending a rotation is running.
+
+**Status: BUILT, COMPILES CLEAN (Debug + Release), NOT YET EYES-ON.** The pins and the
+sweep only read on a staged-raid-pulled-then-paused fight, which the probe does not
+reach — so the proof is the owner's sweep-and-watch pass (per the §11.3 rule, treat
+§8.6 as "written, not yet proven in-client").
+
 ---
 
 ## 9. Using it
@@ -593,7 +687,7 @@ nothing but the client.
 | **Encounter** | Pick an authored document, or **Load selected** to derive one live from the world DB for whatever creature you clicked. Shows source, coverage flags, weakest fidelity, core build hash. |
 | **Overlays** | Footprints-at-this-instant · **structural** (everything that could ever land, ignoring timing) · authored route · actors + probe · labels · linger. Includes the fidelity colour key. |
 | **Transport** | **GO (staged count)** when a plan is queued · Play / Pause / Step / Back / Reset, a scrub slider reading the **combat clock** (pre-pull until the pull, then counting), a **boss health bar** (§8.3), playback speed, **seed**, step size, and the labelled raid-dps dial. |
-| **Scenario** | **Place raid (10)** at the player · place the boss, add dummies, place any actor by clicking the world · pull-ring slider with the exact-db detection_range line · pre-pull line (declared idle) with a **sandbox-roam opt-in** checkbox (default off — she stands, §8.1) · melee-reach dps gate · the **role playbook** table (phase × job → hold / chase boss / to spot) · per-body rows: job, dps, aggro @ scrub, move list with anchor-aware labels. |
+| **Scenario** | **Place raid (10)** at the player · place the boss, add dummies, place any actor by clicking the world · pull-ring slider with the exact-db detection_range line · pre-pull line (declared idle) with a **sandbox-roam opt-in** checkbox (default off — she stands, §8.1) · melee-reach dps gate · the **role playbook** table (phase × job → hold / chase boss / to spot) · per-body **rules** modal, job, dps, aggro @ scrub, and anchor-aware moves. |
 | **Timeline** | A ±12 s window around the scrub head, coloured by fidelity; unmodeled beats show in red. **Pop out ▸** a live action panel (§8.5) that follows the selected body and steps through its casts / phase turns / hits in real time. |
 | **Position probe** | Place a body, or **Add waypoint** repeatedly to give it a trajectory. Reports hits with times and near-misses with clearance. Warns when "safe" rests on unmodeled mechanics. |
 | **Abilities** | Every ability: trigger, timing band, target rule, resolved shape, chance, phases, notes, and `← source` lines pointing at the exact table/column or `file:symbol`. |
@@ -631,8 +725,8 @@ window's observed-path tap.
 
 Three layers, each catching what the others cannot.
 
-**1. Headless suite — 106/106, `tools/encounter-lab-check` (re-run 2026-08-17
-after the raid-sim work; nothing regressed):**
+**1. Headless suite — 91/91 offline, `tools/encounter-lab-check` (re-run
+2026-08-18; nothing regressed):**
 
 ```bash
 dotnet run --project tools/encounter-lab-check
@@ -704,9 +798,10 @@ probe does not reach), so the real proof is a stage-raid-pull-watch pass.
    straight anyway); ground pathing around geometry is not — raid walks, her
    chase and the roam all go as the crow flies. Placement Z uses the collision
    world; movement Z is linear between points.
-3. **Cones and lines are screen-space polygons**, drawn at the origin's Z rather
-   than terrain-projected. Circles, chains and projectile impacts *are* true
-   ground decals and do follow WMO floors.
+3. **Ground decals require a projectable floor.** Circles, chains, projectiles, cones,
+   and lines follow gathered terrain or walkable WMO collision. In a data hole with neither,
+   the renderer deliberately falls back to a flat shape at the footprint origin's Z rather
+   than hiding the mechanic entirely.
 4. **No aura, GCD, resist, immunity or interrupt model.**
 5. **The raid-dps dial is not damage.** It exists to make health gates reachable.
 6. **Instance scripts are not read.** `instance_onyxia_lair.cpp`-style coordination
@@ -771,8 +866,8 @@ the timeline and the coverage report rather than quietly disappearing.
 
 **Add a geometry kind** — extend `FootprintKind`, add a `Resolve` case and a
 `Test` case in `EncounterGeometryLaw`, then a draw case in
-`GameLoop.EncounterLab.Overlays.cs`. If it is a disc, add it to
-`AddFootprintDiscs` and it inherits real ground projection for free.
+`GameLoop.EncounterLab.Overlays.cs`. Add its decal primitive to
+`AddFootprintGroundShapes` and it inherits terrain/WMO projection.
 
 **Add a trigger or step kind** — extend the enum, handle it in
 `EncounterSim.TriggerFires` / `AdvanceSequence`, and map the matching
@@ -815,7 +910,7 @@ stage (§11).
 |---|---|
 | `MSUIClient/World/Encounters/EncounterDefinition.cs` | Schema, fidelity registry, coverage flags, `Holes()`, `WorstFidelity()` |
 | `MSUIClient/World/Encounters/EncounterGeometry.cs` | `BodyCapsule`, `Footprint`, `IEncounterSpellFacts`, resolve + hit tests |
-| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step |
+| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step; **ordered-move fired/active state captured for scrub-correct route retirement**; per-player **AlwaysFaceBoss** applied after movement (§8.7) |
 | `MSUIClient/World/Encounters/EncounterProbe.cs` | `ProbeTrajectory`, `ProbeReport`, structural scan |
 | `MSUIClient/World/Encounters/EncounterTranslator.cs` | world-DB rows → definition |
 | `MSUIClient/World/Encounters/EncounterLibrary.cs` | JSON DTOs ⇄ model, load/save |
@@ -823,14 +918,15 @@ stage (§11).
 | `MSUIClient/Net/EncounterWorldData.cs` | Row model + immutable snapshot |
 | `MSUIClient/Net/EncounterDataClient.cs` | 5 tables, CSV + 12 h disk cache |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed (green) and staged plans, anchor labels; **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: puppet select/marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), never touches `SuiOrder` |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed and staged plans, anchor labels; **completed committed legs retire on arrival**, **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3); **terrain/WMO-projected cone + line visualizations, phase-filtered ability visualization + `ResolveVisualizedFootprint`, summon markers, orbit-sweep preview** (§8.6) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing; **live orbit-drag position override** (§8.6) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: puppet select + **Player Setup open** (§8.7), marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), **Shift+Left-click body orbit-sweep grab→teleport-what-if** (§8.6), never touches `SuiOrder` |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead; dedicated phase-aware **Ability Visualizer** pop-out with one named **Visualize** button per mechanic (§8.6) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Click-open **Player Setup modal** (§8.7): live per-body base rules plus an honest disabled shell for future SuperUI/custom rotations |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11); two assertions rewritten for §8.1 (clock-holds, stands) and pending a re-run |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Tape.cs` | Recorder + predicted-vs-observed diff |
 | `encounters/onyxia.json` | The authored encounter + spec fuzz — boss at the exact DB spawn (guid 47572), real speeds, `detectionRangeYards`, declared `Stationary` idle with full provenance note |
-| `tools/encounter-lab-check/` | 106 headless assertions, `--live` integration mode |
+| `tools/encounter-lab-check/` | 91 headless assertions, `--live` integration mode |
 
 **Touched — thin hooks only**
 
@@ -842,7 +938,7 @@ stage (§11).
 | `GameLoop/Scene/GameLoop.Control.cs` | `UpdateEncounterLabInput(typing);` · free-view hooks: puppet select, shift-click stage, order routing, puppet marquee, **Shift+Right-click waypoint-orient grab + any-click spin commit** (§8.2) · **creator-sandbox Ctrl+F** (offline free view, exact pose restore) · shared `DrawDashedLine` gained a `thickness` param (§8.3) |
 | `GameLoop/Combat/GameLoop.Targeting.cs` click drain | `if (HandleEncounterLabClick(click)) continue;` |
 | `GameLoop/Combat/GameLoop.Casting.cs` spell-go handler | `RecordEncounterTapeCast(packet);` (unchanged). The Lab now also **calls into** this file — `ApplySpellGo` / `ApplySpellImpact` with a puppet-guid caster — to play the real spell visuals (§8.4); no edit needed there (the caster ≠ `ControlledGuid` branches already do the right thing offline). |
-| `Engine/Camera.cs` | New `TryProjectToScreen(world, size, out pixel, out onScreen)` — succeeds for any point in front of the camera; `TryWorldToScreen` delegates (`&& onScreen`). Lets overlay paths persist off-screen (§8.1). |
+| `Engine/Camera.cs` | `TryProjectToScreen(world, size, out pixel, out onScreen)` — succeeds for any point in front of the camera; `TryWorldToScreen` delegates (`&& onScreen`). Lets overlay paths persist off-screen (§8.1). **`TryProjectSegmentToScreen(a, b, …)`** near-plane-clips a world segment so a dashed line survives one end passing behind the camera (§8.6). |
 | `GameLoop/Dev/GameLoop.DevWindow.Overlays.cs` | `DevPlayerPosition()` is offline-aware (controller / free-view return pose) — every "at the player" affordance depends on it |
 | `Engine/ClientWindow.cs` | `WorldMouseClick` carries Ctrl/Alt; `BuildStamp` (assembly write time, shown in the Lab toolbar) |
 | `Engine/GameSettings.cs` | `EncounterLabSettings` + `GameSettings.EncounterLab` (melee-reach gate, pull range, roam radius, and the new **`SandboxRoam`** opt-in — default off, §8.1) |

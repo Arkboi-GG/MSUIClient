@@ -401,6 +401,7 @@
       "key": "unmodeled_heated_ground",
       "name": "Heated Ground (egg pits)",
       "spellId": 22191,
+      "phases": ["p2"],
       "trigger": { "kind": "Manual" },
       "target": { "kind": "DatabaseLocation" },
       "geometry": { "kind": "PointChain", "pointSpellIds": [22191, 22192, 22193, 22194, 22195, 22196, 22197, 22198, 22199, 22200, 22201, 22202] },

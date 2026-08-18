@@ -50,14 +50,15 @@ public sealed partial class GameLoop
         return null;
     }
 
-    /// <summary>Free-view left click on a raid puppet: select it for orders. No
-    /// take-command, no camera move — a sim body has no bars to drive.</summary>
+    /// <summary>Free-view left click on a raid puppet: select it for orders and open its
+    /// Player Setup modal. No take-command, no camera move — a sim body has no bars to drive.</summary>
     private bool HandleEncounterPuppetSelect(ulong pickedUnit)
     {
         if (EncounterRaidPuppetKey(pickedUnit) is not { } key) return false;
         _freecamSelection.Clear();
         _freecamSelection.Add(pickedUnit);
         string name = _encounterScenario.FirstOrDefault(a => a.Key == key)?.Name ?? key;
+        OpenEncounterPlayerSetup(key);
         AddChatMessage(EncounterStagingActive
             ? $"{name} (sim): Shift+Click stages waypoints · GO runs the plan · " +
               "Ctrl+RClick teleports · Alt+RClick faces."
@@ -384,5 +385,112 @@ public sealed partial class GameLoop
         float deg = facing * (180f / MathF.PI) % 360f;
         if (deg < 0f) deg += 360f;
         return $"{deg:0}°";
+    }
+
+    // ── Orbit-drag: sweep a selected body around the boss on its ring ────────────
+    //
+    // The paused what-if made kinetic. Select a body, Shift+Left-click it to GRAB, then
+    // move the mouse and it arcs around the boss at the radius it was on — sweeping it
+    // through the pinned attack footprints to read which arc is safe from Tail Sweep.
+    // Left-click SETS it (a teleport what-if at the scrub instant, the fight reflowing);
+    // right-click cancels. Radius is LOCKED at grab (rotate on the ring, not in/out), the
+    // model glides live with NO per-frame sim rebuild (SyncEncounterPuppets overrides its
+    // position), and the commit is one rebuild — the same no-rebuild-while-dragging lesson
+    // the orient spin already learned. Shift+Left is used because the grab lands ON a unit
+    // (never eaten by the empty-ground marquee) and the button is not held during the sweep.
+
+    private bool _encounterOrbitDragging;
+    private string? _encounterOrbitKey;
+    private float _encounterOrbitRadius;
+    private Vector3 _encounterOrbitPos;
+    private bool _encounterOrbitCovered;
+    private string? _encounterOrbitCoveredBy;
+
+    /// <summary>Floor under an orbit radius: a body sitting almost on top of her still gets
+    /// a sane ring to sweep instead of spinning on the spot.</summary>
+    private const float EncounterOrbitMinRadius = 2f;
+
+    /// <summary>Free-view Shift+Left-click ON a raid puppet: GRAB it for an orbit sweep
+    /// around the boss. Returns false (fall through to staging/selection) for anything else —
+    /// a Shift+click on empty ground still stages a waypoint. Radius locks to the body's
+    /// current distance from the boss; playback pauses so the sweep is a stable paused read.</summary>
+    private bool HandleEncounterOrbitGrab(WorldMouseClick click, ulong pickedUnit)
+    {
+        if (!_encounterLabOpen || !_freeView) return false;
+        if (click.Button != MouseButton.Left || !click.ShiftDown ||
+            click.CtrlDown || click.AltDown) return false;
+        if (_encounterSim is not { } sim || sim.Boss is not { } boss) return false;
+        if (EncounterRaidPuppetKey(pickedUnit) is not { } key) return false;
+        if (sim.Actors.FirstOrDefault(a => a.Key == key) is not { } actor) return false;
+
+        _encounterOrbitDragging = true;
+        _encounterOrbitKey = key;
+        _encounterOrbitRadius = MathF.Max(
+            EncounterGeometryLaw.GroundDistance(boss.Position, actor.Position), EncounterOrbitMinRadius);
+        _encounterOrbitPos = actor.Position;
+        _encounterOrbitCovered = false;
+        _encounterOrbitCoveredBy = null;
+        _encounterPlaying = false;   // hold the fight; the sweep is a paused read
+
+        // Follow this body in the action panel while you sweep it.
+        _freecamSelection.Clear();
+        _freecamSelection.Add(pickedUnit);
+
+        bool isHolder = key == AggroHolderKeyAt(_encounterViewMs);
+        AddChatMessage($"{EncounterActorName(key)}: sweeping on the {_encounterOrbitRadius:0.0} yd ring — " +
+                       (isHolder ? "she turns to track it, cones sweeping along. "
+                                 : "her cones stay put; sweep this body through them. ") +
+                       "click to set, right-click cancels.");
+        return true;
+    }
+
+    /// <summary>Per-frame while an orbit drag is live: the body tracks the cursor's ANGLE
+    /// around the boss at the locked radius, and a live hit test against the pinned
+    /// footprints lights the safe/HIT readout. No sim rebuild — the model is overridden in
+    /// SyncEncounterPuppets and the commit does the single rebuild. Called every frame from
+    /// UpdateEncounterLab, beside the orient spin.</summary>
+    private void UpdateEncounterOrbitDrag()
+    {
+        if (!_encounterOrbitDragging) return;
+        if (!_encounterLabOpen || !_freeView) { EndEncounterOrbitDrag(commit: false); return; }
+        if (ImGui.GetIO().WantCaptureMouse) return;   // pointer over a panel: hold position
+        if (_encounterSim is not { } sim || sim.Boss is not { } boss ||
+            _encounterOrbitKey is not { } key) return;
+        if (!TryPickGround(_window.MousePosition, out Vector3 ground)) return;
+
+        float angle = EncounterGeometryLaw.Facing(boss.Position, ground);
+        _encounterOrbitPos = boss.Position + EncounterGeometryLaw.Forward(angle) * _encounterOrbitRadius;
+        _encounterOrbitPos.Z = ground.Z;   // ride the floor the cursor is over (the lair is near-flat)
+
+        // Live read: is the swept body inside any pinned footprint at this angle?
+        _encounterOrbitCovered = false;
+        _encounterOrbitCoveredBy = null;
+        float radius = sim.Actors.FirstOrDefault(a => a.Key == key)?.Spec.BoundingRadius ?? 0.9f;
+        BodyCapsule capsule = BodyCapsule.At(_encounterOrbitPos, MathF.Max(radius, 0.5f));
+        foreach (EncounterAbility ability in VisualizedFootprintAbilities())
+            if (EncounterGeometryLaw.Test(ResolveVisualizedFootprint(ability, sim), capsule).Covered)
+            {
+                _encounterOrbitCovered = true;
+                _encounterOrbitCoveredBy = ability.Name;
+                break;
+            }
+    }
+
+    /// <summary>End an orbit drag. On commit the body is dropped where it sits as a teleport
+    /// what-if at the scrub instant (one sim rebuild, the same verb as Ctrl+RClick), so the
+    /// fight reflows from the new spot while history before it stays identical; either way
+    /// the session clears.</summary>
+    private void EndEncounterOrbitDrag(bool commit)
+    {
+        if (_encounterOrbitDragging && commit && _encounterOrbitKey is { } key)
+        {
+            AddScenarioMove(key, _encounterViewMs, _encounterOrbitPos, teleport: true);
+            AddChatMessage($"{EncounterActorName(key)}: what-if reposition @ " +
+                           $"{_encounterViewMs / 1000f:0.0}s — fight reflowed.");
+        }
+        _encounterOrbitDragging = false;
+        _encounterOrbitKey = null;
+        _encounterOrbitCovered = false;
+        _encounterOrbitCoveredBy = null;
     }
 }

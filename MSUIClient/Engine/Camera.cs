@@ -345,6 +345,41 @@ public sealed class Camera
         return true;
     }
 
+    /// <summary>Project a WORLD-space SEGMENT to screen pixels, clipping it to the camera
+    /// plane in homogeneous clip space FIRST. Projecting each endpoint on its own drops the
+    /// whole segment the instant ONE end passes behind the camera (its <c>W ≤ 0</c> has no
+    /// pixel) — which is why a plan/route line vanishes completely on a small camera pivot,
+    /// not merely when it scrolls off the window edge (that case is <see cref="TryProjectToScreen"/>'s
+    /// job). Here a segment with one end behind is CUT at the camera plane so its visible half
+    /// still draws. Returns false only when the whole segment is behind. Endpoints may land
+    /// outside the viewport; the caller's screen-space clip trims the dash walk.</summary>
+    public bool TryProjectSegmentToScreen(Vector3 a, Vector3 b, Vector2 size,
+        out Vector2 pixelA, out Vector2 pixelB)
+    {
+        pixelA = default;
+        pixelB = default;
+        Matrix4x4 vp = ViewProjection;
+        Vector4 ca = Vector4.Transform(new Vector4(a, 1f), vp);
+        Vector4 cb = Vector4.Transform(new Vector4(b, 1f), vp);
+        const float wMin = 1e-4f;
+
+        bool aBehind = ca.W <= wMin;
+        bool bBehind = cb.W <= wMin;
+        if (aBehind && bBehind) return false;            // whole segment behind the camera
+        if (aBehind) ca += (cb - ca) * ((wMin - ca.W) / (cb.W - ca.W));   // cut A to the plane
+        else if (bBehind) cb += (ca - cb) * ((wMin - cb.W) / (ca.W - cb.W));
+
+        pixelA = ClipToPixel(ca, size);
+        pixelB = ClipToPixel(cb, size);
+        return true;
+    }
+
+    private static Vector2 ClipToPixel(Vector4 clip, Vector2 size)
+    {
+        float x = clip.X / clip.W, y = clip.Y / clip.W;
+        return new Vector2((x + 1f) * 0.5f * size.X, (1f - y) * 0.5f * size.Y);
+    }
+
     /// <summary>
     /// Conservative AABB test performed directly in homogeneous clip space.
     ///

@@ -85,7 +85,9 @@ public sealed record SimEvent(
 
 public readonly record struct SimActorState(
     string Key, Vector3 Position, float Facing, int Health, bool Alive, bool Flying,
-    int HitsTaken = 0);
+    int HitsTaken = 0,
+    int ActiveOrderedMoveIndex = -1,
+    bool[]? FiredOrderedMoves = null);
 
 /// <summary>A complete, restorable instant. Rewind is an index into a list of these.</summary>
 public sealed record SimSnapshot(
@@ -160,6 +162,13 @@ public sealed class SimActor(EncounterActorSpec spec)
     /// overwrite it mid-fight; Reset restores it.</summary>
     public float MoveSpeed = spec.RunSpeedYdPerSec > 0f ? spec.RunSpeedYdPerSec : 7f;
     public bool MoveIsFlight;
+    /// <summary>The authored move currently being walked, or -1 for playbook/script/idle
+    /// movement. Captured with the timeline so overlays can retire completed route legs
+    /// correctly while scrubbing.</summary>
+    public int ActiveOrderedMoveIndex = -1;
+    /// <summary>Which authored move entries have dispatched. The array is copied into every
+    /// snapshot; fired-but-inactive entries are complete, teleported, or superseded.</summary>
+    public readonly bool[] FiredOrderedMoves = new bool[spec.Moves?.Count ?? 0];
     /// <summary>Facing to snap to when the current run arrives (an order's
     /// authored orientation — the tank's back to the wall). Null = keep the
     /// facing the run ended with.</summary>
@@ -175,13 +184,34 @@ public sealed class SimActor(EncounterActorSpec spec)
 
     public float HealthFraction => MaxHealth <= 0 ? 0f : Health / (float)MaxHealth;
     public BodyCapsule Body => BodyCapsule.At(Position, Spec.BoundingRadius);
-    public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying, HitsTaken);
+    public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying,
+        HitsTaken, ActiveOrderedMoveIndex, FiredOrderedMoves.ToArray());
 
     public void Restore(in SimActorState state)
     {
         Position = state.Position; Facing = state.Facing;
         Health = state.Health; Alive = state.Alive; Flying = state.Flying;
         HitsTaken = state.HitsTaken;
+        ActiveOrderedMoveIndex = state.ActiveOrderedMoveIndex;
+        Array.Clear(FiredOrderedMoves);
+        if (state.FiredOrderedMoves is { } fired)
+            Array.Copy(fired, FiredOrderedMoves, Math.Min(fired.Length, FiredOrderedMoves.Length));
+
+        // Restore the visible in-flight destination too. Runtime-authored boss/playbook moves
+        // have index -1 and retain the simulator's existing snapshot limitations; ordered raid
+        // routes are the state the Lab path overlay needs here.
+        if (ActiveOrderedMoveIndex >= 0 && Spec.Moves is { } moves &&
+            ActiveOrderedMoveIndex < moves.Count)
+        {
+            TimedMove move = moves[ActiveOrderedMoveIndex];
+            MoveTarget = move.Position;
+            PendingArrivalFacing = move.HasArrivalFacing ? move.ArrivalFacing : null;
+        }
+        else
+        {
+            MoveTarget = null;
+            PendingArrivalFacing = null;
+        }
     }
 }
 
@@ -304,12 +334,14 @@ public sealed class EncounterSim
             actor.Alive = true;
             actor.Flying = false;
             actor.MoveTarget = null;
+            actor.ActiveOrderedMoveIndex = -1;
+            Array.Clear(actor.FiredOrderedMoves);
             actor.MoveSpeed = actor.Spec.RunSpeedYdPerSec > 0f ? actor.Spec.RunSpeedYdPerSec : 7f;
             actor.PendingArrivalFacing = null;
             actor.AutoChase = false;
             actor.HitsTaken = 0;
             if (actor.Spec.Moves is { Count: > 0 } moves)
-                _movesFired[actor.Key] = new bool[moves.Count];
+                _movesFired[actor.Key] = actor.FiredOrderedMoves;
         }
         _bossSpawn = Boss?.Spec.Position ?? Vector3.Zero;
 
@@ -410,6 +442,11 @@ public sealed class EncounterSim
                 Finished = true;
             }
         }
+
+        // Player standing rules are the last word on pose. Movement and choreography above
+        // may move either endpoint during this step; applying here makes "always face boss"
+        // true even while crossing through her or running away to the back wall.
+        if (boss is { Alive: true }) ApplyFriendlyFacingRules(boss);
 
         ResolvePendingImpacts();
         if (TimeMs >= Options.MaxDurationMs) Finished = true;
@@ -544,6 +581,7 @@ public sealed class EncounterSim
             // here at this instant; everything downstream reflows around it.
             actor.Position = move.Position;
             actor.MoveTarget = null;
+            actor.ActiveOrderedMoveIndex = -1;
             actor.PendingArrivalFacing = null;
             if (move.HasArrivalFacing) actor.Facing = move.ArrivalFacing;
             Emit(SimEventKind.Move, actor.Key,
@@ -552,6 +590,7 @@ public sealed class EncounterSim
         else
         {
             actor.MoveTarget = move.Position;
+            actor.ActiveOrderedMoveIndex = index;
             actor.PendingArrivalFacing = move.HasArrivalFacing ? move.ArrivalFacing : null;
             Emit(SimEventKind.Move, actor.Key,
                 $"{actor.Spec.Name} ordered to move", targetKey: actor.Key);
@@ -709,6 +748,19 @@ public sealed class EncounterSim
     private static float WalkSpeed(SimActor actor) =>
         actor.Spec.WalkSpeedYdPerSec > 0f ? actor.Spec.WalkSpeedYdPerSec : DefaultWalkSpeed;
 
+    private void ApplyFriendlyFacingRules(SimActor boss)
+    {
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
+                actor.Spec.PlayerRules?.AlwaysFaceBoss != true) continue;
+            Vector2 delta = new(boss.Position.X - actor.Position.X,
+                boss.Position.Y - actor.Position.Y);
+            if (delta.LengthSquared() > 1e-5f)
+                actor.Facing = MathF.Atan2(delta.Y, delta.X);
+        }
+    }
+
     private void AdvanceMovement(int dt)
     {
         foreach (SimActor actor in _actors)
@@ -725,6 +777,7 @@ public sealed class EncounterSim
             {
                 actor.Position = target;
                 actor.MoveTarget = null;
+                actor.ActiveOrderedMoveIndex = -1;
                 // The order's authored orientation: arrive, then PIVOT — the
                 // tank puts its back to the wall the instant it stops.
                 if (actor.PendingArrivalFacing is { } arrival)

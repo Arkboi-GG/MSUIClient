@@ -1241,6 +1241,11 @@ public sealed partial class GameLoop
         // ends the session (the grab began on an earlier Shift+Right-click on the dot).
         if (_encounterOrientSpinning) { EndEncounterOrientSpin(commit: true); return; }
 
+        // A live orbit-drag: the next click commits (left = set the what-if) or cancels
+        // (right). The grab began on an earlier Shift+Left-click ON the body.
+        if (_encounterOrbitDragging)
+        { EndEncounterOrbitDrag(commit: click.Button == MouseButton.Left); return; }
+
         if (click.Button == MouseButton.Left)
         {
             if (_freecamMarqueeConsumedClick)
@@ -1253,6 +1258,10 @@ public sealed partial class GameLoop
             // "Selected only" overlay scope and consumes the click (ahead of the
             // take-command and marquee-clear behaviour below).
             if (HandleDevFocusClick(pickedUnit)) return;
+            // Shift+Left-click ON a raid puppet GRABS it for an orbit sweep around the boss.
+            // Must beat the ground-staging order below, which would otherwise stage a
+            // waypoint at the body's own feet instead of grabbing it.
+            if (HandleEncounterOrbitGrab(click, pickedUnit)) return;
             // Shift+LeftClick with raid bodies selected stages a waypoint — the
             // owner's original gesture ("shift click the floor"); right-click
             // still works. Must run before selection handling, or this click

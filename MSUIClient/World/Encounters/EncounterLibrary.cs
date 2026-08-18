@@ -93,6 +93,12 @@ public sealed class ActorDto
     public float RunSpeedYdPerSec { get; set; }
     public float WalkSpeedYdPerSec { get; set; }
     public float DetectionRangeYards { get; set; }
+    public PlayerRulesDto? PlayerRules { get; set; }
+}
+
+public sealed class PlayerRulesDto
+{
+    public bool AlwaysFaceBoss { get; set; }
 }
 
 public sealed class IdleMovementDto
@@ -331,7 +337,10 @@ public sealed class EncounterLibrary
                 idle.Points?.Select(p => new IdleWaypoint(p.Position, p.WaitMs)).ToArray(),
                 idle.Note)
             : null,
-        dto.RunSpeedYdPerSec, dto.WalkSpeedYdPerSec, dto.DetectionRangeYards);
+        dto.RunSpeedYdPerSec, dto.WalkSpeedYdPerSec, dto.DetectionRangeYards,
+        dto.PlayerRules is { } rules
+            ? new EncounterPlayerRules(rules.AlwaysFaceBoss)
+            : null);
 
     private static EncounterPhase FromDto(PhaseDto dto) => new(
         dto.Key, dto.Name,
@@ -422,6 +431,9 @@ public sealed class EncounterLibrary
             RunSpeedYdPerSec = a.RunSpeedYdPerSec,
             WalkSpeedYdPerSec = a.WalkSpeedYdPerSec,
             DetectionRangeYards = a.DetectionRangeYards,
+            PlayerRules = a.PlayerRules is { } rules
+                ? new PlayerRulesDto { AlwaysFaceBoss = rules.AlwaysFaceBoss }
+                : null,
         }).ToList(),
         Phases = definition.Phases.Select(p => new PhaseDto
         {
