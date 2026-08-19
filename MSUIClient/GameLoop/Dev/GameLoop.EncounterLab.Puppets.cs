@@ -101,6 +101,20 @@ public sealed partial class GameLoop
 
             if (_entities.TryGet(guid, out WorldEntity entity))
             {
+                // An orbit drag overrides this body's position directly: the model glides
+                // around the boss as the cursor sweeps it, with NO sim rebuild until the
+                // click commits. Snap (no smoothing), face the boss, skip the follow below.
+                if (_encounterOrbitDragging && actor.Key == _encounterOrbitKey)
+                {
+                    entity.Position = _encounterOrbitPos;
+                    entity.Spline = null;
+                    entity.Orientation = EncounterGeometryLaw.Facing(
+                        _encounterOrbitPos, sim.Boss?.Position ?? _encounterOrbitPos);
+                    _encounterPuppetPrev[actor.Key] = _encounterOrbitPos;
+                    _encounterPuppetVel[actor.Key] = Vector3.Zero;
+                    continue;
+                }
+
                 // The sim advances in fixed 100 ms steps; snapping the model to each
                 // step rendered a 10 Hz slideshow. An exponential lerp hid the 0.25 yd
                 // roam steps but NOT the 0.9 yd/step run of a chase: it decelerated into
@@ -135,10 +149,14 @@ public sealed partial class GameLoop
                 _encounterPuppetPrev[actor.Key] = rendered;
 
                 entity.Position = rendered;
+                // The boss tracks the aggro holder's live swept position during an orbit drag,
+                // so the model turns to follow the body you are dragging (her cones with it).
+                float targetFacing = actor.Spec.Role == EncounterActorRole.Boss
+                    ? EffectiveBossFacing(sim) : actor.Facing;
                 float facingEase = dt > 0f ? 1f - MathF.Exp(-dt * 10f) : 1f;
                 entity.Orientation = jump >= 20f
-                    ? actor.Facing
-                    : SmoothFacing(entity.Orientation, actor.Facing, facingEase);
+                    ? targetFacing
+                    : SmoothFacing(entity.Orientation, targetFacing, facingEase);
             }
         }
 

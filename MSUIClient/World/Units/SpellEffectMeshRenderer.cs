@@ -810,18 +810,27 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         RenderGroundQuads(camera, draws);
     }
 
-    // ── Dev-window ground discs (aggro radii): filled annuli, terrain-conforming ──────────────
-    // Same projector as the rings, but the texture is a FILLED disc/annulus: the RTS ring's
-    // band sits at a fixed 78-95% of the radius, which at aggro ranges (18-45 yd) reads as a
-    // yards-thick hoop instead of a Fire-Emblem threat fill. Inner cut-outs come from the
-    // texture (an annulus is not convex, so the frame clipper cannot carve the hole), cached
-    // per quantized inner/outer ratio.
+    // ── Dev-window ground shapes: terrain-conforming discs, sectors and strips ───────────────
+    // All three shapes use the same projector as the RTS rings. Their white mask textures are
+    // clipped onto the REAL floor triangles, then tinted per draw. This is especially important
+    // for encounter cones: a screen-space polygon at the caster's Z looks like an upright sheet
+    // whenever the camera is low, while this pass actually hugs the lair floor.
 
     /// <summary>A tinted, filled ground annulus. InnerRadius 0 = a full disc.</summary>
     public readonly record struct GroundDisc(
         Vector3 Centre, float InnerRadius, float OuterRadius, Vector3 Tint, float Opacity);
 
+    /// <summary>A filled directional sector. Facing is world radians; Degrees is the full arc.</summary>
+    public readonly record struct GroundSector(
+        Vector3 Origin, float Radius, float Facing, float Degrees, Vector3 Tint, float Opacity);
+
+    /// <summary>A filled rectangular lane between two world points.</summary>
+    public readonly record struct GroundStrip(
+        Vector3 Start, Vector3 End, float Width, Vector3 Tint, float Opacity);
+
     private readonly Dictionary<int, Texture> _devDiscTextures = new();
+    private readonly Dictionary<int, Texture> _devSectorTextures = new();
+    private Texture? _devStripTexture;
 
     /// <summary>Filled annulus: soft outer edge, brighter defined rim, translucent body.
     /// White; tinted per draw. Keyed by the inner fraction quantized to 1/32 steps.</summary>
@@ -853,6 +862,71 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         return texture;
     }
 
+    /// <summary>A +X-facing sector mask. Arc widths are cached at whole-degree precision;
+    /// encounter data is itself degree-valued and this avoids manufacturing a texture per frame.</summary>
+    private Texture DevSectorTexture(float degrees)
+    {
+        int key = Math.Clamp((int)MathF.Round(MathF.Abs(degrees)), 1, 360);
+        if (_devSectorTextures.TryGetValue(key, out Texture? cached)) return cached;
+        float half = key * .5f * (MathF.PI / 180f);
+        const int size = 256;
+        byte[] rgba = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float fx = (x + .5f) / size * 2f - 1f;
+            // Texture rows grow down. The sign is immaterial to a symmetric sector, but this
+            // convention keeps +Y in texture space aligned with +Y in DecalFrame.
+            float fy = 1f - (y + .5f) / size * 2f;
+            float radius = MathF.Sqrt(fx * fx + fy * fy);
+            float angle = MathF.Abs(MathF.Atan2(fy, fx));
+            float angularFill = key >= 360
+                ? 1f
+                : 1f - SmoothStep(half - .018f, half + .018f, angle);
+            float radialFill = 1f - SmoothStep(.965f, .995f, radius);
+            float fill = angularFill * radialFill;
+
+            // A defined outer arc plus both radial edges makes overlapping boss mechanics
+            // separable without turning the whole floor into an opaque block.
+            float arcRim = SmoothStep(.91f, .945f, radius)
+                           * (1f - SmoothStep(.955f, .99f, radius)) * angularFill;
+            float edgeDistance = radius * MathF.Abs(MathF.Sin(angle - half));
+            float sideRim = key < 360 && MathF.Abs(angle - half) < .12f
+                ? (1f - SmoothStep(.012f, .035f, edgeDistance))
+                  * SmoothStep(.04f, .12f, radius) * radialFill
+                : 0f;
+            float a = MathF.Min(1f, fill * .55f + MathF.Max(arcRim, sideRim) * .45f);
+            int i = (y * size + x) * 4;
+            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
+            rgba[i + 3] = (byte)(a * 255f + .5f);
+        }
+        var texture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
+        _devSectorTextures[key] = texture;
+        return texture;
+    }
+
+    /// <summary>A softly edged filled rectangle with a crisp inner rim.</summary>
+    private Texture DevStripTexture()
+    {
+        if (_devStripTexture is not null) return _devStripTexture;
+        const int size = 128;
+        byte[] rgba = new byte[size * size * 4];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float ax = MathF.Abs((x + .5f) / size * 2f - 1f);
+            float ay = MathF.Abs((y + .5f) / size * 2f - 1f);
+            float edge = MathF.Max(ax, ay);
+            float fill = 1f - SmoothStep(.965f, .995f, edge);
+            float rim = SmoothStep(.89f, .94f, edge) * (1f - SmoothStep(.955f, .99f, edge));
+            float a = MathF.Min(1f, fill * .55f + rim * .45f);
+            int i = (y * size + x) * 4;
+            rgba[i] = 255; rgba[i + 1] = 255; rgba[i + 2] = 255;
+            rgba[i + 3] = (byte)(a * 255f + .5f);
+        }
+        return _devStripTexture = Texture.FromRgbaNoMips(_gl, rgba, size, size);
+    }
+
     /// <summary>
     /// Dev-window aggro/leash discs: projected onto ADT terrain and walkable WMO collision,
     /// depth-tested with the unit-aware bias so bodies standing in a disc occlude its far
@@ -874,6 +948,51 @@ public sealed class SpellEffectMeshRenderer : IDisposable
                                 FlatDiscVertices(disc.Centre, disc.OuterRadius, camera.Position);
             if (vertices is not null)
                 draws.Add((vertices, texture, 2, disc.Tint, disc.Opacity, 0));
+        }
+        RenderGroundQuads(camera, draws, UnitAwareDepthBias);
+    }
+
+    /// <summary>Encounter cone previews projected onto terrain and walkable WMO floors.</summary>
+    public void RenderGroundSectors(Camera camera, IReadOnlyList<GroundSector> sectors)
+    {
+        if (_groundShader is null || sectors.Count == 0) return;
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        List<(float[], Texture?, int, Vector3, float, int)> draws = [];
+        foreach (GroundSector sector in sectors)
+        {
+            if (sector.Radius < .1f || MathF.Abs(sector.Degrees) < .1f) continue;
+            (float sin, float cos) = MathF.SinCos(sector.Facing);
+            // DecalFrame's frame +X maps to world (Cos,-Sin), hence the negated sine.
+            var frame = new DecalFrame(sector.Origin, -sin, cos,
+                sector.Radius, sector.Radius, 2f * sector.Radius);
+            float[] vertices = ProjectDecal(frame, uv, camera.Position) ??
+                               FlatFrameVertices(frame, uv, camera.Position);
+            draws.Add((vertices, DevSectorTexture(sector.Degrees), 2,
+                sector.Tint, sector.Opacity, 0));
+        }
+        RenderGroundQuads(camera, draws, UnitAwareDepthBias);
+    }
+
+    /// <summary>Encounter line/lane previews projected onto terrain and walkable WMO floors.</summary>
+    public void RenderGroundStrips(Camera camera, IReadOnlyList<GroundStrip> strips)
+    {
+        if (_groundShader is null || strips.Count == 0) return;
+        Span<Vector2> uv = [new(0, 0), new(1, 0), new(0, 1), new(1, 1)];
+        List<(float[], Texture?, int, Vector3, float, int)> draws = [];
+        Texture texture = DevStripTexture();
+        foreach (GroundStrip strip in strips)
+        {
+            Vector3 delta = strip.End - strip.Start;
+            float length = new Vector2(delta.X, delta.Y).Length();
+            if (length < .1f || strip.Width < .1f) continue;
+            float facing = MathF.Atan2(delta.Y, delta.X);
+            (float sin, float cos) = MathF.SinCos(facing);
+            Vector3 centre = (strip.Start + strip.End) * .5f;
+            var frame = new DecalFrame(centre, -sin, cos, length * .5f, strip.Width * .5f,
+                MathF.Max(length, strip.Width));
+            float[] vertices = ProjectDecal(frame, uv, camera.Position) ??
+                               FlatFrameVertices(frame, uv, camera.Position);
+            draws.Add((vertices, texture, 2, strip.Tint, strip.Opacity, 0));
         }
         RenderGroundQuads(camera, draws, UnitAwareDepthBias);
     }
@@ -1031,6 +1150,9 @@ public sealed class SpellEffectMeshRenderer : IDisposable
         _rtsChevronTexture?.Dispose();
         foreach (Texture texture in _devDiscTextures.Values) texture.Dispose();
         _devDiscTextures.Clear();
+        foreach (Texture texture in _devSectorTextures.Values) texture.Dispose();
+        _devSectorTextures.Clear();
+        _devStripTexture?.Dispose();
     }
 
     private const string FragmentSource = @"#version 330 core

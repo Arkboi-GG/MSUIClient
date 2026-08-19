@@ -279,6 +279,14 @@ public sealed record IdleMovementSpec(
     IReadOnlyList<IdleWaypoint>? Points = null,
     string? Note = null);
 
+/// <summary>Standing rules owned by one player-side body. This is deliberately a
+/// nested object rather than a run of actor booleans: rotation source and an authored
+/// spell queue can grow beside these base rules without replacing the document shape.</summary>
+public sealed record EncounterPlayerRules(
+    /// <summary>Face the live boss position at every sim step, including while running.
+    /// Overrides movement-direction and authored arrival facing while the boss exists.</summary>
+    bool AlwaysFaceBoss = false);
+
 /// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
 /// model - the owner assigns aggro and swaps it, because "who is she facing"
 /// is an input to the plan being tested, never a thing to guess at.</summary>
@@ -373,7 +381,10 @@ public sealed record EncounterActorSpec(
     /// <summary>creature_template.detection_range, yards. Display-only honesty
     /// beside the pull-ring slider (the real core adds a level-delta on top);
     /// 0 = unknown.</summary>
-    float DetectionRangeYards = 0f);
+    float DetectionRangeYards = 0f,
+    /// <summary>Per-player standing rules configured from the Player Setup modal.
+    /// Null means all defaults and keeps older encounter documents compatible.</summary>
+    EncounterPlayerRules? PlayerRules = null);
 
 public enum EncounterActorRole
 {

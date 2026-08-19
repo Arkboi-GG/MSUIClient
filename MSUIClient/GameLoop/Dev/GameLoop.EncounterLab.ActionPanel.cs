@@ -19,6 +19,7 @@ namespace MSUIClient;
 public sealed partial class GameLoop
 {
     private bool _encounterActionPanelOpen;
+    private bool _encounterAbilityPanelOpen;
 
     /// <summary>The sim actor the action panel follows: an RTS/freecam selection first, then
     /// the world-inspect selection, else the boss. Mapped back through the puppet guid table.</summary>
@@ -37,6 +38,8 @@ public sealed partial class GameLoop
     /// so it can sit beside the Lab (or anywhere) while the fight plays.</summary>
     private void DrawEncounterActionPanel()
     {
+        DrawEncounterAbilityPanel();
+        DrawEncounterPlayerSetupModal();
         if (!_encounterActionPanelOpen) return;
 
         float cs = CreatorUiScale;
@@ -101,6 +104,11 @@ public sealed partial class GameLoop
             ImGui.ProgressBar(hp, new Vector2(-1f, 14f * CreatorUiScale), $"{hp * 100f:0}%");
             ImGui.PopStyleColor();
         }
+
+        if (ImGui.Button("Visualize phase abilities", new Vector2(-1f, 0f)))
+            _encounterAbilityPanelOpen = true;
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Open the separate phase-aware Ability Visualizer.");
 
         // "NOW": the latest thing this body was doing at/just-before the view instant.
         SimEvent? now = null;
@@ -167,6 +175,156 @@ public sealed partial class GameLoop
         }
         ImGui.EndChild();
     }
+
+    /// <summary>A dedicated, non-blocking pop-out so the owner can keep manipulating the
+    /// world while an ability is visualized. The list is recomputed from the scrubbed phase
+    /// every frame: an out-of-phase ability never gets a misleading control.</summary>
+    private void DrawEncounterAbilityPanel()
+    {
+        if (!_encounterAbilityPanelOpen) return;
+
+        float cs = CreatorUiScale;
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
+        ImGui.SetNextWindowPos(new Vector2(880f * s, 64f * s), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(430f * s, 510f * s), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(330f * cs, 240f * cs),
+            new Vector2(float.MaxValue, float.MaxValue));
+
+        PushCreatorStyle();
+        if (!ImGui.Begin("###encounter-ability-visualizer", CreatorChromeFlags))
+        {
+            ImGui.End();
+            PopCreatorStyle();
+            return;
+        }
+        ClampCreatorWindowOnScreen();
+        if (DrawCreatorPanelChrome("Ability Visualizer", "encounter-ability-visualizer"))
+            _encounterAbilityPanelOpen = false;
+        ImGui.SetWindowFontScale(CreatorTextScale);
+        BeginCreatorContent();
+
+        DrawEncounterAbilityPanelBody();
+
+        EndCreatorContent();
+        ImGui.SetWindowFontScale(1f);
+        ImGui.End();
+        PopCreatorStyle();
+    }
+
+    private void DrawEncounterAbilityPanelBody()
+    {
+        if (_encounterSim is not { } sim || _encounterDefinition is not { } definition ||
+            sim.Boss is null)
+        {
+            ImGui.TextDisabled("open an encounter in the Lab (Ctrl+E)");
+            return;
+        }
+
+        List<EncounterAbility> abilities = definition.AbilitiesIn(sim.PhaseKey)
+            .ToList();
+        EncounterPhase? phase = definition.Phase(sim.PhaseKey);
+        int onCount = abilities.Count(a => _encounterVisualizedAbilities.Contains(a.Key));
+
+        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), definition.Name);
+        ImGui.Text($"{phase?.Name ?? sim.PhaseKey}  ·  {abilities.Count} available");
+        ImGui.TextDisabled("Only mechanics usable in the current phase are shown.");
+        ImGui.TextDisabled("Click Visualize again to turn that mechanic off.");
+
+        // Permanent summary row: changing 0 -> 1 visible must never push the ability
+        // table (and every button in it) down between clicks.
+        if (onCount == 0) ImGui.BeginDisabled();
+        if (ImGui.SmallButton($"Clear phase ({onCount})"))
+            foreach (EncounterAbility ability in abilities)
+                _encounterVisualizedAbilities.Remove(ability.Key);
+        if (onCount == 0) ImGui.EndDisabled();
+        ImGui.SameLine();
+        if (onCount > 0)
+            ImGui.TextColored(new Vector4(.55f, 1f, .62f, 1f), $"{onCount} visible");
+        else
+            ImGui.TextDisabled("0 visible");
+
+        ImGui.Separator();
+        if (abilities.Count == 0)
+        {
+            ImGui.TextDisabled("No boss mechanics are authored for this phase.");
+            return;
+        }
+
+        if (ImGui.BeginChild("##enc-ability-rows", new Vector2(0f, 0f), true))
+        {
+            float buttonHeight = ImGui.GetFrameHeight() + 8f * CreatorUiScale;
+            float rowHeight = MathF.Max(buttonHeight + 12f * CreatorUiScale,
+                ImGui.GetTextLineHeight() * 2f + 10f * CreatorUiScale);
+            if (ImGui.BeginTable("##enc-ability-table", 2,
+                    ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
+                    ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings))
+            {
+                foreach (EncounterAbility ability in abilities)
+                {
+                    bool visualized = _encounterVisualizedAbilities.Contains(ability.Key);
+                    Vector4 colour = FidelityColor(ability.Fidelity);
+                    if (!visualized) colour.W = .78f;
+
+                    ImGui.PushID(ability.Key);
+                    ImGui.TableNextRow(ImGuiTableRowFlags.None, rowHeight);
+                    ImGui.TableNextColumn();
+                    ImGui.PushStyleColor(ImGuiCol.Text, colour);
+                    ImGui.TextWrapped($"{(visualized ? "[ON]" : "[  ]")} {ability.Name}");
+                    ImGui.PopStyleColor();
+                    ImGui.TextDisabled(AbilityVisualizationLabel(ability));
+
+                    ImGui.TableNextColumn();
+                    if (visualized)
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.20f, .58f, .27f, 1f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(.26f, .68f, .34f, 1f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(.16f, .48f, .22f, 1f));
+                    }
+                    else
+                    {
+                        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.43f, .24f, .07f, 1f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(.58f, .34f, .09f, 1f));
+                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(.34f, .18f, .05f, 1f));
+                    }
+                    // Leave a real inset at the table edge and size from the live font/frame;
+                    // the previous fixed 30 px height clipped at high UI/font scales.
+                    if (ImGui.Button("Visualize",
+                            new Vector2(-8f * CreatorUiScale, buttonHeight)))
+                    {
+                        if (visualized) _encounterVisualizedAbilities.Remove(ability.Key);
+                        else _encounterVisualizedAbilities.Add(ability.Key);
+                    }
+                    ImGui.PopStyleColor(3);
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(visualized
+                            ? $"Stop visualizing {ability.Name}."
+                            : $"Visualize {ability.Name} in the world.");
+                    ImGui.PopID();
+                }
+                ImGui.EndTable();
+            }
+        }
+        ImGui.EndChild();
+    }
+
+    private static string AbilityVisualizationLabel(EncounterAbility ability) =>
+        ability.Geometry.Kind switch
+        {
+            FootprintKind.None when ability.Steps?.Any(s =>
+                s.Kind == EncounterStepKind.Summon && s.Point != default) == true => "summon locations",
+            FootprintKind.None => "boss mechanic · no spatial shape modeled",
+            _ => $"{GeometryLabel(ability.Geometry.Kind)} · {EncounterSchema.Describe(ability.Fidelity)}",
+        };
+
+    private static string GeometryLabel(FootprintKind kind) => kind switch
+    {
+        FootprintKind.Cone => "cone",
+        FootprintKind.Line => "line",
+        FootprintKind.PointChain => "lanes",
+        FootprintKind.Circle => "circle",
+        FootprintKind.Projectile => "bolt",
+        _ => "shape",
+    };
 
     /// <summary>The role/job plan colour as a Vector4 (the overlay's EncounterRoleStyle returns
     /// a packed uint; this mirrors its palette for ImGui text).</summary>

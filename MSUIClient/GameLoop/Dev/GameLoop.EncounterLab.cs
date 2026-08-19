@@ -83,6 +83,12 @@ public sealed partial class GameLoop
         public bool HasFacing => !float.IsNaN(ArrivalFacing);
     }
 
+    /// <summary>Ability keys toggled on in the phase-aware Ability Visualizer. Spatial
+    /// abilities draw their landing footprint at full strength; summon mechanics draw
+    /// their authored spawn points; mechanics with neither get an honest boss-anchored
+    /// callout. Session state, keyed by <see cref="EncounterAbility.Key"/>.</summary>
+    private readonly HashSet<string> _encounterVisualizedAbilities = new(StringComparer.Ordinal);
+
     /// <summary>Clicks STAGE while the fight at the current view is un-pulled —
     /// authoring time, nothing runs early. Once she is engaged, clicks land as
     /// immediate timed moves (the paused mid-fight what-if workflow). Teleports
@@ -230,6 +236,9 @@ public sealed partial class GameLoop
 
         // A live waypoint-orientation spin tracks the cursor every frame.
         UpdateEncounterOrientSpin();
+
+        // A live orbit-drag sweeps a body around the boss on its ring every frame.
+        UpdateEncounterOrbitDrag();
 
         if (!_encounterLabOpen || _encounterSim is not { } sim) return;
         if (!_encounterPlaying || _encounterScrubbing) return;
@@ -928,6 +937,24 @@ public sealed partial class GameLoop
 
         if (changed) SettingsFile?.Save();
 
+        // Visualized abilities are controlled from their own pop-out; keep the active-phase
+        // count and a clear action discoverable with that panel shut.
+        int visualizedCount = _encounterDefinition is { } definition && _encounterSim is { } sim
+            ? definition.AbilitiesIn(sim.PhaseKey)
+                .Count(a => _encounterVisualizedAbilities.Contains(a.Key))
+            : 0;
+        if (visualizedCount > 0)
+        {
+            ImGui.Separator();
+            ImGui.TextColored(new Vector4(1f, .82f, .35f, 1f),
+                $"{visualizedCount} phase ability visualization(s) on");
+            if (ImGui.SmallButton("clear ability visualizations"))
+                _encounterVisualizedAbilities.Clear();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Toggle individual abilities in the\n" +
+                                 "Ability Visualizer pop-out.");
+        }
+
         ImGui.Separator();
         ImGui.TextDisabled("colour = fidelity:");
         foreach (EncounterFidelity fidelity in Enum.GetValues<EncounterFidelity>())
@@ -1014,6 +1041,14 @@ public sealed partial class GameLoop
             : $"/ {headMs / 1000f:0.0}s");
 
         ImGui.Text($"phase: {sim.Definition.Phase(sim.PhaseKey)?.Name ?? sim.PhaseKey}");
+        ImGui.SameLine();
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.42f, .24f, .08f, 1f));
+        if (ImGui.Button("Visualize abilities", new Vector2(150f * cs, 0f)))
+            _encounterAbilityPanelOpen = true;
+        ImGui.PopStyleColor();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Open a phase-aware pop-out with one Visualize button\n" +
+                             "for every boss mechanic available right now.");
         if (sim.Boss is { } boss)
         {
             // A real health BAR: the health gates that drive phases are the whole point,
@@ -1259,6 +1294,11 @@ public sealed partial class GameLoop
             }
             ImGui.TextDisabled($"  {actor.Position.X:0.#}, {actor.Position.Y:0.#}, {actor.Position.Z:0.#} " +
                                $"· r{actor.BoundingRadius:0.#}");
+            if (actor.Role == EncounterActorRole.Friendly)
+            {
+                if (ImGui.SmallButton("rules")) OpenEncounterPlayerSetup(actor.Key);
+                ImGui.SameLine();
+            }
             if (ImGui.SmallButton("place"))
             {
                 _encounterPlacing = EncounterPlacement.Actor;
@@ -1403,12 +1443,17 @@ public sealed partial class GameLoop
             return;
         }
 
-        // A pop-out that follows the selected body and steps through its actions live.
+        // Independent pop-outs: one for the selected actor's live event stream, and one
+        // clean phase-aware control surface for boss ability visualizations.
         if (ImGui.SmallButton("Pop out ▸ live action panel")) _encounterActionPanelOpen = true;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("A separate window that follows the selected body\n" +
                              "(the boss by default) and shows exactly what it\n" +
                              "steps through — casts, phase turns, hits — in real time.");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Abilities ▸ Visualize")) _encounterAbilityPanelOpen = true;
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Open the current phase's boss ability visualizer.");
 
         // A window around the scrub head: the whole event list is unreadable, and
         // what matters is what just happened and what is about to.

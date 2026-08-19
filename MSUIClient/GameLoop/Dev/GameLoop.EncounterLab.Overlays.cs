@@ -8,16 +8,13 @@ namespace MSUIClient;
 // ─────────────────────────────────────────────────────────────────────────────
 // Encounter Lab rendering, in the same two-pass shape the NPC dev window uses.
 //
-//   3-D pass  — real ground-projected decals for everything that is a DISC:
-//               circles, projectile impacts, and every sphere of a breath lane.
-//               These go through SpellEffectMeshRenderer.RenderGroundDiscs, so
-//               they follow terrain AND WMO floors (GatherGroundEffectTriangles
-//               gathers collision triangles as well as terrain — which is what
-//               makes this usable inside Onyxia's lair at all).
+//   3-D pass  — real ground-projected decals for every spatial footprint: discs,
+//               directional sectors, strips, projectile impacts, and every sphere
+//               of a breath lane. They follow terrain AND WMO floors because
+//               GatherGroundEffectTriangles supplies both terrain and collision.
 //
-//   screen pass — everything a decal cannot express: cone sectors, swept lines,
-//               the flight route, actor markers, the probe capsule and labels.
-//               Filled polygons on the background draw list.
+//   screen pass — labels, point-chain spines, the flight route, actor markers,
+//               the probe capsule and plan lines.
 //
 // Colour is meaning here: every footprint is tinted by its FIDELITY, so a shape
 // you cannot trust never looks like one you can.
@@ -25,10 +22,6 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    /// <summary>Sample count for a projected cone arc. 24 is smooth at raid distances
-    /// and cheap enough to draw a dozen of.</summary>
-    private const int EncounterConeSegments = 24;
-
     // ── 3-D pass ─────────────────────────────────────────────────────────────
 
     private void RenderEncounterLab3D()
@@ -36,14 +29,20 @@ public sealed partial class GameLoop
         if (!_encounterLabOpen || _spellEffectMeshes is null) return;
         if (_encounterSim is not { } sim) return;
         var settings = Settings.EncounterLab;
-        if (!settings.ShowFootprints && !settings.ShowStructural && !settings.ShowActors) return;
+        // Ability visualizations draw regardless of the overlay checkboxes, so a fully-off
+        // overlay set must not short-circuit the pass out from under a selected mechanic.
+        if (!settings.ShowFootprints && !settings.ShowStructural && !settings.ShowActors &&
+            !VisualizedAbilities().Any()) return;
 
         _spellEffectMeshes.GatherGround ??= GatherGroundEffectTriangles;
         List<SpellEffectMeshRenderer.GroundDisc> discs = [];
+        List<SpellEffectMeshRenderer.GroundSector> sectors = [];
+        List<SpellEffectMeshRenderer.GroundStrip> strips = [];
 
         if (settings.ShowFootprints)
             foreach (SimEvent simEvent in ActiveEncounterFootprints(sim))
-                AddFootprintDiscs(discs, simEvent.Footprint!, FidelityTint(simEvent.Fidelity), 0.68f);
+                AddFootprintGroundShapes(discs, sectors, strips, simEvent.Footprint!,
+                    FidelityTint(simEvent.Fidelity), 0.68f);
 
         // Structural view: every catalogued footprint at once, ignoring timing. This
         // is the "where could this EVER land" question, which a seeded run cannot
@@ -57,8 +56,24 @@ public sealed partial class GameLoop
                 if (!ability.HasFootprint) continue;
                 Footprint footprint = EncounterGeometryLaw.Resolve(
                     ability, boss.Position, boss.Facing, boss.Position, _encounterFacts);
-                AddFootprintDiscs(discs, footprint, FidelityTint(ability.Fidelity), 0.16f);
+                AddFootprintGroundShapes(discs, sectors, strips, footprint,
+                    FidelityTint(ability.Fidelity), 0.16f);
             }
+        }
+
+        // Selected mechanics: spatial footprints are forced on at full strength, while
+        // authored summon steps mark their spawn locations. Both ignore cast timing and
+        // the global overlay checkboxes on purpose.
+        foreach (EncounterAbility ability in VisualizedAbilities())
+        {
+            if (ability.HasFootprint)
+                AddFootprintGroundShapes(discs, sectors, strips,
+                    ResolveVisualizedFootprint(ability, sim),
+                    FidelityTint(ability.Fidelity), 0.68f);
+            foreach (EncounterStep step in ability.Steps ?? [])
+                if (step.Kind == EncounterStepKind.Summon && step.Point != default)
+                    discs.Add(new SpellEffectMeshRenderer.GroundDisc(
+                        step.Point, .7f, 3f, FidelityTint(ability.Fidelity), .82f));
         }
 
         // THE PULL RING, until the moment it is crossed: the fight's start line,
@@ -104,13 +119,16 @@ public sealed partial class GameLoop
         }
 
         if (discs.Count > 0) _spellEffectMeshes.RenderGroundDiscs(_window.Camera, discs);
+        if (sectors.Count > 0) _spellEffectMeshes.RenderGroundSectors(_window.Camera, sectors);
+        if (strips.Count > 0) _spellEffectMeshes.RenderGroundStrips(_window.Camera, strips);
     }
 
-    /// <summary>Discs are the only primitive that gets a true ground projection, so
-    /// every shape that IS a disc uses one. Cones and lines fall to the screen pass.</summary>
-    private void AddFootprintDiscs(
-        List<SpellEffectMeshRenderer.GroundDisc> discs, Footprint footprint,
-        Vector3 tint, float opacity)
+    /// <summary>Translate encounter geometry into terrain/WMO-projected decal primitives.</summary>
+    private static void AddFootprintGroundShapes(
+        List<SpellEffectMeshRenderer.GroundDisc> discs,
+        List<SpellEffectMeshRenderer.GroundSector> sectors,
+        List<SpellEffectMeshRenderer.GroundStrip> strips,
+        Footprint footprint, Vector3 tint, float opacity)
     {
         switch (footprint.Kind)
         {
@@ -121,6 +139,18 @@ public sealed partial class GameLoop
             case FootprintKind.Projectile:
                 discs.Add(new SpellEffectMeshRenderer.GroundDisc(
                     footprint.End, 0f, footprint.Radius, tint, opacity));
+                break;
+            case FootprintKind.Cone:
+                float facing = footprint.IsRearCone
+                    ? footprint.Facing + MathF.PI
+                    : footprint.Facing;
+                sectors.Add(new SpellEffectMeshRenderer.GroundSector(
+                    footprint.Origin, footprint.Radius, facing,
+                    MathF.Abs(footprint.ConeDegrees), tint, opacity));
+                break;
+            case FootprintKind.Line:
+                strips.Add(new SpellEffectMeshRenderer.GroundStrip(
+                    footprint.Origin, footprint.End, footprint.Width, tint, opacity));
                 break;
             case FootprintKind.PointChain:
                 foreach (Vector3 point in footprint.Points ?? [])
@@ -161,26 +191,32 @@ public sealed partial class GameLoop
         if (settings.ShowFootprints)
             foreach (SimEvent simEvent in ActiveEncounterFootprints(sim))
                 DrawFootprintScreen(draw, display, simEvent.Footprint!,
-                    FidelityColorU32(simEvent.Fidelity, 0.28f),
                     FidelityColorU32(simEvent.Fidelity, 0.95f));
 
-        if (settings.ShowStructural && _encounterDefinition is { } definition && sim.Boss is { } boss)
+        // Selected spatial mechanics are painted in the 3-D ground pass. Point-chain spines
+        // and labels remain here so a forced shape is never mystery paint.
+        foreach (EncounterAbility ability in VisualizedFootprintAbilities())
         {
-            foreach (EncounterAbility ability in definition.Abilities)
+            Footprint fp = ResolveVisualizedFootprint(ability, sim);
+            if (fp.Kind == FootprintKind.None) continue;   // boss gone: nothing to anchor to
+            DrawFootprintScreen(draw, display, fp,
+                FidelityColorU32(ability.Fidelity, 0.95f));
+            Vector3 anchor = fp.Kind switch
             {
-                if (!ability.HasFootprint) continue;
-                if (ability.Geometry.Kind is not (FootprintKind.Cone or FootprintKind.Line)) continue;
-                Footprint footprint = EncounterGeometryLaw.Resolve(
-                    ability, boss.Position, boss.Facing, boss.Position, _encounterFacts);
-                DrawFootprintScreen(draw, display, footprint,
-                    FidelityColorU32(ability.Fidelity, 0.10f),
-                    FidelityColorU32(ability.Fidelity, 0.45f));
-            }
+                FootprintKind.PointChain when fp.Points is { Count: > 0 } pts => pts[pts.Count / 2],
+                FootprintKind.Projectile => fp.End,
+                _ => fp.Origin,
+            };
+            if (_window.Camera.TryWorldToScreen(anchor, display, out Vector2 tag))
+                draw.AddText(tag + new Vector2(8f, -10f),
+                    FidelityColorU32(ability.Fidelity, 1f), $"{ability.Name}  ⟵ visualized");
         }
+        DrawVisualizedNonSpatialAbilities(draw, display, sim);
 
         if (settings.ShowRoute) DrawEncounterRoute(draw, display);
         if (settings.ShowActors) DrawEncounterActors(draw, display, sim);
         DrawEncounterOrientPreview(draw, display);   // the live free-spin arrow, if any
+        DrawEncounterOrbitPreview(draw, display);    // the live orbit-sweep ring, if any
         if (settings.ShowLabels) DrawEncounterLabels(draw, display, sim);
         DrawEncounterPlacementBanner(draw, display);
         DrawEncounterLegend(draw, display, sim);
@@ -255,98 +291,21 @@ public sealed partial class GameLoop
     }
 
     private void DrawFootprintScreen(
-        ImDrawListPtr draw, Vector2 display, Footprint footprint, uint fill, uint outline)
+        ImDrawListPtr draw, Vector2 display, Footprint footprint, uint outline)
     {
-        switch (footprint.Kind)
-        {
-            case FootprintKind.Cone:
-                DrawConeScreen(draw, display, footprint, fill, outline);
-                break;
-            case FootprintKind.Line:
-                DrawLineScreen(draw, display, footprint, fill, outline);
-                break;
-            case FootprintKind.PointChain:
-                // The discs are already drawn in 3-D; the connecting spine makes the
-                // lane read as one sweep instead of a row of unrelated puddles.
-                DrawChainSpine(draw, display, footprint, outline);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// A cone sector, projected point by point. The arc centre flips to the caster's
-    /// back for a NEGATIVE cone — the spell_cone sign convention, drawn rather than
-    /// merely stated, because "do not stand behind her" is the whole lesson of Tail
-    /// Sweep and a front-facing wedge would teach the opposite.
-    /// </summary>
-    private void DrawConeScreen(
-        ImDrawListPtr draw, Vector2 display, Footprint footprint, uint fill, uint outline)
-    {
-        float centre = footprint.IsRearCone ? footprint.Facing + MathF.PI : footprint.Facing;
-        float half = MathF.Abs(footprint.ConeDegrees) * .5f * (MathF.PI / 180f);
-
-        Span<Vector2> points = stackalloc Vector2[EncounterConeSegments + 2];
-        int count = 0;
-        if (!_window.Camera.TryWorldToScreen(footprint.Origin, display, out Vector2 apex)) return;
-        points[count++] = apex;
-
-        for (int i = 0; i <= EncounterConeSegments; i++)
-        {
-            float angle = centre - half + half * 2f * (i / (float)EncounterConeSegments);
-            Vector3 edge = footprint.Origin + new Vector3(
-                MathF.Cos(angle) * footprint.Radius, MathF.Sin(angle) * footprint.Radius, 0f);
-            if (!_window.Camera.TryWorldToScreen(edge, display, out Vector2 pixel)) return;
-            points[count++] = pixel;
-        }
-
-        unsafe
-        {
-            fixed (Vector2* data = points)
-            {
-                draw.AddConvexPolyFilled(ref data[0], count, fill);
-                draw.AddPolyline(ref data[0], count, outline, ImDrawFlags.Closed, 1.8f);
-            }
-        }
-    }
-
-    private void DrawLineScreen(
-        ImDrawListPtr draw, Vector2 display, Footprint footprint, uint fill, uint outline)
-    {
-        Vector3 direction = footprint.End - footprint.Origin;
-        Vector2 flat = new(direction.X, direction.Y);
-        if (flat.LengthSquared() < 1e-5f) return;
-        Vector2 side = Vector2.Normalize(new Vector2(-flat.Y, flat.X)) * (footprint.Width * .5f);
-        Vector3 offset = new(side.X, side.Y, 0f);
-
-        Span<Vector3> corners =
-        [
-            footprint.Origin + offset, footprint.End + offset,
-            footprint.End - offset, footprint.Origin - offset,
-        ];
-        Span<Vector2> pixels = stackalloc Vector2[4];
-        for (int i = 0; i < 4; i++)
-            if (!_window.Camera.TryWorldToScreen(corners[i], display, out pixels[i])) return;
-
-        unsafe
-        {
-            fixed (Vector2* data = pixels)
-            {
-                draw.AddConvexPolyFilled(ref data[0], 4, fill);
-                draw.AddPolyline(ref data[0], 4, outline, ImDrawFlags.Closed, 1.8f);
-            }
-        }
+        if (footprint.Kind == FootprintKind.PointChain)
+            // The discs are already drawn in 3-D; the connecting spine makes the
+            // lane read as one sweep instead of a row of unrelated puddles.
+            DrawChainSpine(draw, display, footprint, outline);
     }
 
     private void DrawChainSpine(ImDrawListPtr draw, Vector2 display, Footprint footprint, uint colour)
     {
         IReadOnlyList<Vector3> points = footprint.Points ?? [];
-        Vector2? previous = null;
-        foreach (Vector3 point in points)
-        {
-            if (!_window.Camera.TryProjectToScreen(point, display, out Vector2 pixel, out _)) { previous = null; continue; }
-            if (previous is { } from) draw.AddLine(from, pixel, colour, 2f);
-            previous = pixel;
-        }
+        for (int i = 1; i < points.Count; i++)
+            if (_window.Camera.TryProjectSegmentToScreen(points[i - 1], points[i], display,
+                    out Vector2 a, out Vector2 b))
+                draw.AddLine(a, b, colour, 2f);
     }
 
     /// <summary>The boss's authored flight route: MoveTo steps from phase entries and
@@ -357,18 +316,15 @@ public sealed partial class GameLoop
         // Her flight route wears the boss's red, thick enough to read against the lair.
         var (colour, thickness) = EncounterRoleStyle(EncounterActorRole.Boss, RaidJob.None);
         int index = 0;
-        Vector2? previous = null;
+        Vector3? previousWorld = null;
 
         foreach (EncounterStep step in RouteSteps(definition))
         {
-            if (!_window.Camera.TryProjectToScreen(step.Point, display, out Vector2 pixel, out bool onScreen))
-            {
-                previous = null;
-                continue;
-            }
-            if (previous is { } from) DrawDashedLineClipped(draw, from, pixel, display, colour, 6f, 4f, thickness);
-            previous = pixel;
-            if (!onScreen) continue;   // the line rides through; dots/labels wait for the frame
+            if (previousWorld is { } fromWorld)
+                DrawDashedWorldLine(draw, fromWorld, step.Point, display, colour, 6f, 4f, thickness);
+            previousWorld = step.Point;
+            if (!_window.Camera.TryProjectToScreen(step.Point, display, out Vector2 pixel, out bool onScreen) ||
+                !onScreen) continue;   // the line rides through; dots/labels wait for the frame
             draw.AddCircleFilled(pixel, 4f, colour);
             // The first stop names the whole polyline. Unlabelled, these points
             // hang in the AIR (they are flight waypoints) and read as noise.
@@ -449,35 +405,45 @@ public sealed partial class GameLoop
                     : actor.Spec.Name;
             draw.AddText(pixel + new Vector2(size + 5f, -size - 3f), colour, label);
 
-            // Facing matters for every cone in the game; draw it.
+            // Facing matters for every cone in the game; draw it. During an orbit drag of the
+            // aggro holder she tracks it live, so the tick uses the effective facing too.
             if (actor.Spec.Role == EncounterActorRole.Boss)
             {
                 Vector3 nose = actor.Position +
-                               EncounterGeometryLaw.Forward(actor.Facing) * MathF.Max(actor.Spec.BoundingRadius * 2f, 6f);
+                               EncounterGeometryLaw.Forward(EffectiveBossFacing(sim)) * MathF.Max(actor.Spec.BoundingRadius * 2f, 6f);
                 if (_window.Camera.TryWorldToScreen(nose, display, out Vector2 tip))
                     draw.AddLine(pixel, tip, colour, roleThickness);
             }
         }
 
-        // Each body's ordered plan as a dashed path, labelled the way each order
-        // fires - the raid plan drawn on the floor it will be executed on.
+        // Each body's still-pending ordered plan, starting at its LIVE position. A fired
+        // move remains visible only while that exact leg is in progress; on arrival it is
+        // retired from the snapshot and its line/dot disappear. The floor therefore shows
+        // where the body still has to go, not a noisy history of everywhere it has been.
         // Teleport what-ifs stand apart in orange: they are questions, not walks.
         uint teleportColour = ImGui.GetColorU32(new Vector4(1f, .72f, .35f, .9f));
         foreach (SimActor actor in sim.Actors)
         {
             if (actor.Spec.Moves is not { Count: > 0 } moves) continue;
             var (roleColour, roleThickness) = EncounterRoleStyle(actor.Spec.Role, actor.Spec.Job);
-            Vector2? from = _window.Camera.TryProjectToScreen(actor.Spec.Position, display, out Vector2 start, out _)
-                ? start : null;
-            foreach (TimedMove move in moves)
+            Vector3 fromWorld = actor.Position;
+            for (int moveIndex = 0; moveIndex < moves.Count; moveIndex++)
             {
-                if (!_window.Camera.TryProjectToScreen(move.Position, display, out Vector2 to, out bool onScreen))
-                { from = null; continue; }
+                // Fired + inactive means arrived, teleported, or superseded. Only the active
+                // fired order remains a destination; every unfired order is still in the plan.
+                bool fired = moveIndex < actor.FiredOrderedMoves.Length &&
+                             actor.FiredOrderedMoves[moveIndex];
+                if (fired && actor.ActiveOrderedMoveIndex != moveIndex) continue;
+
+                TimedMove move = moves[moveIndex];
                 uint colour = move.Teleport ? teleportColour : roleColour;
-                if (from is { } a && !move.Teleport)
-                    DrawDashedLineClipped(draw, a, to, display, colour, 5f, 4f, roleThickness);
-                from = to;
-                if (!onScreen) continue;
+                // Thread WORLD points, not screen points: the connecting line is near-plane
+                // clipped so a leg does not vanish when one end pivots behind the camera.
+                if (!move.Teleport)
+                    DrawDashedWorldLine(draw, fromWorld, move.Position, display, colour, 5f, 4f, roleThickness);
+                fromWorld = move.Position;
+                if (!_window.Camera.TryProjectToScreen(move.Position, display, out Vector2 to, out bool onScreen) ||
+                    !onScreen) continue;
                 draw.AddCircleFilled(to, 4f, colour);
                 string when = move.Anchor switch
                 {
@@ -507,16 +473,13 @@ public sealed partial class GameLoop
                 SimActor? actor = sim.Actors.FirstOrDefault(a => a.Key == key);
                 if (actor is null) continue;
                 var (planColour, planThickness) = EncounterRoleStyle(actor.Spec.Role, actor.Spec.Job);
-                Vector2? from = _window.Camera.TryProjectToScreen(actor.Position, display,
-                    out Vector2 start, out _) ? start : null;
+                Vector3 fromWorld = actor.Position;
                 for (int i = 0; i < legs.Count; i++)
                 {
+                    DrawDashedWorldLine(draw, fromWorld, legs[i].Position, display, planColour, 3f, 5f, planThickness);
+                    fromWorld = legs[i].Position;
                     if (!_window.Camera.TryProjectToScreen(legs[i].Position, display,
-                            out Vector2 to, out bool onScreen))
-                    { from = null; continue; }
-                    if (from is { } a) DrawDashedLineClipped(draw, a, to, display, planColour, 3f, 5f, planThickness);
-                    from = to;
-                    if (!onScreen) continue;
+                            out Vector2 to, out bool onScreen) || !onScreen) continue;
                     draw.AddCircle(to, 5f, planColour, 0, planThickness);
                     draw.AddText(to + new Vector2(7f, -6f), planColour,
                         i == 0 ? $"{actor.Spec.Name} plan 1" : $"{i + 1}");
@@ -530,13 +493,14 @@ public sealed partial class GameLoop
         if (_encounterProbe.Count > 1)
         {
             uint probeColour = ImGui.GetColorU32(new Vector4(.35f, .95f, 1f, .8f));
-            Vector2? previous = null;
+            Vector3? previousWorld = null;
             foreach ((int timeMs, Vector3 position) in _encounterProbe.Waypoints)
             {
-                if (!_window.Camera.TryProjectToScreen(position, display, out Vector2 pixel, out bool onScreen)) { previous = null; continue; }
-                if (previous is { } from) DrawDashedLineClipped(draw, from, pixel, display, probeColour, 5f, 4f);
-                previous = pixel;
-                if (!onScreen) continue;
+                if (previousWorld is { } fromWorld)
+                    DrawDashedWorldLine(draw, fromWorld, position, display, probeColour, 5f, 4f);
+                previousWorld = position;
+                if (!_window.Camera.TryProjectToScreen(position, display, out Vector2 pixel, out bool onScreen) ||
+                    !onScreen) continue;
                 draw.AddCircleFilled(pixel, 3f, probeColour);
                 draw.AddText(pixel + new Vector2(5f, 4f), probeColour, $"{timeMs / 1000f:0.0}s");
             }
@@ -590,6 +554,18 @@ public sealed partial class GameLoop
             DrawDashedLine(draw, a, b, colour, dash, gap, thickness);
     }
 
+    /// <summary>A dashed line between two WORLD points, near-plane-clipped so it survives one
+    /// endpoint passing BEHIND the camera (a plain per-endpoint projection would drop the whole
+    /// segment and the line would vanish on a camera pivot), then viewport-clipped so the dash
+    /// walk stays bounded for the in-front-but-off-screen remainder. Every dashed plan/route
+    /// path threads its WORLD points through this, never screen points, for exactly that reason.</summary>
+    private void DrawDashedWorldLine(ImDrawListPtr draw, Vector3 worldA, Vector3 worldB,
+        Vector2 display, uint colour, float dash, float gap, float thickness = 2f)
+    {
+        if (_window.Camera.TryProjectSegmentToScreen(worldA, worldB, display, out Vector2 a, out Vector2 b))
+            DrawDashedLineClipped(draw, a, b, display, colour, dash, gap, thickness);
+    }
+
     /// <summary>Colour and line weight for a body's plan by its role — the owner's key:
     /// tanks gold and thickest, healers green, dps cream, the boss red. A body's dots, its
     /// dashed plan and its orientation arrow all wear this so a glance reads the whole raid.</summary>
@@ -617,6 +593,48 @@ public sealed partial class GameLoop
         if (_window.Camera.TryProjectToScreen(_encounterOrientAnchor, display, out Vector2 dot, out _))
             draw.AddText(dot + new Vector2(13f, 11f), colour,
                 $"{EncounterFacingLabel(_encounterOrientFacing)} — move to aim, click to set");
+    }
+
+    /// <summary>The live orbit-drag preview: the ring the body is sweeping on (centred on the
+    /// boss), a spoke and marker at its live position, and a clear/HIT readout lit against the
+    /// visualized footprints. Projected on the ground plane like the orientation ring so it sits on
+    /// the floor and turns with the terrain.</summary>
+    private void DrawEncounterOrbitPreview(ImDrawListPtr draw, Vector2 display)
+    {
+        if (!_encounterOrbitDragging || _encounterSim is not { } sim || sim.Boss is not { } boss)
+            return;
+
+        uint colour = _encounterOrbitCovered
+            ? ImGui.GetColorU32(new Vector4(1f, .35f, .3f, 1f))
+            : ImGui.GetColorU32(new Vector4(.4f, .95f, .5f, 1f));
+        uint ringColour = ImGui.GetColorU32(new Vector4(.7f, .85f, 1f, .5f));
+
+        // The sweep ring on the ground plane, centred on the boss.
+        const int segments = 48;
+        Vector2 prev = default;
+        bool havePrev = false;
+        for (int i = 0; i <= segments; i++)
+        {
+            float a = i / (float)segments * MathF.Tau;
+            Vector3 p = boss.Position + new Vector3(MathF.Cos(a), MathF.Sin(a), 0f) * _encounterOrbitRadius;
+            p.Z = _encounterOrbitPos.Z;
+            if (!_window.Camera.TryProjectToScreen(p, display, out Vector2 px, out _)) { havePrev = false; continue; }
+            if (havePrev) draw.AddLine(prev, px, ringColour, 1.5f);
+            prev = px;
+            havePrev = true;
+        }
+
+        // The spoke from the boss to the body's live position, its marker, and the readout.
+        if (_window.Camera.TryProjectToScreen(boss.Position, display, out Vector2 hub, out _) &&
+            _window.Camera.TryProjectToScreen(_encounterOrbitPos, display, out Vector2 mark, out _))
+        {
+            draw.AddLine(hub, mark, colour, 2f);
+            draw.AddCircleFilled(mark, 6f, colour);
+            draw.AddCircle(mark, 11f, colour, 0, 2f);
+            string tag = (_encounterOrbitCovered ? $"IN {_encounterOrbitCoveredBy ?? "footprint"}" : "clear") +
+                         " — move to sweep · click to set · right-click cancels";
+            draw.AddText(mark + new Vector2(14f, 11f), colour, tag);
+        }
     }
 
     /// <summary>A waypoint's orientation, drawn FLAT ON THE GROUND: a ring on the terrain
@@ -688,6 +706,120 @@ public sealed partial class GameLoop
         a = new Vector2(origin.X + t0 * dx, origin.Y + t0 * dy);
         b = new Vector2(origin.X + t1 * dx, origin.Y + t1 * dy);
         return true;
+    }
+
+    /// <summary>Selected abilities that are actually usable in the scrubbed phase. The
+    /// phase filter is applied at render time as well as in the panel so an ability cannot
+    /// linger on screen for even one frame after a phase turn.</summary>
+    private IEnumerable<EncounterAbility> VisualizedAbilities()
+    {
+        if (_encounterDefinition is not { } definition || _encounterSim is not { } sim ||
+            _encounterVisualizedAbilities.Count == 0)
+            yield break;
+        foreach (EncounterAbility ability in definition.AbilitiesIn(sim.PhaseKey))
+            if (_encounterVisualizedAbilities.Contains(ability.Key))
+                yield return ability;
+    }
+
+    private IEnumerable<EncounterAbility> VisualizedFootprintAbilities() =>
+        VisualizedAbilities().Where(a => a.HasFootprint);
+
+    /// <summary>Resolve a visualized ability's footprint against the boss's LIVE position and
+    /// facing, the way the sim's TryCast would: a cone keeps her current facing (already
+    /// aimed at the aggro holder, so Tail Sweep's rear arc flips to her back correctly),
+    /// while a line / projectile / circle aims at the holder. This makes Visualize answer
+    /// "where does THIS land right now" instead of the structural view's flat
+    /// origin-facing degenerate cone.</summary>
+    private Footprint ResolveVisualizedFootprint(EncounterAbility ability, EncounterSim sim)
+    {
+        if (sim.Boss is not { } boss) return Footprint.Nothing;
+        Vector3? target = null;
+        SimActor? holder = null;
+        if (ability.Target.Kind != EncounterTargetKind.Self)
+        {
+            // Targeted shapes aim at the aggro holder — its LIVE swept position while dragged,
+            // so every preview re-aims continuously with the body.
+            string? holderKey = AggroHolderKeyAt(_encounterViewMs);
+            if (_encounterOrbitDragging && _encounterOrbitKey == holderKey)
+                target = _encounterOrbitPos;
+            else if (holderKey is not null &&
+                     sim.Actors.FirstOrDefault(a => a.Key == holderKey) is { } found)
+            {
+                holder = found;
+                target = found.Position;
+            }
+        }
+
+        Footprint footprint = EncounterGeometryLaw.Resolve(
+            ability, boss.Position, EffectiveBossFacing(sim), target, _encounterFacts);
+
+        // Cleave (19983) and Knock Away (19633) are targeted melee spells: Spell.dbc
+        // gives them a cast range but NO effect-radius row, and spell_cone has no row
+        // for either. The generic resolver therefore returns its honest 0.5 yd data-hole
+        // minimum, which is completely buried inside Onyxia's 12 yd combat-reach disc.
+        // For the VISUALIZER only, extend a radius-less targeted cone through the live
+        // holder (or one readable melee band past her combat reach). This makes the toggle
+        // visibly answer "which way / whom" without changing simulated landing geometry.
+        if (footprint.Kind == FootprintKind.Cone && footprint.Radius <= .5f + float.Epsilon)
+        {
+            float readableReach = MathF.Max(boss.Spec.CombatReach + 5f, 5f);
+            if (target is { } targetPosition)
+                readableReach = MathF.Max(readableReach,
+                    EncounterGeometryLaw.GroundDistance(boss.Position, targetPosition) +
+                    (holder?.Spec.BoundingRadius ?? .5f));
+            footprint = footprint with { Radius = readableReach };
+        }
+
+        return footprint;
+    }
+
+    /// <summary>Non-footprint mechanics still honor their Visualize toggle. Authored summon
+    /// points get labeled in-world; a mechanic with no spatial facts gets a boss-anchored
+    /// callout that says so instead of a button which appears to do nothing.</summary>
+    private void DrawVisualizedNonSpatialAbilities(
+        ImDrawListPtr draw, Vector2 display, EncounterSim sim)
+    {
+        if (sim.Boss is not { } boss) return;
+        int bossLine = 0;
+        foreach (EncounterAbility ability in VisualizedAbilities().Where(a => !a.HasFootprint))
+        {
+            List<EncounterStep> summons = (ability.Steps ?? [])
+                .Where(s => s.Kind == EncounterStepKind.Summon && s.Point != default)
+                .ToList();
+            if (summons.Count > 0)
+            {
+                foreach (EncounterStep summon in summons)
+                    if (_window.Camera.TryWorldToScreen(summon.Point, display, out Vector2 point))
+                    {
+                        uint colour = FidelityColorU32(ability.Fidelity, 1f);
+                        draw.AddCircle(point, 9f, colour, 0, 2.5f);
+                        draw.AddText(point + new Vector2(12f, -8f), colour,
+                            $"{ability.Name}  ×{Math.Max(summon.Count, 1)}");
+                    }
+                continue;
+            }
+
+            if (_window.Camera.TryWorldToScreen(boss.Position, display, out Vector2 anchor))
+            {
+                Vector2 at = anchor + new Vector2(16f, -46f - bossLine * 18f);
+                draw.AddText(at, FidelityColorU32(ability.Fidelity, 1f),
+                    $"{ability.Name}  ·  no spatial shape modeled");
+                bossLine++;
+            }
+        }
+    }
+
+    /// <summary>The boss's facing to render and resolve cones against RIGHT NOW: her sim facing,
+    /// except while orbit-dragging the aggro holder, when she tracks its live swept position.
+    /// Facing is instantaneous in the fight (she turns to her target every step), so snapping
+    /// to it as you drag is faithful — and it is what makes her cones sweep with the body. Her
+    /// POSITION does not chase here (that takes sim time); the commit's what-if reflows that.</summary>
+    private float EffectiveBossFacing(EncounterSim sim)
+    {
+        if (sim.Boss is not { } boss) return 0f;
+        if (_encounterOrbitDragging && _encounterOrbitKey == AggroHolderKeyAt(_encounterViewMs))
+            return EncounterGeometryLaw.Facing(boss.Position, _encounterOrbitPos);
+        return boss.Facing;
     }
 
     private static Vector3 FidelityTint(EncounterFidelity fidelity) => fidelity switch
