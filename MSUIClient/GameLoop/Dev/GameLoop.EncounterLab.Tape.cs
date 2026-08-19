@@ -177,9 +177,10 @@ public sealed partial class GameLoop
         if (_encounterTape is { } tape)
         {
             ImGui.Text($"{tape.Events.Count} events recorded");
-            if (ImGui.Button("Save tape")) SaveEncounterTape();
-            ImGui.SameLine();
-            if (ImGui.Button("Clear tape")) { _encounterTape = null; _encounterTapeSavedPath = null; }
+            if (EncounterPanelButton("Save tape")) SaveEncounterTape();
+            EncounterSameLineForButton("Clear tape");
+            if (EncounterPanelButton("Clear tape"))
+            { _encounterTape = null; _encounterTapeSavedPath = null; }
             if (_encounterTapeSavedPath is { } path) ImGui.TextDisabled(path);
         }
         else

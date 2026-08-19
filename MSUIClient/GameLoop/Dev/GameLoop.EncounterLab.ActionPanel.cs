@@ -42,6 +42,8 @@ public sealed partial class GameLoop
         DrawEncounterPlayerSetupModal();
         if (!_encounterActionPanelOpen) return;
 
+        const string tuneId = "encounter-actions";
+        _activePanelTune = tuneId;
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
         ImGui.SetNextWindowPos(new Vector2(510f * s, 64f * s), ImGuiCond.FirstUseEver);
@@ -54,10 +56,11 @@ public sealed partial class GameLoop
         {
             ImGui.End();
             PopCreatorStyle();
+            _activePanelTune = null;
             return;
         }
         ClampCreatorWindowOnScreen();
-        if (DrawCreatorPanelChrome("Action Timeline", "encounter-actions"))
+        if (DrawCreatorPanelChrome("Action Timeline", tuneId))
             _encounterActionPanelOpen = false;
         ImGui.SetWindowFontScale(CreatorTextScale);
         BeginCreatorContent();
@@ -68,6 +71,7 @@ public sealed partial class GameLoop
         ImGui.SetWindowFontScale(1f);
         ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
     }
 
     private void DrawEncounterActionPanelBody()
@@ -105,7 +109,8 @@ public sealed partial class GameLoop
             ImGui.PopStyleColor();
         }
 
-        if (ImGui.Button("Visualize phase abilities", new Vector2(-1f, 0f)))
+        if (EncounterPanelButtonSized("Visualize phase abilities",
+                new Vector2(ImGui.GetContentRegionAvail().X, 0f)))
             _encounterAbilityPanelOpen = true;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open the separate phase-aware Ability Visualizer.");
@@ -183,6 +188,8 @@ public sealed partial class GameLoop
     {
         if (!_encounterAbilityPanelOpen) return;
 
+        const string tuneId = "encounter-ability-visualizer";
+        _activePanelTune = tuneId;
         float cs = CreatorUiScale;
         float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
         ImGui.SetNextWindowPos(new Vector2(880f * s, 64f * s), ImGuiCond.FirstUseEver);
@@ -195,10 +202,11 @@ public sealed partial class GameLoop
         {
             ImGui.End();
             PopCreatorStyle();
+            _activePanelTune = null;
             return;
         }
         ClampCreatorWindowOnScreen();
-        if (DrawCreatorPanelChrome("Ability Visualizer", "encounter-ability-visualizer"))
+        if (DrawCreatorPanelChrome("Ability Visualizer", tuneId))
             _encounterAbilityPanelOpen = false;
         ImGui.SetWindowFontScale(CreatorTextScale);
         BeginCreatorContent();
@@ -209,6 +217,7 @@ public sealed partial class GameLoop
         ImGui.SetWindowFontScale(1f);
         ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
     }
 
     private void DrawEncounterAbilityPanelBody()
@@ -228,16 +237,16 @@ public sealed partial class GameLoop
         ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), definition.Name);
         ImGui.Text($"{phase?.Name ?? sim.PhaseKey}  ·  {abilities.Count} available");
         ImGui.TextDisabled("Only mechanics usable in the current phase are shown.");
-        ImGui.TextDisabled("Click Visualize again to turn that mechanic off.");
+        ImGui.TextDisabled("Choose a mechanic to toggle its world overlay.");
 
         // Permanent summary row: changing 0 -> 1 visible must never push the ability
         // table (and every button in it) down between clicks.
-        if (onCount == 0) ImGui.BeginDisabled();
-        if (ImGui.SmallButton($"Clear phase ({onCount})"))
+        if (EncounterPanelButton($"Clear phase ({onCount})", enabled: onCount > 0))
             foreach (EncounterAbility ability in abilities)
                 _encounterVisualizedAbilities.Remove(ability.Key);
-        if (onCount == 0) ImGui.EndDisabled();
-        ImGui.SameLine();
+        float summaryWidth = MathF.Max(ImGui.CalcTextSize("0 visible").X,
+            ImGui.CalcTextSize($"{abilities.Count} visible").X);
+        EncounterSameLineIfFits(summaryWidth);
         if (onCount > 0)
             ImGui.TextColored(new Vector4(.55f, 1f, .62f, 1f), $"{onCount} visible");
         else
@@ -252,13 +261,26 @@ public sealed partial class GameLoop
 
         if (ImGui.BeginChild("##enc-ability-rows", new Vector2(0f, 0f), true))
         {
-            float buttonHeight = ImGui.GetFrameHeight() + 8f * CreatorUiScale;
-            float rowHeight = MathF.Max(buttonHeight + 12f * CreatorUiScale,
-                ImGui.GetTextLineHeight() * 2f + 10f * CreatorUiScale);
-            if (ImGui.BeginTable("##enc-ability-table", 2,
+            float cs = CreatorUiScale;
+            float helpSize = MathF.Max(ImGui.GetTextLineHeight(), 18f * cs);
+            float captionWidth = MathF.Max(
+                ImGui.CalcTextSize("Show").X, ImGui.CalcTextSize("Hide").X) + 28f * cs;
+            float preferredButtonWidth = MathF.Max(88f * cs * CreatorButtonMul,
+                captionWidth);
+            float maxButtonWidth = MathF.Max(captionWidth,
+                ImGui.GetContentRegionAvail().X * .42f);
+            float buttonWidth = MathF.Min(preferredButtonWidth, maxButtonWidth);
+            float rowHeight = MathF.Max(CreatorButtonHeight, helpSize) +
+                              ImGui.GetStyle().ItemSpacing.Y;
+            if (ImGui.BeginTable("##enc-ability-table", 3,
                     ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
-                    ImGuiTableFlags.SizingStretchSame | ImGuiTableFlags.NoSavedSettings))
+                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.NoSavedSettings))
             {
+                ImGui.TableSetupColumn("Mechanic", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Details", ImGuiTableColumnFlags.WidthFixed,
+                    helpSize + 4f * cs);
+                ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed,
+                    buttonWidth + 4f * cs);
                 foreach (EncounterAbility ability in abilities)
                 {
                     bool visualized = _encounterVisualizedAbilities.Contains(ability.Key);
@@ -271,30 +293,19 @@ public sealed partial class GameLoop
                     ImGui.PushStyleColor(ImGuiCol.Text, colour);
                     ImGui.TextWrapped($"{(visualized ? "[ON]" : "[  ]")} {ability.Name}");
                     ImGui.PopStyleColor();
-                    ImGui.TextDisabled(AbilityVisualizationLabel(ability));
 
                     ImGui.TableNextColumn();
-                    if (visualized)
-                    {
-                        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.20f, .58f, .27f, 1f));
-                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(.26f, .68f, .34f, 1f));
-                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(.16f, .48f, .22f, 1f));
-                    }
-                    else
-                    {
-                        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.43f, .24f, .07f, 1f));
-                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(.58f, .34f, .09f, 1f));
-                        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(.34f, .18f, .05f, 1f));
-                    }
-                    // Leave a real inset at the table edge and size from the live font/frame;
-                    // the previous fixed 30 px height clipped at high UI/font scales.
-                    if (ImGui.Button("Visualize",
-                            new Vector2(-8f * CreatorUiScale, buttonHeight)))
+                    DrawEncounterAbilityHelp(ability, helpSize);
+
+                    ImGui.TableNextColumn();
+                    string caption = visualized ? "Hide" : "Show";
+                    if (EncounterPanelButtonSized(
+                            $"{caption}##ability-toggle-{ability.Key}",
+                            new Vector2(buttonWidth, CreatorButtonHeight)))
                     {
                         if (visualized) _encounterVisualizedAbilities.Remove(ability.Key);
                         else _encounterVisualizedAbilities.Add(ability.Key);
                     }
-                    ImGui.PopStyleColor(3);
                     if (ImGui.IsItemHovered())
                         ImGui.SetTooltip(visualized
                             ? $"Stop visualizing {ability.Name}."
@@ -307,14 +318,41 @@ public sealed partial class GameLoop
         ImGui.EndChild();
     }
 
-    private static string AbilityVisualizationLabel(EncounterAbility ability) =>
-        ability.Geometry.Kind switch
+    /// <summary>A compact, deliberately non-action help affordance. Technical provenance stays
+    /// available for encounter authors without competing with the mechanic name and toggle.</summary>
+    private void DrawEncounterAbilityHelp(EncounterAbility ability, float size)
+    {
+        Vector2 pos = ImGui.GetCursorScreenPos();
+        ImGui.InvisibleButton($"##ability-help-{ability.Key}", new Vector2(size, size));
+        bool hovered = ImGui.IsItemHovered();
+        ImDrawListPtr draw = ImGui.GetWindowDrawList();
+        Vector2 centre = pos + new Vector2(size * .5f, size * .5f);
+        uint colour = hovered ? 0xffffffff : VanillaGold;
+        draw.AddCircle(centre, size * .36f, colour, 18, MathF.Max(1f, size * .08f));
+        Vector2 mark = ImGui.CalcTextSize("?");
+        draw.AddText(centre - mark * .5f, colour, "?");
+
+        if (!hovered) return;
+        ImGui.BeginTooltip();
+        ImGui.PushTextWrapPos(360f * CreatorUiScale);
+        ImGui.TextUnformatted(AbilityVisualizationDetails(ability));
+        ImGui.PopTextWrapPos();
+        ImGui.EndTooltip();
+    }
+
+    private static string AbilityVisualizationDetails(EncounterAbility ability)
+    {
+        string visualization = ability.Geometry.Kind switch
         {
             FootprintKind.None when ability.Steps?.Any(s =>
-                s.Kind == EncounterStepKind.Summon && s.Point != default) == true => "summon locations",
-            FootprintKind.None => "boss mechanic · no spatial shape modeled",
-            _ => $"{GeometryLabel(ability.Geometry.Kind)} · {EncounterSchema.Describe(ability.Fidelity)}",
+                s.Kind == EncounterStepKind.Summon && s.Point != default) == true =>
+                "Authored summon locations are marked in the world.",
+            FootprintKind.None =>
+                "This boss mechanic has no spatial shape modeled; Visualize shows an anchored callout.",
+            _ => $"World shape: {GeometryLabel(ability.Geometry.Kind)}.",
         };
+        return $"{visualization}\n\nDefinition source: {EncounterSchema.Describe(ability.Fidelity)}";
+    }
 
     private static string GeometryLabel(FootprintKind kind) => kind switch
     {

@@ -50,15 +50,16 @@ public sealed partial class GameLoop
         return null;
     }
 
-    /// <summary>Free-view left click on a raid puppet: select it for orders and open its
-    /// Player Setup modal. No take-command, no camera move — a sim body has no bars to drive.</summary>
+    /// <summary>Free-view left click on a raid puppet: select it for orders. The
+    /// non-blocking Character Customizer affordance appears at the right edge; the
+    /// modal opens only when the owner asks for it. No take-command, no camera move —
+    /// a sim body has no bars to drive.</summary>
     private bool HandleEncounterPuppetSelect(ulong pickedUnit)
     {
         if (EncounterRaidPuppetKey(pickedUnit) is not { } key) return false;
         _freecamSelection.Clear();
         _freecamSelection.Add(pickedUnit);
         string name = _encounterScenario.FirstOrDefault(a => a.Key == key)?.Name ?? key;
-        OpenEncounterPlayerSetup(key);
         AddChatMessage(EncounterStagingActive
             ? $"{name} (sim): Shift+Click stages waypoints · GO runs the plan · " +
               "Ctrl+RClick teleports · Alt+RClick faces."

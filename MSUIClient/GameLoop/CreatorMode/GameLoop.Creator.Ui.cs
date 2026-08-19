@@ -280,7 +280,7 @@ public sealed partial class GameLoop
                 save = true;
             }
 
-            if (kinds?.Contains("buttons") == true)
+            if (kinds?.Contains("movable-buttons") == true)
             {
                 ImGui.Spacing();
                 ImGui.TextDisabled("PLACEMENT");
@@ -983,6 +983,7 @@ public sealed partial class GameLoop
     private bool CreatorAnchoredButton(string label, Vector2 size)
     {
         NotePanelField("buttons");
+        NotePanelField("movable-buttons");
         string panel = _activePanelTune ?? "";
         string key = $"btn:{label}";
         bool edit = panel.Length > 0 && _creatorEditLayoutPanel == panel;

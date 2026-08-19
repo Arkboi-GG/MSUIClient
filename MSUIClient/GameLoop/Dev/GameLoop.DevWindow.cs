@@ -164,9 +164,6 @@ public sealed partial class GameLoop
         PopCreatorStyle();
         _activePanelTune = null;
 
-        // The gear's layout popup is normally drawn by the creator HUD; in live mode
-        // nothing else draws it, so the dev window hosts it itself.
-        if (!_creatorWorldRequested) DrawCreatorPanelTunePopup();
     }
 
     private void DrawDevWindowToolbar()

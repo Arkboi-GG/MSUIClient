@@ -725,6 +725,66 @@ public sealed partial class GameLoop
 
     // ── window ───────────────────────────────────────────────────────────────
 
+    /// <summary>Encounter Lab actions all use the same Blizzard UIPanelButton art as the
+    /// creator menus. The two size tiers keep transport/actions readable while compact row
+    /// controls do not swell into dominant blocks.</summary>
+    private float EncounterPanelButtonWidth(string label, float minWidth = 0f,
+        bool compact = false)
+    {
+        float mul = CreatorButtonMul;
+        float padding = compact ? 18f : 36f;
+        int idStart = label.IndexOf("##", StringComparison.Ordinal);
+        string caption = idStart >= 0 ? label[..idStart] : label;
+        return MathF.Max(minWidth * mul,
+            ImGui.CalcTextSize(caption).X + padding * CreatorUiScale * mul);
+    }
+
+    private float EncounterPanelButtonHeight(bool compact = false)
+    {
+        if (!compact) return CreatorButtonHeight;
+        return (ImGui.GetTextLineHeight() + 4f * CreatorUiScale) * CreatorButtonMul;
+    }
+
+    private bool EncounterPanelButton(string label, float minWidth = 0f,
+        bool enabled = true, bool compact = false)
+    {
+        Vector2 size = new(
+            EncounterPanelButtonWidth(label, minWidth, compact),
+            EncounterPanelButtonHeight(compact));
+        return EncounterPanelButtonSized(label, size, enabled);
+    }
+
+    private bool EncounterPanelButtonSized(string label, Vector2 size, bool enabled = true)
+    {
+        NotePanelField("buttons");
+        if (size.X <= 0f) size.X = ImGui.GetContentRegionAvail().X;
+        if (size.Y <= 0f) size.Y = EncounterPanelButtonHeight();
+
+        if (_skin is not null) return _skin.PanelButton(label, size, enabled);
+
+        if (!enabled) ImGui.BeginDisabled();
+        bool clicked = ImGui.Button(label, size);
+        if (!enabled) ImGui.EndDisabled();
+        return enabled && clicked;
+    }
+
+    /// <summary>Keep dense action rows on one line while they fit; once live text/widget/button
+    /// tuning consumes the remaining width, let ImGui continue naturally on the next row.</summary>
+    private void EncounterSameLineForButton(string label, float minWidth = 0f,
+        bool compact = false)
+    {
+        EncounterSameLineIfFits(EncounterPanelButtonWidth(label, minWidth, compact));
+    }
+
+    /// <summary>Use the current content-region edge rather than the raw window edge, so a
+    /// child scrollbar is never mistaken for usable row space.</summary>
+    private void EncounterSameLineIfFits(float nextWidth)
+    {
+        float right = ImGui.GetCursorScreenPos().X + ImGui.GetContentRegionAvail().X;
+        float needed = ImGui.GetStyle().ItemSpacing.X + nextWidth + 4f * CreatorUiScale;
+        if (right - ImGui.GetItemRectMax().X >= needed) ImGui.SameLine();
+    }
+
     private void DrawEncounterLab()
     {
         if (!_encounterLabOpen) return;
@@ -773,7 +833,6 @@ public sealed partial class GameLoop
         PopCreatorStyle();
         _activePanelTune = null;
 
-        if (!_creatorWorldRequested) DrawCreatorPanelTunePopup();
     }
 
     private void DrawEncounterToolbar()
@@ -789,12 +848,23 @@ public sealed partial class GameLoop
         // "the fix isn't working" conversation starts by reading this line.
         if (Engine.ClientWindow.BuildStamp is { Length: > 0 } stamp)
             status = $"build {stamp} · {status}";
-        ImGui.TextDisabled(status);
-
+        float rowStart = ImGui.GetCursorPosX();
         float avail = ImGui.GetContentRegionAvail().X;
-        float buttonW = ImGui.CalcTextSize("Refresh DB").X + 14f * cs;
-        ImGui.SameLine(MathF.Max(avail - buttonW, 0f));
-        if (ImGui.Button("Refresh DB"))
+        float buttonW = EncounterPanelButtonWidth("Refresh DB");
+        bool inline = ImGui.CalcTextSize(status).X + ImGui.GetStyle().ItemSpacing.X +
+                      buttonW <= avail;
+        if (inline)
+        {
+            ImGui.TextDisabled(status);
+            ImGui.SameLine(rowStart + avail - buttonW);
+        }
+        else
+        {
+            ImGui.PushTextWrapPos(0f);
+            ImGui.TextDisabled(status);
+            ImGui.PopTextWrapPos();
+        }
+        if (EncounterPanelButton("Refresh DB"))
         {
             data.BeginFetch(Settings.DevWindow.SuiBaseUrl, forceRefresh: true);
             _encounterFacts = null;
@@ -842,7 +912,7 @@ public sealed partial class GameLoop
         if (!ImGui.CollapsingHeader("Encounter", ImGuiTreeNodeFlags.DefaultOpen)) return;
 
         EncounterLibrary library = EncounterLibraryRef;
-        if (ImGui.Button("Reload documents")) library.Reload();
+        if (EncounterPanelButton("Reload documents")) library.Reload();
         ImGui.SameLine();
         ImGui.TextDisabled($"{library.Count} authored");
         foreach (string error in library.Errors)
@@ -863,7 +933,7 @@ public sealed partial class GameLoop
             target.IsCreature)
         {
             string name = _creatureNames.GetValueOrDefault(target.Entry, $"creature {target.Entry}");
-            if (ImGui.Button($"Load selected: {name}##enc-selected"))
+            if (EncounterPanelButton($"Load selected: {name}##enc-selected"))
                 LoadEncounterForEntry(target.Entry, name, Math.Max(target.Fields.MaxHealth, 1000u));
         }
         else
@@ -882,8 +952,8 @@ public sealed partial class GameLoop
         ImGui.TextDisabled($"entry {loaded.PrimaryEntry} · {loaded.Phases.Count} phases · " +
                            $"{loaded.Abilities.Count} abilities");
         EncounterFidelity worst = loaded.WorstFidelity();
-        ImGui.TextColored(FidelityColor(worst),
-            $"weakest fact: {EncounterSchema.Describe(worst)}");
+        CreatorHelp($"Weakest authored fact: {EncounterSchema.Describe(worst)}\n\n" +
+                    "Open provenance & coverage below for the full audit trail.");
 
         // The transcription essay matters when auditing the document, not when
         // running a fight; folded, it stops being the first screenful a human sees.
@@ -948,7 +1018,7 @@ public sealed partial class GameLoop
             ImGui.Separator();
             ImGui.TextColored(new Vector4(1f, .82f, .35f, 1f),
                 $"{visualizedCount} phase ability visualization(s) on");
-            if (ImGui.SmallButton("clear ability visualizations"))
+            if (EncounterPanelButton("clear ability visualizations", compact: true))
                 _encounterVisualizedAbilities.Clear();
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip("Toggle individual abilities in the\n" +
@@ -956,11 +1026,11 @@ public sealed partial class GameLoop
         }
 
         ImGui.Separator();
-        ImGui.TextDisabled("colour = fidelity:");
-        foreach (EncounterFidelity fidelity in Enum.GetValues<EncounterFidelity>())
-        {
-            ImGui.TextColored(FidelityColor(fidelity), $"  {EncounterSchema.Describe(fidelity)}");
-        }
+        ImGui.TextDisabled("overlay colour key");
+        CreatorHelp("Green — exact database fact\n" +
+                    "Blue — reviewed compiled-script manifest\n" +
+                    "Gold — derived or heuristic fact\n" +
+                    "Red — unmodeled or unknown fact");
     }
 
     // ── transport ────────────────────────────────────────────────────────────
@@ -982,16 +1052,15 @@ public sealed partial class GameLoop
         {
             // The staged plan's commit button, impossible to miss. Play does the
             // same thing while a plan is staged — both spellings of "send them".
-            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.2f, .55f, .25f, 1f));
-            if (ImGui.Button($"GO ({stagedCount})", new Vector2(90f * cs, 0f)))
+            if (EncounterPanelButton($"GO ({stagedCount})", 90f * cs))
                 EncounterGoStagedOrders();
-            ImGui.PopStyleColor();
-            if (ImGui.IsItemHovered())
+            bool goHovered = ImGui.IsItemHovered();
+            EncounterSameLineForButton(_encounterPlaying ? "Pause" : "Play", 70f * cs);
+            if (goHovered)
                 ImGui.SetTooltip("Commit every staged waypoint: the whole raid\n" +
                                  "moves at once, chains run leg by leg.");
-            ImGui.SameLine();
         }
-        if (ImGui.Button(_encounterPlaying ? "Pause" : "Play", new Vector2(70f * cs, 0f)))
+        if (EncounterPanelButton(_encounterPlaying ? "Pause" : "Play", 70f * cs))
         {
             if (!_encounterPlaying && stagedCount > 0)
             {
@@ -1004,20 +1073,20 @@ public sealed partial class GameLoop
                 if (_encounterPlaying && _encounterViewMs >= fightEndMs) ScrubTo(0);
             }
         }
-        ImGui.SameLine();
-        if (ImGui.Button("Step"))
+        EncounterSameLineForButton("Step");
+        if (EncounterPanelButton("Step"))
         {
             _encounterPlaying = false;
             ScrubTo(_encounterViewMs + sim.Options.StepMs);
         }
-        ImGui.SameLine();
-        if (ImGui.Button("Back"))
+        EncounterSameLineForButton("Back");
+        if (EncounterPanelButton("Back"))
         {
             _encounterPlaying = false;
             ScrubTo(_encounterViewMs - sim.Options.StepMs);
         }
-        ImGui.SameLine();
-        if (ImGui.Button("Reset")) { _encounterPlaying = false; ScrubTo(0); }
+        EncounterSameLineForButton("Reset");
+        if (EncounterPanelButton("Reset")) { _encounterPlaying = false; ScrubTo(0); }
 
         // Scrubbing is an index into the snapshot ring, not a re-simulation — the
         // state is small enough to store every step, so rewind is free. The bar
@@ -1041,11 +1110,9 @@ public sealed partial class GameLoop
             : $"/ {headMs / 1000f:0.0}s");
 
         ImGui.Text($"phase: {sim.Definition.Phase(sim.PhaseKey)?.Name ?? sim.PhaseKey}");
-        ImGui.SameLine();
-        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(.42f, .24f, .08f, 1f));
-        if (ImGui.Button("Visualize abilities", new Vector2(150f * cs, 0f)))
+        EncounterSameLineForButton("Visualize abilities", 150f * cs);
+        if (EncounterPanelButton("Visualize abilities", 150f * cs))
             _encounterAbilityPanelOpen = true;
-        ImGui.PopStyleColor();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open a phase-aware pop-out with one Visualize button\n" +
                              "for every boss mechanic available right now.");
@@ -1105,7 +1172,8 @@ public sealed partial class GameLoop
             RebuildEncounterSim();
         }
         if (ImGui.IsItemDeactivatedAfterEdit()) SettingsFile?.Save();
-        ImGui.TextDisabled("heuristic: a dial to reach health-gated phases, not a damage model");
+        CreatorHelp("This raid-DPS input is a heuristic used to reach health-gated phases; " +
+                    "it is not a damage model.");
     }
 
     private void ScrubTo(int targetMs)
@@ -1145,11 +1213,12 @@ public sealed partial class GameLoop
             ImGui.TextColored(new Vector4(.5f, 1f, .6f, 1f),
                 "click the world to place · right-click cancels");
 
-        if (ImGui.Button("Place boss")) _encounterPlacing = EncounterPlacement.Boss;
-        ImGui.SameLine();
-        if (ImGui.Button("Place raid (10)")) PlaceScenarioRaid();
-        ImGui.SameLine();
-        if (ImGui.Button("Add dummy"))
+        if (EncounterPanelButton("Place boss", compact: true))
+            _encounterPlacing = EncounterPlacement.Boss;
+        EncounterSameLineForButton("Place raid (10)", compact: true);
+        if (EncounterPanelButton("Place raid (10)", compact: true)) PlaceScenarioRaid();
+        EncounterSameLineForButton("Add dummy", compact: true);
+        if (EncounterPanelButton("Add dummy", compact: true))
         {
             Vector3 near = _encounterScenario.FirstOrDefault()?.Position ?? Vector3.Zero;
             Vector3 at = near + new Vector3(5f, 5f, 0f);
@@ -1160,8 +1229,9 @@ public sealed partial class GameLoop
                 DisplayId: 3167));
             RebuildEncounterSim();
         }
-        ImGui.SameLine();
-        if (ImGui.Button("Snap to me") && DevPlayerPosition() is { } me)
+        EncounterSameLineForButton("Snap to me", compact: true);
+        if (EncounterPanelButton("Snap to me", compact: true) &&
+            DevPlayerPosition() is { } me)
         {
             MoveScenarioActor(BossActorKey(), me);
         }
@@ -1180,8 +1250,11 @@ public sealed partial class GameLoop
         }
         if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
                 ?.DetectionRangeYards is > 0f and var detection)
-            ImGui.TextDisabled($"exact-db: her detection_range is {detection:0} yd " +
-                               "(the core adds a level delta on top)");
+        {
+            ImGui.TextDisabled($"boss detection: {detection:0} yd");
+            CreatorHelp("Source fidelity: exact-db. The core adds a level delta on top " +
+                        "of this detection_range value.");
+        }
 
         // Pre-pull movement: the document's DB-sourced answer first, the invented
         // what-if second and clearly labeled as such. Stationary is an answer.
@@ -1191,14 +1264,14 @@ public sealed partial class GameLoop
         {
             string truth = declared.Kind switch
             {
-                IdleMovementKind.Wander => $"wanders {declared.WanderYards:0} yd (exact-db)",
+                IdleMovementKind.Wander => $"wanders {declared.WanderYards:0} yd",
                 IdleMovementKind.Waypoints =>
-                    $"patrols {declared.Points?.Count ?? 0} waypoints (exact-db)",
-                _ => "stands at spawn until pulled (exact-db)",
+                    $"patrols {declared.Points?.Count ?? 0} waypoints",
+                _ => "stands at spawn until pulled",
             };
             ImGui.TextColored(FidelityColor(EncounterFidelity.ExactDb), $"pre-pull: {truth}");
-            if (declared.Note is { Length: > 0 } note && ImGui.IsItemHovered())
-                ImGui.SetTooltip(note);
+            CreatorHelp("Source fidelity: exact-db." +
+                        (declared.Note is { Length: > 0 } note ? $"\n\n{note}" : ""));
         }
         else
         {
@@ -1265,8 +1338,8 @@ public sealed partial class GameLoop
                 string who = _encounterScenario.FirstOrDefault(s => s.Key == entry.Key)?.Name ?? entry.Key;
                 ImGui.TextColored(new Vector4(1f, .5f, .4f, 1f),
                     $"aggro: {who} from {entry.TimeMs / 1000f:0.0}s");
-                ImGui.SameLine();
-                if (ImGui.SmallButton($"x##ag{a}"))
+                EncounterSameLineForButton($"x##ag{a}", compact: true);
+                if (EncounterPanelButton($"x##ag{a}", compact: true))
                 {
                     _encounterAggroPlan.RemoveAt(a);
                     RebuildEncounterSimKeepingView();
@@ -1296,30 +1369,39 @@ public sealed partial class GameLoop
                                $"· r{actor.BoundingRadius:0.#}");
             if (actor.Role == EncounterActorRole.Friendly)
             {
-                if (ImGui.SmallButton("rules")) OpenEncounterPlayerSetup(actor.Key);
-                ImGui.SameLine();
+                bool canCustomize = !_encounterOrbitDragging && !_encounterOrientSpinning;
+                if (EncounterPanelButton("rules", enabled: canCustomize, compact: true))
+                    OpenEncounterPlayerSetup(actor.Key);
+                bool rulesHovered = ImGui.IsItemHovered();
+                EncounterSameLineForButton("place", compact: true);
+                if (!canCustomize && rulesHovered)
+                    ImGui.SetTooltip("Finish the active world-placement gesture first.");
             }
-            if (ImGui.SmallButton("place"))
+            if (EncounterPanelButton("place", compact: true))
             {
                 _encounterPlacing = EncounterPlacement.Actor;
                 _encounterPlacingActorKey = actor.Key;
             }
             if (actor.Role != EncounterActorRole.Boss)
             {
-                ImGui.SameLine();
+                EncounterSameLineForButton($"move @ {_encounterViewMs / 1000f:0.0}s",
+                    compact: true);
                 // The order is stamped with the SCRUB TIME: scrub to the moment,
                 // click the ground, and the body runs there at that moment in
                 // every replay. This is the "tell them where to move" verb.
-                if (ImGui.SmallButton($"move @ {_encounterViewMs / 1000f:0.0}s"))
+                if (EncounterPanelButton($"move @ {_encounterViewMs / 1000f:0.0}s",
+                        compact: true))
                 {
                     _encounterPlacing = EncounterPlacement.ActorMove;
                     _encounterPlacingActorKey = actor.Key;
                 }
-                ImGui.SameLine();
-                if (ImGui.SmallButton($"aggro @ {_encounterViewMs / 1000f:0.0}s"))
+                EncounterSameLineForButton($"aggro @ {_encounterViewMs / 1000f:0.0}s",
+                    compact: true);
+                if (EncounterPanelButton($"aggro @ {_encounterViewMs / 1000f:0.0}s",
+                        compact: true))
                     AssignAggro(actor.Key, _encounterViewMs);
-                ImGui.SameLine();
-                if (ImGui.SmallButton("remove"))
+                EncounterSameLineForButton("remove", compact: true);
+                if (EncounterPanelButton("remove", compact: true))
                 {
                     _encounterScenario.RemoveAt(i);
                     _encounterAggroPlan.RemoveAll(a => a.Key == actor.Key);
@@ -1339,8 +1421,8 @@ public sealed partial class GameLoop
                     for (int m = 0; m < moves.Count; m++)
                     {
                         ImGui.TextDisabled($"    {DescribeMove(moves[m])}");
-                        ImGui.SameLine();
-                        if (ImGui.SmallButton($"x##mv{m}"))
+                        EncounterSameLineForButton($"x##mv{m}", compact: true);
+                        if (EncounterPanelButton($"x##mv{m}", compact: true))
                         {
                             RemoveScenarioMove(actor.Key, m);
                             break;
@@ -1401,10 +1483,14 @@ public sealed partial class GameLoop
                 }
                 if (directive is { Kind: RaidDirectiveKind.MoveToSpot } spot)
                 {
-                    ImGui.SameLine();
-                    ImGui.TextDisabled($"({spot.Spot.X:0}, {spot.Spot.Y:0})");
-                    ImGui.SameLine();
-                    if (ImGui.SmallButton("re-place"))
+                    string coordinates = $"({spot.Spot.X:0}, {spot.Spot.Y:0})";
+                    float coordinateWidth = ImGui.CalcTextSize(coordinates).X;
+                    float rePlaceWidth = EncounterPanelButtonWidth("re-place", compact: true);
+                    EncounterSameLineIfFits(coordinateWidth + ImGui.GetStyle().ItemSpacing.X +
+                                            rePlaceWidth);
+                    ImGui.TextDisabled(coordinates);
+                    EncounterSameLineForButton("re-place", compact: true);
+                    if (EncounterPanelButton("re-place", compact: true))
                     {
                         _encounterPlacing = EncounterPlacement.PlaybookSpot;
                         _encounterPlacingPlaybookPhase = phase.Key;
@@ -1445,13 +1531,16 @@ public sealed partial class GameLoop
 
         // Independent pop-outs: one for the selected actor's live event stream, and one
         // clean phase-aware control surface for boss ability visualizations.
-        if (ImGui.SmallButton("Pop out ▸ live action panel")) _encounterActionPanelOpen = true;
-        if (ImGui.IsItemHovered())
+        if (EncounterPanelButton("Pop out ▸ live action panel", compact: true))
+            _encounterActionPanelOpen = true;
+        bool actionPanelHovered = ImGui.IsItemHovered();
+        EncounterSameLineForButton("Abilities ▸ Visualize", compact: true);
+        if (actionPanelHovered)
             ImGui.SetTooltip("A separate window that follows the selected body\n" +
                              "(the boss by default) and shows exactly what it\n" +
                              "steps through — casts, phase turns, hits — in real time.");
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Abilities ▸ Visualize")) _encounterAbilityPanelOpen = true;
+        if (EncounterPanelButton("Abilities ▸ Visualize", compact: true))
+            _encounterAbilityPanelOpen = true;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open the current phase's boss ability visualizer.");
 
@@ -1500,13 +1589,16 @@ public sealed partial class GameLoop
     {
         if (!ImGui.CollapsingHeader("Position probe", ImGuiTreeNodeFlags.DefaultOpen)) return;
 
-        if (ImGui.Button("Place probe")) _encounterPlacing = EncounterPlacement.Probe;
-        ImGui.SameLine();
-        if (ImGui.Button("Add waypoint")) _encounterPlacing = EncounterPlacement.ProbeWaypoint;
-        ImGui.SameLine();
-        if (ImGui.Button("Undo point")) { _encounterProbe.RemoveLast(); _encounterProbeDirty = true; }
-        ImGui.SameLine();
-        if (ImGui.Button("At me") && DevPlayerPosition() is { } me)
+        if (EncounterPanelButton("Place probe", compact: true))
+            _encounterPlacing = EncounterPlacement.Probe;
+        EncounterSameLineForButton("Add waypoint", compact: true);
+        if (EncounterPanelButton("Add waypoint", compact: true))
+            _encounterPlacing = EncounterPlacement.ProbeWaypoint;
+        EncounterSameLineForButton("Undo point", compact: true);
+        if (EncounterPanelButton("Undo point", compact: true))
+        { _encounterProbe.RemoveLast(); _encounterProbeDirty = true; }
+        EncounterSameLineForButton("At me", compact: true);
+        if (EncounterPanelButton("At me", compact: true) && DevPlayerPosition() is { } me)
         {
             _encounterProbe.Clear();
             _encounterProbe.Add(0, me);
@@ -1540,8 +1632,7 @@ public sealed partial class GameLoop
             ImGui.TextColored(new Vector4(1f, .6f, .5f, 1f),
                 $"{report.HitCount} hits · first at {report.FirstHit!.TimeMs / 1000f:0.0}s");
             if (worst != EncounterFidelity.ExactDb)
-                ImGui.TextColored(FidelityColor(worst),
-                    $"weakest hitting fact: {EncounterSchema.Describe(worst)}");
+                CreatorHelp($"Weakest hitting fact: {EncounterSchema.Describe(worst)}");
         }
 
         // The unmodeled warning is the honest half: a spot is not safe just because
@@ -1576,11 +1667,8 @@ public sealed partial class GameLoop
         foreach (EncounterAbility ability in definition.Abilities)
         {
             ImGui.PushID(ability.Key);
-            Vector4 color = FidelityColor(ability.Fidelity);
-            bool open = ImGui.TreeNodeEx(ability.Name,
-                ImGuiTreeNodeFlags.SpanAvailWidth);
-            ImGui.SameLine();
-            ImGui.TextColored(color, EncounterSchema.Describe(ability.Fidelity));
+            bool open = ImGui.TreeNodeEx(ability.Name, ImGuiTreeNodeFlags.None);
+            CreatorHelp($"Source fidelity: {EncounterSchema.Describe(ability.Fidelity)}");
             if (open)
             {
                 if (ability.SpellId != 0) ImGui.TextDisabled($"spell {ability.SpellId}");

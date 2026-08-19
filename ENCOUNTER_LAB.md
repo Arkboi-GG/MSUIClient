@@ -620,18 +620,23 @@ Refinements for reading a HELD instant, all client-side overlay / what-if work.
 - **Visualize every current-phase ability from a dedicated pop-out.** The non-blocking
   **Ability Visualizer** is opened beside the live phase readout, from Timeline, or from
   the Action Timeline. It recomputes `definition.AbilitiesIn(sim.PhaseKey)` every frame
-  and renders one clean row per available mechanic: ability name on the left and a large,
-  literal **Visualize** button on the right (`Cleave` → `Visualize`). The selected-key set
+  and renders one clean row per available mechanic: ability name on the left, a circled
+  **?** for hover-only geometry/provenance detail, and a compact game-asset **Show**
+  or **Hide** button on the right. Technical labels such as `declared-cpp-manifest` remain
+  available to authors without occupying the list. The selected-key set
   `_encounterVisualizedAbilities` is also filtered by phase at render time, so an old attack
   cannot linger for one misleading frame after a phase turn. Spatial abilities force-draw
   their landing zones at full strength, ignoring cast timing and the global overlay toggles;
   `ResolveVisualizedFootprint` anchors cones to the boss's live holder-facing and aims lines,
   bolts, and circles at the live aggro holder. Non-spatial abilities are not omitted: authored
   summon steps paint and label their spawn locations, while a mechanic with no spatial facts
-  gets an explicit boss-anchored "no spatial shape modeled" callout. Clicking **Visualize**
-  again turns that mechanic off, active rows turn green, and **Clear phase** removes the
+  gets an explicit boss-anchored "no spatial shape modeled" callout. **Hide** turns that
+  mechanic off, and **Clear phase** removes the
   current phase's selections. The summary row is permanently reserved (including `0 visible`)
-  so toggling cannot move the list, and row/button height comes from ImGui's live font metrics.
+  so toggling cannot move the list. The pop-out now activates its own persisted layout tune
+  before calculating scale and spacing, so Text Size, Widget Size, Button Size, Row Spacing,
+  and Reset Sizes visibly affect this window. All Encounter Lab action controls use the same
+  Blizzard `UIPanelButton` assets, with compact sizing for dense inline rows.
   Radius-less targeted cones such as Cleave and Knock Away would otherwise resolve to the
   geometry law's 0.5 yd data-hole minimum under Onyxia's model; their visual preview alone is
   extended through the live holder with a readable melee-reach minimum. Simulation geometry
@@ -654,11 +659,14 @@ Refinements for reading a HELD instant, all client-side overlay / what-if work.
   the commit's what-if reflows it). Dragging a non-holder body leaves her cones fixed and
   sweeps that body through them, which is the other half of the read.
 
-## 8.7 Player Setup — per-body base rules (2026-08-18)
+## 8.7 Character Customizer — opt-in per-body rules (2026-08-18)
 
-A plain click on a raid puppet in **Ctrl+F** still selects it for orders and now
-also opens a modal **Player Setup** window. The same modal is reachable from the
-body's **rules** button in Scenario. Its first live rule is **Always face boss**:
+A plain click on a raid puppet in **Ctrl+F** selects it for orders without opening
+or interrupting anything. A compact, game-native **Character Customizer** button
+slides onto the right edge for that single selected body; only clicking it opens
+the **Player Setup** modal. Multi-selection stays an order group and does not get
+an ambiguous single-body button. The same modal remains reachable from
+the body's **rules** button in Scenario. Its first live rule is **Always face boss**:
 when enabled, that body faces the boss on every simulation step, including while
 crossing through her or running to a waypoint. It intentionally overrides travel
 direction and an authored arrival facing for as long as the rule is active.
@@ -920,9 +928,9 @@ stage (§11).
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed and staged plans, anchor labels; **completed committed legs retire on arrival**, **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3); **terrain/WMO-projected cone + line visualizations, phase-filtered ability visualization + `ResolveVisualizedFootprint`, summon markers, orbit-sweep preview** (§8.6) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing; **live orbit-drag position override** (§8.6) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: puppet select + **Player Setup open** (§8.7), marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), **Shift+Left-click body orbit-sweep grab→teleport-what-if** (§8.6), never touches `SuiOrder` |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead; dedicated phase-aware **Ability Visualizer** pop-out with one named **Visualize** button per mechanic (§8.6) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Click-open **Player Setup modal** (§8.7): live per-body base rules plus an honest disabled shell for future SuperUI/custom rotations |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: non-blocking puppet selection (§8.7), marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), **Shift+Left-click body orbit-sweep grab→teleport-what-if** (§8.6), never touches `SuiOrder` |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead; dedicated phase-aware **Ability Visualizer** pop-out with a hover-help affordance and **Show/Hide** button per mechanic (§8.6) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Right-edge game-native **Character Customizer** affordance + opt-in **Player Setup modal** (§8.7): live per-body base rules plus an honest disabled shell for future SuperUI/custom rotations |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11); two assertions rewritten for §8.1 (clock-holds, stands) and pending a re-run |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Tape.cs` | Recorder + predicted-vs-observed diff |
 | `encounters/onyxia.json` | The authored encounter + spec fuzz — boss at the exact DB spawn (guid 47572), real speeds, `detectionRangeYards`, declared `Stationary` idle with full provenance note |

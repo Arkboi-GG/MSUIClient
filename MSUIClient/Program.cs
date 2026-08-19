@@ -2875,6 +2875,10 @@ public sealed partial class GameLoop : IDisposable
             // the simulator needs no server at all.
             DrawEncounterLab();
             DrawEncounterActionPanel();
+            // One mode-neutral host for every dev/encounter window's gear popup.
+            // Keeping it outside the individual windows lets a pop-out remain tunable
+            // after its parent closes and prevents the popup being submitted twice.
+            if (!_creatorWorldRequested) DrawCreatorPanelTunePopup();
             DrawEncounterLabOverlay();
         }
 
