@@ -232,6 +232,35 @@ public sealed partial class GameLoop
         => ImGui.Selectable(label, selected, ImGuiSelectableFlags.None,
             new Vector2(0f, CreatorResultRowHeight));
 
+    // ── deferred scale dials ─────────────────────────────────────────────────
+    // A creator scale dial shows its value live but COMMITS only on release.
+    // These dials resize the very windows that host them (window padding, the
+    // per-frame minimum-size constraints, the on-screen clamp), so writing
+    // through while the knob was held put the slider's own geometry in a
+    // feedback loop and every creator window lurched around mid-drag.
+
+    private string? _creatorHeldDialId;
+    private float _creatorHeldDialValue;
+
+    private bool CreatorDeferredDial(string id, string label, float lo, float hi,
+        Func<float> get, Action<float> set, float itemWidth, string fmt = "%.2fx")
+    {
+        float value = _creatorHeldDialId == id ? _creatorHeldDialValue : get();
+        ImGui.SetNextItemWidth(itemWidth);
+        ImGui.SliderFloat(label, ref value, lo, hi, fmt);
+        if (ImGui.IsItemActive())
+        {
+            _creatorHeldDialId = id;
+            _creatorHeldDialValue = value;
+            return false;
+        }
+        if (_creatorHeldDialId != id) return false;
+        _creatorHeldDialId = null;
+        if (MathF.Abs(value - get()) < 0.0005f) return false;
+        set(value);
+        return true;
+    }
+
     /// <summary>The per-window layout popup opened by a window's gear button:
     /// dials for exactly the field kinds that window draws, persisted per window
     /// on top of the shared modal dials.</summary>
@@ -259,12 +288,8 @@ public sealed partial class GameLoop
             bool save = false;
 
             bool Dial(string label, Func<float> get, Action<float> set, float max = 2.5f)
-            {
-                float value = get();
-                ImGui.SetNextItemWidth(170f * cs);
-                if (ImGui.SliderFloat(label, ref value, 0.5f, max, "%.2fx")) set(value);
-                return ImGui.IsItemDeactivatedAfterEdit();
-            }
+                => CreatorDeferredDial($"tune/{id}/{label}", label, 0.5f, max,
+                    get, set, 170f * cs);
 
             ImGui.TextDisabled("SIZES");
             save |= Dial("Text size", () => tune.Text, v => tune.Text = v);
@@ -346,6 +371,16 @@ public sealed partial class GameLoop
         ImGui.SameLine();
         CreatorBarButton("X-Ray", CreatorPanel.XRay, size, captionPx);
 
+        // The Encounter Lab has its own lifetime (Ctrl+E, draws in live mode
+        // too), so its button toggles the Lab directly instead of being a panel.
+        ImGui.SameLine();
+        bool encClicked = _skin?.GlueButton("Encounter", size, true, captionPx)
+                          ?? ImGui.Button("Encounter", size);
+        if (_encounterLabOpen)
+            ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(),
+                VanillaGold, 3f, ImDrawFlags.None, 2f);
+        if (encClicked) ToggleEncounterLab();
+
         // The UI-options toggle: layout/scale dials live in their own panel.
         ImGui.SameLine();
         if (_skin?.GlueButton("UI", new Vector2(46f * s, 30f * s), true, captionPx) ?? ImGui.SmallButton("UI"))
@@ -354,12 +389,45 @@ public sealed partial class GameLoop
         if (_skin is not null) _skin.Scale = savedScale;
         ImGui.End();
 
+        DrawCreatorFreeViewButton();
         if (_creatorUiOptionsOpen) DrawCreatorUiOptions();
+    }
+
+    /// <summary>Top-right corner: the free-view toggle as a button, so Ctrl+F is
+    /// discoverable. Gold rim while the sky rig is live, same as the bar.</summary>
+    private void DrawCreatorFreeViewButton()
+    {
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * CreatorBarScale;
+        ImGui.SetNextWindowPos(new Vector2(ImGui.GetIO().DisplaySize.X - 8f * s, 6f * s),
+            ImGuiCond.Always, new Vector2(1f, 0f));
+        var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
+                  | ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.AlwaysAutoResize
+                  | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoSavedSettings;
+        if (!ImGui.Begin("##creator-freeview", flags)) { ImGui.End(); return; }
+
+        float savedScale = _skin?.Scale ?? 1f;
+        if (_skin is not null) _skin.Scale = s;
+        var size = new Vector2(100f * s, 30f * s);
+        float captionPx = MathF.Max(size.Y * GlueTune.CaptionSizeRatio, ImGui.GetFontSize())
+                          * CreatorBarTextScale;
+        bool clicked = _skin?.GlueButton("Free view", size, true, captionPx)
+                       ?? ImGui.Button("Free view", size);
+        if (_freeView)
+            ImGui.GetWindowDrawList().AddRect(ImGui.GetItemRectMin(), ImGui.GetItemRectMax(),
+                VanillaGold, 3f, ImDrawFlags.None, 2f);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(_freeView ? "Return to your character (Ctrl+F)"
+                                       : "Rise into the command view (Ctrl+F)");
+        if (clicked) ToggleFreeView();
+        if (_skin is not null) _skin.Scale = savedScale;
+        ImGui.End();
     }
 
     /// <summary>Creator UI options: everything that sizes or arranges the creator
     /// windows - widget/text scale, panel opacity, padding and spacing dials, and
-    /// the layout reset. Every dial is live while dragging, saved on release.</summary>
+    /// the layout reset. Bar and opacity dials are live while dragging; the
+    /// geometry dials show their value live but apply on release
+    /// (see <see cref="CreatorDeferredDial"/>).</summary>
     private void DrawCreatorUiOptions()
     {
         _activePanelTune = "Creator UI";
@@ -394,30 +462,20 @@ public sealed partial class GameLoop
 
             ImGui.Spacing();
             ImGui.TextDisabled("MODALS (all panels share these)");
-            float ui = creator.UiScale;
-            ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Widget scale", ref ui, 0.6f, 2f, "%.2fx")) creator.UiScale = ui;
-            save |= ImGui.IsItemDeactivatedAfterEdit();
-
-            float text = creator.TextScale;
-            ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Text scale", ref text, 0.6f, 2f, "%.2fx")) creator.TextScale = text;
-            save |= ImGui.IsItemDeactivatedAfterEdit();
+            save |= CreatorDeferredDial("creator-ui/widget", "Widget scale", 0.6f, 2f,
+                () => creator.UiScale, v => creator.UiScale = v, 180f * cs);
+            save |= CreatorDeferredDial("creator-ui/text", "Text scale", 0.6f, 2f,
+                () => creator.TextScale, v => creator.TextScale = v, 180f * cs);
 
             float alpha = creator.PanelAlpha;
             ImGui.SetNextItemWidth(180f * cs);
             if (ImGui.SliderFloat("Background opacity", ref alpha, 0.2f, 1f, "%.2f")) creator.PanelAlpha = alpha;
             save |= ImGui.IsItemDeactivatedAfterEdit();
 
-            float pad = creator.PaddingScale;
-            ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Padding", ref pad, 0.4f, 2f, "%.2fx")) creator.PaddingScale = pad;
-            save |= ImGui.IsItemDeactivatedAfterEdit();
-
-            float spacing = creator.SpacingScale;
-            ImGui.SetNextItemWidth(180f * cs);
-            if (ImGui.SliderFloat("Row spacing", ref spacing, 0.4f, 2f, "%.2fx")) creator.SpacingScale = spacing;
-            save |= ImGui.IsItemDeactivatedAfterEdit();
+            save |= CreatorDeferredDial("creator-ui/padding", "Padding", 0.4f, 2f,
+                () => creator.PaddingScale, v => creator.PaddingScale = v, 180f * cs);
+            save |= CreatorDeferredDial("creator-ui/spacing", "Row spacing", 0.4f, 2f,
+                () => creator.SpacingScale, v => creator.SpacingScale = v, 180f * cs);
 
             ImGui.Spacing();
             ImGui.TextDisabled("LAYOUT");

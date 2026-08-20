@@ -568,8 +568,9 @@ Resolvers: `_spellCatalog.TryGet(spellId, out SpellInfo{VisualId, Speed})`, then
 lower-level template is `PresentSpellEffect(spellId, stage, onGuid)` in
 `DevTools.SpellAnimation.cs`.
 
-**Not yet done (§12):** ranged/healer bodies do not cast (the sim models their
-damage as a number, not spell events — casts would be synthesized); DynamicObject
+**Not yet done (§12):** ranged/healer bodies without an authored rotation do not
+cast (the sim models their damage as a number, not spell events; an authored
+**Rotation** tab plan now synthesizes cosmetic casts — see §8.7); DynamicObject
 / area ground-fire visuals (Deep Breath lanes) are not spawned as real particles,
 only the overlay footprints show them (`TryGetAreaVisual` / `SpawnAreaVisual`
 would add them); and there is no precast **hold** — `ApplySpellGo` fires the cast
@@ -667,12 +668,20 @@ Refinements for reading a HELD instant, all client-side overlay / what-if work.
 A plain click on a raid puppet in **Ctrl+F** selects it for orders without opening
 or interrupting anything. A compact, game-native **Character Customizer** button
 slides onto the right edge for that single selected body; only clicking it opens
-the **Player Setup** modal. Multi-selection stays an order group and does not get
-an ambiguous single-body button. The same modal remains reachable from
+the customizer. Multi-selection stays an order group and does not get
+an ambiguous single-body button. The same window remains reachable from
 the body's **rules** button in Scenario.
 
-That modal is now a full per-character **Combat Plan**, not a spell-list editor.
-It starts with plain-language intent and progressively exposes five views:
+The customizer is a **non-modal chrome window docked to the right edge**
+(2026-08-20; it was a centred blocking modal before): the world stays clickable,
+so bodies can be selected, ordered, and waypointed while a plan is edited.
+Selecting a puppet (or opening the customizer) also auto-collapses the principal
+Encounter Lab window into a small **Encounter Lab** chip at its top-left corner
+— click the chip to force it back open; it returns on its own when the selection
+clears. The Lab toolbar's **Minimize** button collapses it manually.
+
+The customizer is a full per-character **Combat Plan**. It starts with
+plain-language intent and progressively exposes six views:
 
 - **Quick Plan** — an editable role template, movement doctrine (independent,
   hold, or follow a semantic ally), follow-distance band, facing, and permission
@@ -683,6 +692,13 @@ It starts with plain-language intent and progressively exposes five views:
   target` are resolved from the current roster instead of naming a boss.
 - **Responsibilities** — interrupt/dispel/cleanse/CC/resurrection ownership,
   resource reserve, emergency threshold, cooldown policy, and fallback.
+- **Rotation** (2026-08-20) — a class picker (the nine 1.12 classes) and that
+  class's **trained-at-60 spellbook**, resolved entirely offline from
+  `SkillLineAbility.dbc` class masks + `Talent.dbc` actives + `Spell.dbc`
+  levels, rank chains collapsed to the top learnable rank (`ClassSpellList`).
+  Real icons, real tooltips (`SpellTooltipLaw`). Clicking spells builds an
+  ordered priority list — first ready ability wins — which the Lab plays as
+  **cosmetic casts** on the body (see honesty boundary below).
 - **Encounter Context** — the current encounter, phase, playbook directive, and
   explicit body orders, shown as an overlay that is deliberately **not saved in
   the character plan**.
@@ -713,8 +729,11 @@ changes add and boss health, includes melee reach against the chosen target,
 retires dead adds, and reroutes deterministically. The global raid-DPS fraction
 remains the explicitly labelled boss-health dial. The Lab does not fabricate
 friendly damage, mana, GCDs, healing amounts, dispels, interrupts, or cooldown
-use. Those remaining typed intentions are ready for the later combat evaluator,
-but the modal does not claim those casts have happened.
+use. An authored **Rotation** plays as cosmetic casts — the real spell art on
+the real cast-time/cooldown cadence, deterministically scheduled from the pull
+instant (`PlayEncounterRotationCasts`) — without changing a single number in
+the fight. Those remaining typed intentions are ready for the later combat
+evaluator, but the customizer does not claim those casts have done anything.
 
 ## 8.8 Persistent flight presentation (2026-08-20)
 
@@ -879,9 +898,13 @@ probe does not reach), so the real proof is a stage-raid-pull-watch pass.
     "sandbox roam (what-if)" checkbox re-enables an invented wander within a
     radius. A creature with a real `Wander`/`Waypoints` declaration plays the
     truth regardless of the checkbox.
-11. **Ranged/healer bodies do not cast (§8.4).** The sim models raid damage as a
-    number, not per-cast events, so only the boss's real abilities and synthesized
-    tank/melee swings animate. Ranged shots and heals would have to be synthesized.
+11. **Friendly casting is cosmetic (§8.4).** The sim models raid damage as a
+    number, not per-cast events. A body with an authored **Rotation** (Character
+    Customizer → Rotation tab) now plays its real 1.12 spells as synthesized
+    cosmetic casts — true spell art on the true cast-time/cooldown cadence,
+    deterministic against the pull time — but no cast changes any number in the
+    fight. Bodies without a rotation still animate only the synthesized
+    tank/melee swings.
 12. **Area ground-fire is overlay-only (§8.4).** DynamicObject / persistent-area
     visuals (Deep Breath's ground lanes) show as footprint decals, not real
     particle fire; `SpawnAreaVisual` would add the art.

@@ -1,15 +1,19 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
+using MSUIClient.Formats;
 using MSUIClient.World.Encounters;
 
 namespace MSUIClient;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Encounter Lab — per-player setup modal.
+// Encounter Lab — per-player Character Customizer.
 //
 // A plain click on a raid puppet only selects it. Selection slides a compact,
-// game-native Character Customizer button onto the right edge; this modal opens
-// only when that button (or the Scenario rules button) is explicitly clicked.
+// game-native Character Customizer button onto the right edge; the customizer
+// opens only when that button (or the Scenario rules button) is explicitly
+// clicked, as a NON-modal window docked to the right edge - the world stays
+// clickable so bodies can be ordered around while a plan is edited.
 // The workspace edits a portable CombatPlan: standing doctrine lives on the
 // character while encounter- and phase-specific choreography stays an overlay.
 // The Lab executes only the parts its combat model can prove and labels the rest
@@ -18,7 +22,6 @@ namespace MSUIClient;
 
 public sealed partial class GameLoop
 {
-    private const string EncounterPlayerSetupPopupId = "Player Setup###encounter-player-setup";
     private string? _encounterPlayerSetupKey;
     private bool _encounterPlayerSetupRequested;
     private string? _encounterPlayerSetupLauncherKey;
@@ -156,46 +159,50 @@ public sealed partial class GameLoop
             return;
         }
 
+        if (_encounterPlayerSetupKey is null) return;
+
+        const string tuneId = "encounter-player-setup";
+        _activePanelTune = tuneId;
         float cs = CreatorUiScale;
         Vector2 display = ImGui.GetIO().DisplaySize;
+        float s = MathF.Max(display.Y / GlueCanvasH, 0.5f) * cs;
+        // A regular chrome window docked to the RIGHT edge, deliberately NOT a
+        // modal: the owner keeps the world - and the very puppet being
+        // customized - clickable and orderable while the plan is edited.
         Vector2 size = new(
-            Math.Clamp(920f * cs, 680f, MathF.Max(680f, display.X - 24f)),
-            Math.Clamp(690f * cs, 520f, MathF.Max(520f, display.Y - 24f)));
+            Math.Clamp(640f * cs, 560f, MathF.Max(560f, display.X * 0.45f)),
+            Math.Clamp(690f * cs, 520f, MathF.Max(520f, display.Y - 88f * s)));
+        ImGuiCond placement = _creatorLayoutResetFrames > 0
+            ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
         ImGui.SetNextWindowPos(new Vector2(
-            MathF.Max(12f, display.X * .5f - size.X * .5f),
-            MathF.Max(12f, display.Y * .5f - size.Y * .5f)), ImGuiCond.Appearing);
+            MathF.Max(12f, display.X - size.X - 12f), 64f * s), placement);
+        // FirstUseEver lets ImGui's ini own every later resize.
+        ImGui.SetNextWindowSize(size, placement);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(560f, 520f),
+            new Vector2(MathF.Max(560f, display.X - 24f),
+                MathF.Max(520f, display.Y - 24f)));
 
         PushCreatorStyle();
         if (_encounterPlayerSetupRequested)
         {
-            ImGui.OpenPopup(EncounterPlayerSetupPopupId);
+            ImGui.SetNextWindowFocus();
             _encounterPlayerSetupRequested = false;
         }
-
-        bool open = true;
-        ImGui.SetNextWindowSize(size, ImGuiCond.Appearing);
-        ImGui.SetNextWindowSizeConstraints(new Vector2(680f, 520f),
-            new Vector2(MathF.Max(680f, display.X - 24f),
-                MathF.Max(520f, display.Y - 24f)));
-        bool showing = ImGui.BeginPopupModal(EncounterPlayerSetupPopupId, ref open,
-            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse |
-            ImGuiWindowFlags.NoTitleBar);
-        if (showing)
+        if (ImGui.Begin("###encounter-player-setup", CreatorChromeFlags))
         {
-            if (_encounterPlayerSetupKey is null)
+            ClampCreatorWindowOnScreen();
+            if (DrawCreatorPanelChrome("Character Customizer", tuneId))
+                _encounterPlayerSetupKey = null;
+            else
             {
-                ImGui.CloseCurrentPopup();
-                ImGui.EndPopup();
-                PopCreatorStyle();
-                return;
+                ImGui.SetWindowFontScale(CreatorTextScale);
+                DrawEncounterPlayerSetupBody();
+                ImGui.SetWindowFontScale(1f);
             }
-            ImGui.SetWindowFontScale(CreatorTextScale);
-            DrawEncounterPlayerSetupBody();
-            ImGui.SetWindowFontScale(1f);
-            ImGui.EndPopup();
         }
-        if (!open) _encounterPlayerSetupKey = null;
+        ImGui.End();
         PopCreatorStyle();
+        _activePanelTune = null;
     }
 
     private void DrawEncounterPlayerSetupBody()
@@ -210,10 +217,7 @@ public sealed partial class GameLoop
                 "This player is no longer in the encounter scenario.");
             if (EncounterPanelButtonSized("Close",
                     new Vector2(ImGui.GetContentRegionAvail().X, 0f)))
-            {
-                ImGui.CloseCurrentPopup();
                 _encounterPlayerSetupKey = null;
-            }
             return;
         }
 
@@ -255,6 +259,11 @@ public sealed partial class GameLoop
                     DrawEncounterPlanResponsibilities(plan);
                     ImGui.EndTabItem();
                 }
+                if (ImGui.BeginTabItem("Rotation"))
+                {
+                    DrawEncounterPlanRotation(plan);
+                    ImGui.EndTabItem();
+                }
                 if (ImGui.BeginTabItem("Encounter Context"))
                 {
                     DrawEncounterPlanContext(actor);
@@ -293,7 +302,19 @@ public sealed partial class GameLoop
             Movement: new CombatMovementPlan(
                 FacePrimaryEnemy: actor.PlayerRules?.AlwaysFaceBoss == true),
             EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            Resources: new CombatResourcePolicy());
+            Resources: new CombatResourcePolicy(),
+            ClassId: DefaultClassForJob(actor.Job));
+
+    /// <summary>A starting class per job so the Rotation tab opens on a real
+    /// spellbook; the owner can re-pick freely.</summary>
+    private static uint DefaultClassForJob(RaidJob job) => job switch
+    {
+        RaidJob.Tank => 1,     // Warrior
+        RaidJob.Healer => 5,   // Priest
+        RaidJob.Melee => 4,    // Rogue
+        RaidJob.Ranged => 8,   // Mage
+        _ => 0,
+    };
 
     /// <summary>Roster replacement may reuse stable keys. Clear every piece of modal
     /// state before replacing actors so a draft can never masquerade as the new actor's
@@ -412,7 +433,13 @@ public sealed partial class GameLoop
     {
         ImGui.SeparatorText("Start from intent");
         if (EncounterPanelButton("Use role template", 150f * CreatorUiScale))
-            SetEncounterPlayerPlanDraft(EncounterCombatPlanTemplate(actor.Job));
+            // Templates rewrite doctrine, not identity: the chosen class and the
+            // authored rotation survive.
+            SetEncounterPlayerPlanDraft(EncounterCombatPlanTemplate(actor.Job) with
+            {
+                ClassId = plan.ClassId != 0 ? plan.ClassId : DefaultClassForJob(actor.Job),
+                Rotation = plan.Rotation,
+            });
         ImGui.SameLine();
         ImGui.TextDisabled("Templates create visible, editable rules; they never apply silently.");
 
@@ -596,6 +623,203 @@ public sealed partial class GameLoop
             SetEncounterPlayerPlanDraft(plan with { Fallback = (CombatFallback)fallback });
     }
 
+    // ── rotation tab ─────────────────────────────────────────────────────────
+    // Real 1.12 spells, offline: SkillLineAbility classmasks pick the class's
+    // roster, Spell.dbc levels cap it at 60, rank chains collapse to the top
+    // trained rank. The Lab executes the authored list as cosmetic casts.
+
+    private uint _encounterRotationRosterClass;
+    private List<SpellInfo>? _encounterRotationRoster;
+    private string _encounterRotationSearch = "";
+
+    private List<SpellInfo> EncounterRotationRoster(uint classId)
+    {
+        if (_encounterRotationRoster is not null &&
+            _encounterRotationRosterClass == classId) return _encounterRotationRoster;
+        _encounterRotationRosterClass = classId;
+        _encounterRotationRoster = _spellCatalog is { } spells && _skillLines is { } skills
+            ? ClassSpellList.TrainedAt(spells, skills, (byte)classId, 60, _talents)
+            : [];
+        return _encounterRotationRoster;
+    }
+
+    private void DrawEncounterPlanRotation(CombatPlan plan)
+    {
+        float cs = CreatorUiScale;
+        if (_spellCatalog is null || _skillLines is null)
+        {
+            EncounterPlayerSetupDisabledWrapped(
+                "Spell data is unavailable (game archives not mounted). The rotation " +
+                "editor needs Spell.dbc and SkillLineAbility.dbc from the client MPQs.");
+            return;
+        }
+
+        ImGui.SeparatorText("Class");
+        ImGui.SetNextItemWidth(200f * cs);
+        if (ImGui.BeginCombo("##rotation-class", ClassSpellList.ClassName(plan.ClassId)))
+        {
+            foreach (ClassSpellList.PlayableClass entry in ClassSpellList.Classes)
+            {
+                bool isSelected = plan.ClassId == entry.Id;
+                if (ImGui.Selectable(entry.Name, isSelected))
+                    SetEncounterPlayerPlanDraft(plan with { ClassId = entry.Id });
+                if (isSelected) ImGui.SetItemDefaultFocus();
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled("level 60 · fully trained · top rank per spell");
+        plan = _encounterPlayerPlanDraft ?? plan;
+
+        ImGui.SeparatorText("Rotation — first ready ability wins");
+        List<CombatAbilityIntent> rotation = (plan.Rotation ?? []).ToList();
+        if (rotation.Count == 0)
+            ImGui.TextDisabled("Empty. Click spells in the spellbook below to add them, " +
+                               "highest priority first.");
+        bool changed = false;
+        float iconSide = MathF.Max(22f, 24f * cs);
+        for (int i = 0; i < rotation.Count; i++)
+        {
+            ImGui.PushID($"rotation-{i}");
+            CombatAbilityIntent entry = rotation[i];
+            bool enabled = entry.Enabled;
+            if (ImGui.Checkbox("##enabled", ref enabled))
+            { rotation[i] = entry = entry with { Enabled = enabled }; changed = true; }
+            ImGui.SameLine();
+            bool known = _spellCatalog.TryGet(entry.SpellId, out SpellInfo info);
+            uint icon = known && _gameplayArt is not null
+                ? _gameplayArt.Handle(info.IconPath) : 0;
+            if (icon != 0)
+            {
+                ImGui.Image((nint)icon, new Vector2(iconSide, iconSide));
+                if (ImGui.IsItemHovered() && known) EncounterRotationSpellTooltip(info);
+                ImGui.SameLine();
+            }
+            string label = known
+                ? string.IsNullOrEmpty(info.Rank) ? info.Name : $"{info.Name} ({info.Rank})"
+                : entry.Name.Length > 0 ? entry.Name : $"spell {entry.SpellId}";
+            ImGui.TextUnformatted($"{i + 1}. {label}");
+            if (ImGui.IsItemHovered() && known) EncounterRotationSpellTooltip(info);
+            if (known)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled(EncounterRotationSpellCadence(info));
+            }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Up") && i > 0)
+            { (rotation[i - 1], rotation[i]) = (rotation[i], rotation[i - 1]); changed = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Down") && i + 1 < rotation.Count)
+            { (rotation[i + 1], rotation[i]) = (rotation[i], rotation[i + 1]); changed = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Remove")) { rotation.RemoveAt(i); i--; changed = true; }
+            ImGui.PopID();
+        }
+        if (changed)
+            SetEncounterPlayerPlanDraft(plan with { Rotation = rotation.ToArray() });
+        plan = _encounterPlayerPlanDraft ?? plan;
+
+        ImGui.SeparatorText("Spellbook");
+        if (plan.ClassId == 0)
+        {
+            EncounterPlayerSetupDisabledWrapped(
+                "Choose a class above to open its trained-at-60 spellbook.");
+            return;
+        }
+        List<SpellInfo> roster = EncounterRotationRoster(plan.ClassId);
+        if (roster.Count == 0)
+        {
+            EncounterPlayerSetupDisabledWrapped(
+                "No trainable actives resolved for this class - check the DBC mount.");
+            return;
+        }
+        ImGui.SetNextItemWidth(240f * cs);
+        ImGui.InputTextWithHint("##rotation-search", "search spells...",
+            ref _encounterRotationSearch, 64);
+        ImGui.SameLine();
+        ImGui.TextDisabled($"{roster.Count} actives");
+
+        var inRotation = new HashSet<uint>(rotation.Select(r => r.SpellId));
+        float cell = MathF.Max(28f, 34f * cs);
+        float spacing = ImGui.GetStyle().ItemSpacing.X;
+        int perRow = Math.Max(1,
+            (int)((ImGui.GetContentRegionAvail().X - 4f) / (cell + spacing)));
+        int drawn = 0;
+        bool added = false;
+        foreach (SpellInfo spell in roster)
+        {
+            if (_encounterRotationSearch.Length > 0 &&
+                !spell.Name.Contains(_encounterRotationSearch,
+                    StringComparison.OrdinalIgnoreCase)) continue;
+            if (drawn++ % perRow != 0) ImGui.SameLine();
+            ImGui.PushID((int)spell.Id);
+            uint icon = _gameplayArt?.Handle(spell.IconPath) ?? 0;
+            Vector2 min = ImGui.GetCursorScreenPos();
+            if (icon != 0) ImGui.Image((nint)icon, new Vector2(cell, cell));
+            else ImGui.Dummy(new Vector2(cell, cell));
+            bool inList = inRotation.Contains(spell.Id);
+            if (inList)
+                ImGui.GetWindowDrawList().AddRect(min, min + new Vector2(cell, cell),
+                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.78f, 0.22f, 0.9f)),
+                    3f, ImDrawFlags.None, 2f);
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.GetWindowDrawList().AddRect(min, min + new Vector2(cell, cell),
+                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, 0.65f)), 3f);
+                EncounterRotationSpellTooltip(spell,
+                    inList ? "Already in the rotation." : "Click to add to the rotation.");
+                if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && !inList && !added)
+                {
+                    // One append per frame keeps the draft/undo bookkeeping simple.
+                    added = true;
+                    var next = rotation.Append(
+                        new CombatAbilityIntent(spell.Id, spell.Name)).ToArray();
+                    SetEncounterPlayerPlanDraft(plan with { Rotation = next });
+                }
+            }
+            ImGui.PopID();
+        }
+        if (drawn == 0) ImGui.TextDisabled("No spell matches the search.");
+        ImGui.Spacing();
+        ImGui.TextWrapped("The Lab plays these as real cosmetic casts on the body - true " +
+                          "spell art, real cast times and cooldowns - while damage stays " +
+                          "the owner's DPS dial until the combat evaluator lands.");
+    }
+
+    /// <summary>"instant · 8s cd · 30 yd" - the one-line cadence label.</summary>
+    private string EncounterRotationSpellCadence(in SpellInfo info)
+    {
+        string cast = info.CastTimeMs > 0 ? $"{info.CastTimeMs / 1000f:0.#}s cast" : "instant";
+        uint recovery = Math.Max(info.RecoveryMs, info.CategoryRecoveryMs);
+        string cooldown = recovery > 0 ? $" · {recovery / 1000f:0.#}s cd" : "";
+        string range = _spellCatalog is { } catalog &&
+                       catalog.TryGetRange(info.RangeIndex, out SpellRangeRow row) &&
+                       row.Max > 0f && !row.Melee
+            ? $" · {row.Max:0} yd" : "";
+        return cast + cooldown + range;
+    }
+
+    private void EncounterRotationSpellTooltip(in SpellInfo info, string? footer = null)
+    {
+        if (_spellCatalog is null) return;
+        SpellTooltipView view = SpellTooltipLaw.Build(info, _spellCatalog, 60);
+        ImGui.BeginTooltip();
+        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), view.Name);
+        if (view.Rank.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(view.Rank); }
+        string line = string.Join("  ",
+            new[] { view.Cost, view.Range, view.CastTime, view.Cooldown }
+                .Where(part => !string.IsNullOrEmpty(part)));
+        if (line.Length > 0) ImGui.TextUnformatted(line);
+        if (view.Description.Length > 0)
+        {
+            ImGui.PushTextWrapPos(320f);
+            ImGui.TextColored(new Vector4(1f, .93f, .35f, 1f), view.Description);
+            ImGui.PopTextWrapPos();
+        }
+        if (footer is not null) ImGui.TextDisabled(footer);
+        ImGui.EndTooltip();
+    }
+
     private void DrawEncounterPlanContext(EncounterActorSpec actor)
     {
         ImGui.TextColored(new Vector4(.45f, .9f, 1f, 1f),
@@ -642,7 +866,9 @@ public sealed partial class GameLoop
         ImGui.TextWrapped("Encounter Lab executes follow doctrine and routes each body's owner-authored " +
                           "DPS to its resolved hostile target. It does not model friendly damage, mana, " +
                           "global cooldowns, or healing amounts. Protection priorities are resolved and " +
-                          "displayed, but the Lab does not invent a heal cast. The " +
+                          "displayed, but the Lab does not invent a heal cast. An authored rotation " +
+                          "plays as COSMETIC casts - real spell art on the real cast/cooldown cadence - " +
+                          "without changing any number in the fight. The " +
                           "eventual SuperUI evaluator must execute this same typed plan using real " +
                           "server-authoritative combat state.");
 
@@ -712,10 +938,7 @@ public sealed partial class GameLoop
         }
         ImGui.SameLine();
         if (EncounterPanelButton("Close"))
-        {
-            ImGui.CloseCurrentPopup();
             _encounterPlayerSetupKey = null;
-        }
     }
 
     private bool DrawEncounterSubjectCombo(string label, CombatSubject current,
@@ -783,6 +1006,14 @@ public sealed partial class GameLoop
             sentences.Add("Protect: " + string.Join(" → ", support.Where(row => row.Enabled)
                 .Select(row => $"{EncounterCombatSubjectLabel(row.Target)} below " +
                                $"{row.OnlyWhenBelowHealthPercent:0}%")) + ".");
+        if (plan.Rotation is { Count: > 0 } rotation)
+        {
+            int active = rotation.Count(row => row.Enabled);
+            if (active > 0)
+                sentences.Add($"Rotation: {active} " +
+                    $"{ClassSpellList.ClassName(plan.ClassId)} " +
+                    (active == 1 ? "ability." : "abilities."));
+        }
         return string.Join(" ", sentences);
     }
 

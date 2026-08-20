@@ -339,6 +339,17 @@ public enum CombatResponsibility
 
 public enum CombatFallback { NoActionThisTick, AutoAttackCurrent, ClassDefaults }
 
+/// <summary>One ordered rotation entry: a real 1.12 spell (by Spell.dbc id) the
+/// character keeps using, priority-ordered against the other enabled entries.
+/// The Lab executes these as COSMETIC casts — the puppet plays the true cast
+/// visual on the real cast-time/cooldown cadence — while damage remains the
+/// owner's DPS dial until the combat evaluator lands. Name is a display
+/// fallback for when the spell catalog is unavailable.</summary>
+public sealed record CombatAbilityIntent(
+    uint SpellId,
+    string Name = "",
+    bool Enabled = true);
+
 public sealed record CombatResourcePolicy(
     int ReservePercent = 20,
     int EmergencyHealthPercent = 25,
@@ -358,7 +369,14 @@ public sealed record CombatPlan(
     IReadOnlyList<CombatEnemyPriority>? EnemyPriorities = null,
     IReadOnlyList<CombatResponsibility>? Responsibilities = null,
     CombatResourcePolicy? Resources = null,
-    CombatFallback Fallback = CombatFallback.ClassDefaults);
+    CombatFallback Fallback = CombatFallback.ClassDefaults,
+    /// <summary>The ordered ability intent from the precedence chain. Null keeps
+    /// older plans loading unchanged (no rotation authored).</summary>
+    IReadOnlyList<CombatAbilityIntent>? Rotation = null,
+    /// <summary>1.12 class id (1 Warrior … 11 Druid) whose trained-at-60
+    /// spellbook the rotation draws from. 0 = not chosen yet. Class identity
+    /// rides the plan because the plan store is the per-character persistence.</summary>
+    uint ClassId = 0);
 
 /// <summary>Standing rules owned by one player-side body. The legacy facing bit remains
 /// first and defaulted so existing positional constructors and encounter documents survive.</summary>

@@ -6,6 +6,17 @@ public readonly record struct SkillCategoryInfo(uint Id, string Name, uint Displ
 public readonly record struct SkillRecipeInfo(uint SpellId, uint SkillLineId, uint Minimum,
     uint TrivialLow, uint TrivialHigh);
 
+/// <summary>One SkillLineAbility.dbc row with its learn-routing columns: which
+/// race/class bit-sets learn the spell, and the forward id that supersedes it at
+/// the next rank. Build-5875 columns: [3]=raceMask [4]=classMask [5]=raceMaskNot
+/// [6]=classMaskNot [8]=forwardSpellId [9]=acquireMethod (vmangos
+/// SkillLineAbilityEntry order). Talent-granted actives and their trainer rank
+/// upgrades carry classMask 0, so ALL rows are kept and the class resolver
+/// decides admission.</summary>
+public readonly record struct ClassAbilityRow(uint SpellId, uint SkillLineId,
+    uint RaceMask, uint ClassMask, uint RaceMaskNot, uint ClassMaskNot,
+    uint ForwardSpellId, uint AcquireMethod);
+
 /// <summary>Names, categories, descriptions and icons from the client's build-5875 DBCs.</summary>
 public sealed class SkillLineCatalog
 {
@@ -23,6 +34,11 @@ public sealed class SkillLineCatalog
     private readonly Dictionary<uint, SkillRecipeInfo> _recipes = new();
     private readonly Dictionary<uint, List<SkillRecipeInfo>> _recipesByLine = new();
     private readonly Dictionary<uint, List<RaceClassRoute>> _raceClassRoutes = new();
+    private readonly List<ClassAbilityRow> _classAbilities = new();
+
+    /// <summary>Every ability row with its learn routing — the offline source of
+    /// "which class knows which spells" that trainer packets provide online.</summary>
+    public IReadOnlyList<ClassAbilityRow> AbilityRows => _classAbilities;
 
     public bool TryGet(uint id, out SkillLineInfo line) => _lines.TryGetValue(id, out line);
     public IEnumerable<SkillLineInfo> Lines => _lines.Values;
@@ -103,6 +119,10 @@ public sealed class SkillLineCatalog
                 result._spellLines.TryAdd(spell, line);
                 var recipe = new SkillRecipeInfo(spell, line, abilities.GetUInt(row, 7),
                     abilities.GetUInt(row, 11), abilities.GetUInt(row, 10));
+                result._classAbilities.Add(new ClassAbilityRow(spell, line,
+                    abilities.GetUInt(row, 3), abilities.GetUInt(row, 4),
+                    abilities.GetUInt(row, 5), abilities.GetUInt(row, 6),
+                    abilities.GetUInt(row, 8), abilities.GetUInt(row, 9)));
                 result._recipes[spell] = recipe;
                 if (!result._recipesByLine.TryGetValue(line, out List<SkillRecipeInfo>? list))
                     result._recipesByLine[line] = list = [];

@@ -112,6 +112,15 @@ public sealed class CombatPlanDto
     public List<CombatResponsibility>? Responsibilities { get; set; }
     public CombatResourcePolicyDto? Resources { get; set; }
     public CombatFallback Fallback { get; set; } = CombatFallback.ClassDefaults;
+    public List<CombatAbilityIntentDto>? Rotation { get; set; }
+    public uint ClassId { get; set; }
+}
+
+public sealed class CombatAbilityIntentDto
+{
+    public uint SpellId { get; set; }
+    public string Name { get; set; } = "";
+    public bool Enabled { get; set; } = true;
 }
 
 public sealed class CombatMovementDto
@@ -411,7 +420,10 @@ public sealed class EncounterLibrary
             ? new CombatResourcePolicy(resources.ReservePercent,
                 resources.EmergencyHealthPercent, resources.SaveMajorCooldowns)
             : null,
-        dto.Fallback);
+        dto.Fallback,
+        dto.Rotation?.Select(intent =>
+            new CombatAbilityIntent(intent.SpellId, intent.Name, intent.Enabled)).ToArray(),
+        dto.ClassId);
 
     private static CombatSubject? FromDto(CombatSubjectDto? dto) => dto is null ? null :
         new CombatSubject(dto.Kind, dto.Role, Math.Max(dto.Ordinal, 1));
@@ -577,6 +589,13 @@ public sealed class EncounterLibrary
             }
             : null,
         Fallback = plan.Fallback,
+        Rotation = plan.Rotation?.Select(intent => new CombatAbilityIntentDto
+        {
+            SpellId = intent.SpellId,
+            Name = intent.Name,
+            Enabled = intent.Enabled,
+        }).ToList(),
+        ClassId = plan.ClassId,
     };
 
     private static CombatSubjectDto? ToDto(CombatSubject? subject) => subject is null ? null :

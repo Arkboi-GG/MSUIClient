@@ -197,8 +197,12 @@ public sealed class SpellCatalog
                 EffectAmplitudes: Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 94 + i)).ToArray(),
                 EffectMultipleValues: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 97 + i)).ToArray(),
                 EffectChainTargets: Enumerable.Range(0, 3).Select(i => spells.GetUInt(row, 100 + i)).ToArray(),
-                MaxLevel: spells.GetUInt(row, 27), SpellLevel: spells.GetUInt(row, 28),
-                BaseLevel: spells.GetUInt(row, 29),
+                // Column order in build 5875 is maxLevel(27), baseLevel(28),
+                // spellLevel(29) — vmangos SpellEntry is the reference. These
+                // were swapped here for a while; the tooltip level leg wants the
+                // true spellLevel column.
+                MaxLevel: spells.GetUInt(row, 27), SpellLevel: spells.GetUInt(row, 29),
+                BaseLevel: spells.GetUInt(row, 28),
                 EffectDicePerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 70 + i)).ToArray(),
                 EffectRealPointsPerLevel: Enumerable.Range(0, 3).Select(i => spells.GetFloat(row, 73 + i)).ToArray(),
                 DispelType: spells.GetUInt(row, 14),

@@ -1014,7 +1014,7 @@ public sealed partial class GameLoop
         if (art != 0) dl.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(1f, .625f));
         if (hovered)
         {
-            uint hi = _gameplayArt?.AdditiveHandle(
+            uint hi = _gameplayArt?.BrightHighlightHandle(
                 @"Interface\Buttons\UI-DialogBox-Button-Highlight") ?? 0;
             if (hi != 0) dl.AddImage((nint)hi, min, min + size,
                 Vector2.Zero, new Vector2(1f, .625f));

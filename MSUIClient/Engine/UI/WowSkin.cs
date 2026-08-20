@@ -342,7 +342,8 @@ public sealed class WowSkin : IDisposable
                 // so keeping the highlight's coloured RGB can still replace bright red with darker
                 // midtones. Make that overlay a white light mask: hover can then only brighten the
                 // authored button face, matching the 1.12 ADD-blend result.
-                if (key == "glue.btn.hi")
+                if (key == "button.hi" || key == "dialog.button.hi" ||
+                    key == "glue.btn.hi")
                     WhiteGlowFromLuma(bgra);
                 else if (key == "glue.select.hi"
                     || key == "glue.arrow.l.hi" || key == "glue.arrow.r.hi")
@@ -786,8 +787,9 @@ public sealed class WowSkin : IDisposable
 
         dl.AddImage(Id(art), pos, pos + size, ButtonUv1, ButtonUv2, White);
 
-        // The frozen reference uses ADD. MSUI's already-working renderer deliberately keeps its
-        // normal-blend .55-alpha approximation; parity telemetry labels that preserved difference.
+        // The frozen reference uses ADD. The texture was rebuilt as a white light mask at load,
+        // so normal ImGui blending can only brighten the face and its black source field cannot
+        // leak beyond the visible button as a rectangular veil.
         Piece? highlight = hovered && !held ? Get("button.hi") : null;
         if (highlight is Piece hi)
             dl.AddImage(Id(hi), pos, pos + size, ButtonUv1, ButtonUv2,
@@ -798,7 +800,10 @@ public sealed class WowSkin : IDisposable
         var textPos = pos + (size - textSize) * 0.5f;
         if (held) textPos += new Vector2(1f, 1f) * Scale;
 
-        var colour = !enabled ? Disabled : hovered ? Highlight : Normal;
+        // WoW panel buttons use the normal gold font and turn white only while
+        // highlighted. Keeping Normal here made this shared custom-modal path the
+        // lone white-at-rest family beside VanillaButton and dialog buttons.
+        var colour = !enabled ? Disabled : hovered ? Highlight : Gold;
         dl.AddText(textPos + new Vector2(1f, 1f), U32(Shadow), caption);
         dl.AddText(textPos, U32(colour), caption);
 
@@ -845,13 +850,20 @@ public sealed class WowSkin : IDisposable
 
         if (hovered && !held && GlueTune.HoverGlow > 0.001f && Get("glue.btn.hi") is Piece hi)
         {
-            // Bleed the glow slightly past the button so it covers the edges (the highlight art stops
-            // short of the button's right otherwise) and reads as a glow. HoverGlow can exceed 1: alpha
-            // clamps at 1, so redraw for each whole unit to stack the brightening past a single pass.
-            var ex = new Vector2(size.X * 0.05f, size.Y * 0.06f);
+            // Keep the light inside the button's own rectangle. The authored highlight sits a touch
+            // low relative to the Up face, so enlarge it vertically and bias it upward by one small
+            // optical step; clipping prevents either end from escaping the decorative frame.
+            float growY = size.Y * 0.04f;
+            float liftY = size.Y * 0.02f;
+            Vector2 highlightMin = pos + new Vector2(0f, -growY - liftY);
+            Vector2 highlightMax = pos + size + new Vector2(0f, growY - liftY);
+            dl.PushClipRect(pos, pos + size, true);
             for (float g = GlueTune.HoverGlow; g > 0.001f; g -= 1f)
-                dl.AddImage(Id(hi), pos - ex, pos + size + ex, GlueButtonHiUv1, GlueButtonHiUv2,
-                    ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 1f, 1f, MathF.Min(1f, g))));
+                dl.AddImage(Id(hi), highlightMin, highlightMax,
+                    GlueButtonHiUv1, GlueButtonHiUv2,
+                    ImGui.ColorConvertFloat4ToU32(
+                        new Vector4(1f, 1f, 1f, MathF.Min(1f, g))));
+            dl.PopClipRect();
         }
 
         // The caption is sized to the button, not to the fixed ImGui font: FRIZQT on the real glue
@@ -989,6 +1001,19 @@ public sealed class WowSkin : IDisposable
         return pressed;
     }
 
+    // Drag anchor for SliderFloat. The value must be computed against the track
+    // geometry captured when the drag STARTED, never the current frame's: a
+    // scale slider changes the very window that hosts it, so live geometry
+    // makes value and track a feedback loop (value moves track, track re-derives
+    // value) that runs away from the cursor or oscillates between the clamps.
+    private string? _sliderDragId;
+    private float _sliderDragOriginX;
+    private float _sliderDragUsable;
+    private float _sliderDragKnobHalf;
+
+    /// <summary>True while any WowSkin slider knob is held.</summary>
+    public bool SliderDragActive => _sliderDragId is not null;
+
     /// <summary>
     /// A 1.12 options slider: caption above, value on the right, the SliderTrack
     /// backdrop as the groove and `UI-SliderBar-Button-Horizontal` as the knob.
@@ -1020,7 +1045,17 @@ public sealed class WowSkin : IDisposable
         var pos = ImGui.GetCursorScreenPos();
         var hit = new Vector2(width, knob);
         ImGui.InvisibleButton("##slider" + id, hit);
-        bool active = ImGui.IsItemActive();
+
+        // Anchor the drag to the geometry at mouse-down; see _sliderDragId.
+        if (ImGui.IsItemActivated())
+        {
+            _sliderDragId = id;
+            _sliderDragOriginX = pos.X;
+            _sliderDragUsable = MathF.Max(width - knob, 1f);
+            _sliderDragKnobHalf = knob * 0.5f;
+        }
+        bool active = ImGui.IsItemActive() && _sliderDragId == id;
+        if (ImGui.IsItemDeactivated() && _sliderDragId == id) _sliderDragId = null;
 
         float range = hi - lo;
         float t = range > 1e-6f ? Math.Clamp((value - lo) / range, 0f, 1f) : 0f;
@@ -1028,9 +1063,8 @@ public sealed class WowSkin : IDisposable
         bool changed = false;
         if (active)
         {
-            float usable = MathF.Max(width - knob, 1f);
-            float mouseX = ImGui.GetIO().MousePos.X - pos.X - knob * 0.5f;
-            float nt = Math.Clamp(mouseX / usable, 0f, 1f);
+            float mouseX = ImGui.GetIO().MousePos.X - _sliderDragOriginX - _sliderDragKnobHalf;
+            float nt = Math.Clamp(mouseX / _sliderDragUsable, 0f, 1f);
             float nv = lo + nt * range;
             if (MathF.Abs(nv - value) > 1e-6f) { value = nv; t = nt; changed = true; }
         }

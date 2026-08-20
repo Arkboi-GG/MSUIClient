@@ -59,7 +59,8 @@ public sealed partial class GameLoop
             draw.AddImage((nint)art, min, min + size, Vector2.Zero, new Vector2(.625f, .6875f));
         if (visual.HighlightVisible)
         {
-            uint hi = _gameplayArt?.AdditiveHandle(@"Interface\Buttons\UI-Panel-Button-Highlight") ?? 0;
+            uint hi = _gameplayArt?.BrightHighlightHandle(
+                @"Interface\Buttons\UI-Panel-Button-Highlight") ?? 0;
             if (hi != 0)
                 draw.AddImage((nint)hi, min, min + size, Vector2.Zero,
                     new Vector2(.625f, .6875f));

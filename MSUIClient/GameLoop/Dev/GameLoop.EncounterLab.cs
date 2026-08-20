@@ -329,6 +329,105 @@ public sealed partial class GameLoop
 
     private readonly Dictionary<string, int> _encounterSwingAccumMs = new(StringComparer.Ordinal);
 
+    // ── rotation cosmetic casts ──────────────────────────────────────────────
+    // Friendly bodies with an authored CombatPlan.Rotation play their spells as
+    // COSMETIC casts: the schedule is a pure function of (rotation, Spell.dbc
+    // cadence, the sim's pull time), so scrubbing and replays land on identical
+    // cast instants. Nothing here touches the sim - damage stays the DPS dial.
+
+    private sealed record EncounterRotationCast(int TimeMs, uint SpellId, bool Healing);
+    private readonly Dictionary<string, List<EncounterRotationCast>> _encounterRotationSchedules =
+        new(StringComparer.Ordinal);
+    private EncounterSim? _encounterRotationScheduleSim;
+
+    private void EnsureEncounterRotationSchedules(EncounterSim sim)
+    {
+        if (ReferenceEquals(_encounterRotationScheduleSim, sim)) return;
+        _encounterRotationScheduleSim = sim;
+        _encounterRotationSchedules.Clear();
+        if (_spellCatalog is null) return;
+
+        int pullMs = sim.Events.FirstOrDefault(e => e.Kind == SimEventKind.Aggro)?.TimeMs ?? 0;
+        int endMs = sim.Events.Count > 0 ? sim.Events[^1].TimeMs : 0;
+        foreach (EncounterActorSpec actor in _encounterScenario)
+        {
+            if (actor.Role != EncounterActorRole.Friendly) continue;
+            if (actor.PlayerRules?.Plan?.Rotation is not { Count: > 0 } rotation) continue;
+            var priority = new List<SpellInfo>();
+            foreach (CombatAbilityIntent intent in rotation)
+                if (intent.Enabled && intent.SpellId != 0 &&
+                    _spellCatalog.TryGet(intent.SpellId, out SpellInfo info))
+                    priority.Add(info);
+            if (priority.Count == 0) continue;
+            int deathMs = sim.Events.FirstOrDefault(e =>
+                e.Kind == SimEventKind.Death && e.ActorKey == actor.Key)?.TimeMs ?? int.MaxValue;
+            // The same phase-offset trick as the melee swings, so ten same-class
+            // bodies do not cast in lockstep.
+            int start = pullMs + (actor.Key.GetHashCode() & 0x7fffffff) % 900;
+            _encounterRotationSchedules[actor.Key] =
+                BuildEncounterRotationSchedule(priority, start, Math.Min(endMs, deathMs));
+        }
+    }
+
+    /// <summary>Greedy priority walk: at each free instant cast the first ready
+    /// entry, occupy max(GCD, cast time), and put the entry on its real cooldown.</summary>
+    private static List<EncounterRotationCast> BuildEncounterRotationSchedule(
+        List<SpellInfo> priority, int startMs, int endMs)
+    {
+        const int gcdMs = 1500;
+        var result = new List<EncounterRotationCast>();
+        var readyAt = new int[priority.Count];
+        Array.Fill(readyAt, startMs);
+        int now = startMs;
+        while (now < endMs && result.Count < 4000)
+        {
+            int pick = -1;
+            for (int i = 0; i < priority.Count; i++)
+                if (readyAt[i] <= now) { pick = i; break; }
+            if (pick < 0)
+            {
+                int next = readyAt.Min();
+                if (next <= now) break;
+                now = next;
+                continue;
+            }
+            SpellInfo spell = priority[pick];
+            result.Add(new EncounterRotationCast(now, spell.Id,
+                spell.EffectIds?.Contains(10u) == true || spell.AuraIds?.Contains(8u) == true));
+            int busy = Math.Max(gcdMs, Math.Max(0, spell.CastTimeMs));
+            int cooldown = (int)Math.Max(spell.RecoveryMs, spell.CategoryRecoveryMs);
+            readyAt[pick] = now + Math.Max(cooldown, busy);
+            now += busy;
+        }
+        return result;
+    }
+
+    /// <summary>Emit the rotation casts that crossed (fromMs, toMs] on live bodies.
+    /// A scrub jump replays only the trailing 3 s so a 60 s hop cannot burst
+    /// hundreds of ApplySpellGo calls into one frame.</summary>
+    private void PlayEncounterRotationCasts(EncounterSim sim, int fromMs, int toMs)
+    {
+        EnsureEncounterRotationSchedules(sim);
+        if (_encounterRotationSchedules.Count == 0) return;
+        int emitFrom = Math.Max(fromMs, toMs - 3000);
+        foreach ((string key, List<EncounterRotationCast> casts) in _encounterRotationSchedules)
+        {
+            SimActor? actor = sim.Actors.FirstOrDefault(a => a.Key == key);
+            if (actor is not { Alive: true }) continue;
+            foreach (EncounterRotationCast cast in casts)
+            {
+                if (cast.TimeMs <= emitFrom) continue;
+                if (cast.TimeMs > toMs) break;
+                string? targetKey = cast.Healing
+                    ? actor.CurrentProtectTargetKey ?? key
+                    : actor.CurrentEnemyTargetKey ?? sim.Boss?.Key;
+                PlayEncounterSpellCast(new SimEvent(cast.TimeMs, SimEventKind.CastStart, key,
+                    "rotation", EncounterFidelity.Heuristic, null, cast.SpellId,
+                    null, targetKey));
+            }
+        }
+    }
+
     /// <summary>Make the models actually FIGHT the real fight: the boss plays each ability's
     /// TRUE spell visual (cast animation, attached kit FX, a flying fireball missile, the
     /// impact on whoever it lands on), bodies take the real impact reaction, and in-reach
@@ -351,6 +450,9 @@ public sealed partial class GameLoop
             else if (e.Kind == SimEventKind.ActorHit)
                 PlayEncounterSpellImpact(e);
         }
+
+        // Friendly rotation casts, on the same crossing rule as the boss's.
+        PlayEncounterRotationCasts(sim, fromMs, toMs);
 
         // Synthesized melee swings: a body in reach of a grounded boss swings ~every 2 s,
         // phase-offset per key so the raid does not swing in lockstep.
@@ -854,9 +956,88 @@ public sealed partial class GameLoop
         if (right - ImGui.GetItemRectMax().X >= needed) ImGui.SameLine();
     }
 
+    // ── collapse ─────────────────────────────────────────────────────────────
+    // Commanding bodies and customizing characters both want the world, not the
+    // 470x680 principal window. While puppets are selected or the customizer is
+    // open the Lab auto-collapses into a small chip; the chip force-opens it,
+    // and that choice is respected until the space pressure ends.
+
+    private bool _encounterLabCollapsed;
+    private bool _encounterLabAutoCollapsed;
+    private bool _encounterLabUserForcedOpen;
+
+    /// <summary>True while the owner is doing spatial work the Lab window would
+    /// cover: puppets selected in the command view, or the customizer open.</summary>
+    private bool EncounterLabWantsSpace() =>
+        (_freeView && _freecamSelection.Count > 0 &&
+         _freecamSelection.Any(guid => EncounterRaidPuppetKey(guid) is not null)) ||
+        _encounterPlayerSetupKey is not null;
+
+    private void UpdateEncounterLabCollapse()
+    {
+        bool wantsSpace = EncounterLabWantsSpace();
+        if (wantsSpace && !_encounterLabCollapsed && !_encounterLabUserForcedOpen)
+        {
+            _encounterLabCollapsed = true;
+            _encounterLabAutoCollapsed = true;
+        }
+        else if (!wantsSpace)
+        {
+            if (_encounterLabAutoCollapsed) _encounterLabCollapsed = false;
+            _encounterLabAutoCollapsed = false;
+            _encounterLabUserForcedOpen = false;
+        }
+    }
+
+    /// <summary>The collapsed Lab: one compact button where the window's top-left
+    /// corner normally sits. Clicking it restores the full window.</summary>
+    private void DrawEncounterLabChip()
+    {
+        float cs = CreatorUiScale;
+        float s = MathF.Max(ImGui.GetIO().DisplaySize.Y / GlueCanvasH, 0.5f) * cs;
+        ImGui.SetNextWindowPos(new Vector2(24f * s, 64f * s), ImGuiCond.Always);
+        ImGui.SetNextWindowBgAlpha(0f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove |
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoScrollbar |
+            ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoFocusOnAppearing |
+            ImGuiWindowFlags.NoBackground | ImGuiWindowFlags.AlwaysAutoResize;
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        if (ImGui.Begin("###encounter-lab-chip", flags))
+        {
+            const string caption = "Encounter Lab";
+            float textScale = Math.Clamp(CreatorTextScale, 0.65f, 1.35f);
+            ImGui.SetWindowFontScale(textScale);
+            Vector2 measured = ImGui.CalcTextSize(caption) * textScale;
+            Vector2 size = new(MathF.Max(150f * s, measured.X + 30f * s),
+                MathF.Max(30f * s, measured.Y + 12f * s));
+            bool clicked = _skin?.PanelButton(caption + "##encounter-lab-chip", size)
+                           ?? ImGui.Button(caption, size);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(_encounterDefinition is { } definition
+                    ? $"{definition.Name}: {_encounterOutcome}\nOpen the main encounter window."
+                    : "Open the main encounter window.");
+            if (clicked)
+            {
+                _encounterLabCollapsed = false;
+                _encounterLabAutoCollapsed = false;
+                if (EncounterLabWantsSpace()) _encounterLabUserForcedOpen = true;
+            }
+            ImGui.SetWindowFontScale(1f);
+        }
+        ImGui.End();
+        ImGui.PopStyleVar();
+    }
+
     private void DrawEncounterLab()
     {
         if (!_encounterLabOpen) return;
+
+        UpdateEncounterLabCollapse();
+        if (_encounterLabCollapsed)
+        {
+            DrawEncounterLabChip();
+            return;
+        }
 
         _activePanelTune = "encounter-lab";
         float cs = CreatorUiScale;
@@ -919,7 +1100,9 @@ public sealed partial class GameLoop
             status = $"build {stamp} · {status}";
         float rowStart = ImGui.GetCursorPosX();
         float avail = ImGui.GetContentRegionAvail().X;
-        float buttonW = EncounterPanelButtonWidth("Refresh DB");
+        float buttonW = EncounterPanelButtonWidth("Refresh DB") +
+                        ImGui.GetStyle().ItemSpacing.X +
+                        EncounterPanelButtonWidth("Minimize");
         bool inline = ImGui.CalcTextSize(status).X + ImGui.GetStyle().ItemSpacing.X +
                       buttonW <= avail;
         if (inline)
@@ -937,6 +1120,14 @@ public sealed partial class GameLoop
         {
             data.BeginFetch(Settings.DevWindow.SuiBaseUrl, forceRefresh: true);
             _encounterFacts = null;
+        }
+        ImGui.SameLine();
+        if (EncounterPanelButton("Minimize"))
+        {
+            // A manual collapse sticks until the chip is clicked; it is not
+            // undone by the auto-restore that ends an auto collapse.
+            _encounterLabCollapsed = true;
+            _encounterLabAutoCollapsed = false;
         }
         if (data.Data?.Error is { Length: > 0 } error)
             ImGui.TextColored(new Vector4(1f, .55f, .35f, 1f), error);
