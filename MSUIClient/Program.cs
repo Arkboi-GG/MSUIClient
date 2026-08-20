@@ -1820,7 +1820,7 @@ public sealed partial class GameLoop : IDisposable
             Forward = forward,
             Strafe = strafe,
             Up = typing || _movementRooted || _iceBlockFrozen ? 0f : ((BindingDown(GameBinding.Jump) ? 1f : 0f) -
-                                (InputKeyDown(Key.ControlLeft) ? 1f : 0f)),
+                                (InputKeyDown(Key.CapsLock) ? 1f : 0f)),
             Yaw = _iceBlockFrozen ? _iceBlockFacing : _window.Camera.Yaw,
             Jump = !_movementRooted && !_iceBlockFrozen && (_movementScript is not null
                 ? scriptedJump : !typing && BindingDown(GameBinding.Jump)),

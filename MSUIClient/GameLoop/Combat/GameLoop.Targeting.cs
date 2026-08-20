@@ -190,6 +190,15 @@ public sealed partial class GameLoop
             foreach (ulong guid in _freecamSelection)
                 _creatures.GroupSelectedGuids.Add(guid);
             AddMarqueePreview(_creatures.GroupSelectedGuids);
+
+            // Encounter Lab is an authoring surface: the selected puppet's BODY, not merely
+            // its ground ring, must remain unmistakable after the click. Keep this separate
+            // from the ordinary RTS/target highlight so normal play is not blown out.
+            _creatures.ProminentSelectedGuids.Clear();
+            if (_encounterLabOpen)
+                foreach (ulong guid in _creatures.GroupSelectedGuids)
+                    if (EncounterRaidPuppetKey(guid) is not null)
+                        _creatures.ProminentSelectedGuids.Add(guid);
         }
         // The hovered gameobject brightens exactly like a hovered creature; the
         // doodad renderer applies the same 64/255 boost to that one dynamic

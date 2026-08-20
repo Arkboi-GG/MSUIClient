@@ -72,6 +72,13 @@ public sealed partial class CreatureRenderer : IDisposable
 
     /// <summary>CRPG free-view multi-selection: every member wears the target highlight.</summary>
     public HashSet<ulong> GroupSelectedGuids { get; } = [];
+
+    /// <summary>
+    /// Tool-owned selections that must read unmistakably on the model itself. Encounter Lab
+    /// authoring uses this instead of overloading the ordinary hover/target lift, which is
+    /// intentionally subtle during normal play.
+    /// </summary>
+    public HashSet<ulong> ProminentSelectedGuids { get; } = [];
     public Action<string, int, M2Animator.Resolution>? AnimationResolved { get; set; }
 
     /// <summary>
@@ -447,8 +454,14 @@ public sealed partial class CreatureRenderer : IDisposable
             // squares native sub-1 scales and makes wolves/critters tiny.
             float scale = UnitRenderScale(e.Scale, ScaleMultiplier);
             float heading = e.Orientation + heading0;
-            bool highlighted = e.Guid == HoveredGuid || e.Guid == SelectedGuid ||
-                GroupSelectedGuids.Contains(e.Guid);
+            bool prominentHighlight = ProminentSelectedGuids.Contains(e.Guid);
+            bool highlighted = prominentHighlight || e.Guid == HoveredGuid ||
+                e.Guid == SelectedGuid || GroupSelectedGuids.Contains(e.Guid);
+            // A slow pulse makes authoring selection obvious even when the model stands in
+            // bright light. Normal hover/target selection retains the stock subtle lift.
+            float highlightStrength = prominentHighlight
+                ? 0.62f + 0.12f * MathF.Sin(_globalTime * 4f)
+                : highlighted ? 64f / 255f : 0f;
 
             // The steed draws FIRST, because the rider's instance transform is its saddle.
             // Until the mount model is resident this is false and the rider draws on the
@@ -471,7 +484,7 @@ public sealed partial class CreatureRenderer : IDisposable
             Matrix4x4 m = worldModel;
             m.M41 -= camPos.X; m.M42 -= camPos.Y; m.M43 -= camPos.Z;
             _shader.Set("uModel", m);
-            _shader.Set("uHighlight", highlighted ? 64f / 255f : 0f);
+            _shader.Set("uHighlight", highlightStrength);
 
             int boneCount = 0;
             if (Animate && model.Animator is not null && model.BoneCount > 0 &&
@@ -737,7 +750,7 @@ public sealed partial class CreatureRenderer : IDisposable
 
     private static bool CastsGroundShadow(WorldEntity entity)
     {
-        if (entity.Spline?.Flying == true) return false;
+        if (entity.Flying || entity.Spline?.Flying == true) return false;
         const uint airborneOrSwimming =
             (uint)(MovementFlags.Falling | MovementFlags.Swimming);
         return (entity.MoveFlags & airborneOrSwimming) == 0;
@@ -1024,9 +1037,17 @@ public sealed partial class CreatureRenderer : IDisposable
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
         if (e.Spline is null || speed <= MovingEpsilon)
+        {
+            // Flying is durable actor state; the spline only says whether the body is travelling
+            // right now. Prefer the model's authored Hover loop, then its generic Fly cycle. The
+            // final fall/stand fallbacks keep models with a smaller animation vocabulary visible.
+            if (e.Flying)
+                return animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 40, 0);
+
             return e.Engaged
                 ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
                 : animator.Resolve(unit, BaseAnimationTrack, 0, true);
+        }
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;
         M2Animator.Clip? clip = speed > 2f * walk

@@ -218,6 +218,330 @@ internal static class Program
                 restoredTank.MoveTarget == new Vector3(20f, 0f, 0f));
         }
 
+        // Reusable combat plans resolve semantic subjects by actor key, never by
+        // scenario insertion order. This scenario deliberately lists tank-z first.
+        var doctrinePlan = new CombatPlan(
+            Name: "tank healer",
+            Movement: new CombatMovementPlan(
+                CombatMovementMode.Follow, CombatSubject.Tank(2), 5f, 10f),
+            SupportPriorities:
+            [
+                new CombatSupportPriority(CombatSubject.Tank(1), 50f),
+                new CombatSupportPriority(CombatSubject.Tank(2), 90f),
+            ],
+            EnemyPriorities:
+            [
+                new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+                new CombatEnemyPriority(CombatEnemyKind.CurrentEnemy),
+                new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy),
+            ]);
+        List<EncounterActorSpec> doctrineScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 100_000),
+            new("tank-z", "second tank", 0, EncounterActorRole.Friendly,
+                new Vector3(12f, 0f, 0f), Job: RaidJob.Tank),
+            new("tank-a", "first tank", 0, EncounterActorRole.Friendly,
+                new Vector3(10f, 0f, 0f), Job: RaidJob.Tank),
+            new("healer", "healer", 0, EncounterActorRole.Friendly,
+                new Vector3(32f, 0f, 0f), Job: RaidJob.Healer,
+                PlayerRules: new EncounterPlayerRules(Plan: doctrinePlan)),
+            new("add-z", "second add", 2, EncounterActorRole.Add,
+                new Vector3(4f, 4f, 0f)),
+            new("add-a", "first add", 2, EncounterActorRole.Add,
+                new Vector3(4f, -4f, 0f)),
+        ];
+        var doctrine = new EncounterSim(definition, doctrineScenario,
+            new EncounterSimOptions
+            {
+                Seed = 18,
+                StepMs = 100,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        SimActor doctrineHealer = doctrine.Actors.First(actor => actor.Key == "healer");
+        Check("tank ordinals resolve by actor key, not insertion order",
+            doctrineHealer.CurrentFollowTargetKey == "tank-z");
+        Check("add priority resolves the first alive add by actor key",
+            doctrineHealer.CurrentEnemyTargetKey == "add-a");
+
+        SimActor firstTank = doctrine.Actors.First(actor => actor.Key == "tank-a");
+        SimActor secondTank = doctrine.Actors.First(actor => actor.Key == "tank-z");
+        firstTank.Health = 800;   // first row requires below 50%, so it falls through
+        secondTank.Health = 700;  // second row requires below 90%
+        int protectedHealth = secondTank.Health;
+        doctrine.Advance();
+        Check("support priorities fall through to the first applicable subject",
+            doctrineHealer.CurrentProtectTargetKey == "tank-z");
+        Check("support intent does not invent healing",
+            secondTank.Health == protectedHealth);
+        int intentSnapshot = doctrine.Timeline.Count - 1;
+        Check("combat intent keys are captured in the timeline",
+            doctrine.Timeline[intentSnapshot].Actors.First(state => state.Key == "healer") is
+            {
+                CurrentFollowTargetKey: "tank-z",
+                CurrentProtectTargetKey: "tank-z",
+                CurrentEnemyTargetKey: "add-a",
+            });
+
+        foreach (SimActor add in doctrine.Actors.Where(actor =>
+                     actor.Spec.Role == EncounterActorRole.Add))
+            add.Alive = false;
+        doctrine.Advance();
+        Check("enemy priority falls back from adds/current to the primary enemy",
+            doctrineHealer.CurrentEnemyTargetKey == "boss");
+        doctrine.RestoreTo(intentSnapshot);
+        Check("rewind restores resolved combat intent",
+            doctrineHealer.CurrentEnemyTargetKey == "add-a" &&
+            doctrineHealer.CurrentProtectTargetKey == "tank-z");
+
+        // A planned body's existing DPS follows its portable hostile buckets.
+        // The global fraction remains boss pressure even while that body handles
+        // adds, and deaths reroute only after the fixed step resolves.
+        var addFirstRules = new EncounterPlayerRules(Plan: new CombatPlan(
+            EnemyPriorities:
+            [
+                new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+            ],
+            Fallback: CombatFallback.ClassDefaults));
+        List<EncounterActorSpec> routedDamageScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 1_000),
+            new("add-b", "second add", 2, EncounterActorRole.Add,
+                new Vector3(4f, -3f, 0f), MaxHealth: 100),
+            new("add-a", "first add", 2, EncounterActorRole.Add,
+                new Vector3(4f, -4f, 0f), MaxHealth: 100),
+            new("planned-melee", "planned melee", 0, EncounterActorRole.Friendly,
+                new Vector3(4f, -4f, 0f), Dps: 100f, Job: RaidJob.Melee,
+                PlayerRules: addFirstRules),
+        ];
+        var routedDamage = new EncounterSim(definition, routedDamageScenario,
+            new EncounterSimOptions
+            {
+                Seed = 21,
+                StepMs = 1_000,
+                RaidDpsFraction = 0.01f,
+                PullRangeYards = 100f,
+            });
+        routedDamage.Advance(); // pull; combat damage begins on the next tick
+        SimActor routedBoss = routedDamage.Actors.First(actor => actor.Key == "boss");
+        SimActor routedPlayer = routedDamage.Actors
+            .First(actor => actor.Key == "planned-melee");
+        routedDamage.Advance(); // add-a dies; only the global dial touches boss
+        Check("add-first routes that character's DPS away from the boss",
+            routedBoss.Health == 990 &&
+            routedDamage.Actors.First(actor => actor.Key == "add-a") is
+                { Alive: false, Health: 0 } &&
+            routedPlayer.CurrentEnemyTargetKey == "add-b");
+        routedDamage.Advance(); // add-b dies; next resolution selects class default
+        Check("planned melee reach is tested against its chosen add",
+            routedDamage.Actors.First(actor => actor.Key == "add-b") is
+                { Alive: false, Health: 0 });
+        Check("class-default fallback resolves the primary enemy after adds",
+            routedBoss.Health == 980 && routedPlayer.CurrentEnemyTargetKey == "boss");
+        Check("add death events are emitted once in deterministic key order",
+            routedDamage.Events
+                .Where(e => e.Kind == SimEventKind.Death && e.ActorKey.StartsWith("add-"))
+                .Select(e => e.ActorKey)
+                .SequenceEqual(["add-a", "add-b"]));
+        routedDamage.Advance();
+        Check("per-character DPS resumes on the fallback primary enemy",
+            routedBoss.Health == 870);
+
+        // A NoAction fallback is an actual zero-DPS decision for the planned
+        // character. The unplanned body beside it keeps the legacy boss route.
+        var noActionRules = new EncounterPlayerRules(Plan: new CombatPlan(
+            Fallback: CombatFallback.NoActionThisTick));
+        List<EncounterActorSpec> noActionScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 1_000),
+            new("legacy", "legacy ranged", 0, EncounterActorRole.Friendly,
+                new Vector3(10f, 0f, 0f), Dps: 40f, Job: RaidJob.Ranged),
+            new("planned-idle", "planned idle", 0, EncounterActorRole.Friendly,
+                new Vector3(11f, 0f, 0f), Dps: 250f, Job: RaidJob.Ranged,
+                PlayerRules: noActionRules),
+        ];
+        var noAction = new EncounterSim(definition, noActionScenario,
+            new EncounterSimOptions
+            {
+                Seed = 22,
+                StepMs = 1_000,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        noAction.Advance();
+        noAction.Advance();
+        Check("NoAction contributes no planned per-character damage",
+            noAction.Actors.First(actor => actor.Key == "boss").Health == 960 &&
+            noAction.Actors.First(actor => actor.Key == "planned-idle")
+                .CurrentEnemyTargetKey is null);
+        Check("a character without a plan retains legacy boss DPS",
+            noAction.Actors.First(actor => actor.Key == "legacy").Spec.Dps == 40f);
+
+        // A scripted despawn must retire both the visible actor and the key-index
+        // entry used by sticky CurrentEnemy, otherwise the plan attacks a ghost.
+        EncounterDefinition despawnDefinition = definition with
+        {
+            Key = "test-despawn-target",
+            Name = "Test Despawn Target",
+            Phases =
+            [
+                new EncounterPhase("only", "only", OnEnter:
+                [
+                    new EncounterStep(EncounterStepKind.Summon,
+                        Entry: 2, Count: 1, Point: new Vector3(4f, 0f, 0f)),
+                    new EncounterStep(EncounterStepKind.Wait, DurationMs: 1_000),
+                    new EncounterStep(EncounterStepKind.DespawnSummons),
+                ]),
+            ],
+            Abilities = [],
+        };
+        var despawnRules = new EncounterPlayerRules(Plan: new CombatPlan(
+            EnemyPriorities:
+            [
+                new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+                new CombatEnemyPriority(CombatEnemyKind.CurrentEnemy),
+            ],
+            Fallback: CombatFallback.ClassDefaults));
+        List<EncounterActorSpec> despawnScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 1_000),
+            new("planner", "planner", 0, EncounterActorRole.Friendly,
+                new Vector3(6f, 0f, 0f), Job: RaidJob.Ranged,
+                PlayerRules: despawnRules),
+        ];
+        var despawn = new EncounterSim(despawnDefinition, despawnScenario,
+            new EncounterSimOptions
+            {
+                Seed = 23,
+                StepMs = 1_000,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        despawn.Advance(); // pull and install the on-enter sequence
+        despawn.Advance(); // summon, then wait
+        SimActor despawnPlanner = despawn.Actors.First(actor => actor.Key == "planner");
+        Check("a live summon can become the current enemy",
+            despawnPlanner.CurrentEnemyTargetKey == "summon:1");
+        despawn.Advance(); // wait completes, then the sequence despawns summons
+        Check("despawn invalidates sticky current enemy and falls back to primary",
+            despawnPlanner.CurrentEnemyTargetKey == "boss" &&
+            despawn.Actors.All(actor =>
+                !actor.Key.StartsWith("summon:", StringComparison.Ordinal)));
+
+        // Once a CombatPlan exists, its facing flag is authoritative. This keeps
+        // a migrated legacy true bit from silently defeating an explicit false.
+        var planFacingOff = new EncounterPlayerRules(
+            AlwaysFaceBoss: true,
+            Plan: new CombatPlan(Movement: new CombatMovementPlan(
+                FacePrimaryEnemy: false)));
+        var planFacingOn = new EncounterPlayerRules(
+            AlwaysFaceBoss: false,
+            Plan: new CombatPlan(Movement: new CombatMovementPlan(
+                FacePrimaryEnemy: true)));
+        List<EncounterActorSpec> facingScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 1_000),
+            new("legacy-face", "legacy face", 0, EncounterActorRole.Friendly,
+                new Vector3(10f, 0f, 0f), Facing: 0f,
+                PlayerRules: new EncounterPlayerRules(AlwaysFaceBoss: true)),
+            new("plan-face-off", "plan face off", 0, EncounterActorRole.Friendly,
+                new Vector3(0f, 10f, 0f), Facing: 0f,
+                PlayerRules: planFacingOff),
+            new("plan-face-on", "plan face on", 0, EncounterActorRole.Friendly,
+                new Vector3(0f, -10f, 0f), Facing: 0f,
+                PlayerRules: planFacingOn),
+        ];
+        var facing = new EncounterSim(definition, facingScenario,
+            new EncounterSimOptions
+            {
+                Seed = 24,
+                StepMs = 100,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        facing.Advance();
+        SimActor legacyFace = facing.Actors.First(actor => actor.Key == "legacy-face");
+        SimActor planFaceOff = facing.Actors.First(actor => actor.Key == "plan-face-off");
+        SimActor planFaceOn = facing.Actors.First(actor => actor.Key == "plan-face-on");
+        float legacyFaceError = MathF.Abs(MathF.Atan2(
+            MathF.Sin(legacyFace.Facing - MathF.PI),
+            MathF.Cos(legacyFace.Facing - MathF.PI)));
+        float planFaceOnError = MathF.Abs(MathF.Atan2(
+            MathF.Sin(planFaceOn.Facing - MathF.PI / 2f),
+            MathF.Cos(planFaceOn.Facing - MathF.PI / 2f)));
+        Check("legacy AlwaysFaceBoss still applies when no plan exists",
+            legacyFaceError < 1e-4f);
+        Check("plan facing false overrides a stale legacy true flag",
+            MathF.Abs(planFaceOff.Facing) < 1e-4f);
+        Check("plan facing true applies without the legacy flag",
+            planFaceOnError < 1e-4f);
+
+        // Follow corrects only far enough to enter its range band. A waypoint is
+        // a higher-precedence body order; follow remains visible as intent and
+        // resumes on the step after the route arrives.
+        var followRules = new EncounterPlayerRules(Plan: new CombatPlan(
+            Movement: new CombatMovementPlan(
+                CombatMovementMode.Follow, CombatSubject.Tank(), 5f, 10f)));
+        List<EncounterActorSpec> followScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero,
+                MaxHealth: 100_000),
+            new("anchor", "anchor tank", 0, EncounterActorRole.Friendly,
+                new Vector3(10f, 0f, 0f), Job: RaidJob.Tank),
+            new("follower", "follower", 0, EncounterActorRole.Friendly,
+                new Vector3(30f, 0f, 0f), Job: RaidJob.Healer,
+                PlayerRules: followRules),
+        ];
+        var following = new EncounterSim(definition, followScenario,
+            new EncounterSimOptions
+            {
+                Seed = 19,
+                StepMs = 1_000,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        following.Advance();
+        following.Advance();
+        SimActor follower = following.Actors.First(actor => actor.Key == "follower");
+        SimActor anchor = following.Actors.First(actor => actor.Key == "anchor");
+        Check("follow movement stops at the configured range band",
+            MathF.Abs(EncounterGeometryLaw.GroundDistance(
+                follower.Position, anchor.Position) - 10f) < 1e-4f);
+
+        Vector3 waypoint = new(30f, 14f, 0f);
+        followScenario[2] = followScenario[2] with
+        {
+            Position = new Vector3(30f, 0f, 0f),
+            Moves = [new TimedMove(0, waypoint)],
+        };
+        var waypointFollowing = new EncounterSim(definition, followScenario,
+            new EncounterSimOptions
+            {
+                Seed = 20,
+                StepMs = 1_000,
+                RaidDpsFraction = 0f,
+                PullRangeYards = 100f,
+            });
+        waypointFollowing.Advance();
+        SimActor waypointFollower = waypointFollowing.Actors
+            .First(actor => actor.Key == "follower");
+        Check("an explicit waypoint overrides follow movement",
+            MathF.Abs(waypointFollower.Position.X - 30f) < 1e-4f &&
+            waypointFollower.Position.Y > 0f &&
+            waypointFollower.CurrentFollowTargetKey == "anchor");
+        waypointFollowing.Advance();              // arrive at the waypoint
+        Vector3 arrived = waypointFollower.Position;
+        waypointFollowing.Advance();              // standing doctrine resumes
+        Check("follow resumes after the explicit waypoint completes",
+            EncounterGeometryLaw.GroundDistance(waypointFollower.Position,
+                followScenario[1].Position) <
+            EncounterGeometryLaw.GroundDistance(arrived, followScenario[1].Position));
+
         // Phase gating: a health-gated transition must actually fire.
         var phased = new EncounterSim(definition, scenario,
             new EncounterSimOptions { Seed = 7, RaidDpsFraction = 0.02f });
@@ -380,7 +704,31 @@ internal static class Program
             EncounterActorSpec[] actors = original.Actors!.ToArray();
             actors[1] = actors[1] with
             {
-                PlayerRules = new EncounterPlayerRules(AlwaysFaceBoss: true),
+                PlayerRules = new EncounterPlayerRules(
+                    AlwaysFaceBoss: true,
+                    Plan: new CombatPlan(
+                        Name: "portable healer",
+                        Movement: new CombatMovementPlan(
+                            CombatMovementMode.Follow, CombatSubject.Tank(2),
+                            7f, 16f, FacePrimaryEnemy: true),
+                        Engagement: CombatEngagementMode.AssistAnchor,
+                        SupportPriorities:
+                        [
+                            new CombatSupportPriority(CombatSubject.Tank(1), 85f),
+                            new CombatSupportPriority(CombatSubject.LowestHealth, 40f),
+                        ],
+                        EnemyPriorities:
+                        [
+                            new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+                            new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy),
+                        ],
+                        Responsibilities:
+                        [
+                            CombatResponsibility.DispelMagic,
+                            CombatResponsibility.Resurrect,
+                        ],
+                        Resources: new CombatResourcePolicy(30, 20, true),
+                        Fallback: CombatFallback.NoActionThisTick)),
             };
             original = original with { Actors = actors };
             library.Save(original, "roundtrip.json");
@@ -403,6 +751,85 @@ internal static class Program
                 round?.WorstFidelity() == original.WorstFidelity());
             Check("round trip preserves per-player base rules",
                 round?.Actors?[1].PlayerRules?.AlwaysFaceBoss == true);
+            CombatPlan? roundPlan = round?.Actors?[1].PlayerRules?.Plan;
+            Check("round trip preserves combat-plan movement and semantic anchor",
+                roundPlan is
+                {
+                    Name: "portable healer",
+                    Movement:
+                    {
+                        Mode: CombatMovementMode.Follow,
+                        Anchor.Kind: CombatSubjectKind.RoleOrdinal,
+                        Anchor.Role: RaidJob.Tank,
+                        Anchor.Ordinal: 2,
+                        MinRangeYards: 7f,
+                        MaxRangeYards: 16f,
+                        FacePrimaryEnemy: true,
+                    },
+                    Engagement: CombatEngagementMode.AssistAnchor,
+                });
+            Check("round trip preserves ordered support priorities",
+                roundPlan?.SupportPriorities is { Count: 2 } support &&
+                support[0].Target == CombatSubject.Tank(1) &&
+                support[0].OnlyWhenBelowHealthPercent == 85f &&
+                support[1].Target == CombatSubject.LowestHealth);
+            Check("round trip preserves ordered enemy priorities",
+                roundPlan?.EnemyPriorities is { Count: 2 } enemies &&
+                enemies[0].Kind == CombatEnemyKind.AnyAdd &&
+                enemies[1].Kind == CombatEnemyKind.PrimaryEnemy);
+            Check("round trip preserves responsibilities and resource policy",
+                roundPlan?.Responsibilities is { Count: 2 } responsibilities &&
+                responsibilities[0] == CombatResponsibility.DispelMagic &&
+                responsibilities[1] == CombatResponsibility.Resurrect &&
+                roundPlan.Resources == new CombatResourcePolicy(30, 20, true));
+            Check("round trip preserves combat-plan fallback",
+                roundPlan?.Fallback == CombatFallback.NoActionThisTick);
+
+            // Reusable character plans live outside encounter documents. The stable
+            // character key survives any boss/party reconstruction while the plan
+            // itself contains only semantic, portable subjects.
+            string planPath = Path.Combine(temporary, "preferences", "combat-plans.json");
+            var emptyPlans = new CombatPlanStore(planPath);
+            Check("missing combat-plan store loads as empty",
+                emptyPlans.Load() == 0 && emptyPlans.Errors.Count == 0);
+            CombatPlan durablePlan = roundPlan!;
+            Check("combat-plan upsert persists explicitly",
+                emptyPlans.Upsert("raid-healer1", durablePlan) && File.Exists(planPath));
+
+            var reloadedPlans = new CombatPlanStore(planPath);
+            Check("combat-plan store reloads a stable character profile",
+                reloadedPlans.Load() == 1 && reloadedPlans.Errors.Count == 0);
+            CombatPlan? storedPlan = reloadedPlans.Find("raid-healer1");
+            Check("combat-plan store round trip uses the encounter DTO mapping",
+                storedPlan is
+                {
+                    Name: "portable healer",
+                    Movement:
+                    {
+                        Mode: CombatMovementMode.Follow,
+                        Anchor.Kind: CombatSubjectKind.RoleOrdinal,
+                        Anchor.Role: RaidJob.Tank,
+                        Anchor.Ordinal: 2,
+                    },
+                    Engagement: CombatEngagementMode.AssistAnchor,
+                    Fallback: CombatFallback.NoActionThisTick,
+                } && storedPlan.SupportPriorities is { Count: 2 });
+            Check("combat-plan lookup is tolerant of empty and unknown keys",
+                reloadedPlans.Find("") is null && reloadedPlans.Find("raid-missing") is null);
+            Check("combat-plan remove persists",
+                reloadedPlans.Remove("raid-healer1") &&
+                new CombatPlanStore(planPath) is { } afterRemove &&
+                afterRemove.Load() == 0 && afterRemove.Find("raid-healer1") is null);
+
+            File.WriteAllText(planPath, "{ definitely not valid json");
+            var malformedPlans = new CombatPlanStore(planPath);
+            Check("malformed combat-plan store is reported without throwing",
+                malformedPlans.Load() == 0 && malformedPlans.Errors.Count == 1 &&
+                malformedPlans.Find("raid-healer1") is null);
+            Check("an explicit upsert recovers a malformed preference file",
+                malformedPlans.Upsert("raid-healer1", durablePlan) &&
+                new CombatPlanStore(planPath) is { } recoveredPlans &&
+                recoveredPlans.Load() == 1 && recoveredPlans.Errors.Count == 0);
 
             // A stale schema version must fail loudly, not parse into nonsense.
             File.WriteAllText(Path.Combine(temporary, "stale.json"),

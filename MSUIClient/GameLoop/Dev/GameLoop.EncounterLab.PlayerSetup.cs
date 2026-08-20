@@ -10,10 +10,10 @@ namespace MSUIClient;
 // A plain click on a raid puppet only selects it. Selection slides a compact,
 // game-native Character Customizer button onto the right edge; this modal opens
 // only when that button (or the Scenario rules button) is explicitly clicked.
-// Base rules are live simulation inputs. Rotation source and spell queues
-// deliberately begin as an honest reserved section: later they can load a
-// SuperUI rotation when one is available or accept an authored queue without
-// changing this interaction model.
+// The workspace edits a portable CombatPlan: standing doctrine lives on the
+// character while encounter- and phase-specific choreography stays an overlay.
+// The Lab executes only the parts its combat model can prove and labels the rest
+// as typed intent instead of pretending that a rotation has fired.
 // ─────────────────────────────────────────────────────────────────────────────
 
 public sealed partial class GameLoop
@@ -23,6 +23,13 @@ public sealed partial class GameLoop
     private bool _encounterPlayerSetupRequested;
     private string? _encounterPlayerSetupLauncherKey;
     private double _encounterPlayerSetupLauncherAppearedAt;
+    private string? _encounterPlayerPlanDraftKey;
+    private CombatPlan? _encounterPlayerPlanDraft;
+    private CombatPlan? _encounterPlayerPlanBaseline;
+    private CombatPlan? _encounterPlayerPlanContinuousUndoBaseline;
+    private bool _encounterPlayerPlanDirty;
+    private readonly List<CombatPlan> _encounterPlayerPlanUndo = [];
+    private readonly List<CombatPlan> _encounterPlayerPlanRedo = [];
 
     private const double EncounterPlayerSetupLauncherPopSeconds = 0.24;
 
@@ -30,7 +37,8 @@ public sealed partial class GameLoop
     {
         if (_encounterOrbitDragging || _encounterOrientSpinning) return;
         if (_encounterScenario.FirstOrDefault(actor => actor.Key == key) is not
-            { Role: EncounterActorRole.Friendly }) return;
+            { Role: EncounterActorRole.Friendly } actor) return;
+        EnsureEncounterPlayerPlanDraft(actor);
         _encounterPlayerSetupKey = key;
         _encounterPlayerSetupRequested = true;
     }
@@ -150,10 +158,12 @@ public sealed partial class GameLoop
 
         float cs = CreatorUiScale;
         Vector2 display = ImGui.GetIO().DisplaySize;
-        Vector2 size = new(470f * cs, 0f);
+        Vector2 size = new(
+            Math.Clamp(920f * cs, 680f, MathF.Max(680f, display.X - 24f)),
+            Math.Clamp(690f * cs, 520f, MathF.Max(520f, display.Y - 24f)));
         ImGui.SetNextWindowPos(new Vector2(
             MathF.Max(12f, display.X * .5f - size.X * .5f),
-            MathF.Max(12f, display.Y * .22f)), ImGuiCond.Appearing);
+            MathF.Max(12f, display.Y * .5f - size.Y * .5f)), ImGuiCond.Appearing);
 
         PushCreatorStyle();
         if (_encounterPlayerSetupRequested)
@@ -163,12 +173,13 @@ public sealed partial class GameLoop
         }
 
         bool open = true;
-        ImGui.SetNextWindowSize(new Vector2(size.X, 0f), ImGuiCond.Appearing);
-        ImGui.SetNextWindowSizeConstraints(new Vector2(size.X, 0f),
-            new Vector2(size.X, MathF.Max(220f * cs, display.Y - 24f)));
+        ImGui.SetNextWindowSize(size, ImGuiCond.Appearing);
+        ImGui.SetNextWindowSizeConstraints(new Vector2(680f, 520f),
+            new Vector2(MathF.Max(680f, display.X - 24f),
+                MathF.Max(520f, display.Y - 24f)));
         bool showing = ImGui.BeginPopupModal(EncounterPlayerSetupPopupId, ref open,
-            ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings |
-            ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoTitleBar);
+            ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse |
+            ImGuiWindowFlags.NoTitleBar);
         if (showing)
         {
             if (_encounterPlayerSetupKey is null)
@@ -189,9 +200,6 @@ public sealed partial class GameLoop
 
     private void DrawEncounterPlayerSetupBody()
     {
-        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), "Character Customizer");
-        ImGui.Separator();
-
         int actorIndex = _encounterPlayerSetupKey is { } key
             ? _encounterScenario.FindIndex(actor => actor.Key == key)
             : -1;
@@ -209,59 +217,607 @@ public sealed partial class GameLoop
             return;
         }
 
+        EnsureEncounterPlayerPlanDraft(actor);
+        CombatPlan plan = _encounterPlayerPlanDraft!;
+
+        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), "Combat Plan");
+        ImGui.SameLine();
         ImGui.TextColored(RoleColourVec4(actor.Role, actor.Job), actor.Name);
         ImGui.SameLine();
-        ImGui.TextDisabled(actor.Job == RaidJob.None ? "(friendly)" : $"({actor.Job})");
-        EncounterPlayerSetupDisabledWrapped(
-            "Per-player encounter behavior. Changes rebuild the same seeded fight.");
-
-        ImGui.SeparatorText("Base rules");
-        bool alwaysFaceBoss = actor.PlayerRules?.AlwaysFaceBoss == true;
-        if (ImGui.Checkbox("Always face boss", ref alwaysFaceBoss))
+        ImGui.TextDisabled(actor.Job == RaidJob.None ? "friendly" : actor.Job.ToString());
+        if (_encounterPlayerPlanDirty)
         {
-            EncounterPlayerRules rules = actor.PlayerRules ?? new EncounterPlayerRules();
-            _encounterScenario[actorIndex] = actor = actor with
-            {
-                PlayerRules = rules with { AlwaysFaceBoss = alwaysFaceBoss },
-            };
-            RebuildEncounterSimKeepingView();
-            AddChatMessage($"{actor.Name}: always face boss " +
-                           (alwaysFaceBoss ? "enabled." : "disabled."));
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, .65f, .2f, 1f), "DRAFT");
         }
-        ImGui.TextWrapped("Keeps this player aimed at the boss on every simulation step, " +
-                          "including while running through her or moving toward a waypoint.");
-        EncounterPlayerSetupDisabledWrapped(alwaysFaceBoss
-            ? "ACTIVE · overrides movement direction and waypoint arrival facing"
-            : "Off · movement direction and waypoint arrival facing control the pose");
 
-        ImGui.SeparatorText("Rotation");
-        EncounterPlayerSetupDisabledWrapped(
-            "Reserved for the next layer; no rotation is being invented here yet.");
-        float rotationAvail = ImGui.GetContentRegionAvail().X;
-        float rotationGap = ImGui.GetStyle().ItemSpacing.X;
-        float loadWidth = EncounterPanelButtonWidth("Load from SuperUI");
-        float queueWidth = EncounterPanelButtonWidth("Build custom spell queue");
-        bool rotationSideBySide = loadWidth + rotationGap + queueWidth <= rotationAvail;
-        float rotationButtonWidth = rotationSideBySide
-            ? (rotationAvail - rotationGap) * .5f
-            : MathF.Max(rotationAvail, MathF.Max(loadWidth, queueWidth));
-        EncounterPanelButtonSized("Load from SuperUI",
-            new Vector2(rotationButtonWidth, 0f), enabled: false);
-        if (rotationSideBySide) ImGui.SameLine();
-        EncounterPanelButtonSized("Build custom spell queue",
-            new Vector2(rotationButtonWidth, 0f), enabled: false);
-        ImGui.TextWrapped("When available, this section will choose a SuperUI-provided rotation " +
-                          "or an on-the-spot ordered spell queue for this player.");
+        ImGui.TextWrapped(EncounterCombatPlanSummary(plan));
+        ImGui.Separator();
+
+        float footerReserve = ImGui.GetFrameHeightWithSpacing() +
+                              ImGui.GetStyle().ItemSpacing.Y * 2f;
+        if (ImGui.BeginChild("##combat-plan-content", new Vector2(0f, -footerReserve)))
+        {
+            if (ImGui.BeginTabBar("##combat-plan-tabs"))
+            {
+                if (ImGui.BeginTabItem("Quick Plan"))
+                {
+                    DrawEncounterQuickPlan(actor, plan);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Priorities"))
+                {
+                    DrawEncounterPlanPriorities(plan);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Responsibilities"))
+                {
+                    DrawEncounterPlanResponsibilities(plan);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Encounter Context"))
+                {
+                    DrawEncounterPlanContext(actor);
+                    ImGui.EndTabItem();
+                }
+                if (ImGui.BeginTabItem("Test & Explain"))
+                {
+                    DrawEncounterPlanExplain(actor, plan);
+                    ImGui.EndTabItem();
+                }
+                ImGui.EndTabBar();
+            }
+        }
+        ImGui.EndChild();
 
         ImGui.Separator();
+        DrawEncounterPlanFooter(actorIndex, actor, plan);
+    }
+
+    private void EnsureEncounterPlayerPlanDraft(EncounterActorSpec actor)
+    {
+        if (_encounterPlayerPlanDraft is not null &&
+            string.Equals(_encounterPlayerPlanDraftKey, actor.Key, StringComparison.Ordinal)) return;
+        _encounterPlayerPlanDraftKey = actor.Key;
+        _encounterPlayerPlanBaseline = CreateEncounterPlayerPlanBaseline(actor);
+        _encounterPlayerPlanDraft = _encounterPlayerPlanBaseline;
+        _encounterPlayerPlanDirty = false;
+        _encounterPlayerPlanContinuousUndoBaseline = null;
+        _encounterPlayerPlanUndo.Clear();
+        _encounterPlayerPlanRedo.Clear();
+    }
+
+    private static CombatPlan CreateEncounterPlayerPlanBaseline(EncounterActorSpec actor) =>
+        actor.PlayerRules?.Plan ?? new CombatPlan(
+            Name: "Custom plan",
+            Movement: new CombatMovementPlan(
+                FacePrimaryEnemy: actor.PlayerRules?.AlwaysFaceBoss == true),
+            EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            Resources: new CombatResourcePolicy());
+
+    /// <summary>Roster replacement may reuse stable keys. Clear every piece of modal
+    /// state before replacing actors so a draft can never masquerade as the new actor's
+    /// applied profile.</summary>
+    private void InvalidateEncounterPlayerPlanDraft()
+    {
+        _encounterPlayerPlanDraftKey = null;
+        _encounterPlayerPlanDraft = null;
+        _encounterPlayerPlanBaseline = null;
+        _encounterPlayerPlanContinuousUndoBaseline = null;
+        _encounterPlayerPlanDirty = false;
+        _encounterPlayerPlanUndo.Clear();
+        _encounterPlayerPlanRedo.Clear();
+    }
+
+    private void SetEncounterPlayerPlanDraft(CombatPlan next)
+    {
+        CommitEncounterPlayerPlanContinuousUndo();
+        if (_encounterPlayerPlanDraft is { } current && current != next)
+        {
+            _encounterPlayerPlanUndo.Add(current);
+            if (_encounterPlayerPlanUndo.Count > 100) _encounterPlayerPlanUndo.RemoveAt(0);
+            _encounterPlayerPlanRedo.Clear();
+        }
+        _encounterPlayerPlanDraft = next;
+        _encounterPlayerPlanDirty = next != _encounterPlayerPlanBaseline;
+    }
+
+    /// <summary>Text and sliders report every frame while active. Keep their first
+    /// value as one undo boundary and commit it when the ImGui edit gesture ends.</summary>
+    private void SetEncounterPlayerPlanDraftContinuous(CombatPlan next)
+    {
+        if (_encounterPlayerPlanDraft is not { } current || current == next) return;
+        _encounterPlayerPlanContinuousUndoBaseline ??= current;
+        _encounterPlayerPlanDraft = next;
+        _encounterPlayerPlanDirty = next != _encounterPlayerPlanBaseline;
+        _encounterPlayerPlanRedo.Clear();
+    }
+
+    private void FinishEncounterPlayerPlanContinuousEdit()
+    {
+        if (!ImGui.IsItemDeactivatedAfterEdit()) return;
+        CommitEncounterPlayerPlanContinuousUndo();
+    }
+
+    private void CommitEncounterPlayerPlanContinuousUndo()
+    {
+        if (_encounterPlayerPlanContinuousUndoBaseline is not { } baseline) return;
+        if (_encounterPlayerPlanDraft is { } current && baseline != current)
+        {
+            _encounterPlayerPlanUndo.Add(baseline);
+            if (_encounterPlayerPlanUndo.Count > 100) _encounterPlayerPlanUndo.RemoveAt(0);
+        }
+        _encounterPlayerPlanContinuousUndoBaseline = null;
+    }
+
+    private static CombatPlan EncounterCombatPlanTemplate(RaidJob job) => job switch
+    {
+        RaidJob.Healer => new CombatPlan(
+            "Tank healer",
+            new CombatMovementPlan(CombatMovementMode.Follow, CombatSubject.Tank(1),
+                12f, 20f, false),
+            CombatEngagementMode.NeverInitiate,
+            [
+                new CombatSupportPriority(CombatSubject.Tank(1), 90f),
+                new CombatSupportPriority(CombatSubject.Tank(2), 75f),
+                new CombatSupportPriority(CombatSubject.LowestHealth, 45f),
+                new CombatSupportPriority(CombatSubject.Self, 30f),
+            ],
+            [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            [CombatResponsibility.DispelMagic, CombatResponsibility.Resurrect],
+            new CombatResourcePolicy(25, 25, true),
+            CombatFallback.ClassDefaults),
+        RaidJob.Tank => new CombatPlan(
+            "Main tank",
+            new CombatMovementPlan(CombatMovementMode.Independent, null, 0f, 0f, true),
+            CombatEngagementMode.DefendGroup,
+            null,
+            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            [CombatResponsibility.Interrupt],
+            new CombatResourcePolicy(15, 30, true),
+            CombatFallback.ClassDefaults),
+        RaidJob.Melee => new CombatPlan(
+            "Add-control melee",
+            new CombatMovementPlan(CombatMovementMode.Independent, null, 0f, 0f, true),
+            CombatEngagementMode.DefendGroup,
+            null,
+            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            [CombatResponsibility.Interrupt],
+            new CombatResourcePolicy(10, 25, false),
+            CombatFallback.ClassDefaults),
+        RaidJob.Ranged => new CombatPlan(
+            "Add-control ranged",
+            new CombatMovementPlan(CombatMovementMode.HoldPosition, null, 0f, 0f, true),
+            CombatEngagementMode.DefendGroup,
+            null,
+            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
+             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            [CombatResponsibility.Interrupt, CombatResponsibility.CrowdControlAdds],
+            new CombatResourcePolicy(15, 25, true),
+            CombatFallback.ClassDefaults),
+        _ => new CombatPlan(
+            "Safe assistant",
+            new CombatMovementPlan(),
+            CombatEngagementMode.NeverInitiate,
+            null,
+            [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            null,
+            new CombatResourcePolicy(),
+            CombatFallback.ClassDefaults),
+    };
+
+    private void DrawEncounterQuickPlan(EncounterActorSpec actor, CombatPlan plan)
+    {
+        ImGui.SeparatorText("Start from intent");
+        if (EncounterPanelButton("Use role template", 150f * CreatorUiScale))
+            SetEncounterPlayerPlanDraft(EncounterCombatPlanTemplate(actor.Job));
+        ImGui.SameLine();
+        ImGui.TextDisabled("Templates create visible, editable rules; they never apply silently.");
+
+        string name = plan.Name;
+        ImGui.SetNextItemWidth(MathF.Min(420f * CreatorUiScale, ImGui.GetContentRegionAvail().X));
+        if (ImGui.InputText("Plan name", ref name, 80))
+            SetEncounterPlayerPlanDraftContinuous(plan with { Name = name });
+        FinishEncounterPlayerPlanContinuousEdit();
+
+        ImGui.SeparatorText("Stay with / positioning");
+        CombatMovementPlan movement = plan.Movement ?? new CombatMovementPlan();
+        int mode = (int)movement.Mode;
+        if (ImGui.Combo("Movement", ref mode, "Independent\0Hold position\0Follow\0"))
+        {
+            CombatMovementMode nextMode = (CombatMovementMode)mode;
+            CombatSubject? anchor = nextMode == CombatMovementMode.Follow
+                ? movement.Anchor ?? CombatSubject.Tank(1) : movement.Anchor;
+            movement = movement with { Mode = nextMode, Anchor = anchor };
+            SetEncounterPlayerPlanDraft(plan with { Movement = movement });
+        }
+        if (movement.Mode == CombatMovementMode.Follow)
+        {
+            CombatSubject anchor = movement.Anchor ?? CombatSubject.Tank(1);
+            if (DrawEncounterSubjectCombo("Follow", anchor, allowLowestHealth: false,
+                    out CombatSubject selected))
+                SetEncounterPlayerPlanDraft(plan with
+                { Movement = movement with { Anchor = selected } });
+            float min = movement.MinRangeYards, max = movement.MaxRangeYards;
+            ImGui.SetNextItemWidth(250f * CreatorUiScale);
+            if (ImGui.SliderFloat("Minimum range", ref min, 0f, 40f, "%.0f yd"))
+                SetEncounterPlayerPlanDraftContinuous(plan with
+                { Movement = movement with { MinRangeYards = MathF.Min(min, max) } });
+            FinishEncounterPlayerPlanContinuousEdit();
+            ImGui.SetNextItemWidth(250f * CreatorUiScale);
+            if (ImGui.SliderFloat("Maximum range", ref max, 1f, 60f, "%.0f yd"))
+                SetEncounterPlayerPlanDraftContinuous(plan with
+                { Movement = movement with { MaxRangeYards = MathF.Max(max, min) } });
+            FinishEncounterPlayerPlanContinuousEdit();
+        }
+        bool face = movement.FacePrimaryEnemy;
+        if (ImGui.Checkbox("Always face the primary encounter target", ref face))
+            SetEncounterPlayerPlanDraft(plan with
+            { Movement = movement with { FacePrimaryEnemy = face } });
+
+        ImGui.SeparatorText("Engagement");
+        int engagement = (int)plan.Engagement;
+        if (ImGui.Combo("May begin combat", ref engagement,
+                "Never initiate\0Assist follow target\0Defend the group\0Autonomous\0"))
+            SetEncounterPlayerPlanDraft(plan with
+            { Engagement = (CombatEngagementMode)engagement });
+        ImGui.TextWrapped("Movement and engagement are strategic doctrine. Ability rules may act " +
+                          "inside them, but cannot steal a waypoint or acquire a forbidden fight. " +
+                          "The Lab records engagement permission; it has no player pull-action model yet.");
+    }
+
+    private void DrawEncounterPlanPriorities(CombatPlan plan)
+    {
+        ImGui.SeparatorText("Protect — first applicable row wins");
+        ImGui.TextDisabled("Resolved as live intent; healing execution awaits health/resource/cast state.");
+        List<CombatSupportPriority> support = (plan.SupportPriorities ?? []).ToList();
+        bool supportDiscreteChanged = false;
+        bool supportContinuousChanged = false;
+        bool supportContinuousFinished = false;
+        for (int i = 0; i < support.Count; i++)
+        {
+            ImGui.PushID($"support-{i}");
+            CombatSupportPriority row = support[i];
+            bool enabled = row.Enabled;
+            if (ImGui.Checkbox("##enabled", ref enabled))
+            { support[i] = row = row with { Enabled = enabled }; supportDiscreteChanged = true; }
+            ImGui.SameLine();
+            CombatSubject target = row.Target;
+            if (DrawEncounterSubjectCombo("##target", target, allowLowestHealth: true,
+                    out CombatSubject selected))
+            { support[i] = row = row with { Target = selected }; supportDiscreteChanged = true; }
+            ImGui.SameLine();
+            float threshold = row.OnlyWhenBelowHealthPercent;
+            ImGui.SetNextItemWidth(150f * CreatorUiScale);
+            if (ImGui.SliderFloat("##health", ref threshold, 1f, 100f, "below %.0f%%"))
+            {
+                support[i] = row with { OnlyWhenBelowHealthPercent = threshold };
+                supportContinuousChanged = true;
+            }
+            supportContinuousFinished |= ImGui.IsItemDeactivatedAfterEdit();
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Up") && i > 0)
+            { (support[i - 1], support[i]) = (support[i], support[i - 1]); supportDiscreteChanged = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Down") && i + 1 < support.Count)
+            { (support[i + 1], support[i]) = (support[i], support[i + 1]); supportDiscreteChanged = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Remove"))
+            { support.RemoveAt(i); i--; supportDiscreteChanged = true; }
+            ImGui.PopID();
+        }
+        if (EncounterPanelButton("Add protection priority", compact: true))
+        {
+            support.Add(new CombatSupportPriority(CombatSubject.LowestHealth, 50f));
+            supportDiscreteChanged = true;
+        }
+        if (supportDiscreteChanged)
+            SetEncounterPlayerPlanDraft(plan with { SupportPriorities = support.ToArray() });
+        else if (supportContinuousChanged)
+            SetEncounterPlayerPlanDraftContinuous(plan with { SupportPriorities = support.ToArray() });
+        if (supportContinuousFinished)
+            CommitEncounterPlayerPlanContinuousUndo();
+
+        plan = _encounterPlayerPlanDraft ?? plan;
+        ImGui.SeparatorText("Engage — first available enemy bucket wins");
+        List<CombatEnemyPriority> enemies = (plan.EnemyPriorities ?? []).ToList();
+        bool enemyChanged = false;
+        for (int i = 0; i < enemies.Count; i++)
+        {
+            ImGui.PushID($"enemy-{i}");
+            CombatEnemyPriority row = enemies[i];
+            bool enabled = row.Enabled;
+            if (ImGui.Checkbox("##enabled", ref enabled))
+            { enemies[i] = row = row with { Enabled = enabled }; enemyChanged = true; }
+            ImGui.SameLine();
+            int kind = (int)row.Kind;
+            ImGui.SetNextItemWidth(230f * CreatorUiScale);
+            if (ImGui.Combo("##kind", ref kind,
+                    "Any active add\0Current enemy\0Primary encounter target\0"))
+            { enemies[i] = row = row with { Kind = (CombatEnemyKind)kind }; enemyChanged = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Up") && i > 0)
+            { (enemies[i - 1], enemies[i]) = (enemies[i], enemies[i - 1]); enemyChanged = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Down") && i + 1 < enemies.Count)
+            { (enemies[i + 1], enemies[i]) = (enemies[i], enemies[i + 1]); enemyChanged = true; }
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Remove"))
+            { enemies.RemoveAt(i); i--; enemyChanged = true; }
+            ImGui.PopID();
+        }
+        if (EncounterPanelButton("Add enemy priority", compact: true))
+        { enemies.Add(new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)); enemyChanged = true; }
+        if (enemyChanged)
+            SetEncounterPlayerPlanDraft(plan with { EnemyPriorities = enemies.ToArray() });
+
+        ImGui.TextWrapped("These are semantic buckets, not creature names. The same order works " +
+                          "for one dungeon add or forty-player raid waves.");
+    }
+
+    private void DrawEncounterPlanResponsibilities(CombatPlan plan)
+    {
+        ImGui.SeparatorText("Standing responsibilities");
+        ImGui.TextDisabled("Portable ownership contract; cast execution is not simulated yet.");
+        HashSet<CombatResponsibility> selected = new(plan.Responsibilities ?? []);
+        foreach (CombatResponsibility responsibility in Enum.GetValues<CombatResponsibility>())
+        {
+            bool on = selected.Contains(responsibility);
+            if (!ImGui.Checkbox(EncounterResponsibilityLabel(responsibility), ref on)) continue;
+            if (on) selected.Add(responsibility); else selected.Remove(responsibility);
+            SetEncounterPlayerPlanDraft(plan with
+            { Responsibilities = selected.OrderBy(value => value).ToArray() });
+            plan = _encounterPlayerPlanDraft!;
+        }
+
+        ImGui.SeparatorText("Resources and emergencies");
+        CombatResourcePolicy resources = plan.Resources ?? new CombatResourcePolicy();
+        int reserve = resources.ReservePercent;
+        if (ImGui.SliderInt("Reserve resource", ref reserve, 0, 80, "%d%%"))
+            SetEncounterPlayerPlanDraftContinuous(plan with
+            { Resources = resources with { ReservePercent = reserve } });
+        FinishEncounterPlayerPlanContinuousEdit();
+        int emergency = resources.EmergencyHealthPercent;
+        if (ImGui.SliderInt("Emergency health", ref emergency, 1, 80, "%d%%"))
+            SetEncounterPlayerPlanDraftContinuous(plan with
+            { Resources = resources with { EmergencyHealthPercent = emergency } });
+        FinishEncounterPlayerPlanContinuousEdit();
+        bool save = resources.SaveMajorCooldowns;
+        if (ImGui.Checkbox("Reserve major cooldowns for emergencies", ref save))
+            SetEncounterPlayerPlanDraft(plan with
+            { Resources = resources with { SaveMajorCooldowns = save } });
+
+        ImGui.SeparatorText("If no rule can act");
+        int fallback = (int)plan.Fallback;
+        if (ImGui.Combo("Fallback", ref fallback,
+                "Do nothing this tick\0Auto-attack current enemy\0Use class defaults\0"))
+            SetEncounterPlayerPlanDraft(plan with { Fallback = (CombatFallback)fallback });
+    }
+
+    private void DrawEncounterPlanContext(EncounterActorSpec actor)
+    {
+        ImGui.TextColored(new Vector4(.45f, .9f, 1f, 1f),
+            "The saved character plan is encounter-agnostic.");
+        ImGui.TextWrapped("It contains no creature entry, encounter key, phase key, boss name, " +
+                          "or group-size assumption. Encounter choreography layers over it here; " +
+                          "the reusable plan itself does not change.");
+        ImGui.TextWrapped("Targets are semantic — self, role ordinals, or lowest-health ally. " +
+                          "Named-character assignments belong to a separate roster layer and " +
+                          "cannot leak into this reusable plan.");
+
+        ImGui.SeparatorText("Current context (not stored in this plan)");
+        ImGui.Text($"Encounter: {_encounterDefinition?.Name ?? "none loaded"}");
+        ImGui.Text($"Phase: {_encounterSim?.Definition.Phase(_encounterSim.PhaseKey)?.Name ?? "none"}");
+        RaidPhaseDirective? directive = _encounterSim is { } sim
+            ? PlaybookDirectiveFor(sim.PhaseKey, actor.Job) : null;
+        ImGui.Text($"Role directive: {(directive is null ? "none" : directive.Kind.ToString())}");
+        int authoredMoves = actor.Moves?.Count ?? 0;
+        ImGui.Text($"Explicit character orders: {authoredMoves}");
+        ImGui.TextWrapped("Precedence: direct control and game legality → explicit waypoint/RTS " +
+                          "orders → encounter role directive → reusable movement doctrine → " +
+                          "ability priorities → fallback.");
+    }
+
+    private void DrawEncounterPlanExplain(EncounterActorSpec actor, CombatPlan plan)
+    {
+        ImGui.SeparatorText("Resolved plan");
+        ImGui.TextWrapped(EncounterCombatPlanSummary(plan));
+
+        SimActor? live = _encounterSim?.Actors.FirstOrDefault(candidate => candidate.Key == actor.Key);
+        if (live is not null)
+        {
+            ImGui.SeparatorText("Why right now?");
+            ImGui.Text($"Movement: {EncounterIntentName(live.CurrentFollowTargetKey, "not following")}");
+            ImGui.Text($"Protect: {EncounterIntentName(live.CurrentProtectTargetKey, "no applicable ally")}");
+            ImGui.Text($"Enemy: {EncounterIntentName(live.CurrentEnemyTargetKey, "no legal enemy")}");
+            if (live.MoveTarget is not null)
+                ImGui.TextColored(new Vector4(1f, .78f, .25f, 1f),
+                    "An explicit movement order currently owns translation.");
+        }
+        else EncounterPlayerSetupDisabledWrapped("No simulation snapshot is available for this body.");
+
+        ImGui.SeparatorText("Honesty boundary");
+        ImGui.TextWrapped("Encounter Lab executes follow doctrine and routes each body's owner-authored " +
+                          "DPS to its resolved hostile target. It does not model friendly damage, mana, " +
+                          "global cooldowns, or healing amounts. Protection priorities are resolved and " +
+                          "displayed, but the Lab does not invent a heal cast. The " +
+                          "eventual SuperUI evaluator must execute this same typed plan using real " +
+                          "server-authoritative combat state.");
+
+        foreach (string warning in EncounterCombatPlanWarnings(plan))
+            ImGui.TextColored(new Vector4(1f, .48f, .3f, 1f), $"! {warning}");
+    }
+
+    private void DrawEncounterPlanFooter(int actorIndex, EncounterActorSpec actor, CombatPlan plan)
+    {
+        bool canUndo = _encounterPlayerPlanUndo.Count > 0;
+        if (EncounterPanelButton("Undo", enabled: canUndo, compact: true) && canUndo)
+        {
+            _encounterPlayerPlanRedo.Add(plan);
+            _encounterPlayerPlanDraft = _encounterPlayerPlanUndo[^1];
+            _encounterPlayerPlanUndo.RemoveAt(_encounterPlayerPlanUndo.Count - 1);
+            _encounterPlayerPlanDirty = _encounterPlayerPlanDraft != _encounterPlayerPlanBaseline;
+        }
+        ImGui.SameLine();
+        bool canRedo = _encounterPlayerPlanRedo.Count > 0;
+        if (EncounterPanelButton("Redo", enabled: canRedo, compact: true) && canRedo)
+        {
+            _encounterPlayerPlanUndo.Add(_encounterPlayerPlanDraft!);
+            _encounterPlayerPlanDraft = _encounterPlayerPlanRedo[^1];
+            _encounterPlayerPlanRedo.RemoveAt(_encounterPlayerPlanRedo.Count - 1);
+            _encounterPlayerPlanDirty = _encounterPlayerPlanDraft != _encounterPlayerPlanBaseline;
+        }
+        ImGui.SameLine();
+        if (EncounterPanelButton("Revert", enabled: _encounterPlayerPlanDirty, compact: true) &&
+            _encounterPlayerPlanDirty)
+        {
+            _encounterPlayerPlanDraft = _encounterPlayerPlanBaseline ??
+                                        CreateEncounterPlayerPlanBaseline(actor);
+            _encounterPlayerPlanContinuousUndoBaseline = null;
+            _encounterPlayerPlanDirty = false;
+            _encounterPlayerPlanUndo.Clear();
+            _encounterPlayerPlanRedo.Clear();
+        }
+
+        float applyWidth = EncounterPanelButtonWidth("Save & apply");
         float closeWidth = EncounterPanelButtonWidth("Close");
-        ImGui.SetCursorPosX(MathF.Max(ImGui.GetCursorPosX(),
-            ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - closeWidth));
-        if (EncounterPanelButtonSized("Close", new Vector2(closeWidth, 0f)))
+        ImGui.SameLine(MathF.Max(ImGui.GetCursorPosX(),
+            ImGui.GetWindowContentRegionMax().X - applyWidth - closeWidth -
+            ImGui.GetStyle().ItemSpacing.X));
+        if (EncounterPanelButton("Save & apply", enabled: _encounterPlayerPlanDirty))
+        {
+            CombatPlan applied = _encounterPlayerPlanDraft!;
+            if (EncounterCombatPlanStoreRef.Upsert(actor.Key, applied))
+            {
+                EncounterPlayerRules rules = actor.PlayerRules ?? new EncounterPlayerRules();
+                bool facePrimary = applied.Movement?.FacePrimaryEnemy == true;
+                _encounterScenario[actorIndex] = actor with
+                { PlayerRules = rules with { AlwaysFaceBoss = facePrimary, Plan = applied } };
+                _encounterPlayerPlanBaseline = applied;
+                _encounterPlayerPlanContinuousUndoBaseline = null;
+                _encounterPlayerPlanDirty = false;
+                _encounterPlayerPlanUndo.Clear();
+                _encounterPlayerPlanRedo.Clear();
+                RebuildEncounterSimKeepingView();
+                AddChatMessage($"{actor.Name}: combat plan '{applied.Name}' saved and applied.");
+            }
+            else
+            {
+                string detail = EncounterCombatPlanStoreRef.Errors.LastOrDefault() ??
+                                "unknown persistence error";
+                AddChatMessage($"{actor.Name}: combat plan was not saved ({detail}).");
+            }
+        }
+        ImGui.SameLine();
+        if (EncounterPanelButton("Close"))
         {
             ImGui.CloseCurrentPopup();
             _encounterPlayerSetupKey = null;
         }
+    }
+
+    private bool DrawEncounterSubjectCombo(string label, CombatSubject current,
+        bool allowLowestHealth, out CombatSubject selected)
+    {
+        selected = current;
+        bool changed = false;
+        string preview = EncounterCombatSubjectLabel(current);
+        ImGui.SetNextItemWidth(220f * CreatorUiScale);
+        if (!ImGui.BeginCombo(label, preview)) return false;
+
+        var choices = new List<CombatSubject>
+        {
+            CombatSubject.Tank(1), CombatSubject.Tank(2), CombatSubject.Self,
+        };
+        if (allowLowestHealth) choices.Add(CombatSubject.LowestHealth);
+
+        foreach (CombatSubject choice in choices)
+        {
+            bool isSelected = choice == current;
+            if (ImGui.Selectable(EncounterCombatSubjectLabel(choice), isSelected))
+            { selected = choice; changed = true; }
+            if (isSelected) ImGui.SetItemDefaultFocus();
+        }
+        ImGui.EndCombo();
+        return changed;
+    }
+
+    private string EncounterCombatSubjectLabel(CombatSubject subject) => subject.Kind switch
+    {
+        CombatSubjectKind.Self => "self",
+        CombatSubjectKind.LowestHealthAlly => "lowest-health ally",
+        CombatSubjectKind.RoleOrdinal =>
+            $"{subject.Role.ToString().ToLowerInvariant()} {Math.Max(subject.Ordinal, 1)}",
+        _ => subject.Kind.ToString(),
+    };
+
+    private string EncounterIntentName(string? actorKey, string fallback) => actorKey is null
+        ? fallback
+        : _encounterScenario.FirstOrDefault(actor => actor.Key == actorKey)?.Name ?? actorKey;
+
+    private string EncounterCombatPlanSummary(CombatPlan plan)
+    {
+        var sentences = new List<string>();
+        CombatMovementPlan movement = plan.Movement ?? new CombatMovementPlan();
+        sentences.Add(movement.Mode switch
+        {
+            CombatMovementMode.Follow =>
+                $"Follow {EncounterCombatSubjectLabel(movement.Anchor ?? CombatSubject.Tank(1))} " +
+                $"at {movement.MinRangeYards:0}–{movement.MaxRangeYards:0} yd.",
+            CombatMovementMode.HoldPosition => "Hold position unless explicitly ordered.",
+            _ => "Move independently.",
+        });
+        sentences.Add(plan.Engagement switch
+        {
+            CombatEngagementMode.NeverInitiate => "Never initiate combat.",
+            CombatEngagementMode.AssistAnchor => "Assist the follow target's engagement.",
+            CombatEngagementMode.DefendGroup => "Engage to defend the group.",
+            _ => "May acquire an engagement autonomously.",
+        });
+        if (plan.EnemyPriorities is { Count: > 0 } enemies)
+            sentences.Add("Enemy order: " + string.Join(" → ", enemies.Where(row => row.Enabled)
+                .Select(row => EncounterEnemyPriorityLabel(row.Kind))) + ".");
+        if (plan.SupportPriorities is { Count: > 0 } support)
+            sentences.Add("Protect: " + string.Join(" → ", support.Where(row => row.Enabled)
+                .Select(row => $"{EncounterCombatSubjectLabel(row.Target)} below " +
+                               $"{row.OnlyWhenBelowHealthPercent:0}%")) + ".");
+        return string.Join(" ", sentences);
+    }
+
+    private static string EncounterEnemyPriorityLabel(CombatEnemyKind kind) => kind switch
+    {
+        CombatEnemyKind.AnyAdd => "active adds",
+        CombatEnemyKind.CurrentEnemy => "current enemy",
+        _ => "primary encounter target",
+    };
+
+    private static string EncounterResponsibilityLabel(CombatResponsibility responsibility) =>
+        responsibility switch
+        {
+            CombatResponsibility.DispelMagic => "Dispel magic",
+            CombatResponsibility.RemoveCurse => "Remove curses",
+            CombatResponsibility.CleansePoison => "Cleanse poison",
+            CombatResponsibility.CrowdControlAdds => "Crowd-control adds",
+            _ => responsibility.ToString(),
+        };
+
+    private static IEnumerable<string> EncounterCombatPlanWarnings(CombatPlan plan)
+    {
+        if (plan.Movement is { Mode: CombatMovementMode.Follow } movement)
+        {
+            if (movement.Anchor is null) yield return "Follow requires an anchor.";
+            if (movement.Anchor?.Kind == CombatSubjectKind.Self)
+                yield return "A character cannot follow itself.";
+            if (movement.MinRangeYards > movement.MaxRangeYards)
+                yield return "Minimum follow range exceeds maximum range.";
+        }
+        if (plan.Engagement == CombatEngagementMode.AssistAnchor &&
+            plan.Movement is not { Mode: CombatMovementMode.Follow, Anchor: not null })
+            yield return "Assist-follow-target needs a Follow anchor; choose Follow or another engagement policy.";
+        if (plan.EnemyPriorities is null || !plan.EnemyPriorities.Any(row => row.Enabled))
+            yield return "No enemy priority is enabled; only fallback behavior can attack.";
     }
 
     private static void EncounterPlayerSetupDisabledWrapped(string text)

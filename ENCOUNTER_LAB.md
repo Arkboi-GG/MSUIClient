@@ -1,7 +1,7 @@
 # Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17 · game-faithful pass 2026-08-17)
 
 > **STATUS (core + raid sim): BUILT & VERIFIED, HEADLESSLY *AND* IN-CLIENT.**
-> `tools/encounter-lab-check`: **91/91 offline** (re-run 2026-08-18; live
+> `tools/encounter-lab-check`: **126/126 offline** (re-run 2026-08-20; live
 > world-DB integration remains opt-in). The in-client scripted probe
 > (`MSUI_ENCLAB_PROBE`, §11): **11/11** — raid placement, live world, staging,
 > GO, roam, Ctrl+F — measured in the real client on the real code paths, with
@@ -249,15 +249,17 @@ its directive. Pre-pull the boss plays her declared idle movement, or the sandbo
 roam — which draws from its **own seeded stream**, so however long the roam runs,
 the fight's ability rolls at the pull are untouched.
 
-Each Friendly can also carry serialized `EncounterPlayerRules`. The first rule,
-`AlwaysFaceBoss`, is applied after both the player and boss move on every fixed
-step. A tank can therefore run through Onyxia toward the back wall while keeping
-its pose aimed at her live position instead of snapping to its travel direction.
+Each Friendly can also carry serialized `EncounterPlayerRules` with a reusable
+`CombatPlan` (§8.7). Its facing doctrine is applied after both the player and
+primary target move on every fixed step. A tank can therefore run through an
+encounter target toward the back wall while keeping its pose aimed at the live
+target instead of snapping to its travel direction. Legacy `AlwaysFaceBoss`
+remains the no-plan compatibility input.
 
 **What the simulator does not have, and says so:** no threat MODEL (aggro is
 owner-assigned; the fallback victim is "closest friendly", and any ability
 needing threat order drops to `heuristic`), no aura system, no GCD, no resists,
-no healing or damage numbers (friendly bodies count `HitsTaken` and never die —
+no friendly health/healing model (friendly bodies count `HitsTaken` and never die —
 by design), no line-of-sight or pathfinding for actor movement.
 
 ---
@@ -424,6 +426,7 @@ the sim, never to `SuiOrder`, so server bots are untouched.
 |---|---|
 | Left-click a body / drag a box | Select / multi-select (never take-command — there is no character behind a puppet) |
 | **Shift+Click** ground (left or right) | **Stage a waypoint** for the selection; repeat to chain legs; multi-selections fan around the point |
+| **Ctrl+Z** or **Undo** in Transport | Remove the last staged waypoint gesture; a waypoint placed for a multi-selection is undone for the whole selection |
 | **GO** (Transport) or Play | Commit the whole staged plan; everyone moves at once |
 | Plain RClick ground *(engaged only)* | Immediate walk order at the scrub instant — travel paid |
 | **Ctrl+RClick** ground | **Teleport what-if** at the scrub instant — always immediate |
@@ -659,24 +662,69 @@ Refinements for reading a HELD instant, all client-side overlay / what-if work.
   the commit's what-if reflows it). Dragging a non-holder body leaves her cones fixed and
   sweeps that body through them, which is the other half of the read.
 
-## 8.7 Character Customizer — opt-in per-body rules (2026-08-18)
+## 8.7 Character Customizer — reusable Combat Plans (2026-08-20)
 
 A plain click on a raid puppet in **Ctrl+F** selects it for orders without opening
 or interrupting anything. A compact, game-native **Character Customizer** button
 slides onto the right edge for that single selected body; only clicking it opens
 the **Player Setup** modal. Multi-selection stays an order group and does not get
 an ambiguous single-body button. The same modal remains reachable from
-the body's **rules** button in Scenario. Its first live rule is **Always face boss**:
-when enabled, that body faces the boss on every simulation step, including while
-crossing through her or running to a waypoint. It intentionally overrides travel
-direction and an authored arrival facing for as long as the rule is active.
+the body's **rules** button in Scenario.
 
-The rule lives on the actor as a nested, JSON-round-trippable
-`EncounterPlayerRules` object, not as temporary UI state. The modal already
-reserves a clearly disabled **Rotation** section for **Load from SuperUI** and
-**Build custom spell queue**. Neither rotation path is implemented or inferred
-yet; the disabled controls establish where the next layer belongs without
-pretending a rotation is running.
+That modal is now a full per-character **Combat Plan**, not a spell-list editor.
+It starts with plain-language intent and progressively exposes five views:
+
+- **Quick Plan** — an editable role template, movement doctrine (independent,
+  hold, or follow a semantic ally), follow-distance band, facing, and permission
+  to initiate an engagement.
+- **Priorities** — ordered protection thresholds and ordered hostile buckets.
+  Rows can be enabled, moved, or removed; first applicable wins. Subjects such as
+  `tank 1`, `tank 2`, `lowest-health ally`, `active adds`, and `primary encounter
+  target` are resolved from the current roster instead of naming a boss.
+- **Responsibilities** — interrupt/dispel/cleanse/CC/resurrection ownership,
+  resource reserve, emergency threshold, cooldown policy, and fallback.
+- **Encounter Context** — the current encounter, phase, playbook directive, and
+  explicit body orders, shown as an overlay that is deliberately **not saved in
+  the character plan**.
+- **Test & Explain** — the resolved follow/protect/enemy actor at the current
+  snapshot, precedence information, validation warnings, and an explicit account
+  of what the Lab can and cannot execute yet.
+
+Edits are a draft with **Undo**, **Redo**, **Revert**, and explicit **Save &
+apply**. Saving writes a versioned, per-user `combat-plans.json` profile keyed by
+the stable character slot; placing that character against a different encounter
+hydrates the same plan. Applying also puts the plan on the current actor inside
+the JSON-round-trippable `EncounterPlayerRules`, and scrub snapshots capture its
+resolved intent. The older `AlwaysFaceBoss` field remains readable when no plan
+exists; once a plan exists its facing rule is authoritative, so legacy state
+cannot silently override the modal.
+
+**Portability invariant.** `CombatPlan` contains no encounter key, phase key,
+creature entry, boss name, or group-size switch. The same plan is valid in a
+dungeon or raid. Direct control and legality win first, followed by explicit
+waypoint/RTS orders, encounter-local playbook choreography, reusable movement
+doctrine, ordered ability intent, then fallback. This keeps “what this character
+always tries to do” separate from “what this encounter requires right now.”
+
+**Honesty boundary.** The current simulator resolves follow, protection, and
+hostile intent; it executes the follow-distance doctrine and routes each body's
+owner-authored DPS to the resolved hostile. “Adds before primary target” therefore
+changes add and boss health, includes melee reach against the chosen target,
+retires dead adds, and reroutes deterministically. The global raid-DPS fraction
+remains the explicitly labelled boss-health dial. The Lab does not fabricate
+friendly damage, mana, GCDs, healing amounts, dispels, interrupts, or cooldown
+use. Those remaining typed intentions are ready for the later combat evaluator,
+but the modal does not claim those casts have happened.
+
+## 8.8 Persistent flight presentation (2026-08-20)
+
+Flying is durable actor state now, not merely a property of an active movement
+spline. Encounter puppets copy it on spawn and every simulation frame. A flying
+body that has reached a point therefore selects the model's authored **Hover**
+animation (falling back to Fly, Fall, then Stand) and never enters the ground
+contact-shadow pass. Onyxia can pause between air-phase attacks without looking
+as if she sat on an invisible floor; grounded and travelling animation selection
+is unchanged.
 
 **Status: BUILT, COMPILES CLEAN (Debug + Release), NOT YET EYES-ON.** The pins and the
 sweep only read on a staged-raid-pulled-then-paused fight, which the probe does not
@@ -733,8 +781,8 @@ window's observed-path tap.
 
 Three layers, each catching what the others cannot.
 
-**1. Headless suite — 91/91 offline, `tools/encounter-lab-check` (re-run
-2026-08-18; nothing regressed):**
+**1. Headless suite — 126/126 offline, `tools/encounter-lab-check` (re-run
+2026-08-20; nothing regressed):**
 
 ```bash
 dotnet run --project tools/encounter-lab-check
@@ -745,8 +793,11 @@ lines, near-miss clearance; determinism (same seed ⇒ identical event stream),
 different seeds diverging, exact rewind, `Reset` reproducibility, phase gating,
 casts blocked during choreography; probe trajectories tested at impact; the
 translator's unit conversion, C++-hole declaration and EventAI mapping; JSON round
-trip and stale-schema rejection; and the whole Onyxia document loading,
-simulating, reaching all three phases and declaring its holes.
+trip and stale-schema rejection; Combat Plan subject/priority/fallback resolution,
+follow bands, movement precedence, facing migration, per-target DPS, deterministic
+add death/rerouting, despawn invalidation, rewind, and durable profile-store
+recovery; and the whole Onyxia document loading, simulating, reaching all three
+phases and declaring its holes.
 
 Add `--live [baseUrl]` for the world-DB integration pass (read-only):
 
@@ -918,23 +969,24 @@ stage (§11).
 |---|---|
 | `MSUIClient/World/Encounters/EncounterDefinition.cs` | Schema, fidelity registry, coverage flags, `Holes()`, `WorstFidelity()` |
 | `MSUIClient/World/Encounters/EncounterGeometry.cs` | `BodyCapsule`, `Footprint`, `IEncounterSpellFacts`, resolve + hit tests |
-| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step; **ordered-move fired/active state captured for scrub-correct route retirement**; per-player **AlwaysFaceBoss** applied after movement (§8.7) |
+| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step; **ordered-move fired/active state captured for scrub-correct route retirement**; deterministic per-character **Combat Plan intent + follow doctrine**, captured for rewind (§8.7) |
 | `MSUIClient/World/Encounters/EncounterProbe.cs` | `ProbeTrajectory`, `ProbeReport`, structural scan |
 | `MSUIClient/World/Encounters/EncounterTranslator.cs` | world-DB rows → definition |
 | `MSUIClient/World/Encounters/EncounterLibrary.cs` | JSON DTOs ⇄ model, load/save |
+| `MSUIClient/World/Encounters/CombatPlanStore.cs` | Versioned per-character `combat-plans.json`: tolerant load, atomic explicit save/remove, shared plan DTO mapping (§8.7) |
 | `MSUIClient/World/Encounters/EncounterSpellFacts.cs` | Spell.dbc + world DB bridge |
 | `MSUIClient/Net/EncounterWorldData.cs` | Row model + immutable snapshot |
 | `MSUIClient/Net/EncounterDataClient.cs` | 5 tables, CSV + 12 h disk cache |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed and staged plans, anchor labels; **completed committed legs retire on arrival**, **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3); **terrain/WMO-projected cone + line visualizations, phase-filtered ability visualization + `ResolveVisualizedFootprint`, summon markers, orbit-sweep preview** (§8.6) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing; **live orbit-drag position override** (§8.6) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing; **live orbit-drag position override** (§8.6); durable flying state for stationary hover (§8.8) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: non-blocking puppet selection (§8.7), marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), **Shift+Left-click body orbit-sweep grab→teleport-what-if** (§8.6), never touches `SuiOrder` |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead; dedicated phase-aware **Ability Visualizer** pop-out with a hover-help affordance and **Show/Hide** button per mechanic (§8.6) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Right-edge game-native **Character Customizer** affordance + opt-in **Player Setup modal** (§8.7): live per-body base rules plus an honest disabled shell for future SuperUI/custom rotations |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Right-edge game-native **Character Customizer** affordance + five-view **Combat Plan workspace** (§8.7): templates, ordered doctrine, context overlay, live explanation, validation, draft undo/redo/revert/apply |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11); two assertions rewritten for §8.1 (clock-holds, stands) and pending a re-run |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Tape.cs` | Recorder + predicted-vs-observed diff |
 | `encounters/onyxia.json` | The authored encounter + spec fuzz — boss at the exact DB spawn (guid 47572), real speeds, `detectionRangeYards`, declared `Stationary` idle with full provenance note |
-| `tools/encounter-lab-check/` | 91 headless assertions, `--live` integration mode |
+| `tools/encounter-lab-check/` | deterministic headless assertions, including Combat Plan resolution, precedence, rewind, follow bands, and JSON round-trip; `--live` integration mode |
 
 **Touched — thin hooks only**
 

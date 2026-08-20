@@ -99,6 +99,55 @@ public sealed class ActorDto
 public sealed class PlayerRulesDto
 {
     public bool AlwaysFaceBoss { get; set; }
+    public CombatPlanDto? Plan { get; set; }
+}
+
+public sealed class CombatPlanDto
+{
+    public string Name { get; set; } = "Custom plan";
+    public CombatMovementDto? Movement { get; set; }
+    public CombatEngagementMode Engagement { get; set; } = CombatEngagementMode.NeverInitiate;
+    public List<CombatSupportPriorityDto>? SupportPriorities { get; set; }
+    public List<CombatEnemyPriorityDto>? EnemyPriorities { get; set; }
+    public List<CombatResponsibility>? Responsibilities { get; set; }
+    public CombatResourcePolicyDto? Resources { get; set; }
+    public CombatFallback Fallback { get; set; } = CombatFallback.ClassDefaults;
+}
+
+public sealed class CombatMovementDto
+{
+    public CombatMovementMode Mode { get; set; } = CombatMovementMode.Independent;
+    public CombatSubjectDto? Anchor { get; set; }
+    public float MinRangeYards { get; set; } = 8f;
+    public float MaxRangeYards { get; set; } = 18f;
+    public bool FacePrimaryEnemy { get; set; }
+}
+
+public sealed class CombatSubjectDto
+{
+    public CombatSubjectKind Kind { get; set; } = CombatSubjectKind.Self;
+    public RaidJob Role { get; set; } = RaidJob.None;
+    public int Ordinal { get; set; } = 1;
+}
+
+public sealed class CombatSupportPriorityDto
+{
+    public CombatSubjectDto Target { get; set; } = new();
+    public float OnlyWhenBelowHealthPercent { get; set; } = 100f;
+    public bool Enabled { get; set; } = true;
+}
+
+public sealed class CombatEnemyPriorityDto
+{
+    public CombatEnemyKind Kind { get; set; } = CombatEnemyKind.PrimaryEnemy;
+    public bool Enabled { get; set; } = true;
+}
+
+public sealed class CombatResourcePolicyDto
+{
+    public int ReservePercent { get; set; } = 20;
+    public int EmergencyHealthPercent { get; set; } = 25;
+    public bool SaveMajorCooldowns { get; set; } = true;
 }
 
 public sealed class IdleMovementDto
@@ -339,8 +388,33 @@ public sealed class EncounterLibrary
             : null,
         dto.RunSpeedYdPerSec, dto.WalkSpeedYdPerSec, dto.DetectionRangeYards,
         dto.PlayerRules is { } rules
-            ? new EncounterPlayerRules(rules.AlwaysFaceBoss)
+            ? new EncounterPlayerRules(rules.AlwaysFaceBoss, CombatPlanFromDto(rules.Plan))
             : null);
+
+    /// <summary>Single file-format mapping shared by authored encounter documents and
+    /// the per-character combat-plan store.</summary>
+    public static CombatPlan? CombatPlanFromDto(CombatPlanDto? dto) => dto is null ? null : new CombatPlan(
+        dto.Name,
+        dto.Movement is { } movement
+            ? new CombatMovementPlan(movement.Mode, FromDto(movement.Anchor),
+                movement.MinRangeYards, movement.MaxRangeYards,
+                movement.FacePrimaryEnemy)
+            : null,
+        dto.Engagement,
+        dto.SupportPriorities?.Select(priority => new CombatSupportPriority(
+            FromDto(priority.Target) ?? CombatSubject.LowestHealth,
+            priority.OnlyWhenBelowHealthPercent, priority.Enabled)).ToArray(),
+        dto.EnemyPriorities?.Select(priority =>
+            new CombatEnemyPriority(priority.Kind, priority.Enabled)).ToArray(),
+        dto.Responsibilities?.ToArray(),
+        dto.Resources is { } resources
+            ? new CombatResourcePolicy(resources.ReservePercent,
+                resources.EmergencyHealthPercent, resources.SaveMajorCooldowns)
+            : null,
+        dto.Fallback);
+
+    private static CombatSubject? FromDto(CombatSubjectDto? dto) => dto is null ? null :
+        new CombatSubject(dto.Kind, dto.Role, Math.Max(dto.Ordinal, 1));
 
     private static EncounterPhase FromDto(PhaseDto dto) => new(
         dto.Key, dto.Name,
@@ -432,7 +506,11 @@ public sealed class EncounterLibrary
             WalkSpeedYdPerSec = a.WalkSpeedYdPerSec,
             DetectionRangeYards = a.DetectionRangeYards,
             PlayerRules = a.PlayerRules is { } rules
-                ? new PlayerRulesDto { AlwaysFaceBoss = rules.AlwaysFaceBoss }
+                ? new PlayerRulesDto
+                {
+                    AlwaysFaceBoss = rules.AlwaysFaceBoss,
+                    Plan = CombatPlanToDto(rules.Plan),
+                }
                 : null,
         }).ToList(),
         Phases = definition.Phases.Select(p => new PhaseDto
@@ -459,6 +537,55 @@ public sealed class EncounterLibrary
             Sources = a.Sources?.Select(ToDto).ToList(),
         }).ToList(),
     };
+
+    /// <summary>Single model-to-file mapping shared by authored encounter documents and
+    /// the per-character combat-plan store.</summary>
+    public static CombatPlanDto? CombatPlanToDto(CombatPlan? plan) => plan is null ? null : new CombatPlanDto
+    {
+        Name = plan.Name,
+        Movement = plan.Movement is { } movement
+            ? new CombatMovementDto
+            {
+                Mode = movement.Mode,
+                Anchor = ToDto(movement.Anchor),
+                MinRangeYards = movement.MinRangeYards,
+                MaxRangeYards = movement.MaxRangeYards,
+                FacePrimaryEnemy = movement.FacePrimaryEnemy,
+            }
+            : null,
+        Engagement = plan.Engagement,
+        SupportPriorities = plan.SupportPriorities?.Select(priority =>
+            new CombatSupportPriorityDto
+            {
+                Target = ToDto(priority.Target) ?? new CombatSubjectDto(),
+                OnlyWhenBelowHealthPercent = priority.OnlyWhenBelowHealthPercent,
+                Enabled = priority.Enabled,
+            }).ToList(),
+        EnemyPriorities = plan.EnemyPriorities?.Select(priority =>
+            new CombatEnemyPriorityDto
+            {
+                Kind = priority.Kind,
+                Enabled = priority.Enabled,
+            }).ToList(),
+        Responsibilities = plan.Responsibilities?.ToList(),
+        Resources = plan.Resources is { } resources
+            ? new CombatResourcePolicyDto
+            {
+                ReservePercent = resources.ReservePercent,
+                EmergencyHealthPercent = resources.EmergencyHealthPercent,
+                SaveMajorCooldowns = resources.SaveMajorCooldowns,
+            }
+            : null,
+        Fallback = plan.Fallback,
+    };
+
+    private static CombatSubjectDto? ToDto(CombatSubject? subject) => subject is null ? null :
+        new CombatSubjectDto
+        {
+            Kind = subject.Kind,
+            Role = subject.Role,
+            Ordinal = subject.Ordinal,
+        };
 
     private static StepDto ToDto(EncounterStep s) => new()
     {

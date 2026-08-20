@@ -33,9 +33,11 @@ public sealed partial class GameLoop
 {
     private bool _encounterLabOpen;
     private bool _encounterLabKeyWasDown;
+    private bool _encounterUndoKeyWasDown;
 
     private EncounterDataClient? _encounterData;
     private EncounterLibrary? _encounterLibrary;
+    private CombatPlanStore? _encounterCombatPlanStore;
     private EncounterSpellFacts? _encounterFacts;
 
     /// <summary>The definition currently loaded into the Lab, and how it was resolved.</summary>
@@ -78,6 +80,10 @@ public sealed partial class GameLoop
     private readonly Dictionary<string, List<EncounterStagedLeg>> _encounterStagedOrders =
         new(StringComparer.Ordinal);
 
+    /// <summary>One entry per waypoint click. A multi-selection click adds one leg to each
+    /// selected body and therefore undoes as one authoring gesture.</summary>
+    private readonly List<string[]> _encounterStagedUndo = [];
+
     private readonly record struct EncounterStagedLeg(Vector3 Position, float ArrivalFacing)
     {
         public bool HasFacing => !float.IsNaN(ArrivalFacing);
@@ -115,6 +121,40 @@ public sealed partial class GameLoop
         legs.Add(new EncounterStagedLeg(position, float.NaN));
     }
 
+    private void RememberEncounterWaypointGesture(IEnumerable<string> keys) =>
+        _encounterStagedUndo.Add(keys.Distinct(StringComparer.Ordinal).ToArray());
+
+    private bool UndoEncounterWaypoint()
+    {
+        while (_encounterStagedUndo.Count > 0)
+        {
+            string[] keys = _encounterStagedUndo[^1];
+            _encounterStagedUndo.RemoveAt(_encounterStagedUndo.Count - 1);
+            int removed = 0;
+            foreach (string key in keys)
+            {
+                if (!_encounterStagedOrders.TryGetValue(key, out List<EncounterStagedLeg>? legs) ||
+                    legs.Count == 0) continue;
+                legs.RemoveAt(legs.Count - 1);
+                removed++;
+                if (legs.Count == 0) _encounterStagedOrders.Remove(key);
+            }
+            if (removed == 0) continue;
+            EndEncounterOrientSpin(commit: false);
+            AddChatMessage(removed == 1
+                ? "Waypoint undone."
+                : $"Waypoint undone for {removed} selected bodies.");
+            return true;
+        }
+        return false;
+    }
+
+    private void ClearEncounterStagedOrders()
+    {
+        _encounterStagedOrders.Clear();
+        _encounterStagedUndo.Clear();
+    }
+
     /// <summary>GO: commit the whole staged plan and run it. Every body's first
     /// leg fires at the current instant — the raid moves as one — and later legs
     /// chain on arrival, exactly like hand-authored waypoint chains.</summary>
@@ -127,7 +167,7 @@ public sealed partial class GameLoop
                 AppendScenarioMove(key, atMs, legs[i].Position,
                     anchor: i == 0 ? MoveAnchor.AtTime : MoveAnchor.AfterPrevious,
                     arrivalFacing: legs[i].ArrivalFacing);
-        _encounterStagedOrders.Clear();
+        ClearEncounterStagedOrders();
         RebuildEncounterSimKeepingView();
         _encounterPlaying = true;
         AddChatMessage("GO — the plan is running.");
@@ -145,6 +185,18 @@ public sealed partial class GameLoop
     private EncounterLibrary EncounterLibraryRef =>
         _encounterLibrary ??= new EncounterLibrary(Path.Combine(_config.RepoRoot, "encounters"));
 
+    private CombatPlanStore EncounterCombatPlanStoreRef
+    {
+        get
+        {
+            if (_encounterCombatPlanStore is not null) return _encounterCombatPlanStore;
+            _encounterCombatPlanStore = new CombatPlanStore(
+                Path.Combine(_config.RepoRoot, "combat-plans.json"));
+            _encounterCombatPlanStore.Load();
+            return _encounterCombatPlanStore;
+        }
+    }
+
     // ── input ────────────────────────────────────────────────────────────────
 
     /// <summary>Ctrl+E edge toggle, run from UpdateControlInput beside Ctrl+N/Ctrl+F.
@@ -156,6 +208,11 @@ public sealed partial class GameLoop
         bool pressed = ctrl && InputKeyDown(Key.E);
         if (pressed && !_encounterLabKeyWasDown && !typing) ToggleEncounterLab();
         _encounterLabKeyWasDown = pressed;
+
+        bool undoPressed = ctrl && InputKeyDown(Key.Z);
+        if (undoPressed && !_encounterUndoKeyWasDown && !typing && _encounterLabOpen)
+            UndoEncounterWaypoint();
+        _encounterUndoKeyWasDown = undoPressed;
     }
 
     private void ToggleEncounterLab()
@@ -411,8 +468,9 @@ public sealed partial class GameLoop
 
     private void BuildScenarioFromDefinition()
     {
+        InvalidateEncounterPlayerPlanDraft();
         _encounterScenario.Clear();
-        _encounterStagedOrders.Clear();
+        ClearEncounterStagedOrders();
         if (_encounterDefinition?.Actors is { Count: > 0 } actors)
             // The boss (and any authored adds) — NEVER the document's friendly
             // fixture bodies. Those stood inside her ring, and the moment the
@@ -557,8 +615,12 @@ public sealed partial class GameLoop
     {
         if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
             is not { } boss) return;
+        // Preset keys are stable character identities across encounters. Throw away
+        // any modal cache before replacing the roster so a reused key can never make
+        // an old draft look as though it belongs to the new actor instance.
+        InvalidateEncounterPlayerPlanDraft();
         _encounterScenario.RemoveAll(a => a.Role == EncounterActorRole.Friendly);
-        _encounterStagedOrders.Clear();
+        ClearEncounterStagedOrders();
 
         // The raid forms up AT THE PLAYER - stand at the top of the cave, click
         // once, and the raid is authored there, outside her ring, facing her.
@@ -574,9 +636,16 @@ public sealed partial class GameLoop
             Vector3 side = new(-forward.Y, forward.X, 0f);
             Vector3 at = centre + forward * aheadYards + side * sideYards;
             at.Z = EncounterGroundZ(at.X, at.Y, centre.Z);
+            CombatPlan? savedPlan = EncounterCombatPlanStoreRef.Find(key);
+            EncounterPlayerRules? savedRules = savedPlan is null
+                ? null
+                : new EncounterPlayerRules(
+                    AlwaysFaceBoss: savedPlan.Movement?.FacePrimaryEnemy == true,
+                    Plan: savedPlan);
             _encounterScenario.Add(new EncounterActorSpec(
                 key, name, 0, EncounterActorRole.Friendly, at,
-                Facing: advance, MaxHealth: health, DisplayId: display, Dps: dps, Job: job));
+                Facing: advance, MaxHealth: health, DisplayId: display, Dps: dps,
+                Job: job, PlayerRules: savedRules));
         }
 
         // The 2 tank / 2 healer / 6 dps ten-man, in marching order: tanks on the
@@ -1072,6 +1141,14 @@ public sealed partial class GameLoop
                 // Play at the end means "run it again", not a dead button.
                 if (_encounterPlaying && _encounterViewMs >= fightEndMs) ScrubTo(0);
             }
+        }
+        if (stagedCount > 0)
+        {
+            EncounterSameLineForButton("Undo", 70f * cs);
+            if (EncounterPanelButton("Undo", 70f * cs))
+                UndoEncounterWaypoint();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Remove the last staged waypoint gesture (Ctrl+Z).");
         }
         EncounterSameLineForButton("Step");
         if (EncounterPanelButton("Step"))

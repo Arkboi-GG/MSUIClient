@@ -279,13 +279,93 @@ public sealed record IdleMovementSpec(
     IReadOnlyList<IdleWaypoint>? Points = null,
     string? Note = null);
 
-/// <summary>Standing rules owned by one player-side body. This is deliberately a
-/// nested object rather than a run of actor booleans: rotation source and an authored
-/// spell queue can grow beside these base rules without replacing the document shape.</summary>
+/// <summary>A semantic subject inside a reusable combat plan. Only portable selectors
+/// belong here. Named-character bindings are a separate roster/assignment concern, so
+/// the same plan can move unchanged between dungeon and raid groups.</summary>
+public enum CombatSubjectKind
+{
+    Self,
+    RoleOrdinal,
+    LowestHealthAlly,
+}
+
+public sealed record CombatSubject(
+    CombatSubjectKind Kind,
+    RaidJob Role = RaidJob.None,
+    int Ordinal = 1)
+{
+    public static CombatSubject Self => new(CombatSubjectKind.Self);
+    public static CombatSubject Tank(int ordinal = 1) =>
+        new(CombatSubjectKind.RoleOrdinal, RaidJob.Tank, Math.Max(ordinal, 1));
+    public static CombatSubject LowestHealth => new(CombatSubjectKind.LowestHealthAlly);
+}
+
+/// <summary>Strategic translation remains separate from spell choice so a combat rule can
+/// never steal a waypoint, patrol, hold order, or directly controlled body.</summary>
+public enum CombatMovementMode { Independent, HoldPosition, Follow }
+
+public sealed record CombatMovementPlan(
+    CombatMovementMode Mode = CombatMovementMode.Independent,
+    CombatSubject? Anchor = null,
+    float MinRangeYards = 8f,
+    float MaxRangeYards = 18f,
+    bool FacePrimaryEnemy = false);
+
+/// <summary>Whether this character may create an engagement. None of these policies names
+/// a boss: the current encounter can be a dungeon pull, raid encounter, or authored group.</summary>
+public enum CombatEngagementMode { NeverInitiate, AssistAnchor, DefendGroup, Autonomous }
+
+/// <summary>Portable hostile buckets exposed by the current Encounter Lab model.</summary>
+public enum CombatEnemyKind { AnyAdd, CurrentEnemy, PrimaryEnemy }
+
+public sealed record CombatEnemyPriority(CombatEnemyKind Kind, bool Enabled = true);
+
+/// <summary>Ordered care assignment. The threshold prevents an always-applicable first row
+/// from permanently hiding every fallback below it.</summary>
+public sealed record CombatSupportPriority(
+    CombatSubject Target,
+    float OnlyWhenBelowHealthPercent = 100f,
+    bool Enabled = true);
+
+public enum CombatResponsibility
+{
+    Interrupt,
+    DispelMagic,
+    RemoveCurse,
+    CleansePoison,
+    CrowdControlAdds,
+    Resurrect,
+}
+
+public enum CombatFallback { NoActionThisTick, AutoAttackCurrent, ClassDefaults }
+
+public sealed record CombatResourcePolicy(
+    int ReservePercent = 20,
+    int EmergencyHealthPercent = 25,
+    bool SaveMajorCooldowns = true);
+
+/// <summary>
+/// One character's reusable combat doctrine. It deliberately contains no encounter key,
+/// phase key, creature entry, "boss" selector, or party-size assumption. Encounter-local
+/// choreography remains an overlay owned by the scenario/playbook; this object can move
+/// unchanged between a five-player dungeon and a forty-player raid.
+/// </summary>
+public sealed record CombatPlan(
+    string Name = "Custom plan",
+    CombatMovementPlan? Movement = null,
+    CombatEngagementMode Engagement = CombatEngagementMode.NeverInitiate,
+    IReadOnlyList<CombatSupportPriority>? SupportPriorities = null,
+    IReadOnlyList<CombatEnemyPriority>? EnemyPriorities = null,
+    IReadOnlyList<CombatResponsibility>? Responsibilities = null,
+    CombatResourcePolicy? Resources = null,
+    CombatFallback Fallback = CombatFallback.ClassDefaults);
+
+/// <summary>Standing rules owned by one player-side body. The legacy facing bit remains
+/// first and defaulted so existing positional constructors and encounter documents survive.</summary>
 public sealed record EncounterPlayerRules(
-    /// <summary>Face the live boss position at every sim step, including while running.
-    /// Overrides movement-direction and authored arrival facing while the boss exists.</summary>
-    bool AlwaysFaceBoss = false);
+    /// <summary>Legacy spelling for face-primary-enemy. Retained for JSON compatibility.</summary>
+    bool AlwaysFaceBoss = false,
+    CombatPlan? Plan = null);
 
 /// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
 /// model - the owner assigns aggro and swaps it, because "who is she facing"
@@ -361,9 +441,9 @@ public sealed record EncounterActorSpec(
     /// in turn at run speed; the sim replays them identically every run, so a
     /// repositioning plan is testable against the same seeded fight.</summary>
     IReadOnlyList<TimedMove>? Moves = null,
-    /// <summary>Damage this body deals to the boss, per second, owner-chosen.
-    /// The sum across bodies is what walks her through the health-gated phase
-    /// transitions - dps is an INPUT to the plan, not a simulated outcome.</summary>
+    /// <summary>Owner-chosen damage per second. A body without a combat plan keeps
+    /// the legacy primary-boss route; a planned body routes this same input to its
+    /// resolved hostile intent. DPS is an INPUT to the plan, not a simulated outcome.</summary>
     float Dps = 0f,
     /// <summary>What the body is for. Feeds the playbook and the melee-reach dps
     /// gate; meaningless on the boss and on adds.</summary>

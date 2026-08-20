@@ -338,9 +338,13 @@ public sealed class WowSkin : IDisposable
                 // "black box", but that stripped the shadow, rendered the metal border transparent and
                 // washed the darker pressed pill out. So: no de-halo on the button faces.
                 // The HIGHLIGHT is the one exception: it is a black field + bright rim meant to be
-                // ADD-blended; drawn straight it would veil the pill with a dark shadow on hover, so
-                // its alpha is rebuilt from brightness (dark field -> transparent, bright rim -> tint).
-                if (key == "glue.btn.hi" || key == "glue.select.hi"
+                // ADD-blended. The red glue button is rendered through ImGui's normal alpha blend,
+                // so keeping the highlight's coloured RGB can still replace bright red with darker
+                // midtones. Make that overlay a white light mask: hover can then only brighten the
+                // authored button face, matching the 1.12 ADD-blend result.
+                if (key == "glue.btn.hi")
+                    WhiteGlowFromLuma(bgra);
+                else if (key == "glue.select.hi"
                     || key == "glue.arrow.l.hi" || key == "glue.arrow.r.hi")
                     HighlightAlphaFromLuma(bgra);
                 // The icon check-button square goes further: RGB is forced WHITE so the overlay can
@@ -371,15 +375,16 @@ public sealed class WowSkin : IDisposable
     }
 
     /// <summary>
-    /// Turn an ADDITIVE glow sheet into a straight-alpha overlay that only ever brightens.
+    /// Turn an ADDITIVE glow sheet into a straight-alpha approximation.
     ///
     /// Glue-Panel-Button-Highlight is a black field with a bright rim, authored for ADD blending: the
     /// black adds nothing, the rim adds light. ImGui's draw lists blend straight, so drawing it as-is
     /// paints the black field as a ~50% dark veil over the pill - the "interior shadow on hover". This
     /// rewrites each texel's alpha to its own brightness (max r,g,b): the black field goes fully
-    /// transparent (adds nothing, exactly like ADD would), and only the bright rim tints through, so
-    /// hover reads as a glow, never a darkening. RGB is left as-is. BGRA in place; channel order is
-    /// irrelevant to max().
+    /// transparent (adds nothing, exactly like ADD would), and only the bright rim tints through.
+    /// RGB is left as-is, so this is only appropriate where retaining the authored highlight colour
+    /// matters more than a strict light-only guarantee. BGRA in place; channel order is irrelevant
+    /// to max().
     /// </summary>
     private static void HighlightAlphaFromLuma(byte[] bgra)
     {
@@ -400,12 +405,11 @@ public sealed class WowSkin : IDisposable
     /// a coloured film.
     ///
     /// Why this and not <see cref="HighlightAlphaFromLuma"/>: that one rewrites alpha but KEEPS the
-    /// sheet's own RGB, which is right for a black-field/bright-rim sheet like Glue-Panel-Button-
-    /// Highlight. ButtonHilight-Square is not that - it is a soft, fairly DARK blue-grey square, so
-    /// alpha-only left a mid-alpha dark colour compositing over the icon and the "glow" read as an
-    /// inward shadow that got MURKIER the harder it was driven (Nico: "makes it almost darker, not
-    /// brighter"). Forcing RGB to white keeps the same shape - the rim still carries the most alpha -
-    /// while guaranteeing the direction of the effect. Tint at draw time to colour it.
+    /// sheet's own RGB. Under normal alpha blending, any retained RGB darker than the destination
+    /// still darkens it. That made the red GlueButton and the fairly dark ButtonHilight-Square read
+    /// as inward shadows instead of 1.12-style ADD highlights. Forcing RGB to white keeps the same
+    /// mask shape - the bright parts still carry the most alpha - while guaranteeing the direction
+    /// of the effect. Tint at draw time to colour it.
     /// </summary>
     private static void WhiteGlowFromLuma(byte[] bgra)
     {

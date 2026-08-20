@@ -146,6 +146,7 @@ public sealed partial class GameLoop
                 }
                 StageEncounterLeg(keys[i], target);
             }
+            RememberEncounterWaypointGesture(keys);
             _rtsMoveMarkers.Add((point, NowSeconds(), RtsNeutralTint));
             AddChatMessage($"{OrderKeysLabel(keys)}: waypoint staged " +
                            $"({EncounterStagedCount} total) — GO or Play runs the plan.");

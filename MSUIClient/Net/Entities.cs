@@ -21,6 +21,14 @@ public sealed class WorldEntity
     // authoritative position snapshot supersedes it.
     public CreatureSpline? Spline;
 
+    /// <summary>
+    /// Persistent airborne presentation state, independent of whether a movement spline is
+    /// currently active. Encounter Lab puppets set this from their simulation actor so a flyer
+    /// keeps hovering between path legs; live units continue to use spline/movement flags until
+    /// the wire path exposes an equivalent durable flag.
+    /// </summary>
+    public bool Flying;
+
     public bool IsPlayer => Type == ObjectTypeId.Player;
     public bool IsCreature => Type == ObjectTypeId.Unit;
     public bool IsUnit => Type is ObjectTypeId.Unit or ObjectTypeId.Player;

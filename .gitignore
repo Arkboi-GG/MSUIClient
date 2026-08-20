@@ -53,6 +53,10 @@ local-credentials/
 # .ApplyQuality), so a fresh clone is never short of a sane starting point.
 settings.json
 
+# Per-character Encounter Lab combat doctrine. Plans are user preferences and
+# stable across encounters, but are not authored encounter content.
+/combat-plans.json
+
 # Archives produced by setup-vmaps.ps1
 *.tar.gz
 vmaps.tar.gz

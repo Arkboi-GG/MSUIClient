@@ -94,6 +94,7 @@ public sealed partial class GameLoop
                     Fields = fields,
                     Position = actor.Position,
                     Orientation = actor.Facing,
+                    Flying = actor.Flying,
                 });
                 _encounterPuppets[actor.Key] = guid;
                 _encounterPuppetPrev[actor.Key] = actor.Position;
@@ -101,6 +102,10 @@ public sealed partial class GameLoop
 
             if (_entities.TryGet(guid, out WorldEntity entity))
             {
+                // Flight is actor state, not a side effect of having a path this frame. Keep it
+                // on the puppet while stationary, casting, orbit-dragged, or between route legs.
+                entity.Flying = actor.Flying;
+
                 // An orbit drag overrides this body's position directly: the model glides
                 // around the boss as the cursor sweeps it, with NO sim rebuild until the
                 // click commits. Snap (no smoothing), face the boss, skip the follow below.

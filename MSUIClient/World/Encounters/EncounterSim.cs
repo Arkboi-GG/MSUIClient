@@ -87,7 +87,10 @@ public readonly record struct SimActorState(
     string Key, Vector3 Position, float Facing, int Health, bool Alive, bool Flying,
     int HitsTaken = 0,
     int ActiveOrderedMoveIndex = -1,
-    bool[]? FiredOrderedMoves = null);
+    bool[]? FiredOrderedMoves = null,
+    string? CurrentFollowTargetKey = null,
+    string? CurrentProtectTargetKey = null,
+    string? CurrentEnemyTargetKey = null);
 
 /// <summary>A complete, restorable instant. Rewind is an index into a list of these.</summary>
 public sealed record SimSnapshot(
@@ -178,6 +181,14 @@ public sealed class SimActor(EncounterActorSpec spec)
     /// by any explicit order the owner issues.</summary>
     public bool AutoChase;
 
+    /// <summary>The reusable combat plan's resolved intent at this instant. Follow
+    /// drives standing movement and enemy drives the body's existing owner-authored
+    /// DPS input. Protect remains observational: the Lab does not invent heals,
+    /// spells, resources, responsibilities, engagement, or threat.</summary>
+    public string? CurrentFollowTargetKey;
+    public string? CurrentProtectTargetKey;
+    public string? CurrentEnemyTargetKey;
+
     /// <summary>Footprint landings this body has been inside, cumulative. The
     /// positioning question the whole scenario exists to answer.</summary>
     public int HitsTaken;
@@ -185,7 +196,8 @@ public sealed class SimActor(EncounterActorSpec spec)
     public float HealthFraction => MaxHealth <= 0 ? 0f : Health / (float)MaxHealth;
     public BodyCapsule Body => BodyCapsule.At(Position, Spec.BoundingRadius);
     public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying,
-        HitsTaken, ActiveOrderedMoveIndex, FiredOrderedMoves.ToArray());
+        HitsTaken, ActiveOrderedMoveIndex, FiredOrderedMoves.ToArray(),
+        CurrentFollowTargetKey, CurrentProtectTargetKey, CurrentEnemyTargetKey);
 
     public void Restore(in SimActorState state)
     {
@@ -193,6 +205,9 @@ public sealed class SimActor(EncounterActorSpec spec)
         Health = state.Health; Alive = state.Alive; Flying = state.Flying;
         HitsTaken = state.HitsTaken;
         ActiveOrderedMoveIndex = state.ActiveOrderedMoveIndex;
+        CurrentFollowTargetKey = state.CurrentFollowTargetKey;
+        CurrentProtectTargetKey = state.CurrentProtectTargetKey;
+        CurrentEnemyTargetKey = state.CurrentEnemyTargetKey;
         Array.Clear(FiredOrderedMoves);
         if (state.FiredOrderedMoves is { } fired)
             Array.Copy(fired, FiredOrderedMoves, Math.Min(fired.Length, FiredOrderedMoves.Length));
@@ -339,6 +354,9 @@ public sealed class EncounterSim
             actor.MoveSpeed = actor.Spec.RunSpeedYdPerSec > 0f ? actor.Spec.RunSpeedYdPerSec : 7f;
             actor.PendingArrivalFacing = null;
             actor.AutoChase = false;
+            actor.CurrentFollowTargetKey = null;
+            actor.CurrentProtectTargetKey = null;
+            actor.CurrentEnemyTargetKey = null;
             actor.HitsTaken = 0;
             if (actor.Spec.Moves is { Count: > 0 } moves)
                 _movesFired[actor.Key] = actor.FiredOrderedMoves;
@@ -356,6 +374,7 @@ public sealed class EncounterSim
         // script against nobody the instant a document loaded, and died for it.
         Engaged = false;
         EngagedAtMs = -1;
+        ResolveCombatPlanIntents();
         Emit(SimEventKind.Aggro, BossKey,
             $"awaiting pull - {_definition.Name} engages inside {Options.PullRangeYards:0} yd");
         CaptureSnapshot();
@@ -410,15 +429,22 @@ public sealed class EncounterSim
             // nothing else until the ring is crossed. The ring rides her LIVE
             // position, and the pull moment is part of the recorded fight.
             DispatchOrderedMoves(dt);
+            ResolveCombatPlanIntents();
+            AdvanceCombatPlanMovement(dt);
             AdvanceMovement(dt);
             RoamPrePull(boss, dt);
             CheckPull(boss);
         }
         else if (boss is { Alive: true })
         {
+            // Damage consumes one coherent set of targets for the whole fixed
+            // step. Anything killed below reroutes at the resolution after the
+            // encounter step, ready for the next damage tick.
+            ResolveCombatPlanIntents();
             ApplyHealthModel(boss, dt);
             DispatchAggroPlan(dt);
             DispatchOrderedMoves(dt);
+            AdvanceCombatPlanMovement(dt);
             AdvanceMovement(dt);
             AdvanceAutoChase(boss, dt);
             FaceAggroHolder(boss);
@@ -443,6 +469,11 @@ public sealed class EncounterSim
             }
         }
 
+        // Re-resolve after the encounter's own step so a summon or death is
+        // reflected in this very snapshot. Movement used the same deterministic
+        // intent earlier in the step; this second pass has no side effects.
+        ResolveCombatPlanIntents();
+
         // Player standing rules are the last word on pose. Movement and choreography above
         // may move either endpoint during this step; applying here makes "always face boss"
         // true even while crossing through her or running away to the back wall.
@@ -460,32 +491,70 @@ public sealed class EncounterSim
 
     private void ApplyHealthModel(SimActor boss, int dt)
     {
+        bool bossPinned = false;
         if (Options.PinnedHealthFraction is { } pinned)
         {
             boss.Health = (int)Math.Clamp(pinned * boss.MaxHealth, 0f, boss.MaxHealth);
-            return;
+            bossPinned = true;
         }
 
-        // Per-body dps (owner-chosen, on each body) plus the fraction dial. The
-        // sum is what makes the health-gated phases arrive when the raid's
-        // numbers say they should, which is the point of simulating them.
-        float perSecond = Options.RaidDpsFraction * boss.MaxHealth;
+        // The global fraction dial remains boss pressure. Per-body DPS is still
+        // the same owner-authored input, but a combat plan can route it to an add.
+        // Aggregate before applying so actor/scenario insertion order cannot make
+        // one character retarget midway through a fixed step after another lands
+        // the killing blow.
+        Dictionary<SimActor, float> damagePerSecond = [];
+        float globalBossDps = Options.RaidDpsFraction * boss.MaxHealth;
+        if (!bossPinned && globalBossDps > 0f) damagePerSecond[boss] = globalBossDps;
+
         foreach (SimActor actor in _actors)
         {
-            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
-            // Tank/melee damage happens at her feet: flying or out of reach means
-            // that body contributes nothing, which is what makes an air phase
-            // honestly stall the health gates.
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
+                actor.Spec.Dps <= 0f) continue;
+
+            SimActor? target = DamageTarget(actor, boss);
+            if (target is null || (bossPinned && ReferenceEquals(target, boss))) continue;
+
+            // Tank/melee damage happens at the chosen hostile's feet. A flying
+            // or unreachable add gates that body exactly as a boss already did.
             if (Options.MeleeDpsNeedsReach &&
                 actor.Spec.Job is RaidJob.Tank or RaidJob.Melee &&
-                (boss.Flying ||
-                 EncounterGeometryLaw.GroundDistance(actor.Position, boss.Position) >
-                 MeleeReach(boss, actor) + 3f))
+                (target.Flying ||
+                 EncounterGeometryLaw.GroundDistance(actor.Position, target.Position) >
+                 MeleeReach(target, actor) + 3f))
                 continue;
-            perSecond += actor.Spec.Dps;
+
+            damagePerSecond[target] = damagePerSecond.GetValueOrDefault(target) + actor.Spec.Dps;
         }
-        if (perSecond <= 0f) return;
-        boss.Health = Math.Max(0, boss.Health - (int)MathF.Ceiling(perSecond * (dt / 1000f)));
+
+        foreach ((SimActor target, float perSecond) in damagePerSecond
+                     .OrderBy(pair => pair.Key.Key, StringComparer.Ordinal))
+        {
+            int damage = (int)MathF.Ceiling(perSecond * (dt / 1000f));
+            if (damage <= 0) continue;
+            target.Health = Math.Max(0, target.Health - damage);
+
+            // Boss death retains its established end-of-step handling. Adds have
+            // no AI loop here, so retire them immediately and emit exactly one
+            // deterministic event; all characters reroute on the next resolver.
+            if (target.Spec.Role == EncounterActorRole.Add &&
+                target.Health <= 0 && target.Alive)
+            {
+                target.Alive = false;
+                Emit(SimEventKind.Death, target.Key, $"{target.Spec.Name} dies");
+            }
+        }
+    }
+
+    /// <summary>Characters without a plan retain the original boss-only damage
+    /// law. Planned characters consume their resolved enemy/fallback intent; null
+    /// is a real NoAction/invalid-current result, not permission to hit the boss.</summary>
+    private SimActor? DamageTarget(SimActor actor, SimActor legacyBoss)
+    {
+        if (actor.Spec.PlayerRules?.Plan is null) return legacyBoss;
+        return actor.CurrentEnemyTargetKey is { } key &&
+               _byKey.TryGetValue(key, out SimActor? target) && IsHostile(target)
+            ? target : null;
     }
 
     // ── aggro (owner-assigned, never inferred) ───────────────────────────────
@@ -748,12 +817,193 @@ public sealed class EncounterSim
     private static float WalkSpeed(SimActor actor) =>
         actor.Spec.WalkSpeedYdPerSec > 0f ? actor.Spec.WalkSpeedYdPerSec : DefaultWalkSpeed;
 
-    private void ApplyFriendlyFacingRules(SimActor boss)
+    // ── reusable player combat plans ────────────────────────────────────────
+
+    /// <summary>Resolve the plan's semantic selectors into observable actor keys.
+    /// Support stays observational. Enemy intent routes only the body's existing
+    /// Spec.Dps input; it does not invent spells, attacks, threat, or extra damage.</summary>
+    private void ResolveCombatPlanIntents()
     {
         foreach (SimActor actor in _actors)
         {
             if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
-                actor.Spec.PlayerRules?.AlwaysFaceBoss != true) continue;
+                actor.Spec.PlayerRules?.Plan is not { } plan)
+            {
+                actor.CurrentFollowTargetKey = null;
+                actor.CurrentProtectTargetKey = null;
+                actor.CurrentEnemyTargetKey = null;
+                continue;
+            }
+
+            CombatMovementPlan? movement = plan.Movement;
+            SimActor? follow = movement is { Mode: CombatMovementMode.Follow, Anchor: { } anchor }
+                ? ResolveCombatSubject(actor, anchor)
+                : null;
+            actor.CurrentFollowTargetKey = follow?.Key;
+            actor.CurrentProtectTargetKey = ResolveProtectIntent(actor, plan.SupportPriorities)?.Key;
+            actor.CurrentEnemyTargetKey = ResolveEnemyIntent(actor, plan)?.Key;
+        }
+    }
+
+    /// <summary>Semantic ally selectors never depend on scenario insertion order.
+    /// Role ordinals and equal-health ties are ordered by the stable actor key so
+    /// the same document names the same body in every replay.</summary>
+    private SimActor? ResolveCombatSubject(SimActor owner, CombatSubject subject)
+    {
+        switch (subject.Kind)
+        {
+            case CombatSubjectKind.Self:
+                return owner.Alive ? owner : null;
+
+            case CombatSubjectKind.RoleOrdinal:
+                return _actors
+                    .Where(candidate => candidate.Alive &&
+                        candidate.Spec.Role == EncounterActorRole.Friendly &&
+                        candidate.Spec.Job == subject.Role)
+                    .OrderBy(candidate => candidate.Key, StringComparer.Ordinal)
+                    .Skip(Math.Max(subject.Ordinal, 1) - 1)
+                    .FirstOrDefault();
+
+            case CombatSubjectKind.LowestHealthAlly:
+                return _actors
+                    .Where(candidate => candidate.Alive &&
+                        candidate.Spec.Role == EncounterActorRole.Friendly)
+                    .OrderBy(candidate => candidate.HealthFraction)
+                    .ThenBy(candidate => candidate.Key, StringComparer.Ordinal)
+                    .FirstOrDefault();
+
+            default:
+                return null;
+        }
+    }
+
+    private SimActor? ResolveProtectIntent(
+        SimActor owner,
+        IReadOnlyList<CombatSupportPriority>? priorities)
+    {
+        if (priorities is null) return null;
+        foreach (CombatSupportPriority priority in priorities)
+        {
+            if (!priority.Enabled) continue;
+            SimActor? target = ResolveCombatSubject(owner, priority.Target);
+            if (target is null) continue;
+            float threshold = Math.Clamp(priority.OnlyWhenBelowHealthPercent, 0f, 100f);
+            if (target.HealthFraction * 100f < threshold) return target;
+        }
+        return null;
+    }
+
+    private SimActor? ResolveEnemyIntent(SimActor owner, CombatPlan plan)
+    {
+        if (plan.EnemyPriorities is { } priorities)
+        {
+            foreach (CombatEnemyPriority priority in priorities)
+            {
+                if (!priority.Enabled) continue;
+                SimActor? target = priority.Kind switch
+                {
+                    CombatEnemyKind.AnyAdd => FirstAliveHostile(EncounterActorRole.Add),
+                    CombatEnemyKind.CurrentEnemy => CurrentLegalEnemy(owner),
+                    CombatEnemyKind.PrimaryEnemy => FirstAliveHostile(EncounterActorRole.Boss),
+                    _ => null,
+                };
+                if (target is not null) return target;
+            }
+        }
+
+        return plan.Fallback switch
+        {
+            CombatFallback.AutoAttackCurrent => CurrentLegalEnemy(owner),
+            CombatFallback.ClassDefaults => FirstAliveHostile(EncounterActorRole.Boss),
+            _ => null,
+        };
+    }
+
+    private SimActor? CurrentLegalEnemy(SimActor owner) =>
+        owner.CurrentEnemyTargetKey is { } currentKey &&
+        _byKey.TryGetValue(currentKey, out SimActor? current) && IsHostile(current)
+            ? current : null;
+
+    private SimActor? FirstAliveHostile(EncounterActorRole role) => _actors
+        .Where(candidate => candidate.Alive && candidate.Spec.Role == role)
+        .OrderBy(candidate => candidate.Key, StringComparer.Ordinal)
+        .FirstOrDefault();
+
+    private static bool IsHostile(SimActor actor) =>
+        actor.Alive && actor.Spec.Role is EncounterActorRole.Boss or EncounterActorRole.Add;
+
+    /// <summary>Move a follower only when standing doctrine owns the body. An
+    /// explicit run, an active chase, or any directive for this job in the current
+    /// encounter phase is a higher-precedence order and remains untouched.</summary>
+    private void AdvanceCombatPlanMovement(int dt)
+    {
+        if (dt <= 0) return;
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
+                actor.Spec.PlayerRules?.Plan?.Movement is not
+                    { Mode: CombatMovementMode.Follow } movement ||
+                actor.CurrentFollowTargetKey is not { } targetKey ||
+                !_byKey.TryGetValue(targetKey, out SimActor? anchor) || !anchor.Alive ||
+                ReferenceEquals(actor, anchor))
+                continue;
+
+            if (actor.MoveTarget is not null || actor.AutoChase || HasPhasePlaybookOrder(actor))
+                continue;
+
+            MaintainFollowRange(actor, anchor, movement, dt);
+        }
+    }
+
+    private bool HasPhasePlaybookOrder(SimActor actor) =>
+        Engaged && Options.Playbook?.Any(directive =>
+            directive.Job == actor.Spec.Job &&
+            string.Equals(directive.PhaseKey, PhaseKey, StringComparison.Ordinal)) == true;
+
+    private static void MaintainFollowRange(
+        SimActor actor, SimActor anchor, CombatMovementPlan movement, int dt)
+    {
+        float a = MathF.Max(movement.MinRangeYards, 0f);
+        float b = MathF.Max(movement.MaxRangeYards, 0f);
+        float minRange = MathF.Min(a, b);
+        float maxRange = MathF.Max(a, b);
+
+        Vector2 delta = new(anchor.Position.X - actor.Position.X,
+            anchor.Position.Y - actor.Position.Y);
+        float distance = delta.Length();
+        float correction;
+        Vector2 direction;
+        if (distance > maxRange)
+        {
+            correction = distance - maxRange;
+            direction = delta / MathF.Max(distance, 1e-5f);
+        }
+        else if (distance < minRange)
+        {
+            correction = minRange - distance;
+            direction = distance > 1e-5f
+                ? -delta / distance
+                : StringComparer.Ordinal.Compare(actor.Key, anchor.Key) < 0
+                    ? -Vector2.UnitX : Vector2.UnitX;
+        }
+        else return;
+
+        float step = MathF.Min(actor.MoveSpeed * (dt / 1000f), correction);
+        if (step <= 0f) return;
+        actor.Position += new Vector3(direction.X * step, direction.Y * step, 0f);
+        actor.Facing = MathF.Atan2(direction.Y, direction.X);
+    }
+
+    private void ApplyFriendlyFacingRules(SimActor boss)
+    {
+        foreach (SimActor actor in _actors)
+        {
+            EncounterPlayerRules? rules = actor.Spec.PlayerRules;
+            bool facePrimary = rules?.Plan is { } plan
+                ? plan.Movement?.FacePrimaryEnemy == true
+                : rules?.AlwaysFaceBoss == true;
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
+                !facePrimary) continue;
             Vector2 delta = new(boss.Position.X - actor.Position.X,
                 boss.Position.Y - actor.Position.Y);
             if (delta.LengthSquared() > 1e-5f)
@@ -1151,8 +1401,7 @@ public sealed class EncounterSim
                     break;
 
                 case EncounterStepKind.DespawnSummons:
-                    _actors.RemoveAll(a => a.Spec.Role == EncounterActorRole.Add &&
-                                           a.Key.StartsWith("summon:", StringComparison.Ordinal));
+                    DespawnSummons();
                     break;
 
                 case EncounterStepKind.SetPhase:
@@ -1204,6 +1453,23 @@ public sealed class EncounterSim
             _byKey[key] = actor;
         }
         Emit(SimEventKind.Summon, BossKey, $"summons {count}x entry {step.Entry}");
+    }
+
+    /// <summary>Despawn is stronger than removing a renderable body from Actors:
+    /// sticky CurrentEnemy resolution also consults the key index. Retire both
+    /// views atomically so a vanished summon can never remain a legal target.</summary>
+    private void DespawnSummons()
+    {
+        List<SimActor> despawned = _actors
+            .Where(actor => actor.Spec.Role == EncounterActorRole.Add &&
+                actor.Key.StartsWith("summon:", StringComparison.Ordinal))
+            .ToList();
+        foreach (SimActor actor in despawned)
+        {
+            actor.Alive = false;
+            _byKey.Remove(actor.Key);
+        }
+        _actors.RemoveAll(despawned.Contains);
     }
 
     // ── timeline capture ─────────────────────────────────────────────────────

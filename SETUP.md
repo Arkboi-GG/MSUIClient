@@ -101,7 +101,7 @@ dotnet run --project MSUIClient
 Expect a window, sky-blue clear, an ImGui panel with live WoW coordinates and
 the current tile index, and free-fly movement.
 
-Controls: WASD move, Space/Ctrl up-down, Shift boost, hold mouse to look,
+Controls: WASD move, Space/Caps Lock up-down, Shift boost, hold mouse to look,
 wheel to zoom, Esc to quit.
 
 ### Benilla comparison launch (movement M3 assessment)

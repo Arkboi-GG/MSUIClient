@@ -19,6 +19,7 @@
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterSim.cs" Link="World\Encounters\EncounterSim.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterProbe.cs" Link="World\Encounters\EncounterProbe.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterLibrary.cs" Link="World\Encounters\EncounterLibrary.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\CombatPlanStore.cs" Link="World\Encounters\CombatPlanStore.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterTranslator.cs" Link="World\Encounters\EncounterTranslator.cs" />
     <Compile Include="..\..\MSUIClient\Net\EncounterWorldData.cs" Link="Net\EncounterWorldData.cs" />
     <Compile Include="..\..\MSUIClient\Net\EncounterDataClient.cs" Link="Net\EncounterDataClient.cs" />
