@@ -18,8 +18,10 @@ namespace MSUIClient;
 //                 spots. "Left ranged" and "right ranged" are two scripts; author
 //                 one and mirror it across the boss's facing for the other.
 //
-// This file owns: the Slots tab (role + side + the two library pickers), the
-// positioning draft + its editor, the mirror, and the save/resolve path that
+// This file owns: the identity controls (role + macro group, drawn in the Game
+// Plan header), the two library pickers (rotation slot in the Rotation tab,
+// positioning slot in Advanced), the positioning draft + its editor, the mirror,
+// and the save/resolve path that
 // stitches an assigned rotation and positioning back into the single inline
 // CombatPlan the current sim still reads. When the sim later learns to read the
 // positioning slot directly, that bridge in ResolveInlinePlan is the only thing
@@ -267,45 +269,41 @@ public sealed partial class GameLoop
         }
     }
 
-    // ── the Slots tab ──────────────────────────────────────────────────────────
-
-    private void DrawEncounterPlanSlots(int actorIndex, EncounterActorSpec actor)
-    {
-        EnsureEncounterPositioningDraft(actor);
-
-        DrawEncounterSlotIdentity(actorIndex, actor);
-        ImGui.Spacing();
-        DrawEncounterRotationSlot(actorIndex, actor);
-        ImGui.Spacing();
-        DrawEncounterPositioningSlot(actorIndex, actor);
-    }
+    // ── identity (role + macro group) ─────────────────────────────────────────
+    // Drawn in the Game Plan header — it is the one owner decision the formation
+    // cannot derive: what this body is FOR and which macro group it fights in.
 
     private void DrawEncounterSlotIdentity(int actorIndex, EncounterActorSpec actor)
     {
-        ImGui.SeparatorText("Role & side");
         float cs = CreatorUiScale;
 
         int job = (int)actor.Job;
         ImGui.SetNextItemWidth(160f * cs);
         if (ImGui.Combo("Role", ref job, "Friendly\0Tank\0Healer\0Melee\0Ranged\0"))
         {
-            _encounterScenario[actorIndex] = actor with { Job = (RaidJob)job };
+            foreach (int i in GamePlanTargetIndices(actorIndex))
+                _encounterScenario[i] = _encounterScenario[i] with { Job = (RaidJob)job };
             RebuildEncounterSimKeepingView();
         }
         ImGui.SameLine();
         int sideIdx = (int)actor.Side;
-        ImGui.SetNextItemWidth(140f * cs);
-        if (ImGui.Combo("Side", ref sideIdx, "Unsided\0Left\0Center\0Right\0"))
+        ImGui.SetNextItemWidth(170f * cs);
+        if (ImGui.Combo("Group", ref sideIdx, "Auto-split\0Group 1 (left)\0Center\0Group 2 (right)\0"))
         {
-            _encounterScenario[actorIndex] = actor with { Side = (RaidSide)sideIdx };
+            foreach (int i in GamePlanTargetIndices(actorIndex))
+                _encounterScenario[i] = _encounterScenario[i] with { Side = (RaidSide)sideIdx };
             RebuildEncounterSimKeepingView();
         }
-        ImGui.TextDisabled("Role and side pick which library items fit this body and drive the mirror.");
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("The MACRO group: which flank this body fights on. Auto-split " +
+                             "balances unassigned bodies across both flanks per role.");
     }
 
-    private void DrawEncounterRotationSlot(int actorIndex, EncounterActorSpec actor)
+    /// <summary>The assigned-rotation library combo, on its own so the Game Plan
+    /// header can host it too — picking a rotation is a first-class decision, not
+    /// something buried in an editor tab.</summary>
+    private void DrawEncounterRotationAssignCombo(int actorIndex, EncounterActorSpec actor)
     {
-        ImGui.SeparatorText("Rotation slot — what I press (portable)");
         CombatPlan draft = _encounterPlayerPlanDraft ?? new CombatPlan();
         string assignedId = actor.PlayerRules?.RotationId ?? "";
 
@@ -315,7 +313,7 @@ public sealed partial class GameLoop
             : draft.Name.Length > 0 ? $"{draft.Name} (unsaved)" : "(none)";
 
         ImGui.SetNextItemWidth(260f * CreatorUiScale);
-        if (ImGui.BeginCombo("Assigned rotation", preview))
+        if (ImGui.BeginCombo("Rotation", preview))
         {
             foreach ((string id, CombatPlan plan) in library.OrderBy(p => p.Value.Name))
             {
@@ -329,9 +327,20 @@ public sealed partial class GameLoop
             if (library.Count == 0) ImGui.TextDisabled("no saved rotations yet");
             ImGui.EndCombo();
         }
+    }
 
-        ImGui.TextDisabled("Edit the assigned rotation in the Rotation / Priorities / Responsibilities tabs, " +
-                           "then Save & apply below.");
+    private void DrawEncounterRotationSlot(int actorIndex, EncounterActorSpec actor)
+    {
+        ImGui.SeparatorText("Rotation slot — what I press (portable)");
+        CombatPlan draft = _encounterPlayerPlanDraft ?? new CombatPlan();
+        DrawEncounterRotationAssignCombo(actorIndex, actor);
+
+        string planName = draft.Name;
+        ImGui.SetNextItemWidth(260f * CreatorUiScale);
+        if (ImGui.InputText("Name##rot", ref planName, 80))
+            SetEncounterPlayerPlanDraftContinuous(draft with { Name = planName });
+        FinishEncounterPlayerPlanContinuousEdit();
+
         if (EncounterPanelButton("Clone rotation", compact: true))
         {
             // A clone is a fresh library entry (blank id) seeded from the current draft.
@@ -371,7 +380,15 @@ public sealed partial class GameLoop
         _encounterPlayerPlanUndo.Clear();
         _encounterPlayerPlanRedo.Clear();
         AssignBodySlots(actorIndex, actor, rotation: plan);
-        AddChatMessage($"{actor.Name}: rotation '{plan.Name}' assigned.");
+        // Broadcast: the rest of the selection takes the same assignment (their
+        // own drafts are untouched — the draft belongs to the customized body).
+        List<int> indices = GamePlanTargetIndices(actorIndex);
+        foreach (int i in indices)
+            if (i != actorIndex)
+                AssignBodySlots(i, _encounterScenario[i], rotation: plan);
+        AddChatMessage(indices.Count > 1
+            ? $"{indices.Count} bodies: rotation '{plan.Name}' assigned."
+            : $"{actor.Name}: rotation '{plan.Name}' assigned.");
     }
 
     private void DrawEncounterPositioningSlot(int actorIndex, EncounterActorSpec actor)
@@ -431,7 +448,7 @@ public sealed partial class GameLoop
         }
         ImGui.SameLine();
         bool canMirror = script.Side is RaidSide.Left or RaidSide.Right;
-        if (EncounterPanelButton($"Mirror → {script.Side.Mirror().Label()}",
+        if (EncounterPanelButton($"Mirror -> {script.Side.Mirror().Label()}",
                 enabled: canMirror, compact: true) && canMirror)
             MirrorPositioningDraft();
 

@@ -473,6 +473,7 @@ public sealed partial class CreatureRenderer : IDisposable
                 mounted = TryDrawMount(camera, e.Guid, e.MountDisplayId, e.Position, e.Orientation,
                     e.Spline?.AverageSpeed ?? 0f,
                     e.Speeds is { Length: > 0 } speeds ? speeds[0] : 0f,
+                    e.Flying || e.Spline?.Flying == true,
                     dt, highlighted, out mount);
             else ForgetMount(e.Guid);
 
@@ -1037,17 +1038,31 @@ public sealed partial class CreatureRenderer : IDisposable
     {
         rate = 1f;
         float speed = e.Spline?.AverageSpeed ?? 0f;
+        bool flying = e.Flying || e.Spline?.Flying == true;
         if (e.Spline is null || speed <= MovingEpsilon)
         {
             // Flying is durable actor state; the spline only says whether the body is travelling
             // right now. Prefer the model's authored Hover loop, then its generic Fly cycle. The
             // final fall/stand fallbacks keep models with a smaller animation vocabulary visible.
-            if (e.Flying)
+            if (flying)
                 return animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 40, 0);
 
             return e.Engaged
                 ? animator.Resolve(unit, BaseAnimationTrack, 25, true, 26, 27, 28, 0)
                 : animator.Resolve(unit, BaseAnimationTrack, 0, true);
+        }
+
+        // A flying MonsterMove spline still has a perfectly ordinary world speed, but it
+        // must not be fed into the ground Walk/Run chooser. Taxi gryphons generally author
+        // animation 135 as their travelling wing cycle and 193 as hover; the fall and
+        // ground clips are deliberately last-resort fallbacks for smaller animation sets.
+        if (flying)
+        {
+            M2Animator.Clip? flight = animator.Resolve(
+                unit, BaseAnimationTrack, 135, true, 193, 40, 5, 4, 0);
+            if (flight is not null && flight.MoveSpeed > 0.01f)
+                rate = Math.Clamp(speed / flight.MoveSpeed, 0.25f, 3f);
+            return flight;
         }
 
         float walk = e.Speeds is { Length: > 0 } sp && sp[0] > 0f ? sp[0] : DefaultWalkSpeed;

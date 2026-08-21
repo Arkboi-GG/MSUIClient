@@ -2626,8 +2626,10 @@ public sealed partial class GameLoop : IDisposable
         if (guid == 0 && display > 0) guid = CreatorLocalGuid;
         if (guid == 0) return;
 
+        float travelSpeed = _taxiSpline?.AverageSpeed ?? controller.PlanarSpeed;
+        bool flying = _taxiSpline?.Flying == true;
         if (creatures.TryDrawSelfMount(_window.Camera, guid, display, controller.Position,
-                controller.Yaw, controller.PlanarSpeed, walkSpeed, out Matrix4x4 seat))
+                controller.Yaw, travelSpeed, walkSpeed, flying, out Matrix4x4 seat))
             _character.MountSeat = seat;
     }
 

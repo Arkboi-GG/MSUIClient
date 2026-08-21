@@ -415,6 +415,7 @@ public sealed class ParticleRenderer : IDisposable
 
     private sealed class Pool
     {
+        public string Path = "";
         public M2ParticleEmitter Emitter = null!;
         public Matrix4x4 Transform;
         public string TexturePath = "";
@@ -631,6 +632,7 @@ public sealed class ParticleRenderer : IDisposable
             {
                 pool = new Pool
                 {
+                    Path = path,
                     Emitter = emitter,
                     Transform = transform,
                     TexturePath = texPath,
@@ -643,6 +645,7 @@ public sealed class ParticleRenderer : IDisposable
             // carry only a rounded transform and dynamic keys only their exact
             // owner GUID, so neither identity records the live orientation.
             pool.Transform = transform;
+            pool.Path = path;
             pool.Emitter = emitter;
             pool.TexturePath = texPath;
             pool.Spell = movingInstance;
@@ -1068,8 +1071,8 @@ public sealed class ParticleRenderer : IDisposable
 
             // Portal (model-space) sprites take the sharpness knob; other effects
             // keep full trilinear mips (bias 0) so nothing else changes.
-            _shader.Set("uMipBias",
-                pools.Count > 0 && pools[0].ModelSpace ? SpriteSharpness : 0f);
+            _shader.Set("uMipBias", pools.Any(pool => UsesPortalParticleTuning(pool.Path))
+                ? SpriteSharpness : 0f);
 
             // Sprite-sheet flipbook (e.g. FlameLick's 4x4 flame sheet): the cell is now chosen
             // PER PARTICLE by its own age in Fill (GpuParticle.CellRect via SampleHeadCellRect)
@@ -1111,7 +1114,10 @@ public sealed class ParticleRenderer : IDisposable
         // particle rides the spin as the disc turns (benilla quads.rs:151-155).
         if (pool.ModelSpace)
         {
-            var boneRot = pool.BoneRotationOverride ?? e.SampleBoneRotation(pool.AnimationTime * ModelSpinScale);
+            bool portal = UsesPortalParticleTuning(pool.Path);
+            float portalScale = portal ? PortalScale : 1f;
+            float spinScale = portal ? ModelSpinScale : 1f;
+            var boneRot = pool.BoneRotationOverride ?? e.SampleBoneRotation(pool.AnimationTime * spinScale);
             var rot = pool.Transform;
             rot.M41 = rot.M42 = rot.M43 = 0f;   // rotation+scale only; the pivot is pool.Origin
 
@@ -1119,11 +1125,11 @@ public sealed class ParticleRenderer : IDisposable
             {
                 float t = p.Life > 0f ? p.Age / p.Life : 1f;
                 e.SampleRamp(t, out var rgba, out float scale);
-                if (ParticleHueShift != 0f || ParticleSaturation != 1f || ParticleValue != 1f)
+                if (portal && (ParticleHueShift != 0f || ParticleSaturation != 1f || ParticleValue != 1f))
                     rgba = AdjustColor(rgba, ParticleHueShift, ParticleSaturation, ParticleValue);
-                if (PortalCentreHole > 0f && !pool.Spell)
+                if (portal && PortalCentreHole > 0f && !pool.Spell)
                 {
-                    float rc = p.Position.Length() * PortalScale;
+                    float rc = p.Position.Length() * portalScale;
                     if (rc < PortalCentreHole) rgba.W *= rc / PortalCentreHole;
                 }
                 float mnoise = TwinkleNoise(e.TwinkleSpeed, p.Age, p.Phase);
@@ -1134,7 +1140,7 @@ public sealed class ParticleRenderer : IDisposable
 
                 if (scale <= 0f || rgba.W <= 0.002f) continue;
 
-                var spun = Vector3.Transform(p.Position * PortalScale, boneRot); // rotate about the pivot
+                var spun = Vector3.Transform(p.Position * portalScale, boneRot); // rotate about the pivot
                 var centre = pool.Origin + Vector3.Transform(spun, rot);         // pivot + doodad transform
 
                 _scratch.Add(new GpuParticle
@@ -1146,7 +1152,8 @@ public sealed class ParticleRenderer : IDisposable
                     // glow ~1.8x — the "too big circumference"); they must not touch spell pools.
                     Size = pool.Spell
                         ? scale * pool.Scale
-                        : scale * pool.Scale * PortalScale * SpriteSizeScale * SpriteSizeScaleAll,
+                        : scale * pool.Scale * portalScale *
+                          (portal ? SpriteSizeScale : 1f) * SpriteSizeScaleAll,
                     Colour = rgba,
                     CellRect = e.SampleHeadCellRect(t),   // (0,0,1,1) for the 1x1 swirls: unchanged
                 });
@@ -1575,6 +1582,25 @@ void main()
         int dot = file.LastIndexOf('.');
         if (dot >= 0) file = file[..dot];
         return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Portal appearance controls must not leak onto every flag-0x10/model-space emitter.
+    /// HOUSESMOKE and BLACKSMITH_SMOKE use that authored storage mode too; applying the portal's
+    /// 4.33-yard hollow centre to them hides the newly born plume and leaves only a detached,
+    /// apparently frozen wisp. MagePortal_* models are portals as well, but only the exact
+    /// InstancePortal model participates in the legacy static entrance-surface inference above.
+    /// </summary>
+    private static bool UsesPortalParticleTuning(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string normalized = path.Replace('/', '\\');
+        int slash = normalized.LastIndexOf('\\');
+        string file = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        int dot = file.LastIndexOf('.');
+        if (dot >= 0) file = file[..dot];
+        return file.Equals("InstancePortal", StringComparison.OrdinalIgnoreCase) ||
+               file.StartsWith("MagePortal_", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SetBlend(byte blend)

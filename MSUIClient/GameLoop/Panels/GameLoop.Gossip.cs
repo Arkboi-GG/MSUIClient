@@ -81,6 +81,18 @@ public sealed partial class GameLoop
     private void ApplyGossipMenu(byte[] body)
     {
         GossipMenu menu = GossipPackets.ParseMenu(body);
+        // Some streamed spawns carry a stale innkeeper bit even though their creature-query
+        // identity explicitly names another vendor profession. Never expose the bind menu for
+        // that mismatch; enter the vendor service directly.
+        if (_entities.TryGet(menu.SourceGuid, out WorldEntity routedSource) &&
+            !IsInnkeeper(routedSource) && (routedSource.NpcFlags & NpcVendor) != 0)
+        {
+            EmitInterface("gossip", "menu", "REROUTED_VENDOR", menu.SourceGuid,
+                $"textId={menu.TextId};npcFlags=0x{routedSource.NpcFlags:X8}");
+            ResetGossip();
+            RequestVendor(menu.SourceGuid);
+            return;
+        }
         _gossipMenu = menu;
         _gossipText = null;
         if (_entities.TryGet(menu.SourceGuid, out WorldEntity source)) _gossipSourceFlags = source.NpcFlags;
@@ -142,6 +154,16 @@ public sealed partial class GameLoop
     private static string SanitizeEvidence(string value) =>
         value.Replace('\r', ' ').Replace('\n', ' ').Replace(';', ',').Trim();
 
+    private bool IsInnkeeper(WorldEntity npc)
+    {
+        if ((npc.NpcFlags & NpcInnkeeper) == 0) return false;
+        if (!_creatureQueryRecords.TryGetValue(npc.Entry, out CreatureQueryInfo? identity) ||
+            identity is null)
+            return true;
+        return identity.Name.Contains("Innkeeper", StringComparison.OrdinalIgnoreCase) ||
+               (identity.Subname?.Contains("Innkeeper", StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
     private void EmitInterface(string family, string step, string outcome, ulong guid, string detail)
     {
         var verdict = new InterfaceVerdict(NowSeconds(), family, step, outcome, guid, detail);
@@ -152,6 +174,16 @@ public sealed partial class GameLoop
     private void DrawGossipFrame()
     {
         if (_gossipMenu is null) return;
+        // The creature query can complete after SMSG_GOSSIP_MESSAGE. Re-check here so a late
+        // profession identity still closes a wrongly offered bind menu exactly once.
+        if (_entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity identifiedSource) &&
+            !IsInnkeeper(identifiedSource) && (identifiedSource.NpcFlags & NpcVendor) != 0)
+        {
+            ulong vendorGuid = _gossipMenu.SourceGuid;
+            ResetGossip();
+            RequestVendor(vendorGuid);
+            return;
+        }
         float s = GameplayUiScale();
         Vector2 size = new Vector2(384f, 512f) * s;
         Vector2 p = new(0,104f*s);
@@ -160,6 +192,12 @@ public sealed partial class GameLoop
         ImGui.SetNextWindowBgAlpha(0);ImGuiWindowFlags flags=ImGuiWindowFlags.NoDecoration|ImGuiWindowFlags.NoMove|ImGuiWindowFlags.NoSavedSettings|ImGuiWindowFlags.NoBackground|ImGuiWindowFlags.NoNav;
         if (!ImGui.Begin("##gossip-frame", flags)) { ImGui.End(); return; }
         ImDrawListPtr dl=ImGui.GetWindowDrawList();if(_uiParityArmed&&_uiParityPanel=="gossip"){BeginUiParityFrame(p,s);CollectUiParityDraw("GossipFrame","Frame",p,size,"",new("",0,"IMGUI_HOST","ANCHOR:ABSOLUTE","","",0,8));}
+        WorldEntity? source = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity foundSource)
+            ? foundSource : null;
+        // The portrait is an ARTWORK region below the shell textures. Drawing it first lets the
+        // authored transparent circular aperture mask the square portrait naturally.
+        if (source is not null)
+            DrawUnitPortraitImage(dl,source,p+new Vector2(7,6)*s,60*s,0,false);
         (string Element,string Path,Vector2 Offset,Vector2 Size)[] art=[
             ("GossipFrameGreetingPanel/Texture",@"Interface\QuestFrame\UI-QuestGreeting-TopLeft",Vector2.Zero,new(256,256)),
             ("GossipFrameGreetingPanel/Texture#2",@"Interface\QuestFrame\UI-QuestGreeting-TopRight",new(256,0),new(128,256)),
@@ -167,38 +205,85 @@ public sealed partial class GameLoop
             ("GossipFrameGreetingPanel/Texture#4",@"Interface\QuestFrame\UI-QuestGreeting-BotRight",new(256,256),new(128,256)),
             ("GossipFrameGreetingPanel/Texture#5",@"Interface\QuestFrame\UI-Quest-BotLeftPatch",new(22,380),new(128,64))];
         foreach(var r in art){Vector2 m=p+r.Offset*s;DrawArt(dl,r.Path,m,r.Size,s);if(_uiParityArmed&&_uiParityPanel=="gossip")CollectUiParityDraw(r.Element,"Texture",m,r.Size*s,"GossipFrameGreetingPanel",new(r.Path,0xffffffff,"IMGUI_IMAGE","TOPLEFT","GossipFrame","TOPLEFT",r.Offset.X,-r.Offset.Y));}
-        string sourceName = _entities.TryGet(_gossipMenu.SourceGuid, out WorldEntity source)
+        string sourceName = source is not null
             ? source.IsPlayer
                 ? _playerNames.GetValueOrDefault(source.Guid, "Player")
                 : _creatureNames.GetValueOrDefault(source.Entry, $"Creature {source.Entry}")
             : $"0x{_gossipMenu.SourceGuid:X16}";
-        DrawCenteredText(dl,p+new Vector2(192,18)*s,sourceName,12*s,0xff202020);
+        // Match the established NPC-frame title box used by QuestFrame: centered in the header
+        // bar at y=30, not centered on the bar's upper border.
+        DrawNpcModalTitle(dl,sourceName,p+new Vector2(192,30)*s,s);
         string greeting = _gossipText?.MaleText ?? $"Loading text {_gossipMenu.TextId}...";
-        float used=DrawWrappedText(dl,ExpandQuestText(greeting),
-            p+new Vector2(36,76)*s,300,11*s,s,0xff202020,10);
-        float rowY=96+used/s;
+        // GossipGreetingScrollFrame TOPLEFT (23,-81), then GossipGreetingText
+        // TOPLEFT (10,-10), width 270, inherits QuestFont.
+        float used=DrawQuestWrappedText(dl,ExpandQuestText(greeting),
+            p+new Vector2(33,91)*s,270,"QuestFont",s,
+            FontObjectLaw.Get("QuestFont").Color);
+        // First title is greeting BOTTOMLEFT +(-10,-20), relative to the scroll child.
+        float rowY=111+used/s;
 
         for (int i = 0; i < _gossipMenu.Options.Count; i++)
         {
             GossipOption option = _gossipMenu.Options[i];
-            if (VanillaListRow(dl,$"##gossip-option-{i}",p+new Vector2(36,rowY)*s,
-                    new Vector2(300,22),s,$"> {option.Text}",false,0xff202020)) SelectGossipOption(i);
-            rowY+=24;
+            if (DrawGossipTitleRow(dl,$"##gossip-option-{i}",
+                    p+new Vector2(23,rowY)*s,s,option.Text,GossipOptionIcon(option.Icon),
+                    out float rowHeight)) SelectGossipOption(i);
+            rowY+=rowHeight;
         }
         foreach (GossipQuest quest in _gossipMenu.Quests)
         {
-            if (VanillaListRow(dl,$"##gossip-quest-{quest.QuestId}",p+new Vector2(36,rowY)*s,
-                    new Vector2(300,22),s,$"[{quest.Level}] {ExpandQuestText(quest.Title)}",false,0xff202020))
+            string title = $"[{quest.Level}] {ExpandQuestText(quest.Title)}";
+            if (DrawGossipTitleRow(dl,$"##gossip-quest-{quest.QuestId}",
+                    p+new Vector2(23,rowY)*s,s,title,
+                    @"Interface\GossipFrame\AvailableQuestIcon",out float rowHeight))
             {
                 if (QuestFrameUiLaw.GreetingAction(quest.Icon) == QuestGreetingAction.Complete)
                     RequestQuestCompletion(_gossipMenu.SourceGuid, quest.QuestId);
                 else
                     RequestQuestDetails(_gossipMenu.SourceGuid, quest.QuestId);
             }
-            rowY+=24;
+            rowY+=rowHeight;
         }
-        if(VanillaButton(dl,"##gossip-goodbye","Goodbye",p+new Vector2(248,430)*s,new Vector2(90,22),s))ResetGossip();
-        Vector2 close=p+new Vector2(326,14)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
+        // BOTTOMRIGHT relative to GossipFrame BOTTOMRIGHT (-39,+73), 78x22.
+        if(VanillaButton(dl,"##gossip-goodbye","Goodbye",p+new Vector2(267,417)*s,new Vector2(78,22),s))ResetGossip();
+        Vector2 close=p+new Vector2(326,15)*s;DrawImageButton(dl,"##gossip-close",close,new Vector2(32)*s,@"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",@"Interface\Buttons\UI-Panel-MinimizeButton-Highlight");if(ImGui.IsItemClicked())ResetGossip();
         if(_uiParityArmed&&_uiParityPanel=="gossip")MarkUiParityFrameComplete();ImGui.End();
     }
+
+    private bool DrawGossipTitleRow(ImDrawListPtr dl, string id, Vector2 min, float s,
+        string text, string iconPath, out float logicalAdvance)
+    {
+        float textHeight = Math.Max(16,
+            MeasureQuestWrappedText(text,275,"QuestFont",s)/s);
+        Vector2 hitSize = new(300,textHeight+2);
+        ImGui.SetCursorScreenPos(min);
+        bool clicked = ImGui.InvisibleButton(id,hitSize*s);
+        if (ImGui.IsItemHovered())
+        {
+            uint highlight = _gameplayArt?.BrightHighlightHandle(
+                @"Interface\QuestFrame\UI-QuestTitleHighlight") ?? 0;
+            if (highlight != 0)
+                dl.AddImage((nint)highlight,min,min+hitSize*s);
+        }
+        DrawArt(dl,iconPath,min+new Vector2(3,1)*s,new Vector2(16),s);
+        DrawQuestWrappedText(dl,text,min+new Vector2(20,0)*s,275,
+            "QuestFont",s,FontObjectLaw.Get("QuestFont").Color);
+        logicalAdvance=textHeight+3; // next button: previous BOTTOMLEFT + (0,-3)
+        return clicked;
+    }
+
+    private static string GossipOptionIcon(byte icon) => icon switch
+    {
+        1 => @"Interface\GossipFrame\VendorGossipIcon",
+        2 => @"Interface\GossipFrame\TaxiGossipIcon",
+        3 => @"Interface\GossipFrame\TrainerGossipIcon",
+        4 => @"Interface\GossipFrame\HealerGossipIcon",
+        5 => @"Interface\GossipFrame\BinderGossipIcon",
+        6 => @"Interface\GossipFrame\BankerGossipIcon",
+        7 => @"Interface\GossipFrame\PetitionGossipIcon",
+        8 => @"Interface\GossipFrame\TabardGossipIcon",
+        9 => @"Interface\GossipFrame\BattleMasterGossipIcon",
+        10 => @"Interface\GossipFrame\AuctioneerGossipIcon",
+        _ => @"Interface\GossipFrame\GossipGossipIcon",
+    };
 }

@@ -795,7 +795,7 @@ public sealed partial class GameLoop
                 ImGui.TextColored(new Vector4(1f, 0.45f, 0.4f, 1f), $"commit failed: {applied.Error}");
             else
                 ImGui.TextColored(new Vector4(0.5f, 1f, 0.6f, 1f),
-                    $"committed ✓  {applied.Applied} applied, {applied.Stale} stale, {applied.Failed} failed" +
+                    $"committed OK  {applied.Applied} applied, {applied.Stale} stale, {applied.Failed} failed" +
                     (applied.BatchId is { Length: > 0 } b ? $"  (batch {b})" : ""));
         }
         if (_devReloadStatus.Length > 0) ImGui.TextDisabled(_devReloadStatus);
@@ -927,7 +927,7 @@ public sealed partial class GameLoop
             ImGui.TextDisabled("this spawn isn't in the baseline (added after capture)");
         else if (diff.SpawnModified || diff.PathModified)
         {
-            ImGui.TextColored(warn, "● spawn changed from original" + (diff.PathModified ? " (incl. path)" : ""));
+            ImGui.TextColored(warn, "• spawn changed from original" + (diff.PathModified ? " (incl. path)" : ""));
             if (busy) ImGui.BeginDisabled();
             if (ImGui.Button($"Reset spawn to original##ogspawn{spawnGuid}"))
             {
@@ -942,7 +942,7 @@ public sealed partial class GameLoop
 
         if (diff.TemplateModified)
         {
-            ImGui.TextColored(warn, $"● aggro (entry {entry}) changed from original");
+            ImGui.TextColored(warn, $"• aggro (entry {entry}) changed from original");
             if (busy) ImGui.BeginDisabled();
             if (ImGui.Button($"Reset aggro to original — all spawns##ogtmpl{entry}"))
             {

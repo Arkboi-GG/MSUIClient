@@ -168,7 +168,7 @@ public sealed partial class GameLoop
                 };
                 if (!isNow) color.W = future ? .85f : .5f;
 
-                string marker = isNow ? "▶" : future ? "·" : " ";
+                string marker = isNow ? ">" : future ? "·" : " ";
                 string rel = e.TimeMs >= _encounterViewMs
                     ? $"+{(e.TimeMs - _encounterViewMs) / 1000f:0.0}"
                     : $"-{(_encounterViewMs - e.TimeMs) / 1000f:0.0}";

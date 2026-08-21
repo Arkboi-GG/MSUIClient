@@ -137,7 +137,7 @@ public sealed partial class CreatureRenderer
     /// Pass mountDisplayId 0 when on foot: that retires the steed's animation clock.
     /// </summary>
     public bool TryDrawSelfMount(Camera camera, ulong guid, int mountDisplayId,
-        Vector3 position, float orientation, float groundSpeed, float walkSpeed,
+        Vector3 position, float orientation, float travelSpeed, float walkSpeed, bool flying,
         out Matrix4x4 seat)
     {
         seat = Matrix4x4.Identity;
@@ -154,7 +154,7 @@ public sealed partial class CreatureRenderer
 
         BeginUnitShader(camera);
         bool drew = TryDrawMount(camera, guid, mountDisplayId, position, orientation,
-            groundSpeed, walkSpeed, dt, highlight: false, out MountDraw drawn);
+            travelSpeed, walkSpeed, flying, dt, highlight: false, out MountDraw drawn);
         _gl.BindVertexArray(0);
         _gl.DepthMask(true);
         if (drew) seat = drawn.Seat;
@@ -189,7 +189,7 @@ public sealed partial class CreatureRenderer
     /// (<see cref="BeginUnitShader"/>) and leaves it bound, so the rider can draw straight after.
     /// </summary>
     private bool TryDrawMount(Camera camera, ulong guid, int mountDisplayId, Vector3 position,
-        float orientation, float groundSpeed, float walkSpeed, float dt, bool highlight,
+        float orientation, float travelSpeed, float walkSpeed, bool flying, float dt, bool highlight,
         out MountDraw drawn)
     {
         drawn = default;
@@ -242,7 +242,7 @@ public sealed partial class CreatureRenderer
         {
             if (!_mountAnimTime.TryGetValue(guid, out float at)) at = InitialPhase(guid);
             M2Animator.Clip? clip = SelectMountClip(model.Animator, mountDisplayId,
-                groundSpeed, walkSpeed, out float rate);
+                travelSpeed, walkSpeed, flying, out float rate);
             at += dt * rate * MathF.Max(0.05f, tune.AnimationRate);
             if (float.IsNaN(at) || float.IsInfinity(at)) at = 0f;
             _mountAnimTime[guid] = at;
@@ -337,24 +337,35 @@ public sealed partial class CreatureRenderer
 
     /// <summary>
     /// A steed's gait comes from how fast the RIDER is travelling — the mount has no spline
-    /// of its own. Stand / Walk / Run, with the stride rate matched to the authored
-    /// MoveSpeed the same way <see cref="SelectClip"/> does it for creatures.
+    /// of its own. Flying mounts use their travelling wing cycle even when the controller's
+    /// planar-speed accumulator is zero (taxi movement is server-spline driven). Ground
+    /// mounts use Stand / Walk / Run with the authored stride rate.
     /// </summary>
     private static M2Animator.Clip? SelectMountClip(M2Animator animator, int mountDisplayId,
-        float groundSpeed, float walkSpeed, out float rate)
+        float travelSpeed, float walkSpeed, bool flying, out float rate)
     {
         rate = 1f;
         string unit = $"mount:{mountDisplayId}";
-        if (groundSpeed <= MovingEpsilon)
+        if (flying)
+        {
+            M2Animator.Clip? flight = travelSpeed > MovingEpsilon
+                ? animator.Resolve(unit, BaseAnimationTrack, 135, true, 193, 40, 5, 4, 0)
+                : animator.Resolve(unit, BaseAnimationTrack, 193, true, 135, 40, 0);
+            if (travelSpeed > MovingEpsilon && flight is not null && flight.MoveSpeed > 0.01f)
+                rate = Math.Clamp(travelSpeed / flight.MoveSpeed, 0.25f, 3f);
+            return flight;
+        }
+
+        if (travelSpeed <= MovingEpsilon)
             return animator.Resolve(unit, BaseAnimationTrack, 0, true);
 
         float walk = walkSpeed > 0f ? walkSpeed : DefaultWalkSpeed;
-        M2Animator.Clip? clip = groundSpeed > 2f * walk
+        M2Animator.Clip? clip = travelSpeed > 2f * walk
             ? animator.Resolve(unit, BaseAnimationTrack, 5, true, 4, 0)
             : animator.Resolve(unit, BaseAnimationTrack, 4, true, 5, 0);
 
         if (clip is not null && clip.MoveSpeed > 0.01f)
-            rate = Math.Clamp(groundSpeed / clip.MoveSpeed, 0.25f, 3f);
+            rate = Math.Clamp(travelSpeed / clip.MoveSpeed, 0.25f, 3f);
         return clip;
     }
 

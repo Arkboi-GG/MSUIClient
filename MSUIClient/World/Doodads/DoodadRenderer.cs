@@ -5,6 +5,7 @@ using Silk.NET.OpenGL;
 using MSUIClient.Engine;
 using MSUIClient.Formats;
 using MSUIClient.World.Collision;
+using MSUIClient.World.Units;
 using Shader = MSUIClient.Engine.Shader;
 using Texture = MSUIClient.Engine.Texture;
 
@@ -191,7 +192,7 @@ public sealed class DoodadRenderer : IDisposable
         /// </summary>
         public M2Model? UvAnimSource;
 
-        // ── Animated STATIC doodads (2026-08-13) ────────────────────────────
+        // ── Animated STATIC doodads ─────────────────────────────────────────
         //
         // The Blackrock lava BUBBLES are M2 doodads whose entire behaviour is a
         // bone-scale loop: five root bones, one 17-vertex dome rigidly weighted
@@ -199,16 +200,29 @@ public sealed class DoodadRenderer : IDisposable
         // and paired UV-translation tracks that flip the texture to its burst
         // frame in sync. Rendering them as bind-pose meshes leaves frozen domes
         // sitting on the lava. Models classified by BuildModel as animated
-        // (small bone/vertex counts, at least one multi-key bone track) get a
+        // (at least one multi-key bone track) get a
         // CPU re-skin ONCE PER MODEL PER FRAME into the shared VBO — instances
         // stay instanced and pop in sync, which matches how the WMO places them
-        // (a shared model with shared timing). Everything else in the pipeline
-        // (instancing, blended pass, uUvOffset, highlight attribute) is
-        // untouched; a null BoneAnimSource is the static fast path.
+        // (a shared model with shared timing).
+        //
+        // Creature-grade decorative M2s (perched gryphons, birds and similar
+        // ambient actors) use the same path now. They used to be rejected by a
+        // 16-bone / 768-vertex scope guard and consequently remained in bind pose.
+        // Multi-animation models play their authored Stand clip; authored chains
+        // made entirely from animation id 0 retain the absolute-timeline sampler
+        // required by lava bubbles and other environmental loops.
 
         /// <summary>The parsed M2, retained for bone-track sampling and the
         /// bind-pose vertices/weights. Null = static (the vast majority).</summary>
         public M2Model? BoneAnimSource;
+
+        /// <summary>Clip evaluator for creature-grade decorative M2s. Null means
+        /// the model uses the authored absolute animation-0 timeline instead.</summary>
+        public M2Animator? BoneAnimator;
+
+        /// <summary>Usually AnimationData 0 (Stand), or sequence slot zero when
+        /// the model has no named Stand sequence.</summary>
+        public M2Animator.Clip? BoneClip;
 
         /// <summary>Interleaved skinned vertices, reused every frame.</summary>
         public float[]? AnimVertexScratch;
@@ -1772,6 +1786,12 @@ public sealed class DoodadRenderer : IDisposable
         {
             if (batch.SubmeshIndex >= m2.Submeshes.Count) continue;
 
+            // Match the vanilla/Benilla M2 alpha-combine gate. HouseSmoke,
+            // Blacksmith_Smoke and similar emitter models contain helper
+            // geometry whose constant texture weight is zero; drawing that
+            // otherwise produces the frozen white plumes and long blue lines.
+            if (m2.IsBatchConstantInvisible(batch)) continue;
+
             var submesh = m2.Submeshes[batch.SubmeshIndex];
             if (submesh.IndexCount == 0) continue;
             if (submesh.IndexStart + submesh.IndexCount > indexCount) continue;
@@ -1831,7 +1851,11 @@ public sealed class DoodadRenderer : IDisposable
         if (model.Batches.Any(b => b.UvTranslation is not null))
             model.UvAnimSource = m2;
 
-        if (model.Batches.Count == 0 && indexCount > 0)
+        // Only synthesize a whole-mesh batch for malformed/legacy models that
+        // genuinely provide no batch table. If authored batches existed but
+        // were all constant-invisible, restoring the complete mesh here would
+        // undo vanilla's alpha cull and expose particle-emitter helper wedges.
+        if (model.Batches.Count == 0 && m2.Batches.Count == 0 && indexCount > 0)
         {
             model.Batches.Add(new Batch
             {
@@ -2038,15 +2062,9 @@ public sealed class DoodadRenderer : IDisposable
     // ── Animated static doodads: classification + CPU re-skin ────────────────
 
     /// <summary>
-    /// Scope guard: this path exists for bubbles and kin — a handful of bones
-    /// scaling/nudging a tiny mesh — not for creature-grade rigs. A model over
-    /// either cap stays static exactly as before. (The Blackrock bubble is
-    /// 5 bones / 85 vertices.)
+    /// Models currently classified bone-animated, for diagnostics.
+    /// Static models never allocate animation scratch storage or touch their VBO.
     /// </summary>
-    private const int MaxAnimatedDoodadBones = 16;
-    private const int MaxAnimatedDoodadVertices = 768;
-
-    /// <summary>Models currently classified bone-animated, for diagnostics.</summary>
     public int AnimatedModelCount { get; private set; }
 
     /// <summary>
@@ -2059,13 +2077,24 @@ public sealed class DoodadRenderer : IDisposable
     private void ClassifyBoneAnimation(M2Model m2, Model model, bool hasGeometry)
     {
         if (!hasGeometry || !m2.HasSkeleton) return;
-        if (m2.Bones.Count > MaxAnimatedDoodadBones) return;
-        if (m2.Vertices.Count > MaxAnimatedDoodadVertices) return;
         if (m2.Sequences.Count == 0 || !m2.HasAnimatedBones) return;
 
         model.BoneAnimSource = m2;
         model.AnimVertexScratch = new float[m2.Vertices.Count * FloatsPerVertex];
         model.AnimBoneMatrices = new Matrix4x4[m2.Bones.Count];
+
+        // Environmental props such as Blackrock lava bubbles deliberately chain several
+        // animation-0 ranges on one absolute timeline. Creature-grade decorative models
+        // instead contain Stand, Walk, Run, attack, and other distinct AnimationData ids;
+        // running their whole file timeline would cycle through every action, so those use
+        // the normal idle clip evaluator.
+        bool animationZeroTimeline = m2.Sequences.All(sequence => sequence.AnimationId == 0);
+        if (!animationZeroTimeline)
+        {
+            model.BoneAnimator = M2Animator.Build(m2, [0], includeStaticSequences: true);
+            model.BoneClip = model.BoneAnimator?.Find(0)
+                ?? model.BoneAnimator?.FindSequenceOrBake(0, includeStaticSequences: true);
+        }
         AnimatedModelCount++;
 
         // Conservative animated bounds: every corner scaled by the largest
@@ -2105,7 +2134,10 @@ public sealed class DoodadRenderer : IDisposable
 
         Console.WriteLine(
             $"[doodad] animated doodad: {m2.Name} — {m2.Bones.Count} bone(s), " +
-            $"{m2.Vertices.Count} vertice(s), loop {m2.AbsoluteTimelineDurationMs} ms");
+            $"{m2.Vertices.Count} vertice(s), " +
+            (model.BoneClip is { } clip
+                ? $"idle {clip.AnimationId} ({clip.DurationSeconds:F3}s)"
+                : $"timeline loop {m2.AbsoluteTimelineDurationMs} ms"));
     }
 
     /// <summary>
@@ -2129,24 +2161,31 @@ public sealed class DoodadRenderer : IDisposable
         model.LastAnimSampleTime = NowSeconds;
 
         var mats = model.AnimBoneMatrices;
-        for (int i = 0; i < m2.Bones.Count; i++)
+        if (model.BoneAnimator is not null && model.BoneClip is not null)
         {
-            var bone = m2.Bones[i];
-            var translation = M2TrackSampling.AbsoluteVector(
-                bone.Translation, m2, NowSeconds, Vector3.Zero);
-            var rotation = M2TrackSampling.AbsoluteQuaternion(bone.Rotation, m2, NowSeconds);
-            var scale = M2TrackSampling.AbsoluteVector(bone.Scale, m2, NowSeconds, Vector3.One);
+            model.BoneAnimator.Evaluate(model.BoneClip, NowSeconds, NowSeconds, mats);
+        }
+        else
+        {
+            for (int i = 0; i < m2.Bones.Count; i++)
+            {
+                var bone = m2.Bones[i];
+                var translation = M2TrackSampling.AbsoluteVector(
+                    bone.Translation, m2, NowSeconds, Vector3.Zero);
+                var rotation = M2TrackSampling.AbsoluteQuaternion(bone.Rotation, m2, NowSeconds);
+                var scale = M2TrackSampling.AbsoluteVector(bone.Scale, m2, NowSeconds, Vector3.One);
 
-            var local = Matrix4x4.CreateTranslation(-bone.Pivot)
-                      * Matrix4x4.CreateScale(scale)
-                      * Matrix4x4.CreateFromQuaternion(rotation)
-                      * Matrix4x4.CreateTranslation(bone.Pivot + translation);
+                var local = Matrix4x4.CreateTranslation(-bone.Pivot)
+                          * Matrix4x4.CreateScale(scale)
+                          * Matrix4x4.CreateFromQuaternion(rotation)
+                          * Matrix4x4.CreateTranslation(bone.Pivot + translation);
 
-            // M2 bones are ordered parent-before-child; a forward reference
-            // (malformed) degrades to treating the bone as a root.
-            mats[i] = bone.ParentBone >= 0 && bone.ParentBone < i
-                ? local * mats[bone.ParentBone]
-                : local;
+                // M2 bones are ordered parent-before-child; a forward reference
+                // (malformed) degrades to treating the bone as a root.
+                mats[i] = bone.ParentBone >= 0 && bone.ParentBone < i
+                    ? local * mats[bone.ParentBone]
+                    : local;
+            }
         }
 
         var dst = model.AnimVertexScratch;

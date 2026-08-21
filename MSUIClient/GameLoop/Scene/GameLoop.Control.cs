@@ -1225,6 +1225,12 @@ public sealed partial class GameLoop
         if (_freecamSelection.Count > 0)
             AddChatMessage($"Selected {_freecamSelection.Count}: RightClick the ground to move, " +
                 "a hostile to attack, Shift+RightClick to chain waypoints.");
+        else if (!CanUseFactionForceRoster() && _partyMembers.Count == 0)
+            // The silent empty marquee was the confusing half of the closed gate: bots
+            // stand right there, the box sweeps them, nothing selects, no word why.
+            AddChatMessage("Marquee found no commandable bots: this server build does not " +
+                "advertise faction-control-groups-v1 (update SuperUI-Core), and no party " +
+                "bots are present.");
     }
 
     /// <summary>

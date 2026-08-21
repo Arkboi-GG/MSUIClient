@@ -1,5 +1,13 @@
 # Agent operating rules
 
+## Local Benilla reference checkout
+
+Nico's existing local Benilla reference checkout is:
+`C:\Users\nico\Desktop\benilla-main`.
+
+- Use this checkout for Benilla/vanilla rendering comparisons.
+- Do not create another Benilla clone in the MSUIClient workspace.
+
 ## SuperUI-Core is homeserver-only
 
 The authoritative and only development checkout of SuperUI-Core is Nico's

@@ -390,6 +390,12 @@ public sealed class ClientWindow : IDisposable
     /// </summary>
     private const float FontSupersample = 3f;
 
+    /// <summary>The supersampled UI face and the exact-size gameplay faces share one glyph-range
+    /// definition (see <see cref="UI.GameTextLaw.GlyphRanges"/>) so their punctuation coverage
+    /// can never drift apart. Without it ImGui's default Latin-1 range dropped the em-dash and
+    /// friends to the '?' fallback even though FRIZQT carries them.</summary>
+    private static nint UiGlyphRangesPtr => UI.GameTextLaw.GlyphRangesPtr;
+
     /// <summary>Whether the atlas was built from a real TTF (see <see cref="ApplyUiFontScale"/>).</summary>
     private bool _realUiFont;
 
@@ -529,7 +535,7 @@ public sealed class ClientWindow : IDisposable
         if (!string.IsNullOrEmpty(UiFontPath) && File.Exists(UiFontPath))
         {
             int rasterPx = Math.Clamp((int)Math.Round(UiFontSize * (double)FontSupersample), 16, 72);
-            font = new ImGuiFontConfig(UiFontPath, rasterPx);
+            font = new ImGuiFontConfig(UiFontPath, rasterPx, _ => UiGlyphRangesPtr);
         }
 
         // The exact-size gameplay text fonts (spellbook, tooltips) join the same one-shot atlas
@@ -967,7 +973,15 @@ public sealed class ClientWindow : IDisposable
         if (realFont)
         {
             int rasterPx = Math.Clamp((int)Math.Round(UiFontSize * (double)FontSupersample), 16, 72);
-            io.Fonts.AddFontFromFileTTF(UiFontPath, rasterPx);
+            // Same General-Punctuation range as the constructor build, so a live resize or
+            // font-scale rebuild does not silently revert the dashes to '?' glyphs.
+            var cfg = new ImFontConfigPtr(ImGuiNative.ImFontConfig_ImFontConfig());
+            try
+            {
+                cfg.GlyphRanges = UiGlyphRangesPtr;
+                io.Fonts.AddFontFromFileTTF(UiFontPath, rasterPx, cfg);
+            }
+            finally { cfg.Destroy(); }
         }
         else io.Fonts.AddFontDefault();
         UI.GameTextLaw.BakeInto(io);

@@ -124,7 +124,7 @@ public sealed partial class GameLoop
             if (string.IsNullOrWhiteSpace(title)) title = "Merchant";
         }
         float em = GameText.EmPixels("GameFontNormal", scale);
-        GameText.DrawCentered(draw, "GameFontNormal", title,
+        DrawNpcModalTitle(draw, title,
             origin + new Vector2(192, 17 + em / (2f * scale)) * scale, scale);
     }
 

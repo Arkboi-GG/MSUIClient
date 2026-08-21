@@ -269,7 +269,7 @@ public sealed partial class GameLoop
                     "Move or Hold cancels the patrol.");
             bool linked = PartyMemberLinked(member.Name);
             ImGui.SameLine();
-            if (ImGui.SmallButton(linked ? $"⛓##rtsl{i}" : $"✕##rtsl{i}"))
+            if (ImGui.SmallButton(linked ? $"chained##rtsl{i}" : $"loose##rtsl{i}"))
                 SetPartyLink(member, !linked);
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip(linked

@@ -150,8 +150,12 @@ public static class EncounterGeometryLaw
                     degrees = dbDegrees;
                 if (degrees == 0f) degrees = 90f;   // vmangos's own default cone
                 // A cone points at the victim when there is one: the core turns the
-                // caster to face its target before a directed cast.
-                float facing = targetPosition is { } target
+                // caster to face its target before a directed cast. A DEGENERATE target
+                // (self-anchored casts pass the caster's own position) must fall back to
+                // the caster's facing — Facing() returns 0 for a zero-length delta, which
+                // silently aimed every self-cone at world +X instead of at her nose.
+                float facing = targetPosition is { } target &&
+                               GroundDistance(casterPosition, target) > 1e-3f
                     ? Facing(casterPosition, target)
                     : casterFacing;
                 return new Footprint(FootprintKind.Cone, casterPosition,

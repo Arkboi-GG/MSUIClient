@@ -26,10 +26,8 @@ public sealed partial class GameLoop
     private bool _targetPortraitFailureDumped;
     private float _paperDollRotation;
     private ulong _portraitTargetGuid;
-    private int _portraitTargetDisplay;
-    private float _portraitTargetScale;
-    private int _portraitRequestDisplay;
-    private float _portraitRequestScale;
+    private ulong _portraitTargetAppearance;
+    private ulong _portraitRequestAppearance;
     private double _playerPortraitRetryAt;
     private double _targetPortraitRetryAt;
 
@@ -61,6 +59,13 @@ public sealed partial class GameLoop
         for (int slot = 0; slot < 19; slot++)
             hash = unchecked((hash ^ unit.Fields.PlayerVisibleItemEntry(slot)) * 1099511628211ul);
         return hash;
+    }
+
+    private static ulong PortraitAppearanceSignature(in WorldEntity unit)
+    {
+        if (unit.IsPlayer) return PlayerAppearanceSignature(unit);
+        return unchecked(((ulong)(uint)unit.DisplayId << 32) |
+            BitConverter.SingleToUInt32Bits(unit.Scale));
     }
 
     /// <summary>
@@ -408,8 +413,8 @@ public sealed partial class GameLoop
                 camera.AspectRatio = 233f / 300f;
                 camera.NearPlane = MathF.Max(.05f, distance - framing.Height);
                 bool drawn = false;
-                _inspectPaperDoll.Bake(
-                    () => drawn = _creatures.RenderPortrait(camera, inspected), transparent: true);
+                WithPortraitLighting(camera, () => _inspectPaperDoll.Bake(
+                    () => drawn = _creatures.RenderPortrait(camera, inspected), transparent: true));
                 PortraitRenderTarget.ReadbackStats stats = _inspectPaperDoll.Analyze();
                 _inspectPaperDollUsable = drawn && stats.HasSubject;
                 if (_inspectPaperDollUsable)
@@ -427,30 +432,29 @@ public sealed partial class GameLoop
         UpdatePartyPortraits();
 
         if (_targetPortrait is null || _creatures is null || _selectionGuid == 0 ||
-            !_entities.TryGet(_selectionGuid, out WorldEntity target) || !target.IsCreature)
+            !_entities.TryGet(_selectionGuid, out WorldEntity target) || !target.IsUnit ||
+            target.Guid == ControlledGuid)
         {
             _portraitTargetGuid = 0;
-            _portraitRequestDisplay = 0;
+            _portraitRequestAppearance = 0;
             _targetPortraitUsable = false;
             return;
         }
 
-        // Benilla keys the frozen booth image by rendered parts, not by unit GUID. In the data
-        // available here, display + scale are the appearance key. Two wolves with the same
-        // appearance therefore reuse the same still instead of rebaking at a different phase.
-        bool requestChanged = target.DisplayId != _portraitRequestDisplay ||
-                              MathF.Abs(target.Scale - _portraitRequestScale) > 0.0001f;
+        // Benilla keys the frozen booth image by rendered appearance, not by unit GUID.
+        // Players include their face/hair/facial-hair and visible equipment in that key: while
+        // possessing a bot, targeting the parked session character must show that exact body.
+        ulong targetAppearance = PortraitAppearanceSignature(target);
+        bool requestChanged = targetAppearance != _portraitRequestAppearance;
         if (requestChanged)
         {
-            _portraitRequestDisplay = target.DisplayId;
-            _portraitRequestScale = target.Scale;
+            _portraitRequestAppearance = targetAppearance;
             _targetPortraitRetryAt = 0;
             _targetPortraitFailureDumped = false;
             _targetPortraitUsable = false;
         }
 
-        bool appearanceChanged = target.DisplayId != _portraitTargetDisplay ||
-                       MathF.Abs(target.Scale - _portraitTargetScale) > 0.0001f;
+        bool appearanceChanged = targetAppearance != _portraitTargetAppearance;
         if (_targetPortraitUsable && !appearanceChanged)
         {
             _portraitTargetGuid = target.Guid;
@@ -459,7 +463,9 @@ public sealed partial class GameLoop
         bool changed = requestChanged || appearanceChanged || !_targetPortraitUsable;
         if (!changed || NowSeconds() < _targetPortraitRetryAt) return;
 
-        string targetTuningKey = CreaturePortraitKey(target.DisplayId);
+        string targetTuningKey = target.IsPlayer
+            ? PlayerPortraitKey(target)
+            : CreaturePortraitKey(target.DisplayId);
         (PortraitTuning targetTuning, bool targetStoreHit) =
             ResolveTuningWithHit(targetTuningKey);
         if (!TryBakeCreaturePortrait(
@@ -495,8 +501,7 @@ public sealed partial class GameLoop
             if (PainterlyUi) StylePortrait(_targetPortrait);
             _targetPortrait.UpdateCircularCopy();
             _portraitTargetGuid = target.Guid;
-            _portraitTargetDisplay = target.DisplayId;
-            _portraitTargetScale = target.Scale;
+            _portraitTargetAppearance = targetAppearance;
             _targetPortraitRetryAt = 0;
             _targetPortraitFailureDumped = false;
         }
@@ -505,7 +510,8 @@ public sealed partial class GameLoop
             _targetPortraitRetryAt = NowSeconds() + 1.0;
             if (!_targetPortraitFailureDumped)
             {
-                Console.WriteLine($"[portrait] target bake BLANK ({bake.Stats}, display={target.DisplayId})");
+                Console.WriteLine($"[portrait] target bake BLANK ({bake.Stats}, " +
+                    $"kind={(target.IsPlayer ? "player" : "creature")}, display={target.DisplayId})");
                 DumpPortrait(_targetPortrait, $"target-{target.DisplayId}", "blank");
                 _targetPortraitFailureDumped = true;
             }
@@ -547,18 +553,19 @@ public sealed partial class GameLoop
             : CreatureBoundsPortraitCamera(target, framing, tuning, deriveFromHeight);
 
         bool drawn = false;
-        renderTarget.Bake(() =>
+        WithPortraitLighting(camera, () => renderTarget.Bake(() =>
         {
             if (forcedAuthoredMissing) drawn = true;
             else drawn = _creatures.RenderPortrait(camera, target);
-        });
+        }));
         PortraitRenderTarget.ReadbackStats stats = renderTarget.Analyze();
         bool retriedAsBounds = false;
         if (drawn && !stats.HasSubject && tuning.ForceSource != PortraitCameraSource.Authored)
         {
             Camera fallback = CreatureBoundsPortraitCamera(
                 target, framing, tuning, deriveFromHeight);
-            renderTarget.Bake(() => drawn = _creatures.RenderPortrait(fallback, target));
+            WithPortraitLighting(fallback, () =>
+                renderTarget.Bake(() => drawn = _creatures.RenderPortrait(fallback, target)));
             stats = renderTarget.Analyze();
             camera = fallback;
             retriedAsBounds = usesAuthored;
@@ -691,7 +698,9 @@ public sealed partial class GameLoop
         };
     }
 
-    private void WithPortraitLighting(Action draw)
+    private void WithPortraitLighting(Action draw) => WithPortraitLighting(null, draw);
+
+    private void WithPortraitLighting(Camera? creatureCamera, Action draw)
     {
         if (_character is null) return;
         Vector3 sunDirection = _character.SunDirection;
@@ -701,15 +710,42 @@ public sealed partial class GameLoop
         float ambientIntensity = _character.AmbientIntensity;
         float fogStart = _character.FogStart;
         float fogEnd = _character.FogEnd;
+        Vector3 creatureSunDirection = _creatures?.SunDirection ?? default;
+        Vector3 creatureSunColor = _creatures?.SunColor ?? default;
+        float creatureSunIntensity = _creatures?.SunIntensity ?? 0;
+        Vector3 creatureAmbientColor = _creatures?.AmbientColor ?? default;
+        float creatureAmbientIntensity = _creatures?.AmbientIntensity ?? 0;
+        float creatureFogStart = _creatures?.FogStart ?? 0;
+        float creatureFogEnd = _creatures?.FogEnd ?? 0;
         try
         {
-            _character.SunDirection = Vector3.Normalize(new Vector3(0.25f, -0.45f, 0.85f));
-            _character.SunColor = new Vector3(0.85f, 0.82f, 0.78f);
+            Vector3 boothSunDirection = Vector3.Normalize(new Vector3(0.25f, -0.45f, 0.85f));
+            Vector3 boothSunColor = new(0.85f, 0.82f, 0.78f);
+            Vector3 boothAmbientColor = new(0.58f, 0.56f, 0.54f);
+            _character.SunDirection = boothSunDirection;
+            _character.SunColor = boothSunColor;
             _character.SunIntensity = 1f;
-            _character.AmbientColor = new Vector3(0.58f, 0.56f, 0.54f);
+            _character.AmbientColor = boothAmbientColor;
             _character.AmbientIntensity = 1f;
             _character.FogStart = 1000f;
             _character.FogEnd = 2000f;
+            if (_creatures is not null)
+            {
+                // Streamed players, bots and NPCs render through CreatureRenderer. Give that
+                // booth a camera-relative key. Their authored portrait cameras retain the
+                // unit's arbitrary world yaw, so copying a fixed world-space direction can put
+                // the key behind one face and in front of another. Camera-relative means the
+                // key is always above and to the viewer's left, independent of who is framed.
+                _creatures.SunDirection = creatureCamera is null
+                    ? boothSunDirection
+                    : PortraitKeyDirection(creatureCamera);
+                _creatures.SunColor = boothSunColor;
+                _creatures.SunIntensity = 1f;
+                _creatures.AmbientColor = boothAmbientColor;
+                _creatures.AmbientIntensity = 1f;
+                _creatures.FogStart = 1000f;
+                _creatures.FogEnd = 2000f;
+            }
             draw();
         }
         finally
@@ -721,7 +757,29 @@ public sealed partial class GameLoop
             _character.AmbientIntensity = ambientIntensity;
             _character.FogStart = fogStart;
             _character.FogEnd = fogEnd;
+            if (_creatures is not null)
+            {
+                _creatures.SunDirection = creatureSunDirection;
+                _creatures.SunColor = creatureSunColor;
+                _creatures.SunIntensity = creatureSunIntensity;
+                _creatures.AmbientColor = creatureAmbientColor;
+                _creatures.AmbientIntensity = creatureAmbientIntensity;
+                _creatures.FogStart = creatureFogStart;
+                _creatures.FogEnd = creatureFogEnd;
+            }
         }
+    }
+
+    private static Vector3 PortraitKeyDirection(Camera camera)
+    {
+        Vector3 forward = camera.Forward;
+        Vector3 up = camera.AuthoredUp ?? Vector3.UnitZ;
+        if (up.LengthSquared() < 1e-8f) up = Vector3.UnitZ;
+        else up = Vector3.Normalize(up);
+        Vector3 right = Vector3.Cross(forward, up);
+        if (right.LengthSquared() < 1e-8f) right = Vector3.UnitX;
+        else right = Vector3.Normalize(right);
+        return Vector3.Normalize(-forward + up * 0.55f - right * 0.35f);
     }
 
     private static void DrawPortrait(uint textureHandle, float size)

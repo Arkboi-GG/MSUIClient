@@ -434,7 +434,29 @@ public sealed record EncounterPlayerRules(
     string? RotationId = null,
     /// <summary>Assigned positioning slot — the id of a <see cref="PositioningScript"/>
     /// in the positioning library. Null = no positioning script assigned.</summary>
-    string? PositioningId = null);
+    string? PositioningId = null,
+    /// <summary>Per-phase enemy-target overrides. Null/empty = the plan's default order
+    /// (<see cref="CombatPlan.EnemyPriorities"/>) applies in every phase. This is
+    /// ENCOUNTER-LOCAL: it names phase keys, so it lives on the body's scenario rules
+    /// rather than the portable plan. Authored in the Game Plan tab, resolved against the
+    /// sim's current phase.</summary>
+    IReadOnlyList<PhaseTargetOverride>? PhaseTargets = null,
+    /// <summary>Encounter ability keys this body actively stays out of. EXECUTED by the
+    /// sim, not advisory: a telegraphed cast (cast time &gt; 0) triggers a run to the
+    /// nearest safe point and a run back after impact; an instant cone becomes a standing
+    /// constraint — the body continuously sidesteps out of the arc as the boss turns.
+    /// Encounter-local (keys name this fight's abilities), authored in the Game Plan tab.
+    /// Null/empty = the body stands its ground like it always did.</summary>
+    IReadOnlyList<string>? AvoidAbilityKeys = null);
+
+/// <summary>"In THIS phase, target this order instead of the plan default." The reason
+/// per-phase targeting cannot live on <see cref="CombatPlan"/>: the plan is portable and
+/// deliberately knows no phase keys, but "adds while she is untankable in the air" is a
+/// fact about one fight. Kept as an ordered list of the same portable buckets the plan
+/// uses, so it resolves through the identical selector.</summary>
+public sealed record PhaseTargetOverride(
+    string PhaseKey,
+    IReadOnlyList<CombatEnemyPriority> Priorities);
 
 /// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
 /// model - the owner assigns aggro and swaps it, because "who is she facing"
@@ -537,7 +559,12 @@ public sealed record EncounterActorSpec(
     /// <summary>Which side of the encounter this body works. Pairs with its assigned
     /// positioning script (which is itself role×side): the body's side selects which
     /// side's script applies and drives the mirror. Meaningless on the boss and adds.</summary>
-    RaidSide Side = RaidSide.None);
+    RaidSide Side = RaidSide.None,
+    /// <summary>1.12 class id (1 Warrior … 11 Druid), 0 = unknown. Job says what the
+    /// body is FOR; class says what it can CAST — the doctrine's class-gated rules
+    /// (a Fear Ward chain wants priests, add-control wants mages) read this. Kept on
+    /// the body, not the rotation, because a body has a class even with no plan.</summary>
+    uint ClassId = 0);
 
 public enum EncounterActorRole
 {
@@ -625,11 +652,11 @@ public sealed record EncounterDefinition(
             foreach (EncounterTransition transition in phase.Transitions ?? [])
             {
                 if (transition.Fidelity == EncounterFidelity.UnknownUnmodeled)
-                    yield return $"transition '{phase.Key}'→'{transition.ToPhase}': " +
+                    yield return $"transition '{phase.Key}'->'{transition.ToPhase}': " +
                                  (transition.Note ?? "not modeled");
                 foreach (EncounterStep step in transition.Steps ?? [])
                     if (step.Kind == EncounterStepKind.Unmodeled)
-                        yield return $"transition '{phase.Key}'→'{transition.ToPhase}': " +
+                        yield return $"transition '{phase.Key}'->'{transition.ToPhase}': " +
                                      (step.Note ?? "not modeled");
             }
         }

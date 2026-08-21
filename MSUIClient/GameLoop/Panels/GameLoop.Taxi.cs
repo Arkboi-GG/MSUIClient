@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Engine.UI;
 using MSUIClient.Formats;
 using MSUIClient.Net;
 
@@ -16,6 +17,9 @@ public sealed partial class GameLoop
     private Vector3 _taxiStart;
     private TaxiNodeCatalog? _taxiNodes;
     private bool _taxiNodesLoaded;
+
+    private const string NoConnectedFlightPaths =
+        "You don't know any flight locations connected to this one.";
 
     private void ResetTaxi()
     {
@@ -69,9 +73,12 @@ public sealed partial class GameLoop
             uint mask = r.ReadU32();
             for (int bit = 0; bit < 32; bit++) if ((mask & (1u << bit)) != 0) _taxiKnownNodes.Add((uint)(word * 32 + bit + 1));
         }
-        _taxiOpen = true;
+        bool hasDestination = _taxiKnownNodes.Any(node => node != _taxiCurrentNode);
+        _taxiOpen = hasDestination;
+        if (!hasDestination)
+            ShowUiError(NoConnectedFlightPaths);
         EmitInterface("taxi", "map", "DISPLAYED", guid,
-            $"mode={mode};current={current};maskWords={words};known={string.Join(',', _taxiKnownNodes)};bytes={body.Length}");
+            $"mode={mode};current={current};maskWords={words};hasDestination={hasDestination};known={string.Join(',', _taxiKnownNodes)};bytes={body.Length}");
     }
 
     private bool ActivateTaxi(uint destination)
@@ -158,7 +165,7 @@ public sealed partial class GameLoop
         foreach (uint node in _taxiKnownNodes)
         {
             bool current = node == _taxiCurrentNode;
-            if (current) ImGui.TextDisabled($"● Node {node} (current)");
+            if (current) ImGui.TextDisabled($"• Node {node} (current)");
             else if (ImGui.Button($"Fly to node {node}##taxi-{node}")) ActivateTaxi(node);
         }
         if (_taxiKnownNodes.Count == 0) ImGui.TextDisabled("No discovered flight nodes received.");
@@ -173,7 +180,9 @@ public sealed partial class GameLoop
         uint mapId=_taxiNodes?.TryGet(_taxiCurrentNode,out TaxiNodeInfo currentInfo)==true?currentInfo.MapId:0;
         string merchant=_entities.TryGet(_taxiMasterGuid,out WorldEntity master)
             ?_creatureNames.GetValueOrDefault(master.Entry,"Flight Master"):"Flight Master";
-        DrawCenteredText(dl,origin+new Vector2(192,17)*s,merchant,12*s,0xffffffff);
+        float titleEm=GameText.EmPixels("GameFontNormal",s);
+        DrawNpcModalTitle(dl,merchant,
+            origin+new Vector2(192,17+titleEm/(2f*s))*s,s);
         Vector2 mapMin=origin+new Vector2(21,75)*s,mapSize=new Vector2(316,352)*s;
         uint map=_gameplayArt!.Handle($@"Interface\TaxiFrame\TAXIMAP{mapId}.blp");
         if(map==0)map=_gameplayArt.Handle($@"textures\TaxiMaps\TaxiMap0{mapId}.blp");
@@ -193,7 +202,8 @@ public sealed partial class GameLoop
             if(!current&&!_taxiLocked&&ImGui.IsItemClicked())ActivateTaxi(nodeId);
             if(ImGui.IsItemHovered())ImGui.SetTooltip(current?$"{node.Name}\nYou are here":node.Name);
         }
-        if(_taxiKnownNodes.Count==0)DrawCenteredText(dl,mapMin+mapSize*.5f,"No flight paths are known.",11*s,0xffffffff);
+        if(!_taxiKnownNodes.Any(node=>node!=_taxiCurrentNode))
+            DrawCenteredText(dl,mapMin+mapSize*.5f,NoConnectedFlightPaths,11*s,0xffffffff);
         Vector2 close=origin+new Vector2(323,8)*s;
         DrawImageButton(dl,"##taxi-close-shipping",close,new Vector2(32)*s,
             @"Interface\Buttons\UI-Panel-MinimizeButton-Up",@"Interface\Buttons\UI-Panel-MinimizeButton-Down",

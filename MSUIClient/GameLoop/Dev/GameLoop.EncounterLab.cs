@@ -73,6 +73,12 @@ public sealed partial class GameLoop
     /// loads; the owner edits it in the Scenario section.</summary>
     private readonly List<RaidPhaseDirective> _encounterPlaybook = [];
 
+    /// <summary>The scenario's authored raid doctrine. Defaults are the sensible
+    /// raid; class-gated rules (Fear Ward chains, add control) and bucket
+    /// assignments are authored onto this instance and travel with the exported
+    /// raid plan. The settings toggle gates whether the sim consumes it at all.</summary>
+    private RaidDoctrine _encounterDoctrine = new();
+
     /// <summary>Orders QUEUED for GO, per body key — the owner's model: click a
     /// bot, shift-click its waypoints, repeat for every bot, read the dotted
     /// plan on the floor, THEN send everyone at once. Nothing here moves a body;
@@ -734,10 +740,16 @@ public sealed partial class GameLoop
 
     /// <summary>The vanilla instinct as a starting table: melee keep reach while
     /// she is grounded, everyone else holds the owner's orders. Reseeded whenever
-    /// a definition loads; the owner edits from there.</summary>
+    /// a definition loads; the owner edits from there.
+    ///
+    /// With the raid doctrine on, the seed is deliberately NOT planted: the derived
+    /// formation already keeps melee at reach — arc-aware and flank-split, which the
+    /// blunt chase directive is not — and a playbook row would outrank it. Anything
+    /// the owner authors here still wins over the formation, doctrine or no.</summary>
     private void SeedDefaultPlaybook()
     {
         _encounterPlaybook.Clear();
+        if (Settings.EncounterLab.RaidDoctrine) return;
         if (_encounterDefinition is not { } definition) return;
         foreach (EncounterPhase phase in definition.Phases)
             if (!phase.CasterFlying)
@@ -795,6 +807,9 @@ public sealed partial class GameLoop
             InventPrePullRoam = settings.SandboxRoam,
             RoamRadiusYards = Math.Clamp(settings.RoamRadiusYards, 5f, 60f),
             MeleeDpsNeedsReach = settings.MeleeDpsNeedsReach,
+            AddDps = Math.Clamp(settings.AddDps, 0f, 1000f),
+            HealerHps = Math.Clamp(settings.HealerHps, 0f, 5000f),
+            Doctrine = settings.RaidDoctrine ? _encounterDoctrine : null,
             Playbook = _encounterPlaybook.Count > 0 ? _encounterPlaybook.ToArray() : null,
             Positioning = BuildEncounterPositioningMap(),
         }, _encounterFacts);
@@ -2063,7 +2078,7 @@ public sealed partial class GameLoop
             MoveAnchor.OnPhaseEnter => $"on {move.PhaseKey}:",
             _ => $"@ {move.TimeMs / 1000f:0.0}s",
         };
-        string facing = move.HasArrivalFacing ? " ↻" : "";
+        string facing = move.HasArrivalFacing ? " (facing)" : "";
         return $"{when} {verb} -> {move.Position.X:0.#}, {move.Position.Y:0.#}{facing}";
     }
 
@@ -2080,15 +2095,15 @@ public sealed partial class GameLoop
 
         // Independent pop-outs: one for the selected actor's live event stream, and one
         // clean phase-aware control surface for boss ability visualizations.
-        if (EncounterPanelButton("Pop out ▸ live action panel", compact: true))
+        if (EncounterPanelButton("Pop out > live action panel", compact: true))
             _encounterActionPanelOpen = true;
         bool actionPanelHovered = ImGui.IsItemHovered();
-        EncounterSameLineForButton("Abilities ▸ Visualize", compact: true);
+        EncounterSameLineForButton("Abilities > Visualize", compact: true);
         if (actionPanelHovered)
             ImGui.SetTooltip("A separate window that follows the selected body\n" +
                              "(the boss by default) and shows exactly what it\n" +
                              "steps through — casts, phase turns, hits — in real time.");
-        if (EncounterPanelButton("Abilities ▸ Visualize", compact: true))
+        if (EncounterPanelButton("Abilities > Visualize", compact: true))
             OpenEncounterAbilityVisualizer();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open the current phase's boss ability visualizer.");
@@ -2122,7 +2137,7 @@ public sealed partial class GameLoop
                 };
                 if (!isNow) color.W = .55f;
 
-                string marker = isNow ? "▶" : " ";
+                string marker = isNow ? ">" : " ";
                 ImGui.TextColored(color,
                     $"{marker} {simEvent.TimeMs / 1000f,6:0.0}s  {simEvent.Text}");
                 if (simEvent.Kind == SimEventKind.CastLand &&
@@ -2234,7 +2249,7 @@ public sealed partial class GameLoop
                     ImGui.TextDisabled($"phases: {string.Join(", ", phases)}");
                 if (ability.Note is { Length: > 0 } note) ImGui.TextWrapped(note);
                 foreach (EncounterSourceRef source in ability.Sources ?? [])
-                    ImGui.TextDisabled($"  ← {source}");
+                    ImGui.TextDisabled($"  <- {source}");
                 ImGui.TreePop();
             }
             ImGui.PopID();

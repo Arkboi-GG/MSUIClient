@@ -168,7 +168,13 @@ public sealed partial class GameLoop
                          npc.IsCreature && (npc.NpcFlags & GossipNpcFlags) != 0)
                 {
                     CommitSelection(picked, beginAttack: false);
-                    RequestGossip(picked);
+                    // A plain vendor has one service and vanilla enters that service directly.
+                    // Innkeepers are also vendors, but must keep the gossip choice between their
+                    // stock and binding the hearthstone.
+                    if (!IsInnkeeper(npc) && (npc.NpcFlags & NpcVendor) != 0)
+                        RequestVendor(picked);
+                    else
+                        RequestGossip(picked);
                 }
                 else if (_entities.TryGet(picked, out WorldEntity player) && player.IsPlayer)
                 {
@@ -472,11 +478,11 @@ public sealed partial class GameLoop
         string name = target.IsPlayer
             ? _playerNames.GetValueOrDefault(target.Guid, "Player")
             : _creatureNames.GetValueOrDefault(target.Entry, $"Creature {target.Entry}");
-        uint portrait = target.IsCreature && _portraitTargetGuid == target.Guid
-            ? UnitFramePortrait(_targetPortrait, _targetPortraitUsable)
-            : target.IsPlayer && _net is not null && target.Guid == ControlledGuid
-                ? UnitFramePortrait(_playerPortrait, _playerPortraitUsable)
-                : 0;
+        uint portrait = target.IsPlayer && target.Guid == ControlledGuid
+            ? UnitFramePortrait(_playerPortrait, _playerPortraitUsable)
+            : _portraitTargetGuid == target.Guid
+                ? UnitFramePortrait(_targetPortrait, _targetPortraitUsable)
+                : target.IsPlayer ? PartyPortraitHandle(target.Guid) : 0;
         DrawVanillaUnitFrame(target, new Vector2(250, 4), playerFrame: false,
             name, reaction, portrait, _targetCombatFlash);
     }

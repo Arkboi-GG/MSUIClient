@@ -350,6 +350,605 @@ internal static class Program
         Check("per-character DPS resumes on the fallback primary enemy",
             routedBoss.Health == 870);
 
+        // A per-phase override replaces the plan's DEFAULT order for the matching phase
+        // only. Two tanks share the same PrimaryEnemy plan; one overrides the "ground"
+        // phase to the adds. On the ground the override routes to the add while the
+        // default holds the boss (and a mismatched phase key would simply not apply).
+        var phaseOverrideRules = new EncounterPlayerRules(
+            Plan: new CombatPlan(
+                EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+                Fallback: CombatFallback.ClassDefaults),
+            PhaseTargets:
+            [
+                new PhaseTargetOverride("ground",
+                    [new CombatEnemyPriority(CombatEnemyKind.AnyAdd)]),
+            ]);
+        var phaseDefaultRules = new EncounterPlayerRules(
+            Plan: new CombatPlan(
+                EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+                Fallback: CombatFallback.ClassDefaults));
+        List<EncounterActorSpec> phaseTargetScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 1_000),
+            new("add-x", "an add", 2, EncounterActorRole.Add, new Vector3(4f, -4f, 0f),
+                MaxHealth: 100),
+            new("override-body", "p1 add-tank", 0, EncounterActorRole.Friendly,
+                new Vector3(4f, -3f, 0f), Dps: 10f, Job: RaidJob.Tank,
+                PlayerRules: phaseOverrideRules),
+            new("default-body", "boss-tank", 0, EncounterActorRole.Friendly,
+                new Vector3(4f, -5f, 0f), Dps: 10f, Job: RaidJob.Tank,
+                PlayerRules: phaseDefaultRules),
+        ];
+        var phaseTargetSim = new EncounterSim(definition, phaseTargetScenario,
+            new EncounterSimOptions
+            { Seed = 42, StepMs = 1_000, PullRangeYards = 100f, RaidDpsFraction = 0f });
+        phaseTargetSim.Advance();
+        SimActor overrideBody = phaseTargetSim.Actors.First(actor => actor.Key == "override-body");
+        SimActor defaultBody = phaseTargetSim.Actors.First(actor => actor.Key == "default-body");
+        Check("per-phase override retargets on the ground while the default plan holds the boss",
+            phaseTargetSim.PhaseKey == "ground" &&
+            overrideBody.CurrentEnemyTargetKey == "add-x" &&
+            defaultBody.CurrentEnemyTargetKey == "boss");
+
+        // ── the executable fight loop: adds bite, healers pour, dodges run ───────
+
+        // Adds acquire threat-lite victims, chase, and deal the dialled damage.
+        // The add-duty tank MAGNET: a tank whose enemy intent is on adds calls the
+        // add to itself, past a much closer bystander.
+        var quietDef = new EncounterDefinition(
+            Key: "test-quiet", Name: "Test Quiet", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("only", "only")],
+            Abilities: [],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        List<EncounterActorSpec> addScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("whelp", "whelp", 2, EncounterActorRole.Add, new Vector3(24f, 0f, 0f),
+                MaxHealth: 300),
+            new("bystander", "bystander", 0, EncounterActorRole.Friendly,
+                new Vector3(25.5f, 0f, 0f), MaxHealth: 2_000, Job: RaidJob.Ranged),
+            new("addtank", "add tank", 0, EncounterActorRole.Friendly,
+                new Vector3(14f, 0f, 0f), Dps: 60f, MaxHealth: 2_000, Job: RaidJob.Tank,
+                PlayerRules: new EncounterPlayerRules(Plan: new CombatPlan(
+                    EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.AnyAdd)],
+                    Fallback: CombatFallback.NoActionThisTick))),
+        ];
+        var addSim = new EncounterSim(quietDef, addScenario, new EncounterSimOptions
+        {
+            Seed = 7, StepMs = 500, PullRangeYards = 100f,
+            RaidDpsFraction = 0f, AddDps = 40f, HealerHps = 0f,
+        });
+        addSim.AdvanceTo(4_000);
+        SimActor whelp = addSim.Actors.First(a => a.Key == "whelp");
+        SimActor addTank = addSim.Actors.First(a => a.Key == "addtank");
+        Check("the add-duty tank pulls the add past a closer bystander",
+            whelp.CurrentEnemyTargetKey == "addtank" &&
+            EncounterGeometryLaw.GroundDistance(whelp.Position, addTank.Position) < 4f);
+        Check("adds bite: the tank takes dialled damage while holding the add",
+            addTank.Health < 2_000 && addTank.Alive);
+        addSim.AdvanceTo(12_000);
+        int tankHealthAtKill = addTank.Health;
+        Check("the tank's routed DPS kills the add, and the biting stops",
+            !whelp.Alive &&
+            addSim.Events.Any(e => e.Kind == SimEventKind.Death && e.ActorKey == "whelp"));
+        addSim.AdvanceTo(16_000);
+        Check("a dead add deals no further damage", addTank.Health == tankHealthAtKill);
+
+        // Protect priorities become throughput: the same fight with and without the
+        // healer dial, same seed — the healed victim must end visibly healthier.
+        List<EncounterActorSpec> HealScenario() =>
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("whelp", "whelp", 2, EncounterActorRole.Add, new Vector3(32f, 0f, 0f),
+                MaxHealth: 5_000),
+            new("victim", "victim", 0, EncounterActorRole.Friendly,
+                new Vector3(30f, 0f, 0f), MaxHealth: 2_000, Job: RaidJob.Melee),
+            new("healer", "healer", 0, EncounterActorRole.Friendly,
+                new Vector3(40f, 0f, 0f), MaxHealth: 2_000, Job: RaidJob.Healer,
+                PlayerRules: new EncounterPlayerRules(Plan: new CombatPlan(
+                    SupportPriorities:
+                    [new CombatSupportPriority(CombatSubject.LowestHealth, 95f)],
+                    Fallback: CombatFallback.NoActionThisTick))),
+        ];
+        var healedSim = new EncounterSim(quietDef, HealScenario(), new EncounterSimOptions
+        { Seed = 7, StepMs = 500, PullRangeYards = 100f, RaidDpsFraction = 0f, AddDps = 40f, HealerHps = 25f });
+        var unhealedSim = new EncounterSim(quietDef, HealScenario(), new EncounterSimOptions
+        { Seed = 7, StepMs = 500, PullRangeYards = 100f, RaidDpsFraction = 0f, AddDps = 40f, HealerHps = 0f });
+        healedSim.AdvanceTo(6_000);
+        unhealedSim.AdvanceTo(6_000);
+        SimActor healedVictim = healedSim.Actors.First(a => a.Key == "victim");
+        SimActor unhealedVictim = unhealedSim.Actors.First(a => a.Key == "victim");
+        Check("the healer's protect intent resolves onto the bitten body",
+            healedSim.Actors.First(a => a.Key == "healer").CurrentProtectTargetKey == "victim");
+        Check("healing is throughput: the healed victim ends healthier than the unhealed twin",
+            healedVictim.Health > unhealedVictim.Health && healedVictim.Health < 2_000);
+
+        // Avoidance executes: a body avoiding a telegraphed lane runs off it during
+        // the cast, takes zero hits when it lands, and walks back to its station,
+        // while the non-avoiding twin standing beside it is hit.
+        var laneDef = new EncounterDefinition(
+            Key: "test-lane", Name: "Test Lane", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("only", "only")],
+            Abilities:
+            [
+                new EncounterAbility("lane", "Deep Lane", 900,
+                    new EncounterTriggerSpec(EncounterTriggerKind.Timer),
+                    new EncounterTiming(1000, 1000, 60000, 60000),
+                    new EncounterTargetSpec(EncounterTargetKind.DatabaseLocation),
+                    new EncounterGeometrySpec(FootprintKind.PointChain, Radius: 5f,
+                        Points: [new(20f, -10f, 0f), new(20f, 0f, 0f), new(20f, 10f, 0f)]),
+                    EncounterFidelity.ExactDb, CastTimeMs: 3000),
+            ],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        List<EncounterActorSpec> laneScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("dodger", "dodger", 0, EncounterActorRole.Friendly, new Vector3(20f, 0f, 0f),
+                MaxHealth: 2_000,
+                PlayerRules: new EncounterPlayerRules(AvoidAbilityKeys: ["lane"])),
+            new("sitter", "sitter", 0, EncounterActorRole.Friendly, new Vector3(20f, 2f, 0f),
+                MaxHealth: 2_000),
+        ];
+        var laneSim = new EncounterSim(laneDef, laneScenario, new EncounterSimOptions
+        { Seed = 3, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f, AddDps = 0f, HealerHps = 0f });
+        laneSim.AdvanceTo(8_000);
+        SimActor dodger = laneSim.Actors.First(a => a.Key == "dodger");
+        SimActor sitter = laneSim.Actors.First(a => a.Key == "sitter");
+        Check("the avoider dodges the telegraphed lane and takes zero hits",
+            dodger.HitsTaken == 0 &&
+            laneSim.Events.Any(e => e.ActorKey == "dodger" && e.Text.Contains("dodges")));
+        Check("the non-avoiding twin standing beside it is hit", sitter.HitsTaken >= 1);
+        Check("after the impact the dodger walks back to its station",
+            laneSim.Events.Any(e => e.ActorKey == "dodger" && e.Text.Contains("returns")) &&
+            EncounterGeometryLaw.GroundDistance(dodger.Position, new Vector3(20f, 0f, 0f)) < 1.5f);
+
+        // The standing constraint: a melee avoiding an instant victim-anchored cone
+        // slides around the boss and OUT of the arc, while the aggro holder — whose
+        // job is aiming her — is exempt and stays in front.
+        var coneDef = new EncounterDefinition(
+            Key: "test-cone", Name: "Test Cone", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("only", "only")],
+            Abilities:
+            [
+                new EncounterAbility("breath", "Flame Cone", 901,
+                    new EncounterTriggerSpec(EncounterTriggerKind.Timer),
+                    new EncounterTiming(60000, 60000, 60000, 60000),
+                    EncounterTargetSpec.Victim,
+                    new EncounterGeometrySpec(FootprintKind.Cone, Radius: 20f, ConeDegrees: 90f),
+                    EncounterFidelity.ExactDb),
+            ],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        List<EncounterActorSpec> coneScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, 0f, 4f, 5f, 63, 100_000),
+            new("victim-tank", "tank", 0, EncounterActorRole.Friendly, new Vector3(5f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank),
+            new("flanker", "flanker", 0, EncounterActorRole.Friendly, new Vector3(8f, 1.5f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Melee,
+                PlayerRules: new EncounterPlayerRules(AvoidAbilityKeys: ["breath"])),
+        ];
+        var coneSim = new EncounterSim(coneDef, coneScenario, new EncounterSimOptions
+        { Seed = 5, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f, AddDps = 0f, HealerHps = 0f });
+        coneSim.AdvanceTo(4_000);
+        SimActor coneBoss = coneSim.Actors.First(a => a.Key == "boss");
+        SimActor coneTank = coneSim.Actors.First(a => a.Key == "victim-tank");
+        SimActor flanker = coneSim.Actors.First(a => a.Key == "flanker");
+        EncounterAbility breathAbility = coneDef.Abilities[0];
+        Footprint liveCone = EncounterGeometryLaw.Resolve(
+            breathAbility, coneBoss.Position, coneBoss.Facing, coneTank.Position, null);
+        float flankRadius = EncounterGeometryLaw.GroundDistance(flanker.Position, coneBoss.Position);
+        Check("the avoiding melee slides out of the instant frontal cone",
+            !EncounterGeometryLaw.Test(liveCone, flanker.Body).Covered);
+        Check("the slide is tangential — the flanker keeps its distance to the boss",
+            MathF.Abs(flankRadius - 8.14f) < 0.8f);
+        Check("the aggro holder is exempt: aiming her is his job, so he stays in front",
+            EncounterGeometryLaw.Test(liveCone, coneTank.Body).Covered);
+
+        // ── raid doctrine: the formation is COMPUTED, not authored ───────────────
+
+        // An Onyxia-shaped standing-threat picture: an instant frontal victim cone
+        // and an instant rear self-cone, timers far enough out that only geometry
+        // speaks. Nobody authors a single position; roles and hazard arcs decide.
+        var arcsDef = new EncounterDefinition(
+            Key: "test-arcs", Name: "Test Arcs", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("only", "only")],
+            Abilities:
+            [
+                new EncounterAbility("front", "Front Cone", 910,
+                    new EncounterTriggerSpec(EncounterTriggerKind.Timer),
+                    new EncounterTiming(60000, 60000, 60000, 60000),
+                    EncounterTargetSpec.Victim,
+                    new EncounterGeometrySpec(FootprintKind.Cone, Radius: 15f, ConeDegrees: 90f),
+                    EncounterFidelity.ExactDb),
+                new EncounterAbility("rear", "Rear Cone", 911,
+                    new EncounterTriggerSpec(EncounterTriggerKind.Timer),
+                    new EncounterTiming(60000, 60000, 60000, 60000),
+                    EncounterTargetSpec.Caster,
+                    new EncounterGeometrySpec(FootprintKind.Cone, Radius: 15f, ConeDegrees: -120f),
+                    EncounterFidelity.ExactDb),
+            ],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        List<EncounterActorSpec> fmScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, 0f, 4f, 5f, 63, 100_000),
+            new("t1-main", "main tank", 0, EncounterActorRole.Friendly, new Vector3(16f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank),
+            new("t2-spare", "spare tank", 0, EncounterActorRole.Friendly, new Vector3(18f, 2f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank),
+            new("u1-melee", "melee one", 0, EncounterActorRole.Friendly, new Vector3(18f, -2f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Melee),
+            new("u2-melee", "melee two", 0, EncounterActorRole.Friendly, new Vector3(20f, 4f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Melee),
+            new("v1-ranged", "ranged", 0, EncounterActorRole.Friendly, new Vector3(24f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Ranged),
+            new("w1-healer", "healer", 0, EncounterActorRole.Friendly, new Vector3(22f, -4f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Healer),
+            new("x1-routed", "routed melee", 0, EncounterActorRole.Friendly, new Vector3(20f, 8f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Melee,
+                Moves: [new TimedMove(0, new Vector3(40f, 40f, 0f))]),
+        ];
+        var fmSim = new EncounterSim(arcsDef, fmScenario, new EncounterSimOptions
+        {
+            Seed = 11, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f, Doctrine = new RaidDoctrine(),
+        });
+        fmSim.AdvanceTo(14_000);
+        SimActor fmBoss = fmSim.Actors.First(a => a.Key == "boss");
+        SimActor fmMt = fmSim.Actors.First(a => a.Key == "t1-main");
+        SimActor fmSpare = fmSim.Actors.First(a => a.Key == "t2-spare");
+        SimActor fmM1 = fmSim.Actors.First(a => a.Key == "u1-melee");
+        SimActor fmM2 = fmSim.Actors.First(a => a.Key == "u2-melee");
+        SimActor fmRanged = fmSim.Actors.First(a => a.Key == "v1-ranged");
+        SimActor fmHealer = fmSim.Actors.First(a => a.Key == "w1-healer");
+        SimActor fmRouted = fmSim.Actors.First(a => a.Key == "x1-routed");
+        float FmDist(SimActor a) =>
+            EncounterGeometryLaw.GroundDistance(a.Position, fmBoss.Position);
+        Footprint fmFront = EncounterGeometryLaw.Resolve(
+            arcsDef.Abilities[0], fmBoss.Position, fmBoss.Facing, fmMt.Position, null);
+        Footprint fmRear = EncounterGeometryLaw.Resolve(
+            arcsDef.Abilities[1], fmBoss.Position, fmBoss.Facing, null, null);
+        float fmMtAngle = MathF.Abs(EncounterGeometryLaw.NormalizeAngle(
+            MathF.Atan2(fmMt.Position.Y - fmBoss.Position.Y,
+                fmMt.Position.X - fmBoss.Position.X) - fmBoss.Facing));
+        Check("the main tank derives to her nose at melee reach",
+            fmMtAngle < 0.3f && FmDist(fmMt) < 7f);
+        Check("every derived melee body stands clear of BOTH cones at melee reach",
+            new[] { fmSpare, fmM1, fmM2 }.All(a =>
+                !EncounterGeometryLaw.Test(fmFront, a.Body).Covered &&
+                !EncounterGeometryLaw.Test(fmRear, a.Body).Covered &&
+                FmDist(a) < 8f));
+        Check("the melee bucket auto-splits across both flanks (macro groups)",
+            new[] { fmSpare, fmM1, fmM2 }.Select(a => MathF.Sign(
+                EncounterGeometryLaw.NormalizeAngle(
+                    MathF.Atan2(a.Position.Y - fmBoss.Position.Y,
+                        a.Position.X - fmBoss.Position.X) - fmBoss.Facing)))
+                .Distinct().Count() == 2);
+        Check("rings nest: melee, then healers, then ranged",
+            FmDist(fmM1) < FmDist(fmHealer) && FmDist(fmHealer) < FmDist(fmRanged));
+        Check("ranged derive beyond the longest cone's range",
+            FmDist(fmRanged) > 15f &&
+            !EncounterGeometryLaw.Test(fmFront, fmRanged.Body).Covered);
+        Check("a routed body is exempt: the owner's waypoint outranks the formation",
+            EncounterGeometryLaw.GroundDistance(
+                fmRouted.Position, new Vector3(40f, 40f, 0f)) < 1f);
+
+        // The air phase: nothing to flank, so the raid spreads on a ring.
+        var airDef = new EncounterDefinition(
+            Key: "test-air", Name: "Test Air", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("up", "up", CasterFlying: true)],
+            Abilities: [],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        var airSim = new EncounterSim(airDef,
+            fmScenario.Where(s => s.Key != "x1-routed").ToList(),
+            new EncounterSimOptions
+            {
+                Seed = 11, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f,
+                AddDps = 0f, HealerHps = 0f, Doctrine = new RaidDoctrine(),
+            });
+        airSim.AdvanceTo(14_000);
+        SimActor airBoss = airSim.Actors.First(a => a.Key == "boss");
+        List<SimActor> airRaid = airSim.Actors
+            .Where(a => a.Spec.Role == EncounterActorRole.Friendly).ToList();
+        Check("in an air phase the whole raid spreads onto the standoff ring",
+            airRaid.All(a => MathF.Abs(EncounterGeometryLaw.GroundDistance(
+                a.Position, airBoss.Position) - 25f) < 2f));
+        Check("the air ring actually spreads: every pair keeps distance",
+            airRaid.All(a => airRaid.All(b => ReferenceEquals(a, b) ||
+                EncounterGeometryLaw.GroundDistance(a.Position, b.Position) > 6f)));
+
+        // Spread-from-targeted: while a slow missile flies at the marked body, the
+        // neighbour steps away and the mark holds still to soak it alone.
+        var missileDef = new EncounterDefinition(
+            Key: "test-missile", Name: "Test Missile", PrimaryEntry: 1,
+            Phases: [new EncounterPhase("only", "only")],
+            Abilities:
+            [
+                new EncounterAbility("bolt", "Slow Bolt", 920,
+                    new EncounterTriggerSpec(EncounterTriggerKind.Timer),
+                    new EncounterTiming(1000, 1000, 60000, 60000),
+                    EncounterTargetSpec.Victim,
+                    new EncounterGeometrySpec(FootprintKind.Projectile, Radius: 4f,
+                        ProjectileSpeed: 4f),
+                    EncounterFidelity.ExactDb),
+            ],
+            Provenance: new EncounterProvenance("test"),
+            Coverage: EncounterCoverage.Template);
+        List<EncounterActorSpec> sprScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("mark", "mark", 0, EncounterActorRole.Friendly, new Vector3(30f, 0f, 0f),
+                MaxHealth: 2_000),
+            new("buddy", "buddy", 0, EncounterActorRole.Friendly, new Vector3(32f, 0f, 0f),
+                MaxHealth: 2_000),
+        ];
+        var sprSim = new EncounterSim(missileDef, sprScenario, new EncounterSimOptions
+        {
+            Seed = 13, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false),
+        });
+        sprSim.AdvanceTo(5_000);
+        SimActor sprMark = sprSim.Actors.First(a => a.Key == "mark");
+        SimActor sprBuddy = sprSim.Actors.First(a => a.Key == "buddy");
+        Check("the neighbour spreads off the targeted body while the missile flies",
+            EncounterGeometryLaw.GroundDistance(sprBuddy.Position, sprMark.Position) > 7f);
+        Check("the marked body holds still and soaks it alone",
+            EncounterGeometryLaw.GroundDistance(
+                sprMark.Position, new Vector3(30f, 0f, 0f)) < 1f);
+
+        // Doctrine default dodging: the SAME planless body dodges the lane with the
+        // doctrine on and eats it with the doctrine off.
+        List<EncounterActorSpec> defScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("plain", "planless body", 0, EncounterActorRole.Friendly,
+                new Vector3(20f, 0f, 0f), MaxHealth: 2_000),
+        ];
+        var defOn = new EncounterSim(laneDef, defScenario, new EncounterSimOptions
+        {
+            Seed = 3, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false),
+        });
+        var defOff = new EncounterSim(laneDef, defScenario, new EncounterSimOptions
+        { Seed = 3, StepMs = 100, PullRangeYards = 100f, RaidDpsFraction = 0f, AddDps = 0f, HealerHps = 0f });
+        defOn.AdvanceTo(8_000);
+        defOff.AdvanceTo(8_000);
+        Check("doctrine makes dodging the default: no per-body authoring needed",
+            defOn.Actors.First(a => a.Key == "plain").HitsTaken == 0 &&
+            defOff.Actors.First(a => a.Key == "plain").HitsTaken >= 1);
+
+        // Derived healing assignments: with zero authored rows, the first healer
+        // covers the wounded tank and the second watches the raid's lowest health.
+        List<EncounterActorSpec> ghScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("a1", "biter one", 2, EncounterActorRole.Add, new Vector3(20f, 10f, 0f),
+                MaxHealth: 50_000),
+            new("a2", "biter two", 2, EncounterActorRole.Add, new Vector3(20f, -10f, 0f),
+                MaxHealth: 50_000),
+            new("gh-tank", "tank", 0, EncounterActorRole.Friendly, new Vector3(20f, 11f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank),
+            new("gh-victim", "victim", 0, EncounterActorRole.Friendly, new Vector3(20f, -11f, 0f),
+                MaxHealth: 1_500, Job: RaidJob.Melee),
+            new("h1", "tank healer", 0, EncounterActorRole.Friendly, new Vector3(40f, 5f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Healer),
+            new("h2", "group healer", 0, EncounterActorRole.Friendly, new Vector3(40f, -5f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Healer),
+        ];
+        var ghSim = new EncounterSim(quietDef, ghScenario, new EncounterSimOptions
+        {
+            Seed = 17, StepMs = 500, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 30f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false),
+        });
+        ghSim.AdvanceTo(6_000);
+        Check("with zero authored rows the first healer derives the tank as charge",
+            ghSim.Actors.First(a => a.Key == "h1").CurrentProtectTargetKey == "gh-tank");
+        Check("the second healer derives the group's lowest health as charge",
+            ghSim.Actors.First(a => a.Key == "h2").CurrentProtectTargetKey == "gh-victim");
+
+        // Bucket assignments: "tanks 2 and up pick up adds" — tank 1 keeps the plan's
+        // boss order, tank 2 is retargeted by the doctrine, no per-body authoring.
+        var bkPlan = new CombatPlan(
+            EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
+            Fallback: CombatFallback.NoActionThisTick);
+        List<EncounterActorSpec> bkScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("bk-add", "an add", 2, EncounterActorRole.Add, new Vector3(20f, 5f, 0f),
+                MaxHealth: 50_000),
+            new("tk-a", "tank one", 0, EncounterActorRole.Friendly, new Vector3(6f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank,
+                PlayerRules: new EncounterPlayerRules(Plan: bkPlan)),
+            new("tk-b", "tank two", 0, EncounterActorRole.Friendly, new Vector3(8f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank,
+                PlayerRules: new EncounterPlayerRules(Plan: bkPlan)),
+        ];
+        var bkSim = new EncounterSim(quietDef, bkScenario, new EncounterSimOptions
+        {
+            Seed = 19, StepMs = 500, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false,
+                Assignments: [new PhaseJobAssignment("only", RaidJob.Tank, 2, CombatEnemyKind.AnyAdd)]),
+        });
+        bkSim.AdvanceTo(2_000);
+        Check("bucket assignment: tank 1 keeps the boss, tank 2 is sent to the adds",
+            bkSim.Actors.First(a => a.Key == "tk-a").CurrentEnemyTargetKey == "boss" &&
+            bkSim.Actors.First(a => a.Key == "tk-b").CurrentEnemyTargetKey == "bk-add");
+
+        // ── class-gated doctrine rules ───────────────────────────────────────────
+
+        // The Fear Ward chain: keep the aura on tank 1, priests rotate, nobody
+        // double-casts, and when every priest is on cooldown the gap is honest.
+        // Duration 4s / cooldown 10s with two priests ⇒ pa, pb, gap, pa.
+        List<EncounterActorSpec> fwScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("fw-tank", "warded tank", 0, EncounterActorRole.Friendly, new Vector3(6f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank),
+            new("pa", "priest a", 0, EncounterActorRole.Friendly, new Vector3(20f, 3f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Healer, ClassId: 5),
+            new("pb", "priest b", 0, EncounterActorRole.Friendly, new Vector3(20f, -3f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Healer, ClassId: 5),
+        ];
+        var fwSim = new EncounterSim(quietDef, fwScenario, new EncounterSimOptions
+        {
+            Seed = 23, StepMs = 500, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false,
+                MaintainAuras: [new MaintainAuraRule(6346, "Fear Ward", 5, 4_000, 10_000)]),
+        });
+        fwSim.AdvanceTo(12_000);
+        List<SimEvent> fwCasts = fwSim.Events
+            .Where(e => e.SpellId == 6346 && e.Kind == SimEventKind.CastLand).ToList();
+        Check("the Fear Ward chain rotates its priests and never double-casts",
+            fwCasts.Count == 3 &&
+            fwCasts[0].ActorKey == "pa" && fwCasts[1].ActorKey == "pb" &&
+            fwCasts[2].ActorKey == "pa" &&
+            fwCasts[1].TimeMs - fwCasts[0].TimeMs >= 4_000 &&
+            fwCasts.All(e => e.TargetKey == "fw-tank"));
+        Check("the chain's cooldown gap is honest and the ward is up after the recast",
+            fwCasts[2].TimeMs - fwCasts[1].TimeMs > 4_500 &&
+            fwSim.MaintainedAuraActive(6346, "fw-tank"));
+
+        // Add control: mages Blizzard the pack — covered adds wade instead of run
+        // and grind down under the split AoE, proven against a rule-less twin.
+        List<EncounterActorSpec> BlizzScenario() =>
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("w1", "whelp 1", 2, EncounterActorRole.Add, new Vector3(40f, 1f, 0f), MaxHealth: 400),
+            new("w2", "whelp 2", 2, EncounterActorRole.Add, new Vector3(40f, -1f, 0f), MaxHealth: 400),
+            new("w3", "whelp 3", 2, EncounterActorRole.Add, new Vector3(41f, 0f, 0f), MaxHealth: 400),
+            new("w4", "whelp 4", 2, EncounterActorRole.Add, new Vector3(39f, 0f, 0f), MaxHealth: 400),
+            new("bait", "bait", 0, EncounterActorRole.Friendly, new Vector3(10f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Melee),
+            new("mage", "mage", 0, EncounterActorRole.Friendly, new Vector3(15f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Ranged, ClassId: 8, Dps: 40f),
+        ];
+        var blizzOn = new EncounterSim(quietDef, BlizzScenario(), new EncounterSimOptions
+        {
+            Seed = 29, StepMs = 250, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false,
+                AddControl: [new AddControlJob(8, RadiusYards: 8f, SlowFactor: 0.5f, MinAdds: 3)]),
+        });
+        var blizzOff = new EncounterSim(quietDef, BlizzScenario(), new EncounterSimOptions
+        {
+            Seed = 29, StepMs = 250, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false),
+        });
+        blizzOn.AdvanceTo(3_000);
+        blizzOff.AdvanceTo(3_000);
+        SimActor slowedWhelp = blizzOn.Actors.First(a => a.Key == "w1");
+        SimActor freeWhelp = blizzOff.Actors.First(a => a.Key == "w1");
+        Check("blizzarded adds wade: the covered pack falls behind the rule-less twin",
+            slowedWhelp.Position.X > freeWhelp.Position.X + 4f);
+        Check("the channel grinds the pack: covered adds take split AoE damage",
+            blizzOn.Actors.Where(a => a.Spec.Role == EncounterActorRole.Add)
+                .All(a => a.Health < 400) &&
+            blizzOff.Actors.Where(a => a.Spec.Role == EncounterActorRole.Add)
+                .All(a => a.Health == 400));
+
+        // Threat-lite (opt-in): with no owner aggro entry, the nearest body holds
+        // her — the emergency stand-in — until the first real tank reaches melee
+        // range and takes over. The landing race, executable.
+        List<EncounterActorSpec> raceScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, 0f, 4f, 5f, 63, 100_000),
+            new("aa-melee", "emergency warrior", 0, EncounterActorRole.Friendly,
+                new Vector3(6f, 0f, 0f), MaxHealth: 2_000, Job: RaidJob.Melee, ClassId: 1),
+            new("zz-tank", "real tank", 0, EncounterActorRole.Friendly, new Vector3(40f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank,
+                Moves: [new TimedMove(0, new Vector3(5f, 0f, 0f))]),
+        ];
+        var raceSim = new EncounterSim(quietDef, raceScenario, new EncounterSimOptions
+        {
+            Seed = 31, StepMs = 250, PullRangeYards = 100f, RaidDpsFraction = 0f,
+            AddDps = 0f, HealerHps = 0f,
+            Doctrine = new RaidDoctrine(DeriveFormation: false, BossThreatLite: true),
+        });
+        raceSim.AdvanceTo(9_000);
+        List<SimEvent> raceEvents = raceSim.Events
+            .Where(e => e.Text.Contains("threat-lite")).ToList();
+        Check("threat-lite: the nearest body holds her until the tank arrives and takes over",
+            raceEvents.Count == 2 &&
+            raceEvents[0].TargetKey == "aa-melee" &&
+            raceEvents[1].TargetKey == "zz-tank");
+        SimActor raceBoss = raceSim.Actors.First(a => a.Key == "boss");
+        SimActor raceTank = raceSim.Actors.First(a => a.Key == "zz-tank");
+        Check("she faces her threat-lite holder once the handoff lands",
+            MathF.Abs(EncounterGeometryLaw.NormalizeAngle(raceBoss.Facing -
+                EncounterGeometryLaw.Facing(raceBoss.Position, raceTank.Position))) < 0.6f);
+
+        // ── the raid plan document (PLAN_19 M-A): build → save → load → apply ────
+        var rpDoctrine = new RaidDoctrine(
+            SpreadYards: 9f,
+            Assignments: [new PhaseJobAssignment("p2", RaidJob.Tank, 2, CombatEnemyKind.AnyAdd)],
+            MaintainAuras: [new MaintainAuraRule(6346, "Fear Ward", 5, 180_000, 30_000)],
+            AddControl: [new AddControlJob(8)],
+            BossThreatLite: true);
+        var rpRotation = new CombatPlan(Name: "MT rotation", Id: "rot-1", ClassId: 1,
+            EnemyPriorities: [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)]);
+        List<EncounterActorSpec> rpScenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("rp-tank", "the tank", 0, EncounterActorRole.Friendly, new Vector3(6f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Tank, Side: RaidSide.Left, ClassId: 1,
+                PlayerRules: new EncounterPlayerRules(
+                    RotationId: "rot-1", Plan: rpRotation,
+                    PhaseTargets: [new PhaseTargetOverride("p2",
+                        [new CombatEnemyPriority(CombatEnemyKind.AnyAdd)])],
+                    AvoidAbilityKeys: ["deep_breath"])),
+            new("rp-mage", "the mage", 0, EncounterActorRole.Friendly, new Vector3(20f, 0f, 0f),
+                MaxHealth: 2_000, Job: RaidJob.Ranged, ClassId: 8),
+        ];
+        RaidPlanDocument rpDoc = RaidPlanFile.Build("test plan", "onyxia", rpDoctrine,
+            rpScenario, new Dictionary<string, CombatPlan> { ["rot-1"] = rpRotation });
+        string rpPath = Path.Combine(Path.GetTempPath(), "elc-raid-plan-test.json");
+        bool rpSaved = RaidPlanFile.Save(rpDoc, rpPath, out string? rpSaveError);
+        RaidPlanDocument? rpLoaded = rpSaved ? RaidPlanFile.Load(rpPath, out _) : null;
+        // (Record == is reference equality on list members, so compare structurally.)
+        Check("the raid plan document round-trips through JSON faithfully",
+            rpLoaded is not null && rpSaveError is null &&
+            rpLoaded.Doctrine.SpreadYards == 9f &&
+            rpLoaded.Doctrine.BossThreatLite &&
+            rpLoaded.Doctrine.Assignments?.Single() ==
+                new PhaseJobAssignment("p2", RaidJob.Tank, 2, CombatEnemyKind.AnyAdd) &&
+            rpLoaded.Doctrine.MaintainAuras?.Single() ==
+                new MaintainAuraRule(6346, "Fear Ward", 5, 180_000, 30_000) &&
+            rpLoaded.Doctrine.AddControl?.Single() == new AddControlJob(8) &&
+            rpLoaded.Bodies.Count == 2 &&
+            rpLoaded.Rotations?["rot-1"].Name == "MT rotation");
+
+        // Apply onto a BLANK scenario with matching keys: rules, class, side, and the
+        // inlined rotation all land; a missing key is reported, never invented.
+        List<EncounterActorSpec> rpBlank =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("rp-tank", "the tank", 0, EncounterActorRole.Friendly, new Vector3(6f, 0f, 0f),
+                MaxHealth: 2_000),
+        ];
+        Dictionary<string, CombatPlan> rpUpserts = [];
+        int rpApplied = RaidPlanFile.Apply(rpLoaded!, rpBlank,
+            (id, plan) => rpUpserts[id] = plan, out List<string> rpMissing);
+        EncounterActorSpec rpResult = rpBlank.First(a => a.Key == "rp-tank");
+        Check("applying the document restores rules, identity, and rotations",
+            rpApplied == 1 && rpMissing.SequenceEqual(["rp-mage"]) &&
+            rpResult.Job == RaidJob.Tank && rpResult.Side == RaidSide.Left &&
+            rpResult.ClassId == 1 &&
+            rpResult.PlayerRules?.RotationId == "rot-1" &&
+            rpResult.PlayerRules?.AvoidAbilityKeys?.SequenceEqual(["deep_breath"]) == true &&
+            rpResult.PlayerRules?.PhaseTargets?[0].PhaseKey == "p2" &&
+            rpUpserts.ContainsKey("rot-1"));
+        try { File.Delete(rpPath); } catch { /* scratch file; best effort */ }
+
         // A NoAction fallback is an actual zero-DPS decision for the planned
         // character. The unplanned body beside it keeps the legacy boss route.
         var noActionRules = new EncounterPlayerRules(Plan: new CombatPlan(
@@ -673,7 +1272,7 @@ internal static class Program
             Vector3.Distance(m1, m2) > 0.5f);
 
         // Model: the mirror mapping is symmetric and Center/None are their own mirror.
-        Check("RaidSide.Mirror is a symmetric Left⇄Right swap",
+        Check("RaidSide.Mirror is a symmetric Left<->Right swap",
             RaidSide.Left.Mirror() == RaidSide.Right &&
             RaidSide.Right.Mirror() == RaidSide.Left &&
             RaidSide.Center.Mirror() == RaidSide.Center &&

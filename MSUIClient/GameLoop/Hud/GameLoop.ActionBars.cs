@@ -1055,7 +1055,7 @@ public sealed partial class GameLoop
                 GameBinding? binding = bindingBar is { } hotkeyBar
                     ? MultiActionBinding(hotkeyBar, i) : null;
                 string hotkey = binding is { } command ? FriendlyKey(BoundKey(command)) ?? "" : "";
-                if (hotkey.Length == 0 && verdict.Range == ButtonRange.OutOfRange) hotkey = "●";
+                if (hotkey.Length == 0 && verdict.Range == ButtonRange.OutOfRange) hotkey = "·";
                 uint hotkeyColor = verdict.Range == ButtonRange.OutOfRange
                     ? 0xff1a1affu : 0xff999999u;
                 DrawActionText(dl, buttonMin, hotkey, scale, hotkeyColor);

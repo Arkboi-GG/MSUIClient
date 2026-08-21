@@ -160,12 +160,12 @@ public enum Op : ushort
     CMSG_REPAIR_ITEM              = 0x02A8,
 
     // --- Flightmaster / taxi ---
+    SMSG_SHOWTAXINODES            = 0x01A9,
     CMSG_TAXINODE_STATUS_QUERY    = 0x01AA,
     SMSG_TAXINODE_STATUS          = 0x01AB,
     CMSG_TAXIQUERYAVAILABLENODES  = 0x01AC,
-    SMSG_SHOWTAXINODES            = 0x01AD,
-    CMSG_ACTIVATETAXI             = 0x01AE,
-    SMSG_ACTIVATETAXIREPLY        = 0x01AF,
+    CMSG_ACTIVATETAXI             = 0x01AD,
+    SMSG_ACTIVATETAXIREPLY        = 0x01AE,
 
     // --- Trainer ---
     CMSG_TRAINER_LIST             = 0x01B0,

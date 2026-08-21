@@ -90,7 +90,9 @@ public readonly record struct SimActorState(
     bool[]? FiredOrderedMoves = null,
     string? CurrentFollowTargetKey = null,
     string? CurrentProtectTargetKey = null,
-    string? CurrentEnemyTargetKey = null);
+    string? CurrentEnemyTargetKey = null,
+    Vector3? DodgeReturn = null,
+    float DodgeReturnFacing = float.NaN);
 
 /// <summary>A complete, restorable instant. Rewind is an index into a list of these.</summary>
 public sealed record SimSnapshot(
@@ -142,6 +144,18 @@ public sealed class EncounterSimOptions
     /// her health gates instead of melting her from the floor.</summary>
     public bool MeleeDpsNeedsReach = true;
 
+    /// <summary>Damage each living add deals per second to its chosen victim while in
+    /// melee reach. An owner dial in the same spirit as <see cref="RaidDpsFraction"/>:
+    /// it makes adds CONSEQUENCES rather than scenery, without pretending to be a
+    /// combat model. 0 turns add damage off (adds still chase and hold targets).</summary>
+    public float AddDps = 15f;
+
+    /// <summary>Healing per second a Healer-job body pours into its resolved protect
+    /// target. This is what turns a plan's protect priorities from a read-out into
+    /// throughput: the healer holds its charge above each row's threshold. Owner dial,
+    /// labelled heuristic. 0 keeps healing observational (the old behaviour).</summary>
+    public float HealerHps = 60f;
+
     /// <summary>Per (phase × job) standing orders, applied when a phase turns.
     /// The seam answer to "what does melee do when she lifts off" — a table the
     /// owner edits, never code. Explicit timed orders always override.
@@ -156,6 +170,12 @@ public sealed class EncounterSimOptions
     /// job-wide playbook for the bodies that carry one. Absent keys fall through to
     /// <see cref="Playbook"/>.</summary>
     public IReadOnlyDictionary<string, PositioningScript>? Positioning;
+
+    /// <summary>The raid-wide derived behaviour: formation stations, default dodging,
+    /// spread-from-targeted, derived healing, bucket assignments. Null = no doctrine —
+    /// every pre-doctrine behaviour unchanged, which is what existing scenarios and
+    /// tests get unless they opt in.</summary>
+    public RaidDoctrine? Doctrine;
 }
 
 /// <summary>A live actor inside the simulation. Mutable during a step, snapshotted after.</summary>
@@ -192,12 +212,21 @@ public sealed class SimActor(EncounterActorSpec spec)
     public bool AutoChase;
 
     /// <summary>The reusable combat plan's resolved intent at this instant. Follow
-    /// drives standing movement and enemy drives the body's existing owner-authored
-    /// DPS input. Protect remains observational: the Lab does not invent heals,
-    /// spells, resources, responsibilities, engagement, or threat.</summary>
+    /// drives standing movement, enemy drives the body's owner-authored DPS input,
+    /// and protect drives the healing dial. On ADD actors, CurrentEnemyTargetKey is
+    /// the add's own chosen victim (the threat-lite selection). The Lab still does
+    /// not invent spells, resources, responsibilities, engagement, or boss threat.</summary>
     public string? CurrentFollowTargetKey;
     public string? CurrentProtectTargetKey;
     public string? CurrentEnemyTargetKey;
+
+    /// <summary>Where a hazard dodge should put the body back: the station (or the
+    /// interrupted run's destination) it abandoned when it fled a telegraphed cast.
+    /// Null = not dodging. The facing restores an interrupted arrival orientation
+    /// (the tank's back to the wall) once the body walks home; NaN keeps whatever
+    /// facing the return run ends with.</summary>
+    public Vector3? DodgeReturn;
+    public float DodgeReturnFacing = float.NaN;
 
     /// <summary>Footprint landings this body has been inside, cumulative. The
     /// positioning question the whole scenario exists to answer.</summary>
@@ -207,7 +236,8 @@ public sealed class SimActor(EncounterActorSpec spec)
     public BodyCapsule Body => BodyCapsule.At(Position, Spec.BoundingRadius);
     public SimActorState Capture() => new(Key, Position, Facing, Health, Alive, Flying,
         HitsTaken, ActiveOrderedMoveIndex, FiredOrderedMoves.ToArray(),
-        CurrentFollowTargetKey, CurrentProtectTargetKey, CurrentEnemyTargetKey);
+        CurrentFollowTargetKey, CurrentProtectTargetKey, CurrentEnemyTargetKey,
+        DodgeReturn, DodgeReturnFacing);
 
     public void Restore(in SimActorState state)
     {
@@ -218,6 +248,8 @@ public sealed class SimActor(EncounterActorSpec spec)
         CurrentFollowTargetKey = state.CurrentFollowTargetKey;
         CurrentProtectTargetKey = state.CurrentProtectTargetKey;
         CurrentEnemyTargetKey = state.CurrentEnemyTargetKey;
+        DodgeReturn = state.DodgeReturn;
+        DodgeReturnFacing = state.DodgeReturnFacing;
         Array.Clear(FiredOrderedMoves);
         if (state.FiredOrderedMoves is { } fired)
             Array.Copy(fired, FiredOrderedMoves, Math.Min(fired.Length, FiredOrderedMoves.Length));
@@ -284,6 +316,19 @@ public sealed class EncounterSim
     // second life to survive into.
     private readonly Dictionary<string, bool[]> _movesFired = new(StringComparer.Ordinal);
 
+    // Doctrine-rule state, all forward-only like the ability timers (scrubbing
+    // restores actor state; these belong to the single front-to-back run).
+    /// <summary>"spellId:targetKey" → aura up until (ms). The maintain-aura law.</summary>
+    private readonly Dictionary<string, int> _auraExpiry = new(StringComparer.Ordinal);
+    /// <summary>"spellId:casterKey" → caster ready again at (ms).</summary>
+    private readonly Dictionary<string, int> _auraCooldownReady = new(StringComparer.Ordinal);
+    /// <summary>Adds slowed THIS step by an add-control channel, key → speed factor.</summary>
+    private readonly Dictionary<string, float> _slowedAdds = new(StringComparer.Ordinal);
+    /// <summary>Casters whose DPS is an AoE over covered adds THIS step.</summary>
+    private readonly List<(SimActor Caster, List<SimActor> Covered)> _aoeCasters = [];
+    /// <summary>Threat-lite: who holds her while no owner aggro entry governs.</summary>
+    private string? _threatLiteHolder;
+
     // Pre-pull roam. Its OWN rng stream: however many draws the wander takes
     // before the pull, the fight stream's state at engage is identical — same
     // seed, same rotation, regardless of when the raid walks in.
@@ -345,6 +390,11 @@ public sealed class EncounterSim
         _sequence = null; _summonSerial = 0;
 
         _movesFired.Clear();
+        _auraExpiry.Clear();
+        _auraCooldownReady.Clear();
+        _slowedAdds.Clear();
+        _aoeCasters.Clear();
+        _threatLiteHolder = null;
         _roamRng = new SeededRng(Options.Seed * 2654435761u ^ 0x5EEDF00Du);
         _roamTarget = null;
         _roamPauseUntilMs = 2000;   // she stands a beat at spawn, then starts her round
@@ -367,6 +417,8 @@ public sealed class EncounterSim
             actor.CurrentFollowTargetKey = null;
             actor.CurrentProtectTargetKey = null;
             actor.CurrentEnemyTargetKey = null;
+            actor.DodgeReturn = null;
+            actor.DodgeReturnFacing = float.NaN;
             actor.HitsTaken = 0;
             if (actor.Spec.Moves is { Count: > 0 } moves)
                 _movesFired[actor.Key] = actor.FiredOrderedMoves;
@@ -451,14 +503,32 @@ public sealed class EncounterSim
             // step. Anything killed below reroutes at the resolution after the
             // encounter step, ready for the next damage tick.
             ResolveCombatPlanIntents();
+            ComputeAddControl();
+            UpdateThreatLite(boss);
+            AdvanceMaintainedAuras();
             ApplyHealthModel(boss, dt);
+            AdvanceAddCombat(dt);
+            ApplyHealing(dt);
             DispatchAggroPlan(dt);
             DispatchOrderedMoves(dt);
+            // Dodges fire BEFORE ordinary movement resolves so a body that spots a
+            // telegraph starts running this very step, not one step late.
+            AdvanceHazardDodging(dt);
             AdvanceCombatPlanMovement(dt);
             AdvanceMovement(dt);
             AdvanceAutoChase(boss, dt);
             FaceAggroHolder(boss);
             ChaseAggroHolder(boss, dt);
+            // Derived stations AFTER she turns and walks: the formation flows with
+            // her live facing, so dragging the boss re-flows the whole raid.
+            AdvanceFormation(boss, dt);
+            // The standing constraint AFTER the formation walk: sliding out of an
+            // avoided arc must react to the facing she will actually cast with.
+            AdvanceConeSidestep(boss, dt);
+            // Spread LAST so its displacement survives this tick: while a targeted
+            // cast is in flight, neighbours step off the target and the formation
+            // pull pauses for them.
+            AdvanceSpreadFromTargeted(dt);
 
             // A running choreography owns the actor: the real scripts return early
             // from UpdateAI while m_bTransition is set, so ability timers must not
@@ -521,6 +591,17 @@ public sealed class EncounterSim
         {
             if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
                 actor.Spec.Dps <= 0f) continue;
+
+            // An add-control channel diverts this body's whole output into the pack,
+            // split evenly — the Blizzard trade: per-target damage for area control.
+            if (_aoeCasters.FirstOrDefault(entry => ReferenceEquals(entry.Caster, actor))
+                    is { Caster: not null } channel)
+            {
+                float perAdd = actor.Spec.Dps / channel.Covered.Count;
+                foreach (SimActor add in channel.Covered)
+                    damagePerSecond[add] = damagePerSecond.GetValueOrDefault(add) + perAdd;
+                continue;
+            }
 
             SimActor? target = DamageTarget(actor, boss);
             if (target is null || (bossPinned && ReferenceEquals(target, boss))) continue;
@@ -586,11 +667,47 @@ public sealed class EncounterSim
         }
     }
 
-    /// <summary>The body the boss is on: the assigned holder, else the nearest
-    /// friendly (the pre-aggro-plan tank stand-in, kept as the fallback).</summary>
+    /// <summary>The body the boss is on: the OWNER-assigned holder always wins; with
+    /// threat-lite opted in, the derived holder next; the nearest friendly last (the
+    /// pre-aggro-plan tank stand-in, kept as the final fallback).</summary>
     private SimActor? AggroTarget(SimActor boss) =>
         _aggroKey is { } key && _byKey.TryGetValue(key, out SimActor? held) && held.Alive
-            ? held : NearestFriendly(boss);
+            ? held
+            : Options.Doctrine is { BossThreatLite: true } && _threatLiteHolder is { } derived &&
+              _byKey.TryGetValue(derived, out SimActor? holder) && holder.Alive
+                ? holder
+                : NearestFriendly(boss);
+
+    /// <summary>The opt-in threat-lite law, resolved ONCE per step so holder changes
+    /// emit exactly one event. While no owner aggro entry governs: the first tank (by
+    /// job ordinal) inside melee reach holds her; until one arrives, whoever already
+    /// holds her keeps her — the emergency stand-in with his shield out — seeded from
+    /// the nearest body. Cleared on every phase turn: the P2→P3 landing race.</summary>
+    private void UpdateThreatLite(SimActor boss)
+    {
+        if (Options.Doctrine is not { BossThreatLite: true }) return;
+        if (_aggroKey is { } owner && _byKey.TryGetValue(owner, out SimActor? held) &&
+            held.Alive) return;   // the owner's word governs; nothing to derive
+
+        SimActor? tank = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                a.Spec.Job == RaidJob.Tank &&
+                EncounterGeometryLaw.GroundDistance(a.Position, boss.Position) <=
+                MeleeReach(boss, a) + 1.5f)
+            .OrderBy(JobOrdinal).ThenBy(a => a.Key, StringComparer.Ordinal)
+            .FirstOrDefault();
+        string? next = tank?.Key
+            ?? (_threatLiteHolder is { } current &&
+                _byKey.TryGetValue(current, out SimActor? standing) && standing.Alive
+                    ? current
+                    : NearestFriendly(boss)?.Key);
+        if (string.Equals(next, _threatLiteHolder, StringComparison.Ordinal)) return;
+        _threatLiteHolder = next;
+        if (next is not null && _byKey.TryGetValue(next, out SimActor? holder2))
+            Emit(SimEventKind.Aggro, boss.Key,
+                $"aggro (threat-lite) -> {holder2.Spec.Name}",
+                EncounterFidelity.Heuristic, targetKey: next);
+    }
 
     /// <summary>
     /// She faces her victim, continuously, while she is grounded and no scripted
@@ -676,8 +793,15 @@ public sealed class EncounterSim
         }
 
         // An explicit order takes the body off autopilot until the next phase
-        // turn re-applies its directive: the owner's word beats the playbook's.
-        if (actor.Spec.Role == EncounterActorRole.Friendly) actor.AutoChase = false;
+        // turn re-applies its directive: the owner's word beats the playbook's —
+        // and beats a dodge in progress, so a fresh order never gets "corrected"
+        // by a walk back to the abandoned station.
+        if (actor.Spec.Role == EncounterActorRole.Friendly)
+        {
+            actor.AutoChase = false;
+            actor.DodgeReturn = null;
+            actor.DodgeReturnFacing = float.NaN;
+        }
     }
 
     /// <summary>Fire every OnPhaseEnter order bound to the phase that just began.
@@ -756,6 +880,644 @@ public sealed class EncounterSim
     /// body's radius, floored so a zero-reach template still leaves a gap.</summary>
     private static float MeleeReach(SimActor boss, SimActor body) =>
         MathF.Max(boss.Spec.CombatReach, 2f) + body.Spec.BoundingRadius;
+
+    // ── adds, healing, and hazard responses ──────────────────────────────────
+    // The three behaviours that turn the raid from scenery into participants:
+    // adds pick victims and swing, protect priorities become healing throughput,
+    // and avoidance intent EXECUTES — a telegraphed cast is dodged, an instant
+    // cone becomes a standing keep-clear constraint. Boss threat remains owner-
+    // assigned by design; the threat-lite law below governs ADDS only and is
+    // labelled heuristic wherever it surfaces.
+
+    /// <summary>Threat-lite victim selection for one add, deterministic and stateless:
+    /// (1) the nearest Tank-job body currently fighting adds — an add-duty tank calls
+    /// the pack, which is the whole reason "Adds only" exists as a phase target;
+    /// (2) else the hardest-hitting body attacking THIS add; (3) else the nearest
+    /// friendly. Ties break on the stable actor key.</summary>
+    private SimActor? AddPickVictim(SimActor add)
+    {
+        SimActor? addTank = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                a.Spec.Job == RaidJob.Tank &&
+                a.CurrentEnemyTargetKey is { } key &&
+                _byKey.TryGetValue(key, out SimActor? enemy) &&
+                enemy.Alive && enemy.Spec.Role == EncounterActorRole.Add)
+            .OrderBy(a => EncounterGeometryLaw.GroundDistance(add.Position, a.Position))
+            .ThenBy(a => a.Key, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (addTank is not null) return addTank;
+
+        SimActor? attacker = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                string.Equals(a.CurrentEnemyTargetKey, add.Key, StringComparison.Ordinal))
+            .OrderByDescending(a => a.Spec.Dps)
+            .ThenBy(a => a.Key, StringComparer.Ordinal)
+            .FirstOrDefault();
+        return attacker ?? NearestFriendly(add);
+    }
+
+    /// <summary>The maintain-aura chains ("keep Fear Ward on tank 1"): while a rule's
+    /// aura is down on its tank, the first off-cooldown caster of the class refreshes
+    /// it — one cast, never a double-up, and an honest gap when the whole chain is on
+    /// cooldown. The sim tracks presence and emits the casts; what the aura absorbs
+    /// is server truth and stays out of the model.</summary>
+    private void AdvanceMaintainedAuras()
+    {
+        if (Options.Doctrine?.MaintainAuras is not { Count: > 0 } rules) return;
+        foreach (MaintainAuraRule rule in rules)
+        {
+            SimActor? target = _actors
+                .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                    a.Spec.Job == RaidJob.Tank)
+                .OrderBy(a => a.Key, StringComparer.Ordinal)
+                .Skip(Math.Max(rule.TargetTankOrdinal, 1) - 1)
+                .FirstOrDefault();
+            if (target is null) continue;
+
+            string auraKey = $"{rule.SpellId}:{target.Key}";
+            if (_auraExpiry.TryGetValue(auraKey, out int upUntil) && upUntil > TimeMs)
+                continue;   // one is already up: the chain's whole point is not doubling
+
+            SimActor? caster = _actors
+                .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                    a.Spec.ClassId == rule.CasterClassId &&
+                    (!_auraCooldownReady.TryGetValue($"{rule.SpellId}:{a.Key}", out int ready) ||
+                     ready <= TimeMs))
+                .OrderBy(a => a.Key, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (caster is null) continue;   // every caster on cooldown: an honest gap
+
+            _auraExpiry[auraKey] = TimeMs + Math.Max(rule.DurationMs, 1);
+            _auraCooldownReady[$"{rule.SpellId}:{caster.Key}"] = TimeMs + Math.Max(rule.CooldownMs, 0);
+            Emit(SimEventKind.CastLand, caster.Key,
+                $"{caster.Spec.Name} keeps {rule.Name} on {target.Spec.Name}",
+                EncounterFidelity.Heuristic, spellId: rule.SpellId, targetKey: target.Key);
+        }
+    }
+
+    /// <summary>True while the rule's aura is up on that body — the Lab UI's read-out.</summary>
+    public bool MaintainedAuraActive(uint spellId, string targetKey) =>
+        _auraExpiry.TryGetValue($"{spellId}:{targetKey}", out int upUntil) && upUntil > TimeMs;
+
+    /// <summary>The add-control channels ("mages Blizzard the pack"), computed fresh
+    /// each step: every caster of the class picks the densest reachable add cluster
+    /// worth the channel; covered adds move at the rule's slow factor this step and
+    /// share the caster's owner-authored DPS as an AoE instead of its single-target
+    /// route. No cluster worth it → the caster keeps its normal routing.</summary>
+    private void ComputeAddControl()
+    {
+        _slowedAdds.Clear();
+        _aoeCasters.Clear();
+        if (Options.Doctrine?.AddControl is not { Count: > 0 } jobs) return;
+        List<SimActor> adds = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Add).ToList();
+        if (adds.Count == 0) return;
+
+        foreach (AddControlJob job in jobs)
+        {
+            foreach (SimActor caster in _actors
+                         .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                             a.Spec.ClassId == job.CasterClassId)
+                         .OrderBy(a => a.Key, StringComparer.Ordinal))
+            {
+                SimActor? anchor = adds
+                    .Where(a => EncounterGeometryLaw.GroundDistance(caster.Position, a.Position) <=
+                        job.CastRangeYards)
+                    .Select(a => (Add: a, Packed: adds.Count(b =>
+                        EncounterGeometryLaw.GroundDistance(a.Position, b.Position) <=
+                        job.RadiusYards)))
+                    .Where(entry => entry.Packed >= Math.Max(job.MinAdds, 1))
+                    .OrderByDescending(entry => entry.Packed)
+                    .ThenBy(entry => entry.Add.Key, StringComparer.Ordinal)
+                    .Select(entry => entry.Add)
+                    .FirstOrDefault();
+                if (anchor is null) continue;
+
+                List<SimActor> covered = adds.Where(a =>
+                    EncounterGeometryLaw.GroundDistance(anchor.Position, a.Position) <=
+                    job.RadiusYards).ToList();
+                _aoeCasters.Add((caster, covered));
+                float factor = Math.Clamp(job.SlowFactor, 0.05f, 1f);
+                foreach (SimActor add in covered)
+                    _slowedAdds[add.Key] = MathF.Min(
+                        _slowedAdds.GetValueOrDefault(add.Key, 1f), factor);
+            }
+        }
+    }
+
+    /// <summary>Adds acquire, chase, and swing. Damage is the <see cref="EncounterSimOptions.AddDps"/>
+    /// dial per add — a consequence knob, not a combat model — pooled per victim and
+    /// applied in key order so insertion order can never decide who dies first.</summary>
+    private void AdvanceAddCombat(int dt)
+    {
+        Dictionary<SimActor, float> incoming = [];
+        foreach (SimActor add in _actors)
+        {
+            if (!add.Alive || add.Spec.Role != EncounterActorRole.Add) continue;
+
+            SimActor? victim = AddPickVictim(add);
+            if (!string.Equals(add.CurrentEnemyTargetKey, victim?.Key, StringComparison.Ordinal))
+            {
+                add.CurrentEnemyTargetKey = victim?.Key;
+                if (victim is not null)
+                    Emit(SimEventKind.Aggro, add.Key,
+                        $"{add.Spec.Name} turns on {victim.Spec.Name}",
+                        EncounterFidelity.Heuristic, targetKey: victim.Key);
+            }
+            if (victim is null) continue;
+
+            float reach = MeleeReach(add, victim);
+            float distance = EncounterGeometryLaw.GroundDistance(add.Position, victim.Position);
+            Vector3 delta = victim.Position - add.Position;
+            if (distance > reach)
+            {
+                // An add caught in an add-control channel wades, not runs.
+                float speed = add.MoveSpeed * _slowedAdds.GetValueOrDefault(add.Key, 1f);
+                float step = MathF.Min(speed * (dt / 1000f), distance - reach);
+                add.Position += delta / MathF.Max(delta.Length(), 1e-4f) * step;
+            }
+            if (new Vector2(delta.X, delta.Y).LengthSquared() > 1e-4f)
+                add.Facing = MathF.Atan2(delta.Y, delta.X);
+            if (distance <= reach + 0.5f && Options.AddDps > 0f)
+                incoming[victim] = incoming.GetValueOrDefault(victim) + Options.AddDps;
+        }
+
+        foreach ((SimActor victim, float perSecond) in incoming
+                     .OrderBy(pair => pair.Key.Key, StringComparer.Ordinal))
+        {
+            int damage = (int)MathF.Ceiling(perSecond * (dt / 1000f));
+            if (damage <= 0 || !victim.Alive) continue;
+            victim.Health = Math.Max(0, victim.Health - damage);
+            if (victim.Health > 0) continue;
+            victim.Alive = false;
+            victim.MoveTarget = null;
+            victim.AutoChase = false;
+            victim.DodgeReturn = null;
+            victim.DodgeReturnFacing = float.NaN;
+            Emit(SimEventKind.Death, victim.Key, $"{victim.Spec.Name} dies",
+                EncounterFidelity.Heuristic);
+        }
+    }
+
+    /// <summary>Protect priorities as throughput: each Healer-job body pours the
+    /// <see cref="EncounterSimOptions.HealerHps"/> dial into its resolved protect target.
+    /// The resolver only names a target while it is below its row's threshold, so the
+    /// healer holds its charge above the line rather than topping the raid.</summary>
+    private void ApplyHealing(int dt)
+    {
+        if (Options.HealerHps <= 0f) return;
+        foreach (SimActor healer in _actors)
+        {
+            if (!healer.Alive || healer.Spec.Role != EncounterActorRole.Friendly ||
+                healer.Spec.Job != RaidJob.Healer ||
+                healer.CurrentProtectTargetKey is not { } key ||
+                !_byKey.TryGetValue(key, out SimActor? target) || !target.Alive) continue;
+            int amount = (int)MathF.Ceiling(Options.HealerHps * (dt / 1000f));
+            target.Health = Math.Min(target.MaxHealth, target.Health + amount);
+        }
+    }
+
+    /// <summary>In-flight avoided casts whose footprint covers this body right now.
+    /// Projectiles are excluded on purpose: a tracked missile re-resolves onto its
+    /// target at impact, so "outrunning" one would be a lie the overlay contradicts.</summary>
+    /// <summary>What one body stays out of. A body carrying its own AvoidAbilityKeys
+    /// uses that list; otherwise the doctrine default ("everything of this kind")
+    /// applies. All=false with null keys means the body avoids nothing.</summary>
+    private readonly record struct AvoidSet(bool All, IReadOnlyList<string>? Keys)
+    {
+        public bool Avoids(string abilityKey) =>
+            All || (Keys is { } keys && keys.Contains(abilityKey, StringComparer.Ordinal));
+        public bool Any => All || Keys is { Count: > 0 };
+    }
+
+    private AvoidSet DodgeSet(SimActor actor) =>
+        actor.Spec.PlayerRules?.AvoidAbilityKeys is { Count: > 0 } keys
+            ? new AvoidSet(false, keys)
+            : new AvoidSet(Options.Doctrine is { DodgeTelegraphs: true }, null);
+
+    private AvoidSet ConeAvoidSet(SimActor actor) =>
+        actor.Spec.PlayerRules?.AvoidAbilityKeys is { Count: > 0 } keys
+            ? new AvoidSet(false, keys)
+            : new AvoidSet(Options.Doctrine is { KeepClearOfCones: true }, null);
+
+    private bool CoveredByAvoidedTelegraph(in BodyCapsule body, in AvoidSet avoided)
+    {
+        foreach (PendingImpact impact in _pending)
+        {
+            if (impact.Ability.Geometry.Kind == FootprintKind.Projectile) continue;
+            if (!avoided.Avoids(impact.Ability.Key)) continue;
+            if (EncounterGeometryLaw.Test(impact.Footprint, body).Covered) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Execute avoidance for telegraphed casts: a body standing inside an
+    /// avoided in-flight footprint runs to the nearest safe point, then walks back to
+    /// the station (or interrupted destination) it abandoned once the sky is clear.
+    /// Explicit ordered routes are never hijacked — the owner's word wins, and the
+    /// ActorHit record keeps the cost honest.</summary>
+    private void AdvanceHazardDodging(int dt)
+    {
+        _ = dt;   // decisions are per-instant; AdvanceMovement spends the time
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            AvoidSet avoided = DodgeSet(actor);
+            if (!avoided.Any) continue;
+            if (actor.ActiveOrderedMoveIndex >= 0) continue;   // owner's route owns the body
+
+            bool covered = CoveredByAvoidedTelegraph(actor.Body, avoided);
+            if (covered && (actor.DodgeReturn is null || actor.MoveTarget is null))
+            {
+                if (FindSafePoint(actor, avoided) is not { } safe) continue;
+                if (actor.DodgeReturn is null)
+                {
+                    // Stash the station once: re-dodges from a compromised safe spot
+                    // still walk home to the ORIGINAL post, not to a previous refuge.
+                    actor.DodgeReturn = actor.MoveTarget ?? actor.Position;
+                    actor.DodgeReturnFacing = actor.PendingArrivalFacing ?? actor.Facing;
+                }
+                actor.MoveTarget = safe;
+                actor.PendingArrivalFacing = null;
+                string what = _pending.FirstOrDefault(impact =>
+                        avoided.Avoids(impact.Ability.Key) &&
+                        EncounterGeometryLaw.Test(impact.Footprint, actor.Body).Covered)
+                    ?.Ability.Name ?? "the telegraph";
+                Emit(SimEventKind.Move, actor.Key,
+                    $"{actor.Spec.Name} dodges {what}", EncounterFidelity.Heuristic,
+                    targetKey: actor.Key);
+            }
+            else if (!covered && actor.DodgeReturn is { } home && actor.MoveTarget is null)
+            {
+                // The impact resolved and the body is parked out of harm's way. Walk
+                // home — unless home itself sits under a fresh avoided telegraph.
+                if (CoveredByAvoidedTelegraph(
+                        BodyCapsule.At(home, actor.Spec.BoundingRadius), avoided))
+                    continue;
+                actor.MoveTarget = home;
+                actor.PendingArrivalFacing =
+                    float.IsNaN(actor.DodgeReturnFacing) ? null : actor.DodgeReturnFacing;
+                actor.DodgeReturn = null;
+                actor.DodgeReturnFacing = float.NaN;
+                Emit(SimEventKind.Move, actor.Key,
+                    $"{actor.Spec.Name} returns to station", EncounterFidelity.Heuristic,
+                    targetKey: actor.Key);
+            }
+        }
+    }
+
+    /// <summary>The nearest point clear of every avoided in-flight footprint, found by
+    /// deterministic sampling: bearings fanning out from "directly away from the hazard",
+    /// at growing radii. The candidate is tested with an INFLATED body so the refuge has
+    /// real margin, not a toe on the line. Null when nowhere within ~38 yd is safe.</summary>
+    private Vector3? FindSafePoint(SimActor actor, in AvoidSet avoided)
+    {
+        List<Footprint> threats = [];
+        foreach (PendingImpact impact in _pending)
+            if (impact.Ability.Geometry.Kind != FootprintKind.Projectile &&
+                avoided.Avoids(impact.Ability.Key))
+                threats.Add(impact.Footprint);
+        if (threats.Count == 0) return null;
+
+        // Seed bearing: away from the nearest hazard sample of the first covering threat.
+        Footprint covering = threats.FirstOrDefault(t =>
+            EncounterGeometryLaw.Test(t, actor.Body).Covered) ?? threats[0];
+        Vector3 hazard = covering.Kind == FootprintKind.PointChain && covering.Points is { Count: > 0 } pts
+            ? pts.OrderBy(p => EncounterGeometryLaw.GroundDistance(p, actor.Position)).First()
+            : covering.Origin;
+        Vector2 away = new(actor.Position.X - hazard.X, actor.Position.Y - hazard.Y);
+        float awayBearing = away.LengthSquared() > 1e-6f
+            ? MathF.Atan2(away.Y, away.X) : actor.Facing;
+
+        ReadOnlySpan<float> offsets =
+            [0f, 0.6f, -0.6f, 1.2f, -1.2f, 1.8f, -1.8f, 2.4f, -2.4f, MathF.PI];
+        ReadOnlySpan<float> radii = [6f, 10f, 14f, 20f, 28f, 38f];
+        foreach (float radius in radii)
+        {
+            foreach (float offset in offsets)
+            {
+                float bearing = awayBearing + offset;
+                Vector3 candidate = actor.Position + new Vector3(
+                    MathF.Cos(bearing) * radius, MathF.Sin(bearing) * radius, 0f);
+                BodyCapsule inflated = BodyCapsule.At(
+                    candidate, actor.Spec.BoundingRadius + 2f);
+                bool safe = true;
+                foreach (Footprint threat in threats)
+                    if (EncounterGeometryLaw.Test(threat, inflated).Covered) { safe = false; break; }
+                if (safe) return candidate;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The standing constraint for INSTANT cones: a body avoiding one slides
+    /// around the caster, out of the arc, as she turns — melee avoiding both Flame
+    /// Breath and Tail Sweep settle at her flanks, which is the classic positioning
+    /// emerging from data rather than being scripted. The aggro holder is exempt from
+    /// victim-anchored cones: she turns to face him, so that race is unwinnable and
+    /// aiming her is HIS job.</summary>
+    private void AdvanceConeSidestep(SimActor boss, int dt)
+    {
+        if (!boss.Alive || boss.Flying || _sequence is not null) return;
+        SimActor? victim = AggroTarget(boss);
+
+        foreach (SimActor actor in _actors)
+        {
+            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            AvoidSet avoided = ConeAvoidSet(actor);
+            if (!avoided.Any) continue;
+            if (actor.MoveTarget is not null || actor.DodgeReturn is not null ||
+                actor.ActiveOrderedMoveIndex >= 0) continue;
+            // A formation-driven body is already walking to a station computed
+            // OUTSIDE these arcs; shoving it mid-walk would just fight the walk.
+            if (FormationGoverns(actor)) continue;
+
+            foreach (EncounterAbility ability in _definition.AbilitiesIn(PhaseKey))
+            {
+                if (ability.Geometry.Kind != FootprintKind.Cone || ability.CastTimeMs > 0)
+                    continue;
+                if (!avoided.Avoids(ability.Key)) continue;
+                bool victimAnchored = ability.Target.Kind is EncounterTargetKind.CurrentVictim
+                    or EncounterTargetKind.NearestHostile;
+                // The aggro holder is exempt from every arc that points where she
+                // faces — victim cones by definition, and frontal self-cones because
+                // she is always facing him. Aiming her is his job.
+                if (ReferenceEquals(actor, victim) &&
+                    (victimAnchored || !ability.Geometry.IsRearCone)) continue;
+
+                Footprint footprint = EncounterGeometryLaw.Resolve(
+                    ability, boss.Position, boss.Facing,
+                    victimAnchored ? victim?.Position : null, _facts);
+                if (!EncounterGeometryLaw.Test(footprint, actor.Body).Covered) continue;
+
+                // Slide tangentially around her, rotating away from the arc's centre
+                // line — the shortest angular exit, walked at real run speed.
+                Vector2 radial = new(actor.Position.X - boss.Position.X,
+                    actor.Position.Y - boss.Position.Y);
+                float distance = MathF.Max(radial.Length(), 1.5f);
+                float bearing = MathF.Atan2(radial.Y, radial.X);
+                float centre = footprint.IsRearCone
+                    ? footprint.Facing + MathF.PI : footprint.Facing;
+                float signedOffset = EncounterGeometryLaw.NormalizeAngle(bearing - centre);
+                float sign = signedOffset >= 0f ? 1f : -1f;
+                float angularStep = actor.MoveSpeed * (dt / 1000f) / distance;
+                float newBearing = bearing + sign * angularStep;
+                actor.Position = boss.Position + new Vector3(
+                    MathF.Cos(newBearing) * distance, MathF.Sin(newBearing) * distance,
+                    actor.Position.Z - boss.Position.Z);
+                Vector2 face = new(boss.Position.X - actor.Position.X,
+                    boss.Position.Y - actor.Position.Y);
+                if (face.LengthSquared() > 1e-4f)
+                    actor.Facing = MathF.Atan2(face.Y, face.X);
+                break;   // one constraint per step: sequential ticks converge to a flank
+            }
+        }
+    }
+
+    // ── the derived formation ────────────────────────────────────────────────
+    // "Where does everyone stand" as a computation: the encounter's instant cone
+    // arcs say where not to be, combat reach says how close melee must be, role
+    // picks the ring, and the macro group (RaidSide, auto-split when unsided)
+    // picks the flank. Authored things always outrank it — a body with explicit
+    // orders, an assigned positioning script, a playbook directive for the phase,
+    // or a follow plan is never touched. Doctrine fills silence.
+
+    /// <summary>True when the derived formation is what drives this body right now.</summary>
+    private bool FormationGoverns(SimActor actor)
+    {
+        if (Options.Doctrine is not { DeriveFormation: true }) return false;
+        if (!Engaged || !actor.Alive ||
+            actor.Spec.Role != EncounterActorRole.Friendly) return false;
+        // The owner ROUTED this body (even if the route has finished): its spots are
+        // authored truth — the waypointed tank stays on his back wall.
+        if (actor.Spec.Moves is { Count: > 0 }) return false;
+        if (actor.MoveTarget is not null || actor.DodgeReturn is not null ||
+            actor.ActiveOrderedMoveIndex >= 0 || actor.AutoChase) return false;
+        if (AssignedPositioning(actor) is not null) return false;
+        if (ResolvePhaseDirective(actor, PhaseKey) is not null) return false;
+        if (actor.Spec.PlayerRules?.Plan?.Movement is { Mode: CombatMovementMode.Follow })
+            return false;
+        if (UnderSpreadPressure(actor)) return false;   // spacing outranks the station
+        return true;
+    }
+
+    /// <summary>A body's macro-group sign: +1 = the boss's left (Group 1), -1 = her
+    /// right (Group 2). Explicit Left/Right wins; everyone else is split evenly and
+    /// deterministically within their formation bucket, by stable key order.</summary>
+    private static int SideSign(RaidSide side, int unsidedOrdinal) => side switch
+    {
+        RaidSide.Left => 1,
+        RaidSide.Right => -1,
+        _ => unsidedOrdinal % 2 == 0 ? 1 : -1,
+    };
+
+    private enum FormationBucket { MainTank, Melee, Healer, Ranged }
+
+    private static FormationBucket BucketOf(SimActor actor, SimActor? mainTank) =>
+        ReferenceEquals(actor, mainTank) ? FormationBucket.MainTank
+        : actor.Spec.Job switch
+        {
+            RaidJob.Tank or RaidJob.Melee => FormationBucket.Melee,
+            RaidJob.Healer => FormationBucket.Healer,
+            _ => FormationBucket.Ranged,
+        };
+
+    /// <summary>Walk every doctrine-governed body toward its computed station. Runs
+    /// every tick against her LIVE position and facing, so dragging or turning the
+    /// boss re-flows the raid — melee sliding around her flanks, ranged wheeling
+    /// behind them — with no one authoring a single point.</summary>
+    private void AdvanceFormation(SimActor boss, int dt)
+    {
+        if (Options.Doctrine is not { DeriveFormation: true } || !boss.Alive) return;
+
+        List<SimActor> governed = _actors.Where(FormationGoverns)
+            .OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
+        if (governed.Count == 0) return;
+
+        SimActor? mainTank = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                a.Spec.Job == RaidJob.Tank)
+            .OrderBy(a => a.Key, StringComparer.Ordinal).FirstOrDefault();
+
+        RaidFormationLaw.PhaseArcs arcs =
+            RaidFormationLaw.ComputeArcs(_definition, PhaseKey, _facts);
+        (float from, float to) = arcs.SafeBand();
+
+        // Slots: per bucket, unsided bodies alternate sides; per side, bodies fan
+        // by their position in stable key order.
+        Dictionary<string, (int Side, int Index, int Count)> slots = new(StringComparer.Ordinal);
+        foreach (IGrouping<FormationBucket, SimActor> bucket in
+                 governed.GroupBy(a => BucketOf(a, mainTank)))
+        {
+            int unsided = 0;
+            List<(SimActor Actor, int Side)> sided = [];
+            foreach (SimActor actor in bucket)
+                sided.Add((actor, actor.Spec.Side is RaidSide.Left or RaidSide.Right
+                    ? SideSign(actor.Spec.Side, 0)
+                    : SideSign(RaidSide.None, unsided++)));
+            foreach (IGrouping<int, (SimActor Actor, int Side)> flank in
+                     sided.GroupBy(entry => entry.Side))
+            {
+                int count = flank.Count(), index = 0;
+                foreach ((SimActor actor, int side) in flank)
+                    slots[actor.Key] = (side, index++, count);
+            }
+        }
+
+        for (int i = 0; i < governed.Count; i++)
+        {
+            SimActor actor = governed[i];
+            (int side, int index, int count) = slots[actor.Key];
+            float reach = MeleeReach(boss, actor);
+            Vector3 station;
+            if (boss.Flying)
+            {
+                // Nothing to flank in the air: the raid spreads on a ring, which is
+                // also what keeps a targeted cast from clipping neighbours.
+                station = RaidFormationLaw.AirStation(
+                    boss.Position, i, governed.Count, 25f, actor.Position.Z);
+            }
+            else
+            {
+                station = BucketOf(actor, mainTank) switch
+                {
+                    FormationBucket.MainTank => RaidFormationLaw.Station(
+                        boss.Position, boss.Facing, 0f, 1, reach - 0.3f, actor.Position.Z),
+                    FormationBucket.Melee => RaidFormationLaw.Station(
+                        boss.Position, boss.Facing,
+                        RaidFormationLaw.SlotAngle(from, to, index, count), side,
+                        reach - 0.3f, actor.Position.Z),
+                    FormationBucket.Healer => RaidFormationLaw.Station(
+                        boss.Position, boss.Facing,
+                        RaidFormationLaw.SlotAngle(from, to, index, count), side,
+                        RaidFormationLaw.HealerRadius(arcs, reach), actor.Position.Z),
+                    _ => RaidFormationLaw.Station(
+                        boss.Position, boss.Facing,
+                        RaidFormationLaw.SlotAngle(from, to, index, count), side,
+                        RaidFormationLaw.RangedRadius(arcs, reach), actor.Position.Z),
+                };
+            }
+
+            Vector3 delta = station - actor.Position;
+            float distance = new Vector2(delta.X, delta.Y).Length();
+            if (distance > 0.75f)
+            {
+                float step = MathF.Min(actor.MoveSpeed * (dt / 1000f), distance);
+                actor.Position += delta / MathF.Max(delta.Length(), 1e-4f) * step;
+                actor.Facing = MathF.Atan2(delta.Y, delta.X);
+            }
+            else
+            {
+                // Parked: square up on her (ApplyFriendlyFacingRules refines this for
+                // bodies that carry the explicit face-boss flag).
+                Vector2 face = new(boss.Position.X - actor.Position.X,
+                    boss.Position.Y - actor.Position.Y);
+                if (face.LengthSquared() > 1e-4f)
+                    actor.Facing = MathF.Atan2(face.Y, face.X);
+            }
+        }
+    }
+
+    /// <summary>An in-flight single-target cast on a FRIENDLY body: the target holds
+    /// (soaking one hit is the mechanic), everyone near it is under pressure to move.</summary>
+    private bool UnderSpreadPressure(SimActor actor)
+    {
+        if (Options.Doctrine is not { SpreadFromTargetedCasts: true } doctrine) return false;
+        foreach (PendingImpact impact in _pending)
+        {
+            if (impact.TargetKey is not { } key ||
+                !_byKey.TryGetValue(key, out SimActor? target) ||
+                !target.Alive || target.Spec.Role != EncounterActorRole.Friendly) continue;
+            if (ReferenceEquals(actor, target)) return true;   // the soaker holds still
+            if (EncounterGeometryLaw.GroundDistance(actor.Position, target.Position) <
+                doctrine.SpreadYards + 1f) return true;
+        }
+        return false;
+    }
+
+    /// <summary>While a targeted cast travels, neighbours step directly away from
+    /// the marked body so the impact lands on one raider instead of a clump — the
+    /// P2 fireball law. The target itself never moves here: it is about to be
+    /// clowned, and running just brings the clowning to friends.</summary>
+    private void AdvanceSpreadFromTargeted(int dt)
+    {
+        if (Options.Doctrine is not { SpreadFromTargetedCasts: true } doctrine) return;
+        foreach (PendingImpact impact in _pending)
+        {
+            if (impact.TargetKey is not { } key ||
+                !_byKey.TryGetValue(key, out SimActor? target) ||
+                !target.Alive || target.Spec.Role != EncounterActorRole.Friendly) continue;
+            foreach (SimActor actor in _actors)
+            {
+                if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
+                    ReferenceEquals(actor, target)) continue;
+                if (actor.MoveTarget is not null || actor.DodgeReturn is not null ||
+                    actor.ActiveOrderedMoveIndex >= 0) continue;
+                float distance = EncounterGeometryLaw.GroundDistance(
+                    actor.Position, target.Position);
+                if (distance >= doctrine.SpreadYards) continue;
+
+                Vector2 away = new(actor.Position.X - target.Position.X,
+                    actor.Position.Y - target.Position.Y);
+                float bearing = away.LengthSquared() > 1e-6f
+                    ? MathF.Atan2(away.Y, away.X) : actor.Facing + MathF.PI;
+                float step = MathF.Min(actor.MoveSpeed * (dt / 1000f),
+                    doctrine.SpreadYards - distance + 0.5f);
+                actor.Position += new Vector3(
+                    MathF.Cos(bearing) * step, MathF.Sin(bearing) * step, 0f);
+                actor.Facing = bearing;
+            }
+        }
+    }
+
+    /// <summary>Derived healing assignments for healers with no authored protect
+    /// rows: the first healers cover the tanks one-to-one, the rest watch their
+    /// macro group's lowest health. Runs after plan resolution, so an authored
+    /// SupportPriorities list always wins simply by already having resolved.</summary>
+    private void ApplyDoctrineProtect()
+    {
+        if (Options.Doctrine is not { GroupHealing: true }) return;
+
+        List<SimActor> tanks = _actors
+            .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                a.Spec.Job == RaidJob.Tank)
+            .OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
+        int unsidedHealer = 0, healerIndex = 0;
+        foreach (SimActor healer in _actors
+                     .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                         a.Spec.Job == RaidJob.Healer)
+                     .OrderBy(a => a.Key, StringComparer.Ordinal))
+        {
+            int side = SideSign(healer.Spec.Side,
+                healer.Spec.Side is RaidSide.Left or RaidSide.Right ? 0 : unsidedHealer++);
+            if (healer.Spec.PlayerRules?.Plan?.SupportPriorities is { Count: > 0 })
+            { healerIndex++; continue; }   // authored rows already resolved
+
+            SimActor? charge;
+            if (healerIndex < tanks.Count)
+            {
+                // Tank healer: watch your tank, top him before he is in danger.
+                charge = tanks[healerIndex].HealthFraction < 0.95f
+                    ? tanks[healerIndex] : null;
+            }
+            else
+            {
+                // Group healer: the lowest-health wounded body on YOUR flank.
+                // Unsided bodies belong to everyone — with no split authored, every
+                // group healer simply watches the raid's lowest health.
+                charge = _actors
+                    .Where(a => a.Alive && a.Spec.Role == EncounterActorRole.Friendly &&
+                        a.HealthFraction < 0.9f)
+                    .OrderBy(a => a.HealthFraction)
+                    .ThenBy(a => a.Key, StringComparer.Ordinal)
+                    .FirstOrDefault(a =>
+                        a.Spec.Side is not (RaidSide.Left or RaidSide.Right) ||
+                        SideSign(a.Spec.Side, 0) == side);
+            }
+            healer.CurrentProtectTargetKey = charge?.Key ?? healer.CurrentProtectTargetKey;
+            healerIndex++;
+        }
+    }
 
     /// <summary>Pre-pull movement. The boss actor's IdleMovement declaration — the
     /// spawn's DB row — is the authority: Waypoints replays its creature_movement
@@ -836,8 +1598,10 @@ public sealed class EncounterSim
     {
         foreach (SimActor actor in _actors)
         {
-            if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly ||
-                actor.Spec.PlayerRules?.Plan is not { } plan)
+            // Adds own their CurrentEnemyTargetKey (the threat-lite victim, managed by
+            // AdvanceAddCombat) — plan resolution must not wipe it twice a step.
+            if (actor.Spec.Role != EncounterActorRole.Friendly) continue;
+            if (!actor.Alive || actor.Spec.PlayerRules?.Plan is not { } plan)
             {
                 actor.CurrentFollowTargetKey = null;
                 actor.CurrentProtectTargetKey = null;
@@ -853,6 +1617,9 @@ public sealed class EncounterSim
             actor.CurrentProtectTargetKey = ResolveProtectIntent(actor, plan.SupportPriorities)?.Key;
             actor.CurrentEnemyTargetKey = ResolveEnemyIntent(actor, plan)?.Key;
         }
+        // Doctrine fills the silence: healers with no authored protect rows derive
+        // tank/group charges. Runs after the loop so authored rows always win.
+        ApplyDoctrineProtect();
     }
 
     /// <summary>Semantic ally selectors never depend on scenario insertion order.
@@ -905,7 +1672,11 @@ public sealed class EncounterSim
 
     private SimActor? ResolveEnemyIntent(SimActor owner, CombatPlan plan)
     {
-        if (plan.EnemyPriorities is { } priorities)
+        // A per-phase override, when the body has one for the CURRENT phase, replaces the
+        // plan's default order — this is how "tank the boss in P1, the adds in P2" is said.
+        IReadOnlyList<CombatEnemyPriority>? priorities =
+            PhaseEnemyPriorities(owner) ?? plan.EnemyPriorities;
+        if (priorities is { })
         {
             foreach (CombatEnemyPriority priority in priorities)
             {
@@ -928,6 +1699,33 @@ public sealed class EncounterSim
             _ => null,
         };
     }
+
+    /// <summary>The body's enemy-target order for the CURRENT phase: its own authored
+    /// override first, else the doctrine's job-bucket assignment ("tanks 2+ on adds"),
+    /// else null — the plan's default order.</summary>
+    private IReadOnlyList<CombatEnemyPriority>? PhaseEnemyPriorities(SimActor owner)
+    {
+        if (owner.Spec.PlayerRules?.PhaseTargets is { } overrides)
+            foreach (PhaseTargetOverride entry in overrides)
+                if (string.Equals(entry.PhaseKey, PhaseKey, StringComparison.Ordinal) &&
+                    entry.Priorities is { Count: > 0 })
+                    return entry.Priorities;
+
+        if (Options.Doctrine?.Assignments is { } assignments)
+            foreach (PhaseJobAssignment assignment in assignments)
+                if (string.Equals(assignment.PhaseKey, PhaseKey, StringComparison.Ordinal) &&
+                    assignment.Job == owner.Spec.Job &&
+                    JobOrdinal(owner) >= assignment.FromOrdinal)
+                    return [new CombatEnemyPriority(assignment.Target)];
+        return null;
+    }
+
+    /// <summary>1-based position within the body's job, by stable key order over ALL
+    /// friendlies (dead included, so an ordinal never silently renumbers mid-fight).
+    /// "Tank 2" is the same warrior at the pull and at the wipe.</summary>
+    private int JobOrdinal(SimActor owner) => 1 + _actors.Count(a =>
+        a.Spec.Role == EncounterActorRole.Friendly && a.Spec.Job == owner.Spec.Job &&
+        string.CompareOrdinal(a.Key, owner.Key) < 0);
 
     private SimActor? CurrentLegalEnemy(SimActor owner) =>
         owner.CurrentEnemyTargetKey is { } currentKey &&
@@ -1102,6 +1900,9 @@ public sealed class EncounterSim
     private void EnterPhase(string key, bool announce)
     {
         PhaseKey = key;
+        // A phase turn is the threat reset (Onyxia's landing wipes her table): the
+        // race for her starts over, exactly what the threat-lite law needs cleared.
+        _threatLiteHolder = null;
         EncounterPhase? phase = _definition.Phase(key);
         if (announce)
             Emit(SimEventKind.PhaseEnter, BossKey, $"phase: {phase?.Name ?? key}");

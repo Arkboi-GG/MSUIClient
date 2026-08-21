@@ -85,6 +85,38 @@ public static class GameTextLaw
     private static readonly HashSet<BakeKey> _missingLogged = [];
     private static bool _advanceLaw;
 
+    /// <summary>Glyph ranges baked into every atlas font — the exact-size gameplay faces here AND
+    /// the supersampled UI face in ClientWindow, which reads <see cref="GlyphRangesPtr"/> so the
+    /// two never drift. ImGui's default range stops at U+00FF (Latin-1), which left the em-dash,
+    /// en-dash, bullet, ellipsis and curly quotes the codebase uses as separators outside it —
+    /// they rasterised as the '?' fallback even though FRIZQT__.TTF carries them. Adding the
+    /// General Punctuation block (plus the Latin-Extended/Greek/math the face has) bakes the
+    /// glyphs present and silently skips the absent ones (e.g. the → arrow, which the source
+    /// spells "->" instead). ImGui keeps only the POINTER until the atlas builds, so it is pinned
+    /// for the process lifetime.</summary>
+    public static readonly ushort[] GlyphRanges =
+    [
+        0x0020, 0x00FF,   // Basic Latin + Latin-1 Supplement
+        0x0100, 0x024F,   // Latin Extended-A/B (Œ, Š, Ž, ƒ) for accented data names
+        0x02C6, 0x02DD,   // spacing modifier letters the face carries
+        0x0391, 0x03C9,   // Greek (Δ, Ω, µ, π)
+        0x2000, 0x25FF,   // punctuation (en/em dash, bullet, ellipsis, curly quotes) + math + misc
+        0,
+    ];
+    private static System.Runtime.InteropServices.GCHandle _glyphRangesHandle;
+
+    /// <summary>Pinned pointer to <see cref="GlyphRanges"/>, allocated once on first use.</summary>
+    public static nint GlyphRangesPtr
+    {
+        get
+        {
+            if (!_glyphRangesHandle.IsAllocated)
+                _glyphRangesHandle = System.Runtime.InteropServices.GCHandle.Alloc(
+                    GlyphRanges, System.Runtime.InteropServices.GCHandleType.Pinned);
+            return _glyphRangesHandle.AddrOfPinnedObject();
+        }
+    }
+
     /// <summary>True once at least one exact-size gameplay font is baked.</summary>
     public static bool Ready => _fonts.Count > 0;
 
@@ -169,6 +201,7 @@ public static class GameTextLaw
         {
             cfg.OversampleH = 1;
             cfg.OversampleV = 1;
+            cfg.GlyphRanges = GlyphRangesPtr;   // same punctuation coverage as the UI atlas
             foreach (BakeKey key in _requested)
             {
                 if (!_faces.TryGetValue(key.Face, out FaceInfo face) ||

@@ -253,41 +253,28 @@ public sealed partial class GameLoop
                               ImGui.GetStyle().ItemSpacing.Y * 2f;
         if (ImGui.BeginChild("##combat-plan-content", new Vector2(0f, -footerReserve)))
         {
+            // Three tabs, deliberately: the Game Plan IS the interface (the fight lays
+            // itself out, doctrine derives the rest), Rotation is the concrete loadout,
+            // and Advanced is the exceptions drawer for the authored primitives. The old
+            // Slots / Quick Plan / Priorities / Responsibilities / Context / Explain maze
+            // was removed on the owner's word — its editors live on inside Advanced.
             if (ImGui.BeginTabBar("##combat-plan-tabs"))
             {
-                if (ImGui.BeginTabItem("Slots"))
+                if (ImGui.BeginTabItem("Game Plan"))
                 {
-                    DrawEncounterPlanSlots(actorIndex, actor);
-                    ImGui.EndTabItem();
-                }
-                if (ImGui.BeginTabItem("Quick Plan"))
-                {
-                    DrawEncounterQuickPlan(actor, plan);
-                    ImGui.EndTabItem();
-                }
-                if (ImGui.BeginTabItem("Priorities"))
-                {
-                    DrawEncounterPlanPriorities(plan);
-                    ImGui.EndTabItem();
-                }
-                if (ImGui.BeginTabItem("Responsibilities"))
-                {
-                    DrawEncounterPlanResponsibilities(plan);
+                    DrawEncounterPlanGamePlan(actorIndex, actor);
                     ImGui.EndTabItem();
                 }
                 if (ImGui.BeginTabItem("Rotation"))
                 {
+                    DrawEncounterRotationSlot(actorIndex, actor);
+                    ImGui.Separator();
                     DrawEncounterPlanRotation(plan);
                     ImGui.EndTabItem();
                 }
-                if (ImGui.BeginTabItem("Encounter Context"))
+                if (ImGui.BeginTabItem("Advanced"))
                 {
-                    DrawEncounterPlanContext(actor);
-                    ImGui.EndTabItem();
-                }
-                if (ImGui.BeginTabItem("Test & Explain"))
-                {
-                    DrawEncounterPlanExplain(actor, plan);
+                    DrawEncounterPlanAdvancedStacked(actorIndex, actor);
                     ImGui.EndTabItem();
                 }
                 ImGui.EndTabBar();
@@ -299,9 +286,11 @@ public sealed partial class GameLoop
         DrawEncounterPlanFooter(actorIndex, actor, plan);
     }
 
-    /// <summary>The manila folder strip's tab list for the deck customizer.</summary>
+    /// <summary>The manila folder strip's tab list for the deck customizer. Three on
+    /// purpose: the Game Plan IS the interface (the fight lays itself out, doctrine
+    /// derives the rest), Rotation is the loadout, Advanced is the exceptions drawer.</summary>
     internal static readonly string[] EncounterPlanDeckTabs =
-        ["Slots", "Quick Plan", "Priorities", "Responsibilities", "Rotation", "Context", "Explain"];
+        ["Game Plan", "Rotation", "Advanced"];
 
     /// <summary>The customizer as the workspace deck's content: a one-line
     /// header, the SELECTED plan tab laid out WIDE (its groups as side-by-side
@@ -354,26 +343,17 @@ public sealed partial class GameLoop
             }
         }
 
-        switch (tab)
+        // Name-keyed so the folder strip can be reordered without renumbering cases.
+        string tabName = tab >= 0 && tab < EncounterPlanDeckTabs.Length
+            ? EncounterPlanDeckTabs[tab] : "Game Plan";
+        switch (tabName)
         {
-            case 0: DrawEncounterPlanSlots(actorIndex, actor); break;
-            case 1:
-                Cards(("intent", () => DrawEncounterQuickPlanIntent(actor)),
-                    ("engage", DrawEncounterQuickPlanEngagement));
-                break;
-            case 2:
-                Cards(("protect", DrawEncounterPlanProtectPriorities),
-                    ("enemy", DrawEncounterPlanEnemyPriorities));
-                break;
-            case 3:
-                Cards(("standing", DrawEncounterPlanStandingResponsibilities),
-                    ("resources", DrawEncounterPlanResourcePolicy),
-                    ("fallback", DrawEncounterPlanFallbackRule));
-                break;
-            case 4:
-                // Loadout card left, the spellbook grid takes the rest.
+            case "Rotation":
+                // Library slot + loadout card left, the spellbook grid takes the rest.
                 BeginEncounterDeckCard("##plan-card-loadout",
                     MathF.Min(480f * CreatorUiScale, avail * 0.45f));
+                DrawEncounterRotationSlot(actorIndex, actor);
+                ImGui.Separator();
                 DrawEncounterRotationLoadout();
                 EndEncounterDeckCard();
                 ImGui.SameLine();
@@ -381,8 +361,28 @@ public sealed partial class GameLoop
                 DrawEncounterRotationSpellbook();
                 EndEncounterDeckCard();
                 break;
-            case 5: DrawEncounterPlanContext(actor); break;
-            default: DrawEncounterPlanExplain(actor, plan); break;
+            case "Advanced":
+                // The exceptions drawer: every authored primitive the doctrine would
+                // otherwise derive. Present, out of the way, and honest about being
+                // the override path rather than the main interface.
+                EnsureEncounterPositioningDraft(actor);
+                Cards(("engage", DrawEncounterQuickPlanEngagement),
+                    ("priorities", () =>
+                    {
+                        DrawEncounterPlanProtectPriorities();
+                        DrawEncounterPlanEnemyPriorities();
+                    }),
+                    ("standing", () =>
+                    {
+                        DrawEncounterPlanStandingResponsibilities();
+                        DrawEncounterPlanResourcePolicy();
+                        DrawEncounterPlanFallbackRule();
+                    }),
+                    ("positioning", () => DrawEncounterPositioningSlot(actorIndex, actor)));
+                break;
+            default:
+                DrawEncounterPlanGamePlan(actorIndex, actor);
+                break;
         }
         ImGui.EndChild();
         DrawEncounterPlanFooter(actorIndex, actor, plan);
@@ -477,93 +477,45 @@ public sealed partial class GameLoop
         _encounterPlayerPlanContinuousUndoBaseline = null;
     }
 
-    private static CombatPlan EncounterCombatPlanTemplate(RaidJob job) => job switch
-    {
-        RaidJob.Healer => new CombatPlan(
-            "Tank healer",
-            new CombatMovementPlan(CombatMovementMode.Follow, CombatSubject.Tank(1),
-                12f, 20f, false),
-            CombatEngagementMode.NeverInitiate,
-            [
-                new CombatSupportPriority(CombatSubject.Tank(1), 90f),
-                new CombatSupportPriority(CombatSubject.Tank(2), 75f),
-                new CombatSupportPriority(CombatSubject.LowestHealth, 45f),
-                new CombatSupportPriority(CombatSubject.Self, 30f),
-            ],
-            [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            [CombatResponsibility.DispelMagic, CombatResponsibility.Resurrect],
-            new CombatResourcePolicy(25, 25, true),
-            CombatFallback.ClassDefaults),
-        RaidJob.Tank => new CombatPlan(
-            "Main tank",
-            new CombatMovementPlan(CombatMovementMode.Independent, null, 0f, 0f, true),
-            CombatEngagementMode.DefendGroup,
-            null,
-            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
-             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            [CombatResponsibility.Interrupt],
-            new CombatResourcePolicy(15, 30, true),
-            CombatFallback.ClassDefaults),
-        RaidJob.Melee => new CombatPlan(
-            "Add-control melee",
-            new CombatMovementPlan(CombatMovementMode.Independent, null, 0f, 0f, true),
-            CombatEngagementMode.DefendGroup,
-            null,
-            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
-             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            [CombatResponsibility.Interrupt],
-            new CombatResourcePolicy(10, 25, false),
-            CombatFallback.ClassDefaults),
-        RaidJob.Ranged => new CombatPlan(
-            "Add-control ranged",
-            new CombatMovementPlan(CombatMovementMode.HoldPosition, null, 0f, 0f, true),
-            CombatEngagementMode.DefendGroup,
-            null,
-            [new CombatEnemyPriority(CombatEnemyKind.AnyAdd),
-             new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            [CombatResponsibility.Interrupt, CombatResponsibility.CrowdControlAdds],
-            new CombatResourcePolicy(15, 25, true),
-            CombatFallback.ClassDefaults),
-        _ => new CombatPlan(
-            "Safe assistant",
-            new CombatMovementPlan(),
-            CombatEngagementMode.NeverInitiate,
-            null,
-            [new CombatEnemyPriority(CombatEnemyKind.PrimaryEnemy)],
-            null,
-            new CombatResourcePolicy(),
-            CombatFallback.ClassDefaults),
-    };
+    // (The old per-role plan templates were removed: the raid doctrine derives the
+    // same behaviour from the encounter itself, live instead of as a stamped copy.)
 
-    private void DrawEncounterQuickPlan(EncounterActorSpec actor, CombatPlan plan)
+    /// <summary>The Advanced tab for the floating window: every authored primitive
+    /// stacked. This is the exceptions drawer — the doctrine derives all of it when
+    /// nothing here is authored, and that fact leads the tab instead of hiding.</summary>
+    private void DrawEncounterPlanAdvancedStacked(int actorIndex, EncounterActorSpec actor)
     {
-        DrawEncounterQuickPlanIntent(actor);
-        ImGui.SeparatorText("Positioning");
-        ImGui.TextDisabled("Where this body stands — follow/hold, per-phase spots, left/right — now lives " +
-                           "in the Slots tab's positioning script, held apart from this portable rotation.");
+        ImGui.TextColored(new Vector4(.45f, .9f, 1f, 1f),
+            "Everything here is an OVERRIDE. Leave it untouched and the raid doctrine " +
+            "derives targeting, protection, and positioning from the encounter itself.");
+        ImGui.Spacing();
         DrawEncounterQuickPlanEngagement();
+        DrawEncounterPlanProtectPriorities();
+        DrawEncounterPlanEnemyPriorities();
+        DrawEncounterPlanStandingResponsibilities();
+        DrawEncounterPlanResourcePolicy();
+        DrawEncounterPlanFallbackRule();
+        ImGui.Spacing();
+        EnsureEncounterPositioningDraft(actor);
+        DrawEncounterPositioningSlot(actorIndex, actor);
+        DrawEncounterPlanHonesty();
     }
 
-    private void DrawEncounterQuickPlanIntent(EncounterActorSpec actor)
+    /// <summary>The honesty boundary, kept verbatim from the old Explain tab: what the
+    /// sim executes versus what remains typed intent for the core evaluator.</summary>
+    private static void DrawEncounterPlanHonesty()
     {
-        CombatPlan plan = _encounterPlayerPlanDraft!;
-        ImGui.SeparatorText("Start from intent");
-        if (EncounterPanelButton("Use role template", 150f * CreatorUiScale))
-            // Templates rewrite doctrine, not identity: the chosen class and the
-            // authored rotation survive.
-            SetEncounterPlayerPlanDraft(EncounterCombatPlanTemplate(actor.Job) with
-            {
-                ClassId = plan.ClassId != 0 ? plan.ClassId : DefaultClassForJob(actor.Job),
-                Rotation = plan.Rotation,
-            });
-        ImGui.SameLine();
-        ImGui.TextDisabled("Templates create visible, editable rules; they never apply silently.");
-
-        string name = plan.Name;
-        ImGui.SetNextItemWidth(MathF.Min(420f * CreatorUiScale, ImGui.GetContentRegionAvail().X));
-        if (ImGui.InputText("Plan name", ref name, 80))
-            SetEncounterPlayerPlanDraftContinuous(plan with { Name = name });
-        FinishEncounterPlayerPlanContinuousEdit();
+        ImGui.SeparatorText("Honesty boundary");
+        ImGui.TextWrapped("Encounter Lab executes follow doctrine, routes each body's owner-authored " +
+                          "DPS to its resolved hostile target, runs Game Plan avoidance (dodging " +
+                          "telegraphed casts, holding clear of instant arcs), lets adds pick threat-lite " +
+                          "victims and deal the owner-dialled add damage, and pours the owner-dialled " +
+                          "healing into resolved protect targets. It still does not model mana, global " +
+                          "cooldowns, spell damage, or BOSS threat — her victim stays owner-assigned. " +
+                          "An authored rotation plays as COSMETIC casts - real spell art on the real " +
+                          "cast/cooldown cadence - without changing any number in the fight. The " +
+                          "SuperUI-Core evaluator executes this same typed plan against real " +
+                          "server-authoritative combat state (see PLAN_19).");
     }
 
     private void DrawEncounterQuickPlanEngagement()
@@ -578,12 +530,6 @@ public sealed partial class GameLoop
         ImGui.TextWrapped("Movement and engagement are strategic doctrine. Ability rules may act " +
                           "inside them, but cannot steal a waypoint or acquire a forbidden fight. " +
                           "The Lab records engagement permission; it has no player pull-action model yet.");
-    }
-
-    private void DrawEncounterPlanPriorities(CombatPlan plan)
-    {
-        DrawEncounterPlanProtectPriorities();
-        DrawEncounterPlanEnemyPriorities();
     }
 
     private void DrawEncounterPlanProtectPriorities()
@@ -677,13 +623,6 @@ public sealed partial class GameLoop
 
         ImGui.TextWrapped("These are semantic buckets, not creature names. The same order works " +
                           "for one dungeon add or forty-player raid waves.");
-    }
-
-    private void DrawEncounterPlanResponsibilities(CombatPlan plan)
-    {
-        DrawEncounterPlanStandingResponsibilities();
-        DrawEncounterPlanResourcePolicy();
-        DrawEncounterPlanFallbackRule();
     }
 
     private void DrawEncounterPlanStandingResponsibilities()
@@ -950,61 +889,9 @@ public sealed partial class GameLoop
         ImGui.EndTooltip();
     }
 
-    private void DrawEncounterPlanContext(EncounterActorSpec actor)
-    {
-        ImGui.TextColored(new Vector4(.45f, .9f, 1f, 1f),
-            "The saved character plan is encounter-agnostic.");
-        ImGui.TextWrapped("It contains no creature entry, encounter key, phase key, boss name, " +
-                          "or group-size assumption. Encounter choreography layers over it here; " +
-                          "the reusable plan itself does not change.");
-        ImGui.TextWrapped("Targets are semantic — self, role ordinals, or lowest-health ally. " +
-                          "Named-character assignments belong to a separate roster layer and " +
-                          "cannot leak into this reusable plan.");
-
-        ImGui.SeparatorText("Current context (not stored in this plan)");
-        ImGui.Text($"Encounter: {_encounterDefinition?.Name ?? "none loaded"}");
-        ImGui.Text($"Phase: {_encounterSim?.Definition.Phase(_encounterSim.PhaseKey)?.Name ?? "none"}");
-        RaidPhaseDirective? directive = _encounterSim is { } sim
-            ? PlaybookDirectiveFor(sim.PhaseKey, actor.Job) : null;
-        ImGui.Text($"Role directive: {(directive is null ? "none" : directive.Kind.ToString())}");
-        int authoredMoves = actor.Moves?.Count ?? 0;
-        ImGui.Text($"Explicit character orders: {authoredMoves}");
-        ImGui.TextWrapped("Precedence: direct control and game legality → explicit waypoint/RTS " +
-                          "orders → encounter role directive → reusable movement doctrine → " +
-                          "ability priorities → fallback.");
-    }
-
-    private void DrawEncounterPlanExplain(EncounterActorSpec actor, CombatPlan plan)
-    {
-        ImGui.SeparatorText("Resolved plan");
-        ImGui.TextWrapped(EncounterCombatPlanSummary(plan));
-
-        SimActor? live = _encounterSim?.Actors.FirstOrDefault(candidate => candidate.Key == actor.Key);
-        if (live is not null)
-        {
-            ImGui.SeparatorText("Why right now?");
-            ImGui.Text($"Movement: {EncounterIntentName(live.CurrentFollowTargetKey, "not following")}");
-            ImGui.Text($"Protect: {EncounterIntentName(live.CurrentProtectTargetKey, "no applicable ally")}");
-            ImGui.Text($"Enemy: {EncounterIntentName(live.CurrentEnemyTargetKey, "no legal enemy")}");
-            if (live.MoveTarget is not null)
-                ImGui.TextColored(new Vector4(1f, .78f, .25f, 1f),
-                    "An explicit movement order currently owns translation.");
-        }
-        else EncounterPlayerSetupDisabledWrapped("No simulation snapshot is available for this body.");
-
-        ImGui.SeparatorText("Honesty boundary");
-        ImGui.TextWrapped("Encounter Lab executes follow doctrine and routes each body's owner-authored " +
-                          "DPS to its resolved hostile target. It does not model friendly damage, mana, " +
-                          "global cooldowns, or healing amounts. Protection priorities are resolved and " +
-                          "displayed, but the Lab does not invent a heal cast. An authored rotation " +
-                          "plays as COSMETIC casts - real spell art on the real cast/cooldown cadence - " +
-                          "without changing any number in the fight. The " +
-                          "eventual SuperUI evaluator must execute this same typed plan using real " +
-                          "server-authoritative combat state.");
-
-        foreach (string warning in EncounterCombatPlanWarnings(plan))
-            ImGui.TextColored(new Vector4(1f, .48f, .3f, 1f), $"! {warning}");
-    }
+    // (The old Context and Explain tabs were removed: the Game Plan's live NOW column
+    // shows the resolving intents, its header shows the plan warnings, and the honesty
+    // boundary lives at the bottom of Advanced. See DrawEncounterPlanHonesty.)
 
     private void DrawEncounterPlanFooter(int actorIndex, EncounterActorSpec actor, CombatPlan plan)
     {
@@ -1130,10 +1017,10 @@ public sealed partial class GameLoop
             _ => "May acquire an engagement autonomously.",
         });
         if (plan.EnemyPriorities is { Count: > 0 } enemies)
-            sentences.Add("Enemy order: " + string.Join(" → ", enemies.Where(row => row.Enabled)
+            sentences.Add("Enemy order: " + string.Join(" -> ", enemies.Where(row => row.Enabled)
                 .Select(row => EncounterEnemyPriorityLabel(row.Kind))) + ".");
         if (plan.SupportPriorities is { Count: > 0 } support)
-            sentences.Add("Protect: " + string.Join(" → ", support.Where(row => row.Enabled)
+            sentences.Add("Protect: " + string.Join(" -> ", support.Where(row => row.Enabled)
                 .Select(row => $"{EncounterCombatSubjectLabel(row.Target)} below " +
                                $"{row.OnlyWhenBelowHealthPercent:0}%")) + ".");
         if (plan.Rotation is { Count: > 0 } rotation)

@@ -551,6 +551,17 @@ public sealed partial class GameLoop
     {
         uint texture = liveTexture;
         Vector2 uv0 = new(0, 1), uv1 = new(1, 0);
+        // NPC interaction panels know the exact WorldEntity but historically passed texture=0,
+        // which dropped every creature onto TemporaryPortrait-Monster. Right-click interaction
+        // also selects that NPC, so reuse the already baked target portrait by GUID. The GUID
+        // check is essential: a cached portrait for the previous target must never leak into a
+        // newly opened merchant/quest/gossip frame.
+        if (texture == 0 && _portraitTargetGuid == unit.Guid)
+            texture = RoundAperturePortrait(_targetPortrait, _targetPortraitUsable);
+        else if (texture == 0 && unit.IsPlayer && _net is not null && unit.Guid == ControlledGuid)
+            texture = RoundAperturePortrait(_playerPortrait, _playerPortraitUsable);
+        else if (texture == 0 && unit.IsPlayer)
+            texture = PartyPortraitHandle(unit.Guid);
         if (texture == 0 && _gameplayArt is not null)
         {
             string fallback;

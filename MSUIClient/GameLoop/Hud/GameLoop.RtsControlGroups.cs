@@ -186,7 +186,20 @@ public sealed partial class GameLoop
             _freecamSelection.Where(IsRtsControllableBot));
         if (members.Length == 0)
         {
-            ShowUiError($"Select one or more faction bots before assigning group {number}.");
+            // Name the ACTUAL closed gate — "select faction bots" blamed the user for a
+            // server condition and read as a faction check (it never was one). Faction
+            // bot control is BASELINE SuperUI: a current core always advertises
+            // faction-control-groups-v1 in the control-ACK trailer.
+            if (!CanUseFactionForceRoster())
+                ShowUiError("This server build does not advertise faction-control-groups-v1 — " +
+                    "update SuperUI-Core. Until then only party bots and the possessed body " +
+                    "are groupable.");
+            else if (_rtsForces.Count == 0)
+                ShowUiError("No faction census received for this zone yet — the force roster " +
+                    "refreshes every few seconds in the free view.");
+            else
+                ShowUiError($"Select one or more controllable faction bots before assigning " +
+                    $"group {number} (selected units are busy, possessed, or elsewhere).");
             return;
         }
 

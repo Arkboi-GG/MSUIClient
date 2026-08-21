@@ -167,6 +167,42 @@ public class M2Model
     }
 
     /// <summary>
+    /// Vanilla combines the batch colour-alpha and texture-weight factors before
+    /// choosing a blend mode, and does not submit a batch whose constant result
+    /// is zero. Particle-emitter models rely on this to hide their helper mesh.
+    /// Animated tracks are deliberately retained for runtime evaluation.
+    /// </summary>
+    public bool IsBatchConstantInvisible(M2Batch batch)
+    {
+        float? colorAlpha = batch.ColorIndex >= 0 && batch.ColorIndex < Colors.Count
+            ? ConstantFixed16(Colors[batch.ColorIndex].Alpha)
+            : 1.0f;
+
+        float? textureWeight = 1.0f;
+        if (batch.TextureCount != 0 && batch.TextureWeightIndex < TransparencyLookup.Count)
+        {
+            int trackIndex = TransparencyLookup[batch.TextureWeightIndex];
+            if (trackIndex < TransparencyTracks.Count)
+                textureWeight = ConstantFixed16(TransparencyTracks[trackIndex]);
+        }
+
+        return colorAlpha.HasValue && textureWeight.HasValue &&
+               colorAlpha.Value * textureWeight.Value <= 0.0f;
+    }
+
+    private static float? ConstantFixed16(M2AnimTrack<short> track)
+    {
+        if (track.Keys.Count == 0) return 1.0f;
+
+        short first = track.Keys[0];
+        for (int i = 1; i < track.Keys.Count; i++)
+            if (track.Keys[i] != first)
+                return null;
+
+        return Math.Clamp(first / 32767f, 0.0f, 1.0f);
+    }
+
+    /// <summary>
     /// Resolve a batch's animated texture transform, or -1 for static UVs.
     /// Chain: batch.TextureTransformIndex → TextureTransformLookup[idx] →
     /// TextureTransforms[idx]. A lookup entry of -1 (stored 0xFFFF) means

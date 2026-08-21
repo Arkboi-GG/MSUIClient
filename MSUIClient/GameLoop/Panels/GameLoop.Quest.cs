@@ -681,7 +681,7 @@ public sealed partial class GameLoop
             string name = GuidInfo.IsItem(guid) ? "" : _entities.TryGet(guid, out WorldEntity namedGiver)
                 ? _creatureNames.GetValueOrDefault(namedGiver.Entry, "") : "";
             Vector2 nameCenter = origin + new Vector2(192, 30) * s;
-            GameText.DrawCentered(dl, "GameFontHighlight", name, nameCenter, s);
+            DrawNpcModalTitle(dl, name, nameCenter, s);
             if (parityProof)
             {
                 Vector2 nameFrameMin = origin + new Vector2(42, 16) * s;
@@ -692,10 +692,10 @@ public sealed partial class GameLoop
                         ClipMask:frameName, Strata:"DIALOG"));
                 CollectUiParityDraw("BenillaQuestNpcNameText", "FontString",
                     origin + new Vector2(74.5f, 20) * s, new Vector2(235, 20) * s,
-                    "BenillaQuestNpcNameFrame", new("", FontObjectLaw.Get("GameFontHighlight").Color,
+                    "BenillaQuestNpcNameFrame", new("", FontObjectLaw.Get("GameFontNormal").Color,
                         "BACKGROUND", "CENTER", "BenillaQuestNpcNameFrame", "CENTER", 0, 0,
-                        FontObjectLaw.Get("GameFontHighlight").Face,
-                        FontObjectLaw.Get("GameFontHighlight").Height,
+                        FontObjectLaw.Get("GameFontNormal").Face,
+                        FontObjectLaw.Get("GameFontNormal").Height,
                         ClipRect:new(origin.X,origin.Y,origin.X+384*s,origin.Y+512*s),
                         ClipMask:"BenillaQuestNpcNameFrame", Strata:"DIALOG"));
             }

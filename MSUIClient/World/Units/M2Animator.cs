@@ -1110,6 +1110,8 @@ public sealed class M2Animator
         42 => "Swim",
         92 => "RunRight",
         93 => "RunLeft",
+        135 => "Fly",
+        193 => "Hover",
         69 => "EmoteDance",
         187 => "JumpLandRun",
         _ => $"Anim{id}",

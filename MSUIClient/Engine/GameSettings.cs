@@ -891,6 +891,22 @@ public sealed class GameSettings
         /// of a grounded boss — an air phase honestly stalls her health gates.</summary>
         public bool MeleeDpsNeedsReach { get; set; } = true;
 
+        /// <summary>Damage per second each living add deals its threat-lite victim
+        /// while in melee reach. A consequence dial, never a combat model; 0 makes
+        /// adds chase without biting (the pre-2026-08 behaviour).</summary>
+        public float AddDps { get; set; } = 15f;
+
+        /// <summary>Healing per second a Healer-job body pours into its resolved
+        /// protect target — protect priorities as throughput. 0 keeps protection
+        /// observational.</summary>
+        public float HealerHps { get; set; } = 60f;
+
+        /// <summary>Raid doctrine: derive formation stations from the encounter's
+        /// hazard arcs, dodge telegraphs and keep clear of instant cones by default,
+        /// spread off targeted casts, and derive healer assignments. Off returns
+        /// every body to authored-only behaviour.</summary>
+        public bool RaidDoctrine { get; set; } = true;
+
         /// <summary>The boss's pull ring in yards - a body crossing it starts the
         /// fight. Drawn on the ground until the pull happens.</summary>
         public float PullRangeYards { get; set; } = 30f;

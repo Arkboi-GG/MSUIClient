@@ -210,7 +210,7 @@ public sealed partial class GameLoop
             };
             if (_window.Camera.TryWorldToScreen(anchor, display, out Vector2 tag))
                 draw.AddText(tag + new Vector2(8f, -10f),
-                    FidelityColorU32(ability.Fidelity, 1f), $"{ability.Name}  ⟵ visualized");
+                    FidelityColorU32(ability.Fidelity, 1f), $"{ability.Name}  <- visualized");
         }
         DrawVisualizedNonSpatialAbilities(draw, display, sim);
 
@@ -533,7 +533,7 @@ public sealed partial class GameLoop
         bool running = _encounterPlaying && sim.EngagedAtMs >= 0;
         string head = $"{EncounterFightClock(sim)}  ·  " +
                       $"{sim.Definition.Phase(sim.PhaseKey)?.Name ?? sim.PhaseKey}" +
-                      (running ? "  ▶" : "  ‖");
+                      (running ? "  >" : "  ||");
         draw.AddText(new Vector2(display.X * .5f - 60f, 24f),
             ImGui.GetColorU32(new Vector4(1f, 1f, 1f, .85f)), head);
     }

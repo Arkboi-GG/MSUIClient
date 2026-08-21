@@ -17,6 +17,8 @@
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterDefinition.cs" Link="World\Encounters\EncounterDefinition.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterGeometry.cs" Link="World\Encounters\EncounterGeometry.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterSim.cs" Link="World\Encounters\EncounterSim.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\RaidDoctrine.cs" Link="World\Encounters\RaidDoctrine.cs" />
+    <Compile Include="..\..\MSUIClient\World\Encounters\RaidPlanDocument.cs" Link="World\Encounters\RaidPlanDocument.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterProbe.cs" Link="World\Encounters\EncounterProbe.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\EncounterLibrary.cs" Link="World\Encounters\EncounterLibrary.cs" />
     <Compile Include="..\..\MSUIClient\World\Encounters\CombatSlots.cs" Link="World\Encounters\CombatSlots.cs" />
