@@ -30,6 +30,10 @@ public static partial class Program
         Console.WriteLine("MSUI Client — VMaNGOS 1.12.1 (build 5875)");
         Console.WriteLine();
 
+        // Hybrid laptops: ask Windows for the discrete GPU (self-registering,
+        // path-keyed, so it also covers published copies; see GpuPreference).
+        GpuPreference.RegisterHighPerformance();
+
         PortraitBatchOptions? portraitBatch = null;
         VariantBatchOptions? variantBatch = null;
         MovementSuiteOptions? movementSuite = null;

@@ -1,4 +1,4 @@
-# Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17 · game-faithful pass 2026-08-17)
+# Encounter Lab — architecture & handbook (built 2026-08-16 · raid sim 2026-08-17 · game-faithful pass 2026-08-17 · two-slot model 2026-08-20)
 
 > **STATUS (core + raid sim): BUILT & VERIFIED, HEADLESSLY *AND* IN-CLIENT.**
 > `tools/encounter-lab-check`: **126/126 offline** (re-run 2026-08-20; live
@@ -190,7 +190,9 @@ older document parses with defaults.
 
 | Actor field | Meaning |
 |---|---|
-| `job` | `Tank` \| `Healer` \| `Melee` \| `Ranged` \| `None`. Drives the playbook and the melee-reach dps gate — never invents numbers. |
+| `job` | `Tank` \| `Healer` \| `Melee` \| `Ranged` \| `None`. Drives the playbook/positioning slot and the melee-reach dps gate — never invents numbers. |
+| `side` | `None` \| `Left` \| `Center` \| `Right` (§8.9). Which side the body works; pairs with its assigned positioning slot and drives the mirror. |
+| `playerRules.rotationId` / `.positioningId` | The body's two slot assignments (§8.9): ids into the rotation (`combat-plans.json`) and positioning (`positioning-scripts.json`) libraries. `plan` remains the resolved inline rotation the sim reads. |
 | `runSpeedYdPerSec` / `walkSpeedYdPerSec` | The template's real speeds (`speed_run × 7`, `speed_walk × 2.5`). Onyxia: **9.0 / 2.5**. 0 = engine defaults. |
 | `detectionRangeYards` | `creature_template.detection_range`, display-only honesty beside the pull-ring slider (the core adds a level delta). Onyxia: **20**. |
 | `idleMovement` | What the spawn's DB row says she does out of combat: `Stationary` (an ANSWER, not an absence — Onyxia guid 47572: `movement_type 0`, `wander_distance 0`), `Wander` (+`wanderYards`), or `Waypoints` (+`points[{position, waitMs}]`, the `creature_movement` replay — looped, exact pauses, walk speed). A declared route always plays; when the answer is "stationary" the Lab roams her anyway as an explicitly-labelled sandbox behaviour (§8). |
@@ -245,7 +247,8 @@ and every cone comes along. Friendlies run their ordered moves (§3.3), and a
 **playbook** of per-(phase × job) standing orders — `Hold` / `ChaseBoss` /
 `MoveToSpot` — answers "what does melee do when she lifts off" as data. An
 explicit order takes a body off autopilot until the next phase turn re-applies
-its directive. Pre-pull the boss plays her declared idle movement, or the sandbox
+its directive. *(As of §8.9 the playbook is the **fallback**: a body with an
+assigned **positioning slot** is driven by that instead, per-body and per-side.)* Pre-pull the boss plays her declared idle movement, or the sandbox
 roam — which draws from its **own seeded stream**, so however long the roam runs,
 the fight's ability rolls at the pull are untouched.
 
@@ -680,12 +683,19 @@ Encounter Lab window into a small **Encounter Lab** chip at its top-left corner
 — click the chip to force it back open; it returns on its own when the selection
 clears. The Lab toolbar's **Minimize** button collapses it manually.
 
-The customizer is a full per-character **Combat Plan**. It starts with
-plain-language intent and progressively exposes six views:
+> **Superseded in part by §8.9 (2026-08-20).** As of the two-slot model, a body
+> carries a **Rotation** slot *and* a **Positioning** slot, and the customizer opens
+> on a new **Slots** tab. The movement doctrine described in Quick Plan **moved to
+> the positioning slot**; "Save & apply" now saves the rotation to an id-keyed
+> library and assigns it by reference. The views below still describe the rotation
+> half accurately — read them alongside §8.9.
 
-- **Quick Plan** — an editable role template, movement doctrine (independent,
-  hold, or follow a semantic ally), follow-distance band, facing, and permission
-  to initiate an engagement.
+The customizer is a full per-character **Combat Plan**. It starts with
+plain-language intent and progressively exposes these views:
+
+- **Quick Plan** — an editable role template, engagement permission, and intent
+  name. *(Movement doctrine — independent/hold/follow, range band, facing — moved to
+  the positioning slot; see §8.9.)*
 - **Priorities** — ordered protection thresholds and ordered hostile buckets.
   Rows can be enabled, moved, or removed; first applicable wins. Subjects such as
   `tank 1`, `tank 2`, `lowest-health ally`, `active adds`, and `primary encounter
@@ -749,6 +759,125 @@ is unchanged.
 sweep only read on a staged-raid-pulled-then-paused fight, which the probe does not
 reach — so the proof is the owner's sweep-and-watch pass (per the §11.3 rule, treat
 §8.6 as "written, not yet proven in-client").
+
+## 8.9 Two reusable slots — Rotation and Positioning (2026-08-20)
+
+This is the structural change behind "script one toon per role per location, then
+reuse." A body's behaviour is now **two independent, reusable, library-backed
+slots**, each a reference the body holds rather than an embedded copy:
+
+| Slot | Type | What it is | Portable? |
+|---|---|---|---|
+| **Rotation** | `CombatPlan` (now carries an `Id`) | *what I press* — priorities, responsibilities, resources, engagement, the ordered ability list | **Yes** — no encounter/phase/boss/side; the same rotation is valid on every fight |
+| **Positioning** | `PositioningScript` (new) | *where I stand* — per **role × side**, per **phase**: the movement doctrine (follow/hold/independent + range + face) **and** the per-phase spots | Structure is reusable; its spots are boss-relative, so you re-place (or **mirror**) them per boss |
+
+The decision that shaped it (owner, 2026-08-20): **positioning owns ALL spatial**.
+Movement doctrine moved off the rotation and onto the positioning slot, so "where I
+stand" lives in exactly one place. Sides are **Left / Center / Right**, and a
+one-click **mirror** reflects a script's placed spots across the boss's facing axis
+and flips the side — author the left-ranged path once, mirror it to the right.
+
+### The model (`World/Encounters/CombatSlots.cs`)
+
+- `RaidSide { None, Left, Center, Right }` + `RaidSideExtensions.Mirror()` (Left⇄Right,
+  Center/None self-mirror) / `.Label()`. **`Mirror()` is the single home of the
+  side-swap**, so the UI's "mirror to other side" and the geometric spot reflection
+  agree by construction.
+- `PositioningScript(Id, Name, Role, Side, Movement, Phases, EncounterKey, Note)`.
+  `Movement` is a `CombatMovementPlan` (the doctrine moved here). `EncounterKey`
+  records which boss the spots were placed against, for the "authored for a different
+  boss" warning. `HasPlacedSpots` distinguishes a doctrine-only shell from one
+  carrying boss-relative coordinates.
+- `PositioningPhaseStep(PhaseKey, Kind, Spot, ArrivalFacing, Waypoints)`. `Kind` is
+  the same `RaidDirectiveKind` the playbook used — **Hold / ChaseBoss / MoveToSpot**.
+  In the UI, **Hold is the *absence* of a step** (defer to the movement doctrine), so
+  a step exists only for Chase or Spot.
+- `CombatPlan` gained `Id` (rotation library identity) and its `Movement` field is now
+  **LEGACY / bridge-only** (see the bridge below).
+- `EncounterActorSpec` gained `Side`; `EncounterPlayerRules` gained `RotationId` and
+  `PositioningId` — the durable per-body slot assignment. `Plan` is kept as the
+  resolved inline rotation the sim reads (see the bridge).
+
+### The libraries (persistence)
+
+- **Rotations** → `combat-plans.json`, now an **id-keyed library**
+  (`CombatPlanStore.UpsertLibrary(plan, out stored)` mints a readable slug id from the
+  name; `Load` stamps `Id = key`). Assign one rotation to many bodies; clone for the
+  next fight.
+- **Positioning** → new `positioning-scripts.json` via `PositioningScriptStore`
+  (a mirror of `CombatPlanStore`: tolerant load, atomic save, `MintId` from the name).
+- Both round-trip through the DTO layer in `EncounterLibrary.cs`
+  (`PositioningScriptFromDto/ToDto`, and `Id`/`Side`/`RotationId`/`PositioningId` on
+  the existing DTOs). Both files are **per-user and gitignored** (like
+  `combat-plans.json` — user preferences, not authored content), so they do **not**
+  auto-travel between PCs; copy them by hand if you want your libraries on another
+  box. This handbook and the code *do* travel via git.
+
+### The UI — the "Slots" tab (`GameLoop.EncounterLab.Slots.cs`)
+
+The Character Customizer (§8.7) gained a **Slots** tab, first in both the modal and
+the docked deck:
+
+- **Role + Side** pickers on the body.
+- **Rotation slot** — a library dropdown to assign, plus **Clone** / **New**. Editing
+  still happens in the Rotation / Priorities / Responsibilities tabs; the footer's
+  **Save & apply** now saves to the library (`UpsertLibrary`) and assigns by reference.
+- **Positioning slot** — a library dropdown to assign, plus **New** / **Clone** /
+  **Mirror → other side**. The **movement-doctrine card moved here** out of Quick
+  Plan. A **per-phase table** sets Hold / Chase / Move-to-spot; "Place spot" arms a
+  ground click (`EncounterPlacement.PositioningSpot` → `SetPositioningPhaseSpot`).
+  A provenance warning fires when the spots were placed against a different boss.
+
+### The bridge, and how the sim reads it
+
+The sim still reads one inline `CombatPlan` per body (`PlayerRules.Plan`).
+`ResolveInlinePlan(rotation, positioning)` (Slots.cs) stitches an assigned rotation
+and positioning back into that inline plan, **folding the positioning slot's
+`Movement` into `Plan.Movement`** so the sim's existing Follow model keeps working.
+The library rotation itself stays movement-free. *This one line is the last bridge to
+pull when the rotation object becomes fully movement-free.*
+
+Per-phase spots DO drive the puppets (this is the wired part):
+
+- `EncounterSimOptions.Positioning` — `IReadOnlyDictionary<string, PositioningScript>`
+  keyed by actor key. `RebuildEncounterSim` fills it via `BuildEncounterPositioningMap()`:
+  the body **being authored** uses its live (even unsaved) draft, so placing a spot
+  previews immediately; every other body uses its stored assignment; a body with
+  neither falls through to the playbook.
+- `ApplyPlaybook` now resolves **per body**: `ResolvePhaseDirective(actor, phase)` =
+  the assigned script's step for the phase, ELSE the job×phase playbook row. A body
+  with a script is governed by it, **never the playbook** (an unlisted "Hold" phase
+  means "no step → the movement doctrine governs").
+- Fan-out is now **spot-based** (bodies resolving to the *same* point are fanned
+  apart), so two group healers sharing one "left healer" script don't stack, while an
+  individually-authored spot is left exact.
+
+### Precedence
+
+Direct control / legality → explicit waypoint/RTS orders → **assigned positioning
+slot's per-phase step** → job×phase playbook (fallback for unassigned bodies) →
+reusable movement doctrine / follow → rotation ability intent → fallback.
+
+### What's DONE vs DEFERRED
+
+- **DONE, verified headless (132 checks pass; 6 new in the `positioning slot`
+  section of `tools/encounter-lab-check`):** the two-slot model, both libraries with
+  clone, JSON persistence, the Slots UI, the mirror, and the sim actually driving a
+  body to its assigned spot — with playbook fallback, correct precedence, and shared-
+  spot fan-out. Builds clean Debug + Release.
+- **DEFERRED:** multi-leg **waypoint** paths within a phase (`PositioningPhaseStep.Waypoints`
+  exists in the model but has no authoring UI and the sim reads only the single Spot);
+  no undo stack on the positioning draft; the movement-doctrine **bridge** still lives
+  (positioning fully owns spatial in the model and UI, but the sim reaches it through
+  `Plan.Movement`). **NOT YET EYES-ON in the running client.**
+
+### Honesty boundary
+
+Unchanged from §8.7: the sim executes follow doctrine and per-phase movement and
+routes each body's owner-authored DPS to its resolved hostile. It does not fabricate
+friendly damage, mana, GCDs, heals, dispels, interrupts, or cooldowns; rotations play
+as cosmetic casts. The positioning slot changed *where bodies stand*, not *what the
+combat model claims to execute*.
 
 ---
 
@@ -889,10 +1018,15 @@ probe does not reach), so the real proof is a stage-raid-pull-watch pass.
 7. **EventAI `condition_id` is not evaluated** — gated events drop to `heuristic`.
 8. **`imgui.ini` persists the window rect** (`###encounter-lab`); a bad saved rect
    survives restarts. Reset = delete that ini block.
-9. **The staged plan and the playbook are session-state, not document-state.**
-   Committed move orders live on the scenario and would round-trip through the
-   DTO layer, but nothing currently saves a raid plan back to a `.json`; a
-   restart forgets it. First-class "save this plan" is future work.
+9. **Slot *libraries* persist; the placed *scenario* does not.** As of §8.9,
+   rotations save to `combat-plans.json` and positioning scripts to
+   `positioning-scripts.json` (both per-user and **gitignored** — copy by hand to
+   move your libraries between PCs), and a body's
+   slot assignment (`RotationId`/`PositioningId`/`Side`) round-trips through the
+   actor DTO. But the *placed raid* itself — which bodies stand where, the staged
+   plan, the session playbook — is still session-state; nothing saves the assembled
+   scenario back to an encounter `.json`, so a restart forgets the placement (not
+   the library items). First-class "save this raid" is future work.
 10. **The sandbox roam is an opt-in fiction (§8.1).** Onyxia's DB truth (guid
     47572) is stationary and she now **stands until pulled** by default; the
     "sandbox roam (what-if)" checkbox re-enables an invented wander within a
@@ -915,6 +1049,12 @@ probe does not reach), so the real proof is a stage-raid-pull-watch pass.
 14. **SmoothDamp adds ~1 yd of follow-lag (§8.1).** The rendered model trails its
     sim marker slightly at run speed — the cost of ironing the chase stutter flat;
     tunable via `EncounterPuppetSmoothTime`.
+15. **Positioning phases are single-spot (§8.9).** `PositioningPhaseStep.Waypoints`
+    exists in the model but has no authoring UI and the sim reads only the single
+    `Spot`, so a phase is "run to one point", not "spread then collapse". And the
+    movement-doctrine **bridge** still routes positioning `Movement` through
+    `Plan.Movement` for the sim's Follow model rather than the sim reading the
+    positioning slot directly.
 
 ---
 
@@ -990,26 +1130,29 @@ stage (§11).
 
 | File | Responsibility |
 |---|---|
-| `MSUIClient/World/Encounters/EncounterDefinition.cs` | Schema, fidelity registry, coverage flags, `Holes()`, `WorstFidelity()` |
+| `MSUIClient/World/Encounters/EncounterDefinition.cs` | Schema, fidelity registry, coverage flags, `Holes()`, `WorstFidelity()`; **`RaidSide`, rotation `Id`, body `Side` + slot references (§8.9)** |
+| `MSUIClient/World/Encounters/CombatSlots.cs` | **NEW (§8.9)** — the positioning slot model: `RaidSide.Mirror()`, `PositioningScript`, `PositioningPhaseStep` |
 | `MSUIClient/World/Encounters/EncounterGeometry.cs` | `BodyCapsule`, `Footprint`, `IEncounterSpellFacts`, resolve + hit tests |
-| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step; **ordered-move fired/active state captured for scrub-correct route retirement**; deterministic per-character **Combat Plan intent + follow doctrine**, captured for rewind (§8.7) |
+| `MSUIClient/World/Encounters/EncounterSim.cs` | `SeededRng`, actors, events, snapshot ring, the step; **ordered-move fired/active state captured for scrub-correct route retirement**; deterministic per-character **Combat Plan intent + follow doctrine**, captured for rewind (§8.7); **per-body positioning slot drives phase movement — `Options.Positioning`, `ResolvePhaseDirective`, spot-based fan-out (§8.9)** |
 | `MSUIClient/World/Encounters/EncounterProbe.cs` | `ProbeTrajectory`, `ProbeReport`, structural scan |
 | `MSUIClient/World/Encounters/EncounterTranslator.cs` | world-DB rows → definition |
-| `MSUIClient/World/Encounters/EncounterLibrary.cs` | JSON DTOs ⇄ model, load/save |
-| `MSUIClient/World/Encounters/CombatPlanStore.cs` | Versioned per-character `combat-plans.json`: tolerant load, atomic explicit save/remove, shared plan DTO mapping (§8.7) |
+| `MSUIClient/World/Encounters/EncounterLibrary.cs` | JSON DTOs ⇄ model, load/save; **positioning-script DTOs + slot-id/side round-trip (§8.9)** |
+| `MSUIClient/World/Encounters/CombatPlanStore.cs` | Versioned `combat-plans.json`: tolerant load, atomic save/remove, shared plan DTO mapping; **now an id-keyed rotation *library* — `UpsertLibrary`/`MintId` (§8.9)** |
+| `MSUIClient/World/Encounters/PositioningScriptStore.cs` | **NEW (§8.9)** — versioned `positioning-scripts.json` library: tolerant load, atomic save/remove, `MintId` |
 | `MSUIClient/World/Encounters/EncounterSpellFacts.cs` | Spell.dbc + world DB bridge |
 | `MSUIClient/Net/EncounterWorldData.cs` | Row model + immutable snapshot |
 | `MSUIClient/Net/EncounterDataClient.cs` | 5 tables, CSV + 12 h disk cache |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4) |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.cs` | Window, transport (GO) + **combat clock (holds till pull) + boss health bar**, sections, click intercept, raid preset, staged orders, playbook UI, collision-ground placement, **sandbox-roam opt-in**, **attack animations + real spell visuals** (`ApplySpellGo`/`ApplySpellImpact` on puppet guids, §8.4); **`PositioningScriptStore` ref, positioning-map feed into the sim, `EncounterPlacement.PositioningSpot` (§8.9)** |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Overlays.cs` | 3-D decals + screen pass; committed and staged plans, anchor labels; **completed committed legs retire on arrival**, **role-coloured/weighted lines & dots**, **ground-projected orientation ring**, **boss health bar over the marker**, off-screen-safe path projection (§8.1–8.3); **terrain/WMO-projected cone + line visualizations, phase-filtered ability visualization + `ResolveVisualizedFootprint`, summon markers, orbit-sweep preview** (§8.6) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Puppets.cs` | Rendered raid/boss models: synthetic entities, per-look weapons, stable guid reserve, **SmoothDamp motion** (velocity-carrying follow, §8.1) + shortest-arc facing; **live orbit-drag position override** (§8.6); durable flying state for stationary hover (§8.8) |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Rts.cs` | Ctrl+F bridge: non-blocking puppet selection (§8.7), marquee, order routing (stage / immediate / teleport / facing), **Shift+Right-click waypoint orientation grab-spin-set** (§8.2), **Shift+Left-click body orbit-sweep grab→teleport-what-if** (§8.6), never touches `SuiOrder` |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.ActionPanel.cs` | **Live action step-through pop-out (§8.5)** — follows the selection, streams `sim.Events` for the target, current step ▶ + `+Xs` lead; dedicated phase-aware **Ability Visualizer** pop-out with a hover-help affordance and **Show/Hide** button per mechanic (§8.6) |
-| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Right-edge game-native **Character Customizer** affordance + five-view **Combat Plan workspace** (§8.7): templates, ordered doctrine, context overlay, live explanation, validation, draft undo/redo/revert/apply |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.PlayerSetup.cs` | Right-edge game-native **Character Customizer** affordance + **Combat Plan workspace** (§8.7): templates, ordered doctrine, context overlay, live explanation, validation, draft undo/redo/revert/apply; **footer now saves the rotation to its library + assigns by reference; movement card relocated to the Slots tab (§8.9)** |
+| `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Slots.cs` | **NEW (§8.9)** — the **Slots** tab: role+side pickers, rotation & positioning library assign/clone/new, **mirror**, movement-doctrine card, per-phase spot table; positioning draft + `BuildEncounterPositioningMap` (live-draft preview) + save/assign/resolve |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Probe.cs` | `MSUI_ENCLAB_PROBE` — 11 in-client checks + screenshots (§11); two assertions rewritten for §8.1 (clock-holds, stands) and pending a re-run |
 | `MSUIClient/GameLoop/Dev/GameLoop.EncounterLab.Tape.cs` | Recorder + predicted-vs-observed diff |
 | `encounters/onyxia.json` | The authored encounter + spec fuzz — boss at the exact DB spawn (guid 47572), real speeds, `detectionRangeYards`, declared `Stationary` idle with full provenance note |
-| `tools/encounter-lab-check/` | deterministic headless assertions, including Combat Plan resolution, precedence, rewind, follow bands, and JSON round-trip; `--live` integration mode |
+| `tools/encounter-lab-check/` | deterministic headless assertions (**132 pass**), including Combat Plan resolution, precedence, rewind, follow bands, JSON round-trip, and the **`positioning slot` section (§8.9): drives-to-spot, walks-there, playbook fallback, script-over-playbook precedence, shared-spot fan-out, mirror symmetry**; `--live` integration mode. Its `.csproj` links `CombatSlots.cs` + `PositioningScriptStore.cs` |
 
 **Touched — thin hooks only**
 
@@ -1026,7 +1169,7 @@ stage (§11).
 | `Engine/ClientWindow.cs` | `WorldMouseClick` carries Ctrl/Alt; `BuildStamp` (assembly write time, shown in the Lab toolbar) |
 | `Engine/GameSettings.cs` | `EncounterLabSettings` + `GameSettings.EncounterLab` (melee-reach gate, pull range, roam radius, and the new **`SandboxRoam`** opt-in — default off, §8.1) |
 | `Program.cs` Update | `UpdateEncounterLabProbe();` |
-| `.gitignore` | `/encounter-tapes/` (recordings). `/encounters/` deliberately tracked. |
+| `.gitignore` | `/encounter-tapes/` (recordings), `/combat-plans.json` + `/positioning-scripts.json` (per-user slot libraries, §8.9). `/encounters/` deliberately tracked. |
 
 **Not touched:** `Net/DevDataClient.cs`, `Net/DevWorldData.cs`,
 `GameLoop/Dev/GameLoop.DevWindow*.cs` — the in-flight NPC dev work.

@@ -144,6 +144,15 @@ public sealed class GameSettings
         public float BarScale { get; set; } = 1f;
         public float BarTextScale { get; set; } = 1f;
 
+        /// <summary>The docked workspace layout (2026-08-20): full-height side
+        /// rails of square buttons plus a bottom control deck, instead of
+        /// floating windows. Off = the classic floating-window layout.</summary>
+        public bool Workspace { get; set; } = true;
+
+        /// <summary>Bottom deck height as a fraction of the display (drag the
+        /// deck's top edge to change it).</summary>
+        public float DeckFraction { get; set; } = 0.30f;
+
         /// <summary>Chrome fill opacity for the creator panels (0.3 - 1).</summary>
         public float PanelAlpha { get; set; } = 0.62f;
 

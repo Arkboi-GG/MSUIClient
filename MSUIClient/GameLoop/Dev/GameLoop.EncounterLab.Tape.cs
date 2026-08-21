@@ -159,7 +159,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterTapeSection()
     {
-        if (!ImGui.CollapsingHeader("Tape (record & compare)")) return;
+        if (!EncounterSectionHeader("Tape (record & compare)")) return;
 
         var settings = Settings.EncounterLab;
         bool recording = settings.RecordTape;

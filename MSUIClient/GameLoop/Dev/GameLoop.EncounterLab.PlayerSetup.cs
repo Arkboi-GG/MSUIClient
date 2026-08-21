@@ -44,6 +44,9 @@ public sealed partial class GameLoop
         EnsureEncounterPlayerPlanDraft(actor);
         _encounterPlayerSetupKey = key;
         _encounterPlayerSetupRequested = true;
+        // In the docked workspace the customizer lives in the bottom deck, which
+        // only shows in the encounter view.
+        if (CreatorWorkspaceActive) _workspaceView = WorkspaceView.Encounter;
     }
 
     /// <summary>The one selected friendly puppet eligible for customization. Multi-selection
@@ -96,7 +99,7 @@ public sealed partial class GameLoop
         // selection itself wait on animation or stealing focus from world controls.
         float u = t - 1f;
         float eased = 1f + 2.70158f * u * u * u + 1.70158f * u * u;
-        float margin = 10f * s;
+        float margin = 10f * s + WorkspaceRightInsetX;
         float restingX = display.X - buttonSize.X - margin;
         float hiddenX = display.X + 4f * s;
         float x = hiddenX + (restingX - hiddenX) * eased;
@@ -150,7 +153,10 @@ public sealed partial class GameLoop
     /// is open or closed.</summary>
     private void DrawEncounterPlayerSetupModal()
     {
-        DrawEncounterPlayerSetupLauncher();
+        // The docked workspace has its own gateway (the right rail's Cust
+        // button) and hosts the editor in the bottom deck - no slide-in
+        // launcher, no floating window.
+        if (!CreatorWorkspaceActive) DrawEncounterPlayerSetupLauncher();
         if (!_encounterLabOpen)
         {
             _encounterPlayerSetupKey = null;
@@ -159,7 +165,7 @@ public sealed partial class GameLoop
             return;
         }
 
-        if (_encounterPlayerSetupKey is null) return;
+        if (CreatorWorkspaceActive || _encounterPlayerSetupKey is null) return;
 
         const string tuneId = "encounter-player-setup";
         _activePanelTune = tuneId;
@@ -169,13 +175,18 @@ public sealed partial class GameLoop
         // A regular chrome window docked to the RIGHT edge, deliberately NOT a
         // modal: the owner keeps the world - and the very puppet being
         // customized - clickable and orderable while the plan is edited.
+        // In the docked workspace, stop above the bottom deck by default.
+        float bottomInset = CreatorWorkspaceActive
+            ? Math.Clamp(Settings.Creator.DeckFraction, 0.16f, 0.55f) * display.Y
+            : 0f;
         Vector2 size = new(
             Math.Clamp(640f * cs, 560f, MathF.Max(560f, display.X * 0.45f)),
-            Math.Clamp(690f * cs, 520f, MathF.Max(520f, display.Y - 88f * s)));
+            Math.Clamp(690f * cs, 520f, MathF.Max(520f, display.Y - 88f * s - bottomInset)));
         ImGuiCond placement = _creatorLayoutResetFrames > 0
             ? ImGuiCond.Always : ImGuiCond.FirstUseEver;
         ImGui.SetNextWindowPos(new Vector2(
-            MathF.Max(12f, display.X - size.X - 12f), 64f * s), placement);
+            MathF.Max(12f, display.X - size.X - 12f - WorkspaceRightInsetX), 64f * s),
+            placement);
         // FirstUseEver lets ImGui's ini own every later resize.
         ImGui.SetNextWindowSize(size, placement);
         ImGui.SetNextWindowSizeConstraints(new Vector2(560f, 520f),
@@ -244,6 +255,11 @@ public sealed partial class GameLoop
         {
             if (ImGui.BeginTabBar("##combat-plan-tabs"))
             {
+                if (ImGui.BeginTabItem("Slots"))
+                {
+                    DrawEncounterPlanSlots(actorIndex, actor);
+                    ImGui.EndTabItem();
+                }
                 if (ImGui.BeginTabItem("Quick Plan"))
                 {
                     DrawEncounterQuickPlan(actor, plan);
@@ -280,6 +296,95 @@ public sealed partial class GameLoop
         ImGui.EndChild();
 
         ImGui.Separator();
+        DrawEncounterPlanFooter(actorIndex, actor, plan);
+    }
+
+    /// <summary>The manila folder strip's tab list for the deck customizer.</summary>
+    internal static readonly string[] EncounterPlanDeckTabs =
+        ["Slots", "Quick Plan", "Priorities", "Responsibilities", "Rotation", "Context", "Explain"];
+
+    /// <summary>The customizer as the workspace deck's content: a one-line
+    /// header, the SELECTED plan tab laid out WIDE (its groups as side-by-side
+    /// cards), and the Undo/Redo/Save footer. The folder strip above the deck
+    /// owns tab selection.</summary>
+    private void DrawEncounterPlayerSetupDeckBody(int tab)
+    {
+        int actorIndex = _encounterPlayerSetupKey is { } key
+            ? _encounterScenario.FindIndex(a => a.Key == key)
+            : -1;
+        if (actorIndex < 0 || _encounterScenario[actorIndex] is not
+            { Role: EncounterActorRole.Friendly } actor)
+        {
+            EncounterPlayerSetupDisabledWrapped(
+                "This player is no longer in the encounter scenario.");
+            if (EncounterPanelButton("Close")) _encounterPlayerSetupKey = null;
+            return;
+        }
+        EnsureEncounterPlayerPlanDraft(actor);
+        CombatPlan plan = _encounterPlayerPlanDraft!;
+
+        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), "Combat Plan");
+        ImGui.SameLine();
+        ImGui.TextColored(RoleColourVec4(actor.Role, actor.Job), actor.Name);
+        ImGui.SameLine();
+        ImGui.TextDisabled(actor.Job == RaidJob.None ? "friendly" : actor.Job.ToString());
+        if (_encounterPlayerPlanDirty)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, .65f, .2f, 1f), "DRAFT");
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled(EncounterCombatPlanSummary(plan));
+
+        float footerReserve = ImGui.GetFrameHeightWithSpacing() +
+                              ImGui.GetStyle().ItemSpacing.Y * 2f;
+        ImGui.BeginChild("##plan-deck-content", new Vector2(0f, -footerReserve));
+        float spacing = ImGui.GetStyle().ItemSpacing.X;
+        float avail = ImGui.GetContentRegionAvail().X;
+
+        void Cards(params (string Id, Action Body)[] groups)
+        {
+            float w = (avail - spacing * (groups.Length - 1)) / groups.Length;
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine();
+                BeginEncounterDeckCard($"##plan-card-{groups[i].Id}", w);
+                groups[i].Body();
+                EndEncounterDeckCard();
+            }
+        }
+
+        switch (tab)
+        {
+            case 0: DrawEncounterPlanSlots(actorIndex, actor); break;
+            case 1:
+                Cards(("intent", () => DrawEncounterQuickPlanIntent(actor)),
+                    ("engage", DrawEncounterQuickPlanEngagement));
+                break;
+            case 2:
+                Cards(("protect", DrawEncounterPlanProtectPriorities),
+                    ("enemy", DrawEncounterPlanEnemyPriorities));
+                break;
+            case 3:
+                Cards(("standing", DrawEncounterPlanStandingResponsibilities),
+                    ("resources", DrawEncounterPlanResourcePolicy),
+                    ("fallback", DrawEncounterPlanFallbackRule));
+                break;
+            case 4:
+                // Loadout card left, the spellbook grid takes the rest.
+                BeginEncounterDeckCard("##plan-card-loadout",
+                    MathF.Min(480f * CreatorUiScale, avail * 0.45f));
+                DrawEncounterRotationLoadout();
+                EndEncounterDeckCard();
+                ImGui.SameLine();
+                BeginEncounterDeckCard("##plan-card-spellbook", 0f);
+                DrawEncounterRotationSpellbook();
+                EndEncounterDeckCard();
+                break;
+            case 5: DrawEncounterPlanContext(actor); break;
+            default: DrawEncounterPlanExplain(actor, plan); break;
+        }
+        ImGui.EndChild();
         DrawEncounterPlanFooter(actorIndex, actor, plan);
     }
 
@@ -328,6 +433,7 @@ public sealed partial class GameLoop
         _encounterPlayerPlanDirty = false;
         _encounterPlayerPlanUndo.Clear();
         _encounterPlayerPlanRedo.Clear();
+        InvalidateEncounterPositioningDraft();
     }
 
     private void SetEncounterPlayerPlanDraft(CombatPlan next)
@@ -431,6 +537,16 @@ public sealed partial class GameLoop
 
     private void DrawEncounterQuickPlan(EncounterActorSpec actor, CombatPlan plan)
     {
+        DrawEncounterQuickPlanIntent(actor);
+        ImGui.SeparatorText("Positioning");
+        ImGui.TextDisabled("Where this body stands — follow/hold, per-phase spots, left/right — now lives " +
+                           "in the Slots tab's positioning script, held apart from this portable rotation.");
+        DrawEncounterQuickPlanEngagement();
+    }
+
+    private void DrawEncounterQuickPlanIntent(EncounterActorSpec actor)
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Start from intent");
         if (EncounterPanelButton("Use role template", 150f * CreatorUiScale))
             // Templates rewrite doctrine, not identity: the chosen class and the
@@ -448,42 +564,11 @@ public sealed partial class GameLoop
         if (ImGui.InputText("Plan name", ref name, 80))
             SetEncounterPlayerPlanDraftContinuous(plan with { Name = name });
         FinishEncounterPlayerPlanContinuousEdit();
+    }
 
-        ImGui.SeparatorText("Stay with / positioning");
-        CombatMovementPlan movement = plan.Movement ?? new CombatMovementPlan();
-        int mode = (int)movement.Mode;
-        if (ImGui.Combo("Movement", ref mode, "Independent\0Hold position\0Follow\0"))
-        {
-            CombatMovementMode nextMode = (CombatMovementMode)mode;
-            CombatSubject? anchor = nextMode == CombatMovementMode.Follow
-                ? movement.Anchor ?? CombatSubject.Tank(1) : movement.Anchor;
-            movement = movement with { Mode = nextMode, Anchor = anchor };
-            SetEncounterPlayerPlanDraft(plan with { Movement = movement });
-        }
-        if (movement.Mode == CombatMovementMode.Follow)
-        {
-            CombatSubject anchor = movement.Anchor ?? CombatSubject.Tank(1);
-            if (DrawEncounterSubjectCombo("Follow", anchor, allowLowestHealth: false,
-                    out CombatSubject selected))
-                SetEncounterPlayerPlanDraft(plan with
-                { Movement = movement with { Anchor = selected } });
-            float min = movement.MinRangeYards, max = movement.MaxRangeYards;
-            ImGui.SetNextItemWidth(250f * CreatorUiScale);
-            if (ImGui.SliderFloat("Minimum range", ref min, 0f, 40f, "%.0f yd"))
-                SetEncounterPlayerPlanDraftContinuous(plan with
-                { Movement = movement with { MinRangeYards = MathF.Min(min, max) } });
-            FinishEncounterPlayerPlanContinuousEdit();
-            ImGui.SetNextItemWidth(250f * CreatorUiScale);
-            if (ImGui.SliderFloat("Maximum range", ref max, 1f, 60f, "%.0f yd"))
-                SetEncounterPlayerPlanDraftContinuous(plan with
-                { Movement = movement with { MaxRangeYards = MathF.Max(max, min) } });
-            FinishEncounterPlayerPlanContinuousEdit();
-        }
-        bool face = movement.FacePrimaryEnemy;
-        if (ImGui.Checkbox("Always face the primary encounter target", ref face))
-            SetEncounterPlayerPlanDraft(plan with
-            { Movement = movement with { FacePrimaryEnemy = face } });
-
+    private void DrawEncounterQuickPlanEngagement()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Engagement");
         int engagement = (int)plan.Engagement;
         if (ImGui.Combo("May begin combat", ref engagement,
@@ -497,6 +582,13 @@ public sealed partial class GameLoop
 
     private void DrawEncounterPlanPriorities(CombatPlan plan)
     {
+        DrawEncounterPlanProtectPriorities();
+        DrawEncounterPlanEnemyPriorities();
+    }
+
+    private void DrawEncounterPlanProtectPriorities()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Protect — first applicable row wins");
         ImGui.TextDisabled("Resolved as live intent; healing execution awaits health/resource/cast state.");
         List<CombatSupportPriority> support = (plan.SupportPriorities ?? []).ToList();
@@ -546,8 +638,11 @@ public sealed partial class GameLoop
             SetEncounterPlayerPlanDraftContinuous(plan with { SupportPriorities = support.ToArray() });
         if (supportContinuousFinished)
             CommitEncounterPlayerPlanContinuousUndo();
+    }
 
-        plan = _encounterPlayerPlanDraft ?? plan;
+    private void DrawEncounterPlanEnemyPriorities()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Engage — first available enemy bucket wins");
         List<CombatEnemyPriority> enemies = (plan.EnemyPriorities ?? []).ToList();
         bool enemyChanged = false;
@@ -586,6 +681,14 @@ public sealed partial class GameLoop
 
     private void DrawEncounterPlanResponsibilities(CombatPlan plan)
     {
+        DrawEncounterPlanStandingResponsibilities();
+        DrawEncounterPlanResourcePolicy();
+        DrawEncounterPlanFallbackRule();
+    }
+
+    private void DrawEncounterPlanStandingResponsibilities()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Standing responsibilities");
         ImGui.TextDisabled("Portable ownership contract; cast execution is not simulated yet.");
         HashSet<CombatResponsibility> selected = new(plan.Responsibilities ?? []);
@@ -598,7 +701,11 @@ public sealed partial class GameLoop
             { Responsibilities = selected.OrderBy(value => value).ToArray() });
             plan = _encounterPlayerPlanDraft!;
         }
+    }
 
+    private void DrawEncounterPlanResourcePolicy()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("Resources and emergencies");
         CombatResourcePolicy resources = plan.Resources ?? new CombatResourcePolicy();
         int reserve = resources.ReservePercent;
@@ -615,7 +722,11 @@ public sealed partial class GameLoop
         if (ImGui.Checkbox("Reserve major cooldowns for emergencies", ref save))
             SetEncounterPlayerPlanDraft(plan with
             { Resources = resources with { SaveMajorCooldowns = save } });
+    }
 
+    private void DrawEncounterPlanFallbackRule()
+    {
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         ImGui.SeparatorText("If no rule can act");
         int fallback = (int)plan.Fallback;
         if (ImGui.Combo("Fallback", ref fallback,
@@ -645,14 +756,25 @@ public sealed partial class GameLoop
 
     private void DrawEncounterPlanRotation(CombatPlan plan)
     {
+        DrawEncounterRotationLoadout();
+        DrawEncounterRotationSpellbook();
+    }
+
+    private bool EncounterRotationDataMissing()
+    {
+        if (_spellCatalog is not null && _skillLines is not null) return false;
+        EncounterPlayerSetupDisabledWrapped(
+            "Spell data is unavailable (game archives not mounted). The rotation " +
+            "editor needs Spell.dbc and SkillLineAbility.dbc from the client MPQs.");
+        return true;
+    }
+
+    /// <summary>Class picker + the ordered rotation list.</summary>
+    private void DrawEncounterRotationLoadout()
+    {
+        if (EncounterRotationDataMissing()) return;
+        CombatPlan plan = _encounterPlayerPlanDraft!;
         float cs = CreatorUiScale;
-        if (_spellCatalog is null || _skillLines is null)
-        {
-            EncounterPlayerSetupDisabledWrapped(
-                "Spell data is unavailable (game archives not mounted). The rotation " +
-                "editor needs Spell.dbc and SkillLineAbility.dbc from the client MPQs.");
-            return;
-        }
 
         ImGui.SeparatorText("Class");
         ImGui.SetNextItemWidth(200f * cs);
@@ -717,7 +839,15 @@ public sealed partial class GameLoop
         }
         if (changed)
             SetEncounterPlayerPlanDraft(plan with { Rotation = rotation.ToArray() });
-        plan = _encounterPlayerPlanDraft ?? plan;
+    }
+
+    /// <summary>The class's trained-at-60 spellbook: search + clickable icon grid.</summary>
+    private void DrawEncounterRotationSpellbook()
+    {
+        if (EncounterRotationDataMissing()) return;
+        CombatPlan plan = _encounterPlayerPlanDraft!;
+        List<CombatAbilityIntent> rotation = (plan.Rotation ?? []).ToList();
+        float cs = CreatorUiScale;
 
         ImGui.SeparatorText("Spellbook");
         if (plan.ClassId == 0)
@@ -915,19 +1045,19 @@ public sealed partial class GameLoop
         if (EncounterPanelButton("Save & apply", enabled: _encounterPlayerPlanDirty))
         {
             CombatPlan applied = _encounterPlayerPlanDraft!;
-            if (EncounterCombatPlanStoreRef.Upsert(actor.Key, applied))
+            // Library save: the rotation is a reusable slot keyed by its own id, then
+            // assigned to this body by reference (AssignBodySlots stitches it back into
+            // the inline plan the sim reads, folding in the positioning slot's movement).
+            if (EncounterCombatPlanStoreRef.UpsertLibrary(applied, out CombatPlan stored))
             {
-                EncounterPlayerRules rules = actor.PlayerRules ?? new EncounterPlayerRules();
-                bool facePrimary = applied.Movement?.FacePrimaryEnemy == true;
-                _encounterScenario[actorIndex] = actor with
-                { PlayerRules = rules with { AlwaysFaceBoss = facePrimary, Plan = applied } };
-                _encounterPlayerPlanBaseline = applied;
+                _encounterPlayerPlanDraft = stored;
+                _encounterPlayerPlanBaseline = stored;
                 _encounterPlayerPlanContinuousUndoBaseline = null;
                 _encounterPlayerPlanDirty = false;
                 _encounterPlayerPlanUndo.Clear();
                 _encounterPlayerPlanRedo.Clear();
-                RebuildEncounterSimKeepingView();
-                AddChatMessage($"{actor.Name}: combat plan '{applied.Name}' saved and applied.");
+                AssignBodySlots(actorIndex, actor, rotation: stored);
+                AddChatMessage($"{actor.Name}: rotation '{stored.Name}' saved and applied.");
             }
             else
             {

@@ -38,6 +38,7 @@ public sealed partial class GameLoop
     private EncounterDataClient? _encounterData;
     private EncounterLibrary? _encounterLibrary;
     private CombatPlanStore? _encounterCombatPlanStore;
+    private PositioningScriptStore? _encounterPositioningStore;
     private EncounterSpellFacts? _encounterFacts;
 
     /// <summary>The definition currently loaded into the Lab, and how it was resolved.</summary>
@@ -173,7 +174,11 @@ public sealed partial class GameLoop
         AddChatMessage("GO — the plan is running.");
     }
 
-    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss, ActorMove, PlaybookSpot }
+    private enum EncounterPlacement { None, Probe, ProbeWaypoint, Actor, Boss, ActorMove, PlaybookSpot, PositioningSpot }
+
+    /// <summary>Context for an armed PositioningSpot placement: which phase of the
+    /// positioning draft the next ground click writes a MoveToSpot into.</summary>
+    private string _encounterPlacingPositioningPhase = "";
 
     /// <summary>Context for an armed PlaybookSpot placement: which cell of the
     /// playbook table the next ground click authors.</summary>
@@ -194,6 +199,18 @@ public sealed partial class GameLoop
                 Path.Combine(_config.RepoRoot, "combat-plans.json"));
             _encounterCombatPlanStore.Load();
             return _encounterCombatPlanStore;
+        }
+    }
+
+    private PositioningScriptStore EncounterPositioningStoreRef
+    {
+        get
+        {
+            if (_encounterPositioningStore is not null) return _encounterPositioningStore;
+            _encounterPositioningStore = new PositioningScriptStore(
+                Path.Combine(_config.RepoRoot, "positioning-scripts.json"));
+            _encounterPositioningStore.Load();
+            return _encounterPositioningStore;
         }
     }
 
@@ -220,6 +237,10 @@ public sealed partial class GameLoop
         _encounterLabOpen = !_encounterLabOpen;
         if (!_encounterLabOpen) { _encounterPlacing = EncounterPlacement.None; return; }
 
+        // The docked workspace shows the Lab through its rail + deck; opening
+        // (Ctrl+E or the rail button) lands directly in the encounter view.
+        if (CreatorWorkspaceActive) _workspaceView = WorkspaceView.Encounter;
+
         EncounterLibraryRef.Reload();
         if (EncounterData.Data is null && !EncounterData.Fetching)
             EncounterData.BeginFetch(Settings.DevWindow.SuiBaseUrl);
@@ -230,9 +251,121 @@ public sealed partial class GameLoop
     /// router. An armed placement mode owns the click completely — placing a probe
     /// must never also issue an RTS order. No-op when nothing is armed.
     /// </summary>
+    // ── boss carry & spin ────────────────────────────────────────────────────
+    // "Move boss": she FOLLOWS THE CURSOR over the ground; a click drops her
+    // there and flows straight into the radial facing spinner (mouse spins her
+    // in place, any click sets it). The sim rebuilds live (throttled) during
+    // the whole gesture, so visualized cones and footprints swing with her -
+    // the point is seeing where attacks land BEFORE authoring waypoints.
+    // Right-click cancels and puts her back exactly where the gesture began;
+    // "Reset boss" returns her to the document's spawn.
+
+    private enum BossMoveStage { None, Follow, Spin }
+
+    private BossMoveStage _encounterBossMove;
+    private Vector3 _encounterBossMoveOrigin;
+    private float _encounterBossMoveOriginFacing;
+    private double _encounterBossMoveLastRebuild;
+
+    private void BeginEncounterBossMove()
+    {
+        if (_encounterScenario.FirstOrDefault(a => a.Role == EncounterActorRole.Boss)
+            is not { } boss) return;
+        _encounterPlacing = EncounterPlacement.None;
+        _encounterBossMove = BossMoveStage.Follow;
+        _encounterBossMoveOrigin = boss.Position;
+        _encounterBossMoveOriginFacing = boss.Facing;
+        AddChatMessage("Boss follows the cursor. Click the ground to drop her, spin the " +
+                       "facing, click to set. Right-click cancels.");
+    }
+
+    /// <summary>Per-frame while the gesture is live; called from UpdateEncounterLab.</summary>
+    private void UpdateEncounterBossMove()
+    {
+        if (_encounterBossMove == BossMoveStage.None) return;
+        if (!_encounterLabOpen) { _encounterBossMove = BossMoveStage.None; return; }
+        if (ImGui.GetIO().WantCaptureMouse) return;   // pointer over a panel: hold
+        if (!TryPickGround(_window.MousePosition, out Vector3 ground)) return;
+
+        int at = _encounterScenario.FindIndex(a => a.Key == BossActorKey());
+        if (at < 0) { _encounterBossMove = BossMoveStage.None; return; }
+        EncounterActorSpec boss = _encounterScenario[at];
+
+        if (_encounterBossMove == BossMoveStage.Follow)
+        {
+            _encounterScenario[at] = boss with { Position = ground };
+        }
+        else
+        {
+            float facing = EncounterGeometryLaw.Facing(boss.Position, ground);
+            if (float.IsNaN(facing)) return;
+            _encounterScenario[at] = boss with { Facing = facing };
+        }
+
+        // Throttled LIVE rebuild - interactive re-simulation is the Lab's
+        // designed-for case ("the fight re-runs in a frame"), so the overlays
+        // track her through the whole drag without waiting for the drop.
+        double now = NowSeconds();
+        if (now - _encounterBossMoveLastRebuild >= 0.12)
+        {
+            _encounterBossMoveLastRebuild = now;
+            RebuildEncounterSimKeepingView();
+        }
+    }
+
+    /// <summary>Click owner while the gesture is live: left advances the stage
+    /// (drop → spin → set), right cancels and restores the starting pose.</summary>
+    private bool HandleEncounterBossMoveClick(WorldMouseClick click)
+    {
+        if (_encounterBossMove == BossMoveStage.None) return false;
+        int at = _encounterScenario.FindIndex(a => a.Key == BossActorKey());
+        if (at < 0) { _encounterBossMove = BossMoveStage.None; return true; }
+
+        if (click.Button != MouseButton.Left)
+        {
+            _encounterScenario[at] = _encounterScenario[at] with
+            { Position = _encounterBossMoveOrigin, Facing = _encounterBossMoveOriginFacing };
+            _encounterBossMove = BossMoveStage.None;
+            RebuildEncounterSimKeepingView();
+            AddChatMessage("Boss move cancelled - she is back where she was.");
+            return true;
+        }
+
+        if (_encounterBossMove == BossMoveStage.Follow)
+        {
+            if (TryPickGround(click.Position, out Vector3 point))
+                _encounterScenario[at] = _encounterScenario[at] with { Position = point };
+            _encounterBossMove = BossMoveStage.Spin;
+            RebuildEncounterSimKeepingView();
+            return true;
+        }
+
+        _encounterBossMove = BossMoveStage.None;
+        RebuildEncounterSimKeepingView();
+        AddChatMessage($"Boss placed, facing {EncounterFacingLabel(_encounterScenario[at].Facing)}. " +
+                       "'Reset boss' returns her to spawn.");
+        return true;
+    }
+
+    /// <summary>Back to the document's spawn - position AND facing.</summary>
+    private void ResetEncounterBoss()
+    {
+        _encounterBossMove = BossMoveStage.None;
+        if (_encounterDefinition?.Actors?.FirstOrDefault(a =>
+                a.Role == EncounterActorRole.Boss) is not { } home) return;
+        int at = _encounterScenario.FindIndex(a => a.Key == BossActorKey());
+        if (at < 0) return;
+        _encounterScenario[at] = _encounterScenario[at] with
+        { Position = home.Position, Facing = home.Facing };
+        RebuildEncounterSimKeepingView();
+        AddChatMessage("Boss reset to her document spawn.");
+    }
+
     private bool HandleEncounterLabClick(WorldMouseClick click)
     {
-        if (!_encounterLabOpen || _encounterPlacing == EncounterPlacement.None) return false;
+        if (!_encounterLabOpen) return false;
+        if (HandleEncounterBossMoveClick(click)) return true;
+        if (_encounterPlacing == EncounterPlacement.None) return false;
         if (click.Button != MouseButton.Left)
         {
             _encounterPlacing = EncounterPlacement.None;   // right-click cancels
@@ -271,6 +404,11 @@ public sealed partial class GameLoop
                 UpsertPlaybookDirective(_encounterPlacingPlaybookPhase,
                     _encounterPlacingPlaybookJob, RaidDirectiveKind.MoveToSpot, point);
                 break;
+
+            case EncounterPlacement.PositioningSpot
+                when _encounterPlacingPositioningPhase.Length > 0:
+                SetPositioningPhaseSpot(_encounterPlacingPositioningPhase, point);
+                break;
         }
 
         _encounterPlacing = EncounterPlacement.None;
@@ -296,6 +434,9 @@ public sealed partial class GameLoop
 
         // A live orbit-drag sweeps a body around the boss on its ring every frame.
         UpdateEncounterOrbitDrag();
+
+        // A live boss carry/spin gesture tracks the cursor every frame.
+        UpdateEncounterBossMove();
 
         if (!_encounterLabOpen || _encounterSim is not { } sim) return;
         if (!_encounterPlaying || _encounterScrubbing) return;
@@ -631,9 +772,12 @@ public sealed partial class GameLoop
 
     private void RebuildEncounterSim()
     {
-        // Wholesale: a rebuilt scenario can change a body's display under an
-        // unchanged key, and a puppet's fields are set once at spawn.
-        ClearEncounterPuppets();
+        // Selective, not wholesale: a puppet's fields are set once at spawn, so
+        // only bodies whose DISPLAY actually changed under their key need a
+        // respawn. Clearing every puppet here made all the models blink per
+        // rebuild — invisible for one-click edits, constant flicker once the
+        // boss-move gesture started rebuilding the sim live during a drag.
+        PurgeStaleEncounterPuppets();
         if (_encounterDefinition is not { } definition) { _encounterSim = null; return; }
         EnsureEncounterFacts();
         var settings = Settings.EncounterLab;
@@ -652,6 +796,7 @@ public sealed partial class GameLoop
             RoamRadiusYards = Math.Clamp(settings.RoamRadiusYards, 5f, 60f),
             MeleeDpsNeedsReach = settings.MeleeDpsNeedsReach,
             Playbook = _encounterPlaybook.Count > 0 ? _encounterPlaybook.ToArray() : null,
+            Positioning = BuildEncounterPositioningMap(),
         }, _encounterFacts);
 
         // Run the WHOLE fight now, then rewind the view to the start. Before this,
@@ -1031,6 +1176,9 @@ public sealed partial class GameLoop
     private void DrawEncounterLab()
     {
         if (!_encounterLabOpen) return;
+        // In the docked workspace the Lab lives in the rail + deck; the floating
+        // window (and its collapse chip) belongs to the classic layout only.
+        if (CreatorWorkspaceActive) return;
 
         UpdateEncounterLabCollapse();
         if (_encounterLabCollapsed)
@@ -1100,9 +1248,12 @@ public sealed partial class GameLoop
             status = $"build {stamp} · {status}";
         float rowStart = ImGui.GetCursorPosX();
         float avail = ImGui.GetContentRegionAvail().X;
-        float buttonW = EncounterPanelButtonWidth("Refresh DB") +
-                        ImGui.GetStyle().ItemSpacing.X +
-                        EncounterPanelButtonWidth("Minimize");
+        // Minimize collapses the floating window into its chip — meaningless in
+        // the docked workspace, where the deck's rail button is the toggle.
+        bool offerMinimize = !CreatorWorkspaceActive;
+        float buttonW = EncounterPanelButtonWidth("Refresh DB") + (offerMinimize
+            ? ImGui.GetStyle().ItemSpacing.X + EncounterPanelButtonWidth("Minimize")
+            : 0f);
         bool inline = ImGui.CalcTextSize(status).X + ImGui.GetStyle().ItemSpacing.X +
                       buttonW <= avail;
         if (inline)
@@ -1121,16 +1272,51 @@ public sealed partial class GameLoop
             data.BeginFetch(Settings.DevWindow.SuiBaseUrl, forceRefresh: true);
             _encounterFacts = null;
         }
-        ImGui.SameLine();
-        if (EncounterPanelButton("Minimize"))
+        if (offerMinimize)
         {
-            // A manual collapse sticks until the chip is clicked; it is not
-            // undone by the auto-restore that ends an auto collapse.
-            _encounterLabCollapsed = true;
-            _encounterLabAutoCollapsed = false;
+            ImGui.SameLine();
+            if (EncounterPanelButton("Minimize"))
+            {
+                // A manual collapse sticks until the chip is clicked; it is not
+                // undone by the auto-restore that ends an auto collapse.
+                _encounterLabCollapsed = true;
+                _encounterLabAutoCollapsed = false;
+            }
         }
         if (data.Data?.Error is { Length: > 0 } error)
             ImGui.TextColored(new Vector4(1f, .55f, .35f, 1f), error);
+    }
+
+    // ── section headers ──────────────────────────────────────────────────────
+    // The workspace deck presents sections through its rail + tabs, where a
+    // collapsing band inside the content is pure vertical waste; the classic
+    // floating window keeps the bands. Every encounter section gates on this
+    // helper instead of calling CollapsingHeader directly.
+
+    private bool _encounterSectionsFlat;
+
+    private bool EncounterSectionHeader(string label,
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags.None)
+        => _encounterSectionsFlat || ImGui.CollapsingHeader(label, flags);
+
+    /// <summary>One fixed-width card in a side-by-side deck row (flat mode
+    /// only): repeating blocks - a playbook phase, a roster body - sit next to
+    /// each other across the deck instead of stacking down it. Sets its own
+    /// font scale: ImGui consults only the IMMEDIATE parent's FontWindowScale,
+    /// so a grandchild of the deck's scaled child would otherwise fall back to
+    /// the base font.</summary>
+    private void BeginEncounterDeckCard(string id, float width, float height = 0f)
+    {
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.10f, 0.09f, 0.075f, 0.65f));
+        ImGui.BeginChild(id, new Vector2(width, height), true);
+        ImGui.SetWindowFontScale(CreatorTextScale);
+    }
+
+    private static void EndEncounterDeckCard()
+    {
+        ImGui.SetWindowFontScale(1f);
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
     }
 
     // ── subject ──────────────────────────────────────────────────────────────
@@ -1169,7 +1355,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterSubjectSection()
     {
-        if (!ImGui.CollapsingHeader("Encounter", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (!EncounterSectionHeader("Encounter", ImGuiTreeNodeFlags.DefaultOpen)) return;
 
         EncounterLibrary library = EncounterLibraryRef;
         if (EncounterPanelButton("Reload documents")) library.Reload();
@@ -1232,7 +1418,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterOverlaySection()
     {
-        if (!ImGui.CollapsingHeader("Overlays")) return;
+        if (!EncounterSectionHeader("Overlays")) return;
         var settings = Settings.EncounterLab;
         bool changed = false;
 
@@ -1297,13 +1483,21 @@ public sealed partial class GameLoop
 
     private void DrawEncounterTransportSection()
     {
-        if (!ImGui.CollapsingHeader("Transport", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (!EncounterSectionHeader("Transport", ImGuiTreeNodeFlags.DefaultOpen)) return;
         if (_encounterSim is not { } sim)
         {
             ImGui.TextDisabled("load an encounter to simulate it");
             return;
         }
-        var settings = Settings.EncounterLab;
+        DrawEncounterTransportControls(sim);
+        ImGui.Separator();
+        DrawEncounterTransportDials();
+    }
+
+    /// <summary>GO / play / step / reset, the scrub bar, phase and boss health,
+    /// and the pull state. A sub-tab in the workspace deck.</summary>
+    private void DrawEncounterTransportControls(EncounterSim sim)
+    {
         float cs = CreatorUiScale;
 
         int fightEndMs = sim.Timeline.Count > 0 ? sim.Timeline[^1].TimeMs : 0;
@@ -1380,7 +1574,7 @@ public sealed partial class GameLoop
         ImGui.Text($"phase: {sim.Definition.Phase(sim.PhaseKey)?.Name ?? sim.PhaseKey}");
         EncounterSameLineForButton("Visualize abilities", 150f * cs);
         if (EncounterPanelButton("Visualize abilities", 150f * cs))
-            _encounterAbilityPanelOpen = true;
+            OpenEncounterAbilityVisualizer();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open a phase-aware pop-out with one Visualize button\n" +
                              "for every boss mechanic available right now.");
@@ -1404,8 +1598,13 @@ public sealed partial class GameLoop
         else if (_encounterViewMs < sim.EngagedAtMs)
             ImGui.TextDisabled($"pre-pull · she engages at {sim.EngagedAtMs / 1000f:0.0}s");
         if (_encounterOutcome.Length > 0) ImGui.TextDisabled(_encounterOutcome);
+    }
 
-        ImGui.Separator();
+    /// <summary>Speed / seed / step / raid-dps dials. A sub-tab in the deck.</summary>
+    private void DrawEncounterTransportDials()
+    {
+        var settings = Settings.EncounterLab;
+        float cs = CreatorUiScale;
         float speed = settings.PlaybackSpeed;
         ImGui.SetNextItemWidth(160f * cs);
         if (ImGui.SliderFloat("speed", ref speed, 0.1f, 8f, "%.2fx"))
@@ -1470,17 +1669,46 @@ public sealed partial class GameLoop
 
     private void DrawEncounterScenarioSection()
     {
-        if (!ImGui.CollapsingHeader("Scenario", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (!EncounterSectionHeader("Scenario", ImGuiTreeNodeFlags.DefaultOpen)) return;
         if (_encounterDefinition is null)
         {
             ImGui.TextDisabled("load an encounter first");
             return;
         }
+        DrawEncounterScenarioPlacement();
+        DrawEncounterPlaybook();
+        DrawEncounterScenarioAggroPlan();
+        ImGui.Separator();
+        DrawEncounterScenarioRoster();
+    }
 
+    /// <summary>Boss/raid placement, the pull ring, pre-pull movement truth and
+    /// the what-if roam, the melee-reach gate, and the RTS verb hints. A sub-tab
+    /// in the workspace deck; the first block of the classic stacked section.</summary>
+    private void DrawEncounterScenarioPlacement()
+    {
         if (_encounterPlacing != EncounterPlacement.None)
             ImGui.TextColored(new Vector4(.5f, 1f, .6f, 1f),
                 "click the world to place · right-click cancels");
+        if (_encounterBossMove != BossMoveStage.None)
+            ImGui.TextColored(new Vector4(.5f, 1f, .6f, 1f),
+                _encounterBossMove == BossMoveStage.Follow
+                    ? "boss follows the cursor · click the ground to drop her · right-click cancels"
+                    : "spin her facing with the mouse · click to set · right-click cancels");
 
+        if (EncounterPanelButton("Move boss", compact: true))
+            BeginEncounterBossMove();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("She follows the cursor; click to drop her, spin the\n" +
+                             "facing, click to set. Cones and footprints track the\n" +
+                             "whole gesture, so you SEE where attacks land before\n" +
+                             "authoring waypoints.");
+        EncounterSameLineForButton("Reset boss", compact: true);
+        if (EncounterPanelButton("Reset boss", compact: true))
+            ResetEncounterBoss();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Back to the document's spawn - position and facing.");
+        EncounterSameLineForButton("Place boss", compact: true);
         if (EncounterPanelButton("Place boss", compact: true))
             _encounterPlacing = EncounterPlacement.Boss;
         EncounterSameLineForButton("Place raid (10)", compact: true);
@@ -1593,11 +1821,12 @@ public sealed partial class GameLoop
         ImGui.TextColored(new Vector4(.6f, .85f, 1f, 1f),
             "Orient a waypoint: Shift+Right-click a dot to grab it, move the mouse to" +
             " spin the arrow freely, click to set");
+    }
 
-        DrawEncounterPlaybook();
-
-        // The aggro plan, one line per swap. SHE FACES THE HOLDER, so this list
-        // plus the bodies' positions IS the geometry of the whole fight.
+    /// <summary>The aggro plan, one line per swap. SHE FACES THE HOLDER, so this
+    /// list plus the bodies' positions IS the geometry of the whole fight.</summary>
+    private void DrawEncounterScenarioAggroPlan()
+    {
         if (_encounterAggroPlan.Count > 0)
         {
             for (int a = 0; a < _encounterAggroPlan.Count; a++)
@@ -1616,13 +1845,30 @@ public sealed partial class GameLoop
             }
         }
         else ImGui.TextDisabled("no aggro assigned - she turns to the nearest body ('aggro' on a body fixes that)");
+    }
 
-        ImGui.Separator();
+    /// <summary>The roster: one block per body with its verbs (rules / place /
+    /// move / aggro / remove), its dps input, and its authored moves.</summary>
+    private void DrawEncounterScenarioRoster()
+    {
         string? aggroNowKey = AggroHolderKeyAt(_encounterViewMs);
+        // Flat (deck) mode: one CARD per body, side by side; the row scrolls
+        // horizontally when the raid outgrows the width.
+        bool flat = _encounterSectionsFlat;
+        if (flat)
+            ImGui.BeginChild("##roster-cards", new Vector2(0f, 0f), false,
+                ImGuiWindowFlags.HorizontalScrollbar);
+        bool firstCard = true;
         for (int i = 0; i < _encounterScenario.Count; i++)
         {
             EncounterActorSpec actor = _encounterScenario[i];
             ImGui.PushID(i);
+            if (flat)
+            {
+                if (!firstCard) ImGui.SameLine();
+                firstCard = false;
+                BeginEncounterDeckCard($"##ros-card-{actor.Key}", 230f * CreatorUiScale);
+            }
             ImGui.Text($"{actor.Name}");
             ImGui.SameLine();
             ImGui.TextDisabled(actor.Job == RaidJob.None
@@ -1650,6 +1896,15 @@ public sealed partial class GameLoop
                 _encounterPlacing = EncounterPlacement.Actor;
                 _encounterPlacingActorKey = actor.Key;
             }
+            if (actor.Role == EncounterActorRole.Boss)
+            {
+                EncounterSameLineForButton("move", compact: true);
+                if (EncounterPanelButton("move", compact: true)) BeginEncounterBossMove();
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("She follows the cursor; click to drop, spin, click to set.");
+                EncounterSameLineForButton("reset", compact: true);
+                if (EncounterPanelButton("reset", compact: true)) ResetEncounterBoss();
+            }
             if (actor.Role != EncounterActorRole.Boss)
             {
                 EncounterSameLineForButton($"move @ {_encounterViewMs / 1000f:0.0}s",
@@ -1674,6 +1929,7 @@ public sealed partial class GameLoop
                     _encounterScenario.RemoveAt(i);
                     _encounterAggroPlan.RemoveAll(a => a.Key == actor.Key);
                     RebuildEncounterSimKeepingView();
+                    if (flat) EndEncounterDeckCard();
                     ImGui.PopID();
                     break;
                 }
@@ -1698,8 +1954,10 @@ public sealed partial class GameLoop
                     }
                 }
             }
+            if (flat) EndEncounterDeckCard();
             ImGui.PopID();
         }
+        if (flat) ImGui.EndChild();
     }
 
     /// <summary>The (phase × job) standing-orders table. One combo per cell:
@@ -1709,15 +1967,33 @@ public sealed partial class GameLoop
     private void DrawEncounterPlaybook()
     {
         if (_encounterDefinition is not { } definition) return;
-        if (!ImGui.TreeNode("role playbook (what each job does when a phase turns)"))
+        // In the workspace deck the playbook has its OWN sub-tab; the TreeNode
+        // fold belongs to the classic stacked window.
+        if (!_encounterSectionsFlat &&
+            !ImGui.TreeNode("role playbook (what each job does when a phase turns)"))
             return;
 
         ReadOnlySpan<RaidJob> jobs = [RaidJob.Tank, RaidJob.Healer, RaidJob.Melee, RaidJob.Ranged];
         string[] kinds = ["—", "hold", "chase boss", "to spot"];
         float cs = CreatorUiScale;
 
+        // Flat (deck) mode: one CARD per phase, side by side across the width.
+        bool flat = _encounterSectionsFlat;
+        if (flat)
+        {
+            ImGui.TextDisabled("— means no change at that turn; explicit orders always override");
+            ImGui.BeginChild("##playbook-cards", new Vector2(0f, 0f), false,
+                ImGuiWindowFlags.HorizontalScrollbar);
+        }
+        bool firstCard = true;
         foreach (EncounterPhase phase in definition.Phases)
         {
+            if (flat)
+            {
+                if (!firstCard) ImGui.SameLine();
+                firstCard = false;
+                BeginEncounterDeckCard($"##pb-card-{phase.Key}", 250f * cs);
+            }
             ImGui.Text(phase.Name);
             if (phase.CasterFlying) { ImGui.SameLine(); ImGui.TextDisabled("(flying)"); }
             foreach (RaidJob job in jobs)
@@ -1767,9 +2043,14 @@ public sealed partial class GameLoop
                 }
                 ImGui.PopID();
             }
+            if (flat) EndEncounterDeckCard();
         }
-        ImGui.TextDisabled("— means no change at that turn; explicit orders always override");
-        ImGui.TreePop();
+        if (flat) ImGui.EndChild();
+        else
+        {
+            ImGui.TextDisabled("— means no change at that turn; explicit orders always override");
+            ImGui.TreePop();
+        }
     }
 
     /// <summary>One move entry, described the way it will fire.</summary>
@@ -1790,7 +2071,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterTimelineSection()
     {
-        if (!ImGui.CollapsingHeader("Timeline", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (!EncounterSectionHeader("Timeline", ImGuiTreeNodeFlags.DefaultOpen)) return;
         if (_encounterSim is not { } sim)
         {
             ImGui.TextDisabled("nothing simulated yet");
@@ -1808,7 +2089,7 @@ public sealed partial class GameLoop
                              "(the boss by default) and shows exactly what it\n" +
                              "steps through — casts, phase turns, hits — in real time.");
         if (EncounterPanelButton("Abilities ▸ Visualize", compact: true))
-            _encounterAbilityPanelOpen = true;
+            OpenEncounterAbilityVisualizer();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Open the current phase's boss ability visualizer.");
 
@@ -1823,7 +2104,9 @@ public sealed partial class GameLoop
         if (nearby.Count == 0) { ImGui.TextDisabled("no events near this instant"); return; }
 
         float cs = CreatorUiScale;
-        if (ImGui.BeginChild("##enc-timeline", new Vector2(0f, 180f * cs), true))
+        // In the deck the list IS the pane: fill the height, no peephole.
+        if (ImGui.BeginChild("##enc-timeline",
+                new Vector2(0f, _encounterSectionsFlat ? 0f : 180f * cs), true))
         {
             foreach (SimEvent simEvent in nearby)
             {
@@ -1855,7 +2138,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterProbeSection()
     {
-        if (!ImGui.CollapsingHeader("Position probe", ImGuiTreeNodeFlags.DefaultOpen)) return;
+        if (!EncounterSectionHeader("Position probe", ImGuiTreeNodeFlags.DefaultOpen)) return;
 
         if (EncounterPanelButton("Place probe", compact: true))
             _encounterPlacing = EncounterPlacement.Probe;
@@ -1925,7 +2208,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterAbilitiesSection()
     {
-        if (!ImGui.CollapsingHeader("Abilities")) return;
+        if (!EncounterSectionHeader("Abilities")) return;
         if (_encounterDefinition is not { } definition)
         {
             ImGui.TextDisabled("load an encounter first");
@@ -2010,7 +2293,7 @@ public sealed partial class GameLoop
 
     private void DrawEncounterCoverageSection()
     {
-        if (!ImGui.CollapsingHeader("Coverage & holes")) return;
+        if (!EncounterSectionHeader("Coverage & holes")) return;
         if (_encounterDefinition is not { } definition)
         {
             ImGui.TextDisabled("load an encounter first");

@@ -29,6 +29,7 @@ internal static class Program
 
         GeometryChecks();
         SimulatorChecks();
+        PositioningSlotChecks();
         ProbeChecks();
         TranslatorChecks();
         LibraryChecks(repoRoot);
@@ -580,6 +581,104 @@ internal static class Program
     }
 
     // ── probe ────────────────────────────────────────────────────────────────
+
+    // ── positioning slot ───────────────────────────────────────────────────────
+
+    private static void PositioningSlotChecks()
+    {
+        Section("positioning slot");
+
+        EncounterDefinition definition = TwoPhaseTestEncounter();
+        var sideSpot = new Vector3(25f, 15f, 0f);
+
+        // A ranged body assigned a positioning script that sends it to a side spot in
+        // the opening phase; a tank with no script that still obeys the job playbook.
+        var leftRanged = new PositioningScript(
+            Id: "left-ranged", Name: "left ranged", Role: RaidJob.Ranged, Side: RaidSide.Left,
+            Movement: new CombatMovementPlan(),
+            Phases: [new PositioningPhaseStep("ground", RaidDirectiveKind.MoveToSpot, sideSpot)],
+            EncounterKey: definition.Key);
+
+        List<EncounterActorSpec> scenario =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("tank", "tank", 0, EncounterActorRole.Friendly, new Vector3(6f, 0f, 0f),
+                Job: RaidJob.Tank),
+            new("ranged", "ranged", 0, EncounterActorRole.Friendly, new Vector3(25f, 0f, 0f),
+                Job: RaidJob.Ranged, Side: RaidSide.Left,
+                PlayerRules: new EncounterPlayerRules(PositioningId: "left-ranged")),
+        ];
+
+        var positioningMap = new Dictionary<string, PositioningScript> { ["ranged"] = leftRanged };
+        var sim = new EncounterSim(definition, scenario, new EncounterSimOptions
+        {
+            Seed = 7,
+            StepMs = 100,
+            RaidDpsFraction = 0f,      // boss never drops below the phase gate — stays "ground"
+            PullRangeYards = 100f,
+            Playbook = [new RaidPhaseDirective("ground", RaidJob.Tank, RaidDirectiveKind.ChaseBoss)],
+            Positioning = positioningMap,
+        });
+
+        SimActor ranged = sim.Actors.First(a => a.Key == "ranged");
+        SimActor tank = sim.Actors.First(a => a.Key == "tank");
+
+        sim.Advance();   // pull at t=0 re-enters "ground": positioning + playbook apply
+        Check("assigned positioning drives the body to its authored spot",
+            ranged.MoveTarget is { } target && Vector3.Distance(target, sideSpot) < 0.01f);
+        Check("a body with no script still obeys the job playbook (no regression)",
+            tank.AutoChase);
+
+        sim.AdvanceTo(6_000);   // 15 yd at 7 yd/s ≈ 2.1 s
+        Check("the positioned body actually walks to its spot",
+            Vector3.Distance(ranged.Position, sideSpot) < 1.0f);
+
+        // Precedence: an assigned script overrides the job playbook for ITS body. A
+        // ranged Chase row must not win over the script's Move-to-spot.
+        var sim2 = new EncounterSim(definition, scenario, new EncounterSimOptions
+        {
+            Seed = 7,
+            StepMs = 100,
+            RaidDpsFraction = 0f,
+            PullRangeYards = 100f,
+            Playbook = [new RaidPhaseDirective("ground", RaidJob.Ranged, RaidDirectiveKind.ChaseBoss)],
+            Positioning = positioningMap,
+        });
+        SimActor ranged2 = sim2.Actors.First(a => a.Key == "ranged");
+        sim2.Advance();
+        Check("the positioning slot overrides the job playbook for its own body",
+            !ranged2.AutoChase &&
+            ranged2.MoveTarget is { } t2 && Vector3.Distance(t2, sideSpot) < 0.01f);
+
+        // Two bodies sharing one script land on ONE spot fanned apart, not stacked.
+        List<EncounterActorSpec> pair =
+        [
+            new("boss", "Boss", 1, EncounterActorRole.Boss, Vector3.Zero, MaxHealth: 100_000),
+            new("h1", "healer 1", 0, EncounterActorRole.Friendly, new Vector3(20f, 2f, 0f),
+                Job: RaidJob.Healer, PlayerRules: new EncounterPlayerRules(PositioningId: "left-ranged")),
+            new("h2", "healer 2", 0, EncounterActorRole.Friendly, new Vector3(20f, -2f, 0f),
+                Job: RaidJob.Healer, PlayerRules: new EncounterPlayerRules(PositioningId: "left-ranged")),
+        ];
+        var shared = new EncounterSim(definition, pair, new EncounterSimOptions
+        {
+            Seed = 7, StepMs = 100, RaidDpsFraction = 0f, PullRangeYards = 100f,
+            Positioning = new Dictionary<string, PositioningScript>
+            { ["h1"] = leftRanged, ["h2"] = leftRanged },
+        });
+        SimActor h1 = shared.Actors.First(a => a.Key == "h1");
+        SimActor h2 = shared.Actors.First(a => a.Key == "h2");
+        shared.Advance();
+        Check("bodies sharing one spot are fanned apart, not stacked",
+            h1.MoveTarget is { } m1 && h2.MoveTarget is { } m2 &&
+            Vector3.Distance(m1, m2) > 0.5f);
+
+        // Model: the mirror mapping is symmetric and Center/None are their own mirror.
+        Check("RaidSide.Mirror is a symmetric Left⇄Right swap",
+            RaidSide.Left.Mirror() == RaidSide.Right &&
+            RaidSide.Right.Mirror() == RaidSide.Left &&
+            RaidSide.Center.Mirror() == RaidSide.Center &&
+            RaidSide.None.Mirror() == RaidSide.None);
+    }
 
     private static void ProbeChecks()
     {

@@ -318,6 +318,101 @@ public sealed partial class GameLoop
         ImGui.EndChild();
     }
 
+    /// <summary>Route "visualize the boss's abilities" to the right surface: the
+    /// workspace deck's Abil section when the docked layout is up, the floating
+    /// pop-out window otherwise.</summary>
+    private void OpenEncounterAbilityVisualizer()
+    {
+        if (CreatorWorkspaceActive)
+        {
+            _workspaceEncSection = "abilities";
+            _workspaceSubTabSel["abilities"] = 0;
+            _encounterPlayerSetupKey = null;   // reclaim the deck if the customizer holds it
+        }
+        else _encounterAbilityPanelOpen = true;
+    }
+
+    /// <summary>The ability visualizer as a card GRID filling the workspace deck:
+    /// every current-phase mechanic side by side with its fidelity colour,
+    /// provenance help and Show/Hide toggle. Same `_encounterVisualizedAbilities`
+    /// state as the floating pop-out, so either surface flips the same overlays.</summary>
+    private void DrawEncounterAbilityDeckGrid()
+    {
+        if (_encounterSim is not { } sim || _encounterDefinition is not { } definition ||
+            sim.Boss is null)
+        {
+            ImGui.TextDisabled("load an encounter first (Fight section)");
+            return;
+        }
+
+        List<EncounterAbility> abilities = definition.AbilitiesIn(sim.PhaseKey).ToList();
+        EncounterPhase? phase = definition.Phase(sim.PhaseKey);
+        int onCount = abilities.Count(a => _encounterVisualizedAbilities.Contains(a.Key));
+        float cs = CreatorUiScale;
+
+        // One summary row; the grid gets the rest of the deck.
+        ImGui.TextColored(new Vector4(1f, .82f, .28f, 1f), definition.Name);
+        ImGui.SameLine();
+        ImGui.Text($"· {phase?.Name ?? sim.PhaseKey} · {abilities.Count} available ·");
+        ImGui.SameLine();
+        if (onCount > 0)
+            ImGui.TextColored(new Vector4(.55f, 1f, .62f, 1f), $"{onCount} visible");
+        else ImGui.TextDisabled("0 visible");
+        EncounterSameLineForButton($"Clear phase ({onCount})", compact: true);
+        if (EncounterPanelButton($"Clear phase ({onCount})", enabled: onCount > 0, compact: true))
+            foreach (EncounterAbility ability in abilities)
+                _encounterVisualizedAbilities.Remove(ability.Key);
+
+        if (abilities.Count == 0)
+        {
+            ImGui.TextDisabled("No boss mechanics are authored for this phase.");
+            return;
+        }
+
+        float cardW = 240f * cs;
+        float cardH = ImGui.GetTextLineHeightWithSpacing() * 2.1f +
+                      CreatorButtonHeight + 22f * cs;
+        float spacing = ImGui.GetStyle().ItemSpacing.X;
+        int perRow = Math.Max(1,
+            (int)((ImGui.GetContentRegionAvail().X - 4f) / (cardW + spacing)));
+        // No font scale on this child: it inherits the deck child's; the cards
+        // re-assert it themselves (grandchildren do not inherit).
+        ImGui.BeginChild("##ability-grid", new Vector2(0f, 0f));
+        int drawn = 0;
+        foreach (EncounterAbility ability in abilities)
+        {
+            if (drawn++ % perRow != 0) ImGui.SameLine();
+            bool visualized = _encounterVisualizedAbilities.Contains(ability.Key);
+            Vector4 colour = FidelityColor(ability.Fidelity);
+            if (!visualized) colour.W = .82f;
+
+            ImGui.PushID(ability.Key);
+            BeginEncounterDeckCard($"##ab-card-{ability.Key}", cardW, cardH);
+            ImGui.PushStyleColor(ImGuiCol.Text, colour);
+            ImGui.TextWrapped($"{(visualized ? "[ON] " : "")}{ability.Name}");
+            ImGui.PopStyleColor();
+
+            float helpSize = MathF.Max(ImGui.GetTextLineHeight(), 18f * cs);
+            ImGui.SetCursorPosY(cardH - CreatorButtonHeight - 10f * cs);
+            DrawEncounterAbilityHelp(ability, helpSize);
+            ImGui.SameLine();
+            string caption = visualized ? "Hide" : "Show";
+            if (EncounterPanelButtonSized($"{caption}##ability-toggle-{ability.Key}",
+                    new Vector2(ImGui.GetContentRegionAvail().X, CreatorButtonHeight)))
+            {
+                if (visualized) _encounterVisualizedAbilities.Remove(ability.Key);
+                else _encounterVisualizedAbilities.Add(ability.Key);
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(visualized
+                    ? $"Stop visualizing {ability.Name}."
+                    : $"Visualize {ability.Name} in the world.");
+            EndEncounterDeckCard();
+            ImGui.PopID();
+        }
+        ImGui.EndChild();
+    }
+
     /// <summary>A compact, deliberately non-action help affordance. Technical provenance stays
     /// available for encounter authors without competing with the mechanic name and toggle.</summary>
     private void DrawEncounterAbilityHelp(EncounterAbility ability, float size)

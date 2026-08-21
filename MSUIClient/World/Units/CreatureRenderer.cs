@@ -457,10 +457,11 @@ public sealed partial class CreatureRenderer : IDisposable
             bool prominentHighlight = ProminentSelectedGuids.Contains(e.Guid);
             bool highlighted = prominentHighlight || e.Guid == HoveredGuid ||
                 e.Guid == SelectedGuid || GroupSelectedGuids.Contains(e.Guid);
-            // A slow pulse makes authoring selection obvious even when the model stands in
-            // bright light. Normal hover/target selection retains the stock subtle lift.
+            // A strong pulse makes authoring selection obvious even when the model stands in
+            // bright light or far away. Normal hover/target selection retains the stock
+            // subtle lift.
             float highlightStrength = prominentHighlight
-                ? 0.62f + 0.12f * MathF.Sin(_globalTime * 4f)
+                ? 0.95f + 0.18f * MathF.Sin(_globalTime * 4f)
                 : highlighted ? 64f / 255f : 0f;
 
             // The steed draws FIRST, because the rider's instance transform is its saddle.

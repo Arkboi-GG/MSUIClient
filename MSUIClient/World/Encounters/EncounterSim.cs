@@ -144,8 +144,18 @@ public sealed class EncounterSimOptions
 
     /// <summary>Per (phase × job) standing orders, applied when a phase turns.
     /// The seam answer to "what does melee do when she lifts off" — a table the
-    /// owner edits, never code. Explicit timed orders always override.</summary>
+    /// owner edits, never code. Explicit timed orders always override.
+    ///
+    /// LEGACY fallback: a body with an assigned <see cref="Positioning"/> script is
+    /// driven by that instead. The playbook still governs bodies with no assigned
+    /// positioning slot (and carries the default melee-chase seed).</summary>
     public IReadOnlyList<RaidPhaseDirective>? Playbook;
+
+    /// <summary>Per-body positioning slot, keyed by actor key. The authored answer to
+    /// "where does THIS body stand each phase" — role×side spots that override the
+    /// job-wide playbook for the bodies that carry one. Absent keys fall through to
+    /// <see cref="Playbook"/>.</summary>
+    public IReadOnlyDictionary<string, PositioningScript>? Positioning;
 }
 
 /// <summary>A live actor inside the simulation. Mutable during a step, snapshotted after.</summary>
@@ -955,10 +965,20 @@ public sealed class EncounterSim
         }
     }
 
-    private bool HasPhasePlaybookOrder(SimActor actor) =>
-        Engaged && Options.Playbook?.Any(directive =>
+    private bool HasPhasePlaybookOrder(SimActor actor)
+    {
+        if (!Engaged) return false;
+        // An assigned positioning slot is authoritative for its body: the playbook is
+        // not consulted. A step exists only for Chase/Spot phases (Hold is the absence
+        // of a step), and those already suppress follow via AutoChase/MoveTarget — so
+        // this only needs to report whether the script speaks to the current phase.
+        if (AssignedPositioning(actor) is { } script)
+            return script.Step(PhaseKey) is not null;
+
+        return Options.Playbook?.Any(directive =>
             directive.Job == actor.Spec.Job &&
             string.Equals(directive.PhaseKey, PhaseKey, StringComparison.Ordinal)) == true;
+    }
 
     private static void MaintainFollowRange(
         SimActor actor, SimActor anchor, CombatMovementPlan movement, int dt)
@@ -1110,26 +1130,18 @@ public sealed class EncounterSim
         }
     }
 
-    /// <summary>Apply the (phase × job) standing orders when a phase turns. Spot
-    /// directives fan same-job bodies around the authored point so six dps do not
-    /// stand inside one another.</summary>
+    /// <summary>Apply the standing positioning order when a phase turns: each body's
+    /// assigned positioning slot if it has one, otherwise the (phase × job) playbook.
+    /// Spot directives fan bodies that resolve to the SAME point around it, so two
+    /// group healers sharing one script — or six dps on one playbook spot — do not
+    /// stand inside one another, while an individually-authored spot is left exact.</summary>
     private void ApplyPlaybook(string phaseKey)
     {
-        if (Options.Playbook is not { Count: > 0 } playbook) return;
-        Dictionary<RaidJob, int> jobIndex = [];
+        Dictionary<(float, float), int> spotIndex = [];
         foreach (SimActor actor in _actors)
         {
             if (!actor.Alive || actor.Spec.Role != EncounterActorRole.Friendly) continue;
-            RaidJob job = actor.Spec.Job;
-            int index = jobIndex.GetValueOrDefault(job);
-            jobIndex[job] = index + 1;
-
-            RaidPhaseDirective? directive = null;
-            foreach (RaidPhaseDirective candidate in playbook)
-                if (candidate.Job == job &&
-                    string.Equals(candidate.PhaseKey, phaseKey, StringComparison.Ordinal))
-                { directive = candidate; break; }
-            if (directive is null) continue;
+            if (ResolvePhaseDirective(actor, phaseKey) is not { } directive) continue;
 
             switch (directive.Kind)
             {
@@ -1141,12 +1153,17 @@ public sealed class EncounterSim
                     break;
                 case RaidDirectiveKind.MoveToSpot:
                     actor.AutoChase = false;
+                    (float, float) cell = (MathF.Round(directive.Spot.X, 1),
+                                           MathF.Round(directive.Spot.Y, 1));
+                    int index = spotIndex.GetValueOrDefault(cell);
+                    spotIndex[cell] = index + 1;
                     float angle = index * (MathF.Tau / 8f);
                     Vector3 offset = index == 0
                         ? Vector3.Zero
                         : new Vector3(MathF.Cos(angle), MathF.Sin(angle), 0f) * 2.5f;
                     actor.MoveTarget = directive.Spot + offset;
-                    actor.PendingArrivalFacing = null;
+                    actor.PendingArrivalFacing =
+                        float.IsNaN(directive.Facing) ? null : directive.Facing;
                     Emit(SimEventKind.Move, actor.Key,
                         $"{actor.Spec.Name} falls back to the {phaseKey} spot",
                         targetKey: actor.Key);
@@ -1154,6 +1171,31 @@ public sealed class EncounterSim
             }
         }
     }
+
+    /// <summary>The phase directive that governs one body: its assigned positioning
+    /// slot's step if it has one, else the job-wide playbook row. A body with a script
+    /// but no step for this phase resolves to null — its movement doctrine (follow /
+    /// hold) governs, which is exactly what an unlisted "Hold" phase means.</summary>
+    private (RaidDirectiveKind Kind, Vector3 Spot, float Facing)? ResolvePhaseDirective(
+        SimActor actor, string phaseKey)
+    {
+        if (AssignedPositioning(actor) is { } script)
+            return script.Step(phaseKey) is { } step
+                ? (step.Kind, step.Spot, step.ArrivalFacing)
+                : null;
+
+        foreach (RaidPhaseDirective candidate in Options.Playbook ?? [])
+            if (candidate.Job == actor.Spec.Job &&
+                string.Equals(candidate.PhaseKey, phaseKey, StringComparison.Ordinal))
+                return (candidate.Kind, candidate.Spot, float.NaN);
+        return null;
+    }
+
+    /// <summary>The positioning script assigned to a body, or null. Presence in the
+    /// map is the assignment — a body with a script is governed by it, never the
+    /// playbook, even for phases the script leaves on Hold.</summary>
+    private PositioningScript? AssignedPositioning(SimActor actor) =>
+        Options.Positioning?.GetValueOrDefault(actor.Key);
 
     // ── abilities ────────────────────────────────────────────────────────────
 

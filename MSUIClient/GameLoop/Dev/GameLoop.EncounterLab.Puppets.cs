@@ -31,6 +31,33 @@ public sealed partial class GameLoop
     /// selection (a guid list) would go stale on the very edit it just ordered.</summary>
     private readonly Dictionary<string, ulong> _encounterPuppetGuidReserve = [];
 
+    /// <summary>What each puppet was SPAWNED as (its fields are set once at
+    /// spawn). A sim rebuild only needs to respawn the puppets whose look
+    /// actually changed under their key — wholesale clearing made every model
+    /// blink on each rebuild, which the live boss-move gesture (rebuilding
+    /// ~8x/sec) turned into constant flicker.</summary>
+    private readonly Dictionary<string, (uint Display, float Scale)> _encounterPuppetLook = [];
+
+    /// <summary>Remove only the puppets that no longer match their scenario
+    /// spec; everything else keeps its live entity across the rebuild.</summary>
+    private void PurgeStaleEncounterPuppets()
+    {
+        foreach (string key in _encounterPuppets.Keys.ToArray())
+        {
+            EncounterActorSpec? spec = _encounterScenario.FirstOrDefault(a => a.Key == key);
+            bool keep = spec is not null && spec.DisplayId != 0 &&
+                        _encounterPuppetLook.TryGetValue(key, out (uint Display, float Scale) look) &&
+                        look.Display == spec.DisplayId &&
+                        MathF.Abs(look.Scale - MathF.Max(spec.DisplayScale, 0.01f)) < 0.001f;
+            if (keep) continue;
+            _entities.RemoveSynthetic(_encounterPuppets[key]);
+            _encounterPuppets.Remove(key);
+            _encounterPuppetPrev.Remove(key);
+            _encounterPuppetVel.Remove(key);
+            _encounterPuppetLook.Remove(key);
+        }
+    }
+
     /// <summary>One held item on a puppet: the real UNIT_VIRTUAL_ITEM field
     /// contents, read from each look's creature_equip_template + item_template on
     /// the vmangos box (2026-08-17). The renderer attaches and sheathes from
@@ -98,6 +125,8 @@ public sealed partial class GameLoop
                 });
                 _encounterPuppets[actor.Key] = guid;
                 _encounterPuppetPrev[actor.Key] = actor.Position;
+                _encounterPuppetLook[actor.Key] =
+                    (actor.Spec.DisplayId, MathF.Max(actor.Spec.DisplayScale, 0.01f));
             }
 
             if (_entities.TryGet(guid, out WorldEntity entity))
@@ -131,6 +160,12 @@ public sealed partial class GameLoop
                 // body moves this fast" animation signal.
                 Vector3 previous = _encounterPuppetPrev.GetValueOrDefault(actor.Key, actor.Position);
                 Vector3 target = actor.Position;
+                // A live boss carry: the model chases the CURSOR's authored spec
+                // position each frame, not the sim's throttled echo of it.
+                if (_encounterBossMove != BossMoveStage.None &&
+                    actor.Spec.Role == EncounterActorRole.Boss &&
+                    _encounterScenario.FirstOrDefault(a => a.Key == actor.Key) is { } carried)
+                    target = carried.Position;
                 float jump = Vector3.Distance(previous, target);
                 Vector3 rendered;
                 if (jump >= 20f || dt <= 0f)
@@ -173,6 +208,7 @@ public sealed partial class GameLoop
             _encounterPuppets.Remove(key);
             _encounterPuppetPrev.Remove(key);
             _encounterPuppetVel.Remove(key);
+            _encounterPuppetLook.Remove(key);
         }
     }
 
@@ -218,5 +254,6 @@ public sealed partial class GameLoop
         _encounterPuppets.Clear();
         _encounterPuppetPrev.Clear();
         _encounterPuppetVel.Clear();
+        _encounterPuppetLook.Clear();
     }
 }

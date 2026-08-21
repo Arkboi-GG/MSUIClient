@@ -60,7 +60,9 @@ public sealed class CombatPlanStore
             {
                 if (string.IsNullOrWhiteSpace(key) || value is null) continue;
                 CombatPlan? plan = EncounterLibrary.CombatPlanFromDto(value);
-                if (plan is not null) _characterPlans[key] = plan;
+                // The dictionary key is the authoritative rotation id; stamp it onto
+                // the model so a plan handed to the UI always knows its own library id.
+                if (plan is not null) _characterPlans[key] = plan with { Id = key };
             }
         }
         catch (Exception ex)
@@ -75,6 +77,40 @@ public sealed class CombatPlanStore
         string.IsNullOrWhiteSpace(characterKey)
             ? null
             : _characterPlans.GetValueOrDefault(characterKey);
+
+    /// <summary>Library-style save: treat the plan as a reusable rotation keyed by its
+    /// own id. Mints a readable id from the name when the plan has none, and returns the
+    /// stored plan (carrying that id) so the caller can assign it to a body by reference.
+    /// This is the "assign one rotation to many bodies, clone for the next fight" path;
+    /// the per-body <see cref="Upsert(string, CombatPlan)"/> overload remains for legacy
+    /// callers.</summary>
+    public bool UpsertLibrary(CombatPlan plan, out CombatPlan stored)
+    {
+        string id = string.IsNullOrWhiteSpace(plan.Id) ? MintId(plan.Name) : plan.Id;
+        stored = plan with { Id = id };
+        return Upsert(id, stored) && (stored = _characterPlans[id]) is not null;
+    }
+
+    /// <summary>A readable, unique rotation id from a display name — a slug, plus a
+    /// numeric suffix only when the slug is taken. Mirrors the positioning store so both
+    /// libraries produce human-diffable ids.</summary>
+    private string MintId(string name)
+    {
+        var slug = new System.Text.StringBuilder();
+        foreach (char c in name.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(c)) slug.Append(c);
+            else if ((c == ' ' || c == '-' || c == '_') &&
+                     slug.Length > 0 && slug[^1] != '-') slug.Append('-');
+        }
+        string baseId = slug.Length > 0 ? slug.ToString().Trim('-') : "rotation";
+        if (!_characterPlans.ContainsKey(baseId)) return baseId;
+        for (int n = 2; ; n++)
+        {
+            string candidate = $"{baseId}-{n}";
+            if (!_characterPlans.ContainsKey(candidate)) return candidate;
+        }
+    }
 
     /// <summary>Add or replace a plan and persist it atomically. The in-memory view is
     /// rolled back when persistence fails, so callers never mistake an unsaved edit for

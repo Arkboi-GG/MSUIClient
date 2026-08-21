@@ -225,6 +225,35 @@ public sealed record EncounterStep(
 /// owner-set input; a job never invents numbers.</summary>
 public enum RaidJob { None, Tank, Healer, Melee, Ranged }
 
+/// <summary>Which side of the encounter a body works. A positioning script is
+/// authored per role AND per side, so "left ranged" and "right ranged" are two
+/// scripts a body picks between; Center is the stack-in-the-middle lane (tank
+/// healer, the melee ball). The axis a Left/Right script mirrors across is the
+/// boss's facing — see <see cref="RaidSideExtensions.Mirror"/>.</summary>
+public enum RaidSide { None, Left, Center, Right }
+
+public static class RaidSideExtensions
+{
+    /// <summary>The opposite side. Left⇄Right; Center and None are their own
+    /// mirror (nothing to reflect). This is the ONLY place the mirror mapping
+    /// lives, so "author left, mirror to right" and the geometric spot reflection
+    /// agree by construction.</summary>
+    public static RaidSide Mirror(this RaidSide side) => side switch
+    {
+        RaidSide.Left => RaidSide.Right,
+        RaidSide.Right => RaidSide.Left,
+        _ => side,
+    };
+
+    public static string Label(this RaidSide side) => side switch
+    {
+        RaidSide.Left => "left",
+        RaidSide.Center => "center",
+        RaidSide.Right => "right",
+        _ => "unsided",
+    };
+}
+
 /// <summary>When a movement order fires.</summary>
 public enum MoveAnchor
 {
@@ -363,6 +392,11 @@ public sealed record CombatResourcePolicy(
 /// </summary>
 public sealed record CombatPlan(
     string Name = "Custom plan",
+    /// <summary>LEGACY spatial doctrine. Retained for JSON compatibility and for the
+    /// sim's current follow model, but the authoring authority for "where I stand"
+    /// is now the assigned <see cref="PositioningScript"/> (its <c>Movement</c>).
+    /// A rotation is meant to be portable across every fight; spatial behaviour is
+    /// not, so it belongs to the positioning slot.</summary>
     CombatMovementPlan? Movement = null,
     CombatEngagementMode Engagement = CombatEngagementMode.NeverInitiate,
     IReadOnlyList<CombatSupportPriority>? SupportPriorities = null,
@@ -376,14 +410,31 @@ public sealed record CombatPlan(
     /// <summary>1.12 class id (1 Warrior … 11 Druid) whose trained-at-60
     /// spellbook the rotation draws from. 0 = not chosen yet. Class identity
     /// rides the plan because the plan store is the per-character persistence.</summary>
-    uint ClassId = 0);
+    uint ClassId = 0,
+    /// <summary>Stable library id. A rotation is a REUSABLE slot — authored once
+    /// for a class/role, assigned to many bodies, cloned for the next fight — so it
+    /// needs an identity independent of any one body's key. Empty on legacy plans;
+    /// the store stamps one on first save.</summary>
+    string Id = "");
 
 /// <summary>Standing rules owned by one player-side body. The legacy facing bit remains
-/// first and defaulted so existing positional constructors and encounter documents survive.</summary>
+/// first and defaulted so existing positional constructors and encounter documents survive.
+///
+/// A body's behaviour is now TWO independent slots, each a reference into a library:
+/// <see cref="RotationId"/> (what I press — portable across fights) and
+/// <see cref="PositioningId"/> (where I stand — authored per role×side, per boss).
+/// <see cref="Plan"/> is kept as the resolved/inline rotation the sim reads today; the
+/// ids are the durable assignment, resolved back to library items on load.</summary>
 public sealed record EncounterPlayerRules(
     /// <summary>Legacy spelling for face-primary-enemy. Retained for JSON compatibility.</summary>
     bool AlwaysFaceBoss = false,
-    CombatPlan? Plan = null);
+    CombatPlan? Plan = null,
+    /// <summary>Assigned rotation slot — the id of a <see cref="CombatPlan"/> in the
+    /// rotation library. Null = no rotation assigned (or an inline-only legacy plan).</summary>
+    string? RotationId = null,
+    /// <summary>Assigned positioning slot — the id of a <see cref="PositioningScript"/>
+    /// in the positioning library. Null = no positioning script assigned.</summary>
+    string? PositioningId = null);
 
 /// <summary>At TimeMs, this body holds aggro. There is deliberately NO threat
 /// model - the owner assigns aggro and swaps it, because "who is she facing"
@@ -482,7 +533,11 @@ public sealed record EncounterActorSpec(
     float DetectionRangeYards = 0f,
     /// <summary>Per-player standing rules configured from the Player Setup modal.
     /// Null means all defaults and keeps older encounter documents compatible.</summary>
-    EncounterPlayerRules? PlayerRules = null);
+    EncounterPlayerRules? PlayerRules = null,
+    /// <summary>Which side of the encounter this body works. Pairs with its assigned
+    /// positioning script (which is itself role×side): the body's side selects which
+    /// side's script applies and drives the mirror. Meaningless on the boss and adds.</summary>
+    RaidSide Side = RaidSide.None);
 
 public enum EncounterActorRole
 {

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using MSUIClient.Net;
 using MSUIClient.World.Units;
 using MSUIClient.World.Encounters;
 
@@ -215,6 +216,7 @@ public sealed partial class GameLoop
 
         if (settings.ShowRoute) DrawEncounterRoute(draw, display);
         if (settings.ShowActors) DrawEncounterActors(draw, display, sim);
+        DrawEncounterSelectionBeacons(draw, display);
         DrawEncounterOrientPreview(draw, display);   // the live free-spin arrow, if any
         DrawEncounterOrbitPreview(draw, display);    // the live orbit-sweep ring, if any
         if (settings.ShowLabels) DrawEncounterLabels(draw, display, sim);
@@ -642,6 +644,65 @@ public sealed partial class GameLoop
     /// position projected through the camera, so the whole thing sits on the floor and turns
     /// with the terrain (not a flat badge on the camera plane), and it scales with distance
     /// like every other footprint. Sizes are in YARDS so it stays legible, not a few pixels.</summary>
+    /// <summary>Selected bodies must read from ACROSS the lair, not only up
+    /// close: a pulsing filled ground disc + double ring in selection gold, a
+    /// vertical beam, and a fixed-size screen-space chevron above the head that
+    /// stays legible at any camera distance.</summary>
+    private void DrawEncounterSelectionBeacons(ImDrawListPtr draw, Vector2 display)
+    {
+        if (_creatures is null || _creatures.ProminentSelectedGuids.Count == 0) return;
+        float pulse = 0.72f + 0.28f * MathF.Sin((float)NowSeconds() * 5f);
+        uint gold = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.86f, 0.25f, pulse));
+        uint goldSoft = ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.86f, 0.25f, 0.28f * pulse));
+        const int segments = 26;
+        Span<Vector2> ring = stackalloc Vector2[segments];
+
+        foreach (ulong guid in _creatures.ProminentSelectedGuids)
+        {
+            if (!_entities.TryGet(guid, out WorldEntity entity)) continue;
+            Vector3 world = entity.Position;
+
+            // Filled disc: the sampled ground ellipse is convex in screen space.
+            int projected = 0;
+            for (int i = 0; i < segments; i++)
+            {
+                float a = i / (float)segments * MathF.Tau;
+                Vector3 p = world + new Vector3(MathF.Cos(a), MathF.Sin(a), 0f) * 1.5f;
+                if (!_window.Camera.TryProjectToScreen(p, display, out Vector2 px, out _)) break;
+                ring[projected++] = px;
+            }
+            if (projected == segments)
+            {
+                draw.AddConvexPolyFilled(ref ring[0], segments, goldSoft);
+                for (int i = 0; i < segments; i++)
+                    draw.AddLine(ring[i], ring[(i + 1) % segments], gold, 4f);
+            }
+
+            // Vertical beam, ground to well above the model.
+            if (_window.Camera.TryProjectToScreen(world, display, out Vector2 foot, out _) &&
+                _window.Camera.TryProjectToScreen(world + new Vector3(0f, 0f, 6.5f), display,
+                    out Vector2 top, out _))
+            {
+                draw.AddLine(foot, top, goldSoft, 9f);
+                draw.AddLine(foot, top, gold, 3f);
+            }
+
+            // Screen-space chevron above the head: constant pixels, so a body 80
+            // yards away is marked exactly as loudly as one at your feet.
+            if (_window.Camera.TryProjectToScreen(world + new Vector3(0f, 0f, 3.1f), display,
+                    out Vector2 head, out bool onScreen) && onScreen)
+            {
+                float bob = 3f * MathF.Sin((float)NowSeconds() * 5f);
+                Vector2 tip = head + new Vector2(0f, -6f + bob);
+                Vector2 left = tip + new Vector2(-11f, -18f);
+                Vector2 right = tip + new Vector2(11f, -18f);
+                draw.AddTriangleFilled(tip + new Vector2(1.5f, 1.5f),
+                    left + new Vector2(1.5f, 1.5f), right + new Vector2(1.5f, 1.5f), 0xcc000000);
+                draw.AddTriangleFilled(tip, left, right, gold);
+            }
+        }
+    }
+
     private void DrawWaypointOrientation(ImDrawListPtr draw, Vector3 world, float facing,
         uint colour, Vector2 display, float thickness = 3f)
     {
@@ -733,12 +794,31 @@ public sealed partial class GameLoop
     private Footprint ResolveVisualizedFootprint(EncounterAbility ability, EncounterSim sim)
     {
         if (sim.Boss is not { } boss) return Footprint.Nothing;
+
+        // The LIVE gesture pose beats the throttle-rebuilt sim state, so the
+        // preview tracks the cursor frame-by-frame while she is carried/spun.
+        Vector3 origin = boss.Position;
+        float bossFacing = EffectiveBossFacing(sim);
+        if (_encounterBossMove != BossMoveStage.None &&
+            _encounterScenario.FirstOrDefault(a => a.Key == boss.Key) is { } liveBoss)
+        {
+            origin = liveBoss.Position;
+            bossFacing = liveBoss.Facing;
+        }
+
+        // Targeted shapes aim at the aggro holder only while the fight is LIVE
+        // at this instant. Pre-pull she has no victim (the sim holds her spec
+        // facing, and so must the preview): forward cones render forward, rear
+        // cones rear — which is the whole point of spinning her in place to
+        // compose the picture before waypoints.
+        bool engagedNow = sim.EngagedAtMs >= 0 && _encounterViewMs >= sim.EngagedAtMs &&
+                          _encounterBossMove == BossMoveStage.None;
         Vector3? target = null;
         SimActor? holder = null;
-        if (ability.Target.Kind != EncounterTargetKind.Self)
+        if (ability.Target.Kind != EncounterTargetKind.Self && engagedNow)
         {
-            // Targeted shapes aim at the aggro holder — its LIVE swept position while dragged,
-            // so every preview re-aims continuously with the body.
+            // Its LIVE swept position while dragged, so every preview re-aims
+            // continuously with the body.
             string? holderKey = AggroHolderKeyAt(_encounterViewMs);
             if (_encounterOrbitDragging && _encounterOrbitKey == holderKey)
                 target = _encounterOrbitPos;
@@ -751,7 +831,7 @@ public sealed partial class GameLoop
         }
 
         Footprint footprint = EncounterGeometryLaw.Resolve(
-            ability, boss.Position, EffectiveBossFacing(sim), target, _encounterFacts);
+            ability, origin, bossFacing, target, _encounterFacts);
 
         // Cleave (19983) and Knock Away (19633) are targeted melee spells: Spell.dbc
         // gives them a cast range but NO effect-radius row, and spell_cone has no row
@@ -765,7 +845,7 @@ public sealed partial class GameLoop
             float readableReach = MathF.Max(boss.Spec.CombatReach + 5f, 5f);
             if (target is { } targetPosition)
                 readableReach = MathF.Max(readableReach,
-                    EncounterGeometryLaw.GroundDistance(boss.Position, targetPosition) +
+                    EncounterGeometryLaw.GroundDistance(origin, targetPosition) +
                     (holder?.Spec.BoundingRadius ?? .5f));
             footprint = footprint with { Radius = readableReach };
         }
@@ -817,6 +897,11 @@ public sealed partial class GameLoop
     private float EffectiveBossFacing(EncounterSim sim)
     {
         if (sim.Boss is not { } boss) return 0f;
+        // A live carry/spin gesture: the authored spec facing is the truth of
+        // this frame (the sim only catches up on the throttled rebuild).
+        if (_encounterBossMove != BossMoveStage.None &&
+            _encounterScenario.FirstOrDefault(a => a.Key == boss.Key) is { } liveBoss)
+            return liveBoss.Facing;
         if (_encounterOrbitDragging && _encounterOrbitKey == AggroHolderKeyAt(_encounterViewMs))
             return EncounterGeometryLaw.Facing(boss.Position, _encounterOrbitPos);
         return boss.Facing;

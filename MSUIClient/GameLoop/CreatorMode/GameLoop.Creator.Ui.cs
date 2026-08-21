@@ -109,13 +109,15 @@ public sealed partial class GameLoop
     }
 
     /// <summary>MODAL widget/panel size multiplier: the shared dial times the
-    /// active window's own Widget dial.</summary>
+    /// active window's own Widget dial, times the workspace deck's
+    /// display-derived boost (1 everywhere else).</summary>
     private float CreatorUiScale => Math.Clamp(Settings.Creator.UiScale, 0.6f, 2.5f)
-        * Math.Clamp(ActivePanelTune.Widget, 0.5f, 2.5f);
+        * Math.Clamp(ActivePanelTune.Widget, 0.5f, 2.5f) * _creatorScaleBoost;
 
-    /// <summary>MODAL text-only size multiplier: shared dial times the window's own.</summary>
+    /// <summary>MODAL text-only size multiplier: shared dial times the window's own,
+    /// times the workspace deck's display-derived boost (1 everywhere else).</summary>
     private float CreatorTextScale => Math.Clamp(Settings.Creator.TextScale, 0.6f, 2.5f)
-        * Math.Clamp(ActivePanelTune.Text, 0.5f, 2.5f);
+        * Math.Clamp(ActivePanelTune.Text, 0.5f, 2.5f) * _creatorScaleBoost;
 
     /// <summary>The active window's red-button size dial.</summary>
     private float CreatorButtonMul => Math.Clamp(ActivePanelTune.Button, 0.5f, 2.5f);
@@ -161,15 +163,24 @@ public sealed partial class GameLoop
         RegisterCreatorSpellsSections();
         RegisterCreatorXraySections();
 
-        DrawCreatorMenuBar();
-        switch (_creatorPanel)
+        if (Settings.Creator.Workspace)
         {
-            case CreatorPanel.Character: DrawCreatorSectionPanel("Character", "Character", 500f, 560f); break;
-            case CreatorPanel.Gear: DrawCreatorSectionPanel("Gear", "Gear", 400f, 480f); break;
-            case CreatorPanel.Teleport: DrawCreatorSectionPanel("Teleport", "Teleport", 480f, 560f); break;
-            case CreatorPanel.Target: DrawCreatorSectionPanel("Target", "Target", 430f, 560f); break;
-            case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
-            case CreatorPanel.XRay: DrawCreatorSectionPanel("XRay", "Collision X-Ray", 460f, 560f); break;
+            // The docked layout: rails + bottom deck instead of floating panels.
+            DrawCreatorWorkspace();
+            if (_creatorUiOptionsOpen) DrawCreatorUiOptions();
+        }
+        else
+        {
+            DrawCreatorMenuBar();
+            switch (_creatorPanel)
+            {
+                case CreatorPanel.Character: DrawCreatorSectionPanel("Character", "Character", 500f, 560f); break;
+                case CreatorPanel.Gear: DrawCreatorSectionPanel("Gear", "Gear", 400f, 480f); break;
+                case CreatorPanel.Teleport: DrawCreatorSectionPanel("Teleport", "Teleport", 480f, 560f); break;
+                case CreatorPanel.Target: DrawCreatorSectionPanel("Target", "Target", 430f, 560f); break;
+                case CreatorPanel.Spells: DrawCreatorSectionPanel("Spells", "Spell Workshop", 500f, 640f); break;
+                case CreatorPanel.XRay: DrawCreatorSectionPanel("XRay", "Collision X-Ray", 460f, 560f); break;
+            }
         }
         DrawPoppedCreatorSections();
         DrawMountToolkit();
@@ -502,6 +513,16 @@ public sealed partial class GameLoop
                 _creatorLayoutResetFrames = 2;
                 save = true;
             }
+
+            bool workspace = creator.Workspace;
+            if (ImGui.Checkbox("Docked workspace layout (rails + bottom deck)", ref workspace))
+            {
+                creator.Workspace = workspace;
+                save = true;
+            }
+            ImGui.TextDisabled(workspace
+                ? "Panels dock into the bottom deck; the right rail's Wins button also returns here."
+                : "Classic floating windows. Check to try the docked layout.");
 
             if (save) SettingsFile?.Save();
             EndCreatorContent();

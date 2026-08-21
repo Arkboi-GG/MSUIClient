@@ -94,12 +94,37 @@ public sealed class ActorDto
     public float WalkSpeedYdPerSec { get; set; }
     public float DetectionRangeYards { get; set; }
     public PlayerRulesDto? PlayerRules { get; set; }
+    public RaidSide Side { get; set; } = RaidSide.None;
+}
+
+public sealed class PositioningScriptDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Custom positioning";
+    public RaidJob Role { get; set; } = RaidJob.None;
+    public RaidSide Side { get; set; } = RaidSide.None;
+    public CombatMovementDto? Movement { get; set; }
+    public List<PositioningPhaseStepDto>? Phases { get; set; }
+    public string? EncounterKey { get; set; }
+    public string? Note { get; set; }
+}
+
+public sealed class PositioningPhaseStepDto
+{
+    public string PhaseKey { get; set; } = "";
+    public RaidDirectiveKind Kind { get; set; } = RaidDirectiveKind.Hold;
+    public Vector3 Spot { get; set; }
+    /// <summary>Radians; null = keep the run's ending facing (NaN in the runtime).</summary>
+    public float? ArrivalFacing { get; set; }
+    public List<MoveDto>? Waypoints { get; set; }
 }
 
 public sealed class PlayerRulesDto
 {
     public bool AlwaysFaceBoss { get; set; }
     public CombatPlanDto? Plan { get; set; }
+    public string? RotationId { get; set; }
+    public string? PositioningId { get; set; }
 }
 
 public sealed class CombatPlanDto
@@ -114,6 +139,7 @@ public sealed class CombatPlanDto
     public CombatFallback Fallback { get; set; } = CombatFallback.ClassDefaults;
     public List<CombatAbilityIntentDto>? Rotation { get; set; }
     public uint ClassId { get; set; }
+    public string Id { get; set; } = "";
 }
 
 public sealed class CombatAbilityIntentDto
@@ -397,8 +423,10 @@ public sealed class EncounterLibrary
             : null,
         dto.RunSpeedYdPerSec, dto.WalkSpeedYdPerSec, dto.DetectionRangeYards,
         dto.PlayerRules is { } rules
-            ? new EncounterPlayerRules(rules.AlwaysFaceBoss, CombatPlanFromDto(rules.Plan))
-            : null);
+            ? new EncounterPlayerRules(rules.AlwaysFaceBoss, CombatPlanFromDto(rules.Plan),
+                rules.RotationId, rules.PositioningId)
+            : null,
+        dto.Side);
 
     /// <summary>Single file-format mapping shared by authored encounter documents and
     /// the per-character combat-plan store.</summary>
@@ -423,10 +451,62 @@ public sealed class EncounterLibrary
         dto.Fallback,
         dto.Rotation?.Select(intent =>
             new CombatAbilityIntent(intent.SpellId, intent.Name, intent.Enabled)).ToArray(),
-        dto.ClassId);
+        dto.ClassId,
+        dto.Id);
 
     private static CombatSubject? FromDto(CombatSubjectDto? dto) => dto is null ? null :
         new CombatSubject(dto.Kind, dto.Role, Math.Max(dto.Ordinal, 1));
+
+    /// <summary>File-format mapping for a positioning script, shared by the positioning
+    /// library store and any encounter document that embeds one.</summary>
+    public static PositioningScript? PositioningScriptFromDto(PositioningScriptDto? dto) =>
+        dto is null ? null : new PositioningScript(
+            dto.Id, dto.Name, dto.Role, dto.Side,
+            dto.Movement is { } movement
+                ? new CombatMovementPlan(movement.Mode, FromDto(movement.Anchor),
+                    movement.MinRangeYards, movement.MaxRangeYards, movement.FacePrimaryEnemy)
+                : null,
+            dto.Phases?.Select(step => new PositioningPhaseStep(
+                step.PhaseKey, step.Kind, step.Spot,
+                step.ArrivalFacing ?? float.NaN,
+                step.Waypoints?.Select(m => new TimedMove(m.TimeMs, m.Position, m.Anchor,
+                    m.PhaseKey, m.ArrivalFacing ?? float.NaN, m.Teleport)).ToArray())).ToArray(),
+            dto.EncounterKey, dto.Note);
+
+    public static PositioningScriptDto? PositioningScriptToDto(PositioningScript? script) =>
+        script is null ? null : new PositioningScriptDto
+        {
+            Id = script.Id,
+            Name = script.Name,
+            Role = script.Role,
+            Side = script.Side,
+            Movement = script.Movement is { } movement
+                ? new CombatMovementDto
+                {
+                    Mode = movement.Mode,
+                    Anchor = ToDto(movement.Anchor),
+                    MinRangeYards = movement.MinRangeYards,
+                    MaxRangeYards = movement.MaxRangeYards,
+                    FacePrimaryEnemy = movement.FacePrimaryEnemy,
+                }
+                : null,
+            Phases = script.Phases?.Select(step => new PositioningPhaseStepDto
+            {
+                PhaseKey = step.PhaseKey,
+                Kind = step.Kind,
+                Spot = step.Spot,
+                ArrivalFacing = step.HasArrivalFacing ? step.ArrivalFacing : null,
+                Waypoints = step.Waypoints?.Select(m => new MoveDto
+                {
+                    TimeMs = m.TimeMs, Position = m.Position, Anchor = m.Anchor,
+                    PhaseKey = m.PhaseKey,
+                    ArrivalFacing = m.HasArrivalFacing ? m.ArrivalFacing : null,
+                    Teleport = m.Teleport,
+                }).ToList(),
+            }).ToList(),
+            EncounterKey = script.EncounterKey,
+            Note = script.Note,
+        };
 
     private static EncounterPhase FromDto(PhaseDto dto) => new(
         dto.Key, dto.Name,
@@ -522,8 +602,11 @@ public sealed class EncounterLibrary
                 {
                     AlwaysFaceBoss = rules.AlwaysFaceBoss,
                     Plan = CombatPlanToDto(rules.Plan),
+                    RotationId = rules.RotationId,
+                    PositioningId = rules.PositioningId,
                 }
                 : null,
+            Side = a.Side,
         }).ToList(),
         Phases = definition.Phases.Select(p => new PhaseDto
         {
@@ -596,6 +679,7 @@ public sealed class EncounterLibrary
             Enabled = intent.Enabled,
         }).ToList(),
         ClassId = plan.ClassId,
+        Id = plan.Id,
     };
 
     private static CombatSubjectDto? ToDto(CombatSubject? subject) => subject is null ? null :
